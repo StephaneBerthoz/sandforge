@@ -1,0 +1,53 @@
+# Source files
+src/**
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+
+# Config files
+**/vitest.config.ts
+**/tsconfig.json
+**/tsconfig*.json
+.eslintrc*
+.prettierrc*
+esbuild.config.*
+
+# Build artifacts to exclude
+coverage/
+**/*.map
+**/*.d.ts
+
+# Unnecessary dist subdirectories (esbuild bundles everything into dist/extension.js)
+dist/bridge/**
+dist/core/**
+dist/modules/**
+dist/providers/**
+dist/logger.js
+
+# Package manager
+node_modules/**
+pnpm-lock.yaml
+
+# Documentation (lives in repo, not VSIX)
+docs/
+assets/screenshots/
+
+# CI/CD
+.github/
+scripts/
+.planning/
+
+# Dev configs
+.editorconfig
+.sandforge.example.json
+phases/
+plans/
+prompts/
+test/
+
+# Dev/tool files
+.claude/
+.serena/
+.vscode/
+**/.gitignore
+CLAUDE.md
