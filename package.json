@@ -1,0 +1,32 @@
+{
+  "name": "sandforge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Salesforce Sandbox ETL Toolkit for VSCode",
+  "scripts": {
+    "build": "pnpm --filter @sandforge/shared build && pnpm --filter {./packages/extension} build && pnpm --filter @sandforge/webview build && pnpm run copy:webview",
+    "copy:webview": "rm -rf packages/extension/webview-dist && cp -r packages/webview/dist packages/extension/webview-dist",
+    "build:shared": "pnpm --filter @sandforge/shared build",
+    "build:extension": "pnpm --filter {./packages/extension} build",
+    "build:webview": "pnpm --filter @sandforge/webview build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "lint:fix": "pnpm -r lint:fix",
+    "format": "prettier --write \"packages/*/src/**/*.{ts,tsx,json,css}\"",
+    "format:check": "prettier --check \"packages/*/src/**/*.{ts,tsx,json,css}\"",
+    "test": "pnpm -r test",
+    "test:coverage": "pnpm -r test:coverage",
+    "validate": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "package": "pnpm build && cd packages/extension && npx @vscode/vsce package --no-dependencies -o ../../sandforge.vsix",
+    "clean": "pnpm -r clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1",
+    "prettier": "^3.2",
+    "typescript": "~5.5"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  }
+}

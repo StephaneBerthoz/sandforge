@@ -1,0 +1,272 @@
+{
+  "name": "sandforge",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "1.0.0",
+  "publisher": "StephaneBerthoz",
+  "author": {
+    "name": "Stephane Berthoz"
+  },
+  "license": "MIT",
+  "preview": true,
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1E1E2E",
+    "theme": "dark"
+  },
+  "badges": [],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sandforge/sandforge"
+  },
+  "homepage": "https://github.com/sandforge/sandforge#readme",
+  "bugs": {
+    "url": "https://github.com/sandforge/sandforge/issues"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other",
+    "Data Science",
+    "Formatters"
+  ],
+  "keywords": [
+    "salesforce",
+    "sfdc",
+    "sfdx",
+    "devops",
+    "etl",
+    "sandbox",
+    "data-seeding",
+    "data-sync",
+    "metadata-comparison",
+    "monitoring",
+    "gdpr",
+    "automation",
+    "apex",
+    "flow",
+    "bulk-api"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sandforge",
+          "title": "%viewContainer.title%",
+          "icon": "resources/icons/toolkit.svg"
+        }
+      ]
+    },
+    "views": {
+      "sandforge": [
+        {
+          "type": "webview",
+          "id": "sandforge.sidebarView",
+          "name": "%view.launcher%"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "sandforge.openMonitor", "title": "%command.openMonitor%", "icon": "$(dashboard)" },
+      { "command": "sandforge.openForge", "title": "%command.openForge%", "icon": "$(flame)" },
+      { "command": "sandforge.openGrappe", "title": "%command.openGrappe%", "icon": "$(symbol-namespace)" },
+      { "command": "sandforge.openCompare", "title": "%command.openCompare%", "icon": "$(diff)" },
+      { "command": "sandforge.openDataOps", "title": "%command.openDataOps%", "icon": "$(shield)" },
+      { "command": "sandforge.openAutomation", "title": "%command.openAutomation%", "icon": "$(zap)" },
+      { "command": "sandforge.openOrgs", "title": "%command.openOrgs%", "icon": "$(plug)" },
+      { "command": "sandforge.openSettings", "title": "%command.openSettings%", "icon": "$(gear)" },
+      { "command": "sandforge.openHelp", "title": "%command.openHelp%", "icon": "$(question)" },
+      { "command": "sandforge.cheers", "title": "%command.cheers%", "icon": "$(sparkle)" }
+    ],
+    "menus": {},
+    "keybindings": [
+      {
+        "command": "sandforge.openMonitor",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      },
+      {
+        "command": "sandforge.openForge",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f"
+      },
+      {
+        "command": "sandforge.openGrappe",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r"
+      },
+      {
+        "command": "sandforge.openCompare",
+        "key": "ctrl+shift+k",
+        "mac": "cmd+shift+k"
+      },
+      {
+        "command": "sandforge.openDataOps",
+        "key": "ctrl+shift+o",
+        "mac": "cmd+shift+o"
+      },
+      {
+        "command": "sandforge.openAutomation",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      },
+      {
+        "command": "sandforge.openOrgs",
+        "key": "ctrl+shift+g",
+        "mac": "cmd+shift+g"
+      }
+    ],
+    "configuration": {
+      "title": "%config.title%",
+      "properties": {
+        "sandforge.language": {
+          "type": "string",
+          "default": "auto",
+          "enum": [
+            "auto",
+            "en",
+            "fr",
+            "de",
+            "es",
+            "ja",
+            "pt-BR"
+          ],
+          "description": "%config.language.description%"
+        },
+        "sandforge.telemetry": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.telemetry.description%"
+        },
+        "sandforge.monitor.autoRefreshInterval": {
+          "type": "number",
+          "default": 60,
+          "minimum": 10,
+          "maximum": 3600,
+          "description": "%config.monitor.autoRefreshInterval.description%"
+        },
+        "sandforge.seed.defaultBatchSize": {
+          "type": "number",
+          "default": 200,
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "%config.seed.defaultBatchSize.description%"
+        },
+        "sandforge.sync.defaultBatchSize": {
+          "type": "number",
+          "default": 200,
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "%config.sync.defaultBatchSize.description%"
+        },
+        "sandforge.sync.maxConcurrentOps": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "%config.sync.maxConcurrentOps.description%"
+        },
+        "sandforge.ai.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "%config.ai.enabled.description%"
+        },
+        "sandforge.ai.provider": {
+          "type": "string",
+          "default": "anthropic",
+          "enum": ["anthropic", "openai", "custom"],
+          "description": "%config.ai.provider.description%"
+        },
+        "sandforge.ai.model": {
+          "type": "string",
+          "default": "claude-sonnet-4-20250514",
+          "description": "%config.ai.model.description%"
+        },
+        "sandforge.backup.maxCount": {
+          "type": "number",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "%config.backup.maxCount.description%"
+        },
+        "sandforge.pipeline.timeout": {
+          "type": "number",
+          "default": 300000,
+          "minimum": 30000,
+          "maximum": 3600000,
+          "description": "%config.pipeline.timeout.description%"
+        },
+        "sandforge.api.timeout": {
+          "type": "number",
+          "default": 30000,
+          "minimum": 5000,
+          "maximum": 120000,
+          "description": "%config.api.timeout.description%"
+        },
+        "sandforge.api.retryAttempts": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 10,
+          "description": "%config.api.retryAttempts.description%"
+        },
+        "sandforge.grappe.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.grappe.enabled.description%"
+        },
+        "sandforge.grappe.threshold": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1000,
+          "maximum": 100000,
+          "description": "%config.grappe.threshold.description%"
+        },
+        "sandforge.safety.requireProdConfirmation": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.safety.requireProdConfirmation.description%"
+        },
+        "sandforge.safety.auditLogging": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.safety.auditLogging.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/ --ext .ts",
+    "lint:fix": "eslint src/ --ext .ts --fix",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@sandforge/shared": "workspace:*",
+    "glob": "^10",
+    "jsforce": "^3",
+    "winston": "^3",
+    "zod": "^3.23"
+  },
+  "devDependencies": {
+    "@types/glob": "^8",
+    "@types/node": "^20",
+    "@types/vscode": "^1.95",
+    "@typescript-eslint/eslint-plugin": "^7",
+    "@typescript-eslint/parser": "^7",
+    "@vitest/coverage-v8": "^1.6.1",
+    "@vscode/vsce": "^3",
+    "esbuild": "^0.21",
+    "eslint": "^8",
+    "eslint-config-prettier": "^9",
+    "typescript": "~5.5",
+    "vitest": "^1"
+  }
+}
