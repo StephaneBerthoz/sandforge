@@ -26,9 +26,11 @@
 
 ![Seed Wizard](assets/screenshots/seed.png)
 
+![Sync Field Mapping](assets/screenshots/sync.png)
+
 ![Monitor Dashboard](assets/screenshots/monitor.png)
 
-![Compare Diff](assets/screenshots/compare.png)
+![Autopilot Execution](assets/screenshots/autopilot.png)
 
 ---
 

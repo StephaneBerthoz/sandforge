@@ -14,9 +14,7 @@
 
 ![Monitor Dashboard](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/monitor.png)
 
-![Compare Diff](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/compare.png)
-
-![Automation Pipeline](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/automation.png)
+![Autopilot Execution](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/autopilot.png)
 
 ---
 
