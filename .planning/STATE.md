@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 
 Phase: 1 of 2 (E2E Testing)
 Plan: 0 of 0 in current phase
-Status: Ready to discuss
-Last activity: 2026-03-16 — Project initialized with learnship
+Status: Context gathered, ready to plan
+Last activity: 2026-03-16 — Phase 1 context discussion completed
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -44,6 +44,10 @@ Recent decisions affecting current work:
 
 - Brownfield init: 47 E2E tests already exist, build on them
 - Coarse granularity: 2 phases to marketplace
+- Phase 1: page-level mocks (no HTTP mock server), MockBridge helper, shared fixtures
+- Phase 1: axe-core WCAG 2.1 AA, fix all violations, dedicated + inline scans
+- Phase 1: AI (4 features) + Autopilot (full journey + approval gates) as MockBridge reference impl
+- Phase 1: CI Windows-first, validate then E2E, playwright-report artifact 7d
 
 ### Pending Todos
 
@@ -56,5 +60,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-16
-Stopped at: Project initialized, roadmap created
+Stopped at: Phase 1 context gathered, ready for plan-phase 1
 Resume file: None
