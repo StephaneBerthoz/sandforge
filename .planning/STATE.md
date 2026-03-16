@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-03-16)
 ## Current Position
 
 Phase: 2 of 2 (Marketplace Publication)
-Plan: 1 of 3 in Phase 2 (02-01 complete)
-Status: Plan 02-01 (Release Infrastructure) complete
-Last activity: 2026-03-16 -- Plan 02-01 executed
+Plan: 2 of 3 in Phase 2 (02-02 complete)
+Status: Plan 02-02 (User Documentation) complete
+Last activity: 2026-03-16 -- Plan 02-02 executed
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: ~15 min/plan
-- Total execution time: ~1h 15min
+- Total execution time: ~1h 30min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 -- E2E Testing | 4 | ~1h | ~15min |
-| 2 -- Marketplace Publication | 1 | ~15min | ~15min |
+| 2 -- Marketplace Publication | 2 | ~30min | ~15min |
 
 **Recent Trend:**
-- Last 5 plans: 01-02, 01-03, 01-04, 02-01 -- all passed
+- Last 5 plans: 01-03, 01-04, 02-01, 02-02 -- all passed
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -55,6 +55,8 @@ Recent decisions affecting current work:
 - Phase 2: CI extended to 3-OS matrix (ubuntu, macOS, Windows), E2E Windows-only
 - Phase 2: Cross-platform scripts use node for file ops (no stat/bc dependency)
 - Phase 2: vite-env.d.ts added to fix pre-existing import.meta.env type error
+- Phase 2: User docs in English only, practical how-to style, screenshots as placeholders for Plan 03
+- Phase 2: Extension README uses absolute GitHub raw URLs for Marketplace image rendering
 
 ### Pending Todos
 
@@ -67,5 +69,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-16
-Stopped at: Plan 02-01 complete, ready for 02-02
+Stopped at: Plan 02-02 complete, ready for 02-03
 Resume file: None
