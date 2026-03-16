@@ -1,0 +1,75 @@
+# Compare
+
+Compare metadata, permissions, and configuration between two Salesforce orgs. Identify differences, track drift, analyze impact, and deploy changes -- all from a single tabbed interface.
+
+## Quick Start
+
+1. Navigate to **Compare** from the sidebar (requires at least 2 connected orgs)
+2. Select a source org and a target org using the org selector
+3. Choose metadata component types to compare (fields, objects, flows, Apex classes, profiles, etc.)
+4. Click **Run Compare** to execute the comparison
+5. Browse results across six tabs: Diff, Permissions, Snapshots, Drift, Impact, and Deploy
+
+## Features
+
+### Metadata Diff
+
+The primary tab shows a side-by-side comparison of metadata between the two orgs:
+
+- **Summary Bar** -- Counts of added (+), removed (-), modified (~), and unchanged (=) components
+- **Risk Score Card** -- An enriched risk assessment computed from the diff results
+- **Diff Group Accordion** -- Components grouped by type, expandable to see individual changes
+- **Diff Detail Modal** -- Click any diff entry to see the full before/after comparison
+
+### Permission Matrix
+
+A visual grid comparing CRUD and FLS permissions across profiles and permission sets:
+
+- Source vs. target labels for clear side-by-side comparison
+- Highlights differences between the two orgs
+- Useful for security audits and permission troubleshooting
+
+### Snapshots
+
+A timeline view of org snapshots over time:
+
+- Track how your org configuration has evolved
+- Compare any two snapshots to see what changed
+
+### Drift Detection
+
+Automated detection of configuration drift between orgs:
+
+- Dashboard showing drift metrics and categories
+- Identifies when sandbox configuration has diverged from production
+- Useful for compliance and governance workflows
+
+### Impact Graph
+
+An interactive dependency visualization showing downstream effects of metadata changes:
+
+- See which components would be affected by a change
+- Helps assess risk before deploying modifications
+
+### Deploy from Diff
+
+Select individual metadata differences and deploy them directly to the target org:
+
+- Cherry-pick specific changes from the diff results
+- Deploy without leaving SandForge
+
+### Schema Advice (AI)
+
+The Schema Advice button uses AI to analyze your source org schema and surface issues:
+
+- Field-level issues with severity badges (high/medium/low)
+- Actionable recommendations for schema improvements
+- Object-specific analysis
+
+## Tips
+
+- Run a compare before any major deployment to understand the full scope of changes
+- Use the Risk Score Card to quickly assess whether changes are safe to deploy
+- The Permission Matrix is the fastest way to audit security differences between orgs
+- Enable Drift Detection for scheduled monitoring of configuration divergence
+- Use Deploy from Diff for targeted deployments instead of deploying everything at once
