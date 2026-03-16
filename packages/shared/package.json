@@ -1,0 +1,29 @@
+{
+  "name": "@sandforge/shared",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/ --ext .ts",
+    "lint:fix": "eslint src/ --ext .ts --fix",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "zod": "^3.23"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7",
+    "@typescript-eslint/parser": "^7",
+    "@vitest/coverage-v8": "^1.6.1",
+    "eslint": "^8",
+    "eslint-config-prettier": "^9",
+    "typescript": "~5.5",
+    "vitest": "^1"
+  }
+}
