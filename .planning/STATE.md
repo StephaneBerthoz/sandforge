@@ -5,33 +5,33 @@
 See: .planning/PROJECT.md (updated 2026-03-16)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** Phase 2 -- Marketplace Publication
+**Current focus:** Phase 2 -- Marketplace Publication (COMPLETE)
 
 ## Current Position
 
-Phase: 2 of 2 (Marketplace Publication)
-Plan: 2 of 3 in Phase 2 (02-02 complete)
-Status: Plan 02-02 (User Documentation) complete
-Last activity: 2026-03-16 -- Plan 02-02 executed
+Phase: 2 of 2 (Marketplace Publication) -- COMPLETE
+Plan: 3 of 3 in Phase 2 (02-03 complete)
+Status: All plans complete. Project ready for Marketplace publication.
+Last activity: 2026-03-16 -- Plan 02-03 executed
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
+- Total plans completed: 7
 - Average duration: ~15 min/plan
-- Total execution time: ~1h 30min
+- Total execution time: ~1h 45min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 -- E2E Testing | 4 | ~1h | ~15min |
-| 2 -- Marketplace Publication | 2 | ~30min | ~15min |
+| 2 -- Marketplace Publication | 3 | ~45min | ~15min |
 
 **Recent Trend:**
-- Last 5 plans: 01-03, 01-04, 02-01, 02-02 -- all passed
+- Last 5 plans: 01-04, 02-01, 02-02, 02-03 -- all passed
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -57,17 +57,19 @@ Recent decisions affecting current work:
 - Phase 2: vite-env.d.ts added to fix pre-existing import.meta.env type error
 - Phase 2: User docs in English only, practical how-to style, screenshots as placeholders for Plan 03
 - Phase 2: Extension README uses absolute GitHub raw URLs for Marketplace image rendering
+- Phase 2: Screenshots spec gated by SCREENSHOTS=1 env var (not testIgnore, which blocks explicit targeting)
+- Phase 2: Release workflow commits/tags before publish, pushes after success
 
 ### Pending Todos
 
-None.
+None. All phases complete.
 
 ### Blockers/Concerns
 
-None.
+None. Only manual step remaining: configure VSCE_PAT secret in GitHub repo settings.
 
 ## Session Continuity
 
 Last session: 2026-03-16
-Stopped at: Plan 02-02 complete, ready for 02-03
+Stopped at: All plans complete. Project at 100%.
 Resume file: None
