@@ -2,7 +2,7 @@ import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
-  sendHandlerError, sendOperationStarted, sendOperationProgress,
+  buildResponse, sendHandlerError, sendOperationStarted, sendOperationProgress,
   sendOperationCompleted, sendOperationFailed,
 } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -67,12 +67,7 @@ export class SeedOpsHandler implements DomainHandler {
           dependencies: [],
         }));
 
-      const response: BaseMessage & { payload: { objects: typeof objects } } = {
-        id: this.deps.nextId(),
-        type: 'seed:describe-global:response',
-        timestamp: Date.now(),
-        payload: { objects },
-      };
+      const response = buildResponse(this.deps, msg, 'seed:describe-global:response', { objects });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -101,16 +96,11 @@ export class SeedOpsHandler implements DomainHandler {
           length: f.length,
         }));
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'seed:describe-object:response',
-        timestamp: Date.now(),
-        payload: {
-          objectApiName: payload.objectApiName,
-          objectLabel: (result as { label: string }).label,
-          fields,
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'seed:describe-object:response', {
+        objectApiName: payload.objectApiName,
+        objectLabel: (result as { label: string }).label,
+        fields,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -207,12 +197,7 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       sendOperationCompleted(this.deps, operationId, { totalRecords });
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'seed:execute:response',
-        timestamp: Date.now(),
-        payload: result as unknown as Record<string, unknown>,
-      };
+      const response = buildResponse(this.deps, msg, 'seed:execute:response', result as unknown as Record<string, unknown>);
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
