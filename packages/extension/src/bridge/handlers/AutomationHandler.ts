@@ -1,7 +1,7 @@
 import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
-  sendNotification, sendOperationStarted, sendOperationProgress,
+  buildResponse, sendNotification, sendOperationStarted, sendOperationProgress,
   sendOperationCompleted, sendOperationFailed,
 } from './HandlerTypes.js';
 import type { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestrator.js';
@@ -147,12 +147,7 @@ export class AutomationHandler implements DomainHandler {
         sendOperationCompleted(this.deps, operationId, { status: result.status, stepResults: result.stepResults.length });
       }
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'pipeline:run:response',
-        timestamp: Date.now(),
-        payload: result as unknown as Record<string, unknown>,
-      };
+      const response = buildResponse(this.deps, msg, 'pipeline:run:response', result as unknown as Record<string, unknown>);
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -165,12 +160,7 @@ export class AutomationHandler implements DomainHandler {
 
   private handlePipelineTemplates(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      id: this.deps.nextId(),
-      type: 'pipeline:templates:response',
-      timestamp: Date.now(),
-      payload: { templates: PIPELINE_TEMPLATES },
-    };
+    const response = buildResponse(this.deps, msg, 'pipeline:templates:response', { templates: PIPELINE_TEMPLATES });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] pipeline:templates:response`);
   }
@@ -253,22 +243,16 @@ export class AutomationHandler implements DomainHandler {
       } else {
         templates = this.pipelineMarketplace.getTemplates();
       }
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'marketplace:list:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: {
-          success: true,
-          templates: templates.map((t: { id: string; name: string; description: string; category: string }) => ({
-            id: t.id, name: t.name, description: t.description, category: t.category, author: 'SandForge',
-          })),
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'marketplace:list:response', {
+        success: true,
+        templates: templates.map((t: { id: string; name: string; description: string; category: string }) => ({
+          id: t.id, name: t.name, description: t.description, category: t.category, author: 'SandForge',
+        })),
+      });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] marketplace:list: ${extractErrorMessage(err)}`);
-      const errResp: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'marketplace:list:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: false, error: extractErrorMessage(err) },
-      };
+      const errResp = buildResponse(this.deps, msg, 'marketplace:list:response', { success: false, error: extractErrorMessage(err) });
       this.deps.broker.postToWebview(errResp);
     }
   }
@@ -291,17 +275,11 @@ export class AutomationHandler implements DomainHandler {
       } catch {
         throw new Error(`Template "${templateId}" contains invalid JSON.`);
       }
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'marketplace:install:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: true, pipeline },
-      };
+      const response = buildResponse(this.deps, msg, 'marketplace:install:response', { success: true, pipeline });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] marketplace:install: ${extractErrorMessage(err)}`);
-      const errResp: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'marketplace:install:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: false, error: extractErrorMessage(err) },
-      };
+      const errResp = buildResponse(this.deps, msg, 'marketplace:install:response', { success: false, error: extractErrorMessage(err) });
       this.deps.broker.postToWebview(errResp);
     }
   }
