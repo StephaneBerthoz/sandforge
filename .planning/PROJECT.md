@@ -27,6 +27,17 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 ### Active
 
+- [ ] Bridge wiring: connect 70+ unlistened response messages, add correlation IDs — v1.1.0
+- [ ] Module fixes: Seed, Sync, Forge, Autopilot, Compare, Monitor, DataOps end-to-end functional — v1.1.0
+- [ ] AI: status check on mount, conversation persistence, API key flow — v1.1.0
+- [ ] UX: remove Grappe from sidebar, fix notifications bell, fix version footer, org auto-select — v1.1.0
+- [ ] Empty states: guidance/CTA for first launch on every module — v1.1.0
+- [ ] Ghost features: clean or implement Audit Trail, Governance, Scheduler, Team Sharing, Realtime types — v1.1.0
+- [ ] Robustness: Bulk API 2.0 for >200 records, retry logic, timeouts — v1.1.0
+- [ ] Monitor enrichment: competitor benchmark + feature gaps — v1.1.0
+
+### Deferred
+
 - [ ] Advanced features: real-time sync (CDC/Streaming), collaborative editing, multi-LLM, enterprise integrations — Phase 12
 
 ### Out of Scope
@@ -66,4 +77,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-17 — Milestone v1.0.0 archived, published as v1.0.1*
+*Last updated: 2026-03-17 — Milestone v1.1.0 started (Stabilisation & Real-World Readiness)*

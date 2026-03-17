@@ -5,14 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-17)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** Between milestones — v1.0.0 shipped, next milestone TBD
+**Current focus:** v1.1.0 — Stabilisation & Real-World Readiness
 
 ## Current Position
 
-Phase: — (no active milestone)
+Phase: Not started (defining requirements)
 Plan: —
-Status: Milestone v1.0.0 complete and archived. Ready for next milestone.
-Last activity: 2026-03-17 — Milestone v1.0.0 archived
+Status: Defining requirements
+Last activity: 2026-03-17 — Milestone v1.1.0 started
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -21,20 +23,13 @@ Last activity: 2026-03-17 — Milestone v1.0.0 archived
 - Average duration: ~15 min/plan
 - Total execution time: ~1h 45min
 
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1 — E2E Testing | 4 | ~1h | ~15min |
-| 2 — Marketplace Publication | 3 | ~45min | ~15min |
-
 ## Milestone History
 
 ### v1.0.0 — Marketplace-Ready Release
 Completed: 2026-03-17
 Phases: 2 (E2E Testing + Marketplace Publication)
-Requirements delivered: E2E-01, E2E-02, E2E-03, E2E-04, E2E-05, E2E-06, E2E-07, MKT-01, MKT-02, MKT-03, MKT-04, MKT-05, MKT-06, MKT-07, MKT-08, MKT-09
-Key achievements: Full E2E test coverage (162 specs) with WCAG 2.1 AA accessibility. 3-OS CI pipeline with automated release workflow. Extension published on VS Code Marketplace at 1.08 MB.
+Requirements delivered: E2E-01 through E2E-07, MKT-01 through MKT-09
+Key achievements: 162 E2E tests, WCAG 2.1 AA, 3-OS CI, published on Marketplace.
 
 ## Accumulated Context
 
@@ -48,10 +43,12 @@ None.
 
 ### Blockers/Concerns
 
-None.
+- Post-launch audit revealed 70+ bridge messages never listened to by BridgeProvider
+- Seed/Sync/Forge/Autopilot execution results never reach webview
+- 5 feature domains defined in messages.types.ts with zero handlers (ghost features)
 
 ## Session Continuity
 
 Last session: 2026-03-17
-Stopped at: Milestone v1.0.0 archived. Ready for next milestone.
+Stopped at: Defining v1.1.0 requirements
 Resume file: None
