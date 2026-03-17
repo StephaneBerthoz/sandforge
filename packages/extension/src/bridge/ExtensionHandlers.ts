@@ -202,7 +202,7 @@ export class ExtensionHandlers {
     route(['monitor:refresh', 'monitor:start', 'monitor:trends', 'monitor:abort-job', 'monitor:live-operations'], this.monitorHandler);
 
     // Compare
-    route(['compare:execute', 'compare:start'], this.compareHandler);
+    route(['compare:execute', 'compare:start', 'compare:permissions', 'compare:snapshots', 'compare:drift'], this.compareHandler);
 
     // DataOps
     route([
