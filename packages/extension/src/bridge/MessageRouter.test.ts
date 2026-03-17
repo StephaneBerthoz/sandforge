@@ -1,0 +1,144 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { BaseMessage } from '@sandforge/shared';
+import { MessageBroker } from './MessageBroker';
+import { MessageRouter } from './MessageRouter';
+import type { MessageHandler } from './MessageBroker';
+
+function createMessage(type: string): BaseMessage {
+  return {
+    id: `msg-${Date.now()}`,
+    type,
+    timestamp: Date.now(),
+  };
+}
+
+describe('MessageRouter', () => {
+  let broker: MessageBroker;
+  let router: MessageRouter;
+
+  beforeEach(() => {
+    broker = new MessageBroker();
+    router = new MessageRouter(broker);
+  });
+
+  describe('route', () => {
+    it('should register a handler on the broker for the given type', () => {
+      const handler = vi.fn<MessageHandler>();
+      router.route('org:list', handler);
+
+      const brokerOnSpy = vi.spyOn(broker, 'on');
+      router.route('org:connect', vi.fn());
+
+      expect(brokerOnSpy).toHaveBeenCalledWith('org:connect', expect.any(Function));
+    });
+
+    it('should increment the route count', () => {
+      expect(router.routeCount).toBe(0);
+
+      router.route('org:list', vi.fn());
+      expect(router.routeCount).toBe(1);
+
+      router.route('seed:execute', vi.fn());
+      expect(router.routeCount).toBe(2);
+    });
+  });
+
+  describe('routePrefix', () => {
+    it('should register handlers only for types matching the prefix', () => {
+      const handler = vi.fn<MessageHandler>();
+      const types = ['org:list', 'org:connect', 'seed:execute', 'org:disconnect'];
+
+      router.routePrefix('org:', types, handler);
+
+      expect(router.routeCount).toBe(3);
+    });
+
+    it('should not register any routes if no types match the prefix', () => {
+      const handler = vi.fn<MessageHandler>();
+      const types = ['seed:execute', 'sync:execute'];
+
+      router.routePrefix('org:', types, handler);
+
+      expect(router.routeCount).toBe(0);
+    });
+  });
+
+  describe('routeAll', () => {
+    it('should register handlers for all provided type-handler pairs', () => {
+      const orgHandler = vi.fn<MessageHandler>();
+      const seedHandler = vi.fn<MessageHandler>();
+      const syncHandler = vi.fn<MessageHandler>();
+
+      router.routeAll({
+        'org:list': orgHandler,
+        'seed:execute': seedHandler,
+        'sync:execute': syncHandler,
+      });
+
+      expect(router.routeCount).toBe(3);
+    });
+
+    it('should dispatch messages to the correct handlers via the broker', () => {
+      const orgHandler = vi.fn<MessageHandler>();
+      const seedHandler = vi.fn<MessageHandler>();
+
+      router.routeAll({
+        'org:list': orgHandler,
+        'seed:execute': seedHandler,
+      });
+
+      // Simulate a dispatched message by using the broker's on mechanism
+      // We need to trigger the broker's internal dispatch, so we use a mock panel
+      const mockPanel = {
+        webview: {
+          onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+          postMessage: vi.fn(),
+        },
+      };
+      broker.registerPanel(mockPanel as never);
+
+      const messageCallback = mockPanel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+
+      messageCallback(createMessage('org:list'));
+      expect(orgHandler).toHaveBeenCalledOnce();
+      expect(seedHandler).not.toHaveBeenCalled();
+
+      messageCallback(createMessage('seed:execute'));
+      expect(seedHandler).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('dispose', () => {
+    it('should unsubscribe all registered routes from the broker', () => {
+      const handler = vi.fn<MessageHandler>();
+      router.route('org:list', handler);
+      router.route('seed:execute', handler);
+
+      expect(router.routeCount).toBe(2);
+
+      router.dispose();
+
+      expect(router.routeCount).toBe(0);
+    });
+
+    it('should prevent disposed routes from receiving messages', () => {
+      const handler = vi.fn<MessageHandler>();
+      router.route('org:list', handler);
+
+      router.dispose();
+
+      const mockPanel = {
+        webview: {
+          onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+          postMessage: vi.fn(),
+        },
+      };
+      broker.registerPanel(mockPanel as never);
+
+      const messageCallback = mockPanel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      messageCallback(createMessage('org:list'));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
+});

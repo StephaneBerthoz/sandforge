@@ -11,3 +11,14 @@ webview-dist/
 .serena/
 NUL
 .windsurf/
+
+# Local tooling
+.claude/
+.sfdx/
+.superpowers/
+.vscode/
+prompts/
+
+# Generated
+playwright-report/
+test-results/

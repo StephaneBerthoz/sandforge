@@ -1,0 +1,254 @@
+import type { BaseMessage, AutopilotScanSchemaRequest, AutopilotGeneratePlanRequest, AutopilotExecuteRequest, AutopilotSkipNodeRequest } from '@sandforge/shared';
+import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import { sendNotification } from './HandlerTypes.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import type { AutopilotOrchestrator } from '../../modules/autopilot/AutopilotOrchestrator.js';
+import type { AutopilotConnection, SchemaScanResult } from '../../modules/autopilot/SchemaScanner.js';
+
+/** Message types handled by AutopilotHandler. */
+const AUTOPILOT_TYPES = new Set([
+  'autopilot:scan-schema',
+  'autopilot:generate-plan',
+  'autopilot:execute',
+  'autopilot:pause',
+  'autopilot:resume',
+  'autopilot:skip-node',
+  'autopilot:compliance-report',
+]);
+
+/**
+ * Domain handler for autopilot-related webview-to-extension messages.
+ *
+ * Manages the full autopilot lifecycle: schema scanning, plan generation,
+ * execution with pause/resume/skip, and compliance reporting.
+ */
+export class AutopilotHandler implements DomainHandler {
+  private orchestrator?: AutopilotOrchestrator;
+  private scanResult?: SchemaScanResult;
+  private graph?: Parameters<AutopilotOrchestrator['generatePlan']>[0];
+  private rules?: Parameters<AutopilotOrchestrator['generatePlan']>[2];
+  private plan?: ReturnType<AutopilotOrchestrator['generatePlan']>;
+  private profile?: ReturnType<AutopilotOrchestrator['buildCompliance']>['profile'];
+
+  /** @param deps - Injected handler dependencies. */
+  constructor(private readonly deps: HandlerDeps) {}
+
+  /** Inject autopilot orchestrator. */
+  setOrchestrator(orchestrator: AutopilotOrchestrator): void {
+    this.orchestrator = orchestrator;
+  }
+
+  /**
+   * Handle an incoming bridge message.
+   *
+   * @param msg - The typed base message from the webview.
+   * @returns `true` if the message was handled, `false` otherwise.
+   */
+  async handle(msg: BaseMessage): Promise<boolean> {
+    if (!AUTOPILOT_TYPES.has(msg.type)) return false;
+
+    switch (msg.type) {
+      case 'autopilot:scan-schema':
+        await this.handleScanSchema(msg);
+        return true;
+      case 'autopilot:generate-plan':
+        await this.handleGeneratePlan(msg);
+        return true;
+      case 'autopilot:execute':
+        await this.handleExecute(msg);
+        return true;
+      case 'autopilot:pause':
+        this.handlePause(msg);
+        return true;
+      case 'autopilot:resume':
+        this.handleResume(msg);
+        return true;
+      case 'autopilot:skip-node':
+        this.handleSkipNode(msg);
+        return true;
+      case 'autopilot:compliance-report':
+        this.handleComplianceReport(msg);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private async handleScanSchema(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      return;
+    }
+    const payload = (msg as AutopilotScanSchemaRequest).payload;
+    try {
+      const sourceConn = await getJsforceConnection(payload.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager) as unknown as AutopilotConnection;
+      const targetConn = await getJsforceConnection(payload.targetOrgId, this.deps.orgRegistry, this.deps.orgManager) as unknown as AutopilotConnection;
+      const scanResult = await this.orchestrator.scanSchemas(sourceConn, targetConn, {
+        selectedObjects: payload.selectedObjects,
+        includeStandardObjects: payload.includeStandardObjects,
+      } as Parameters<AutopilotOrchestrator['scanSchemas']>[2]);
+      this.scanResult = scanResult;
+      const graph = this.orchestrator.buildGraph(scanResult);
+      this.graph = graph;
+      const response: BaseMessage & { payload: { graph: unknown } } = {
+        id: this.deps.nextId(), type: 'autopilot:schema-result', timestamp: Date.now(),
+        payload: { graph },
+      };
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] autopilot:scan-schema: ${message}`);
+      sendNotification(this.deps, 'error', 'Autopilot', `Schema scan failed: ${message}`);
+    }
+  }
+
+  private async handleGeneratePlan(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      return;
+    }
+    if (!this.graph) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'No schema scan result available. Run scan-schema first.');
+      return;
+    }
+    const payload = (msg as AutopilotGeneratePlanRequest).payload;
+    try {
+      const { profile, rules } = this.orchestrator.buildCompliance(payload.complianceFramework, []);
+      this.profile = profile;
+      this.rules = rules;
+      const plan = this.orchestrator.generatePlan(this.graph, payload.complianceFramework, rules);
+      this.plan = plan;
+      const response: BaseMessage & { payload: { plan: unknown; graph: unknown } } = {
+        id: this.deps.nextId(), type: 'autopilot:plan-ready', timestamp: Date.now(),
+        payload: { plan, graph: this.graph },
+      };
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] autopilot:generate-plan: ${message}`);
+      sendNotification(this.deps, 'error', 'Autopilot', `Plan generation failed: ${message}`);
+    }
+  }
+
+  private async handleExecute(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      return;
+    }
+    if (!this.plan || !this.graph || !this.rules || !this.scanResult) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'No execution plan available. Run generate-plan first.');
+      return;
+    }
+    const payload = (msg as AutopilotExecuteRequest).payload;
+    try {
+      if (payload.grappeThreshold && this.orchestrator) {
+        this.deps.log(`[GRAPPE] autopilot threshold set to ${payload.grappeThreshold}`);
+      }
+      const result = await this.orchestrator.executePlan(
+        this.plan,
+        this.graph,
+        this.rules,
+        this.scanResult.recordCounts,
+      );
+      const response: BaseMessage & { payload: Record<string, unknown> } = {
+        id: this.deps.nextId(), type: 'autopilot:completed', timestamp: Date.now(),
+        payload: {
+          totalRecords: result.totalSuccess + result.totalFailure + result.totalSkipped,
+          totalSuccessCount: result.totalSuccess,
+          totalFailureCount: result.totalFailure,
+          totalElapsedMs: result.elapsedMs,
+          totalApiCalls: 0,
+        },
+      };
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] autopilot:execute: ${message}`);
+      sendNotification(this.deps, 'error', 'Autopilot', `Execution failed: ${message}`);
+    }
+  }
+
+  private handlePause(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      return;
+    }
+    try {
+      this.orchestrator.pause();
+      sendNotification(this.deps, 'info', 'Autopilot', 'Execution paused.');
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] autopilot:pause: ${message}`);
+      sendNotification(this.deps, 'error', 'Autopilot', `Pause failed: ${message}`);
+    }
+  }
+
+  private handleResume(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      return;
+    }
+    try {
+      this.orchestrator.resume();
+      sendNotification(this.deps, 'info', 'Autopilot', 'Execution resumed.');
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] autopilot:resume: ${message}`);
+      sendNotification(this.deps, 'error', 'Autopilot', `Resume failed: ${message}`);
+    }
+  }
+
+  private handleSkipNode(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      return;
+    }
+    const payload = (msg as AutopilotSkipNodeRequest).payload;
+    try {
+      this.orchestrator.skip(payload.objectApiName);
+      sendNotification(this.deps, 'info', 'Autopilot', `Skipped node: ${payload.objectApiName}`);
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] autopilot:skip-node: ${message}`);
+      sendNotification(this.deps, 'error', 'Autopilot', `Skip failed: ${message}`);
+    }
+  }
+
+  private handleComplianceReport(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    if (!this.orchestrator) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      return;
+    }
+    if (!this.profile || !this.rules || !this.scanResult) {
+      sendNotification(this.deps, 'error', 'Autopilot', 'No compliance data available. Run generate-plan first.');
+      return;
+    }
+    try {
+      const report = this.orchestrator.generateReport(
+        this.profile,
+        this.rules,
+        this.scanResult.recordCounts,
+        '',
+        '',
+        this.scanResult.totalObjectsScanned,
+      );
+      const response: BaseMessage & { payload: { report: unknown } } = {
+        id: this.deps.nextId(), type: 'autopilot:compliance-report', timestamp: Date.now(),
+        payload: { report },
+      };
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err);
+      this.deps.log(`[ERR] autopilot:compliance-report: ${message}`);
+      sendNotification(this.deps, 'error', 'Autopilot', `Report generation failed: ${message}`);
+    }
+  }
+}

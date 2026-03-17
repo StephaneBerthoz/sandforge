@@ -1,0 +1,85 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SidebarViewProvider } from './SidebarViewProvider';
+
+describe('SidebarViewProvider', () => {
+  const extensionUri = { toString: () => '/ext' };
+  const uriJoinPath = (base: unknown, ...segments: string[]) => ({
+    toString: () => `${String(base)}/${segments.join('/')}`,
+  });
+  const executeCommand = vi.fn().mockResolvedValue(undefined);
+
+  let provider: SidebarViewProvider;
+  let mockWebview: Record<string, unknown>;
+  let mockWebviewView: Record<string, unknown>;
+  let messageHandler: ((msg: Record<string, unknown>) => void) | undefined;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    messageHandler = undefined;
+
+    mockWebview = {
+      options: {},
+      cspSource: 'https://test',
+      asWebviewUri: (uri: unknown) => uri,
+      html: '',
+      onDidReceiveMessage: vi.fn((handler: (msg: Record<string, unknown>) => void) => {
+        messageHandler = handler;
+      }),
+      postMessage: vi.fn(),
+    };
+
+    mockWebviewView = {
+      webview: mockWebview,
+    };
+
+    provider = new SidebarViewProvider(extensionUri, uriJoinPath, executeCommand);
+  });
+
+  it('sets webview HTML with sidepanel module on resolve', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    expect(mockWebview.html).toContain('__SANDFORGE_MODULE__="sidepanel"');
+    expect(mockWebview.html).toContain('index.js');
+    expect(mockWebview.html).toContain('style.css');
+  });
+
+  it('enables scripts and sets local resource roots', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    expect((mockWebview.options as Record<string, unknown>).enableScripts).toBe(true);
+    expect((mockWebview.options as Record<string, unknown>).localResourceRoots).toEqual([extensionUri]);
+  });
+
+  it('executes correct command on sidebar:navigate message', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    expect(messageHandler).toBeDefined();
+
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'monitor' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openMonitor');
+
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'forge' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openForge');
+
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'grappe' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openGrappe');
+  });
+
+  it('executes openMonitor on sidebar:openFull message', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    messageHandler!({ type: 'sidebar:openFull' });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openMonitor');
+  });
+
+  it('posts message to webview when visible', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    provider.postMessage({ type: 'test' });
+    expect(mockWebview.postMessage).toHaveBeenCalledWith({ type: 'test' });
+  });
+
+  it('does nothing when posting before resolve', () => {
+    // No resolveWebviewView called
+    expect(() => provider.postMessage({ type: 'test' })).not.toThrow();
+  });
+
+  it('has correct static viewType', () => {
+    expect(SidebarViewProvider.viewType).toBe('sandforge.sidebarView');
+  });
+});

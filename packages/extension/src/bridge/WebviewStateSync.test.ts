@@ -1,0 +1,176 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { MessageBroker } from './MessageBroker';
+import { WebviewStateSync } from './WebviewStateSync';
+import type { WebviewState, StateSyncMessage } from './WebviewStateSync';
+
+describe('WebviewStateSync', () => {
+  let broker: MessageBroker;
+  let stateSync: WebviewStateSync;
+  let postToWebviewSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    broker = new MessageBroker();
+    stateSync = new WebviewStateSync(broker);
+    postToWebviewSpy = vi.spyOn(broker, 'postToWebview');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Flush the debounce timer so the push fires. */
+  function flushDebounce(): void {
+    vi.advanceTimersByTime(20);
+  }
+
+  describe('getState', () => {
+    it('should return the default initial state', () => {
+      const state = stateSync.getState();
+
+      expect(state).toEqual({
+        orgs: [],
+        settings: {},
+        activeOperations: [],
+        extensionReady: false,
+      } satisfies WebviewState);
+    });
+  });
+
+  describe('updateState', () => {
+    it('should merge a partial update into the current state', () => {
+      stateSync.updateState({ extensionReady: true });
+
+      const state = stateSync.getState();
+      expect(state.extensionReady).toBe(true);
+      expect(state.orgs).toEqual([]);
+      expect(state.settings).toEqual({});
+      expect(state.activeOperations).toEqual([]);
+    });
+
+    it('should replace array values rather than merging them', () => {
+      stateSync.updateState({ activeOperations: ['op-1'] });
+      stateSync.updateState({ activeOperations: ['op-2', 'op-3'] });
+
+      expect(stateSync.getState().activeOperations).toEqual(['op-2', 'op-3']);
+    });
+
+    it('should push state to webviews after debounce', () => {
+      stateSync.updateState({ extensionReady: true });
+
+      // Not yet pushed (debounced)
+      expect(postToWebviewSpy).not.toHaveBeenCalled();
+
+      flushDebounce();
+      expect(postToWebviewSpy).toHaveBeenCalledOnce();
+    });
+
+    it('should batch rapid updates into a single push', () => {
+      stateSync.updateState({ extensionReady: true });
+      stateSync.updateState({ activeOperations: ['op-1'] });
+      stateSync.updateState({ settings: { theme: 'dark' } });
+
+      flushDebounce();
+
+      // Only one push for all three updates
+      expect(postToWebviewSpy).toHaveBeenCalledOnce();
+      const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
+      expect(sentMessage.payload.extensionReady).toBe(true);
+      expect(sentMessage.payload.activeOperations).toEqual(['op-1']);
+      expect(sentMessage.payload.settings).toEqual({ theme: 'dark' });
+    });
+
+    it('should send the updated state in the pushed message', () => {
+      stateSync.updateState({ extensionReady: true, activeOperations: ['op-1'] });
+      flushDebounce();
+
+      const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
+      expect(sentMessage.type).toBe('state:sync');
+      expect(sentMessage.payload.extensionReady).toBe(true);
+      expect(sentMessage.payload.activeOperations).toEqual(['op-1']);
+    });
+  });
+
+  describe('pushState', () => {
+    it('should post a state:sync message via the broker', () => {
+      stateSync.pushState();
+
+      expect(postToWebviewSpy).toHaveBeenCalledOnce();
+      const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
+      expect(sentMessage.type).toBe('state:sync');
+      expect(sentMessage.id).toMatch(/^state-sync-/);
+      expect(sentMessage.timestamp).toBeGreaterThan(0);
+    });
+
+    it('should include the full state as the payload', () => {
+      stateSync.updateState({ extensionReady: true });
+      flushDebounce();
+      postToWebviewSpy.mockClear();
+
+      stateSync.pushState();
+
+      const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
+      expect(sentMessage.payload).toEqual({
+        orgs: [],
+        settings: {},
+        activeOperations: [],
+        extensionReady: true,
+      });
+    });
+
+    it('should send a shallow copy of the state, not a reference', () => {
+      stateSync.updateState({ activeOperations: ['op-1'] });
+      flushDebounce();
+      postToWebviewSpy.mockClear();
+
+      stateSync.pushState();
+
+      const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
+      stateSync.updateState({ activeOperations: ['op-2'] });
+
+      expect(sentMessage.payload.activeOperations).toEqual(['op-1']);
+    });
+
+    it('should assign unique ids to successive messages', () => {
+      stateSync.pushState();
+      stateSync.pushState();
+
+      const id1 = (postToWebviewSpy.mock.calls[0][0] as StateSyncMessage).id;
+      const id2 = (postToWebviewSpy.mock.calls[1][0] as StateSyncMessage).id;
+
+      expect(id1).not.toBe(id2);
+    });
+  });
+
+  describe('reset', () => {
+    it('should restore state to initial defaults', () => {
+      stateSync.updateState({
+        extensionReady: true,
+        orgs: [{ id: 'org-1' }],
+        settings: { theme: 'dark' },
+        activeOperations: ['op-1'],
+      });
+      flushDebounce();
+
+      stateSync.reset();
+
+      expect(stateSync.getState()).toEqual({
+        orgs: [],
+        settings: {},
+        activeOperations: [],
+        extensionReady: false,
+      });
+    });
+
+    it('should not push state to webviews on reset', () => {
+      stateSync.updateState({ extensionReady: true });
+      flushDebounce();
+      postToWebviewSpy.mockClear();
+
+      stateSync.reset();
+      flushDebounce();
+
+      expect(postToWebviewSpy).not.toHaveBeenCalled();
+    });
+  });
+});

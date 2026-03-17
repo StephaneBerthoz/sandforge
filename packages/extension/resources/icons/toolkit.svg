@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Anvil body -->
+  <path d="M4 16h16v2H4z" fill="currentColor" stroke="none"/>
+  <path d="M6 14h12v2H6z" fill="currentColor" stroke="none"/>
+  <path d="M3 18h18v1.5H3z" fill="currentColor" stroke="none"/>
+  <!-- Anvil horn -->
+  <path d="M18 15c2.5 0 3.5-1.5 3.5-3H18" fill="currentColor" stroke="none"/>
+  <!-- Hammer -->
+  <path d="M7 5h4v3H7z" fill="currentColor" stroke="none" rx="0.5"/>
+  <path d="M9 8v6"/>
+  <!-- Sparks / fire -->
+  <path d="M13 9l1.5-3" stroke-width="1.5"/>
+  <path d="M15 11l2.5-2" stroke-width="1.5"/>
+  <path d="M14 13l2-0.5" stroke-width="1.5"/>
+  <!-- Small spark dots -->
+  <circle cx="15" cy="5.5" r="0.7" fill="currentColor" stroke="none"/>
+  <circle cx="18" cy="8.5" r="0.7" fill="currentColor" stroke="none"/>
+</svg>

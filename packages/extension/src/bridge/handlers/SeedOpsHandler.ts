@@ -1,0 +1,224 @@
+import type { BaseMessage } from '@sandforge/shared';
+import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
+import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import {
+  sendHandlerError, sendOperationStarted, sendOperationProgress,
+  sendOperationCompleted, sendOperationFailed,
+} from './HandlerTypes.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+
+/** Message types handled by SeedOpsHandler. */
+const SEED_TYPES = new Set([
+  'seed:execute',
+  'seed:describe-global',
+  'seed:describe-object',
+]);
+
+/**
+ * Domain handler for seed-related webview-to-extension messages.
+ *
+ * Routes seed:* message types to schema description and data generation
+ * operations against Salesforce orgs, with production guard checks
+ * and performance tracking.
+ */
+export class SeedOpsHandler implements DomainHandler {
+  /** @param deps - Injected handler dependencies. */
+  constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * Handle an incoming bridge message.
+   *
+   * @param msg - The typed base message from the webview.
+   * @returns `true` if the message was handled, `false` otherwise.
+   */
+  async handle(msg: BaseMessage): Promise<boolean> {
+    if (!SEED_TYPES.has(msg.type)) return false;
+
+    switch (msg.type) {
+      case 'seed:describe-global':
+        await this.handleDescribeGlobal(msg);
+        return true;
+      case 'seed:describe-object':
+        await this.handleDescribeObject(msg);
+        return true;
+      case 'seed:execute':
+        await this.handleExecute(msg);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const result = await conn.describeGlobal();
+
+      const objects = result.sobjects
+        .filter((s: { createable: boolean }) => s.createable)
+        .map((s: { name: string; label: string }) => ({
+          apiName: s.name,
+          label: s.label,
+          recordCount: 0,
+          dependencies: [],
+        }));
+
+      const response: BaseMessage & { payload: { objects: typeof objects } } = {
+        id: this.deps.nextId(),
+        type: 'seed:describe-global:response',
+        timestamp: Date.now(),
+        payload: { objects },
+      };
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:describe-global', 'seed:error', err);
+    }
+  }
+
+  private async handleDescribeObject(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string; objectApiName: string } }).payload;
+
+    try {
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const safeObjectName = sanitizeSoqlObjectName(payload.objectApiName);
+      const result = await conn.describe(safeObjectName);
+
+      const fields = (result.fields as { name: string; label: string; type: string; nillable: boolean; defaultedOnCreate: boolean; picklistValues?: { value: string }[]; referenceTo?: string[]; length: number; createable: boolean }[])
+        .filter((f) => f.createable)
+        .map((f) => ({
+          fieldApiName: f.name,
+          label: f.label,
+          type: f.type,
+          required: !f.nillable && !f.defaultedOnCreate,
+          picklistValues: f.picklistValues?.map((pv) => pv.value) ?? [],
+          referenceTo: f.referenceTo ?? [],
+          length: f.length,
+        }));
+
+      const response: BaseMessage & { payload: Record<string, unknown> } = {
+        id: this.deps.nextId(),
+        type: 'seed:describe-object:response',
+        timestamp: Date.now(),
+        payload: {
+          objectApiName: payload.objectApiName,
+          objectLabel: (result as { label: string }).label,
+          fields,
+        },
+      };
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:describe-object', 'seed:error', err);
+    }
+  }
+
+  private async handleExecute(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string; template: Record<string, unknown> } }).payload;
+    const operationId = crypto.randomUUID();
+
+    try {
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+
+      // Production guard check
+      if (this.deps.infraServices?.productionGuard) {
+        const org = this.deps.orgManager.getOrg(payload.orgId);
+        const check = this.deps.infraServices.productionGuard.check({
+          orgId: payload.orgId,
+          orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+          operation: 'insert',
+          objectName: 'SeedData',
+          recordCount: 1,
+          module: 'seed',
+        });
+        if (!check.allowed) {
+          throw new Error(`Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`);
+        }
+      }
+
+      // Start performance tracking
+      this.deps.infraServices?.performanceTracker?.start(operationId, 'seed');
+
+      sendOperationStarted(this.deps, operationId, 'seed', 'Seed data generation');
+
+      // Build jsforce insert function
+      const insertFn = async (
+        _orgId: string,
+        objectApiName: string,
+        records: Record<string, unknown>[],
+        batchSize: number,
+      ): Promise<{ successIds: string[]; errors: string[] }> => {
+        const successIds: string[] = [];
+        const errors: string[] = [];
+
+        for (let i = 0; i < records.length; i += batchSize) {
+          const batch = records.slice(i, i + batchSize);
+          const results = await conn.sobject(objectApiName).create(batch) as Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>;
+          for (const r of results) {
+            if (r.success && r.id) {
+              successIds.push(r.id);
+            } else {
+              errors.push(r.errors?.[0]?.message ?? 'Unknown insert error');
+            }
+          }
+        }
+
+        return { successIds, errors };
+      };
+
+      // Lazy-import seed dependencies
+      const { SeedValidator } = await import('../../modules/seed/SeedValidator.js');
+      const { DataPlanBuilder } = await import('../../modules/seed/DataPlanBuilder.js');
+      const { FieldMapper } = await import('../../modules/seed/FieldMapper.js');
+      const { ReferenceLinker } = await import('../../modules/seed/ReferenceLinker.js');
+      const { AIDataGenerator } = await import('../../modules/seed/AIDataGenerator.js');
+      const { FakerFallback } = await import('../../modules/seed/FakerFallback.js');
+
+      const aiGenerator = new AIDataGenerator(async () => '[]');
+      const fakerFallback = new FakerFallback();
+      const fieldMapper = new FieldMapper({ aiGenerator, fakerFallback });
+      const referenceLinker = new ReferenceLinker();
+      const validator = new SeedValidator();
+      const planBuilder = new DataPlanBuilder();
+
+      const { SeedOrchestrator } = await import('../../modules/seed/SeedOrchestrator.js');
+      const orchestrator = new SeedOrchestrator({
+        validator,
+        planBuilder,
+        fieldMapper,
+        referenceLinker,
+        insert: insertFn,
+        generateId: () => crypto.randomUUID(),
+        now: () => new Date().toISOString(),
+      });
+
+      const template = payload.template as unknown as import('@sandforge/shared').SeedTemplate;
+      sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Validating template and building plan');
+      const result = await orchestrator.execute(template, payload.orgId);
+      sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
+      const totalRecords = (result as { insertedIds?: string[] }).insertedIds?.length ?? 0;
+      this.deps.infraServices?.performanceTracker?.update(operationId, totalRecords, 1);
+      this.deps.infraServices?.performanceTracker?.complete(operationId);
+      sendOperationCompleted(this.deps, operationId, { totalRecords });
+
+      const response: BaseMessage & { payload: Record<string, unknown> } = {
+        id: this.deps.nextId(),
+        type: 'seed:execute:response',
+        timestamp: Date.now(),
+        payload: result as unknown as Record<string, unknown>,
+      };
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      this.deps.infraServices?.performanceTracker?.complete(operationId);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendHandlerError(this.deps, 'seed:execute', 'seed:error', err);
+    }
+  }
+}

@@ -1,0 +1,209 @@
+// SandForge — Jenkins Pipeline
+// This pipeline runs the full SandForge workflow:
+//   1. Seed sandbox with test data
+//   2. Sync data between orgs
+//   3. Backup target org data
+//   4. Run health check on target org
+//   5. Generate execution report
+//
+// Prerequisites:
+//   - Configure the following credentials in Jenkins:
+//     - sf-source-credentials: Username/Password credential for source org
+//     - sf-target-credentials: Username/Password credential for target org
+//     - slack-webhook: Secret text for Slack webhook URL (optional)
+//   - Node.js 20 configured in Jenkins Global Tool Configuration
+
+pipeline {
+    agent any
+
+    tools {
+        nodejs 'Node-20'
+    }
+
+    parameters {
+        booleanParam(
+            name: 'DRY_RUN',
+            defaultValue: false,
+            description: 'Run in dry-run mode (no data written to target org)'
+        )
+    }
+
+    environment {
+        // Source org credentials
+        SF_SOURCE_USERNAME = credentials('sf-source-username')
+        SF_SOURCE_PASSWORD = credentials('sf-source-password')
+        SF_SOURCE_LOGIN_URL = credentials('sf-source-login-url')
+
+        // Target org credentials
+        SF_TARGET_USERNAME = credentials('sf-target-username')
+        SF_TARGET_PASSWORD = credentials('sf-target-password')
+        SF_TARGET_LOGIN_URL = credentials('sf-target-login-url')
+    }
+
+    options {
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
+    triggers {
+        // Schedule: every Monday at 6 AM
+        cron('0 6 * * 1')
+    }
+
+    stages {
+        // ── Setup ──────────────────────────────────────────
+        stage('Setup') {
+            steps {
+                script {
+                    // Install pnpm
+                    sh 'npm install -g pnpm@9'
+                    sh 'pnpm install --frozen-lockfile'
+                }
+            }
+        }
+
+        // ── Stage 1: Seed ──────────────────────────────────
+        stage('Seed') {
+            steps {
+                script {
+                    def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
+                    sh """
+                        sandforge seed \\
+                            --config .sandforge.json \\
+                            --template default \\
+                            ${dryRunFlag} \\
+                            --output-format json \\
+                            --output seed-report.json
+                    """
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'seed-report.json', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // ── Stage 2: Sync ──────────────────────────────────
+        stage('Sync') {
+            steps {
+                script {
+                    def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
+                    sh """
+                        sandforge sync \\
+                            --config .sandforge.json \\
+                            --mode full \\
+                            ${dryRunFlag} \\
+                            --output-format json \\
+                            --output sync-report.json
+                    """
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'sync-report.json', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // ── Stage 3: Backup ────────────────────────────────
+        stage('Backup') {
+            steps {
+                sh '''
+                    sandforge backup \
+                        --config .sandforge.json \
+                        --org target \
+                        --output-format json \
+                        --output backup-report.json
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'backup-report.json', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // ── Stage 4: Health Check ──────────────────────────
+        stage('Health Check') {
+            steps {
+                sh '''
+                    sandforge monitor health-check \
+                        --config .sandforge.json \
+                        --org target \
+                        --output-format json \
+                        --output health-report.json
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'health-report.json', allowEmptyArchive: true
+                }
+            }
+        }
+
+        // ── Stage 5: Report ────────────────────────────────
+        stage('Report') {
+            steps {
+                sh '''
+                    sandforge report \
+                        --seed-report seed-report.json \
+                        --sync-report sync-report.json \
+                        --backup-report backup-report.json \
+                        --health-report health-report.json \
+                        --output-format html \
+                        --output pipeline-report.html
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'pipeline-report.html', allowEmptyArchive: true
+                    publishHTML(target: [
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: '.',
+                        reportFiles: 'pipeline-report.html',
+                        reportName: 'SandForge Pipeline Report'
+                    ])
+                }
+            }
+        }
+    }
+
+    post {
+        // Notify on failure via Slack (if webhook is configured)
+        failure {
+            script {
+                try {
+                    withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_WEBHOOK_URL')]) {
+                        sh """
+                            curl -X POST "\$SLACK_WEBHOOK_URL" \\
+                                -H 'Content-Type: application/json' \\
+                                -d '{
+                                    "text": "SandForge Pipeline FAILED on ${env.JOB_NAME} (#${env.BUILD_NUMBER})",
+                                    "blocks": [
+                                        {
+                                            "type": "section",
+                                            "text": {
+                                                "type": "mrkdwn",
+                                                "text": "*SandForge Pipeline Failed*\\n*Job:* ${env.JOB_NAME}\\n*Build:* #${env.BUILD_NUMBER}\\n*URL:* <${env.BUILD_URL}|View Build>"
+                                            }
+                                        }
+                                    ]
+                                }'
+                        """
+                    }
+                } catch (Exception e) {
+                    echo "Slack notification skipped: ${e.message}"
+                }
+            }
+        }
+
+        // Clean up workspace
+        cleanup {
+            cleanWs()
+        }
+    }
+}

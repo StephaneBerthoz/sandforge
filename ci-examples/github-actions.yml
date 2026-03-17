@@ -1,0 +1,178 @@
+# SandForge — GitHub Actions CI/CD Pipeline
+# This workflow runs the full SandForge pipeline:
+#   1. Seed sandbox with test data
+#   2. Sync data between orgs
+#   3. Backup target org data
+#   4. Run health check on target org
+#   5. Generate execution report
+#
+# Prerequisites:
+#   - Set the following secrets in your repository settings:
+#     - SF_SOURCE_USERNAME: Salesforce source org username
+#     - SF_SOURCE_PASSWORD: Salesforce source org password + security token
+#     - SF_SOURCE_LOGIN_URL: Salesforce source login URL (e.g., https://test.salesforce.com)
+#     - SF_TARGET_USERNAME: Salesforce target org username
+#     - SF_TARGET_PASSWORD: Salesforce target org password + security token
+#     - SF_TARGET_LOGIN_URL: Salesforce target login URL
+#     - SLACK_WEBHOOK_URL: (optional) Slack webhook for failure notifications
+
+name: SandForge Pipeline
+
+on:
+  # Run on push to main branch
+  push:
+    branches: [main]
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode (no data written)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+  # Schedule: every Monday at 6 AM UTC
+  schedule:
+    - cron: '0 6 * * 1'
+
+env:
+  NODE_VERSION: '20'
+  SF_SOURCE_USERNAME: ${{ secrets.SF_SOURCE_USERNAME }}
+  SF_SOURCE_PASSWORD: ${{ secrets.SF_SOURCE_PASSWORD }}
+  SF_SOURCE_LOGIN_URL: ${{ secrets.SF_SOURCE_LOGIN_URL }}
+  SF_TARGET_USERNAME: ${{ secrets.SF_TARGET_USERNAME }}
+  SF_TARGET_PASSWORD: ${{ secrets.SF_TARGET_PASSWORD }}
+  SF_TARGET_LOGIN_URL: ${{ secrets.SF_TARGET_LOGIN_URL }}
+
+jobs:
+  sandforge-pipeline:
+    name: SandForge Full Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── Setup ─────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── Stage 1: Seed ─────────────────────────────────────
+      - name: Seed sandbox with test data
+        run: |
+          sandforge seed \
+            --config .sandforge.json \
+            --template default \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            --output-format json \
+            --output seed-report.json
+
+      - name: Upload seed report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seed-report
+          path: seed-report.json
+
+      # ── Stage 2: Sync ─────────────────────────────────────
+      - name: Sync data between orgs
+        run: |
+          sandforge sync \
+            --config .sandforge.json \
+            --mode full \
+            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
+            --output-format json \
+            --output sync-report.json
+
+      - name: Upload sync report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-report
+          path: sync-report.json
+
+      # ── Stage 3: Backup ───────────────────────────────────
+      - name: Backup target org data
+        run: |
+          sandforge backup \
+            --config .sandforge.json \
+            --org target \
+            --output-format json \
+            --output backup-report.json
+
+      - name: Upload backup report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-report
+          path: backup-report.json
+
+      # ── Stage 4: Health Check ─────────────────────────────
+      - name: Run health check on target org
+        run: |
+          sandforge monitor health-check \
+            --config .sandforge.json \
+            --org target \
+            --output-format json \
+            --output health-report.json
+
+      - name: Upload health report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-report
+          path: health-report.json
+
+      # ── Stage 5: Report ───────────────────────────────────
+      - name: Generate execution report
+        if: always()
+        run: |
+          sandforge report \
+            --seed-report seed-report.json \
+            --sync-report sync-report.json \
+            --backup-report backup-report.json \
+            --health-report health-report.json \
+            --output-format html \
+            --output pipeline-report.html
+
+      - name: Upload pipeline report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-report
+          path: pipeline-report.html
+
+      # ── Notification on Failure ───────────────────────────
+      - name: Notify on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST "$SLACK_WEBHOOK_URL" \
+            -H 'Content-Type: application/json' \
+            -d "{
+              \"text\": \"SandForge Pipeline FAILED on ${{ github.repository }} (${{ github.ref_name }})\",
+              \"blocks\": [
+                {
+                  \"type\": \"section\",
+                  \"text\": {
+                    \"type\": \"mrkdwn\",
+                    \"text\": \"*SandForge Pipeline Failed*\n*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref_name }}\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>\"
+                  }
+                }
+              ]
+            }"

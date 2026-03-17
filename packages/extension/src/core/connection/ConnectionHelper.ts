@@ -1,0 +1,165 @@
+import jsforce, { type Connection } from 'jsforce';
+import type { UUID } from '@sandforge/shared';
+import type { OrgRegistry } from './OrgRegistry';
+import type { OrgManager } from './OrgManager';
+import { ConnectionPool } from './ConnectionPool';
+import { CircuitBreaker } from './CircuitBreaker';
+import { extractErrorMessage } from '../common/extractErrorMessage.js';
+
+const MAX_BUFFER = 10 * 1024 * 1024;
+
+/** Module-level singleton connection pool */
+const connectionPool = new ConnectionPool();
+
+/** Module-level singleton circuit breaker for identity validation calls */
+const circuitBreaker = new CircuitBreaker({
+  failureThreshold: 3,
+  resetTimeout: 30_000,
+});
+
+/** Get the singleton ConnectionPool instance (for testing/monitoring) */
+export function getConnectionPool(): ConnectionPool {
+  return connectionPool;
+}
+
+/** Get the singleton CircuitBreaker instance (for testing/monitoring) */
+export function getCircuitBreaker(): CircuitBreaker {
+  return circuitBreaker;
+}
+
+/**
+ * Refresh an access token by querying the SF CLI for the latest org display info.
+ * Returns the new accessToken or throws.
+ */
+async function refreshTokenViaCli(username: string): Promise<string> {
+  // Validate username to prevent shell injection (SF usernames are emails or aliases)
+  if (!/^[\w.@+-]+$/.test(username)) {
+    throw new Error(`Invalid username format: "${username}"`);
+  }
+  const { exec } = await import('child_process');
+  const { promisify } = await import('util');
+  const { stdout } = await promisify(exec)(
+    `sf org display -u "${username}" --json`,
+    { maxBuffer: MAX_BUFFER, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } },
+  );
+
+  // eslint-disable-next-line no-control-regex -- Intentional ANSI escape code stripping
+  const stripped = stdout.replace(/\u001b\[[0-9;]*m/g, '');
+  const start = stripped.search(/[{[]/);
+  if (start === -1) {
+    throw new Error('Failed to parse "sf org display" output: no JSON found. Ensure Salesforce CLI (sf) is installed and the org is authenticated.');
+  }
+
+  const parsed = JSON.parse(stripped.slice(start)) as {
+    result?: { accessToken?: string };
+  };
+
+  if (!parsed.result?.accessToken) {
+    throw new Error('No accessToken returned by "sf org display". The org session may have expired — try re-authenticating with "sf org login".');
+  }
+
+  return parsed.result.accessToken;
+}
+
+/**
+ * Create a jsforce Connection for a given org.
+ *
+ * 1. Reads credentials from OrgRegistry (SecretVault)
+ * 2. Builds a jsforce.Connection
+ * 3. On INVALID_SESSION_ID, attempts token refresh via SF CLI
+ * 4. Persists the refreshed token back to SecretVault
+ */
+export async function getJsforceConnection(
+  orgId: string,
+  orgRegistry: OrgRegistry,
+  orgManager: OrgManager,
+): Promise<Connection> {
+  const uid = orgId as UUID;
+
+  const org = orgManager.getOrg(orgId);
+  if (!org) {
+    throw new Error(`Org not found: ${orgId}`);
+  }
+
+  const credentials = await orgRegistry.getCredentials(orgId);
+  if (!credentials?.accessToken || !credentials.instanceUrl) {
+    throw new Error(`No credentials for org "${org.alias}" (${orgId}). Reconnect the org.`);
+  }
+
+  const apiVersion = org.metadata.apiVersion || '62.0';
+
+  // Check the pool for an existing connection with a matching token
+  const pooled = connectionPool.get(uid);
+  if (pooled && pooled.active && pooled.accessToken === credentials.accessToken) {
+    pooled.lastUsedAt = Date.now();
+    return new jsforce.Connection({
+      instanceUrl: pooled.instanceUrl,
+      accessToken: pooled.accessToken,
+      version: apiVersion,
+    });
+  }
+
+  const conn = new jsforce.Connection({
+    instanceUrl: credentials.instanceUrl,
+    accessToken: credentials.accessToken,
+    version: apiVersion,
+  });
+
+  // Check circuit breaker before attempting validation
+  if (!circuitBreaker.acquirePermit()) {
+    throw new Error(
+      `Circuit breaker is open for Salesforce API calls. ` +
+      `Too many recent failures — retries paused. Try again shortly.`,
+    );
+  }
+
+  // Validate with a lightweight call, wrapped by the circuit breaker
+  const start = Date.now();
+  try {
+    await conn.identity();
+    const latency = Date.now() - start;
+    circuitBreaker.recordSuccess();
+    connectionPool.acquire(uid, credentials.instanceUrl, credentials.accessToken);
+    connectionPool.recordLatency(uid, latency);
+    return conn;
+  } catch (err: unknown) {
+    const latency = Date.now() - start;
+    circuitBreaker.recordFailure();
+    connectionPool.remove(uid);
+    const message = extractErrorMessage(err);
+
+    // Token expired — try refreshing via SF CLI
+    if (message.includes('INVALID_SESSION_ID') || message.includes('Session expired')) {
+      try {
+        const newToken = await refreshTokenViaCli(org.username);
+
+        // Persist refreshed token
+        await orgRegistry.saveOrg(org, {
+          ...credentials,
+          accessToken: newToken,
+        });
+
+        const refreshedConn = new jsforce.Connection({
+          instanceUrl: credentials.instanceUrl,
+          accessToken: newToken,
+          version: apiVersion,
+        });
+
+        // Record the refreshed connection in the pool
+        connectionPool.acquire(uid, credentials.instanceUrl, newToken);
+        connectionPool.recordLatency(uid, latency);
+
+        return refreshedConn;
+      } catch (refreshErr: unknown) {
+        connectionPool.remove(uid);
+        const refreshMsg = extractErrorMessage(refreshErr);
+        throw new Error(
+          `Token expired for "${org.alias}" and refresh failed: ${refreshMsg}. ` +
+          'Try disconnecting and re-importing the org.',
+        );
+      }
+    }
+
+    throw new Error(`Connection failed for "${org.alias}": ${message}`);
+  }
+}

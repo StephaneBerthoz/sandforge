@@ -1,0 +1,194 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { AnonymizationEngine } from './AnonymizationEngine';
+import type { DataOpsAnonymizationRule } from '@sandforge/shared';
+
+function createMaskRule(field: string): DataOpsAnonymizationRule {
+  return {
+    objectApiName: 'Contact',
+    fieldApiName: field,
+    method: 'mask',
+    config: { maskChar: '*', maskStart: 0, maskEnd: 5 },
+  };
+}
+
+describe('AnonymizationEngine', () => {
+  let engine: AnonymizationEngine;
+
+  beforeEach(() => {
+    engine = new AnonymizationEngine();
+  });
+
+  describe('anonymize', () => {
+    it('should apply mask rules to matching fields', () => {
+      const records = [{ Email: 'test@example.com', Name: 'Alice' }];
+      const rules: DataOpsAnonymizationRule[] = [createMaskRule('Email')];
+
+      const result = engine.anonymize(records, rules);
+
+      expect(result[0]['Email']).toBe('*****example.com');
+      expect(result[0]['Name']).toBe('Alice');
+    });
+
+    it('should not mutate original records', () => {
+      const records = [{ Email: 'test@example.com' }];
+      const rules: DataOpsAnonymizationRule[] = [createMaskRule('Email')];
+
+      engine.anonymize(records, rules);
+
+      expect(records[0]['Email']).toBe('test@example.com');
+    });
+
+    it('should handle multiple rules', () => {
+      const records = [{ Email: 'test@example.com', Phone: '555-1234' }];
+      const rules: DataOpsAnonymizationRule[] = [
+        createMaskRule('Email'),
+        createMaskRule('Phone'),
+      ];
+
+      const result = engine.anonymize(records, rules);
+
+      expect(result[0]['Email']).toBe('*****example.com');
+      expect(result[0]['Phone']).toBe('*****234');
+    });
+
+    it('should skip fields not present in the record', () => {
+      const records = [{ Name: 'Bob' }];
+      const rules: DataOpsAnonymizationRule[] = [createMaskRule('Email')];
+
+      const result = engine.anonymize(records, rules);
+
+      expect(result[0]['Name']).toBe('Bob');
+      expect(result[0]['Email']).toBeUndefined();
+    });
+  });
+
+  describe('applyRule', () => {
+    it('should handle nullify rule type', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'BirthDate',
+        method: 'nullify',
+        config: {},
+      };
+      expect(engine.applyRule('1990-01-01', rule)).toBeNull();
+    });
+
+    it('should handle constant rule type', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Status',
+        method: 'constant',
+        config: { constantValue: 'REDACTED' },
+      };
+      expect(engine.applyRule('Active', rule)).toBe('REDACTED');
+    });
+
+    it('should handle hash rule type', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'SSN',
+        method: 'hash',
+        config: { hashAlgorithm: 'sha256', hashSalt: 'salt' },
+      };
+      const result = engine.applyRule('123-45-6789', rule);
+      expect(String(result)).toContain('sha256:');
+    });
+
+    it('should handle fake rule type', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Email',
+        method: 'fake',
+        config: { fakerMethod: 'internet.email', fakerLocale: 'en' },
+      };
+      const result = engine.applyRule('real@example.com', rule);
+      expect(String(result)).toContain('fake_internet.email_en_');
+    });
+
+    it('should handle truncate rule type', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Description',
+        method: 'truncate',
+        config: {},
+      };
+      expect(engine.applyRule('Long description text', rule)).toBe('Lon');
+    });
+
+    it('should handle preserve_format rule type', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Phone',
+        method: 'preserve_format',
+        config: {},
+      };
+      expect(engine.applyRule('555-1234', rule)).toBe('000-0000');
+    });
+
+    it('should handle shuffle rule type', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Code',
+        method: 'shuffle',
+        config: {},
+      };
+      const result = engine.applyRule('ABCD', rule);
+      expect(String(result)).toHaveLength(4);
+    });
+  });
+
+  describe('preview', () => {
+    it('should only return the requested sample size', () => {
+      const records = Array.from({ length: 10 }, (_, i) => ({
+        Email: `user${i}@test.com`,
+      }));
+      const rules: DataOpsAnonymizationRule[] = [createMaskRule('Email')];
+
+      const result = engine.preview(records, rules, 3);
+
+      expect(result).toHaveLength(3);
+    });
+
+    it('should handle sampleSize larger than records', () => {
+      const records = [{ Email: 'a@b.com' }];
+      const rules: DataOpsAnonymizationRule[] = [createMaskRule('Email')];
+
+      const result = engine.preview(records, rules, 100);
+
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('validateRules', () => {
+    it('should return no errors for valid rules', () => {
+      const rules: DataOpsAnonymizationRule[] = [createMaskRule('Email')];
+      expect(engine.validateRules(rules)).toHaveLength(0);
+    });
+
+    it('should return error for mask rule without maskChar', () => {
+      const rules: DataOpsAnonymizationRule[] = [
+        {
+          objectApiName: 'Contact',
+          fieldApiName: 'Email',
+          method: 'mask',
+          config: {},
+        },
+      ];
+      const errors = engine.validateRules(rules);
+      expect(errors.some((e) => e.includes('maskChar'))).toBe(true);
+    });
+
+    it('should return error for hash rule without valid algorithm', () => {
+      const rules: DataOpsAnonymizationRule[] = [
+        {
+          objectApiName: 'Contact',
+          fieldApiName: 'SSN',
+          method: 'hash',
+          config: {},
+        },
+      ];
+      const errors = engine.validateRules(rules);
+      expect(errors.some((e) => e.includes('hashAlgorithm'))).toBe(true);
+    });
+  });
+});
