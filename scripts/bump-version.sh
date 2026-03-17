@@ -15,10 +15,10 @@ if [[ "$BUMP_TYPE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 else
   NEW_VERSION=$(node -p "
     const [major, minor, patch] = '$CURRENT'.split('.').map(Number);
-    if ('$BUMP_TYPE' === 'major') return \`\${major+1}.0.0\`;
-    if ('$BUMP_TYPE' === 'minor') return \`\${major}.\${minor+1}.0\`;
-    if ('$BUMP_TYPE' === 'patch') return \`\${major}.\${minor}.\${patch+1}\`;
-    throw new Error('Invalid bump type: $BUMP_TYPE');
+    '$BUMP_TYPE' === 'major' ? \`\${major+1}.0.0\` :
+    '$BUMP_TYPE' === 'minor' ? \`\${major}.\${minor+1}.0\` :
+    '$BUMP_TYPE' === 'patch' ? \`\${major}.\${minor}.\${patch+1}\` :
+    (() => { throw new Error('Invalid bump type: $BUMP_TYPE') })()
   ")
 fi
 
