@@ -1,19 +1,41 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSendMessage, useMessageListener } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { AIChatPanel } from './AIChatPanel';
 import type { ChatMessageDisplay, ConversationSummary } from './AIChatPanel';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { useAppStore } from '../../stores/useAppStore';
 import type { BaseMessage } from '@sandforge/shared';
 
 /** Main AI page — manages conversations and messages via extension bus. */
 export const AIPage: React.FC = () => {
+  const { t } = useTranslation();
   const sendMessage = useSendMessage();
+  const aiAvailable = useAppStore((s) => s.aiAvailable);
+  const navigate = useAppStore((s) => s.navigate);
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>();
   const [messages, setMessages] = useState<ChatMessageDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [localIdCounter, setLocalIdCounter] = useState(0);
+
+  // Load persisted conversation list on mount when AI is available
+  useEffect(() => {
+    if (aiAvailable) {
+      sendMessage(buildMessage('ai:conversation:list', {}));
+    }
+  }, [aiAvailable, sendMessage]);
+
+  // Listen for conversation list response
+  useMessageListener<BaseMessage & { payload: { conversations: ConversationSummary[] } }>(
+    'ai:conversation:list:response',
+    (msg) => {
+      setConversations(msg.payload.conversations);
+    },
+  );
 
   // Listen for AI responses
   useMessageListener<BaseMessage & { payload: { conversationId: string; message: ChatMessageDisplay } }>(
@@ -28,7 +50,11 @@ export const AIPage: React.FC = () => {
     'ai:conversation:created',
     (msg) => {
       const conv = msg.payload.conversation;
-      setConversations((prev) => [...prev, conv]);
+      setConversations((prev) => {
+        // Replace the optimistic local entry if it exists
+        const withoutLocal = prev.filter((c) => !c.id.startsWith('local-conv-'));
+        return [...withoutLocal, conv];
+      });
       setActiveConversationId(conv.id);
       setMessages([]);
     },
@@ -38,6 +64,14 @@ export const AIPage: React.FC = () => {
     'ai:error',
     () => {
       setIsLoading(false);
+    },
+  );
+
+  // Listen for conversation loaded with messages
+  useMessageListener<BaseMessage & { payload: { conversation: { id: string; title: string; messages: ChatMessageDisplay[] } } }>(
+    'ai:conversation:loaded',
+    (msg) => {
+      setMessages(msg.payload.conversation.messages);
     },
   );
 
@@ -105,6 +139,33 @@ export const AIPage: React.FC = () => {
     },
     [activeConversationId, sendMessage],
   );
+
+  // Show guidance when AI is not configured
+  if (!aiAvailable) {
+    return (
+      <div className="flex flex-col h-full p-[var(--sf-space-4)]" data-testid="ai-not-configured">
+        <PageHeader
+          title={t('ai.title', 'AI Assistant')}
+          subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
+          icon="comment-discussion"
+        />
+        <div className="flex-1 flex items-center justify-center">
+          <EmptyState
+            icon={
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <circle cx="24" cy="24" r="20" stroke="var(--vscode-descriptionForeground, #868686)" strokeWidth="1.5" strokeDasharray="4 4" />
+                <path d="M24 14l2 6h6l-5 4 2 6-5-4-5 4 2-6-5-4h6l2-6z" fill="var(--vscode-descriptionForeground, #868686)" fillOpacity="0.3" />
+              </svg>
+            }
+            title={t('ai.notConfigured.title', 'AI Assistant Not Configured')}
+            description={t('ai.notConfigured.description', 'To use AI features, configure your API key in Settings.')}
+            actionLabel={t('ai.notConfigured.configureButton', 'Go to Settings')}
+            onAction={() => navigate('settings')}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AIChatPanel
