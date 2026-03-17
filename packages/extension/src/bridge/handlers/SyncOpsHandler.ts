@@ -2,7 +2,7 @@ import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
-  sendHandlerError, sendOperationStarted, sendOperationProgress,
+  buildResponse, sendHandlerError, sendOperationStarted, sendOperationProgress,
   sendOperationCompleted, sendOperationFailed,
 } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -76,12 +76,7 @@ export class SyncOpsHandler implements DomainHandler {
         .filter((s: { createable: boolean; queryable: boolean }) => s.createable && s.queryable)
         .map((s: { name: string }) => s.name);
 
-      const response: BaseMessage & { payload: { objects: string[] } } = {
-        id: this.deps.nextId(),
-        type: 'sync:describe-global:response',
-        timestamp: Date.now(),
-        payload: { objects },
-      };
+      const response = buildResponse(this.deps, msg, 'sync:describe-global:response', { objects });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -109,16 +104,11 @@ export class SyncOpsHandler implements DomainHandler {
           .filter((f) => f.createable)
           .map((f) => ({ apiName: f.name, label: f.label, type: f.type }));
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'sync:describe-fields:response',
-        timestamp: Date.now(),
-        payload: {
-          objectApiName: payload.objectApiName,
-          sourceFields: mapFields(sourceDesc.fields as Array<{ name: string; label: string; type: string; createable: boolean }>),
-          targetFields: mapFields(targetDesc.fields as Array<{ name: string; label: string; type: string; createable: boolean }>),
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'sync:describe-fields:response', {
+        objectApiName: payload.objectApiName,
+        sourceFields: mapFields(sourceDesc.fields as Array<{ name: string; label: string; type: string; createable: boolean }>),
+        targetFields: mapFields(targetDesc.fields as Array<{ name: string; label: string; type: string; createable: boolean }>),
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -298,12 +288,7 @@ export class SyncOpsHandler implements DomainHandler {
       checkApiLimits(sourceConn.limitInfo, 'sync:execute completion (source)');
       checkApiLimits(targetConn.limitInfo, 'sync:execute completion (target)');
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'sync:execute:response',
-        timestamp: Date.now(),
-        payload: result as unknown as Record<string, unknown>,
-      };
+      const response = buildResponse(this.deps, msg, 'sync:execute:response', result as unknown as Record<string, unknown>);
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
