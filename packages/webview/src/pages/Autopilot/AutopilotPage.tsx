@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { BaseMessage, AutopilotGraph as AutopilotGraphType, AutopilotNodeStatus, ExecutionPlan } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
+import { useMessageListener } from '../../hooks/useMessageBus';
 import { AutopilotWizard } from './AutopilotWizard';
 import { AutopilotGraph } from './AutopilotGraph';
 import { ControlPanel } from './ControlPanel';
@@ -20,6 +22,55 @@ export const AutopilotPage: React.FC = () => {
   const { t } = useTranslation();
   const step = useAutopilotStore((s) => s.step);
   const [showReport, setShowReport] = useState(false);
+
+  // Listen for push messages from the AutopilotHandler and update the store
+  useMessageListener<BaseMessage & { payload: { graph: AutopilotGraphType } }>(
+    'autopilot:schema-result',
+    (msg) => {
+      useAutopilotStore.getState().setGraph(msg.payload.graph);
+    },
+  );
+
+  useMessageListener<BaseMessage & { payload: { plan: ExecutionPlan; graph: AutopilotGraphType } }>(
+    'autopilot:plan-ready',
+    (msg) => {
+      useAutopilotStore.getState().setPlan(msg.payload.plan);
+      useAutopilotStore.getState().setGraph(msg.payload.graph);
+      useAutopilotStore.getState().setStep('review');
+    },
+  );
+
+  useMessageListener<BaseMessage & { payload: { nodeId: string; objectName: string; status: string; wave: number; recordCount?: number; failureCount?: number; error?: string } }>(
+    'autopilot:node-progress',
+    (msg) => {
+      const store = useAutopilotStore.getState();
+      const statusMap: Record<string, AutopilotNodeStatus> = {
+        processing: 'extracting',
+        completed: 'completed',
+        failed: 'failed',
+      };
+      const mappedStatus = statusMap[msg.payload.status] ?? 'pending';
+      store.updateNodeStatus(msg.payload.objectName, mappedStatus);
+      if (msg.payload.recordCount !== undefined) {
+        store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
+      }
+      store.updateLiveStats({ currentWave: msg.payload.wave });
+    },
+  );
+
+  useMessageListener<BaseMessage & { payload: { totalRecords: number; totalSuccessCount: number; totalFailureCount: number; totalElapsedMs: number; totalApiCalls: number } }>(
+    'autopilot:completed',
+    (msg) => {
+      useAutopilotStore.getState().setExecutionStatus('completed');
+      useAutopilotStore.getState().setStep('completed');
+      useAutopilotStore.getState().updateLiveStats({
+        recordsProcessed: msg.payload.totalSuccessCount,
+        recordsTotal: msg.payload.totalRecords,
+        apiCallsUsed: msg.payload.totalApiCalls,
+        elapsedMs: msg.payload.totalElapsedMs,
+      });
+    },
+  );
 
   const isWizardStep = step === 'connect' || step === 'objects' || step === 'compliance' || step === 'review';
   const isExecutionStep = step === 'executing' || step === 'completed';
