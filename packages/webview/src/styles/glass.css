@@ -1,0 +1,5 @@
+.glass-overlay {
+  backdrop-filter: blur(16px) saturate(150%);
+  background: rgba(10, 10, 15, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}

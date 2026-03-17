@@ -1,0 +1,176 @@
+import type * as vscode from 'vscode';
+import type { MessageBroker } from '../bridge/MessageBroker';
+
+/** Configuration for opening a webview panel. */
+export interface PanelConfig {
+  viewType: string;
+  title: string;
+  column?: number;
+  preserveFocus?: boolean;
+  /** Module identifier injected into the webview HTML for routing. */
+  moduleId?: string;
+}
+
+/** Options passed to the panel factory when creating a new webview panel. */
+export interface PanelFactoryOptions {
+  enableScripts: boolean;
+  retainContextWhenHidden: boolean;
+  localResourceRoots?: readonly { toString(): string }[];
+}
+
+/** Factory function type for creating webview panels (for DI/testability). */
+export type WebviewPanelFactory = (
+  viewType: string,
+  title: string,
+  column: number,
+  options: PanelFactoryOptions,
+) => vscode.WebviewPanel;
+
+/**
+ * Joins a base URI with path segments.
+ * Abstracted for testability (avoids direct vscode.Uri.joinPath dependency).
+ */
+export type UriJoinPath = (base: unknown, ...segments: string[]) => unknown;
+
+/**
+ * Manages full-editor webview panels for SandForge modules.
+ * Each module opens in a separate tab in the editor area.
+ * Panels are tracked by viewType and reused on re-open.
+ *
+ * When a moduleId is provided in the PanelConfig, the panel HTML
+ * is generated with a `window.__SANDFORGE_MODULE__` script injection
+ * so the React app can determine which module to render.
+ */
+export class WebviewPanelManager {
+  private panels = new Map<string, vscode.WebviewPanel>();
+
+  /**
+   * @param broker - MessageBroker for webview communication
+   * @param panelFactory - Factory function to create webview panels
+   * @param extensionUri - Extension URI for resolving webview resources
+   * @param uriJoinPath - URI path joiner (defaults to noop for backward compat)
+   */
+  constructor(
+    private broker: MessageBroker,
+    private panelFactory: WebviewPanelFactory,
+    private extensionUri?: { toString(): string },
+    private uriJoinPath?: UriJoinPath,
+  ) {}
+
+  /**
+   * Open a webview panel or reveal it if already open.
+   * If moduleId is provided and extensionUri is set, the panel HTML
+   * is generated with the module identifier injected.
+   * @returns The opened or existing webview panel.
+   */
+  openPanel(config: PanelConfig): vscode.WebviewPanel {
+    const existing = this.panels.get(config.viewType);
+    if (existing) {
+      existing.reveal(config.column ?? 1, config.preserveFocus);
+      return existing;
+    }
+
+    const localResourceRoots = this.extensionUri
+      ? [this.extensionUri as { toString(): string }]
+      : undefined;
+
+    const panel = this.panelFactory(
+      config.viewType,
+      config.title,
+      config.column ?? 1,
+      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots },
+    );
+
+    if (config.moduleId && this.extensionUri && this.uriJoinPath) {
+      panel.webview.html = this.buildHtml(panel.webview, config.moduleId);
+    }
+
+    this.panels.set(config.viewType, panel);
+    this.broker.registerPanel(panel);
+
+    panel.onDidDispose(() => {
+      this.panels.delete(config.viewType);
+    });
+
+    return panel;
+  }
+
+  /** Close and dispose a panel by its viewType. */
+  closePanel(viewType: string): void {
+    const panel = this.panels.get(viewType);
+    if (panel) {
+      panel.dispose();
+      this.panels.delete(viewType);
+    }
+  }
+
+  /** Check whether a panel with the given viewType is currently open. */
+  hasPanel(viewType: string): boolean {
+    return this.panels.has(viewType);
+  }
+
+  /** Get the viewTypes of all currently open panels. */
+  getOpenPanels(): string[] {
+    return [...this.panels.keys()];
+  }
+
+  /** Post a message to all currently open panels. */
+  postToActivePanel(message: Record<string, unknown>): void {
+    for (const panel of this.panels.values()) {
+      void panel.webview.postMessage(message);
+    }
+  }
+
+  /** Dispose all managed panels. */
+  dispose(): void {
+    for (const panel of this.panels.values()) {
+      panel.dispose();
+    }
+    this.panels.clear();
+  }
+
+  /**
+   * Build the HTML content for a webview panel.
+   * Injects the moduleId as `window.__SANDFORGE_MODULE__` so the
+   * React application can route to the correct module view.
+   */
+  private buildHtml(
+    webview: vscode.Webview,
+    moduleId: string,
+  ): string {
+    const joinPath = this.uriJoinPath!;
+    const scriptUri = webview.asWebviewUri(
+      joinPath(this.extensionUri, 'webview-dist', 'assets', 'index.js') as vscode.Uri,
+    );
+    const styleUri = webview.asWebviewUri(
+      joinPath(this.extensionUri, 'webview-dist', 'assets', 'style.css') as vscode.Uri,
+    );
+    const nonce = generateNonce();
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource}; img-src ${webview.cspSource} data:;">
+  <link href="${String(styleUri)}" rel="stylesheet">
+  <title>SandForge: ${moduleId}</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script nonce="${nonce}">window.__SANDFORGE_MODULE__="${moduleId}";</script>
+  <script nonce="${nonce}" src="${String(scriptUri)}"></script>
+</body>
+</html>`;
+  }
+}
+
+/** Generate a random 32-character nonce for CSP script tags. */
+function generateNonce(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let nonce = '';
+  for (let i = 0; i < 32; i++) {
+    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return nonce;
+}

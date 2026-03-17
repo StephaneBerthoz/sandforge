@@ -1,0 +1,221 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PipelineGenerator, type OrgInfo, type GeneratedPipeline } from './PipelineGenerator';
+import type { AIProvider } from './SmartSuggestions';
+
+const testOrgs: OrgInfo[] = [
+  { orgId: 'org-001', alias: 'production', type: 'production' },
+  { orgId: 'org-002', alias: 'devbox', type: 'sandbox' },
+  { orgId: 'org-003', alias: 'scratch01', type: 'scratch' },
+];
+
+describe('PipelineGenerator', () => {
+  let mockProvider: ReturnType<typeof vi.fn<AIProvider>>;
+  let generator: PipelineGenerator;
+
+  beforeEach(() => {
+    mockProvider = vi.fn<AIProvider>().mockResolvedValue('{}');
+    generator = new PipelineGenerator(mockProvider);
+  });
+
+  // --- Keyword extraction ---
+
+  it('should extract sync step from "sync" keyword', async () => {
+    const pipeline = await generator.generatePipeline('sync account data', testOrgs);
+    expect(pipeline.steps.some((s) => s.type === 'sync')).toBe(true);
+  });
+
+  it('should extract seed step from "generate" keyword', async () => {
+    const pipeline = await generator.generatePipeline('generate test contact records', testOrgs);
+    expect(pipeline.steps.some((s) => s.type === 'seed')).toBe(true);
+  });
+
+  it('should extract compare step from "diff" keyword', async () => {
+    const pipeline = await generator.generatePipeline('diff production and devbox', testOrgs);
+    expect(pipeline.steps.some((s) => s.type === 'compare')).toBe(true);
+  });
+
+  it('should extract dataops step from "anonymize" keyword', async () => {
+    const pipeline = await generator.generatePipeline('anonymize contact email data', testOrgs);
+    expect(pipeline.steps.some((s) => s.type === 'dataops')).toBe(true);
+  });
+
+  it('should extract multiple step types from description', async () => {
+    const pipeline = await generator.generatePipeline(
+      'compare then sync account data and monitor',
+      testOrgs,
+    );
+    const types = pipeline.steps.map((s) => s.type);
+    expect(types).toContain('compare');
+    expect(types).toContain('sync');
+    expect(types).toContain('monitor');
+  });
+
+  it('should not produce duplicate step types', async () => {
+    const pipeline = await generator.generatePipeline('sync and synchronize data', testOrgs);
+    const syncSteps = pipeline.steps.filter((s) => s.type === 'sync');
+    expect(syncSteps).toHaveLength(1);
+  });
+
+  // --- Org resolution ---
+
+  it('should resolve org aliases in step config', async () => {
+    const pipeline = await generator.generatePipeline(
+      'sync from production to devbox',
+      testOrgs,
+    );
+    const syncStep = pipeline.steps.find((s) => s.type === 'sync');
+    expect(syncStep?.config['sourceOrg']).toBe('production');
+    expect(syncStep?.config['targetOrg']).toBe('devbox');
+  });
+
+  it('should assign single org when only one matches', async () => {
+    const pipeline = await generator.generatePipeline(
+      'seed data in devbox',
+      testOrgs,
+    );
+    const seedStep = pipeline.steps.find((s) => s.type === 'seed');
+    expect(seedStep?.config['org']).toBe('devbox');
+  });
+
+  // --- Salesforce object detection ---
+
+  it('should detect Salesforce object names in description', async () => {
+    const pipeline = await generator.generatePipeline(
+      'sync account and contact records',
+      testOrgs,
+    );
+    const syncStep = pipeline.steps.find((s) => s.type === 'sync');
+    const objects = syncStep?.config['objects'] as string[];
+    expect(objects).toContain('Account');
+    expect(objects).toContain('Contact');
+  });
+
+  // --- Schedule extraction ---
+
+  it('should extract daily schedule', async () => {
+    const pipeline = await generator.generatePipeline('sync data daily', testOrgs);
+    expect(pipeline.schedule).toBe('0 0 * * *');
+  });
+
+  it('should extract nightly schedule', async () => {
+    const pipeline = await generator.generatePipeline('nightly sync of account', testOrgs);
+    expect(pipeline.schedule).toBe('0 2 * * *');
+  });
+
+  // --- Trigger extraction ---
+
+  it('should extract deployment trigger', async () => {
+    const pipeline = await generator.generatePipeline(
+      'sync data on deploy to devbox',
+      testOrgs,
+    );
+    expect(pipeline.triggers).toContain('deployment_complete');
+  });
+
+  it('should extract sandbox refresh trigger', async () => {
+    const pipeline = await generator.generatePipeline(
+      'seed data after refresh in devbox',
+      testOrgs,
+    );
+    expect(pipeline.triggers).toContain('sandbox_refresh');
+  });
+
+  // --- Pipeline name ---
+
+  it('should generate a descriptive pipeline name', async () => {
+    const pipeline = await generator.generatePipeline('sync account data daily', testOrgs);
+    expect(pipeline.name).toMatch(/^Pipeline_/);
+    expect(pipeline.name.length).toBeGreaterThan('Pipeline_'.length);
+  });
+
+  // --- AI fallback ---
+
+  it('should fall back to AI when no keywords match', async () => {
+    mockProvider.mockResolvedValue(
+      JSON.stringify({
+        name: 'AI Pipeline',
+        description: 'Generated by AI',
+        steps: [{ name: 'step1', type: 'custom', config: {}, description: 'AI step' }],
+      }),
+    );
+
+    const pipeline = await generator.generatePipeline(
+      'do something very custom and unusual',
+      testOrgs,
+    );
+    expect(mockProvider).toHaveBeenCalledTimes(1);
+    expect(pipeline.name).toBe('AI Pipeline');
+    expect(pipeline.steps).toHaveLength(1);
+  });
+
+  it('should return empty pipeline when AI returns invalid JSON', async () => {
+    mockProvider.mockResolvedValue('not json');
+    const pipeline = await generator.generatePipeline('something unusual', testOrgs);
+    expect(pipeline.steps).toEqual([]);
+  });
+
+  it('should not call AI when keyword-based steps are found', async () => {
+    await generator.generatePipeline('sync account data', testOrgs);
+    expect(mockProvider).not.toHaveBeenCalled();
+  });
+
+  // --- suggestImprovements ---
+
+  it('should suggest adding compare step before sync', async () => {
+    const pipeline: GeneratedPipeline = {
+      name: 'Test',
+      description: 'test',
+      steps: [{ name: 'sync_step', type: 'sync', config: {}, description: '' }],
+    };
+
+    const suggestions = await generator.suggestImprovements(pipeline);
+    expect(suggestions.some((s) => s.includes('compare'))).toBe(true);
+  });
+
+  it('should suggest anonymization for sync without dataops', async () => {
+    const pipeline: GeneratedPipeline = {
+      name: 'Test',
+      description: 'test',
+      steps: [{ name: 'sync_step', type: 'sync', config: {}, description: '' }],
+    };
+
+    const suggestions = await generator.suggestImprovements(pipeline);
+    expect(suggestions.some((s) => s.includes('anonymization'))).toBe(true);
+  });
+
+  it('should suggest monitor for multi-step pipelines', async () => {
+    const pipeline: GeneratedPipeline = {
+      name: 'Test',
+      description: 'test',
+      steps: [
+        { name: 'compare_step', type: 'compare', config: {}, description: '' },
+        { name: 'sync_step', type: 'sync', config: {}, description: '' },
+      ],
+    };
+
+    const suggestions = await generator.suggestImprovements(pipeline);
+    expect(suggestions.some((s) => s.includes('monitor'))).toBe(true);
+  });
+
+  it('should suggest schedule when none is set', async () => {
+    const pipeline: GeneratedPipeline = {
+      name: 'Test',
+      description: 'test',
+      steps: [{ name: 's', type: 'seed', config: {}, description: '' }],
+    };
+
+    const suggestions = await generator.suggestImprovements(pipeline);
+    expect(suggestions.some((s) => s.includes('schedule'))).toBe(true);
+  });
+
+  it('should warn about empty pipeline', async () => {
+    const pipeline: GeneratedPipeline = {
+      name: 'Empty',
+      description: 'empty',
+      steps: [],
+    };
+
+    const suggestions = await generator.suggestImprovements(pipeline);
+    expect(suggestions.some((s) => s.includes('no steps'))).toBe(true);
+  });
+});

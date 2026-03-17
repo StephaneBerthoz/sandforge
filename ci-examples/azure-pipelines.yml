@@ -1,0 +1,285 @@
+# SandForge — Azure DevOps Pipeline
+# This pipeline runs the full SandForge workflow:
+#   1. Seed sandbox with test data
+#   2. Sync data between orgs
+#   3. Backup target org data
+#   4. Run health check on target org
+#   5. Generate execution report
+#
+# Prerequisites:
+#   - Create a Variable Group named "SandForge-Credentials" with:
+#     - SF_SOURCE_USERNAME: Salesforce source org username
+#     - SF_SOURCE_PASSWORD: Salesforce source org password + security token (secret)
+#     - SF_SOURCE_LOGIN_URL: Salesforce source login URL
+#     - SF_TARGET_USERNAME: Salesforce target org username
+#     - SF_TARGET_PASSWORD: Salesforce target org password + security token (secret)
+#     - SF_TARGET_LOGIN_URL: Salesforce target login URL
+#     - SLACK_WEBHOOK_URL: (optional) Slack webhook for failure notifications (secret)
+
+trigger:
+  branches:
+    include:
+      - main
+
+# Schedule: every Monday at 6 AM UTC
+schedules:
+  - cron: '0 6 * * 1'
+    displayName: Weekly SandForge Pipeline
+    branches:
+      include:
+        - main
+    always: true
+
+# Allow manual trigger with parameters
+parameters:
+  - name: dryRun
+    displayName: 'Dry Run Mode'
+    type: boolean
+    default: false
+
+# Pull credentials from variable group
+variables:
+  - group: SandForge-Credentials
+  - name: nodeVersion
+    value: '20'
+  - name: dryRunFlag
+    ${{ if eq(parameters.dryRun, true) }}:
+      value: '--dry-run'
+    ${{ else }}:
+      value: ''
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  # ── Setup ──────────────────────────────────────────────────
+  - stage: Setup
+    displayName: 'Setup Environment'
+    jobs:
+      - job: Install
+        displayName: 'Install Dependencies'
+        steps:
+          - task: NodeTool@0
+            displayName: 'Use Node.js $(nodeVersion)'
+            inputs:
+              versionSpec: '$(nodeVersion)'
+
+          - script: npm install -g pnpm@9
+            displayName: 'Install pnpm'
+
+          - script: pnpm install --frozen-lockfile
+            displayName: 'Install project dependencies'
+
+  # ── Stage 1: Seed ─────────────────────────────────────────
+  - stage: Seed
+    displayName: 'Seed Sandbox'
+    dependsOn: Setup
+    jobs:
+      - job: SeedData
+        displayName: 'Seed sandbox with test data'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(nodeVersion)'
+
+          - script: npm install -g pnpm@9 && pnpm install --frozen-lockfile
+            displayName: 'Setup'
+
+          - script: |
+              sandforge seed \
+                --config .sandforge.json \
+                --template default \
+                $(dryRunFlag) \
+                --output-format json \
+                --output $(Build.ArtifactStagingDirectory)/seed-report.json
+            displayName: 'Run seed'
+            env:
+              SF_SOURCE_USERNAME: $(SF_SOURCE_USERNAME)
+              SF_SOURCE_PASSWORD: $(SF_SOURCE_PASSWORD)
+              SF_SOURCE_LOGIN_URL: $(SF_SOURCE_LOGIN_URL)
+
+          - publish: $(Build.ArtifactStagingDirectory)/seed-report.json
+            artifact: seed-report
+            condition: always()
+
+  # ── Stage 2: Sync ─────────────────────────────────────────
+  - stage: Sync
+    displayName: 'Sync Data'
+    dependsOn: Seed
+    jobs:
+      - job: SyncData
+        displayName: 'Sync data between orgs'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(nodeVersion)'
+
+          - script: npm install -g pnpm@9 && pnpm install --frozen-lockfile
+            displayName: 'Setup'
+
+          - script: |
+              sandforge sync \
+                --config .sandforge.json \
+                --mode full \
+                $(dryRunFlag) \
+                --output-format json \
+                --output $(Build.ArtifactStagingDirectory)/sync-report.json
+            displayName: 'Run sync'
+            env:
+              SF_SOURCE_USERNAME: $(SF_SOURCE_USERNAME)
+              SF_SOURCE_PASSWORD: $(SF_SOURCE_PASSWORD)
+              SF_SOURCE_LOGIN_URL: $(SF_SOURCE_LOGIN_URL)
+              SF_TARGET_USERNAME: $(SF_TARGET_USERNAME)
+              SF_TARGET_PASSWORD: $(SF_TARGET_PASSWORD)
+              SF_TARGET_LOGIN_URL: $(SF_TARGET_LOGIN_URL)
+
+          - publish: $(Build.ArtifactStagingDirectory)/sync-report.json
+            artifact: sync-report
+            condition: always()
+
+  # ── Stage 3: Backup ───────────────────────────────────────
+  - stage: Backup
+    displayName: 'Backup Target Org'
+    dependsOn: Sync
+    jobs:
+      - job: BackupData
+        displayName: 'Backup target org data'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(nodeVersion)'
+
+          - script: npm install -g pnpm@9 && pnpm install --frozen-lockfile
+            displayName: 'Setup'
+
+          - script: |
+              sandforge backup \
+                --config .sandforge.json \
+                --org target \
+                --output-format json \
+                --output $(Build.ArtifactStagingDirectory)/backup-report.json
+            displayName: 'Run backup'
+            env:
+              SF_TARGET_USERNAME: $(SF_TARGET_USERNAME)
+              SF_TARGET_PASSWORD: $(SF_TARGET_PASSWORD)
+              SF_TARGET_LOGIN_URL: $(SF_TARGET_LOGIN_URL)
+
+          - publish: $(Build.ArtifactStagingDirectory)/backup-report.json
+            artifact: backup-report
+            condition: always()
+
+  # ── Stage 4: Health Check ─────────────────────────────────
+  - stage: HealthCheck
+    displayName: 'Health Check'
+    dependsOn: Sync
+    jobs:
+      - job: RunHealthCheck
+        displayName: 'Run health check on target org'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(nodeVersion)'
+
+          - script: npm install -g pnpm@9 && pnpm install --frozen-lockfile
+            displayName: 'Setup'
+
+          - script: |
+              sandforge monitor health-check \
+                --config .sandforge.json \
+                --org target \
+                --output-format json \
+                --output $(Build.ArtifactStagingDirectory)/health-report.json
+            displayName: 'Run health check'
+            env:
+              SF_TARGET_USERNAME: $(SF_TARGET_USERNAME)
+              SF_TARGET_PASSWORD: $(SF_TARGET_PASSWORD)
+              SF_TARGET_LOGIN_URL: $(SF_TARGET_LOGIN_URL)
+
+          - publish: $(Build.ArtifactStagingDirectory)/health-report.json
+            artifact: health-report
+            condition: always()
+
+  # ── Stage 5: Report ───────────────────────────────────────
+  - stage: Report
+    displayName: 'Generate Report'
+    dependsOn:
+      - Seed
+      - Sync
+      - Backup
+      - HealthCheck
+    condition: always()
+    jobs:
+      - job: GenerateReport
+        displayName: 'Generate execution report'
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '$(nodeVersion)'
+
+          - script: npm install -g pnpm@9 && pnpm install --frozen-lockfile
+            displayName: 'Setup'
+
+          # Download all artifacts from previous stages
+          - download: current
+            artifact: seed-report
+            condition: always()
+
+          - download: current
+            artifact: sync-report
+            condition: always()
+
+          - download: current
+            artifact: backup-report
+            condition: always()
+
+          - download: current
+            artifact: health-report
+            condition: always()
+
+          - script: |
+              sandforge report \
+                --seed-report $(Pipeline.Workspace)/seed-report/seed-report.json \
+                --sync-report $(Pipeline.Workspace)/sync-report/sync-report.json \
+                --backup-report $(Pipeline.Workspace)/backup-report/backup-report.json \
+                --health-report $(Pipeline.Workspace)/health-report/health-report.json \
+                --output-format html \
+                --output $(Build.ArtifactStagingDirectory)/pipeline-report.html
+            displayName: 'Generate report'
+
+          - publish: $(Build.ArtifactStagingDirectory)/pipeline-report.html
+            artifact: pipeline-report
+
+  # ── Notification ──────────────────────────────────────────
+  - stage: Notify
+    displayName: 'Notify on Failure'
+    dependsOn:
+      - Seed
+      - Sync
+      - Backup
+      - HealthCheck
+      - Report
+    condition: failed()
+    jobs:
+      - job: SlackNotification
+        displayName: 'Send Slack notification'
+        steps:
+          - script: |
+              if [ -n "$(SLACK_WEBHOOK_URL)" ]; then
+                curl -X POST "$(SLACK_WEBHOOK_URL)" \
+                  -H 'Content-Type: application/json' \
+                  -d "{
+                    \"text\": \"SandForge Pipeline FAILED on $(Build.Repository.Name) ($(Build.SourceBranchName))\",
+                    \"blocks\": [
+                      {
+                        \"type\": \"section\",
+                        \"text\": {
+                          \"type\": \"mrkdwn\",
+                          \"text\": \"*SandForge Pipeline Failed*\n*Repository:* $(Build.Repository.Name)\n*Branch:* $(Build.SourceBranchName)\n*Build:* <$(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)|View Build>\"
+                        }
+                      }
+                    ]
+                  }"
+              fi
+            displayName: 'Send Slack notification'
+            env:
+              SLACK_WEBHOOK_URL: $(SLACK_WEBHOOK_URL)

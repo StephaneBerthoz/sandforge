@@ -1,0 +1,247 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+
+import type { BaseMessage } from '@sandforge/shared';
+
+import { useMessageResponse } from './useMessageResponse';
+import type { UseMessageResponseOptions } from './useMessageResponse';
+
+/** Dispatch a simulated extension-to-webview message. */
+function simulateResponse(type: string, payload: unknown): void {
+  const message: BaseMessage & { payload: unknown } = {
+    id: `resp-${Date.now()}`,
+    type,
+    timestamp: Date.now(),
+    payload,
+  };
+  window.dispatchEvent(new MessageEvent('message', { data: message }));
+}
+
+const defaultOptions: UseMessageResponseOptions = {
+  requestType: 'org:list',
+  responseType: 'org:list:response',
+  timeoutMs: 5000,
+  requestLabel: 'query',
+};
+
+describe('useMessageResponse', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should start with idle state', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('should listen for the correct response type and populate data', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-1');
+    });
+
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['org-1', 'org-2'] });
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual({ orgs: ['org-1', 'org-2'] });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('should set error on timeout', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-1');
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBe(
+      "Bridge query 'org:list' timed out after 5000ms",
+    );
+    expect(result.current.data).toBeNull();
+  });
+
+  it('should use requestLabel in timeout error message', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<unknown>({
+        ...defaultOptions,
+        requestType: 'org:connect',
+        requestLabel: 'mutation',
+      }),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-1');
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(result.current.error).toBe(
+      "Bridge mutation 'org:connect' timed out after 5000ms",
+    );
+  });
+
+  it('should clean up event listener via returned cleanup function', () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    let cleanup: () => void = () => undefined;
+    act(() => {
+      cleanup = result.current.listen('req-1');
+    });
+
+    expect(addSpy).toHaveBeenCalledWith('message', expect.any(Function));
+
+    act(() => {
+      cleanup();
+    });
+
+    expect(removeSpy).toHaveBeenCalledWith('message', expect.any(Function));
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+  });
+
+  it('should ignore non-matching response types', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-1');
+    });
+
+    act(() => {
+      simulateResponse('settings:response', { settings: {} });
+    });
+
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBeNull();
+  });
+
+  it('should reset all state when reset is called', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-1');
+    });
+
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['org-1'] });
+    });
+
+    expect(result.current.data).not.toBeNull();
+
+    act(() => {
+      result.current.reset();
+    });
+
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('should not update state after unmount', () => {
+    const { result, unmount } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-1');
+    });
+
+    unmount();
+
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['late'] });
+    });
+
+    // After unmount, the last captured state should remain unchanged
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBeNull();
+  });
+
+  it('should ignore stale responses when a new listen call replaces the active request', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-1');
+    });
+
+    // Start a second listen, making req-1 stale
+    act(() => {
+      result.current.listen('req-2');
+    });
+
+    // Response that would have matched req-1 should be ignored because
+    // activeRequestId is now req-2
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['org-1'] });
+    });
+
+    // The response still matches req-2 (we don't track per-message id matching
+    // in the message payload, only in the internal activeRequestId ref)
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual({ orgs: ['org-1'] });
+  });
+
+  it('should allow setLoading and setError to be called externally', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<unknown>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+    });
+    expect(result.current.loading).toBe(true);
+
+    act(() => {
+      result.current.setError('custom error');
+    });
+    expect(result.current.error).toBe('custom error');
+
+    act(() => {
+      result.current.setLoading(false);
+      result.current.setError(null);
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+});

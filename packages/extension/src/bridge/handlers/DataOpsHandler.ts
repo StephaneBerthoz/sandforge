@@ -1,0 +1,548 @@
+import type { BaseMessage } from '@sandforge/shared';
+import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
+import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import {
+  sendNotification, sendHandlerError, sendOperationStarted, sendOperationProgress,
+  sendOperationCompleted, sendOperationFailed,
+} from './HandlerTypes.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import type { PIIScanRequest } from '@sandforge/shared';
+import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
+import { CrudFlsGuard } from '../../core/metadata/CrudFlsGuard.js';
+import type { ObjectDescribe } from '../../core/metadata/MetadataReader.js';
+import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
+import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
+import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
+import type { MaskingTemplateService } from '../../modules/dataops/templates/MaskingTemplateService.js';
+
+/**
+ * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
+ * expected by CrudFlsGuard.
+ */
+function describeToObjectDescribe(desc: Record<string, unknown>): ObjectDescribe {
+  const fields = desc.fields as Array<Record<string, unknown>>;
+  return {
+    name: desc.name as string,
+    label: desc.label as string,
+    labelPlural: (desc.labelPlural as string) ?? '',
+    keyPrefix: (desc.keyPrefix as string | null) ?? null,
+    custom: (desc.custom as boolean) ?? false,
+    createable: desc.createable as boolean,
+    updateable: desc.updateable as boolean,
+    deletable: desc.deletable as boolean,
+    queryable: desc.queryable as boolean,
+    fields: fields.map(f => ({
+      name: f.name as string,
+      label: f.label as string,
+      type: f.type as string,
+      length: (f.length as number) ?? 0,
+      nillable: (f.nillable as boolean) ?? false,
+      createable: f.createable as boolean,
+      updateable: f.updateable as boolean,
+      externalId: (f.externalId as boolean) ?? false,
+      referenceTo: (f.referenceTo as string[]) ?? [],
+      relationshipName: (f.relationshipName as string | null) ?? null,
+      picklistValues: (f.picklistValues as Array<{ value: string; label: string; active: boolean; defaultValue: boolean }>) ?? [],
+      defaultValue: f.defaultValue ?? null,
+      calculated: (f.calculated as boolean) ?? false,
+      autoNumber: (f.autoNumber as boolean) ?? false,
+      unique: (f.unique as boolean) ?? false,
+    })),
+    recordTypeInfos: (desc.recordTypeInfos as Array<{ recordTypeId: string; name: string; developerName: string; active: boolean; defaultRecordTypeMapping: boolean }>) ?? [],
+    childRelationships: (desc.childRelationships as Array<{ childSObject: string; field: string; relationshipName: string | null; cascadeDelete: boolean }>) ?? [],
+  };
+}
+
+/** Message types handled by DataOpsHandler. */
+const DATAOPS_TYPES = new Set([
+  'backup:execute',
+  'dataops:backup',
+  'dataops:rollback',
+  'dataops:anonymize',
+  'dataops:anonymization-templates',
+  'dataops:masking-templates-by-object',
+  'precheck:pii-scan',
+]);
+
+/**
+ * Domain handler for DataOps-related webview-to-extension messages.
+ *
+ * Manages backup, rollback, anonymization, anonymization templates,
+ * and PII scanning operations.
+ */
+export class DataOpsHandler implements DomainHandler {
+  /**
+   * Set of orgId values currently involved in a rollback or backup operation.
+   * Prevents concurrent operations from interleaving on the same org.
+   */
+  private readonly activeOrgOperations = new Set<string>();
+
+  /** Tracks DML operations to prevent duplicate submissions. */
+  private readonly dmlTracker = new DmlOperationTracker();
+
+  /** Optional masking template service for per-object template lookups. */
+  private maskingTemplateService?: MaskingTemplateService;
+
+  /** @param deps - Injected handler dependencies. */
+  constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * Inject the masking template service.
+   * @param service - The MaskingTemplateService instance.
+   */
+  setMaskingTemplateService(service: MaskingTemplateService): void {
+    this.maskingTemplateService = service;
+  }
+
+  /**
+   * Handle an incoming bridge message.
+   *
+   * @param msg - The typed base message from the webview.
+   * @returns `true` if the message was handled, `false` otherwise.
+   */
+  async handle(msg: BaseMessage): Promise<boolean> {
+    if (!DATAOPS_TYPES.has(msg.type)) return false;
+
+    switch (msg.type) {
+      case 'backup:execute':
+      case 'dataops:backup':
+        await this.handleBackup(msg);
+        return true;
+      case 'dataops:rollback':
+        await this.handleRollback(msg);
+        return true;
+      case 'dataops:anonymize':
+        await this.handleAnonymize(msg);
+        return true;
+      case 'dataops:anonymization-templates':
+        this.handleAnonymizationTemplates(msg);
+        return true;
+      case 'dataops:masking-templates-by-object':
+        this.handleMaskingTemplatesByObject(msg);
+        return true;
+      case 'precheck:pii-scan':
+        await this.handlePIIScan(msg);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private async handleBackup(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string; objects: string[] } }).payload;
+    const operationId = crypto.randomUUID();
+
+    const lockKey = `backup:${payload.orgId}`;
+    if (this.activeOrgOperations.has(lockKey)) {
+      const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
+      this.deps.log(`[WARN] ${message}`);
+      sendOperationFailed(this.deps, operationId, message, false);
+      return;
+    }
+    this.activeOrgOperations.add(lockKey);
+
+    try {
+      if (this.dmlTracker.isDuplicate(operationId)) {
+        this.deps.log(`[WARN] Duplicate backup operation detected: ${operationId}`);
+        sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false);
+        return;
+      }
+      this.dmlTracker.register(operationId, 'backup', 'insert', payload.objects.length);
+
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+
+      // Resolve dynamic query limits based on org tier
+      const org = this.deps.orgManager.getOrg(payload.orgId);
+      const orgTier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
+      const queryLimits = getQueryLimits(orgTier);
+
+      const results: Array<{ objectApiName: string; recordCount: number; records: Record<string, unknown>[] }> = [];
+
+      sendOperationStarted(this.deps, operationId, 'dataops', `Backup ${payload.objects.length} object(s)`);
+
+      let processedObjects = 0;
+      for (const objectApiName of payload.objects) {
+        const safeObj = sanitizeSoqlObjectName(objectApiName);
+        const records = await queryWithFieldsFallback<Record<string, unknown>>(
+          conn, safeObj,
+          `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${queryLimits.defaultQueryLimit}`,
+        );
+        checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
+
+        results.push({ objectApiName, recordCount: records.length, records });
+        processedObjects++;
+
+        sendOperationProgress(
+          this.deps,
+          operationId,
+          Math.round((processedObjects / payload.objects.length) * 100),
+          processedObjects,
+          payload.objects.length,
+          `Exported ${objectApiName} (${records.length} records)`,
+        );
+      }
+
+      const backupKey = `backup:${operationId}`;
+      const backupMeta = {
+        operationId,
+        orgId: payload.orgId,
+        objects: results.map(r => ({ objectApiName: r.objectApiName, recordCount: r.recordCount })),
+        timestamp: new Date().toISOString(),
+        totalRecords: results.reduce((sum, r) => sum + r.recordCount, 0),
+      };
+      this.deps.configStore.set(backupKey, backupMeta, 'backups');
+
+      for (const r of results) {
+        this.deps.configStore.set(`${backupKey}:${r.objectApiName}`, r.records, 'backups');
+      }
+
+      sendOperationCompleted(this.deps, operationId, {
+        objects: results.map(r => ({ objectApiName: r.objectApiName, recordCount: r.recordCount })),
+        totalRecords: backupMeta.totalRecords,
+      });
+
+      const response: BaseMessage & { payload: Record<string, unknown> } = {
+        id: this.deps.nextId(),
+        type: 'dataops:backup:response',
+        timestamp: Date.now(),
+        payload: {
+          operationId,
+          status: 'success',
+          objects: results.map(r => ({ objectApiName: r.objectApiName, recordCount: r.recordCount })),
+          totalRecords: backupMeta.totalRecords,
+          timestamp: backupMeta.timestamp,
+        },
+      };
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      this.dmlTracker.markCompleted(operationId);
+    } catch (err: unknown) {
+      this.dmlTracker.markFailed(operationId);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', err);
+    } finally {
+      this.activeOrgOperations.delete(lockKey);
+    }
+  }
+
+  private async handleRollback(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string; operationId: string } }).payload;
+    const rollbackOpId = crypto.randomUUID();
+
+    const lockKey = `backup:${payload.orgId}`;
+    if (this.activeOrgOperations.has(lockKey)) {
+      const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
+      this.deps.log(`[WARN] ${message}`);
+      sendOperationFailed(this.deps, rollbackOpId, message, false);
+      return;
+    }
+    this.activeOrgOperations.add(lockKey);
+
+    try {
+      if (this.dmlTracker.isDuplicate(rollbackOpId)) {
+        this.deps.log(`[WARN] Duplicate rollback operation detected: ${rollbackOpId}`);
+        sendOperationFailed(this.deps, rollbackOpId, `Duplicate operation: ${rollbackOpId}`, false);
+        return;
+      }
+      this.dmlTracker.register(rollbackOpId, 'rollback', 'upsert', 0);
+
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+
+      // Create CrudFlsGuard for permission checks before DML
+      const crudFlsGuard = new CrudFlsGuard(async (objectApiName: string) => {
+        const desc = await conn.describe(objectApiName);
+        return describeToObjectDescribe(desc);
+      });
+
+      const backupKey = `backup:${payload.operationId}`;
+      const backupMeta = this.deps.configStore.get<{
+        operationId: string;
+        orgId: string;
+        objects: Array<{ objectApiName: string; recordCount: number }>;
+        totalRecords: number;
+      }>(backupKey);
+
+      if (!backupMeta) {
+        throw new Error(`No backup found for operation ${payload.operationId}. Cannot rollback.`);
+      }
+
+      sendOperationStarted(this.deps, rollbackOpId, 'dataops', `Rollback ${backupMeta.objects.length} object(s)`);
+
+      let totalRestored = 0;
+      for (let i = 0; i < backupMeta.objects.length; i++) {
+        const obj = backupMeta.objects[i];
+        const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
+        const records = this.deps.configStore.get<Record<string, unknown>[]>(
+          `${backupKey}:${obj.objectApiName}`,
+        );
+
+        if (!records || records.length === 0) {
+          this.deps.log(`[WARN] No backup records for ${obj.objectApiName}, skipping.`);
+          continue;
+        }
+
+        // Verify CRUD/FLS permissions before upsert
+        const fieldNames = records.length > 0
+          ? Object.keys(records[0]).filter(k => k !== 'attributes' && k !== 'Id')
+          : [];
+        const flsCheck = await crudFlsGuard.checkCrudAndFls(safeObj, 'upsert', fieldNames);
+        if (!flsCheck.allowed) {
+          this.deps.log(`[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${flsCheck.reason}`);
+          sendOperationFailed(this.deps, rollbackOpId, flsCheck.reason, false);
+          return;
+        }
+
+        type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
+        const batchSize = 200;
+        let successCount = 0;
+        for (let j = 0; j < records.length; j += batchSize) {
+          const batch = records.slice(j, j + batchSize);
+          const cleaned = batch.map(r => {
+            const copy = { ...r };
+            delete copy['attributes'];
+            return copy;
+          });
+          const results = await conn.sobject(safeObj).upsert(
+            cleaned as Array<Record<string, unknown> & { Id: string }>, 'Id',
+          ) as unknown as JsforceResult[];
+          const arr = Array.isArray(results) ? results : [results];
+          successCount += arr.filter(r => r.success).length;
+        }
+        checkApiLimits(conn.limitInfo, `dataops:rollback upsert ${safeObj}`);
+        totalRestored += successCount;
+
+        sendOperationProgress(
+          this.deps,
+          rollbackOpId,
+          Math.round(((i + 1) / backupMeta.objects.length) * 100),
+          i + 1,
+          backupMeta.objects.length,
+          `Restored ${safeObj} (${successCount}/${records.length})`,
+        );
+      }
+
+      sendOperationCompleted(this.deps, rollbackOpId, { totalRestored });
+      this.dmlTracker.markCompleted(rollbackOpId);
+
+      const response: BaseMessage & { payload: Record<string, unknown> } = {
+        id: this.deps.nextId(),
+        type: 'dataops:rollback:response',
+        timestamp: Date.now(),
+        payload: {
+          operationId: payload.operationId,
+          status: 'success',
+          message: `Rollback completed: ${totalRestored} records restored`,
+          totalRestored,
+        },
+      };
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      this.dmlTracker.markFailed(rollbackOpId);
+      sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true);
+      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', err);
+    } finally {
+      this.activeOrgOperations.delete(lockKey);
+    }
+  }
+
+  private async handleAnonymize(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string; templateId: string; objects?: string[] } }).payload;
+    const operationId = crypto.randomUUID();
+
+    try {
+      if (this.deps.infraServices?.productionGuard) {
+        const org = this.deps.orgManager.getOrg(payload.orgId);
+        const check = this.deps.infraServices.productionGuard.check({
+          orgId: payload.orgId,
+          orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+          operation: 'update',
+          objectName: 'AnonymizeData',
+          recordCount: 1,
+          module: 'dataops',
+        });
+        if (!check.allowed) {
+          throw new Error(`Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`);
+        }
+      }
+
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const template = ANONYMIZATION_TEMPLATES.find(t => t.id === payload.templateId);
+      if (!template) {
+        sendNotification(this.deps, 'error', 'Anonymize', `Template "${payload.templateId}" not found.`);
+        return;
+      }
+
+      // Resolve dynamic query limits based on org tier
+      const anonOrg = this.deps.orgManager.getOrg(payload.orgId);
+      const anonOrgTier = resolveOrgTier(anonOrg?.orgType === 'Sandbox' || anonOrg?.orgType === 'Scratch');
+      const anonQueryLimits = getQueryLimits(anonOrgTier);
+
+      // Create CrudFlsGuard for permission checks before DML
+      const crudFlsGuard = new CrudFlsGuard(async (objectApiName: string) => {
+        const desc = await conn.describe(objectApiName);
+        return describeToObjectDescribe(desc);
+      });
+
+      sendOperationStarted(this.deps, operationId, 'dataops', `Anonymizing with ${template.name}`);
+
+      const { AnonymizationEngine } = await import('../../modules/dataops/AnonymizationEngine.js');
+      const engine = new AnonymizationEngine();
+
+      const objects = payload.objects ?? template.rules.map(r => r.fieldPattern.split('.')[0]).filter((v, i, a) => a.indexOf(v) === i);
+      let totalProcessed = 0;
+
+      for (let oi = 0; oi < objects.length; oi++) {
+        const objectName = objects[oi];
+        const safeObj = sanitizeSoqlObjectName(objectName);
+        const objectRules = template.rules.filter(r => r.fieldPattern.startsWith(`${objectName}.`) || (r.fieldPattern as string) === '*');
+
+        if (objectRules.length === 0) continue;
+
+        const records = await queryWithFieldsFallback<Record<string, unknown>>(
+          conn, safeObj,
+          `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${anonQueryLimits.defaultQueryLimit}`,
+        );
+        checkApiLimits(conn.limitInfo, `dataops:anonymize query ${safeObj}`);
+
+        if (records.length === 0) continue;
+
+        // Verify CRUD/FLS permissions before update
+        const updateFieldNames = objectRules
+          .map(r => r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern)
+          .filter(f => f !== '*');
+        const flsCheck = await crudFlsGuard.checkCrudAndFls(safeObj, 'update', updateFieldNames);
+        if (!flsCheck.allowed) {
+          this.deps.log(`[WARN] CRUD/FLS check failed for anonymize on ${safeObj}: ${flsCheck.reason}`);
+          sendOperationFailed(this.deps, operationId, flsCheck.reason, false);
+          return;
+        }
+
+        const rules = objectRules.map(r => ({
+          objectApiName: objectName,
+          fieldApiName: r.fieldPattern.includes('.') ? r.fieldPattern.split('.')[1] : r.fieldPattern,
+          method: r.ruleType as 'mask' | 'hash' | 'fake' | 'nullify' | 'shuffle' | 'truncate' | 'constant' | 'preserve_format',
+          config: {},
+        }));
+
+        const anonymized = engine.anonymize(records, rules);
+
+        type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
+        const batchSize = 200;
+        let successCount = 0;
+        for (let bi = 0; bi < anonymized.length; bi += batchSize) {
+          const batch = anonymized.slice(bi, bi + batchSize);
+          const updateResults = await conn.sobject(objectName).update(batch as Array<Record<string, unknown> & { Id: string }>) as unknown as JsforceResult[];
+          checkApiLimits(conn.limitInfo, `dataops:anonymize update ${objectName}`);
+          successCount += (Array.isArray(updateResults) ? updateResults : [updateResults]).filter(r => r.success).length;
+        }
+        totalProcessed += successCount;
+
+        sendOperationProgress(
+          this.deps,
+          operationId,
+          Math.round(((oi + 1) / objects.length) * 100),
+          oi + 1,
+          objects.length,
+          `Anonymized ${objectName} (${successCount}/${records.length})`,
+        );
+      }
+
+      sendOperationCompleted(this.deps, operationId, { totalProcessed });
+
+      const response: BaseMessage & { payload: Record<string, unknown> } = {
+        id: this.deps.nextId(),
+        type: 'dataops:anonymize:response',
+        timestamp: Date.now(),
+        payload: {
+          templateId: payload.templateId,
+          status: 'success',
+          recordsProcessed: totalProcessed,
+          message: `Anonymization completed: ${totalProcessed} records processed.`,
+        },
+      };
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', err);
+    }
+  }
+
+  private handleAnonymizationTemplates(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const response: BaseMessage & { payload: Record<string, unknown> } = {
+      id: this.deps.nextId(),
+      type: 'dataops:anonymization-templates:response',
+      timestamp: Date.now(),
+      payload: { templates: ANONYMIZATION_TEMPLATES },
+    };
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] dataops:anonymization-templates:response`);
+  }
+
+  private handleMaskingTemplatesByObject(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { objectApiName: string } }).payload;
+
+    if (!this.maskingTemplateService) {
+      sendNotification(this.deps, 'warning', 'DataOps', 'Masking template service is not initialized.');
+      return;
+    }
+
+    const template = this.maskingTemplateService.getTemplate(payload.objectApiName);
+    const response: BaseMessage & { payload: Record<string, unknown> } = {
+      id: this.deps.nextId(),
+      type: 'dataops:masking-templates-by-object:response',
+      timestamp: Date.now(),
+      payload: { objectApiName: payload.objectApiName, template: template ?? null },
+    };
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] dataops:masking-templates-by-object:response`);
+  }
+
+  private async handlePIIScan(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const { orgId, objectNames } = (msg as PIIScanRequest).payload;
+    try {
+      if (!this.deps.infraServices?.piiDetector) {
+        throw new Error('PII Detector not available.');
+      }
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const results = await Promise.all(
+        objectNames.map(async (objectName: string) => {
+          const safeObj = sanitizeSoqlObjectName(objectName);
+          const desc = await conn.describe(safeObj);
+          checkApiLimits(conn.limitInfo, `precheck:pii-scan describe ${safeObj}`);
+          const fields = (desc.fields as Array<{ name: string; label: string; type: string; length?: number }>).map((f: { name: string; label: string; type: string; length?: number }) => ({
+            apiName: f.name, label: f.label, type: f.type, length: f.length,
+          }));
+          const piiResult = this.deps.infraServices!.piiDetector.detectPII(objectName, fields);
+          return {
+            objectName,
+            piiFields: piiResult.piiFields.map((f: { fieldApiName: string; classification: string; confidence: number }) => ({
+              fieldName: f.fieldApiName, piiType: f.classification, confidence: f.confidence,
+            })),
+          };
+        }),
+      );
+      const response: BaseMessage & { payload: Record<string, unknown> } = {
+        type: 'precheck:pii-scan:response', id: this.deps.nextId(), timestamp: Date.now(),
+        payload: { success: true, results },
+      };
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      this.deps.log(`[ERR] precheck:pii-scan: ${extractErrorMessage(err)}`);
+      const errResp: BaseMessage & { payload: Record<string, unknown> } = {
+        type: 'precheck:pii-scan:response', id: this.deps.nextId(), timestamp: Date.now(),
+        payload: { success: false, error: extractErrorMessage(err) },
+      };
+      this.deps.broker.postToWebview(errResp);
+    }
+  }
+}

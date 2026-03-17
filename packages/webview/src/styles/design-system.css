@@ -1,0 +1,177 @@
+/* ===== SandForge Design System ===== */
+/* All colors map to VSCode CSS variables for automatic theme support. */
+
+/* ===== RESET ===== */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ===== BASE TOKENS ===== */
+:root {
+  /* Font — always inherit from VSCode */
+  --sf-font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+  --sf-font-size: var(--vscode-font-size, 13px);
+  --sf-font-size-sm: calc(var(--sf-font-size) - 1px);
+  --sf-font-size-lg: calc(var(--sf-font-size) + 2px);
+  --sf-font-size-xl: calc(var(--sf-font-size) + 5px);
+  --sf-font-size-2xl: calc(var(--sf-font-size) + 10px);
+  --sf-line-height: 1.5;
+
+  /* Spacing — 4px grid */
+  --sf-space-1: 4px;
+  --sf-space-2: 8px;
+  --sf-space-3: 12px;
+  --sf-space-4: 16px;
+  --sf-space-5: 20px;
+  --sf-space-6: 24px;
+  --sf-space-8: 32px;
+  --sf-space-10: 40px;
+  --sf-space-12: 48px;
+
+  /* Radius */
+  --sf-radius-sm: 4px;
+  --sf-radius-md: 6px;
+  --sf-radius-lg: 8px;
+  --sf-radius-xl: 12px;
+
+  /* Colours — 100% VSCode tokens */
+  --sf-bg-primary: var(--vscode-editor-background);
+  --sf-bg-secondary: var(--vscode-sideBar-background);
+  --sf-bg-card: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  --sf-bg-hover: var(--vscode-list-hoverBackground);
+  --sf-bg-active: var(--vscode-list-activeSelectionBackground);
+  --sf-bg-input: var(--vscode-input-background);
+
+  --sf-text-primary: var(--vscode-editor-foreground);
+  --sf-text-secondary: var(--vscode-descriptionForeground);
+  --sf-text-muted: var(--vscode-disabledForeground);
+  --sf-text-link: var(--vscode-textLink-foreground);
+
+  --sf-border: var(--vscode-widget-border, var(--vscode-panel-border));
+  --sf-border-subtle: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.2));
+
+  --sf-accent: var(--vscode-focusBorder);
+  --sf-button-bg: var(--vscode-button-background);
+  --sf-button-fg: var(--vscode-button-foreground);
+  --sf-button-hover: var(--vscode-button-hoverBackground);
+  --sf-button-secondary-bg: var(--vscode-button-secondaryBackground);
+  --sf-button-secondary-fg: var(--vscode-button-secondaryForeground);
+
+  --sf-success: var(--vscode-testing-iconPassed, #4ec9b0);
+  --sf-warning: var(--vscode-editorWarning-foreground, #cca700);
+  --sf-error: var(--vscode-errorForeground, #f48771);
+  --sf-info: var(--vscode-editorInfo-foreground, #3794ff);
+
+  /* Shadows */
+  --sf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --sf-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.15);
+  --sf-shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.2);
+
+  /* Transitions */
+  --sf-transition-fast: 100ms ease;
+  --sf-transition-normal: 150ms ease;
+  --sf-transition-slow: 250ms ease;
+}
+
+body {
+  font-family: var(--sf-font-family);
+  font-size: var(--sf-font-size);
+  line-height: var(--sf-line-height);
+  color: var(--sf-text-primary);
+  background: var(--sf-bg-primary);
+}
+
+/* ===== SKELETON LOADER ===== */
+@keyframes sf-skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+.sf-skeleton {
+  background: var(--sf-border-subtle);
+  border-radius: var(--sf-radius-sm);
+  animation: sf-skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* ===== SPIN ANIMATION ===== */
+@keyframes sf-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.sf-spin {
+  animation: sf-spin 1s linear infinite;
+}
+
+/* ===== FADE IN ===== */
+@keyframes sf-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sf-fade-in {
+  animation: sf-fade-in var(--sf-transition-slow) ease-out;
+}
+
+/* ===== WIZARD STEP TRANSITIONS ===== */
+.sf-step-enter {
+  animation: sf-fade-in var(--sf-transition-normal) ease-out;
+}
+
+/* ===== CARD HOVER LIFT ===== */
+.sf-card-hover {
+  transition: transform var(--sf-transition-fast), box-shadow var(--sf-transition-fast);
+}
+.sf-card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--sf-shadow-md);
+}
+
+/* ===== RESPONSIVE GRID HELPERS ===== */
+.sf-grid-auto {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--sf-space-4);
+}
+
+/* ===== CUSTOM SCROLLBAR ===== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sf-border-subtle) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sf-border-subtle);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sf-border);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ===== SELECTION ===== */
+::selection {
+  background: var(--sf-bg-active);
+  color: var(--sf-text-primary);
+}
+
+/* ===== FOCUS RING ===== */
+.sf-focus-ring:focus-visible {
+  outline: 2px solid var(--sf-accent);
+  outline-offset: 2px;
+}
