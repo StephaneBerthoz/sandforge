@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -70,16 +70,56 @@
       ]
     },
     "commands": [
-      { "command": "sandforge.openMonitor", "title": "%command.openMonitor%", "icon": "$(dashboard)" },
-      { "command": "sandforge.openForge", "title": "%command.openForge%", "icon": "$(flame)" },
-      { "command": "sandforge.openGrappe", "title": "%command.openGrappe%", "icon": "$(symbol-namespace)" },
-      { "command": "sandforge.openCompare", "title": "%command.openCompare%", "icon": "$(diff)" },
-      { "command": "sandforge.openDataOps", "title": "%command.openDataOps%", "icon": "$(shield)" },
-      { "command": "sandforge.openAutomation", "title": "%command.openAutomation%", "icon": "$(zap)" },
-      { "command": "sandforge.openOrgs", "title": "%command.openOrgs%", "icon": "$(plug)" },
-      { "command": "sandforge.openSettings", "title": "%command.openSettings%", "icon": "$(gear)" },
-      { "command": "sandforge.openHelp", "title": "%command.openHelp%", "icon": "$(question)" },
-      { "command": "sandforge.cheers", "title": "%command.cheers%", "icon": "$(sparkle)" }
+      {
+        "command": "sandforge.openMonitor",
+        "title": "%command.openMonitor%",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "sandforge.openForge",
+        "title": "%command.openForge%",
+        "icon": "$(flame)"
+      },
+      {
+        "command": "sandforge.openGrappe",
+        "title": "%command.openGrappe%",
+        "icon": "$(symbol-namespace)"
+      },
+      {
+        "command": "sandforge.openCompare",
+        "title": "%command.openCompare%",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "sandforge.openDataOps",
+        "title": "%command.openDataOps%",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "sandforge.openAutomation",
+        "title": "%command.openAutomation%",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "sandforge.openOrgs",
+        "title": "%command.openOrgs%",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "sandforge.openSettings",
+        "title": "%command.openSettings%",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "sandforge.openHelp",
+        "title": "%command.openHelp%",
+        "icon": "$(question)"
+      },
+      {
+        "command": "sandforge.cheers",
+        "title": "%command.cheers%",
+        "icon": "$(sparkle)"
+      }
     ],
     "menus": {},
     "keybindings": [
@@ -177,7 +217,11 @@
         "sandforge.ai.provider": {
           "type": "string",
           "default": "anthropic",
-          "enum": ["anthropic", "openai", "custom"],
+          "enum": [
+            "anthropic",
+            "openai",
+            "custom"
+          ],
           "description": "%config.ai.provider.description%"
         },
         "sandforge.ai.model": {
