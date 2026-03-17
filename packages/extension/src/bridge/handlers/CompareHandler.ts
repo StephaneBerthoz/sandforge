@@ -1,13 +1,16 @@
 import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, SF_API_VERSION } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
-import { sendHandlerError } from './HandlerTypes.js';
+import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 
-/** Message types handled by CompareHandler. */
+/**
+ * Message types handled by CompareHandler.
+ * `compare:execute` is the canonical type; `compare:start` is kept as a legacy alias.
+ */
 const COMPARE_TYPES = new Set([
   'compare:execute',
   'compare:start',
@@ -129,16 +132,11 @@ export class CompareHandler implements DomainHandler {
 
       const result = await orchestrator.execute(config);
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'compare:start:response',
-        timestamp: Date.now(),
-        payload: result as unknown as Record<string, unknown>,
-      };
+      const response = buildResponse(this.deps, msg, 'compare:execute:response', result as unknown as Record<string, unknown>);
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'compare:start', 'compare:error', err);
+      sendHandlerError(this.deps, 'compare:execute', 'compare:error', err);
     }
   }
 }
