@@ -125,4 +125,106 @@ describe('AutomationHandler', () => {
     expect(response.correlationId).toBe('req-auto-4');
     expect(response.payload.success).toBe(false);
   });
+
+  it('handles pipeline:list with correlationId and returns pipelines from ConfigStore', async () => {
+    const configStore = deps.configStore as unknown as { getByCategory: ReturnType<typeof vi.fn> };
+    configStore.getByCategory = vi.fn().mockReturnValue({
+      'pipeline:saved:p1': { id: 'p1', name: 'Test Pipeline', savedAt: '2026-03-17T00:00:00Z' },
+    });
+
+    const msg: BaseMessage = {
+      id: 'req-auto-list',
+      type: 'pipeline:list',
+      timestamp: Date.now(),
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { pipelines: unknown[] } };
+    expect(response.type).toBe('pipeline:list:response');
+    expect(response.correlationId).toBe('req-auto-list');
+    expect(response.payload.pipelines).toHaveLength(1);
+  });
+
+  it('handles pipeline:history with correlationId and returns sorted history', async () => {
+    const configStore = deps.configStore as unknown as { getByCategory: ReturnType<typeof vi.fn> };
+    configStore.getByCategory = vi.fn().mockReturnValue({
+      'pipeline:history:h1': { id: 'h1', status: 'completed', timestamp: 100 },
+      'pipeline:history:h2': { id: 'h2', status: 'failed', timestamp: 200 },
+    });
+
+    const msg: BaseMessage = {
+      id: 'req-auto-hist',
+      type: 'pipeline:history',
+      timestamp: Date.now(),
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { history: Array<{ timestamp: number }> } };
+    expect(response.type).toBe('pipeline:history:response');
+    expect(response.correlationId).toBe('req-auto-hist');
+    expect(response.payload.history).toHaveLength(2);
+    // Sorted by timestamp descending (200 before 100)
+    expect(response.payload.history[0].timestamp).toBe(200);
+    expect(response.payload.history[1].timestamp).toBe(100);
+  });
+
+  it('handles pipeline:save with correlationId and persists to ConfigStore', async () => {
+    const configStore = deps.configStore as unknown as { set: ReturnType<typeof vi.fn> };
+    configStore.set = vi.fn();
+
+    const msg: BaseMessage & { payload: { id: string; config: Record<string, unknown> } } = {
+      id: 'req-auto-save',
+      type: 'pipeline:save',
+      timestamp: Date.now(),
+      payload: { id: 'p-save-1', config: { name: 'My Pipeline', steps: [] } },
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    expect(configStore.set).toHaveBeenCalledWith(
+      'pipeline:saved:p-save-1',
+      expect.objectContaining({ name: 'My Pipeline', id: 'p-save-1' }),
+      'pipelines',
+    );
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; id: string } };
+    expect(response.type).toBe('pipeline:save:response');
+    expect(response.correlationId).toBe('req-auto-save');
+    expect(response.payload.success).toBe(true);
+    expect(response.payload.id).toBe('p-save-1');
+  });
+
+  it('handles pipeline:list error path', async () => {
+    const configStore = deps.configStore as unknown as { getByCategory: ReturnType<typeof vi.fn> };
+    configStore.getByCategory = vi.fn().mockImplementation(() => { throw new Error('store failed'); });
+
+    const msg: BaseMessage = {
+      id: 'req-auto-list-err',
+      type: 'pipeline:list',
+      timestamp: Date.now(),
+    };
+
+    await handler.handle(msg);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    expect(response.type).toBe('pipeline:error');
+    expect(response.payload.message).toBe('store failed');
+  });
 });
