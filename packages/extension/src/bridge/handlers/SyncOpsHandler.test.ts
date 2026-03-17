@@ -40,21 +40,29 @@ describe('SyncOpsHandler', () => {
     expect(result).toBe(false);
   });
 
-  it('returns true for handled message types', async () => {
+  it('returns true for handled message types and response includes correlationId', async () => {
     vi.mock('../../core/connection/ConnectionHelper.js', () => ({
       getJsforceConnection: vi.fn().mockResolvedValue({
         describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
+        limitInfo: undefined,
       }),
     }));
 
     const msg: BaseMessage & { payload: { orgId: string } } = {
-      id: '1',
+      id: 'req-sync-1',
       type: 'sync:describe-global',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
     };
     const result = await handler.handle(msg);
     expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalled();
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
+    expect(response.type).toBe('sync:describe-global:response');
+    expect(response.correlationId).toBe('req-sync-1');
 
     vi.restoreAllMocks();
   });
