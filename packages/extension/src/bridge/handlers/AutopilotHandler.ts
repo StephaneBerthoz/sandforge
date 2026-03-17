@@ -140,12 +140,47 @@ export class AutopilotHandler implements DomainHandler {
       if (payload.grappeThreshold && this.orchestrator) {
         this.deps.log(`[GRAPPE] autopilot threshold set to ${payload.grappeThreshold}`);
       }
+
+      // Send node-progress 'processing' for all nodes in each wave before execution
+      for (const wave of this.plan.waves) {
+        for (const objectApiName of wave.objects) {
+          this.sendNodeProgress(msg, String(objectApiName), 'processing', wave.order);
+        }
+      }
+
       const result = await this.orchestrator.executePlan(
         this.plan,
         this.graph,
         this.rules,
         this.scanResult.recordCounts,
       );
+
+      // Send node-progress 'completed' or 'failed' per node based on execution result
+      const completedSet = new Set(result.completedObjects);
+      const failedSet = new Set(result.failedObjects);
+      const skippedSet = new Set(result.skippedObjects);
+
+      for (const wave of this.plan.waves) {
+        for (const objectApiName of wave.objects) {
+          const name = String(objectApiName);
+          if (completedSet.has(name)) {
+            this.sendNodeProgress(msg, name, 'completed', wave.order, {
+              recordCount: this.scanResult?.recordCounts.get(name) ?? 0,
+              failureCount: 0,
+            });
+          } else if (failedSet.has(name)) {
+            this.sendNodeProgress(msg, name, 'failed', wave.order, {
+              error: `Execution failed for ${name}`,
+            });
+          } else if (skippedSet.has(name)) {
+            this.sendNodeProgress(msg, name, 'completed', wave.order, {
+              recordCount: 0,
+              failureCount: 0,
+            });
+          }
+        }
+      }
+
       const response = buildResponse(this.deps, msg, 'autopilot:completed', {
         totalRecords: result.totalSuccess + result.totalFailure + result.totalSkipped,
         totalSuccessCount: result.totalSuccess,
@@ -158,6 +193,32 @@ export class AutopilotHandler implements DomainHandler {
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', err);
       sendNotification(this.deps, 'error', 'Autopilot', `Execution failed: ${extractErrorMessage(err)}`);
     }
+  }
+
+  /**
+   * Send an autopilot:node-progress message to the webview.
+   *
+   * @param requestMsg - The original request message for correlationId.
+   * @param objectName - The Salesforce object API name.
+   * @param status - Node processing status.
+   * @param wave - Wave number (0-based).
+   * @param extra - Optional extra fields (recordCount, failureCount, error).
+   */
+  private sendNodeProgress(
+    requestMsg: BaseMessage,
+    objectName: string,
+    status: 'processing' | 'completed' | 'failed',
+    wave: number,
+    extra?: { recordCount?: number; failureCount?: number; error?: string },
+  ): void {
+    const progressMsg = buildResponse(this.deps, requestMsg, 'autopilot:node-progress', {
+      nodeId: objectName,
+      objectName,
+      status,
+      wave,
+      ...(extra ?? {}),
+    });
+    this.deps.broker.postToWebview(progressMsg);
   }
 
   private handlePause(msg: BaseMessage): void {

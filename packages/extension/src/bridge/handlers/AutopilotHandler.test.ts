@@ -169,4 +169,92 @@ describe('AutopilotHandler', () => {
     const notification = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
     expect(notification.type).toBe('notification');
   });
+
+  it('sends node-progress messages during execution', async () => {
+    const orchestrator = createMockOrchestrator({
+      executePlan: vi.fn().mockResolvedValue({
+        totalSuccess: 10,
+        totalFailure: 1,
+        totalSkipped: 0,
+        elapsedMs: 500,
+        completedObjects: ['Account'],
+        failedObjects: ['Contact'],
+        skippedObjects: [],
+      }),
+      generatePlan: vi.fn().mockReturnValue({
+        waves: [
+          { order: 0, objects: ['Account'], dependsOn: [] },
+          { order: 1, objects: ['Contact'], dependsOn: [0] },
+        ],
+        totalRecords: 100,
+        estimatedDurationSec: 10,
+        estimatedApiCalls: 20,
+        complianceFramework: 'none',
+        anonymizationSummary: { totalRules: 0, rulesByType: {} },
+        cycleResolutions: [],
+      }),
+    });
+    handler.setOrchestrator(orchestrator);
+
+    // Setup: scan-schema -> generate-plan -> execute
+    mockGetConn.mockResolvedValue({} as never);
+    await handler.handle({
+      id: 'scan-exec',
+      type: 'autopilot:scan-schema',
+      timestamp: Date.now(),
+      payload: { sourceOrgId: 'src', targetOrgId: 'tgt', selectedObjects: [], includeStandardObjects: false },
+    } as BaseMessage);
+
+    await handler.handle({
+      id: 'plan-exec',
+      type: 'autopilot:generate-plan',
+      timestamp: Date.now(),
+      payload: { complianceFramework: 'GDPR' },
+    } as BaseMessage);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    postToWebview.mockClear();
+
+    // Execute
+    const executeMsg: BaseMessage & { payload: { grappeThreshold: number } } = {
+      id: 'req-ap-exec',
+      type: 'autopilot:execute',
+      timestamp: Date.now(),
+      payload: { grappeThreshold: 0 },
+    };
+
+    await handler.handle(executeMsg);
+
+    // Expect: 2 processing + 2 completed/failed + 1 autopilot:completed = 5 calls
+    const allCalls = postToWebview.mock.calls.map(
+      (call: [BaseMessage & { correlationId?: string; payload: { status?: string; objectName?: string } }]) => call[0],
+    );
+
+    // Filter node-progress messages
+    const nodeProgressMsgs = allCalls.filter((m) => m.type === 'autopilot:node-progress');
+    expect(nodeProgressMsgs.length).toBe(4);
+
+    // First two should be 'processing' (one per node)
+    const processingMsgs = nodeProgressMsgs.filter((m) => m.payload.status === 'processing');
+    expect(processingMsgs.length).toBe(2);
+
+    // One completed (Account) and one failed (Contact)
+    const completedMsgs = nodeProgressMsgs.filter((m) => m.payload.status === 'completed');
+    expect(completedMsgs.length).toBe(1);
+    expect(completedMsgs[0].payload.objectName).toBe('Account');
+
+    const failedMsgs = nodeProgressMsgs.filter((m) => m.payload.status === 'failed');
+    expect(failedMsgs.length).toBe(1);
+    expect(failedMsgs[0].payload.objectName).toBe('Contact');
+
+    // All node-progress messages should have correlationId
+    for (const npm of nodeProgressMsgs) {
+      expect(npm.correlationId).toBe('req-ap-exec');
+    }
+
+    // Final autopilot:completed message
+    const completedResponse = allCalls.find((m) => m.type === 'autopilot:completed');
+    expect(completedResponse).toBeDefined();
+    expect(completedResponse?.correlationId).toBe('req-ap-exec');
+  });
 });
