@@ -22,11 +22,11 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 - ✓ 6-language i18n (en, fr, de, es, ja, pt-BR), 4600+ tests, security hardening — Phase 09
 - ✓ Core infrastructure: typed message bridge, connection pool, Grappe parallel processing, execution pipeline — Phase 00-01
 - ✓ Autopilot: auto-provisioning with compliance profiles, dependency graph, execution waves — v3.0.0
+- ✓ E2E testing: 162 Playwright specs, axe-core WCAG 2.1 AA, GitHub Actions CI — Milestone v1.0.0
+- ✓ Marketplace publication: visual assets, user docs, release pipeline, published on Marketplace — Milestone v1.0.0
 
 ### Active
 
-- [ ] E2E testing complete: per-module Playwright specs, CI/CD integration — Phase 10
-- [ ] Marketplace publication: visual assets, user docs, GitHub Actions, VS Marketplace listing — Phase 11
 - [ ] Advanced features: real-time sync (CDC/Streaming), collaborative editing, multi-LLM, enterprise integrations — Phase 12
 
 ### Out of Scope
@@ -39,7 +39,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
 - 558 source files, 487+ test files, 1045+ total files across packages
-- v3.2.0 current — phases 00-09 complete, phases 10-11 in progress, phase 12 planned
+- v1.0.1 current — phases 00-11 complete, published on VS Code Marketplace, phase 12 planned
 - VSIX package at 1.07 MB, well within marketplace limits
 - jsforce v3 for all Salesforce API interactions
 - Strict TypeScript (no `any`), Zod validation on all external data, Winston logging
@@ -66,4 +66,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-16 after learnship initialization (brownfield, v3.2.0)*
+*Last updated: 2026-03-17 — Milestone v1.0.0 archived, published as v1.0.1*
