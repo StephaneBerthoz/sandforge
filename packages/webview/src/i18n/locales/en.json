@@ -755,7 +755,12 @@
     "thinking": "Thinking...",
     "tokenUsage": "Token Usage",
     "totalCalls": "Total Calls",
-    "avgLatency": "Avg Latency"
+    "avgLatency": "Avg Latency",
+    "notConfigured": {
+      "title": "AI Assistant Not Configured",
+      "description": "To use AI features, configure your API key in Settings.",
+      "configureButton": "Go to Settings"
+    }
   },
   "notifications": {
     "title": "Notifications",

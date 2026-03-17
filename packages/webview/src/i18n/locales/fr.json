@@ -892,7 +892,12 @@
     "thinking": "Reflexion...",
     "tokenUsage": "Utilisation tokens",
     "totalCalls": "Total appels",
-    "avgLatency": "Latence moy."
+    "avgLatency": "Latence moy.",
+    "notConfigured": {
+      "title": "Assistant IA non configure",
+      "description": "Pour utiliser les fonctionnalites IA, configurez votre cle API dans les Parametres.",
+      "configureButton": "Aller aux Parametres"
+    }
   },
   "onboarding": {
     "welcomeTitle": "Bienvenue sur SandForge",
