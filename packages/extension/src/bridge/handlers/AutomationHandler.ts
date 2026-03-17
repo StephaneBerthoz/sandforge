@@ -16,6 +16,9 @@ const AUTOMATION_TYPES = new Set([
   'pipeline:run',
   'pipeline:execute',
   'pipeline:templates',
+  'pipeline:list',
+  'pipeline:history',
+  'pipeline:save',
   'operation:cancel',
   'operation:pause',
   'operation:resume',
@@ -58,6 +61,15 @@ export class AutomationHandler implements DomainHandler {
         return true;
       case 'pipeline:templates':
         this.handlePipelineTemplates(msg);
+        return true;
+      case 'pipeline:list':
+        this.handlePipelineList(msg);
+        return true;
+      case 'pipeline:history':
+        this.handlePipelineHistory(msg);
+        return true;
+      case 'pipeline:save':
+        this.handlePipelineSave(msg);
         return true;
       case 'operation:cancel':
         this.handleOperationCancel(msg);
@@ -225,6 +237,75 @@ export class AutomationHandler implements DomainHandler {
       }
     } else {
       sendNotification(this.deps, 'warning', 'Operation', 'No active operation found to resume.');
+    }
+  }
+
+  /**
+   * Handle pipeline:list -- load saved pipelines from ConfigStore.
+   * Retrieves all entries in the 'pipelines' category.
+   */
+  private handlePipelineList(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const savedEntries = this.deps.configStore.getByCategory('pipelines');
+      const pipelines = Object.entries(savedEntries).map(([key, value]) => ({
+        key,
+        ...(value as Record<string, unknown>),
+      }));
+      const response = buildResponse(this.deps, msg, 'pipeline:list:response', { pipelines });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] pipeline:list:response (${pipelines.length} pipelines)`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:list', 'pipeline:error', err);
+    }
+  }
+
+  /**
+   * Handle pipeline:history -- load execution history from ConfigStore.
+   * Retrieves all entries in the 'pipeline-history' category, sorted by timestamp descending.
+   */
+  private handlePipelineHistory(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const historyEntries = this.deps.configStore.getByCategory('pipeline-history');
+      const history = Object.entries(historyEntries)
+        .map(([key, value]) => ({
+          key,
+          ...(value as Record<string, unknown>),
+        }))
+        .sort((a, b) => {
+          const tsA = typeof a.timestamp === 'number' ? a.timestamp : 0;
+          const tsB = typeof b.timestamp === 'number' ? b.timestamp : 0;
+          return tsB - tsA;
+        });
+      const response = buildResponse(this.deps, msg, 'pipeline:history:response', { history });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] pipeline:history:response (${history.length} entries)`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:history', 'pipeline:error', err);
+    }
+  }
+
+  /**
+   * Handle pipeline:save -- persist a pipeline configuration to ConfigStore.
+   * Stores under 'pipeline:saved:{id}' with 'pipelines' category.
+   */
+  private handlePipelineSave(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const payload = (msg as BaseMessage & { payload: { id: string; config: Record<string, unknown> } }).payload;
+      const pipelineId = payload.id || crypto.randomUUID();
+      const storageKey = `pipeline:saved:${pipelineId}`;
+      this.deps.configStore.set(storageKey, {
+        ...payload.config,
+        id: pipelineId,
+        savedAt: new Date().toISOString(),
+      }, 'pipelines');
+      const response = buildResponse(this.deps, msg, 'pipeline:save:response', { success: true, id: pipelineId });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] pipeline:save:response id=${pipelineId}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'pipeline:save', 'pipeline:error', err);
     }
   }
 

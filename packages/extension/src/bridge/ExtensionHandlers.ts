@@ -215,6 +215,7 @@ export class ExtensionHandlers {
     // Automation
     route([
       'pipeline:run', 'pipeline:execute', 'pipeline:templates',
+      'pipeline:list', 'pipeline:history', 'pipeline:save',
       'operation:cancel', 'operation:pause', 'operation:resume',
       'marketplace:list', 'marketplace:install',
     ], this.automationHandler);
