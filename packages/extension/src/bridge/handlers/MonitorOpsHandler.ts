@@ -1,7 +1,7 @@
 import type { BaseMessage, TrendData, OrgTrendPayload } from '@sandforge/shared';
 import { SF_API_VERSION, MONITOR_PERIOD_MAP, MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
-import { sendHandlerError, sendNotification } from './HandlerTypes.js';
+import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { HealthScoreCalculator } from '../../modules/monitor/HealthScoreCalculator.js';
@@ -160,12 +160,7 @@ export class MonitorOpsHandler implements DomainHandler {
       }
 
       // 6. Send response
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'monitor:data',
-        timestamp: Date.now(),
-        payload: { limits, jobs, healthScore, healthReport, trends, orgInfo, lastUpdated: new Date().toISOString() },
-      };
+      const response = buildResponse(this.deps, msg, 'monitor:data', { limits, jobs, healthScore, healthReport, trends, orgInfo, lastUpdated: new Date().toISOString() });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -191,12 +186,7 @@ export class MonitorOpsHandler implements DomainHandler {
       periodLabel: periodStr,
     };
 
-    const response: BaseMessage & { payload: OrgTrendPayload } = {
-      id: this.deps.nextId(),
-      type: 'monitor:trends:data',
-      timestamp: Date.now(),
-      payload: trendPayload,
-    };
+    const response = buildResponse(this.deps, msg, 'monitor:trends:data', trendPayload as unknown as Record<string, unknown>);
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -204,12 +194,7 @@ export class MonitorOpsHandler implements DomainHandler {
   private handleLiveOperations(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const operations = this.liveOperationTracker?.getAll() ?? [];
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      id: this.deps.nextId(),
-      type: 'monitor:live-operations:response',
-      timestamp: Date.now(),
-      payload: { operations },
-    };
+    const response = buildResponse(this.deps, msg, 'monitor:live-operations:response', { operations });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -222,23 +207,13 @@ export class MonitorOpsHandler implements DomainHandler {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
       await conn.sobject('AsyncApexJob').update({ Id: payload.jobId, Status: 'Aborted' } as Record<string, unknown> & { Id: string });
 
-      const response: BaseMessage & { payload: { jobId: string; success: boolean; message: string } } = {
-        id: this.deps.nextId(),
-        type: 'monitor:abort-job:response',
-        timestamp: Date.now(),
-        payload: { jobId: payload.jobId, success: true, message: 'Job abort requested.' },
-      };
+      const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', { jobId: payload.jobId, success: true, message: 'Job abort requested.' });
       this.deps.broker.postToWebview(response);
       sendNotification(this.deps, 'success', 'Monitor', `Job ${payload.jobId} abort requested.`);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] monitor:abort-job: ${message}`);
-      const response: BaseMessage & { payload: { jobId: string; success: boolean; message: string } } = {
-        id: this.deps.nextId(),
-        type: 'monitor:abort-job:response',
-        timestamp: Date.now(),
-        payload: { jobId: payload.jobId, success: false, message },
-      };
+      const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', { jobId: payload.jobId, success: false, message });
       this.deps.broker.postToWebview(response);
       sendNotification(this.deps, 'error', 'Monitor', `Failed to abort job: ${message}`);
     }
