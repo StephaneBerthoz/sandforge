@@ -138,4 +138,112 @@ describe('CompareHandler', () => {
     expect(response.type).toBe('compare:error');
     expect(response.payload.message).toBe('connection failed');
   });
+
+  it('handles compare:permissions with response type and correlationId', async () => {
+    mockGetConn.mockResolvedValue({
+      query: vi.fn().mockResolvedValue({ records: [], totalSize: 0, done: true }),
+      limitInfo: undefined,
+    } as never);
+
+    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } } = {
+      id: 'req-cmp-perm',
+      type: 'compare:permissions',
+      timestamp: Date.now(),
+      payload: { sourceOrgId: 'src', targetOrgId: 'tgt' },
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { permissions: Record<string, unknown> } };
+    expect(response.type).toBe('compare:permissions:response');
+    expect(response.correlationId).toBe('req-cmp-perm');
+    expect(response.payload.permissions).toBeDefined();
+  });
+
+  it('handles compare:snapshots with response type and correlationId', async () => {
+    mockGetConn.mockResolvedValue({
+      describeGlobal: vi.fn().mockResolvedValue({
+        sobjects: [
+          { name: 'Account', custom: false, label: 'Account', queryable: true },
+          { name: 'My_Custom__c', custom: true, label: 'My Custom', queryable: true },
+        ],
+      }),
+      limitInfo: undefined,
+    } as never);
+
+    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } } = {
+      id: 'req-cmp-snap',
+      type: 'compare:snapshots',
+      timestamp: Date.now(),
+      payload: { sourceOrgId: 'src', targetOrgId: 'tgt' },
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { snapshot: { source: Record<string, unknown>; target: Record<string, unknown>; diff: Record<string, unknown> } } };
+    expect(response.type).toBe('compare:snapshots:response');
+    expect(response.correlationId).toBe('req-cmp-snap');
+    expect(response.payload.snapshot.source).toBeDefined();
+    expect(response.payload.snapshot.target).toBeDefined();
+    expect(response.payload.snapshot.diff).toBeDefined();
+  });
+
+  it('handles compare:drift with response type and correlationId', async () => {
+    mockGetConn.mockResolvedValue({
+      query: vi.fn().mockResolvedValue({
+        records: [{ Name: 'TestOrg', LanguageLocaleKey: 'en_US', DefaultLocaleSidKey: 'en_US', TimeZoneSidKey: 'America/Los_Angeles', FiscalYearStartMonth: '1' }],
+        totalSize: 1,
+        done: true,
+      }),
+      limitInfo: undefined,
+    } as never);
+
+    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } } = {
+      id: 'req-cmp-drift',
+      type: 'compare:drift',
+      timestamp: Date.now(),
+      payload: { sourceOrgId: 'src', targetOrgId: 'tgt' },
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { drift: { items: unknown[]; driftCount: number; matchCount: number } } };
+    expect(response.type).toBe('compare:drift:response');
+    expect(response.correlationId).toBe('req-cmp-drift');
+    expect(response.payload.drift.items).toBeDefined();
+    expect(typeof response.payload.drift.driftCount).toBe('number');
+    expect(typeof response.payload.drift.matchCount).toBe('number');
+  });
+
+  it('compare:permissions error path sends typed error', async () => {
+    mockGetConn.mockRejectedValue(new Error('perm connection failed'));
+
+    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } } = {
+      id: 'req-cmp-perm-err',
+      type: 'compare:permissions',
+      timestamp: Date.now(),
+      payload: { sourceOrgId: 'src', targetOrgId: 'tgt' },
+    };
+
+    await handler.handle(msg);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    expect(response.type).toBe('compare:error');
+    expect(response.payload.message).toBe('perm connection failed');
+  });
 });
