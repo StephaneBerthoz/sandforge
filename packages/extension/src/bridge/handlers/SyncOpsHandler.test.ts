@@ -3,6 +3,43 @@ import { SyncOpsHandler } from './SyncOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 
+vi.mock('../../core/connection/ConnectionHelper.js', () => ({
+  getJsforceConnection: vi.fn(),
+}));
+vi.mock('../../modules/sync/DataSync.js', () => ({
+  DataSync: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock('../../modules/sync/MetadataSync.js', () => ({
+  MetadataSync: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock('../../modules/sync/DeltaDetector.js', () => ({
+  DeltaDetector: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock('../../modules/sync/ConflictResolver.js', () => ({
+  ConflictResolver: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock('../../modules/sync/FieldMapping.js', () => ({
+  FieldMappingService: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock('../../modules/sync/TransformPipeline.js', () => ({
+  TransformPipeline: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock('../../modules/sync/MigrationScript.js', () => ({
+  MigrationScript: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock('../../modules/sync/IncrementalTracker.js', () => ({
+  IncrementalTracker: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
+  SyncOrchestrator: vi.fn().mockImplementation(() => ({
+    execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+  })),
+}));
+
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+
+const mockGetConn = vi.mocked(getJsforceConnection);
+
 /**
  * Creates minimal mock deps for SyncOpsHandler tests.
  */
@@ -30,6 +67,7 @@ describe('SyncOpsHandler', () => {
   let deps: HandlerDeps;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     deps = createMockDeps();
     handler = new SyncOpsHandler(deps);
   });
@@ -41,12 +79,10 @@ describe('SyncOpsHandler', () => {
   });
 
   it('returns true for handled message types and response includes correlationId', async () => {
-    vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-      getJsforceConnection: vi.fn().mockResolvedValue({
-        describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
-        limitInfo: undefined,
-      }),
-    }));
+    mockGetConn.mockResolvedValue({
+      describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
+      limitInfo: undefined,
+    } as never);
 
     const msg: BaseMessage & { payload: { orgId: string } } = {
       id: 'req-sync-1',
@@ -63,8 +99,6 @@ describe('SyncOpsHandler', () => {
     const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
     expect(response.type).toBe('sync:describe-global:response');
     expect(response.correlationId).toBe('req-sync-1');
-
-    vi.restoreAllMocks();
   });
 
   describe('operationId cleanup in handleExecute', () => {
@@ -79,9 +113,7 @@ describe('SyncOpsHandler', () => {
         piiDetector: undefined as unknown as NonNullable<HandlerDeps['infraServices']>['piiDetector'],
       };
 
-      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-        getJsforceConnection: vi.fn().mockRejectedValue(new Error('connection failed')),
-      }));
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
 
       const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
         id: '1',
@@ -104,8 +136,6 @@ describe('SyncOpsHandler', () => {
       expect(mockComplete).toHaveBeenCalledTimes(1);
       // The operationId passed to complete matches the one passed to start
       expect(mockComplete.mock.calls[0][0]).toBe(mockStart.mock.calls[0][0]);
-
-      vi.restoreAllMocks();
     });
 
     it('calls performanceTracker.complete on success path via finally', async () => {
@@ -119,49 +149,17 @@ describe('SyncOpsHandler', () => {
         piiDetector: undefined as unknown as NonNullable<HandlerDeps['infraServices']>['piiDetector'],
       };
 
-      // Mock all the sync module imports and connections
-      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-        getJsforceConnection: vi.fn().mockResolvedValue({
-          query: vi.fn().mockResolvedValue({ records: [] }),
-          sobject: vi.fn().mockReturnValue({
-            create: vi.fn().mockResolvedValue([]),
-            upsert: vi.fn().mockResolvedValue([]),
-            update: vi.fn().mockResolvedValue([]),
-            destroy: vi.fn().mockResolvedValue([]),
-          }),
-          tooling: { executeAnonymous: vi.fn() },
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        sobject: vi.fn().mockReturnValue({
+          create: vi.fn().mockResolvedValue([]),
+          upsert: vi.fn().mockResolvedValue([]),
+          update: vi.fn().mockResolvedValue([]),
+          destroy: vi.fn().mockResolvedValue([]),
         }),
-      }));
-
-      vi.mock('../../modules/sync/DataSync.js', () => ({
-        DataSync: vi.fn().mockImplementation(() => ({})),
-      }));
-      vi.mock('../../modules/sync/MetadataSync.js', () => ({
-        MetadataSync: vi.fn().mockImplementation(() => ({})),
-      }));
-      vi.mock('../../modules/sync/DeltaDetector.js', () => ({
-        DeltaDetector: vi.fn().mockImplementation(() => ({})),
-      }));
-      vi.mock('../../modules/sync/ConflictResolver.js', () => ({
-        ConflictResolver: vi.fn().mockImplementation(() => ({})),
-      }));
-      vi.mock('../../modules/sync/FieldMapping.js', () => ({
-        FieldMappingService: vi.fn().mockImplementation(() => ({})),
-      }));
-      vi.mock('../../modules/sync/TransformPipeline.js', () => ({
-        TransformPipeline: vi.fn().mockImplementation(() => ({})),
-      }));
-      vi.mock('../../modules/sync/MigrationScript.js', () => ({
-        MigrationScript: vi.fn().mockImplementation(() => ({})),
-      }));
-      vi.mock('../../modules/sync/IncrementalTracker.js', () => ({
-        IncrementalTracker: vi.fn().mockImplementation(() => ({})),
-      }));
-      vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
-        SyncOrchestrator: vi.fn().mockImplementation(() => ({
-          execute: vi.fn().mockResolvedValue({ status: 'completed' }),
-        })),
-      }));
+        tooling: { executeAnonymous: vi.fn() },
+        limitInfo: undefined,
+      } as never);
 
       const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
         id: '1',
@@ -180,8 +178,6 @@ describe('SyncOpsHandler', () => {
 
       // complete is called exactly once (in finally, not duplicated)
       expect(mockComplete).toHaveBeenCalledTimes(1);
-
-      vi.restoreAllMocks();
     });
   });
 });

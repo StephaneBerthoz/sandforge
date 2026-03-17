@@ -3,6 +3,14 @@ import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 
+vi.mock('../../core/connection/ConnectionHelper.js', () => ({
+  getJsforceConnection: vi.fn(),
+}));
+
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+
+const mockGetConn = vi.mocked(getJsforceConnection);
+
 /**
  * Creates minimal mock deps for SeedOpsHandler tests.
  */
@@ -30,6 +38,7 @@ describe('SeedOpsHandler', () => {
   let deps: HandlerDeps;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     deps = createMockDeps();
     handler = new SeedOpsHandler(deps);
   });
@@ -41,16 +50,14 @@ describe('SeedOpsHandler', () => {
   });
 
   it('handles seed:describe-global and response includes correlationId', async () => {
-    vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-      getJsforceConnection: vi.fn().mockResolvedValue({
-        describeGlobal: vi.fn().mockResolvedValue({
-          sobjects: [
-            { name: 'Account', label: 'Account', createable: true },
-            { name: 'Lead', label: 'Lead', createable: false },
-          ],
-        }),
+    mockGetConn.mockResolvedValue({
+      describeGlobal: vi.fn().mockResolvedValue({
+        sobjects: [
+          { name: 'Account', label: 'Account', createable: true },
+          { name: 'Lead', label: 'Lead', createable: false },
+        ],
       }),
-    }));
+    } as never);
 
     const msg: BaseMessage & { payload: { orgId: string } } = {
       id: 'req-100',
@@ -70,21 +77,17 @@ describe('SeedOpsHandler', () => {
     expect(response.correlationId).toBe('req-100');
     expect(response.payload.objects).toHaveLength(1);
     expect((response.payload.objects[0] as { apiName: string }).apiName).toBe('Account');
-
-    vi.restoreAllMocks();
   });
 
   it('handles seed:describe-object and response includes correlationId', async () => {
-    vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-      getJsforceConnection: vi.fn().mockResolvedValue({
-        describe: vi.fn().mockResolvedValue({
-          label: 'Account',
-          fields: [
-            { name: 'Name', label: 'Account Name', type: 'string', nillable: false, defaultedOnCreate: false, length: 255, createable: true },
-          ],
-        }),
+    mockGetConn.mockResolvedValue({
+      describe: vi.fn().mockResolvedValue({
+        label: 'Account',
+        fields: [
+          { name: 'Name', label: 'Account Name', type: 'string', nillable: false, defaultedOnCreate: false, length: 255, createable: true },
+        ],
       }),
-    }));
+    } as never);
 
     const msg: BaseMessage & { payload: { orgId: string; objectApiName: string } } = {
       id: 'req-200',
@@ -102,14 +105,10 @@ describe('SeedOpsHandler', () => {
     const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
     expect(response.type).toBe('seed:describe-object:response');
     expect(response.correlationId).toBe('req-200');
-
-    vi.restoreAllMocks();
   });
 
   it('error path sends error response via sendHandlerError', async () => {
-    vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-      getJsforceConnection: vi.fn().mockRejectedValue(new Error('connection failed')),
-    }));
+    mockGetConn.mockRejectedValue(new Error('connection failed'));
 
     const msg: BaseMessage & { payload: { orgId: string } } = {
       id: 'req-300',
@@ -126,7 +125,5 @@ describe('SeedOpsHandler', () => {
     const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
     expect(response.type).toBe('seed:error');
     expect(response.payload.message).toBe('connection failed');
-
-    vi.restoreAllMocks();
   });
 });
