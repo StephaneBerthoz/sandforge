@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 1 of 5 (Bridge Wiring Fix) — not started
 Plan: —
-Status: Defining requirements
-Last activity: 2026-03-17 — Milestone v1.1.0 started
+Status: Roadmap defined, ready for phase 1 planning
+Last activity: 2026-03-17 — Milestone v1.1.0 roadmap created
 
 Progress: [░░░░░░░░░░] 0%
 
