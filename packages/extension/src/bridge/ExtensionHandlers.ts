@@ -13,7 +13,6 @@ import type { AIAssistant } from '../modules/ai/AIAssistant.js';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace.js';
 import type { AutopilotOrchestrator } from '../modules/autopilot/AutopilotOrchestrator.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
-import type { ForgeHandlerDeps } from './handlers/ForgeHandler.js';
 
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker.js';
 import type { MaskingTemplateService } from '../modules/dataops/templates/MaskingTemplateService.js';
@@ -29,7 +28,8 @@ import { AutomationHandler } from './handlers/AutomationHandler.js';
 import { AIHandler } from './handlers/AIHandler.js';
 import type { AIModules } from './handlers/AIHandler.js';
 import { AutopilotHandler } from './handlers/AutopilotHandler.js';
-import { ForgeOpsHandler } from './handlers/ForgeOpsHandler.js';
+import { ForgeHandler } from './handlers/ForgeHandler.js';
+import type { ForgeServices } from './handlers/ForgeHandler.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
 import { ConfigHandler } from './handlers/ConfigHandler.js';
@@ -74,7 +74,7 @@ export class ExtensionHandlers {
   private readonly automationHandler: AutomationHandler;
   private readonly aiHandler: AIHandler;
   private readonly autopilotHandler: AutopilotHandler;
-  private readonly forgeHandler: ForgeOpsHandler;
+  private readonly forgeHandler: ForgeHandler;
   private readonly migrationHandler: MigrationHandler;
   private readonly configHandler: ConfigHandler;
 
@@ -103,7 +103,7 @@ export class ExtensionHandlers {
     this.automationHandler = new AutomationHandler(this.handlerDeps);
     this.aiHandler = new AIHandler(this.handlerDeps);
     this.autopilotHandler = new AutopilotHandler(this.handlerDeps);
-    this.forgeHandler = new ForgeOpsHandler(this.handlerDeps);
+    this.forgeHandler = new ForgeHandler(this.handlerDeps);
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
   }
@@ -162,7 +162,7 @@ export class ExtensionHandlers {
    */
   setForgeOrchestrator(
     orchestrator: ForgeOrchestrator,
-    services?: Omit<ForgeHandlerDeps, 'orchestrator' | 'postMessage'>,
+    services?: ForgeServices,
   ): void {
     this.forgeHandler.setForgeOrchestrator(orchestrator, services);
   }

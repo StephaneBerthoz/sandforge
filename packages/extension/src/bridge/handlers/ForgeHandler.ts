@@ -3,13 +3,34 @@ import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendOperationStarted, sendOperationCompleted, sendOperationFailed } from './HandlerTypes.js';
 import { logger } from '../../logger.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
+import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
+import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
+import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
+import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
+
+/** Optional v2 services injected alongside the ForgeOrchestrator. */
+export interface ForgeServices {
+  /** Optional plan generator for wave-based planning. */
+  planGenerator?: ForgePlanGenerator;
+  /** Optional compliance service for PII reports. */
+  complianceService?: ForgeComplianceService;
+  /** Optional metadata diff service for schema comparison. */
+  metadataDiff?: ForgeMetadataDiff;
+  /** @deprecated Templates are now persisted via ConfigStore. Accepted for backward compatibility. */
+  templateStore?: ForgeTemplateStore;
+  /** @deprecated History is now persisted via ConfigStore. Accepted for backward compatibility. */
+  historyStore?: ForgeHistoryStore;
+}
 
 /** Message types handled by ForgeHandler. */
 const FORGE_TYPES = new Set([
+  'forge:preview',
   'forge:discover',
   'forge:execute',
   'forge:pause',
@@ -23,6 +44,12 @@ const FORGE_TYPES = new Set([
   'forge:compliance:request',
   'forge:metadata-diff:request',
 ]);
+
+/** Payload shape for forge:preview messages. */
+interface PreviewPayload {
+  recordId: string;
+  orgId: string;
+}
 
 /** Payload shape for forge:discover messages. */
 interface DiscoverPayload {
@@ -107,11 +134,7 @@ export class ForgeHandler implements DomainHandler {
    */
   setForgeOrchestrator(
     orchestrator: ForgeOrchestrator,
-    services?: {
-      planGenerator?: ForgePlanGenerator;
-      complianceService?: ForgeComplianceService;
-      metadataDiff?: ForgeMetadataDiff;
-    },
+    services?: ForgeServices,
   ): void {
     this.orchestrator = orchestrator;
     if (services) {
@@ -133,6 +156,9 @@ export class ForgeHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
 
     switch (msg.type) {
+      case 'forge:preview':
+        await this.handleForgePreview(msg);
+        return true;
       case 'forge:discover':
         await this.handleDiscover(msg);
         return true;
@@ -197,6 +223,70 @@ export class ForgeHandler implements DomainHandler {
   /** Save execution history to ConfigStore. */
   private saveHistory(history: ForgeExecutionResult[]): void {
     this.deps.configStore.set(HISTORY_KEY, history, FORGE_CATEGORY);
+  }
+
+  /** Preview a single record by ID (resolve object type, fetch standard fields). */
+  private async handleForgePreview(msg: BaseMessage): Promise<void> {
+    const { recordId, orgId } = (msg as BaseMessage & { payload: PreviewPayload }).payload;
+
+    try {
+      if (!/^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/.test(recordId)) {
+        const errResponse = buildResponse(this.deps, msg, 'forge:preview:error', { message: 'Invalid Record ID format' });
+        this.deps.broker.postToWebview(errResponse);
+        return;
+      }
+
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+
+      // Resolve object type from record ID key prefix
+      const keyPrefix = recordId.substring(0, 3);
+      const globalDesc = await conn.describeGlobal();
+      checkApiLimits(conn.limitInfo, 'forge:preview describeGlobal');
+      const sobjectInfo = globalDesc.sobjects.find(
+        (s) => s.keyPrefix === keyPrefix,
+      );
+
+      if (!sobjectInfo) {
+        const errResponse = buildResponse(this.deps, msg, 'forge:preview:error', {
+          message: `Unknown object for key prefix "${keyPrefix}"`,
+        });
+        this.deps.broker.postToWebview(errResponse);
+        return;
+      }
+
+      // Query the record with standard fields (with fallback for orgs not supporting FIELDS() syntax)
+      const records = await queryWithFieldsFallback<Record<string, unknown>>(
+        conn, sobjectInfo.name,
+        `SELECT FIELDS(STANDARD) FROM ${sobjectInfo.name} WHERE Id = '${sanitizeSoqlValue(recordId)}' LIMIT 1`,
+      );
+      checkApiLimits(conn.limitInfo, `forge:preview query ${sobjectInfo.name}`);
+
+      if (!records || records.length === 0) {
+        const errResponse = buildResponse(this.deps, msg, 'forge:preview:error', {
+          message: `Record not found: ${recordId}`,
+        });
+        this.deps.broker.postToWebview(errResponse);
+        return;
+      }
+
+      const record = records[0];
+      const skipKeys = new Set(['attributes', 'Id']);
+      const fields = Object.entries(record)
+        .filter(([key]) => !skipKeys.has(key))
+        .filter(([, value]) => value != null && String(value) !== '')
+        .slice(0, 8)
+        .map(([key, value]) => ({ name: key, value: String(value) }));
+
+      const response = buildResponse(this.deps, msg, 'forge:preview:response', {
+        objectApiName: sobjectInfo.name,
+        objectLabel: sobjectInfo.label,
+        recordId,
+        fields,
+      });
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'forge:preview', 'forge:preview:error', err);
+    }
   }
 
   private async handleDiscover(msg: BaseMessage): Promise<void> {
