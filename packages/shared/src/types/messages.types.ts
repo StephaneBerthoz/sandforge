@@ -34,6 +34,8 @@ export interface BaseMessage {
   id: string;
   type: string;
   timestamp: number;
+  /** Links a response to the original request (set to request's `id`). */
+  correlationId?: string;
 }
 
 // ─── Autopilot Messages ──────────────────────────────────────────────────────
@@ -139,12 +141,6 @@ export interface AutopilotSkipNodeRequest extends BaseMessage {
   };
 }
 
-/** Request to override an anonymization rule */
-export interface AutopilotOverrideRuleRequest extends BaseMessage {
-  type: 'autopilot:override-rule';
-  payload: import('./autopilot.types.js').AnonymizationOverride;
-}
-
 /** Autopilot execution completed */
 export interface AutopilotCompleted extends BaseMessage {
   type: 'autopilot:completed';
@@ -221,14 +217,12 @@ export type WebViewToExtensionMessage =
   | AutopilotPauseRequest
   | AutopilotResumeRequest
   | AutopilotSkipNodeRequest
-  | AutopilotOverrideRuleRequest
   | LiveOperationsRequest
   | ConfigExportRequest
   | ConfigImportRequest
   | ConfigCategoriesRequest
   | ConfigValidateRequest
   | MaskingTemplatesByObjectRequest
-  | MaskingApplyCustomRequest
   | OrgHealthScoreRequest
   | SchedulerListRequest
   | SchedulerUpsertRequest
@@ -238,13 +232,7 @@ export type WebViewToExtensionMessage =
   | RealTimeStopRequest
   | RealTimeStatusRequest
   | RealTimeMetricsRequest
-  | RealTimeResolveConflictRequest
-  | GovernanceEvaluateRequest
-  | GovernancePoliciesRequest
-  | AuditListRequest
-  | AuditExportRequest
-  | TeamShareRequest
-  | TeamImportRequest;
+  | RealTimeResolveConflictRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -260,7 +248,6 @@ export type ExtensionToWebViewMessage =
   | GrappePartitionProgress
   | GrappeBackPressure
   | GrappeCompleted
-  | RecoveryCheckpointFound
   | AIChatResponse
   | AIConversationCreatedResponse
   | AIConversationLoadedResponse
@@ -314,13 +301,7 @@ export type ExtensionToWebViewMessage =
   | RealTimeCDCEventMessage
   | RealTimeStatusResponse
   | RealTimeMetricsResponse
-  | RealTimeConflictDetected
-  | GovernanceEvaluateResponse
-  | GovernancePoliciesResponse
-  | AuditListResponse
-  | AuditExportResponse
-  | TeamShareResponse
-  | TeamImportResponse;
+  | RealTimeConflictDetected;
 
 /** Org management messages */
 export interface OrgListRequest extends BaseMessage {
@@ -530,12 +511,6 @@ export interface GrappeCompleted extends BaseMessage {
   payload: { operationId: string; totalProcessed: number; totalFailed: number };
 }
 
-/** Recovery messages */
-export interface RecoveryCheckpointFound extends BaseMessage {
-  type: 'recovery:checkpointFound';
-  payload: { operationId: string; module: string; timestamp: number };
-}
-
 /** Onboarding messages (WebView → Extension) */
 export interface OnboardingCompleteRequest extends BaseMessage {
   type: 'onboarding:complete';
@@ -590,6 +565,11 @@ export interface AIConversationDeleteRequest extends BaseMessage {
   payload: { conversationId: string };
 }
 
+/** Request to list all AI conversations from the persisted index */
+export interface AIConversationListRequest extends BaseMessage {
+  type: 'ai:conversation:list';
+}
+
 /** Request to get the current AI module status and usage stats */
 export interface AIStatusRequest extends BaseMessage {
   type: 'ai:status';
@@ -632,6 +612,20 @@ export interface AIConversationLoadedResponse extends BaseMessage {
       title: string;
       messages: Array<{ id: string; role: string; content: string; timestamp: string }>;
     };
+  };
+}
+
+/** Response confirming an AI conversation was deleted */
+export interface AIConversationDeletedResponse extends BaseMessage {
+  type: 'ai:conversation:deleted';
+  payload: { conversationId: string };
+}
+
+/** Response containing the list of persisted AI conversations */
+export interface AIConversationListResponse extends BaseMessage {
+  type: 'ai:conversation:list:response';
+  payload: {
+    conversations: Array<{ id: string; title: string; createdAt: string; messageCount: number }>;
   };
 }
 
@@ -1074,19 +1068,6 @@ export interface MaskingTemplatesByObjectResponse extends BaseMessage {
   };
 }
 
-/** Request to apply a custom masking template. */
-export interface MaskingApplyCustomRequest extends BaseMessage {
-  type: 'dataops:masking-apply-custom';
-  payload: {
-    orgId: string;
-    objectName: string;
-    rules: Array<{
-      fieldApiName: string;
-      method: string;
-      config?: Record<string, unknown>;
-    }>;
-  };
-}
 
 // ─── Org Health Score Messages ────────────────────────────────────────────────
 
@@ -1327,160 +1308,3 @@ export interface RealTimeConflictDetected extends BaseMessage {
   };
 }
 
-// ─── Governance Messages ─────────────────────────────────────────────────────
-
-/** Request to evaluate governance rules against an org. */
-export interface GovernanceEvaluateRequest extends BaseMessage {
-  type: 'governance:evaluate';
-  payload: { policyId: string; orgId: string };
-}
-
-/** Response with governance evaluation results. */
-export interface GovernanceEvaluateResponse extends BaseMessage {
-  type: 'governance:evaluate:response';
-  payload: {
-    success: boolean;
-    policyId: string;
-    policyName: string;
-    complianceScore: number;
-    ruleResults: Array<{
-      ruleId: string;
-      ruleName: string;
-      category: string;
-      status: 'pass' | 'warning' | 'fail';
-      actualValue: number;
-      threshold: number;
-      message: string;
-      remediation: string;
-    }>;
-    remediations: string[];
-    error?: string;
-  };
-}
-
-/** Request to list governance policies. */
-export interface GovernancePoliciesRequest extends BaseMessage {
-  type: 'governance:policies';
-}
-
-/** Response containing governance policies. */
-export interface GovernancePoliciesResponse extends BaseMessage {
-  type: 'governance:policies:response';
-  payload: {
-    policies: Array<{
-      id: string;
-      name: string;
-      description: string;
-      ruleCount: number;
-      createdAt: string;
-      updatedAt: string;
-    }>;
-  };
-}
-
-// ─── Audit Trail Messages ────────────────────────────────────────────────────
-
-/** Request to list audit trail entries. */
-export interface AuditListRequest extends BaseMessage {
-  type: 'audit:list';
-  payload?: {
-    startDate?: string;
-    endDate?: string;
-    operationType?: string;
-    orgId?: string;
-    status?: string;
-    search?: string;
-  };
-}
-
-/** Response containing audit trail entries. */
-export interface AuditListResponse extends BaseMessage {
-  type: 'audit:list:response';
-  payload: {
-    entries: Array<{
-      id: string;
-      operationType: string;
-      description: string;
-      orgId?: string;
-      user?: string;
-      timestamp: string;
-      durationMs: number;
-      status: string;
-      recordCount?: number;
-      error?: string;
-    }>;
-    total: number;
-  };
-}
-
-/** Request to export audit trail data. */
-export interface AuditExportRequest extends BaseMessage {
-  type: 'audit:export';
-  payload: {
-    format: 'csv' | 'json';
-    startDate?: string;
-    endDate?: string;
-    operationType?: string;
-    orgId?: string;
-    status?: string;
-  };
-}
-
-/** Response containing the exported audit data. */
-export interface AuditExportResponse extends BaseMessage {
-  type: 'audit:export:response';
-  payload: {
-    success: boolean;
-    data?: string;
-    format: string;
-    entryCount: number;
-    error?: string;
-  };
-}
-
-// ─── Team Configuration Sharing Messages ─────────────────────────────────────
-
-/** Request to generate a shareable config bundle. */
-export interface TeamShareRequest extends BaseMessage {
-  type: 'team:share';
-  payload: {
-    categories: string[];
-    createdBy?: string;
-  };
-}
-
-/** Response containing the shareable config bundle. */
-export interface TeamShareResponse extends BaseMessage {
-  type: 'team:share:response';
-  payload: {
-    success: boolean;
-    bundle?: string;
-    keysIncluded: number;
-    error?: string;
-  };
-}
-
-/** Request to import a team config bundle. */
-export interface TeamImportRequest extends BaseMessage {
-  type: 'team:import';
-  payload: {
-    bundle: string;
-    strategy: 'keep-local' | 'keep-remote' | 'merge';
-  };
-}
-
-/** Response after importing a team config bundle. */
-export interface TeamImportResponse extends BaseMessage {
-  type: 'team:import:response';
-  payload: {
-    success: boolean;
-    keysImported: number;
-    keysSkipped: number;
-    conflicts: Array<{
-      key: string;
-      localValue: unknown;
-      remoteValue: unknown;
-    }>;
-    error?: string;
-  };
-}
