@@ -2,7 +2,7 @@ import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
-  sendNotification, sendHandlerError, sendOperationStarted, sendOperationProgress,
+  buildResponse, sendNotification, sendHandlerError, sendOperationStarted, sendOperationProgress,
   sendOperationCompleted, sendOperationFailed,
 } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -204,18 +204,13 @@ export class DataOpsHandler implements DomainHandler {
         totalRecords: backupMeta.totalRecords,
       });
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'dataops:backup:response',
-        timestamp: Date.now(),
-        payload: {
-          operationId,
-          status: 'success',
-          objects: results.map(r => ({ objectApiName: r.objectApiName, recordCount: r.recordCount })),
-          totalRecords: backupMeta.totalRecords,
-          timestamp: backupMeta.timestamp,
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'dataops:backup:response', {
+        operationId,
+        status: 'success',
+        objects: results.map(r => ({ objectApiName: r.objectApiName, recordCount: r.recordCount })),
+        totalRecords: backupMeta.totalRecords,
+        timestamp: backupMeta.timestamp,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
       this.dmlTracker.markCompleted(operationId);
@@ -328,17 +323,12 @@ export class DataOpsHandler implements DomainHandler {
       sendOperationCompleted(this.deps, rollbackOpId, { totalRestored });
       this.dmlTracker.markCompleted(rollbackOpId);
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'dataops:rollback:response',
-        timestamp: Date.now(),
-        payload: {
-          operationId: payload.operationId,
-          status: 'success',
-          message: `Rollback completed: ${totalRestored} records restored`,
-          totalRestored,
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'dataops:rollback:response', {
+        operationId: payload.operationId,
+        status: 'success',
+        message: `Rollback completed: ${totalRestored} records restored`,
+        totalRestored,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -455,17 +445,12 @@ export class DataOpsHandler implements DomainHandler {
 
       sendOperationCompleted(this.deps, operationId, { totalProcessed });
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'dataops:anonymize:response',
-        timestamp: Date.now(),
-        payload: {
-          templateId: payload.templateId,
-          status: 'success',
-          recordsProcessed: totalProcessed,
-          message: `Anonymization completed: ${totalProcessed} records processed.`,
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'dataops:anonymize:response', {
+        templateId: payload.templateId,
+        status: 'success',
+        recordsProcessed: totalProcessed,
+        message: `Anonymization completed: ${totalProcessed} records processed.`,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -476,12 +461,7 @@ export class DataOpsHandler implements DomainHandler {
 
   private handleAnonymizationTemplates(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      id: this.deps.nextId(),
-      type: 'dataops:anonymization-templates:response',
-      timestamp: Date.now(),
-      payload: { templates: ANONYMIZATION_TEMPLATES },
-    };
+    const response = buildResponse(this.deps, msg, 'dataops:anonymization-templates:response', { templates: ANONYMIZATION_TEMPLATES });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] dataops:anonymization-templates:response`);
   }
@@ -496,12 +476,7 @@ export class DataOpsHandler implements DomainHandler {
     }
 
     const template = this.maskingTemplateService.getTemplate(payload.objectApiName);
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      id: this.deps.nextId(),
-      type: 'dataops:masking-templates-by-object:response',
-      timestamp: Date.now(),
-      payload: { objectApiName: payload.objectApiName, template: template ?? null },
-    };
+    const response = buildResponse(this.deps, msg, 'dataops:masking-templates-by-object:response', { objectApiName: payload.objectApiName, template: template ?? null });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] dataops:masking-templates-by-object:response`);
   }
@@ -531,17 +506,11 @@ export class DataOpsHandler implements DomainHandler {
           };
         }),
       );
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'precheck:pii-scan:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: true, results },
-      };
+      const response = buildResponse(this.deps, msg, 'precheck:pii-scan:response', { success: true, results });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] precheck:pii-scan: ${extractErrorMessage(err)}`);
-      const errResp: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'precheck:pii-scan:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: false, error: extractErrorMessage(err) },
-      };
+      const errResp = buildResponse(this.deps, msg, 'precheck:pii-scan:response', { success: false, error: extractErrorMessage(err) });
       this.deps.broker.postToWebview(errResp);
     }
   }

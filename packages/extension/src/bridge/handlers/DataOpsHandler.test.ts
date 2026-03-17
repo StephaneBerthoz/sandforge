@@ -40,15 +40,22 @@ describe('DataOpsHandler', () => {
     expect(result).toBe(false);
   });
 
-  it('returns true for handled message types', async () => {
+  it('returns true for handled message types and response includes correlationId', async () => {
     const msg: BaseMessage & { payload: Record<string, unknown> } = {
-      id: '1',
+      id: 'req-dataops-1',
       type: 'dataops:anonymization-templates',
       timestamp: Date.now(),
       payload: {},
     };
     const result = await handler.handle(msg);
     expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
+    expect(response.type).toBe('dataops:anonymization-templates:response');
+    expect(response.correlationId).toBe('req-dataops-1');
   });
 
   describe('race condition guard', () => {
