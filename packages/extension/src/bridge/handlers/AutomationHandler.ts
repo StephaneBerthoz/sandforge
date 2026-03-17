@@ -268,16 +268,16 @@ export class AutomationHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const historyEntries = this.deps.configStore.getByCategory('pipeline-history');
-      const history = Object.entries(historyEntries)
-        .map(([key, value]) => ({
-          key,
-          ...(value as Record<string, unknown>),
-        }))
-        .sort((a, b) => {
-          const tsA = typeof a.timestamp === 'number' ? a.timestamp : 0;
-          const tsB = typeof b.timestamp === 'number' ? b.timestamp : 0;
-          return tsB - tsA;
+      const rawHistory: Array<Record<string, unknown>> = Object.entries(historyEntries)
+        .map(([key, value]) => {
+          const entry = value as Record<string, unknown>;
+          return { key, ...entry };
         });
+      const history = rawHistory.sort((a, b) => {
+        const tsA = typeof a['timestamp'] === 'number' ? a['timestamp'] : 0;
+        const tsB = typeof b['timestamp'] === 'number' ? b['timestamp'] : 0;
+        return (tsB as number) - (tsA as number);
+      });
       const response = buildResponse(this.deps, msg, 'pipeline:history:response', { history });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] pipeline:history:response (${history.length} entries)`);
