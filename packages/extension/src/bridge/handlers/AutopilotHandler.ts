@@ -1,6 +1,6 @@
 import type { BaseMessage, AutopilotScanSchemaRequest, AutopilotGeneratePlanRequest, AutopilotExecuteRequest, AutopilotSkipNodeRequest } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
-import { sendNotification } from './HandlerTypes.js';
+import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import type { AutopilotOrchestrator } from '../../modules/autopilot/AutopilotOrchestrator.js';
@@ -92,15 +92,11 @@ export class AutopilotHandler implements DomainHandler {
       this.scanResult = scanResult;
       const graph = this.orchestrator.buildGraph(scanResult);
       this.graph = graph;
-      const response: BaseMessage & { payload: { graph: unknown } } = {
-        id: this.deps.nextId(), type: 'autopilot:schema-result', timestamp: Date.now(),
-        payload: { graph },
-      };
+      const response = buildResponse(this.deps, msg, 'autopilot:schema-result', { graph });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
-      this.deps.log(`[ERR] autopilot:scan-schema: ${message}`);
-      sendNotification(this.deps, 'error', 'Autopilot', `Schema scan failed: ${message}`);
+      sendHandlerError(this.deps, 'autopilot:scan-schema', 'autopilot:error', err);
+      sendNotification(this.deps, 'error', 'Autopilot', `Schema scan failed: ${extractErrorMessage(err)}`);
     }
   }
 
@@ -121,15 +117,11 @@ export class AutopilotHandler implements DomainHandler {
       this.rules = rules;
       const plan = this.orchestrator.generatePlan(this.graph, payload.complianceFramework, rules);
       this.plan = plan;
-      const response: BaseMessage & { payload: { plan: unknown; graph: unknown } } = {
-        id: this.deps.nextId(), type: 'autopilot:plan-ready', timestamp: Date.now(),
-        payload: { plan, graph: this.graph },
-      };
+      const response = buildResponse(this.deps, msg, 'autopilot:plan-ready', { plan, graph: this.graph });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
-      this.deps.log(`[ERR] autopilot:generate-plan: ${message}`);
-      sendNotification(this.deps, 'error', 'Autopilot', `Plan generation failed: ${message}`);
+      sendHandlerError(this.deps, 'autopilot:generate-plan', 'autopilot:error', err);
+      sendNotification(this.deps, 'error', 'Autopilot', `Plan generation failed: ${extractErrorMessage(err)}`);
     }
   }
 
@@ -154,21 +146,17 @@ export class AutopilotHandler implements DomainHandler {
         this.rules,
         this.scanResult.recordCounts,
       );
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(), type: 'autopilot:completed', timestamp: Date.now(),
-        payload: {
-          totalRecords: result.totalSuccess + result.totalFailure + result.totalSkipped,
-          totalSuccessCount: result.totalSuccess,
-          totalFailureCount: result.totalFailure,
-          totalElapsedMs: result.elapsedMs,
-          totalApiCalls: 0,
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'autopilot:completed', {
+        totalRecords: result.totalSuccess + result.totalFailure + result.totalSkipped,
+        totalSuccessCount: result.totalSuccess,
+        totalFailureCount: result.totalFailure,
+        totalElapsedMs: result.elapsedMs,
+        totalApiCalls: 0,
+      });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
-      this.deps.log(`[ERR] autopilot:execute: ${message}`);
-      sendNotification(this.deps, 'error', 'Autopilot', `Execution failed: ${message}`);
+      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', err);
+      sendNotification(this.deps, 'error', 'Autopilot', `Execution failed: ${extractErrorMessage(err)}`);
     }
   }
 
@@ -182,9 +170,8 @@ export class AutopilotHandler implements DomainHandler {
       this.orchestrator.pause();
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution paused.');
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
-      this.deps.log(`[ERR] autopilot:pause: ${message}`);
-      sendNotification(this.deps, 'error', 'Autopilot', `Pause failed: ${message}`);
+      sendHandlerError(this.deps, 'autopilot:pause', 'autopilot:error', err);
+      sendNotification(this.deps, 'error', 'Autopilot', `Pause failed: ${extractErrorMessage(err)}`);
     }
   }
 
@@ -198,9 +185,8 @@ export class AutopilotHandler implements DomainHandler {
       this.orchestrator.resume();
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution resumed.');
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
-      this.deps.log(`[ERR] autopilot:resume: ${message}`);
-      sendNotification(this.deps, 'error', 'Autopilot', `Resume failed: ${message}`);
+      sendHandlerError(this.deps, 'autopilot:resume', 'autopilot:error', err);
+      sendNotification(this.deps, 'error', 'Autopilot', `Resume failed: ${extractErrorMessage(err)}`);
     }
   }
 
@@ -215,9 +201,8 @@ export class AutopilotHandler implements DomainHandler {
       this.orchestrator.skip(payload.objectApiName);
       sendNotification(this.deps, 'info', 'Autopilot', `Skipped node: ${payload.objectApiName}`);
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
-      this.deps.log(`[ERR] autopilot:skip-node: ${message}`);
-      sendNotification(this.deps, 'error', 'Autopilot', `Skip failed: ${message}`);
+      sendHandlerError(this.deps, 'autopilot:skip-node', 'autopilot:error', err);
+      sendNotification(this.deps, 'error', 'Autopilot', `Skip failed: ${extractErrorMessage(err)}`);
     }
   }
 
@@ -240,15 +225,11 @@ export class AutopilotHandler implements DomainHandler {
         '',
         this.scanResult.totalObjectsScanned,
       );
-      const response: BaseMessage & { payload: { report: unknown } } = {
-        id: this.deps.nextId(), type: 'autopilot:compliance-report', timestamp: Date.now(),
-        payload: { report },
-      };
+      const response = buildResponse(this.deps, msg, 'autopilot:compliance-report', { report });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
-      this.deps.log(`[ERR] autopilot:compliance-report: ${message}`);
-      sendNotification(this.deps, 'error', 'Autopilot', `Report generation failed: ${message}`);
+      sendHandlerError(this.deps, 'autopilot:compliance-report', 'autopilot:error', err);
+      sendNotification(this.deps, 'error', 'Autopilot', `Report generation failed: ${extractErrorMessage(err)}`);
     }
   }
 }
