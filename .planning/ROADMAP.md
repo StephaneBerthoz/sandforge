@@ -6,38 +6,15 @@
 
 ## Phases
 
-### Phase 1 — Bridge Wiring Fix
+### Phase 1 — Bridge Wiring Fix ✓ Complete (2026-03-17)
 
 **Goal:** Make BridgeProvider listen for ALL response messages and add reliable request/response correlation.
-
 **Requirements:** BRG-01, BRG-02, BRG-03, BRG-04
 
-**Scope:**
-- Audit every handler response type → register listeners in BridgeProvider
-- Add correlationId to message protocol (shared types + broker + hooks)
-- Update useBridgeQuery/useBridgeMutation to use correlationId
-- Log unhandled messages as warnings
-- This phase is the foundation — all subsequent module fixes depend on it
-
-**Dependencies:** None (first phase)
-
-### Phase 2 — Module Execution Fixes
+### Phase 2 — Module Execution Fixes ✓ Complete (2026-03-17)
 
 **Goal:** Every module works end-to-end with real Salesforce orgs.
-
 **Requirements:** MOD-01, MOD-02, MOD-03, MOD-04, MOD-05, MOD-06, MOD-07, MOD-08, AI-01, AI-02, AI-03
-
-**Scope:**
-- Fix Seed: wire `seed:execute:response` listener
-- Fix Sync: correct response type mismatch (`sync:execute:response` not `operation:completed`)
-- Fix Forge: wire `forge:discover:response`, `forge:execute:response`, `forge:progress`
-- Fix Autopilot: wire `autopilot:schema-result`, `autopilot:plan-ready`, `autopilot:node-progress/completed/failed`
-- Fix Compare: wire `compare:execute:response`
-- Fix Monitor: wire all `monitor:*:response` types
-- Fix DataOps: wire all `dataops:*:response` types
-- Fix AI: add `ai:status` query on mount, persist conversations, clear "not configured" guidance
-
-**Dependencies:** Phase 1 (bridge wiring must be in place)
 
 ### Phase 3 — UX Cleanup & Ghost Features
 

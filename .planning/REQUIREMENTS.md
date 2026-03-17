@@ -78,9 +78,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| BRG-01..04 | Phase 1 (Bridge Fix) | Pending |
-| MOD-01..08 | Phase 2 (Module Fixes) | Pending |
-| AI-01..03 | Phase 2 (Module Fixes) | Pending |
+| BRG-01..04 | Phase 1 (Bridge Fix) | Done |
+| MOD-01..08 | Phase 2 (Module Fixes) | Done |
+| AI-01..03 | Phase 2 (Module Fixes) | Done |
 | UX-01..05 | Phase 3 (UX Cleanup) | Pending |
 | GHO-01..03 | Phase 3 (UX Cleanup) | Pending |
 | ROB-01..04 | Phase 4 (Robustness) | Pending |
