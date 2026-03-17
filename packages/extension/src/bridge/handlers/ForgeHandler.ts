@@ -1,52 +1,28 @@
+import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeExecutionResult, ForgeTemplate, ComplianceFrameworkType } from '@sandforge/shared';
+import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import { buildResponse, sendHandlerError, sendOperationStarted, sendOperationCompleted, sendOperationFailed } from './HandlerTypes.js';
 import { logger } from '../../logger.js';
-import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
-import type {
-  ForgeConfig,
-  ForgeGraph,
-  ForgeExecutionResult,
-  ForgeTemplate,
-  ComplianceFrameworkType,
-} from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
-import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
-import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
 
 /** Message types handled by ForgeHandler. */
-export type ForgeMessageType =
-  | 'forge:discover'
-  | 'forge:execute'
-  | 'forge:pause'
-  | 'forge:resume'
-  | 'forge:abort'
-  | 'forge:templates:list'
-  | 'forge:templates:save'
-  | 'forge:templates:delete'
-  | 'forge:history:list'
-  | 'forge:plan:request'
-  | 'forge:compliance:request'
-  | 'forge:metadata-diff:request';
-
-/** Dependencies for ForgeHandler. */
-export interface ForgeHandlerDeps {
-  /** The Forge orchestrator that performs discovery and execution. */
-  orchestrator: ForgeOrchestrator;
-  /** Sends a message back to the webview. */
-  postMessage: (message: unknown) => void;
-  /** Optional plan generator for wave-based planning. */
-  planGenerator?: ForgePlanGenerator;
-  /** Optional compliance service for PII reports. */
-  complianceService?: ForgeComplianceService;
-  /** Optional metadata diff service for schema comparison. */
-  metadataDiff?: ForgeMetadataDiff;
-  /** Optional persistent template store. */
-  templateStore?: ForgeTemplateStore;
-  /** Optional persistent history store. */
-  historyStore?: ForgeHistoryStore;
-}
+const FORGE_TYPES = new Set([
+  'forge:discover',
+  'forge:execute',
+  'forge:pause',
+  'forge:resume',
+  'forge:abort',
+  'forge:templates:list',
+  'forge:templates:save',
+  'forge:templates:delete',
+  'forge:history:list',
+  'forge:plan:request',
+  'forge:compliance:request',
+  'forge:metadata-diff:request',
+]);
 
 /** Payload shape for forge:discover messages. */
 interface DiscoverPayload {
@@ -89,18 +65,30 @@ interface MetadataDiffRequestPayload {
   objectApiNames: string[];
 }
 
+/** ConfigStore key for persisted forge templates. */
+const TEMPLATES_KEY = 'forge:templates';
+
+/** ConfigStore key for persisted forge execution history. */
+const HISTORY_KEY = 'forge:history';
+
+/** ConfigStore category for all forge data. */
+const FORGE_CATEGORY = 'forge';
+
 /**
  * Domain handler for forge-related webview-to-extension messages.
  *
  * Routes forge:* message types to the ForgeOrchestrator and manages
  * templates, execution history, and abort/pause/resume lifecycle.
+ * Templates and history are persisted to ConfigStore (survive extension reload).
  */
-export class ForgeHandler {
+export class ForgeHandler implements DomainHandler {
   private discoverAbortController: AbortController | null = null;
   private abortController: AbortController | null = null;
   private isPaused = false;
-  private templates: ForgeTemplate[] = [];
-  private history: ForgeExecutionResult[] = [];
+  private orchestrator?: ForgeOrchestrator;
+  private planGenerator?: ForgePlanGenerator;
+  private complianceService?: ForgeComplianceService;
+  private metadataDiff?: ForgeMetadataDiff;
 
   /** Tracks DML operations to prevent duplicate forge executions. */
   private readonly dmlTracker = new DmlOperationTracker();
@@ -108,42 +96,79 @@ export class ForgeHandler {
   /** Maximum number of history entries to retain. */
   private static readonly MAX_HISTORY = 20;
 
-  /** @param deps - Injected orchestrator and postMessage dependencies. */
-  constructor(private readonly deps: ForgeHandlerDeps) {}
+  /** @param deps - Injected handler dependencies. */
+  constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * Inject forge orchestrator and optional v2 services.
+   *
+   * @param orchestrator - The ForgeOrchestrator instance.
+   * @param services - Optional additional Forge v2 services.
+   */
+  setForgeOrchestrator(
+    orchestrator: ForgeOrchestrator,
+    services?: {
+      planGenerator?: ForgePlanGenerator;
+      complianceService?: ForgeComplianceService;
+      metadataDiff?: ForgeMetadataDiff;
+    },
+  ): void {
+    this.orchestrator = orchestrator;
+    if (services) {
+      this.planGenerator = services.planGenerator;
+      this.complianceService = services.complianceService;
+      this.metadataDiff = services.metadataDiff;
+    }
+  }
 
   /**
    * Handle an incoming bridge message.
    *
-   * @param type - The message type string.
-   * @param payload - The message payload.
+   * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(type: string, payload: unknown): Promise<boolean> {
-    switch (type) {
+  async handle(msg: BaseMessage): Promise<boolean> {
+    if (!FORGE_TYPES.has(msg.type)) return false;
+
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+
+    switch (msg.type) {
       case 'forge:discover':
-        return this.handleDiscover(payload as DiscoverPayload);
+        await this.handleDiscover(msg);
+        return true;
       case 'forge:execute':
-        return this.handleExecute(payload as ExecutePayload);
+        await this.handleExecute(msg);
+        return true;
       case 'forge:pause':
-        return this.handlePause();
+        this.handlePause(msg);
+        return true;
       case 'forge:resume':
-        return this.handleResume();
+        this.handleResume(msg);
+        return true;
       case 'forge:abort':
-        return this.handleAbort();
+        this.handleAbort(msg);
+        return true;
       case 'forge:templates:list':
-        return this.handleTemplatesList();
+        this.handleTemplatesList(msg);
+        return true;
       case 'forge:templates:save':
-        return this.handleSaveTemplate(payload as SaveTemplatePayload);
+        this.handleSaveTemplate(msg);
+        return true;
       case 'forge:templates:delete':
-        return this.handleDeleteTemplate(payload as DeleteTemplatePayload);
+        this.handleDeleteTemplate(msg);
+        return true;
       case 'forge:history:list':
-        return this.handleHistoryList();
+        this.handleHistoryList(msg);
+        return true;
       case 'forge:plan:request':
-        return this.handlePlanRequest(payload as PlanRequestPayload);
+        await this.handlePlanRequest(msg);
+        return true;
       case 'forge:compliance:request':
-        return this.handleComplianceRequest(payload as ComplianceRequestPayload);
+        await this.handleComplianceRequest(msg);
+        return true;
       case 'forge:metadata-diff:request':
-        return this.handleMetadataDiffRequest(payload as MetadataDiffRequestPayload);
+        await this.handleMetadataDiffRequest(msg);
+        return true;
       default:
         return false;
     }
@@ -154,206 +179,209 @@ export class ForgeHandler {
     return this.isPaused;
   }
 
-  private async handleDiscover(payload: DiscoverPayload): Promise<boolean> {
-    this.discoverAbortController = new AbortController();
-    try {
-      logger.info('Forge discover started');
-      const graph = await this.deps.orchestrator.discover(payload.config, {
-        signal: this.discoverAbortController.signal,
-        onProgress: (event) => {
-          this.deps.postMessage({ type: 'forge:discover:progress', payload: event });
-        },
-      });
-      this.deps.postMessage({ type: 'forge:discover:response', payload: { graph } });
-    } catch (error: unknown) {
-      const message = extractErrorMessage(error);
-      logger.error('Forge discover failed', { error: message });
-      this.deps.postMessage({
-        type: 'forge:discover:error',
-        payload: { message },
-      });
-    }
-    this.discoverAbortController = null;
-    return true;
+  /** Load templates from ConfigStore. */
+  private loadTemplates(): ForgeTemplate[] {
+    return this.deps.configStore.get<ForgeTemplate[]>(TEMPLATES_KEY) ?? [];
   }
 
-  private async handleExecute(payload: ExecutePayload): Promise<boolean> {
+  /** Save templates to ConfigStore. */
+  private saveTemplates(templates: ForgeTemplate[]): void {
+    this.deps.configStore.set(TEMPLATES_KEY, templates, FORGE_CATEGORY);
+  }
+
+  /** Load execution history from ConfigStore. */
+  private loadHistory(): ForgeExecutionResult[] {
+    return this.deps.configStore.get<ForgeExecutionResult[]>(HISTORY_KEY) ?? [];
+  }
+
+  /** Save execution history to ConfigStore. */
+  private saveHistory(history: ForgeExecutionResult[]): void {
+    this.deps.configStore.set(HISTORY_KEY, history, FORGE_CATEGORY);
+  }
+
+  private async handleDiscover(msg: BaseMessage): Promise<void> {
+    if (!this.orchestrator) {
+      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', new Error('Forge module is not initialized'));
+      return;
+    }
+
+    const { config } = (msg as BaseMessage & { payload: DiscoverPayload }).payload;
+    this.discoverAbortController = new AbortController();
+    const operationId = `forge-discover-${this.deps.nextId()}`;
+    sendOperationStarted(this.deps, operationId, 'forge', 'Discovering object graph');
+
+    try {
+      logger.info('Forge discover started');
+      const graph = await this.orchestrator.discover(config, {
+        signal: this.discoverAbortController.signal,
+        onProgress: (event) => {
+          const progressMsg = buildResponse(this.deps, msg, 'forge:discover:progress', event as unknown as Record<string, unknown>);
+          this.deps.broker.postToWebview(progressMsg);
+        },
+      });
+      const response = buildResponse(this.deps, msg, 'forge:discover:response', { graph });
+      this.deps.broker.postToWebview(response);
+      sendOperationCompleted(this.deps, operationId, { nodeCount: graph.nodes?.length ?? 0 });
+    } catch (error: unknown) {
+      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', error);
+      sendOperationFailed(this.deps, operationId, String(error), true);
+    }
+    this.discoverAbortController = null;
+  }
+
+  private async handleExecute(msg: BaseMessage): Promise<void> {
+    if (!this.orchestrator) {
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', new Error('Forge module is not initialized'));
+      return;
+    }
+
+    const { graph, config } = (msg as BaseMessage & { payload: ExecutePayload }).payload;
+
     // Build a deterministic ID from payload content to detect genuine duplicates
-    const configKey = `${payload.config.sourceOrgId}:${payload.config.targetOrgId}:${payload.config.recordId ?? ''}`;
-    const objectKeys = payload.graph.nodes?.map((n) => n.objectApiName).join(',') ?? '';
-    const forgeOpId = `forge:${configKey}:${objectKeys}:${payload.graph.totalRecords ?? 0}`;
+    const configKey = `${config.sourceOrgId}:${config.targetOrgId}:${config.recordId ?? ''}`;
+    const objectKeys = graph.nodes?.map((n) => n.objectApiName).join(',') ?? '';
+    const forgeOpId = `forge:${configKey}:${objectKeys}:${graph.totalRecords ?? 0}`;
+
     if (this.dmlTracker.isDuplicate(forgeOpId)) {
       logger.warn('Duplicate forge execution detected', { operationId: forgeOpId });
-      this.deps.postMessage({
-        type: 'forge:execute:error',
-        payload: { message: `Duplicate forge operation: ${forgeOpId}` },
+      const dupResponse = buildResponse(this.deps, msg, 'forge:execute:error', {
+        message: `Duplicate forge operation: ${forgeOpId}`,
       });
-      return true;
+      this.deps.broker.postToWebview(dupResponse);
+      return;
     }
-    const totalRecords = payload.graph.totalRecords ?? 0;
+
+    const totalRecords = graph.totalRecords ?? 0;
     this.dmlTracker.register(forgeOpId, 'forge', 'upsert', totalRecords);
 
     this.abortController = new AbortController();
-    const unsubProgress = this.deps.orchestrator.on('forge:progress', (event) => {
-      this.deps.postMessage({ type: 'forge:progress', payload: event });
+    const operationId = `forge-execute-${this.deps.nextId()}`;
+    sendOperationStarted(this.deps, operationId, 'forge', 'Executing forge operation');
+
+    const unsubProgress = this.orchestrator.on('forge:progress', (event) => {
+      const progressMsg = buildResponse(this.deps, msg, 'forge:progress', event as unknown as Record<string, unknown>);
+      this.deps.broker.postToWebview(progressMsg);
     });
+
     try {
       logger.info('Forge execute started');
+      const result = await this.orchestrator.execute(graph, config);
 
-      const result = await this.deps.orchestrator.execute(payload.graph, payload.config);
+      // Persist to history via ConfigStore
+      const history = [result, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY);
+      this.saveHistory(history);
 
-      this.history = [result, ...this.history].slice(0, ForgeHandler.MAX_HISTORY);
-      this.deps.postMessage({ type: 'forge:execute:response', payload: { result } });
+      const response = buildResponse(this.deps, msg, 'forge:execute:response', { result });
+      this.deps.broker.postToWebview(response);
       this.dmlTracker.markCompleted(forgeOpId);
+      sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
       this.dmlTracker.markFailed(forgeOpId);
-      const message = extractErrorMessage(error);
-      logger.error('Forge execute failed', { error: message });
-      this.deps.postMessage({
-        type: 'forge:execute:error',
-        payload: { message },
-      });
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', error);
+      sendOperationFailed(this.deps, operationId, String(error), true);
     } finally {
       unsubProgress();
       this.abortController = null;
     }
-    return true;
   }
 
-  private handlePause(): boolean {
+  private handlePause(_msg: BaseMessage): void {
     this.isPaused = true;
     logger.info('Forge paused');
-    return true;
   }
 
-  private handleResume(): boolean {
+  private handleResume(_msg: BaseMessage): void {
     this.isPaused = false;
     logger.info('Forge resumed');
-    return true;
   }
 
-  private handleAbort(): boolean {
+  private handleAbort(_msg: BaseMessage): void {
     this.discoverAbortController?.abort();
     this.abortController?.abort();
     logger.info('Forge aborted');
-    return true;
   }
 
-  private handleTemplatesList(): boolean {
-    this.deps.postMessage({
-      type: 'forge:templates:list:response',
-      payload: this.templates,
-    });
-    return true;
+  private handleTemplatesList(msg: BaseMessage): void {
+    const templates = this.loadTemplates();
+    const response = buildResponse(this.deps, msg, 'forge:templates:list:response', { templates });
+    this.deps.broker.postToWebview(response);
   }
 
-  private handleSaveTemplate(payload: SaveTemplatePayload): boolean {
-    this.templates = [
-      payload.template,
-      ...this.templates.filter((t) => t.id !== payload.template.id),
-    ];
-    this.deps.postMessage({
-      type: 'forge:templates:save:response',
-      payload: { success: true },
-    });
-    return true;
+  private handleSaveTemplate(msg: BaseMessage): void {
+    const { template } = (msg as BaseMessage & { payload: SaveTemplatePayload }).payload;
+    const templates = [template, ...this.loadTemplates().filter((t) => t.id !== template.id)];
+    this.saveTemplates(templates);
+    const response = buildResponse(this.deps, msg, 'forge:templates:save:response', { success: true });
+    this.deps.broker.postToWebview(response);
   }
 
-  private handleDeleteTemplate(payload: DeleteTemplatePayload): boolean {
-    this.templates = this.templates.filter((t) => t.id !== payload.templateId);
-    this.deps.postMessage({
-      type: 'forge:templates:delete:response',
-      payload: { success: true },
-    });
-    return true;
+  private handleDeleteTemplate(msg: BaseMessage): void {
+    const { templateId } = (msg as BaseMessage & { payload: DeleteTemplatePayload }).payload;
+    const templates = this.loadTemplates().filter((t) => t.id !== templateId);
+    this.saveTemplates(templates);
+    const response = buildResponse(this.deps, msg, 'forge:templates:delete:response', { success: true });
+    this.deps.broker.postToWebview(response);
   }
 
-  private handleHistoryList(): boolean {
-    this.deps.postMessage({
-      type: 'forge:history:list:response',
-      payload: this.history,
-    });
-    return true;
+  private handleHistoryList(msg: BaseMessage): void {
+    const history = this.loadHistory();
+    const response = buildResponse(this.deps, msg, 'forge:history:list:response', { history });
+    this.deps.broker.postToWebview(response);
   }
 
   /** Generate a forge execution plan from a graph. */
-  private async handlePlanRequest(payload: PlanRequestPayload): Promise<boolean> {
-    if (!this.deps.planGenerator) {
-      this.deps.postMessage({
-        type: 'forge:plan:error',
-        payload: { message: 'Plan generator not configured' },
-      });
-      return true;
+  private async handlePlanRequest(msg: BaseMessage): Promise<void> {
+    if (!this.planGenerator) {
+      sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', new Error('Plan generator not configured'));
+      return;
     }
+    const { graph } = (msg as BaseMessage & { payload: PlanRequestPayload }).payload;
     try {
       logger.info('Forge plan generation started');
-      const plan = this.deps.planGenerator.generate(payload.graph);
-      this.deps.postMessage({ type: 'forge:plan:response', payload: { plan } });
+      const plan = this.planGenerator.generate(graph);
+      const response = buildResponse(this.deps, msg, 'forge:plan:response', { plan });
+      this.deps.broker.postToWebview(response);
     } catch (error: unknown) {
-      const message = extractErrorMessage(error);
-      logger.error('Forge plan generation failed', { error: message });
-      this.deps.postMessage({
-        type: 'forge:plan:error',
-        payload: { message },
-      });
+      sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', error);
     }
-    return true;
   }
 
   /** Generate a compliance report for a graph and framework. */
-  private async handleComplianceRequest(payload: ComplianceRequestPayload): Promise<boolean> {
-    if (!this.deps.complianceService) {
-      this.deps.postMessage({
-        type: 'forge:compliance:error',
-        payload: { message: 'Compliance service not configured' },
-      });
-      return true;
+  private async handleComplianceRequest(msg: BaseMessage): Promise<void> {
+    if (!this.complianceService) {
+      sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', new Error('Compliance service not configured'));
+      return;
     }
+    const { framework, graph, config } = (msg as BaseMessage & { payload: ComplianceRequestPayload }).payload;
     try {
       logger.info('Forge compliance report generation started');
-      const report = this.deps.complianceService.generate(
-        payload.framework as ComplianceFrameworkType,
-        payload.graph,
-        payload.config.sourceOrgId,
-        payload.config.targetOrgId,
+      const report = this.complianceService.generate(
+        framework as ComplianceFrameworkType,
+        graph,
+        config.sourceOrgId,
+        config.targetOrgId,
       );
-      this.deps.postMessage({ type: 'forge:compliance:response', payload: { report } });
+      const response = buildResponse(this.deps, msg, 'forge:compliance:response', { report });
+      this.deps.broker.postToWebview(response);
     } catch (error: unknown) {
-      const message = extractErrorMessage(error);
-      logger.error('Forge compliance report failed', { error: message });
-      this.deps.postMessage({
-        type: 'forge:compliance:error',
-        payload: { message },
-      });
+      sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', error);
     }
-    return true;
   }
 
   /** Compare metadata schemas between source and target orgs. */
-  private async handleMetadataDiffRequest(payload: MetadataDiffRequestPayload): Promise<boolean> {
-    if (!this.deps.metadataDiff) {
-      this.deps.postMessage({
-        type: 'forge:metadata-diff:error',
-        payload: { message: 'Metadata diff service not configured' },
-      });
-      return true;
+  private async handleMetadataDiffRequest(msg: BaseMessage): Promise<void> {
+    if (!this.metadataDiff) {
+      sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', new Error('Metadata diff service not configured'));
+      return;
     }
+    const { sourceOrgId, targetOrgId, objectApiNames } = (msg as BaseMessage & { payload: MetadataDiffRequestPayload }).payload;
     try {
       logger.info('Forge metadata diff started');
-      const diffs = await this.deps.metadataDiff.compare(
-        payload.sourceOrgId,
-        payload.targetOrgId,
-        payload.objectApiNames,
-      );
-      this.deps.postMessage({ type: 'forge:metadata-diff:response', payload: { diffs } });
+      const diffs = await this.metadataDiff.compare(sourceOrgId, targetOrgId, objectApiNames);
+      const response = buildResponse(this.deps, msg, 'forge:metadata-diff:response', { diffs });
+      this.deps.broker.postToWebview(response);
     } catch (error: unknown) {
-      const message = extractErrorMessage(error);
-      logger.error('Forge metadata diff failed', { error: message });
-      this.deps.postMessage({
-        type: 'forge:metadata-diff:error',
-        payload: { message },
-      });
+      sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', error);
     }
-    return true;
   }
 }
