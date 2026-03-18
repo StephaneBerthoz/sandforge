@@ -199,6 +199,35 @@
       "title": "Commencez a surveiller votre org",
       "description": "Connectez un org Salesforce pour suivre les limites governor, l'utilisation API, le stockage et la sante de l'org en temps reel.",
       "cta": "Selectionner un org"
+    },
+    "storage": {
+      "title": "Repartition du stockage",
+      "objects": "Objets",
+      "records": "Enregistrements",
+      "percentage": "Pourcentage",
+      "totalRecords": "enregistrements au total",
+      "empty": "Aucune donnee de stockage disponible"
+    },
+    "deployments": {
+      "title": "Deploiements recents",
+      "empty": "Aucun deploiement recent",
+      "deployer": "Deploye par",
+      "status": "Statut",
+      "components": "composants",
+      "errors": "erreurs"
+    },
+    "apiUsage": {
+      "title": "Repartition de l'utilisation API",
+      "category": "Categorie",
+      "used": "Utilise",
+      "max": "Max",
+      "usage": "Utilisation",
+      "empty": "Aucune donnee d'utilisation API disponible"
+    },
+    "export": {
+      "button": "Exporter CSV",
+      "success": "Limites exportees",
+      "successDetail": "Fichier CSV telecharge avec succes"
     }
   },
   "compare": {

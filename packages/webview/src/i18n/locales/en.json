@@ -201,6 +201,35 @@
       "title": "Start Monitoring Your Org",
       "description": "Connect a Salesforce org to track governor limits, API usage, storage, and org health in real time.",
       "cta": "Select an Org"
+    },
+    "storage": {
+      "title": "Storage Breakdown",
+      "objects": "Objects",
+      "records": "Records",
+      "percentage": "Percentage",
+      "totalRecords": "total records",
+      "empty": "No object storage data available"
+    },
+    "deployments": {
+      "title": "Recent Deployments",
+      "empty": "No recent deployments",
+      "deployer": "Deployer",
+      "status": "Status",
+      "components": "components",
+      "errors": "errors"
+    },
+    "apiUsage": {
+      "title": "API Usage Breakdown",
+      "category": "Category",
+      "used": "Used",
+      "max": "Max",
+      "usage": "Usage",
+      "empty": "No API usage data available"
+    },
+    "export": {
+      "button": "Export CSV",
+      "success": "Limits exported",
+      "successDetail": "CSV file downloaded successfully"
     }
   },
   "compare": {

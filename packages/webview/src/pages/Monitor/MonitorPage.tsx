@@ -26,6 +26,10 @@ import { AlertsPanel } from './AlertsPanel';
 import { PredictionsTile } from './PredictionsTile';
 import { useMonitorPageData } from './useMonitorPageData';
 import { LiveOperationsPanel } from './LiveOperationsPanel';
+import { StorageBreakdownPanel } from './StorageBreakdownPanel';
+import { DeploymentTimeline } from './DeploymentTimeline';
+import { LimitExportButton } from './LimitExportButton';
+import { ApiUsagePanel } from './ApiUsagePanel';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { SalesforceOrg, LiveOperationSnapshot } from '@sandforge/shared';
@@ -479,11 +483,17 @@ export const MonitorPage: React.FC = () => {
             </div>
           )}
 
+          {/* ── Storage Breakdown ── */}
+          <StorageBreakdownPanel />
+
           {/* ── Two-column: Trends + Jobs ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Trend chart */}
             <div className="rounded-lg border border-subtle bg-surface-1 p-4">
-              <SectionHeader title={t('monitor.trends', 'Trends')} />
+              <SectionHeader
+                title={t('monitor.trends', 'Trends')}
+                actions={<LimitExportButton limits={sortedLimits} trends={trends} />}
+              />
               {trendChartData.length >= 2 ? (
                 <TrendChart data={trendChartData} />
               ) : trendSeries.length > 0 ? (
@@ -561,6 +571,12 @@ export const MonitorPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* ── API Usage Breakdown ── */}
+          <ApiUsagePanel />
+
+          {/* ── Deployment Timeline ── */}
+          <DeploymentTimeline />
 
           {/* ── Anomaly results (if any) ── */}
           {anomalyScan.data?.success && anomalyScan.data.anomalies && anomalyScan.data.anomalies.length > 0 && (

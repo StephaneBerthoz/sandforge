@@ -58,6 +58,16 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
     if (type === 'monitor:alerts') {
       return { data: { alerts: [] }, loading: false, error: null, refetch: vi.fn() };
     }
+    // New panels — return empty data by default
+    if (type === 'monitor:storage') {
+      return { data: { success: true, objects: [], totalRecords: 0 }, loading: false, error: null, refetch: vi.fn() };
+    }
+    if (type === 'monitor:deployments') {
+      return { data: { success: true, deployments: [] }, loading: false, error: null, refetch: vi.fn() };
+    }
+    if (type === 'monitor:api-usage') {
+      return { data: { success: true, categories: [] }, loading: false, error: null, refetch: vi.fn() };
+    }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
 }));
@@ -766,5 +776,74 @@ describe('MonitorPage', () => {
     expect(screen.getByTestId('health-gauge')).toBeDefined();
     const zeroElements = screen.getAllByText('0');
     expect(zeroElements.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // 13. New panels integration
+  it('should render StorageBreakdownPanel in dashboard', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    // StorageBreakdownPanel renders its empty state by default
+    expect(screen.getByTestId('storage-panel-empty')).toBeDefined();
+  });
+
+  it('should render DeploymentTimeline in dashboard', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    // DeploymentTimeline renders its container
+    expect(screen.getByTestId('deployment-timeline')).toBeDefined();
+  });
+
+  it('should render ApiUsagePanel in dashboard', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    // ApiUsagePanel renders its empty state by default
+    expect(screen.getByTestId('api-usage-panel-empty')).toBeDefined();
+  });
+
+  it('should render LimitExportButton in Trends section', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('limit-export-btn')).toBeDefined();
+    expect(screen.getByText('Export CSV')).toBeDefined();
   });
 });
