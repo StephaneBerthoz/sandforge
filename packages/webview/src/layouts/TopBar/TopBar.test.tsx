@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { useAppStore } from '../../stores/useAppStore';
 import { useCommandStore } from '../../stores/useCommandStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
 import { TopBar } from './TopBar';
 
 describe('TopBar', () => {
@@ -12,6 +13,7 @@ describe('TopBar', () => {
       sidebarCollapsed: false,
     });
     useCommandStore.setState({ open: false });
+    useNotificationStore.setState({ notifications: [] });
   });
 
   it('should have testid topbar', () => {
@@ -64,5 +66,35 @@ describe('TopBar', () => {
     render(<TopBar />);
     fireEvent.click(screen.getByLabelText('Toggle sidebar'));
     expect(useAppStore.getState().sidebarCollapsed).toBe(true);
+  });
+
+  it('should call onNotificationsToggle when bell is clicked', () => {
+    const onToggle = vi.fn();
+    render(<TopBar onNotificationsToggle={onToggle} />);
+    fireEvent.click(screen.getByTestId('topbar-notifications'));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  it('should show unread badge when notifications exist', () => {
+    useNotificationStore.setState({
+      notifications: [
+        { id: 'n1', level: 'info', title: 'Test', message: 'msg', timestamp: Date.now(), read: false },
+        { id: 'n2', level: 'info', title: 'Test2', message: 'msg2', timestamp: Date.now(), read: false },
+      ],
+    });
+    render(<TopBar />);
+    const bell = screen.getByTestId('topbar-notifications');
+    expect(bell.textContent).toContain('2');
+  });
+
+  it('should not show badge when unread count is 0', () => {
+    useNotificationStore.setState({
+      notifications: [
+        { id: 'n1', level: 'info', title: 'Test', message: 'msg', timestamp: Date.now(), read: true },
+      ],
+    });
+    render(<TopBar />);
+    const bell = screen.getByTestId('topbar-notifications');
+    expect(bell.textContent).not.toContain('1');
   });
 });

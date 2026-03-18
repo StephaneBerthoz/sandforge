@@ -5,7 +5,9 @@ import { cn } from '../../theme';
 import { useAppStore } from '../../stores/useAppStore';
 import type { ModuleRoute } from '../../stores/useAppStore';
 import { useCommandStore } from '../../stores/useCommandStore';
+import { useNotificationStore, selectUnreadCount } from '../../stores/useNotificationStore';
 import { OrgSwitcher } from '../../components/OrgSwitcher/OrgSwitcher';
+import { Badge } from '../../components/ui/Badge';
 
 /** Map route keys to i18n label keys. */
 const ROUTE_LABELS: Record<ModuleRoute, string> = {
@@ -27,15 +29,18 @@ const ROUTE_LABELS: Record<ModuleRoute, string> = {
 export interface TopBarProps {
   /** Additional CSS classes. */
   className?: string;
+  /** Callback to toggle the notification center panel. */
+  onNotificationsToggle?: () => void;
 }
 
 /** Redesigned top bar with logo, search trigger, org switcher, and action buttons. */
-export const TopBar: React.FC<TopBarProps> = ({ className }) => {
+export const TopBar: React.FC<TopBarProps> = ({ className, onNotificationsToggle }) => {
   const { t } = useTranslation();
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const collapsed = useAppStore((s) => s.sidebarCollapsed);
   const currentRoute = useAppStore((s) => s.currentRoute);
   const navigate = useAppStore((s) => s.navigate);
+  const unreadCount = useNotificationStore(selectUnreadCount);
 
   const openCommandPalette = (): void => {
     useCommandStore.getState().setOpen(true);
@@ -106,11 +111,20 @@ export const TopBar: React.FC<TopBarProps> = ({ className }) => {
       <div className="flex items-center gap-2 shrink-0 ml-auto">
         <OrgSwitcher />
         <button
-          className="p-1.5 rounded hover:bg-surface-2 text-text-secondary hover:text-text-primary transition-colors"
+          className="p-1.5 rounded hover:bg-surface-2 text-text-secondary hover:text-text-primary transition-colors relative"
           data-testid="topbar-notifications"
           aria-label={t('notifications.title', 'Notifications')}
+          onClick={onNotificationsToggle}
         >
           <Bell className="w-4 h-4" />
+          {unreadCount > 0 && (
+            <Badge
+              variant="error"
+              className="absolute -top-1 -right-1 min-w-[16px] h-4 text-[9px]"
+            >
+              {unreadCount}
+            </Badge>
+          )}
         </button>
         <button
           className="p-1.5 rounded hover:bg-surface-2 text-text-secondary hover:text-text-primary transition-colors"
