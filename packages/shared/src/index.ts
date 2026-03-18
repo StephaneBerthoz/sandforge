@@ -51,6 +51,7 @@ export * from './schemas/settings.schema.js';
 export * from './schemas/autopilot.schema.js';
 export * from './schemas/compliance.schema.js';
 export * from './schemas/forge.schema.js';
+export * from './schemas/robustness-config.schema.js';
 
 // Barrel exports — Constants
 export * from './constants/sf-limits.js';
