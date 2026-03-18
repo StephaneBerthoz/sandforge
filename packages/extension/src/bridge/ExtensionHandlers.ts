@@ -33,6 +33,7 @@ import type { ForgeServices } from './handlers/ForgeHandler.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
 import { ConfigHandler } from './handlers/ConfigHandler.js';
+import { NoOpHandler } from './handlers/NoOpHandler.js';
 
 // Re-export interfaces for backward compatibility
 export type { InfraServices } from './handlers/HandlerTypes.js';
@@ -77,6 +78,7 @@ export class ExtensionHandlers {
   private readonly forgeHandler: ForgeHandler;
   private readonly migrationHandler: MigrationHandler;
   private readonly configHandler: ConfigHandler;
+  private readonly noOpHandler: NoOpHandler;
 
   constructor(deps: ExtensionHandlersDeps) {
     // Shared mutable deps object — infraServices is set later via setInfraServices
@@ -106,6 +108,7 @@ export class ExtensionHandlers {
     this.forgeHandler = new ForgeHandler(this.handlerDeps);
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
+    this.noOpHandler = new NoOpHandler(this.handlerDeps);
   }
 
   /** Inject live operation tracker for monitor:live-operations messages. */
@@ -250,6 +253,12 @@ export class ExtensionHandlers {
 
     // Config profiles
     route(['config:export', 'config:import', 'config:categories', 'config:validate'], this.configHandler);
+
+    // No-op handlers for ghost features (Scheduler v1.2, RealTime CDC v2.0)
+    route([
+      'scheduler:list', 'scheduler:upsert', 'scheduler:delete', 'scheduler:toggle',
+      'realtime:start', 'realtime:stop', 'realtime:status', 'realtime:metrics', 'realtime:resolve-conflict',
+    ], this.noOpHandler);
   }
 
   private nextId(): string {
