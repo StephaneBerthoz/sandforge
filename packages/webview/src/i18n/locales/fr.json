@@ -194,6 +194,11 @@
       "critical": "Critique",
       "recommendations": "Recommandations",
       "emptyDescription": "Cliquez sur Analyser pour evaluer la sante de votre org : utilisation API, stockage, complexite des metadonnees, couverture de code et securite."
+    },
+    "emptyState": {
+      "title": "Commencez a surveiller votre org",
+      "description": "Connectez un org Salesforce pour suivre les limites governor, l'utilisation API, le stockage et la sante de l'org en temps reel.",
+      "cta": "Selectionner un org"
     }
   },
   "compare": {
@@ -580,7 +585,12 @@
     "noPII": "Aucun champ PII detecte. Lancez un scan pour verifier.",
     "recordsProcessed": "Enregistrements traites",
     "errorRate": "Taux d'erreur",
-    "anonymizedFields": "Modeles d'anonymisation"
+    "anonymizedFields": "Modeles d'anonymisation",
+    "emptyState": {
+      "title": "Protegez et gerez vos donnees",
+      "description": "Connectez un org Salesforce pour creer des sauvegardes, anonymiser les donnees sensibles et assurer la conformite.",
+      "cta": "Selectionner un org"
+    }
   },
   "automation": {
     "title": "Automatisation",
@@ -708,7 +718,12 @@
     "noMarketplaceTemplates": "Aucun modele disponible",
     "noMarketplaceTemplatesDesc": "Les modeles communautaires apparaitront ici",
     "installTemplate": "Installer",
-    "templateInstalled": "Modele installe comme nouveau pipeline"
+    "templateInstalled": "Modele installe comme nouveau pipeline",
+    "emptyState": {
+      "title": "Creez votre premier pipeline",
+      "description": "Creez des workflows automatises pour alimenter, synchroniser et transformer les donnees de votre sandbox avec des pipelines visuels.",
+      "cta": "Selectionner un org"
+    }
   },
   "notifications": {
     "title": "Notifications",
@@ -1192,7 +1207,12 @@
     "apiCallsConsumed": "Appels API",
     "exportJson": "Exporter JSON",
     "retryFailed": "Retenter les echecs",
-    "anonymizedFields": "Champs anonymises"
+    "anonymizedFields": "Champs anonymises",
+    "emptyState": {
+      "title": "Explorez le schema de votre org",
+      "description": "Connectez un org Salesforce pour explorer ses relations, generer des plans de donnees et forger des jeux complets.",
+      "cta": "Selectionner un org"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1334,6 +1354,11 @@
       "paused": "En pause",
       "completed": "Termine !",
       "failed": "Echoue"
+    },
+    "emptyState": {
+      "title": "Provisionnez votre sandbox automatiquement",
+      "description": "Laissez Autopilot scanner le schema de votre org, generer un plan d'execution et peupler votre sandbox avec des donnees realistes.",
+      "cta": "Selectionner un org"
     }
   },
   "sidePanel": {

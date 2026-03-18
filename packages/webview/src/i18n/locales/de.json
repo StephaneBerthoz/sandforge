@@ -116,7 +116,12 @@
     "orgObjects": "Benutzerdefinierte Objekte",
     "orgApexClasses": "Apex-Klassen",
     "orgFlows": "Aktive Flows",
-    "orgInstance": "Instanz"
+    "orgInstance": "Instanz",
+    "emptyState": {
+      "title": "Start Monitoring Your Org",
+      "description": "Connect a Salesforce org to track governor limits, API usage, storage, and org health in real time.",
+      "cta": "Select an Org"
+    }
   },
   "compare": {
     "title": "Org vergleichen",
@@ -468,7 +473,12 @@
     "processDSR": "Verarbeiten",
     "piiScan": "PII-Feld-Scan",
     "runPIIScan": "Auf PII scannen",
-    "noPII": "Keine PII-Felder erkannt. Fuehren Sie einen Scan durch."
+    "noPII": "Keine PII-Felder erkannt. Fuehren Sie einen Scan durch.",
+    "emptyState": {
+      "title": "Protect and Manage Your Data",
+      "description": "Connect a Salesforce org to create backups, anonymize sensitive data, and ensure compliance.",
+      "cta": "Select an Org"
+    }
   },
   "automation": {
     "title": "Automatisierung",
@@ -570,7 +580,12 @@
     "typeConfig": "Typspezifische Konfiguration",
     "noExecution": "Keine aktive Ausfuehrung",
     "failed": "fehlgeschlagen",
-    "execution": "Ausfuehrung"
+    "execution": "Ausfuehrung",
+    "emptyState": {
+      "title": "Build Your First Pipeline",
+      "description": "Create automated workflows to seed, sync, and transform your sandbox data with visual pipelines.",
+      "cta": "Select an Org"
+    }
   },
   "ai": {
     "title": "KI-Assistent",
@@ -882,5 +897,19 @@
     "openBrowser": "Browser oeffnen",
     "notSupported": "Diese Authentifizierungsmethode wird noch nicht unterstuetzt.",
     "sfdxHint": "Alle verbundenen Orgs aus Salesforce CLI werden automatisch importiert."
+  },
+  "forge": {
+    "emptyState": {
+      "title": "Discover Your Org Schema",
+      "description": "Connect a Salesforce org to explore its object relationships, generate data plans, and forge complete datasets.",
+      "cta": "Select an Org"
+    }
+  },
+  "autopilot": {
+    "emptyState": {
+      "title": "Auto-Provision Your Sandbox",
+      "description": "Let Autopilot scan your org schema, generate an execution plan, and populate your sandbox with realistic data.",
+      "cta": "Select an Org"
+    }
   }
 }
