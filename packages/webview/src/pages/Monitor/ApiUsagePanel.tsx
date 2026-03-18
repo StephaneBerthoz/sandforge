@@ -105,13 +105,17 @@ export const ApiUsagePanel: React.FC = () => {
             </span>
             <span className="w-14 text-right">
               {cat.usedPercent >= 95 ? (
-                <Badge variant="error" data-testid={`api-usage-badge-critical-${cat.category}`}>
-                  {cat.usedPercent}%
-                </Badge>
+                <span data-testid={`api-usage-badge-critical-${cat.category}`}>
+                  <Badge variant="error">
+                    {cat.usedPercent}%
+                  </Badge>
+                </span>
               ) : cat.usedPercent >= 80 ? (
-                <Badge variant="warning" data-testid={`api-usage-badge-warning-${cat.category}`}>
-                  {cat.usedPercent}%
-                </Badge>
+                <span data-testid={`api-usage-badge-warning-${cat.category}`}>
+                  <Badge variant="warning">
+                    {cat.usedPercent}%
+                  </Badge>
+                </span>
               ) : (
                 <span className="text-xs tabular-nums text-text-muted">{cat.usedPercent}%</span>
               )}
