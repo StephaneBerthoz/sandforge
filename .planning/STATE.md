@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: 4 of 5 (Robustness) -- verified ✓
-Plan: 04-01 COMPLETE | 04-02 COMPLETE
-Status: Phase 4 verified -- 21/21 must-haves, 6977 tests, ready for Phase 5
-Last activity: 2026-03-18 -- Phase 4 verified
+Phase: 5 of 5 (Monitor Enrichment) -- in progress
+Plan: 05-01 COMPLETE | 05-02 pending
+Status: Plan 05-01 done -- benchmark + 5 feature gaps, 2175 tests, typecheck clean
+Last activity: 2026-03-18 -- Plan 05-01 executed
 
-Progress: [████████░░] 80%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 17
 - Average duration: ~15 min/plan
-- Total execution time: ~4h
+- Total execution time: ~4h15m
 
 ## Milestone History
 
@@ -46,10 +46,13 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - ConfigStore.get() takes only key param (no category). Robustness config stored under key 'robustness:config'
 - DataSync field validation is opt-in via targetFieldDescriptors in deps (preserves backward compat)
 - getRobustnessConfig() loads per-request (not at construction) so runtime config changes apply immediately
+- StorageBreakdownPanel uses EntityDefinition.RecordCount SOQL for per-object record counts
+- DeploymentTimeline queries DeployRequest directly (not DeploymentTracker) for richer data
+- Badge component requires wrapper span for data-testid (does not spread extra HTML props)
 
 ### Pending Todos
 
-- monitor:health-score needs handler route registration (has UI consumer but no handler)
+- monitor:health-score handler route now registered (RESOLVED in 05-01)
 - Several handler-routed types (compare:start, pipeline:execute, etc.) lack type definitions
 - Settings handler needed to expose robustness config to webview Settings page
 
@@ -62,5 +65,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-18
-Stopped at: Phase 4 verified, ready for discuss-phase 5
+Stopped at: Plan 05-01 complete, ready for 05-02 (Dashboard Refresh UX)
 Resume file: None
