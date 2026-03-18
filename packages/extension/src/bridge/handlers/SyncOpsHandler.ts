@@ -1,5 +1,6 @@
 import type { BaseMessage } from '@sandforge/shared';
-import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
+import { sanitizeSoqlObjectName, orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
+import type { RobustnessConfig } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
   buildResponse, sendHandlerError, sendOperationStarted, sendOperationProgress,
@@ -11,6 +12,13 @@ import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHe
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
+import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
+import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
 
 /** Message types handled by SyncOpsHandler. */
 const SYNC_TYPES = new Set([
@@ -20,11 +28,19 @@ const SYNC_TYPES = new Set([
 ]);
 
 /**
+ * Convert a describe field result to a FieldDescriptor for FieldTypeValidator.
+ * Maps the jsforce describe shape to the validator's input type.
+ */
+function toValidatorField(f: { name: string; type: string; length: number }): FieldDescriptor {
+  return { apiName: f.name, type: f.type, maxLength: f.length || undefined };
+}
+
+/**
  * Domain handler for sync-related webview-to-extension messages.
  *
  * Routes sync:* message types to schema description and data synchronization
- * operations between Salesforce orgs, with production guard checks
- * and performance tracking.
+ * operations between Salesforce orgs, with production guard checks,
+ * performance tracking, retry, timeout, bulk API, and field type validation.
  */
 export class SyncOpsHandler implements DomainHandler {
   /**
@@ -63,13 +79,25 @@ export class SyncOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Load and validate robustness configuration from ConfigStore.
+   * Falls back to schema defaults when no config is stored.
+   */
+  private getRobustnessConfig(): RobustnessConfig {
+    const raw = this.deps.configStore.get<Partial<RobustnessConfig>>('robustness:config');
+    return RobustnessConfigSchema.parse(raw ?? {});
+  }
+
   private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const config = this.getRobustnessConfig();
 
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const result = await conn.describeGlobal();
+
+      const timeout = new TimeoutManager(config.timeouts.describeGlobal);
+      const result = await timeout.withTimeout('describe-global', () => conn.describeGlobal());
       checkApiLimits(conn.limitInfo, 'sync:describe-global');
 
       const objects = result.sobjects
@@ -87,14 +115,16 @@ export class SyncOpsHandler implements DomainHandler {
   private async handleDescribeFields(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; objectApiName: string } }).payload;
+    const config = this.getRobustnessConfig();
 
     try {
       const sourceConn = await getJsforceConnection(payload.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager);
       const targetConn = await getJsforceConnection(payload.targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
 
+      const timeout = new TimeoutManager(config.timeouts.describe);
       const [sourceDesc, targetDesc] = await Promise.all([
-        sourceConn.describe(payload.objectApiName),
-        targetConn.describe(payload.objectApiName),
+        timeout.withTimeout('describe-source', () => sourceConn.describe(payload.objectApiName)),
+        timeout.withTimeout('describe-target', () => targetConn.describe(payload.objectApiName)),
       ]);
       checkApiLimits(sourceConn.limitInfo, `sync:describe-fields source ${payload.objectApiName}`);
       checkApiLimits(targetConn.limitInfo, `sync:describe-fields target ${payload.objectApiName}`);
@@ -121,6 +151,7 @@ export class SyncOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { config: Record<string, unknown> } }).payload;
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
+    const robustnessConfig = this.getRobustnessConfig();
 
     try {
       const config = payload.config as unknown as import('@sandforge/shared').SyncConfig;
@@ -162,58 +193,189 @@ export class SyncOpsHandler implements DomainHandler {
       const syncOrgTier = resolveOrgTier(syncSourceOrg?.orgType === 'Sandbox' || syncSourceOrg?.orgType === 'Scratch');
       const syncQueryLimits = getQueryLimits(syncOrgTier);
 
-      // Build jsforce CRUD functions for target org
+      // Build robustness utilities
+      const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
+      const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
+      const retryOp = new RetryableOperation({
+        retryConfig: robustnessConfig.retry,
+        onRetry: (attempt, classified, delay) => {
+          this.deps.log(`[RETRY] sync attempt=${attempt} code=${classified.originalError.statusCode} delay=${delay}ms`);
+        },
+      });
+      const handlerDeps = this.deps;
+      const fieldValidator = new FieldTypeValidator();
+
+      // Build jsforce CRUD functions for target org with retry + bulk
       type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
 
       const insertFn = async (objectName: string, records: Record<string, unknown>[], batchSize: number) => {
+        if (bulkExecutor.shouldUseBulkApi(records.length)) {
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: targetConn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              sendOperationProgress(handlerDeps, operationId, Math.round((processed / total) * 100), processed, total, `Bulk insert ${objectName}`);
+            },
+          };
+          const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectName, 'insert', records);
+          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
+            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
+            success: i < bulkResult.successCount,
+            errors: i >= bulkResult.successCount ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error'] : [] as string[],
+          }));
+        }
+
         const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
-          const results = await targetConn.sobject(objectName).create(batch) as JsforceResult[];
-          for (const r of results) {
-            outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
+          const retryResult = await retryOp.execute(async () => {
+            return targetConn.sobject(objectName).create(batch) as Promise<JsforceResult[]>;
+          });
+          if (retryResult.success && retryResult.result) {
+            for (const r of retryResult.result) {
+              outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
+            }
+          } else {
+            for (const _rec of batch) {
+              outcomes.push({ success: false, errors: [retryResult.error?.message ?? 'Insert failed after retries'] });
+            }
           }
         }
         return outcomes;
       };
 
       const upsertFn = async (objectName: string, externalIdField: string, records: Record<string, unknown>[], batchSize: number) => {
+        if (bulkExecutor.shouldUseBulkApi(records.length)) {
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: targetConn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              sendOperationProgress(handlerDeps, operationId, Math.round((processed / total) * 100), processed, total, `Bulk upsert ${objectName}`);
+            },
+          };
+          const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectName, 'upsert', records, externalIdField);
+          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
+            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
+            success: i < bulkResult.successCount,
+            errors: i >= bulkResult.successCount ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error'] : [] as string[],
+          }));
+        }
+
+        // Validate field types before upsert
+        const targetTimeout = new TimeoutManager(robustnessConfig.timeouts.describe);
+        const targetDesc = await targetTimeout.withTimeout(`describe-${objectName}`, () => targetConn.describe(objectName));
+        const targetFields = (targetDesc.fields as Array<{ name: string; type: string; length: number; createable: boolean }>)
+          .filter((f) => f.createable)
+          .map(toValidatorField);
+        const sourceFields = records.length > 0
+          ? Object.keys(records[0]).map((k) => ({ apiName: k, type: 'string' }))
+          : [];
+        const fieldMapping: Record<string, string> = {};
+        for (const sf of sourceFields) {
+          const matched = targetFields.find((tf) => tf.apiName === sf.apiName);
+          if (matched) {
+            fieldMapping[sf.apiName] = matched.apiName;
+          }
+        }
+        const validation = fieldValidator.validateMapping(sourceFields, targetFields, fieldMapping);
+        if (!validation.valid) {
+          this.deps.log(`[WARN] Field type validation failed for upsert on ${objectName}: ${validation.errors.length} error(s)`);
+        }
+
         const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
-          const results = await targetConn.sobject(objectName).upsert(batch, externalIdField) as unknown as JsforceResult[];
-          for (const r of (Array.isArray(results) ? results : [results])) {
-            outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
+          const retryResult = await retryOp.execute(async () => {
+            return targetConn.sobject(objectName).upsert(batch, externalIdField) as unknown as Promise<JsforceResult[]>;
+          });
+          if (retryResult.success && retryResult.result) {
+            for (const r of (Array.isArray(retryResult.result) ? retryResult.result : [retryResult.result])) {
+              outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
+            }
+          } else {
+            for (const _rec of batch) {
+              outcomes.push({ success: false, errors: [retryResult.error?.message ?? 'Upsert failed after retries'] });
+            }
           }
         }
         return outcomes;
       };
 
       const updateFn = async (objectName: string, records: Record<string, unknown>[], batchSize: number) => {
+        if (bulkExecutor.shouldUseBulkApi(records.length)) {
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: targetConn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              sendOperationProgress(handlerDeps, operationId, Math.round((processed / total) * 100), processed, total, `Bulk update ${objectName}`);
+            },
+          };
+          const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectName, 'update', records);
+          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
+            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
+            success: i < bulkResult.successCount,
+            errors: i >= bulkResult.successCount ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error'] : [] as string[],
+          }));
+        }
+
         const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
-          const results = await targetConn.sobject(objectName).update(batch as Array<Record<string, unknown> & { Id: string }>) as unknown as JsforceResult[];
-          for (const r of (Array.isArray(results) ? results : [results])) {
-            outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
+          const retryResult = await retryOp.execute(async () => {
+            return targetConn.sobject(objectName).update(batch as Array<Record<string, unknown> & { Id: string }>) as unknown as Promise<JsforceResult[]>;
+          });
+          if (retryResult.success && retryResult.result) {
+            for (const r of (Array.isArray(retryResult.result) ? retryResult.result : [retryResult.result])) {
+              outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
+            }
+          } else {
+            for (const _rec of batch) {
+              outcomes.push({ success: false, errors: [retryResult.error?.message ?? 'Update failed after retries'] });
+            }
           }
         }
         return outcomes;
       };
 
       const deleteFn = async (objectName: string, recordIds: string[], batchSize: number) => {
+        if (bulkExecutor.shouldUseBulkApi(recordIds.length)) {
+          const bulkRecords = recordIds.map((id) => ({ Id: id }));
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: targetConn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              sendOperationProgress(handlerDeps, operationId, Math.round((processed / total) * 100), processed, total, `Bulk delete ${objectName}`);
+            },
+          };
+          const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectName, 'delete', bulkRecords);
+          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
+            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
+            success: i < bulkResult.successCount,
+            errors: i >= bulkResult.successCount ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error'] : [] as string[],
+          }));
+        }
+
         const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
         for (let i = 0; i < recordIds.length; i += batchSize) {
           const batch = recordIds.slice(i, i + batchSize);
-          const results = await targetConn.sobject(objectName).destroy(batch) as unknown as JsforceResult[];
-          for (const r of (Array.isArray(results) ? results : [results])) {
-            outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
+          const retryResult = await retryOp.execute(async () => {
+            return targetConn.sobject(objectName).destroy(batch) as unknown as Promise<JsforceResult[]>;
+          });
+          if (retryResult.success && retryResult.result) {
+            for (const r of (Array.isArray(retryResult.result) ? retryResult.result : [retryResult.result])) {
+              outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
+            }
+          } else {
+            for (const _id of batch) {
+              outcomes.push({ success: false, errors: [retryResult.error?.message ?? 'Delete failed after retries'] });
+            }
           }
         }
         return outcomes;
       };
 
-      // Build query functions with dynamic limits
+      // Build query functions with retry wrapping and dynamic limits
+      const queryRetryOp = new RetryableOperation({ retryConfig: robustnessConfig.retry });
       const buildQueryFn = (conn: typeof sourceConn) => async (
         _orgId: string,
         objectConfig: import('@sandforge/shared').SyncObjectConfig,
@@ -229,9 +391,12 @@ export class SyncOpsHandler implements DomainHandler {
           soql += ` WHERE ${objectConfig.where}`;
         }
         soql += ` LIMIT ${syncQueryLimits.defaultQueryLimit}`;
-        const records = await queryWithFieldsFallback<Record<string, unknown>>(conn, safeObj, soql);
+        const retryResult = await queryRetryOp.execute(() => queryWithFieldsFallback<Record<string, unknown>>(conn, safeObj, soql));
+        if (!retryResult.success) {
+          throw retryResult.error ?? new Error('Query failed after retries');
+        }
         checkApiLimits(conn.limitInfo, `sync:execute query ${safeObj}`);
-        return records;
+        return retryResult.result ?? [];
       };
 
       // Lazy-import sync dependencies
@@ -252,8 +417,11 @@ export class SyncOpsHandler implements DomainHandler {
       });
       const deltaDetector = new DeltaDetector({
         query: async (_orgId, soql) => {
-          const records = await queryAll<Record<string, unknown>>(sourceConn, soql);
-          return records as Array<{ Id: string; [key: string]: unknown }>;
+          const retryResult = await queryRetryOp.execute(() => queryAll<Record<string, unknown>>(sourceConn, soql));
+          if (!retryResult.success) {
+            throw retryResult.error ?? new Error('Delta query failed after retries');
+          }
+          return (retryResult.result ?? []) as Array<{ Id: string; [key: string]: unknown }>;
         },
       });
       const conflictResolver = new ConflictResolver();

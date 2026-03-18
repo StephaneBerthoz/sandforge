@@ -52,7 +52,7 @@ function createMockDeps(): HandlerDeps {
     orgManager: { getOrg: vi.fn() } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
     configStore: {
-      get: vi.fn(),
+      get: vi.fn().mockReturnValue(undefined),
       set: vi.fn(),
     } as unknown as HandlerDeps['configStore'],
     secretVault: {} as unknown as HandlerDeps['secretVault'],
@@ -178,6 +178,101 @@ describe('SyncOpsHandler', () => {
 
       // complete is called exactly once (in finally, not duplicated)
       expect(mockComplete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('robustness integration', () => {
+    it('wraps describe-global with TimeoutManager', async () => {
+      const describeGlobalFn = vi.fn().mockResolvedValue({
+        sobjects: [
+          { name: 'Account', label: 'Account', createable: true, queryable: true },
+        ],
+      });
+      mockGetConn.mockResolvedValue({
+        describeGlobal: describeGlobalFn,
+        limitInfo: undefined,
+      } as never);
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-timeout-sync',
+        type: 'sync:describe-global',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1' },
+      };
+
+      await handler.handle(msg);
+
+      // describeGlobal was called (wrapped by TimeoutManager)
+      expect(describeGlobalFn).toHaveBeenCalledTimes(1);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { objects: string[] } };
+      expect(response.type).toBe('sync:describe-global:response');
+      expect(response.payload.objects).toContain('Account');
+    });
+
+    it('wraps describe-fields with TimeoutManager', async () => {
+      const sourceDescribeFn = vi.fn().mockResolvedValue({
+        fields: [{ name: 'Name', label: 'Name', type: 'string', createable: true }],
+      });
+      const targetDescribeFn = vi.fn().mockResolvedValue({
+        fields: [{ name: 'Name', label: 'Name', type: 'string', createable: true }],
+      });
+      mockGetConn.mockImplementation(async (orgId: string) => {
+        if (orgId === 'src-org') {
+          return { describe: sourceDescribeFn, limitInfo: undefined } as never;
+        }
+        return { describe: targetDescribeFn, limitInfo: undefined } as never;
+      });
+
+      const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; objectApiName: string } } = {
+        id: 'req-fields-timeout',
+        type: 'sync:describe-fields',
+        timestamp: Date.now(),
+        payload: { sourceOrgId: 'src-org', targetOrgId: 'tgt-org', objectApiName: 'Account' },
+      };
+
+      await handler.handle(msg);
+
+      expect(sourceDescribeFn).toHaveBeenCalledTimes(1);
+      expect(targetDescribeFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('loads robustness config from ConfigStore', async () => {
+      mockGetConn.mockResolvedValue({
+        describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
+        limitInfo: undefined,
+      } as never);
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-config-sync',
+        type: 'sync:describe-global',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1' },
+      };
+
+      await handler.handle(msg);
+
+      expect(deps.configStore.get).toHaveBeenCalledWith('robustness:config');
+    });
+
+    it('falls back to defaults when configStore returns undefined', async () => {
+      vi.mocked(deps.configStore.get).mockReturnValue(undefined);
+
+      mockGetConn.mockResolvedValue({
+        describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
+        limitInfo: undefined,
+      } as never);
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-default-sync',
+        type: 'sync:describe-global',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
     });
   });
 });

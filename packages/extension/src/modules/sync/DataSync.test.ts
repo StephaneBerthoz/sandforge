@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DataSync } from './DataSync';
 import type { DataSyncDeps, OperationOutcome } from './DataSync';
+import type { TargetFieldDescriptor } from './FieldTypeValidator';
 import type { SyncObjectConfig } from '@sandforge/shared';
 
 function createConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
@@ -211,6 +212,92 @@ describe('DataSync', () => {
 
       expect(result.objectApiName).toBe('Contact');
       expect(result.operation).toBe('update');
+    });
+  });
+
+  describe('field type validation', () => {
+    it('should validate records against target field descriptors when provided', async () => {
+      const targetFields: TargetFieldDescriptor[] = [
+        { apiName: 'Name', type: 'string', maxLength: 5, required: true },
+      ];
+      deps = createDeps({ targetFieldDescriptors: targetFields });
+      dataSync = new DataSync(deps);
+
+      const result = await dataSync.sync(
+        createConfig({ operation: 'insert' }),
+        [{ Name: 'TooLongName' }]
+      );
+
+      expect(result.failed).toBe(1);
+      expect(result.success).toBe(0);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0]).toContain('max length');
+      // CRUD function should NOT have been called
+      expect(deps.insert).not.toHaveBeenCalled();
+    });
+
+    it('should pass validation when records match target descriptors', async () => {
+      const targetFields: TargetFieldDescriptor[] = [
+        { apiName: 'Name', type: 'string', maxLength: 255 },
+      ];
+      deps = createDeps({ targetFieldDescriptors: targetFields });
+      dataSync = new DataSync(deps);
+
+      const result = await dataSync.sync(
+        createConfig({ operation: 'insert' }),
+        [{ Name: 'Acme' }]
+      );
+
+      expect(result.success).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(deps.insert).toHaveBeenCalled();
+    });
+
+    it('should skip validation when no target descriptors provided', async () => {
+      deps = createDeps();
+      dataSync = new DataSync(deps);
+
+      const result = await dataSync.sync(
+        createConfig({ operation: 'insert' }),
+        [{ Name: 'Acme' }]
+      );
+
+      expect(result.success).toBe(1);
+      expect(deps.insert).toHaveBeenCalled();
+    });
+
+    it('should catch required field validation errors', async () => {
+      const targetFields: TargetFieldDescriptor[] = [
+        { apiName: 'Name', type: 'string', required: true },
+      ];
+      deps = createDeps({ targetFieldDescriptors: targetFields });
+      dataSync = new DataSync(deps);
+
+      const result = await dataSync.sync(
+        createConfig({ operation: 'insert' }),
+        [{ Name: '' }]
+      );
+
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]).toContain('Required field');
+      expect(deps.insert).not.toHaveBeenCalled();
+    });
+
+    it('should validate boolean type mismatch', async () => {
+      const targetFields: TargetFieldDescriptor[] = [
+        { apiName: 'IsActive', type: 'boolean' },
+      ];
+      deps = createDeps({ targetFieldDescriptors: targetFields });
+      dataSync = new DataSync(deps);
+
+      const result = await dataSync.sync(
+        createConfig({ operation: 'insert' }),
+        [{ IsActive: 'yes' }]
+      );
+
+      expect(result.failed).toBe(1);
+      expect(result.errors[0]).toContain('boolean');
+      expect(deps.insert).not.toHaveBeenCalled();
     });
   });
 });
