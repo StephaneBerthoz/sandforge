@@ -6,6 +6,12 @@ import { useNotificationStore, resetNotificationCounter } from '../../stores/use
 import { MonitorPage } from './MonitorPage';
 import type { SalesforceOrg } from '@sandforge/shared';
 
+const mockNavigate = vi.fn();
+vi.mock('../../stores/useAppStore', () => ({
+  useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ navigate: mockNavigate, currentRoute: 'monitor' }),
+}));
+
 /* Mock recharts ResponsiveContainer for TrendCharts and TrendChart */
 vi.mock('recharts', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('recharts');
@@ -152,7 +158,18 @@ describe('MonitorPage', () => {
   });
 
   // 1. Empty state (no org selected)
-  it('should show empty state when no org is selected', () => {
+  it('should show EmptyState with module illustration when zero orgs', () => {
+    render(<MonitorPage />);
+    expect(screen.getByTestId('empty-state')).toBeDefined();
+    expect(screen.getByTestId('illustration-monitor')).toBeDefined();
+    expect(screen.getByTestId('empty-action-button')).toBeDefined();
+  });
+
+  it('should show org selector empty state when orgs exist but none selected', () => {
+    useOrgStore.setState({
+      selectedOrgId: null,
+      orgs: [createMockOrg({ status: 'connected' })],
+    });
     render(<MonitorPage />);
     expect(screen.getByTestId('monitor-empty')).toBeDefined();
     expect(screen.getByText('Select an org to monitor')).toBeDefined();
