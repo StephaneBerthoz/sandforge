@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BaseMessage, AutopilotGraph as AutopilotGraphType, AutopilotNodeStatus, ExecutionPlan } from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
+import { EmptyState } from '../../components/ui/EmptyState';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { AutopilotWizard } from './AutopilotWizard';
 import { AutopilotGraph } from './AutopilotGraph';
@@ -71,6 +74,22 @@ export const AutopilotPage: React.FC = () => {
       });
     },
   );
+
+  const orgs = useOrgStore((s) => s.orgs);
+  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
+  const navigate = useAppStore((s) => s.navigate);
+
+  if (!selectedOrgId || orgs.length === 0) {
+    return (
+      <EmptyState
+        module="autopilot"
+        title={t('autopilot.emptyState.title')}
+        description={t('autopilot.emptyState.description')}
+        actionLabel={t('autopilot.emptyState.cta')}
+        onAction={() => navigate('orgs')}
+      />
+    );
+  }
 
   const isWizardStep = step === 'connect' || step === 'objects' || step === 'compliance' || step === 'review';
   const isExecutionStep = step === 'executing' || step === 'completed';

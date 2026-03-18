@@ -61,9 +61,16 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+const mockNavigate = vi.fn();
+vi.mock('../../stores/useAppStore', () => ({
+  useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ navigate: mockNavigate, currentRoute: 'automation' }),
+}));
+
 describe('AutomationPage', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    mockNavigate.mockClear();
     mockExecuteMutate.mockClear();
     mockExecuteReset.mockClear();
     mockSaveMutate.mockClear();
@@ -88,7 +95,16 @@ describe('AutomationPage', () => {
   it('should show empty state when no orgs', () => {
     useOrgStore.setState({ orgs: [] });
     render(<AutomationPage />);
-    expect(screen.getByText('No organizations connected')).toBeDefined();
+    expect(screen.getByTestId('empty-state')).toBeDefined();
+    expect(screen.getByTestId('illustration-automation')).toBeDefined();
+    expect(screen.getByTestId('empty-action-button')).toBeDefined();
+  });
+
+  it('should navigate to orgs when empty state CTA clicked', () => {
+    useOrgStore.setState({ orgs: [] });
+    render(<AutomationPage />);
+    fireEvent.click(screen.getByTestId('empty-action-button'));
+    expect(mockNavigate).toHaveBeenCalledWith('orgs');
   });
 
   it('should render the page', () => {

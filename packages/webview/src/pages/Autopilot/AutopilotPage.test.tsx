@@ -1,7 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { AutopilotPage } from './AutopilotPage';
+
+/** Mock message bus hooks used by AutopilotPage. */
+vi.mock('../../hooks/useMessageBus', () => ({
+  useMessageListener: vi.fn(),
+  useSendMessage: () => vi.fn(),
+}));
 
 /** Mock autopilot store — default to wizard mode (step = 'connect'). */
 vi.mock('../../stores/useAutopilotStore', () => {
@@ -57,24 +63,56 @@ vi.mock('../../stores/useAutopilotStore', () => {
 });
 
 /** Mock org store for the wizard. */
+let mockOrgState: Record<string, unknown> = {
+  orgs: [
+    {
+      id: 'org-1',
+      alias: 'DevSandbox',
+      username: 'dev@test.com',
+      instanceUrl: 'https://dev.salesforce.com',
+      status: 'connected',
+      orgType: 'sandbox',
+      safetyTier: 'safe',
+    },
+  ],
+  selectedOrgId: 'org-1',
+};
+
 vi.mock('../../stores/useOrgStore', () => ({
   useOrgStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({
-      orgs: [
-        {
-          id: 'org-1',
-          alias: 'DevSandbox',
-          username: 'dev@test.com',
-          instanceUrl: 'https://dev.salesforce.com',
-          status: 'connected',
-          orgType: 'sandbox',
-          safetyTier: 'safe',
-        },
-      ],
-    }),
+    selector(mockOrgState),
+}));
+
+const mockNavigate = vi.fn();
+vi.mock('../../stores/useAppStore', () => ({
+  useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ navigate: mockNavigate, currentRoute: 'autopilot' }),
 }));
 
 describe('AutopilotPage', () => {
+  beforeEach(() => {
+    mockOrgState = {
+      orgs: [{ id: 'org-1', alias: 'DevSandbox', username: 'dev@test.com', instanceUrl: 'https://dev.salesforce.com', status: 'connected', orgType: 'sandbox', safetyTier: 'safe' }],
+      selectedOrgId: 'org-1',
+    };
+    mockNavigate.mockClear();
+  });
+
+  it('should show empty state when no org selected', () => {
+    mockOrgState = { orgs: [], selectedOrgId: null };
+    render(<AutopilotPage />);
+    expect(screen.getByTestId('empty-state')).toBeDefined();
+    expect(screen.getByTestId('illustration-autopilot')).toBeDefined();
+    expect(screen.getByTestId('empty-action-button')).toBeDefined();
+  });
+
+  it('should navigate to orgs when empty state CTA clicked', () => {
+    mockOrgState = { orgs: [], selectedOrgId: null };
+    render(<AutopilotPage />);
+    fireEvent.click(screen.getByTestId('empty-action-button'));
+    expect(mockNavigate).toHaveBeenCalledWith('orgs');
+  });
+
   it('should render without crashing', () => {
     render(<AutopilotPage />);
     expect(screen.getByTestId('autopilot-page')).toBeDefined();
