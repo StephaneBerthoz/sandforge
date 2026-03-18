@@ -6,6 +6,8 @@ import type {
   AddOnField,
 } from '@sandforge/shared';
 import type { CrudFlsGuard, CrudOperation } from '../../core/metadata/CrudFlsGuard.js';
+import { FieldTypeValidator } from './FieldTypeValidator.js';
+import type { TargetFieldDescriptor } from './FieldTypeValidator.js';
 
 /** Function to upsert records using an external ID field */
 export type UpsertFn = (
@@ -51,23 +53,29 @@ export interface DataSyncDeps {
   delete: DeleteFn;
   /** Optional CRUD/FLS guard. When provided, permissions are re-verified before each DML operation. */
   crudFlsGuard?: CrudFlsGuard;
+  /** Optional target field descriptors for pre-CRUD validation. */
+  targetFieldDescriptors?: TargetFieldDescriptor[];
 }
 
 /**
  * Core data synchronization service between Salesforce orgs.
  * Takes source records, applies field mappings and add-on fields,
  * then writes to the target org using the appropriate operation.
+ * Validates record values against target field constraints when target descriptors are provided.
  */
 export class DataSync {
   private readonly deps: DataSyncDeps;
+  private readonly fieldValidator: FieldTypeValidator;
 
   constructor(deps: DataSyncDeps) {
     this.deps = deps;
+    this.fieldValidator = new FieldTypeValidator();
   }
 
   /**
    * Synchronize records for a single object configuration.
    * Applies field mappings and add-on fields, then performs the specified operation.
+   * When target field descriptors are provided, validates record values before CRUD.
    */
   async sync(
     config: SyncObjectConfig,
@@ -76,6 +84,25 @@ export class DataSync {
     const mappedRecords = sourceRecords.map((record) =>
       applyMappingsAndAddOns(record, config.fieldMappings, config.addOnFields)
     );
+
+    // Pre-CRUD field validation when target descriptors are available
+    if (this.deps.targetFieldDescriptors && this.deps.targetFieldDescriptors.length > 0 && mappedRecords.length > 0) {
+      const validation = this.fieldValidator.validateRecords(mappedRecords, this.deps.targetFieldDescriptors);
+      if (!validation.valid) {
+        const errorMessages = validation.errors.map(
+          (e) => `Record[${e.recordIndex}].${e.field}: ${e.message}`
+        );
+        return {
+          objectApiName: config.objectApiName,
+          operation: config.operation,
+          processed: mappedRecords.length,
+          success: 0,
+          failed: mappedRecords.length,
+          skipped: 0,
+          errors: errorMessages,
+        };
+      }
+    }
 
     const outcomes = await this.executeOperation(
       config.objectApiName,
