@@ -6,7 +6,7 @@
 <domain>
 ## Phase Boundary
 
-Deliver a clean, coherent user experience with no dead features or broken buttons. Every module shows a tailored first-launch empty state. All remaining ghost message types get basic handlers so their UI components become functional. Navigation, notifications, version display, and org selection all work correctly.
+Deliver a clean, coherent user experience with no dead features or broken buttons. Every module shows a tailored first-launch empty state. Remaining ghost features (Scheduler, RealTime) get "coming soon" treatment with polished disabled UI instead of half-baked handlers. Navigation, notifications, version display, and org selection all work correctly.
 
 </domain>
 
@@ -20,7 +20,7 @@ Deliver a clean, coherent user experience with no dead features or broken button
 - GrappePage.tsx can be kept for direct URL access but not in sidebar nav
 
 ### UX-02: Notifications Bell Wiring
-- Bell button in TopBar.tsx has no onClick — wire it to NotificationCenter
+- Bell button in TopBar.tsx has no onClick -- wire it to NotificationCenter
 - NotificationCenter already exists and is mounted in AppShell.tsx with `notificationsOpen` state
 - Pass `setNotificationsOpen` callback from AppShell to TopBar via props
 - Add unread badge count on bell using `selectUnreadCount` from useNotificationStore
@@ -37,40 +37,35 @@ Deliver a clean, coherent user experience with no dead features or broken button
 - Use existing `selectOrg()` from useOrgStore
 - Only auto-select on mount (not on every org list update)
 
-### UX-05: Empty States — Module-Specific Guidance
+### UX-05: Empty States -- Module-Specific Guidance
 - Each module gets a tailored EmptyState with specific icon, title, description, and CTA
 - Existing EmptyState component used as base
 - Module-specific content:
-  - Forge: "Discover your org schema" → CTA to select org
-  - Monitor: "Start monitoring your org" → CTA to connect org and refresh
-  - DataOps: "Protect and manage your data" → CTA to select org
-  - Automation: "Build your first pipeline" → CTA to create pipeline or browse marketplace
-  - Autopilot: "Auto-provision your sandbox" → CTA to select org and scan schema
+  - Forge: "Discover your org schema" -- CTA to select org
+  - Monitor: "Start monitoring your org" -- CTA to connect org and refresh
+  - DataOps: "Protect and manage your data" -- CTA to select org
+  - Automation: "Build your first pipeline" -- CTA to create pipeline or browse marketplace
+  - Autopilot: "Auto-provision your sandbox" -- CTA to select org and scan schema
 - All strings via i18n t() function (en + fr minimum)
 - Show empty state when: no org selected OR no data loaded yet
 
-### GHO-01/02/03: Ghost Features — Implement Basic Handlers
-- Scheduler (4 types): implement basic handlers using ConfigStore for persistence
-  - scheduler:list → read saved schedules from ConfigStore
-  - scheduler:upsert → save/update schedule to ConfigStore
-  - scheduler:delete → remove schedule from ConfigStore
-  - scheduler:toggle → enable/disable schedule in ConfigStore
-  - Actual cron execution is NOT in scope — just CRUD for schedule definitions
-- RealTime (5 types): implement basic handlers
-  - realtime:start → start a polling-based sync watcher (simplified, no CDC)
-  - realtime:stop → stop the watcher
-  - realtime:status → return current watcher status
-  - realtime:metrics → return basic sync metrics
-  - realtime:resolve-conflict → apply conflict resolution strategy
-  - Use polling as a simplified implementation — real CDC/Streaming deferred to v2
-- Remove any remaining types with zero handler AND zero UI consumer
-- Ensure messages.types.ts only contains types with both sender and receiver
-- Clean any dead handler code (handlers sending responses nobody listens for)
+### GHO-01/02/03: Ghost Features -- "Coming Soon" + Cleanup
+- **Scheduler** (4 types + SchedulerCalendar.tsx): keep types and UI component
+  - Disable interactive controls (buttons grayed out)
+  - Show "Coming in v1.2" badge/banner in SchedulerCalendar
+  - No handler implementation -- types stay as contract for future work
+- **RealTime** (5 types + RealTimeSyncPanel.tsx): keep types and UI component
+  - Disable start/stop controls
+  - Show "Requires CDC -- Coming in v2.0" badge/banner in RealTimeSyncPanel
+  - No handler implementation -- types stay as contract for future work
+- **Orphaned types without UI**: remove from messages.types.ts (zero handler + zero consumer)
+- **Dead handler code**: remove handlers sending responses nobody listens for
+- **messages.types.ts audit**: ensure every remaining type has either a handler or a UI consumer
+- Register a no-op handler for scheduler:*/realtime:* that returns a "feature not available" response (prevents unhandled message warnings from Phase 1)
 
 ### Claude's Discretion
 - Empty state icon choices per module
-- Scheduler ConfigStore key patterns
-- RealTime polling interval (suggest: configurable, default 30s)
+- "Coming soon" badge design (subtle, not blocking)
 - Order of implementation within plans
 
 </decisions>
@@ -79,47 +74,45 @@ Deliver a clean, coherent user experience with no dead features or broken button
 ## Existing Code Insights
 
 ### Reusable Assets
-- `EmptyState` component — already used in Seed/Sync/Compare pages, consistent API
-- `useNotificationStore` — has `selectUnreadCount` selector ready to use
-- `NotificationCenter` — fully implemented, just needs wiring to bell button
-- `useOrgStore.selectOrg()` — exists, just needs auto-call on mount
-- `ConfigStore` — proven persistence (settings, backups, AI conversations, forge templates)
-- `DomainHandler` pattern — all handlers now follow it (Phase 2)
-- `buildResponse()` — standard for all new handler responses
+- `EmptyState` component -- already used in Seed/Sync/Compare pages, consistent API
+- `useNotificationStore` -- has `selectUnreadCount` selector ready to use
+- `NotificationCenter` -- fully implemented, just needs wiring to bell button
+- `useOrgStore.selectOrg()` -- exists, just needs auto-call on mount
+- `DomainHandler` pattern -- all handlers now follow it (Phase 2)
+- `buildResponse()` -- standard for all new handler responses
 
 ### Established Patterns
 - AppShell.tsx manages layout state (sidebar collapsed, notifications open)
 - TopBar receives callbacks via props from AppShell
 - StatusFooter is a simple presentational component in layouts/
-- Empty states pattern: check `orgs.length === 0` or `!selectedOrg` → render EmptyState
+- Empty states pattern: check `orgs.length === 0` or `!selectedOrg` -- render EmptyState
 - i18n: keys follow `module.section.key` naming (e.g., `seed.emptyState.title`)
 
 ### Integration Points
-- `packages/webview/src/layouts/Sidebar/Sidebar.tsx` — Grappe button removal
-- `packages/webview/src/layouts/TopBar/TopBar.tsx` — Bell onClick wiring
-- `packages/webview/src/layouts/StatusFooter/StatusFooter.tsx` — Version dynamic
-- `packages/webview/src/layouts/AppShell.tsx` — Org auto-select + NotificationCenter bridge
-- `packages/webview/src/pages/*/` — Empty states per module
-- `packages/extension/src/bridge/handlers/` — New Scheduler + RealTime handlers
-- `packages/extension/src/bridge/ExtensionHandlers.ts` — Register new handlers
-- `packages/shared/src/types/messages.types.ts` — Type audit + cleanup
+- `packages/webview/src/layouts/Sidebar/Sidebar.tsx` -- Grappe button removal
+- `packages/webview/src/layouts/TopBar/TopBar.tsx` -- Bell onClick wiring
+- `packages/webview/src/layouts/StatusFooter/StatusFooter.tsx` -- Version dynamic
+- `packages/webview/src/layouts/AppShell.tsx` -- Org auto-select + NotificationCenter bridge
+- `packages/webview/src/pages/*/` -- Empty states per module
+- `packages/shared/src/types/messages.types.ts` -- Type audit + cleanup
 
 </code_context>
 
 <specifics>
 ## Specific Ideas
 
-- Empty states doivent etre specifiques par module — pas un template generique
-- Scheduler: CRUD des definitions seulement, pas d'execution cron reelle
-- RealTime: implementation simplifiee par polling, CDC/Streaming reporte a v2
-- Flagship quality — chaque ecran vide doit guider l'utilisateur vers l'action suivante
+- Empty states doivent etre specifiques par module -- pas un template generique
+- Scheduler et RealTime: "coming soon" avec UI desactivee, pas de handlers bidons
+- Flagship quality -- chaque ecran vide doit guider l'utilisateur vers l'action suivante
+- Pas de compromis: mieux vaut une feature absente qu'une feature a moitie faite
 
 </specifics>
 
 <deferred>
 ## Deferred Ideas
 
-None — discussion stayed within phase scope
+- Scheduler full implementation (CRUD + cron execution) -- v1.2
+- RealTime sync via CDC/Streaming API -- v2.0
 
 </deferred>
 
