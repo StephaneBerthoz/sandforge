@@ -1,5 +1,6 @@
 import type { BaseMessage } from '@sandforge/shared';
-import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
+import { sanitizeSoqlObjectName, orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
+import type { RobustnessConfig } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
   buildResponse, sendHandlerError, sendOperationStarted, sendOperationProgress,
@@ -7,6 +8,11 @@ import {
 } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
+import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
+import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 
 /** Message types handled by SeedOpsHandler. */
 const SEED_TYPES = new Set([
@@ -19,8 +25,8 @@ const SEED_TYPES = new Set([
  * Domain handler for seed-related webview-to-extension messages.
  *
  * Routes seed:* message types to schema description and data generation
- * operations against Salesforce orgs, with production guard checks
- * and performance tracking.
+ * operations against Salesforce orgs, with production guard checks,
+ * performance tracking, retry, timeout, and bulk API support.
  */
 export class SeedOpsHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
@@ -50,13 +56,25 @@ export class SeedOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Load and validate robustness configuration from ConfigStore.
+   * Falls back to schema defaults when no config is stored.
+   */
+  private getRobustnessConfig(): RobustnessConfig {
+    const raw = this.deps.configStore.get<Partial<RobustnessConfig>>('robustness:config');
+    return RobustnessConfigSchema.parse(raw ?? {});
+  }
+
   private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const config = this.getRobustnessConfig();
 
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const result = await conn.describeGlobal();
+
+      const timeout = new TimeoutManager(config.timeouts.describeGlobal);
+      const result = await timeout.withTimeout('describe-global', () => conn.describeGlobal());
 
       const objects = result.sobjects
         .filter((s: { createable: boolean }) => s.createable)
@@ -78,11 +96,14 @@ export class SeedOpsHandler implements DomainHandler {
   private async handleDescribeObject(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const payload = (msg as BaseMessage & { payload: { orgId: string; objectApiName: string } }).payload;
+    const config = this.getRobustnessConfig();
 
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
       const safeObjectName = sanitizeSoqlObjectName(payload.objectApiName);
-      const result = await conn.describe(safeObjectName);
+
+      const timeout = new TimeoutManager(config.timeouts.describe);
+      const result = await timeout.withTimeout('describe-object', () => conn.describe(safeObjectName));
 
       const fields = (result.fields as { name: string; label: string; type: string; nillable: boolean; defaultedOnCreate: boolean; picklistValues?: { value: string }[]; referenceTo?: string[]; length: number; createable: boolean }[])
         .filter((f) => f.createable)
@@ -112,6 +133,7 @@ export class SeedOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const payload = (msg as BaseMessage & { payload: { orgId: string; template: Record<string, unknown> } }).payload;
     const operationId = crypto.randomUUID();
+    const robustnessConfig = this.getRobustnessConfig();
 
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
@@ -137,25 +159,60 @@ export class SeedOpsHandler implements DomainHandler {
 
       sendOperationStarted(this.deps, operationId, 'seed', 'Seed data generation');
 
-      // Build jsforce insert function
+      // Build robustness-aware insert function
+      const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
+      const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
+      const retryOp = new RetryableOperation({
+        retryConfig: robustnessConfig.retry,
+        onRetry: (attempt, classified, delay) => {
+          this.deps.log(`[RETRY] seed insert attempt=${attempt} code=${classified.originalError.statusCode} delay=${delay}ms`);
+        },
+      });
+      const handlerDeps = this.deps;
+
       const insertFn = async (
         _orgId: string,
         objectApiName: string,
         records: Record<string, unknown>[],
         batchSize: number,
       ): Promise<{ successIds: string[]; errors: string[] }> => {
+        if (bulkExecutor.shouldUseBulkApi(records.length)) {
+          // Bulk API 2.0 path
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: conn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              const pct = Math.round((processed / total) * 100);
+              sendOperationProgress(handlerDeps, operationId, pct, processed, total, `Bulk insert ${objectApiName}`);
+            },
+          };
+          const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectApiName, 'insert', records);
+          return {
+            successIds: Array.from({ length: bulkResult.successCount }, (_, i) => `bulk-${i}`),
+            errors: bulkResult.failures.map((f) => f.error),
+          };
+        }
+
+        // REST API path with retry and batching
         const successIds: string[] = [];
         const errors: string[] = [];
 
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
-          const results = await conn.sobject(objectApiName).create(batch) as Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>;
-          for (const r of results) {
-            if (r.success && r.id) {
-              successIds.push(r.id);
-            } else {
-              errors.push(r.errors?.[0]?.message ?? 'Unknown insert error');
+          const retryResult = await retryOp.execute(async () => {
+            return conn.sobject(objectApiName).create(batch) as Promise<Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>>;
+          });
+
+          if (retryResult.success && retryResult.result) {
+            for (const r of retryResult.result) {
+              if (r.success && r.id) {
+                successIds.push(r.id);
+              } else {
+                errors.push(r.errors?.[0]?.message ?? 'Unknown insert error');
+              }
             }
+          } else {
+            errors.push(retryResult.error?.message ?? 'Insert failed after retries');
           }
         }
 
