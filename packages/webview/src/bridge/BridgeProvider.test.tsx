@@ -61,10 +61,11 @@ describe('BridgeProvider', () => {
       </BridgeProvider>,
     );
 
-    expect(mockPostMessage).toHaveBeenCalledTimes(3);
+    expect(mockPostMessage).toHaveBeenCalledTimes(4);
     const calls = mockPostMessage.mock.calls.map((c: unknown[]) => (c[0] as { type: string }).type);
     expect(calls).toContain('org:list');
     expect(calls).toContain('settings:get');
+    expect(calls).toContain('ai:status');
     expect(calls).toContain('connectivity:status');
   });
 
@@ -164,5 +165,63 @@ describe('BridgeProvider', () => {
     );
 
     expect(getByText('content')).toBeDefined();
+  });
+
+  it('should auto-select first connected org when none selected', () => {
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    const org1 = { ...createTestOrg('1'), status: 'expired' as const };
+    const org2 = createTestOrg('2');
+
+    fireMessage({
+      id: 'ext-auto-1',
+      type: 'org:list:response',
+      timestamp: Date.now(),
+      payload: { orgs: [org1, org2] },
+    });
+
+    expect(useOrgStore.getState().selectedOrgId).toBe('2');
+  });
+
+  it('should not auto-select when an org is already selected', () => {
+    useOrgStore.setState({ selectedOrgId: 'existing' });
+
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-auto-2',
+      type: 'org:list:response',
+      timestamp: Date.now(),
+      payload: { orgs: [createTestOrg('1')] },
+    });
+
+    expect(useOrgStore.getState().selectedOrgId).toBe('existing');
+  });
+
+  it('should not auto-select when no connected orgs exist', () => {
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    const expired = { ...createTestOrg('1'), status: 'expired' as const };
+
+    fireMessage({
+      id: 'ext-auto-3',
+      type: 'org:list:response',
+      timestamp: Date.now(),
+      payload: { orgs: [expired] },
+    });
+
+    expect(useOrgStore.getState().selectedOrgId).toBeNull();
   });
 });

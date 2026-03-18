@@ -31,13 +31,23 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
 
     sendMessage(buildMessage('org:list'));
     sendMessage(buildMessage('settings:get'));
+    sendMessage(buildMessage('ai:status'));
   }, [sendMessage]);
 
-  // Listen for org:list:response → setOrgs
+  // Listen for org:list:response → setOrgs + auto-select first connected org
   useMessageListener<BaseMessage & { payload: { orgs: SalesforceOrg[] } }>(
     'org:list:response',
     (msg) => {
       useOrgStore.getState().setOrgs(msg.payload.orgs);
+
+      // Auto-select first connected org when none selected
+      const state = useOrgStore.getState();
+      if (!state.selectedOrgId && msg.payload.orgs.length > 0) {
+        const connected = msg.payload.orgs.filter((o) => o.status === 'connected');
+        if (connected.length > 0) {
+          state.selectOrg(connected[0].id);
+        }
+      }
     },
   );
 
