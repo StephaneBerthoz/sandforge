@@ -202,7 +202,11 @@ export class ExtensionHandlers {
     route(['sync:execute', 'sync:describe-global', 'sync:describe-fields'], this.syncHandler);
 
     // Monitor
-    route(['monitor:refresh', 'monitor:start', 'monitor:trends', 'monitor:abort-job', 'monitor:live-operations'], this.monitorHandler);
+    route([
+      'monitor:refresh', 'monitor:start', 'monitor:trends', 'monitor:abort-job',
+      'monitor:live-operations', 'monitor:health-score',
+      'monitor:storage', 'monitor:deployments', 'monitor:api-usage',
+    ], this.monitorHandler);
 
     // Compare
     route(['compare:execute', 'compare:start', 'compare:permissions', 'compare:snapshots', 'compare:drift'], this.compareHandler);

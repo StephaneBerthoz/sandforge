@@ -1,4 +1,4 @@
-import type { BaseMessage, TrendData, OrgTrendPayload } from '@sandforge/shared';
+import type { BaseMessage, TrendData, OrgTrendPayload, StorageObjectEntry, DeploymentEntry, ApiUsageCategory } from '@sandforge/shared';
 import { SF_API_VERSION, MONITOR_PERIOD_MAP, MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
@@ -22,6 +22,10 @@ const MONITOR_TYPES = new Set([
   'monitor:trends',
   'monitor:abort-job',
   'monitor:live-operations',
+  'monitor:health-score',
+  'monitor:storage',
+  'monitor:deployments',
+  'monitor:api-usage',
 ]);
 
 /**
@@ -71,6 +75,18 @@ export class MonitorOpsHandler implements DomainHandler {
         return true;
       case 'monitor:live-operations':
         this.handleLiveOperations(msg);
+        return true;
+      case 'monitor:health-score':
+        await this.handleHealthScore(msg);
+        return true;
+      case 'monitor:storage':
+        await this.handleStorage(msg);
+        return true;
+      case 'monitor:deployments':
+        await this.handleDeployments(msg);
+        return true;
+      case 'monitor:api-usage':
+        await this.handleApiUsage(msg);
         return true;
       default:
         return false;
@@ -197,6 +213,177 @@ export class MonitorOpsHandler implements DomainHandler {
     const response = buildResponse(this.deps, msg, 'monitor:live-operations:response', { operations });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
+  }
+
+  /**
+   * Handle monitor:health-score -- compute full org health score breakdown.
+   * @param msg - The incoming health-score request message.
+   */
+  private async handleHealthScore(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const limitsRaw = await conn.request(`/services/data/${SF_API_VERSION}/limits`) as RawLimitsResponse;
+      const limits = transformLimitsResponse(limitsRaw);
+      const healthReport = this.healthCalculator.calculate(limits);
+
+      const dimensions = healthReport.factors.map((f) => ({
+        name: f.name,
+        score: f.score,
+        label: f.category,
+        detail: f.detail,
+        recommendation: f.recommendation,
+      }));
+
+      const response = buildResponse(this.deps, msg, 'monitor:health-score:response', {
+        success: true,
+        overallScore: healthReport.overallScore,
+        dimensions,
+        recommendations: healthReport.factors
+          .filter((f) => f.status !== 'healthy')
+          .map((f) => f.recommendation),
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:health-score', 'monitor:health-score:response', err);
+    }
+  }
+
+  /**
+   * Handle monitor:storage -- per-object record count breakdown.
+   * Queries EntityDefinition for top 20 objects by QualifiedApiName.
+   * @param msg - The incoming storage request message.
+   */
+  private async handleStorage(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+
+      const entityRecords = await queryAll<{
+        QualifiedApiName: string;
+        Label: string;
+        RecordCount: number;
+      }>(
+        conn,
+        `SELECT QualifiedApiName, Label, COALESCE(RecordCount, 0) RecordCount FROM EntityDefinition WHERE RecordCount > 0 ORDER BY RecordCount DESC LIMIT 20`,
+      );
+      checkApiLimits(conn.limitInfo, 'monitor:storage entityDefinition');
+
+      const objects: StorageObjectEntry[] = entityRecords.map((r) => ({
+        objectName: r.QualifiedApiName,
+        label: r.Label ?? r.QualifiedApiName,
+        recordCount: r.RecordCount ?? 0,
+      }));
+
+      const totalRecords = objects.reduce((sum, o) => sum + o.recordCount, 0);
+
+      const response = buildResponse(this.deps, msg, 'monitor:storage:response', {
+        success: true,
+        objects,
+        totalRecords,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:storage', 'monitor:storage:response', err);
+    }
+  }
+
+  /**
+   * Handle monitor:deployments -- recent deployment history.
+   * Queries DeployRequest for the 20 most recent deployments.
+   * @param msg - The incoming deployments request message.
+   */
+  private async handleDeployments(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+
+      const deployRecords = await queryAll<{
+        Id: string;
+        Status: string;
+        StartDate: string;
+        CompletedDate: string | null;
+        CreatedBy: { Name: string } | null;
+        NumberComponentsTotal: number;
+        NumberComponentErrors: number;
+      }>(
+        conn,
+        `SELECT Id, Status, StartDate, CompletedDate, CreatedBy.Name, NumberComponentsTotal, NumberComponentErrors FROM DeployRequest ORDER BY StartDate DESC LIMIT 20`,
+      );
+      checkApiLimits(conn.limitInfo, 'monitor:deployments deployRequest');
+
+      const deployments: DeploymentEntry[] = deployRecords.map((r) => ({
+        id: r.Id,
+        status: r.Status as DeploymentEntry['status'],
+        startDate: r.StartDate,
+        completedDate: r.CompletedDate ?? undefined,
+        createdBy: r.CreatedBy?.Name ?? 'Unknown',
+        componentCount: r.NumberComponentsTotal ?? 0,
+        errorCount: r.NumberComponentErrors ?? 0,
+      }));
+
+      const response = buildResponse(this.deps, msg, 'monitor:deployments:response', {
+        success: true,
+        deployments,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:deployments', 'monitor:deployments:response', err);
+    }
+  }
+
+  /**
+   * Handle monitor:api-usage -- per-category API limit breakdown.
+   * Reads the /limits endpoint and groups key categories.
+   * @param msg - The incoming API usage request message.
+   */
+  private async handleApiUsage(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const limitsRaw = await conn.request(`/services/data/${SF_API_VERSION}/limits`) as RawLimitsResponse;
+      checkApiLimits(conn.limitInfo, 'monitor:api-usage limits');
+
+      const apiCategories = [
+        'DailyApiRequests', 'DailyBulkApiRequests', 'DailyBulkV2QueryJobs',
+        'DailyBulkV2QueryFileStorageMB', 'DailyStreamingApiEvents',
+        'DailyGenericStreamingApiEvents', 'DailyDurableStreamingApiEvents',
+        'DailyAsyncApexExecutions', 'HourlyAsyncReportRuns',
+        'HourlyTimeBasedWorkflow', 'DailySoqlQueries',
+      ];
+
+      const categories: ApiUsageCategory[] = [];
+      for (const key of apiCategories) {
+        const entry = limitsRaw[key] as { Max: number; Remaining: number } | undefined;
+        if (entry && typeof entry.Max === 'number') {
+          const used = entry.Max - entry.Remaining;
+          const usedPercent = entry.Max > 0 ? Math.round((used / entry.Max) * 100) : 0;
+          categories.push({ category: key, used, max: entry.Max, usedPercent });
+        }
+      }
+
+      categories.sort((a, b) => b.usedPercent - a.usedPercent);
+
+      const response = buildResponse(this.deps, msg, 'monitor:api-usage:response', {
+        success: true,
+        categories,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:api-usage', 'monitor:api-usage:response', err);
+    }
   }
 
   private async handleAbortJob(msg: BaseMessage): Promise<void> {
