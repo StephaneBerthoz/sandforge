@@ -78,6 +78,79 @@ describe('MonitorOpsHandler', () => {
     expect(response.payload.operations).toEqual([]);
   });
 
+  it('handles monitor:health-score and returns correlationId', async () => {
+    const msg: BaseMessage & { payload: { orgId: string } } = {
+      id: 'req-health-1',
+      type: 'monitor:health-score',
+      timestamp: Date.now(),
+      payload: { orgId: 'org-1' },
+    };
+
+    // This will hit the error path since getJsforceConnection is not mocked for success
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage;
+    expect(response.type).toBe('monitor:health-score:response');
+  });
+
+  it('handles monitor:storage and returns correlationId', async () => {
+    const msg: BaseMessage & { payload: { orgId: string } } = {
+      id: 'req-storage-1',
+      type: 'monitor:storage',
+      timestamp: Date.now(),
+      payload: { orgId: 'org-1' },
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage;
+    expect(response.type).toBe('monitor:storage:response');
+  });
+
+  it('handles monitor:deployments and returns correlationId', async () => {
+    const msg: BaseMessage & { payload: { orgId: string } } = {
+      id: 'req-deploy-1',
+      type: 'monitor:deployments',
+      timestamp: Date.now(),
+      payload: { orgId: 'org-1' },
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage;
+    expect(response.type).toBe('monitor:deployments:response');
+  });
+
+  it('handles monitor:api-usage and returns correlationId', async () => {
+    const msg: BaseMessage & { payload: { orgId: string } } = {
+      id: 'req-api-1',
+      type: 'monitor:api-usage',
+      timestamp: Date.now(),
+      payload: { orgId: 'org-1' },
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    expect(postToWebview).toHaveBeenCalledTimes(1);
+
+    const response = postToWebview.mock.calls[0][0] as BaseMessage;
+    expect(response.type).toBe('monitor:api-usage:response');
+  });
+
   it('handles monitor:refresh error path with typed error response', async () => {
     vi.mock('../../core/connection/ConnectionHelper.js', () => ({
       getJsforceConnection: vi.fn().mockRejectedValue(new Error('connection failed')),

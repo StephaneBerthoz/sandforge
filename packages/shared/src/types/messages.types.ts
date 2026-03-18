@@ -226,6 +226,9 @@ export type WebViewToExtensionMessage =
   | ConfigValidateRequest
   | MaskingTemplatesByObjectRequest
   | OrgHealthScoreRequest
+  | MonitorStorageRequest
+  | MonitorDeploymentsRequest
+  | MonitorApiUsageRequest
   | SchedulerListRequest
   | SchedulerUpsertRequest
   | SchedulerDeleteRequest
@@ -294,6 +297,9 @@ export type ExtensionToWebViewMessage =
   | ConfigValidateResponse
   | MaskingTemplatesByObjectResponse
   | OrgHealthScoreResponse
+  | MonitorStorageResponse
+  | MonitorDeploymentsResponse
+  | MonitorApiUsageResponse
   | SchedulerListResponse
   | SchedulerUpsertResponse
   | SchedulerDeleteResponse
@@ -1082,6 +1088,83 @@ export interface MaskingTemplatesByObjectResponse extends BaseMessage {
   };
 }
 
+
+// ─── Monitor Storage / Deployments / API Usage Messages ──────────────────────
+
+/** Per-object storage entry returned by monitor:storage. */
+export interface StorageObjectEntry {
+  objectName: string;
+  recordCount: number;
+  label: string;
+}
+
+/** Request to fetch per-object storage breakdown. */
+export interface MonitorStorageRequest extends BaseMessage {
+  type: 'monitor:storage';
+  payload: { orgId: string };
+}
+
+/** Response containing per-object storage breakdown. */
+export interface MonitorStorageResponse extends BaseMessage {
+  type: 'monitor:storage:response';
+  payload: {
+    success: boolean;
+    objects: StorageObjectEntry[];
+    totalRecords: number;
+    error?: string;
+  };
+}
+
+/** Deployment entry for the deployment timeline. */
+export interface DeploymentEntry {
+  id: string;
+  status: 'Succeeded' | 'Failed' | 'Canceled' | 'InProgress' | 'Pending';
+  startDate: string;
+  completedDate?: string;
+  createdBy: string;
+  componentCount: number;
+  errorCount: number;
+}
+
+/** Request to fetch recent deployments. */
+export interface MonitorDeploymentsRequest extends BaseMessage {
+  type: 'monitor:deployments';
+  payload: { orgId: string };
+}
+
+/** Response containing recent deployments. */
+export interface MonitorDeploymentsResponse extends BaseMessage {
+  type: 'monitor:deployments:response';
+  payload: {
+    success: boolean;
+    deployments: DeploymentEntry[];
+    error?: string;
+  };
+}
+
+/** Per-category API usage entry. */
+export interface ApiUsageCategory {
+  category: string;
+  used: number;
+  max: number;
+  usedPercent: number;
+}
+
+/** Request to fetch per-category API usage breakdown. */
+export interface MonitorApiUsageRequest extends BaseMessage {
+  type: 'monitor:api-usage';
+  payload: { orgId: string };
+}
+
+/** Response containing per-category API usage. */
+export interface MonitorApiUsageResponse extends BaseMessage {
+  type: 'monitor:api-usage:response';
+  payload: {
+    success: boolean;
+    categories: ApiUsageCategory[];
+    error?: string;
+  };
+}
 
 // ─── Org Health Score Messages ────────────────────────────────────────────────
 
