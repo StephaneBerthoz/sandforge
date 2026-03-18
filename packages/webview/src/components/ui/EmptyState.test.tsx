@@ -66,6 +66,18 @@ describe('EmptyState', () => {
     expect(screen.getByTestId('illustration-automation')).toBeDefined();
   });
 
+  it('should render module-specific SVG illustration for forge', () => {
+    render(<EmptyState title="No schema" module="forge" />);
+    expect(screen.getByTestId('empty-illustration-forge')).toBeDefined();
+    expect(screen.getByTestId('illustration-forge')).toBeDefined();
+  });
+
+  it('should render module-specific SVG illustration for autopilot', () => {
+    render(<EmptyState title="No autopilot" module="autopilot" />);
+    expect(screen.getByTestId('empty-illustration-autopilot')).toBeDefined();
+    expect(screen.getByTestId('illustration-autopilot')).toBeDefined();
+  });
+
   it('should prefer module illustration over custom icon', () => {
     render(
       <EmptyState
