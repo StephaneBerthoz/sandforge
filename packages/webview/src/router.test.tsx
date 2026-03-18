@@ -77,8 +77,8 @@ describe('Router', () => {
     expect(screen.getByTestId('home-page')).toBeDefined();
     useAppStore.setState({ currentRoute: 'monitor' });
     rerender(<Router />);
-    /* MonitorPage renders EmptyState when no org selected */
-    expect(screen.getAllByText('Select an org to monitor').length).toBeGreaterThan(0);
+    /* MonitorPage renders EmptyState when no orgs exist */
+    expect(screen.getByTestId('empty-state')).toBeDefined();
   });
 
 });
