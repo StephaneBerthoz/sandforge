@@ -236,9 +236,7 @@ export class SyncOpsHandler implements DomainHandler {
               outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
             }
           } else {
-            for (const _rec of batch) {
-              outcomes.push({ success: false, errors: [retryResult.error?.message ?? 'Insert failed after retries'] });
-            }
+            outcomes.push(...batch.map(() => ({ success: false as const, errors: [retryResult.error?.message ?? 'Insert failed after retries'] })));
           }
         }
         return outcomes;
@@ -293,9 +291,7 @@ export class SyncOpsHandler implements DomainHandler {
               outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
             }
           } else {
-            for (const _rec of batch) {
-              outcomes.push({ success: false, errors: [retryResult.error?.message ?? 'Upsert failed after retries'] });
-            }
+            outcomes.push(...batch.map(() => ({ success: false as const, errors: [retryResult.error?.message ?? 'Upsert failed after retries'] })));
           }
         }
         return outcomes;
@@ -329,9 +325,7 @@ export class SyncOpsHandler implements DomainHandler {
               outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
             }
           } else {
-            for (const _rec of batch) {
-              outcomes.push({ success: false, errors: [retryResult.error?.message ?? 'Update failed after retries'] });
-            }
+            outcomes.push(...batch.map(() => ({ success: false as const, errors: [retryResult.error?.message ?? 'Update failed after retries'] })));
           }
         }
         return outcomes;
@@ -366,9 +360,7 @@ export class SyncOpsHandler implements DomainHandler {
               outcomes.push({ id: r.id, success: r.success, errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'] });
             }
           } else {
-            for (const _id of batch) {
-              outcomes.push({ success: false, errors: [retryResult.error?.message ?? 'Delete failed after retries'] });
-            }
+            outcomes.push(...batch.map(() => ({ success: false as const, errors: [retryResult.error?.message ?? 'Delete failed after retries'] })));
           }
         }
         return outcomes;
