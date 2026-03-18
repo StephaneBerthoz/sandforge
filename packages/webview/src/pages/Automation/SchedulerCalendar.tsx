@@ -18,7 +18,12 @@ export interface SchedulerCalendarProps {
   scheduled?: ScheduledPipeline[];
 }
 
-/** Calendar-like view of scheduled pipeline executions. */
+/**
+ * Calendar-like view of scheduled pipeline executions.
+ *
+ * Scheduler is a planned feature (v1.2). The component renders with a
+ * "Coming Soon" badge and all interactive controls disabled.
+ */
 export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({
   scheduled = [],
 }) => {
@@ -26,47 +31,63 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({
 
   if (scheduled.length === 0) {
     return (
-      <div data-testid="scheduler-calendar">
-        <EmptyState
-          icon="calendar"
-          title={t('automation.scheduler')}
-          description={t('automation.noPipelines')}
-        />
+      <div className="relative" data-testid="scheduler-calendar">
+        <span data-testid="scheduler-coming-soon">
+          <Badge variant="info">
+            {t('scheduler.comingSoon')}
+          </Badge>
+        </span>
+        <div className="opacity-50 pointer-events-none mt-2">
+          <EmptyState
+            icon="calendar"
+            title={t('automation.scheduler')}
+            description={t('automation.noPipelines')}
+          />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3" data-testid="scheduler-calendar">
-      <h3 className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-        {t('automation.scheduler')}
-      </h3>
-      {scheduled.map((item) => (
-        <div key={item.pipelineId} data-testid={`scheduled-${item.pipelineId}`}>
-        <Card>
-          <CardHeader
-            title={item.pipelineName}
-            subtitle={item.trigger.config.cron ?? ''}
-            action={
-              <Badge variant={item.trigger.enabled ? 'success' : 'default'}>
-                {item.trigger.enabled ? t('common.active') : t('common.disabled')}
-              </Badge>
-            }
-          />
-          <CardBody>
-            <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-              <span>{t('automation.triggerTypes.' + item.trigger.type)}</span>
-              {item.nextFireTime && (
-                <span>{t('automation.nextRun')}: {item.nextFireTime}</span>
-              )}
-              {item.trigger.config.timezone && (
-                <span>{t('automation.timezone')}: {item.trigger.config.timezone}</span>
-              )}
+    <div className="relative" data-testid="scheduler-calendar">
+      <span data-testid="scheduler-coming-soon">
+        <Badge variant="info">
+          {t('scheduler.comingSoon')}
+        </Badge>
+      </span>
+      <div className="opacity-50 pointer-events-none mt-2">
+        <div className="flex flex-col gap-3">
+          <h3 className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+            {t('automation.scheduler')}
+          </h3>
+          {scheduled.map((item) => (
+            <div key={item.pipelineId} data-testid={`scheduled-${item.pipelineId}`}>
+              <Card>
+                <CardHeader
+                  title={item.pipelineName}
+                  subtitle={item.trigger.config.cron ?? ''}
+                  action={
+                    <Badge variant={item.trigger.enabled ? 'success' : 'default'}>
+                      {item.trigger.enabled ? t('common.active') : t('common.disabled')}
+                    </Badge>
+                  }
+                />
+                <CardBody>
+                  <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                    <span>{t('automation.triggerTypes.' + item.trigger.type)}</span>
+                    {item.nextFireTime && (
+                      <span>{t('automation.nextRun')}: {item.nextFireTime}</span>
+                    )}
+                    {item.trigger.config.timezone && (
+                      <span>{t('automation.timezone')}: {item.trigger.config.timezone}</span>
+                    )}
+                  </div>
+                </CardBody>
+              </Card>
             </div>
-          </CardBody>
-        </Card>
+          ))}
         </div>
-      ))}
+      </div>
     </div>
   );
 };

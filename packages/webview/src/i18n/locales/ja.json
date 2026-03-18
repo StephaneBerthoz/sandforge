@@ -364,7 +364,10 @@
     "previewDeleted": "削除",
     "previewConflicts": "競合",
     "previewApiCalls": "APIコール",
-    "previewDuration": "推定所要時間"
+    "previewDuration": "推定所要時間",
+    "realtime": {
+      "comingSoon": "Requires CDC \u2014 Coming in v2.0"
+    }
   },
   "dataops": {
     "title": "DataOps",
@@ -911,5 +914,8 @@
       "description": "Let Autopilot scan your org schema, generate an execution plan, and populate your sandbox with realistic data.",
       "cta": "Select an Org"
     }
+  },
+  "scheduler": {
+    "comingSoon": "Coming in v1.2"
   }
 }

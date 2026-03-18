@@ -196,6 +196,11 @@
       "critical": "Critical",
       "recommendations": "Recommendations",
       "emptyDescription": "Click Scan to analyze your org health across API usage, storage, metadata complexity, code coverage, and security."
+    },
+    "emptyState": {
+      "title": "Start Monitoring Your Org",
+      "description": "Connect a Salesforce org to track governor limits, API usage, storage, and org health in real time.",
+      "cta": "Select an Org"
     }
   },
   "compare": {
@@ -498,7 +503,8 @@
         "syncing": "Syncing",
         "paused": "Paused",
         "error": "Error"
-      }
+      },
+      "comingSoon": "Requires CDC \u2014 Coming in v2.0"
     }
   },
   "dataops": {
@@ -611,7 +617,12 @@
     "noPII": "No PII fields detected. Run a scan to check.",
     "recordsProcessed": "Records Processed",
     "errorRate": "Error Rate",
-    "anonymizedFields": "Anonymized Templates"
+    "anonymizedFields": "Anonymized Templates",
+    "emptyState": {
+      "title": "Protect and Manage Your Data",
+      "description": "Connect a Salesforce org to create backups, anonymize sensitive data, and ensure compliance.",
+      "cta": "Select an Org"
+    }
   },
   "automation": {
     "title": "Automation",
@@ -739,7 +750,12 @@
     "noMarketplaceTemplates": "No templates available",
     "noMarketplaceTemplatesDesc": "Community templates will appear here",
     "installTemplate": "Install",
-    "templateInstalled": "Template installed as new pipeline"
+    "templateInstalled": "Template installed as new pipeline",
+    "emptyState": {
+      "title": "Build Your First Pipeline",
+      "description": "Create automated workflows to seed, sync, and transform your sandbox data with visual pipelines.",
+      "cta": "Select an Org"
+    }
   },
   "ai": {
     "title": "AI Assistant",
@@ -1223,7 +1239,12 @@
     "apiCallsConsumed": "API Calls",
     "exportJson": "Export JSON",
     "retryFailed": "Retry Failed",
-    "anonymizedFields": "Anonymized Fields"
+    "anonymizedFields": "Anonymized Fields",
+    "emptyState": {
+      "title": "Discover Your Org Schema",
+      "description": "Connect a Salesforce org to explore its object relationships, generate data plans, and forge complete datasets.",
+      "cta": "Select an Org"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
@@ -1365,6 +1386,11 @@
       "paused": "Paused",
       "completed": "Completed!",
       "failed": "Failed"
+    },
+    "emptyState": {
+      "title": "Auto-Provision Your Sandbox",
+      "description": "Let Autopilot scan your org schema, generate an execution plan, and populate your sandbox with realistic data.",
+      "cta": "Select an Org"
     }
   },
   "sidePanel": {
@@ -1499,7 +1525,8 @@
       "daily": "Daily",
       "weekly": "Weekly",
       "monthly": "Monthly"
-    }
+    },
+    "comingSoon": "Coming in v1.2"
   },
   "governance": {
     "title": "Org Governance",
