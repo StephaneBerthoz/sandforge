@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   RefreshCw, Clock, Activity, Database, Bell, AlertTriangle,
   Zap, ChevronDown, ChevronRight, Search, Plug,
-  Server,
+  Server, WifiOff,
 } from 'lucide-react';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -17,6 +17,7 @@ import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { Spinner } from '../../components/ui/Spinner';
 import { HealthScoreCard } from './HealthScoreCard';
 import { HealthGauge } from './HealthGauge';
 import { TrendChart } from './TrendChart';
@@ -147,6 +148,23 @@ const SectionHeader: React.FC<{
   </div>
 );
 
+/** Semi-transparent overlay shown on each panel during refresh. */
+function PanelOverlay({ isRefreshing, children }: { isRefreshing: boolean; children: React.ReactNode }) {
+  return (
+    <div className="relative">
+      {children}
+      {isRefreshing && (
+        <div
+          className="absolute inset-0 bg-background/50 flex items-center justify-center z-10 rounded-lg"
+          data-testid="panel-overlay"
+        >
+          <Spinner size="sm" />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Main monitoring dashboard page. */
 export const MonitorPage: React.FC = () => {
   const { t } = useTranslation();
@@ -178,6 +196,15 @@ export const MonitorPage: React.FC = () => {
     trendChartData,
     trendSeries,
     predictions,
+    isRefreshing,
+    isStale,
+    minutesSinceUpdate,
+    consecutiveFailures,
+    connectionLost,
+    sectionErrors,
+    showErrorDetails,
+    toggleErrorDetails,
+    retryFailed,
     autoRefresh,
     setAutoRefresh,
     handleRefresh,
@@ -317,10 +344,68 @@ export const MonitorPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Error ── */}
-      {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400" data-testid="monitor-error">
-          {error}
+      {/* ── Connection lost warning ── */}
+      {connectionLost && (
+        <div
+          className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-md"
+          data-testid="connection-lost-warning"
+        >
+          <WifiOff className="h-4 w-4 text-amber-400 shrink-0" />
+          <span className="flex-1 text-sm text-amber-300">
+            {t('monitor.connectionLost', 'Connection lost. Auto-refresh failed {{count}} times.').replace('{{count}}', String(consecutiveFailures))}
+          </span>
+          <Button size="sm" variant="outline" onClick={handleRefresh}>
+            {t('monitor.tryReconnect', 'Try Reconnect')}
+          </Button>
+        </div>
+      )}
+
+      {/* ── Error retry banner ── */}
+      {error && !connectionLost && (
+        <div
+          className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-md"
+          data-testid="monitor-error"
+        >
+          <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
+          <span className="flex-1 text-sm text-red-400">{t('monitor.refreshFailed', 'Failed to refresh dashboard data')}</span>
+          <Button size="sm" variant="outline" onClick={retryFailed} data-testid="error-retry-btn">
+            {t('monitor.retry', 'Retry')}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={toggleErrorDetails} data-testid="error-details-btn">
+            {t('monitor.details', 'Details')}
+          </Button>
+        </div>
+      )}
+
+      {/* ── Error details (expandable) ── */}
+      {showErrorDetails && Object.keys(sectionErrors).length > 0 && (
+        <div className="rounded-md border border-red-500/10 bg-surface-1 p-3 text-xs text-red-400" data-testid="error-details-panel">
+          {Object.entries(sectionErrors).map(([section, msg]) => (
+            <div key={section} className="flex gap-2">
+              <span className="font-medium text-text-secondary">{section}:</span>
+              <span>{msg}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Stale data indicator ── */}
+      {isStale && !error && (
+        <div className="flex items-center gap-2" data-testid="stale-data-indicator">
+          <span
+            className="cursor-pointer"
+            onClick={handleRefresh}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleRefresh(); }}
+            data-testid="stale-data-badge"
+          >
+            <Badge variant="warning">
+              {t('monitor.staleData', 'Data is {{minutes}}m old').replace('{{minutes}}', String(minutesSinceUpdate))}
+              {' \u2014 '}
+              {t('monitor.refreshNow', 'Refresh now')}
+            </Badge>
+          </span>
         </div>
       )}
 
@@ -357,6 +442,7 @@ export const MonitorPage: React.FC = () => {
         >
 
           {/* ── KPI Row ── */}
+          <PanelOverlay isRefreshing={isRefreshing}>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kpi-row">
             {/* Health */}
             <div className="rounded-lg border border-subtle bg-surface-1 p-4 flex flex-col items-center justify-center gap-1">
@@ -409,6 +495,7 @@ export const MonitorPage: React.FC = () => {
               variant={activeAlertsCount > 0 ? 'warning' : 'default'}
             />
           </div>
+          </PanelOverlay>
 
           {/* ── Live Operations ── */}
           {liveOperations.length > 0 && (
@@ -487,6 +574,7 @@ export const MonitorPage: React.FC = () => {
           <StorageBreakdownPanel />
 
           {/* ── Two-column: Trends + Jobs ── */}
+          <PanelOverlay isRefreshing={isRefreshing}>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Trend chart */}
             <div className="rounded-lg border border-subtle bg-surface-1 p-4">
@@ -514,8 +602,10 @@ export const MonitorPage: React.FC = () => {
               <JobsTable jobs={jobs} />
             </div>
           </div>
+          </PanelOverlay>
 
           {/* ── Governor Limits ── */}
+          <PanelOverlay isRefreshing={isRefreshing}>
           <div className="rounded-lg border border-subtle bg-surface-1 p-4">
             <SectionHeader
               title={t('monitor.governorLimits', 'Governor Limits')}
@@ -571,6 +661,7 @@ export const MonitorPage: React.FC = () => {
               </div>
             )}
           </div>
+          </PanelOverlay>
 
           {/* ── API Usage Breakdown ── */}
           <ApiUsagePanel />
