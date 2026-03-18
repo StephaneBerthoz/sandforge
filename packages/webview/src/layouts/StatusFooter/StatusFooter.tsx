@@ -69,7 +69,7 @@ export const StatusFooter: React.FC<StatusFooterProps> = ({
           {lastOpTime}
         </span>
       )}
-      <span className="ml-auto opacity-70">{t('common.versionLabel', { version: '3.0.0' })}</span>
+      <span className="ml-auto opacity-70">{t('common.versionLabel', { version: __APP_VERSION__ })}</span>
     </footer>
   );
 };
