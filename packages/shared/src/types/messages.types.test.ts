@@ -36,6 +36,27 @@ describe('messages.types', () => {
 
       expect(message.timestamp).toBe(1740052800000);
     });
+
+    it('should accept an optional correlationId linking response to request', () => {
+      const response: BaseMessage = {
+        id: 'resp-001',
+        type: 'org:list:response',
+        timestamp: Date.now(),
+        correlationId: 'req-001',
+      };
+
+      expect(response.correlationId).toBe('req-001');
+    });
+
+    it('should allow correlationId to be omitted', () => {
+      const message: BaseMessage = {
+        id: 'msg-003',
+        type: 'test:message',
+        timestamp: Date.now(),
+      };
+
+      expect(message.correlationId).toBeUndefined();
+    });
   });
 
   describe('OperationProgress', () => {

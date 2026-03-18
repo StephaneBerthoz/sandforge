@@ -354,7 +354,7 @@ export const MonitorPage: React.FC = () => {
           <span className="flex-1 text-sm text-amber-300">
             {t('monitor.connectionLost', 'Connection lost. Auto-refresh failed {{count}} times.').replace('{{count}}', String(consecutiveFailures))}
           </span>
-          <Button size="sm" variant="outline" onClick={handleRefresh}>
+          <Button size="sm" variant="secondary" onClick={handleRefresh}>
             {t('monitor.tryReconnect', 'Try Reconnect')}
           </Button>
         </div>
@@ -368,7 +368,7 @@ export const MonitorPage: React.FC = () => {
         >
           <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
           <span className="flex-1 text-sm text-red-400">{t('monitor.refreshFailed', 'Failed to refresh dashboard data')}</span>
-          <Button size="sm" variant="outline" onClick={retryFailed} data-testid="error-retry-btn">
+          <Button size="sm" variant="secondary" onClick={retryFailed} data-testid="error-retry-btn">
             {t('monitor.retry', 'Retry')}
           </Button>
           <Button size="sm" variant="ghost" onClick={toggleErrorDetails} data-testid="error-details-btn">

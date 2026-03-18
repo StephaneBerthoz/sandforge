@@ -362,4 +362,33 @@ describe('MessageBroker', () => {
       expect(handler).not.toHaveBeenCalled();
     });
   });
+
+  describe('unhandled message warning', () => {
+    it('should log a warning when no handler is registered for a message type', () => {
+      const logFn = vi.fn();
+      broker.setLogFunction(logFn);
+
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      messageCallback(createMessage('nonexistent:type'));
+
+      expect(logFn).toHaveBeenCalledWith('[MessageBroker] Unhandled message type: "nonexistent:type"');
+    });
+
+    it('should not log a warning when a handler is registered', () => {
+      const logFn = vi.fn();
+      broker.setLogFunction(logFn);
+      broker.on('org:list', vi.fn());
+
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      messageCallback(createMessage('org:list'));
+
+      expect(logFn).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled'));
+    });
+  });
 });

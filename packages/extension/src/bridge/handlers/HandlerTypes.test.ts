@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { sendHandlerError, sendNotification } from './HandlerTypes.js';
+import { sendHandlerError, sendNotification, buildResponse } from './HandlerTypes.js';
+import type { BaseMessage } from '@sandforge/shared';
 
 /**
  * Creates a minimal mock of the handler deps required by sendHandlerError.
@@ -69,6 +70,29 @@ describe('sendHandlerError', () => {
     const id1 = (deps.broker.postToWebview.mock.calls[0][0] as { id: string }).id;
     const id2 = (deps.broker.postToWebview.mock.calls[1][0] as { id: string }).id;
     expect(id1).not.toBe(id2);
+  });
+});
+
+describe('buildResponse', () => {
+  it('copies request id as correlationId on the response', () => {
+    const deps = createMockDeps();
+    const request: BaseMessage = { id: 'req-42', type: 'seed:execute', timestamp: 1000 };
+    const response = buildResponse(deps, request, 'seed:execute:response', { total: 10 });
+
+    expect(response.correlationId).toBe('req-42');
+    expect(response.type).toBe('seed:execute:response');
+    expect(response.payload).toEqual({ total: 10 });
+    expect(response.id).toBeDefined();
+    expect(response.id).not.toBe('req-42');
+  });
+
+  it('generates a unique id for the response via nextId', () => {
+    const deps = createMockDeps();
+    const request: BaseMessage = { id: 'req-1', type: 'org:list', timestamp: 1000 };
+    const r1 = buildResponse(deps, request, 'org:list:response', {});
+    const r2 = buildResponse(deps, request, 'org:list:response', {});
+
+    expect(r1.id).not.toBe(r2.id);
   });
 });
 

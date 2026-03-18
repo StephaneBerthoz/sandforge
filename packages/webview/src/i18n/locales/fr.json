@@ -228,7 +228,15 @@
       "button": "Exporter CSV",
       "success": "Limites exportees",
       "successDetail": "Fichier CSV telecharge avec succes"
-    }
+    },
+    "refreshFailed": "Echec de l'actualisation du tableau de bord",
+    "retry": "Reessayer",
+    "details": "Details",
+    "staleData": "Donnees datent de {{minutes}}m",
+    "refreshNow": "Actualiser maintenant",
+    "connectionLost": "Connexion perdue. L'actualisation automatique a echoue {{count}} fois.",
+    "tryReconnect": "Reconnecter",
+    "sectionError": "Section {{section}} en erreur : {{error}}"
   },
   "compare": {
     "title": "Comparer Org",

@@ -16,6 +16,8 @@ export const baseMessageSchema = z
     type: z.string().min(1),
     /** Unix-epoch timestamp in milliseconds */
     timestamp: z.number().finite(),
+    /** Links a response to the original request (set to request's `id`). */
+    correlationId: z.string().min(1).optional(),
   })
   .passthrough();
 

@@ -145,7 +145,7 @@ export function useSyncPageData(): SyncPageData {
   // Bridge mutation: execute sync
   const executeMutation = useBridgeMutation<SyncExecutionResult>(
     'sync:execute',
-    { responseType: 'operation:completed' },
+    { responseType: 'sync:execute:response' },
   );
 
   // Bridge mutation: dry-run preview (unused in UI for now)

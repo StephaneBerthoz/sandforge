@@ -137,6 +137,7 @@ export class MessageBroker {
 
     const handlerSet = this.handlers.get(message.type);
     if (!handlerSet) {
+      this.logFn?.(`[MessageBroker] Unhandled message type: "${message.type}"`);
       return;
     }
     for (const handler of handlerSet) {

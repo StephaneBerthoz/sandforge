@@ -43,7 +43,7 @@ export function useSeedFieldRules(
     objectApiName: string;
     objectLabel: string;
     fields: DescribedField[];
-  }>('seed:describe-fields', { responseType: 'seed:describe-fields:response' });
+  }>('seed:describe-object', { responseType: 'seed:describe-object:response' });
 
   /* Map describe-fields response into fieldConfigs state */
   useEffect(() => {
