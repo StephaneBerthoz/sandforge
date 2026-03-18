@@ -21,23 +21,10 @@
 **Goal:** Clean, coherent user experience with no dead features or broken buttons.
 **Requirements:** UX-01, UX-02, UX-03, UX-04, UX-05, GHO-01, GHO-02, GHO-03
 
-### Phase 4 — Robustness (in progress)
+### Phase 4 — Robustness ✓ Complete (2026-03-18)
 
 **Goal:** Handle real-world scale and failure modes gracefully.
-
 **Requirements:** ROB-01, ROB-02, ROB-03, ROB-04
-
-**Plans:**
-- Plan 04-01 (Infrastructure) -- COMPLETE (2026-03-18): RetryableOperation, TimeoutManager, BulkApiExecutor, FieldTypeValidator, RobustnessConfigSchema. 72 new tests.
-- Plan 04-02 (Integration) -- PENDING: Wire utilities into SeedOpsHandler, SyncOpsHandler, DataSync.
-
-**Scope:**
-- Bulk API 2.0 for Seed/Sync when records > 200
-- Exponential backoff retry (max 3) for transient Salesforce API errors
-- Configurable timeout for describe operations on large orgs
-- Field-type validation before Sync upsert
-
-**Dependencies:** Phase 2 (modules must work before hardening)
 
 ### Phase 5 — Monitor Enrichment
 

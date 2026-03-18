@@ -83,7 +83,7 @@
 | AI-01..03 | Phase 2 (Module Fixes) | Done |
 | UX-01..05 | Phase 3 (UX Cleanup) | Done |
 | GHO-01..03 | Phase 3 (UX Cleanup) | Done |
-| ROB-01..04 | Phase 4 (Robustness) | Pending |
+| ROB-01..04 | Phase 4 (Robustness) | Done |
 | MON-01..03 | Phase 5 (Monitor) | Pending |
 
 **Coverage:**
