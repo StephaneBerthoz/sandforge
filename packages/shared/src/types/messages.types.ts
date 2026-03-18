@@ -173,6 +173,8 @@ export type WebViewToExtensionMessage =
   | SyncDescribeGlobalRequest
   | SyncDescribeFieldsRequest
   | MonitorRefreshRequest
+  | MonitorStartRequest
+  | MonitorTrendsRequest
   | MonitorAbortJobRequest
   | CompareExecuteRequest
   | BackupExecuteRequest
@@ -380,6 +382,18 @@ export interface SyncDescribeFieldsRequest extends BaseMessage {
 export interface MonitorRefreshRequest extends BaseMessage {
   type: 'monitor:refresh';
   payload: { orgId: string };
+}
+
+/** Request to start monitoring an org (alias for monitor:refresh). */
+export interface MonitorStartRequest extends BaseMessage {
+  type: 'monitor:start';
+  payload: { orgId: string };
+}
+
+/** Request to fetch trend data for an org over a given period. */
+export interface MonitorTrendsRequest extends BaseMessage {
+  type: 'monitor:trends';
+  payload: { orgId: string; period?: string };
 }
 
 /** Compare messages */
