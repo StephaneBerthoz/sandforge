@@ -520,7 +520,7 @@ describe('MonitorPage', () => {
   });
 
   // 10. Error handling
-  it('should show error banner on query error and add a notification', () => {
+  it('should show error retry banner on query error and add a notification', () => {
     mockMonitorQueryState = {
       data: standardMonitorPayload,
       loading: false,
@@ -534,7 +534,10 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
 
     expect(screen.getByTestId('monitor-error')).toBeDefined();
-    expect(screen.getByText('Connection timeout')).toBeDefined();
+    // Error retry banner shows generic message, not raw error text
+    expect(screen.getByText('Failed to refresh dashboard data')).toBeDefined();
+    expect(screen.getByTestId('error-retry-btn')).toBeDefined();
+    expect(screen.getByTestId('error-details-btn')).toBeDefined();
     expect(screen.getByTestId('monitor-page')).toBeDefined();
 
     const notifications = useNotificationStore.getState().notifications;
@@ -573,7 +576,8 @@ describe('MonitorPage', () => {
     const { rerender } = render(<MonitorPage />);
 
     expect(screen.getByTestId('monitor-error')).toBeDefined();
-    expect(screen.getByText('Transient error')).toBeDefined();
+    // Error retry banner shows generic message
+    expect(screen.getByText('Failed to refresh dashboard data')).toBeDefined();
 
     // When the error clears on next query cycle, banner disappears
     mockMonitorQueryState = {
@@ -752,6 +756,119 @@ describe('MonitorPage', () => {
     // Edition and instance are shown in the grid
     expect(screen.getByText('Enterprise Edition')).toBeDefined();
     expect(screen.getByText('NA100')).toBeDefined();
+  });
+
+  // ── Dashboard Refresh UX (05-02) ──
+
+  it('should show panel overlays when refreshing with existing data', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: true,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    // Panel overlays should be visible during refresh
+    const overlays = screen.getAllByTestId('panel-overlay');
+    expect(overlays.length).toBeGreaterThanOrEqual(1);
+    // Dashboard content is still visible (not replaced by skeletons)
+    expect(screen.getByTestId('monitor-page')).toBeDefined();
+    expect(screen.getByTestId('kpi-row')).toBeDefined();
+  });
+
+  it('should show error retry banner with Retry and Details buttons on error', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: 'Connection timeout',
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('monitor-error')).toBeDefined();
+    expect(screen.getByTestId('error-retry-btn')).toBeDefined();
+    expect(screen.getByTestId('error-details-btn')).toBeDefined();
+    expect(screen.getByText('Failed to refresh dashboard data')).toBeDefined();
+  });
+
+  it('should call retryFailed when Retry button is clicked in error banner', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: 'Server error',
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    mockRefetch.mockClear();
+    fireEvent.click(screen.getByTestId('error-retry-btn'));
+    expect(mockRefetch).toHaveBeenCalled();
+  });
+
+  it('should show stale data indicator when data exceeds 2 minutes', () => {
+    const twoMinutesAgo = new Date(Date.now() - 130_000).toISOString();
+    mockMonitorQueryState = {
+      data: { ...standardMonitorPayload, lastUpdated: twoMinutesAgo },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('stale-data-indicator')).toBeDefined();
+    expect(screen.getByTestId('stale-data-badge')).toBeDefined();
+  });
+
+  it('should trigger refresh when stale data badge is clicked', () => {
+    const twoMinutesAgo = new Date(Date.now() - 130_000).toISOString();
+    mockMonitorQueryState = {
+      data: { ...standardMonitorPayload, lastUpdated: twoMinutesAgo },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    mockRefetch.mockClear();
+    fireEvent.click(screen.getByTestId('stale-data-badge'));
+    expect(mockRefetch).toHaveBeenCalled();
+  });
+
+  it('should not show stale data indicator when data is fresh', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    expect(screen.queryByTestId('stale-data-indicator')).toBeNull();
   });
 
   it('should render with empty limits and jobs gracefully', () => {

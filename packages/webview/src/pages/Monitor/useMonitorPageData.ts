@@ -23,6 +23,12 @@ interface MonitorData {
 /** Auto-refresh interval in milliseconds. */
 const AUTO_REFRESH_INTERVAL_MS = 30_000;
 
+/** Stale data threshold in milliseconds (2 minutes). */
+const STALE_THRESHOLD_MS = 120_000;
+
+/** Number of consecutive failures before declaring connection lost. */
+const CONNECTION_LOST_THRESHOLD = 3;
+
 /** Finds a limit by name or returns a default. */
 function findLimit(limits: ApiLimit[], name: string): ApiLimit {
   return limits.find((l) => l.name === name) ?? { name, max: 0, remaining: 0, usedPercent: 0 };
@@ -84,6 +90,24 @@ export interface MonitorPageData {
   trendSeries: TrendSeries[];
   /** Predictions for limits approaching exhaustion. */
   predictions: PredictionItem[];
+  /** Whether a background refresh is in progress (distinct from initial load). */
+  isRefreshing: boolean;
+  /** Whether lastUpdated exceeds the stale threshold (2 minutes). */
+  isStale: boolean;
+  /** Number of minutes since the last successful update. */
+  minutesSinceUpdate: number;
+  /** Number of consecutive auto-refresh failures. */
+  consecutiveFailures: number;
+  /** True when consecutiveFailures >= 3 (connection considered lost). */
+  connectionLost: boolean;
+  /** Per-section error state for partial refresh failures. */
+  sectionErrors: Record<string, string>;
+  /** Whether error details panel is expanded. */
+  showErrorDetails: boolean;
+  /** Toggle error details visibility. */
+  toggleErrorDetails: () => void;
+  /** Retry only the failed sections. */
+  retryFailed: () => void;
   /** Whether auto-refresh is enabled. */
   autoRefresh: boolean;
   /** Toggle auto-refresh on/off. */
@@ -113,7 +137,12 @@ export function useMonitorPageData(): MonitorPageData {
 
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [lastUpdatedStr, setLastUpdatedStr] = useState('');
+  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+  const [sectionErrors, setSectionErrors] = useState<Record<string, string>>({});
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevErrorRef = useRef<string | null>(null);
+  const prevLoadingRef = useRef(false);
 
   // Bridge queries
   const monitorQuery = useBridgeQuery<MonitorData>(
@@ -203,6 +232,52 @@ export function useMonitorPageData(): MonitorPageData {
       }));
   }, [trends, limits]);
 
+  // isRefreshing: true when loading but we already have data (not initial load)
+  const isRefreshing = loading && lastUpdated !== null;
+
+  // Stale data computation
+  const minutesSinceUpdate = useMemo(() => {
+    if (!lastUpdated) return 0;
+    return Math.floor((Date.now() - new Date(lastUpdated).getTime()) / 60_000);
+  }, [lastUpdated, lastUpdatedStr]); // lastUpdatedStr changes trigger recalc
+
+  const isStale = lastUpdated !== null && (Date.now() - new Date(lastUpdated).getTime()) > STALE_THRESHOLD_MS;
+
+  // Connection lost when 3+ consecutive failures
+  const connectionLost = consecutiveFailures >= CONNECTION_LOST_THRESHOLD;
+
+  // Track consecutive failures: increment on new error, reset on success
+  useEffect(() => {
+    const currentError = monitorQuery.error;
+    const currentLoading = monitorQuery.loading;
+    const prevError = prevErrorRef.current;
+    const prevLoading = prevLoadingRef.current;
+
+    // Transition from loading to not-loading
+    if (prevLoading && !currentLoading) {
+      if (currentError && currentError !== prevError) {
+        // New error after a refresh cycle
+        setConsecutiveFailures((prev) => prev + 1);
+        setSectionErrors((prev) => ({ ...prev, monitor: currentError }));
+      } else if (!currentError) {
+        // Successful refresh -- reset failures
+        setConsecutiveFailures(0);
+        setSectionErrors({});
+      }
+    }
+
+    prevErrorRef.current = currentError;
+    prevLoadingRef.current = currentLoading;
+  }, [monitorQuery.error, monitorQuery.loading]);
+
+  const toggleErrorDetails = useCallback(() => {
+    setShowErrorDetails((prev) => !prev);
+  }, []);
+
+  const retryFailed = useCallback(() => {
+    monitorQuery.refetch();
+  }, [monitorQuery]);
+
   // Error notification effect
   useEffect(() => {
     if (monitorQuery.error) {
@@ -257,6 +332,15 @@ export function useMonitorPageData(): MonitorPageData {
     trendChartData,
     trendSeries,
     predictions,
+    isRefreshing,
+    isStale,
+    minutesSinceUpdate,
+    consecutiveFailures,
+    connectionLost,
+    sectionErrors,
+    showErrorDetails,
+    toggleErrorDetails,
+    retryFailed,
     autoRefresh,
     setAutoRefresh,
     handleRefresh,
