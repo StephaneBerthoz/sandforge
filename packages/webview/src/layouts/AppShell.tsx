@@ -35,7 +35,7 @@ export const AppShell: React.FC<AppShellProps> = ({ className }) => {
       <SkipLink />
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
-        <TopBar />
+        <TopBar onNotificationsToggle={() => setNotificationsOpen((prev) => !prev)} />
         <main id="main-content" className="flex-1 overflow-auto p-4" tabIndex={-1}>
           <AnimatePresence mode="wait">
             <div key={currentRoute}>
