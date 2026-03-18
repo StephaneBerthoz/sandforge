@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
@@ -77,12 +78,16 @@ export const AutomationPage: React.FC = () => {
     handleGenSubmit,
   } = useAutomationPageData();
 
+  const navigate = useAppStore((s) => s.navigate);
+
   if (orgs.length === 0) {
     return (
       <EmptyState
-        icon="circuit-board"
-        title={t('org.noOrgs')}
-        description={t('automation.noPipelines')}
+        module="automation"
+        title={t('automation.emptyState.title')}
+        description={t('automation.emptyState.description')}
+        actionLabel={t('automation.emptyState.cta')}
+        onAction={() => navigate('orgs')}
       />
     );
   }
