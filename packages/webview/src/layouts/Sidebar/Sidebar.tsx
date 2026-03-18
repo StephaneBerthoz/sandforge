@@ -8,7 +8,6 @@ import {
   Shield,
   Zap,
   Flame,
-  Network,
   BarChart3,
   Settings,
   HelpCircle,
@@ -31,7 +30,6 @@ const iconMap: Record<string, LucideIcon> = {
   home: Home,
   orgs: Plug,
   forge: Flame,
-  grappe: Network,
   monitor: Activity,
   compare: GitCompare,
   dataops: Shield,
@@ -208,24 +206,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ badges = {} }) => {
           <Flame className="w-4 h-4 text-forge shrink-0" />
           {!collapsed && (
             <span className="text-xs font-semibold text-forge truncate">{t('nav.forge')}</span>
-          )}
-        </button>
-
-        {/* Grappe hero section */}
-        <button
-          className={cn(
-            'flex items-center gap-2 rounded-lg mx-1 mb-1 px-3 py-2 w-[calc(100%-8px)] text-left',
-            'bg-indigo-500/10 border border-indigo-500/20',
-            'hover:bg-indigo-500/20 transition-colors',
-            collapsed && 'justify-center px-0',
-            currentRoute === 'grappe' && 'bg-indigo-500/20 border-indigo-500/30',
-          )}
-          onClick={() => navigate('grappe')}
-          data-testid="sidebar-grappe-hero"
-        >
-          <Network className="w-4 h-4 text-indigo-400 shrink-0" />
-          {!collapsed && (
-            <span className="text-xs font-semibold text-indigo-400 truncate">{t('nav.grappe')}</span>
           )}
         </button>
 
