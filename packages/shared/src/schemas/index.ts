@@ -6,3 +6,4 @@ export * from './grappe.schema.js';
 export * from './settings.schema.js';
 export * from './autopilot.schema.js';
 export * from './compliance.schema.js';
+export * from './robustness-config.schema.js';
