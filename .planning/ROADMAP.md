@@ -16,22 +16,10 @@
 **Goal:** Every module works end-to-end with real Salesforce orgs.
 **Requirements:** MOD-01, MOD-02, MOD-03, MOD-04, MOD-05, MOD-06, MOD-07, MOD-08, AI-01, AI-02, AI-03
 
-### Phase 3 — UX Cleanup & Ghost Features
+### Phase 3 — UX Cleanup & Ghost Features ✓ Complete (2026-03-18)
 
 **Goal:** Clean, coherent user experience with no dead features or broken buttons.
-
 **Requirements:** UX-01, UX-02, UX-03, UX-04, UX-05, GHO-01, GHO-02, GHO-03
-
-**Scope:**
-- Remove Grappe from Sidebar.tsx (keep GrappeProgressPanel overlay)
-- Wire notifications bell onClick in TopBar
-- Dynamic version in StatusFooter from package.json
-- Auto-select first connected org in useOrgStore
-- Design and implement empty states with CTA for all modules
-- Audit messages.types.ts: remove types with no handler, remove dead handler code
-- Clean ghost features: audit:*, governance:*, scheduler:*, team:*, realtime:*
-
-**Dependencies:** Phase 2 (modules must work before polishing UX)
 
 ### Phase 4 — Robustness
 
