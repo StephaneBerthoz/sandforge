@@ -472,7 +472,8 @@
         "syncing": "Synchronisation",
         "paused": "En pause",
         "error": "Erreur"
-      }
+      },
+      "comingSoon": "Necessite CDC \u2014 Disponible dans la v2.0"
     }
   },
   "dataops": {
@@ -1493,7 +1494,8 @@
       "daily": "Quotidien",
       "weekly": "Hebdomadaire",
       "monthly": "Mensuel"
-    }
+    },
+    "comingSoon": "Disponible dans la v1.2"
   },
   "governance": {
     "title": "Gouvernance Org",

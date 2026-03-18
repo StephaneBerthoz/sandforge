@@ -61,4 +61,24 @@ describe('SchedulerCalendar', () => {
     render(<SchedulerCalendar scheduled={scheduled} />);
     expect(screen.getByText('0 0 * * *')).toBeDefined();
   });
+
+  it('should render "Coming in v1.2" badge', () => {
+    render(<SchedulerCalendar />);
+    expect(screen.getByTestId('scheduler-coming-soon')).toBeDefined();
+    expect(screen.getByText('Coming in v1.2')).toBeDefined();
+  });
+
+  it('should render "Coming in v1.2" badge when scheduled items exist', () => {
+    render(<SchedulerCalendar scheduled={scheduled} />);
+    expect(screen.getByTestId('scheduler-coming-soon')).toBeDefined();
+    expect(screen.getByText('Coming in v1.2')).toBeDefined();
+  });
+
+  it('should have content with pointer-events-none and reduced opacity', () => {
+    render(<SchedulerCalendar />);
+    const container = screen.getByTestId('scheduler-calendar');
+    const disabledContent = container.querySelector('.pointer-events-none.opacity-50');
+    expect(disabledContent).toBeDefined();
+    expect(disabledContent).not.toBeNull();
+  });
 });
