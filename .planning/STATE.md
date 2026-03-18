@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-03-17)
 
 ## Current Position
 
-Phase: 4 of 5 (Robustness) -- in progress
-Plan: 04-01 COMPLETE | 04-02 PENDING
-Status: Plan 04-01 complete -- 10/10 must-haves passed, 72 new tests added
-Last activity: 2026-03-18 -- Plan 04-01 execution complete
+Phase: 4 of 5 (Robustness) -- COMPLETE
+Plan: 04-01 COMPLETE | 04-02 COMPLETE
+Status: Phase 04 complete -- all 21 must-haves verified, 4824 tests passing (4022 extension + 802 shared)
+Last activity: 2026-03-18 -- Plan 04-02 execution complete
 
-Progress: [███████░░░] 70%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15
+- Total plans completed: 16
 - Average duration: ~15 min/plan
-- Total execution time: ~3.75h
+- Total execution time: ~4h
 
 ## Milestone History
 
@@ -43,11 +43,15 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - RetryableOperation uses manual retry loop (not RetryStrategy.execute) to support non-retryable error short-circuit
 - FieldTypeValidator defines own FieldDescriptor types (independent from SchemaValidator.FieldSchema per Pitfall 4)
 - BulkApiExecutor abstracts jsforce via typed interfaces (BulkJobHandle, BulkApiConnection) for testability
+- ConfigStore.get() takes only key param (no category). Robustness config stored under key 'robustness:config'
+- DataSync field validation is opt-in via targetFieldDescriptors in deps (preserves backward compat)
+- getRobustnessConfig() loads per-request (not at construction) so runtime config changes apply immediately
 
 ### Pending Todos
 
 - monitor:health-score needs handler route registration (has UI consumer but no handler)
 - Several handler-routed types (compare:start, pipeline:execute, etc.) lack type definitions
+- Settings handler needed to expose robustness config to webview Settings page
 
 ### Blockers/Concerns
 
@@ -58,5 +62,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-18
-Stopped at: Plan 04-01 complete, ready for Plan 04-02 (handler integration)
+Stopped at: Phase 04 complete, ready for Phase 05
 Resume file: None
