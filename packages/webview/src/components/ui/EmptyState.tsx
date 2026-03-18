@@ -2,7 +2,7 @@ import React from 'react';
 import { cn } from '../../theme';
 
 /** Module identifier for contextual illustrations. */
-export type EmptyStateModule = 'seed' | 'sync' | 'monitor' | 'compare' | 'dataops' | 'automation';
+export type EmptyStateModule = 'seed' | 'sync' | 'monitor' | 'compare' | 'dataops' | 'automation' | 'forge' | 'autopilot';
 
 /** EmptyState component props. */
 export interface EmptyStateProps {
@@ -76,6 +76,23 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
       <circle cx="44" cy="20" r="6" stroke="#F97316" strokeWidth="2" />
       <circle cx="32" cy="44" r="6" stroke="#F97316" strokeWidth="2" />
       <path d="M24 24l4 16M40 24l-4 16" stroke="#F97316" strokeWidth="2" />
+    </svg>
+  ),
+  forge: (
+    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-forge">
+      <circle cx="32" cy="32" r="28" stroke="#E8A838" strokeWidth="2" strokeDasharray="4 4" />
+      <rect x="20" y="36" width="24" height="6" rx="1" stroke="#E8A838" strokeWidth="2" fill="#E8A838" fillOpacity="0.15" />
+      <path d="M28 36V22l4-4 4 4v14" stroke="#E8A838" strokeWidth="2" />
+      <path d="M26 22h12" stroke="#E8A838" strokeWidth="2" />
+      <circle cx="32" cy="48" r="3" fill="#E8A838" fillOpacity="0.3" stroke="#E8A838" strokeWidth="1.5" />
+    </svg>
+  ),
+  autopilot: (
+    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-autopilot">
+      <circle cx="32" cy="32" r="28" stroke="#06B6D4" strokeWidth="2" strokeDasharray="4 4" />
+      <circle cx="32" cy="32" r="12" stroke="#06B6D4" strokeWidth="2" />
+      <path d="M32 20v6M32 38v6M20 32h6M38 32h6" stroke="#06B6D4" strokeWidth="2" />
+      <path d="M32 28l3 4-3 4-3-4z" fill="#06B6D4" fillOpacity="0.3" stroke="#06B6D4" strokeWidth="1.5" />
     </svg>
   ),
 };
