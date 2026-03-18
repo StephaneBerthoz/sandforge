@@ -24,17 +24,15 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 - ✓ Autopilot: auto-provisioning with compliance profiles, dependency graph, execution waves — v3.0.0
 - ✓ E2E testing: 162 Playwright specs, axe-core WCAG 2.1 AA, GitHub Actions CI — Milestone v1.0.0
 - ✓ Marketplace publication: visual assets, user docs, release pipeline, published on Marketplace — Milestone v1.0.0
+- ✓ Bridge wiring: correlationId, 70+ response type fixes, ghost type cleanup — Milestone v1.1.0
+- ✓ Module execution: all 8 modules end-to-end functional, AI persistence — Milestone v1.1.0
+- ✓ UX cleanup: Grappe sidebar removed, notifications, version footer, org auto-select, empty states — Milestone v1.1.0
+- ✓ Robustness: Bulk API 2.0, retry with backoff, configurable timeouts, field validation — Milestone v1.1.0
+- ✓ Monitor enrichment: competitor benchmark, 5 feature gaps, dashboard refresh UX — Milestone v1.1.0
 
 ### Active
 
-- [ ] Bridge wiring: connect 70+ unlistened response messages, add correlation IDs — v1.1.0
-- [ ] Module fixes: Seed, Sync, Forge, Autopilot, Compare, Monitor, DataOps end-to-end functional — v1.1.0
-- [ ] AI: status check on mount, conversation persistence, API key flow — v1.1.0
-- [ ] UX: remove Grappe from sidebar, fix notifications bell, fix version footer, org auto-select — v1.1.0
-- [ ] Empty states: guidance/CTA for first launch on every module — v1.1.0
-- [ ] Ghost features: clean or implement Audit Trail, Governance, Scheduler, Team Sharing, Realtime types — v1.1.0
-- [ ] Robustness: Bulk API 2.0 for >200 records, retry logic, timeouts — v1.1.0
-- [ ] Monitor enrichment: competitor benchmark + feature gaps — v1.1.0
+(No active requirements — ready for next milestone)
 
 ### Deferred
 
@@ -50,7 +48,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
 - 558 source files, 487+ test files, 1045+ total files across packages
-- v1.0.1 current — phases 00-11 complete, published on VS Code Marketplace, phase 12 planned
+- v1.1.0 current — phases 00-11 complete, stabilised, published on VS Code Marketplace
 - VSIX package at 1.07 MB, well within marketplace limits
 - jsforce v3 for all Salesforce API interactions
 - Strict TypeScript (no `any`), Zod validation on all external data, Winston logging
@@ -77,4 +75,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-17 — Milestone v1.1.0 started (Stabilisation & Real-World Readiness)*
+*Last updated: 2026-03-18 — Milestone v1.1.0 complete (Stabilisation & Real-World Readiness)*

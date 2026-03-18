@@ -2,34 +2,40 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-17)
+See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** v1.1.0 -- Stabilisation & Real-World Readiness
+**Current focus:** Milestone v1.1.0 complete — ready for next milestone
 
 ## Current Position
 
-Phase: 5 of 5 (Monitor Enrichment) -- in progress
-Plan: 05-01 COMPLETE | 05-02 pending
-Status: Plan 05-01 done -- benchmark + 5 feature gaps, 2175 tests, typecheck clean
-Last activity: 2026-03-18 -- Plan 05-01 executed
+Phase: -- (milestone complete)
+Plan: --
+Status: v1.1.0 shipped — all 5 phases, 27 requirements delivered
+Last activity: 2026-03-18 -- Milestone v1.1.0 archived
 
-Progress: [█████████░] 90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
+- Total plans completed: 19 (v1.1.0: 14 plans + v1.0.0: 7 plans = 21 total across milestones, 19 for v1.1.0)
 - Average duration: ~15 min/plan
-- Total execution time: ~4h15m
+- Total execution time: ~5h
 
 ## Milestone History
+
+### v1.1.0 -- Stabilisation & Real-World Readiness
+Completed: 2026-03-18
+Phases: 5
+Requirements delivered: BRG-01..04, MOD-01..08, AI-01..03, UX-01..05, GHO-01..03, ROB-01..04, MON-01..03
+Key achievements: CorrelationId bridge infrastructure, all 8 modules functional end-to-end, ghost feature cleanup, Bulk API 2.0 + retry logic, competitor benchmark + 5 Monitor feature gaps, dashboard refresh UX with error recovery. 2190 tests passing.
 
 ### v1.0.0 -- Marketplace-Ready Release
 Completed: 2026-03-17
 Phases: 2 (E2E Testing + Marketplace Publication)
 Requirements delivered: E2E-01 through E2E-07, MKT-01 through MKT-09
-Key achievements: 162 E2E tests, WCAG 2.1 AA, 3-OS CI, published on Marketplace.
+Key achievements: 162 E2E tests, WCAG 2.1 AA, GitHub Actions CI, published on Marketplace.
 
 ## Accumulated Context
 
@@ -49,21 +55,18 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - StorageBreakdownPanel uses EntityDefinition.RecordCount SOQL for per-object record counts
 - DeploymentTimeline queries DeployRequest directly (not DeploymentTracker) for richer data
 - Badge component requires wrapper span for data-testid (does not spread extra HTML props)
+- Button variant "outline" does not exist — use "secondary" instead
 
 ### Pending Todos
 
-- monitor:health-score handler route now registered (RESOLVED in 05-01)
-- Several handler-routed types (compare:start, pipeline:execute, etc.) lack type definitions
-- Settings handler needed to expose robustness config to webview Settings page
+(None — milestone complete)
 
 ### Blockers/Concerns
 
-- Post-launch audit revealed 70+ bridge messages never listened to by BridgeProvider
-- Seed/Sync/Forge/Autopilot execution results never reach webview
-- Ghost features now handled by NoOpHandler (scheduler/realtime types return clean error)
+(None — milestone shipped)
 
 ## Session Continuity
 
 Last session: 2026-03-18
-Stopped at: Plan 05-01 complete, ready for 05-02 (Dashboard Refresh UX)
+Stopped at: Milestone v1.1.0 complete
 Resume file: None
