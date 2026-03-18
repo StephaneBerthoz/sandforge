@@ -53,8 +53,8 @@ describe('StatusFooter', () => {
     expect(screen.getByText('Jobs: 3')).toBeDefined();
   });
 
-  it('should show version info', () => {
+  it('should show version info from build env', () => {
     render(<StatusFooter />);
-    expect(screen.getByText('SandForge v3.0.0')).toBeDefined();
+    expect(screen.getByText(/SandForge v\d+\.\d+\.\d+/)).toBeDefined();
   });
 });
