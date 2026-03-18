@@ -7,6 +7,8 @@ import {
   Server,
 } from 'lucide-react';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
+import { EmptyState } from '../../components/ui/EmptyState';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
 import { cn } from '../../theme';
 import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
@@ -189,10 +191,23 @@ export const MonitorPage: React.FC = () => {
   const resumeOp = useBridgeMutation<{ success: boolean }>('operation:resume', { responseType: 'operation:resume:response' });
   const liveOperations = liveOpsQuery.data?.operations ?? [];
 
+  const navigate = useAppStore((s) => s.navigate);
   const currentOrg = selectedOrg();
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
 
   // ─── Empty state ───────────────────────────────────────────────────────
+  if (orgs.length === 0) {
+    return (
+      <EmptyState
+        module="monitor"
+        title={t('monitor.emptyState.title')}
+        description={t('monitor.emptyState.description')}
+        actionLabel={t('monitor.emptyState.cta')}
+        onAction={() => navigate('orgs')}
+      />
+    );
+  }
+
   if (!selectedOrgId) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-6" data-testid="monitor-empty">

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { ForgePage } from './ForgePage';
 
@@ -42,9 +42,17 @@ vi.mock('../../stores/useForgeStore', () => {
   return { useForgeStore: store };
 });
 
+let mockOrgState: Record<string, unknown> = { orgs: [{ id: 'org-1', alias: 'Dev' }], selectedOrgId: 'org-1' };
+
 vi.mock('../../stores/useOrgStore', () => ({
   useOrgStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ orgs: [] }),
+    selector(mockOrgState),
+}));
+
+const mockNavigate = vi.fn();
+vi.mock('../../stores/useAppStore', () => ({
+  useAppStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ navigate: mockNavigate, currentRoute: 'forge' }),
 }));
 
 vi.mock('../../components/graph/LiveGraph', () => ({
@@ -65,6 +73,26 @@ vi.mock('../../components/ui/SplitView', () => ({
 /* ---- Tests ---- */
 
 describe('ForgePage', () => {
+  beforeEach(() => {
+    mockOrgState = { orgs: [{ id: 'org-1', alias: 'Dev' }], selectedOrgId: 'org-1' };
+    mockNavigate.mockClear();
+  });
+
+  it('should show empty state when no org selected', () => {
+    mockOrgState = { orgs: [], selectedOrgId: null };
+    render(<ForgePage />);
+    expect(screen.getByTestId('empty-state')).toBeDefined();
+    expect(screen.getByTestId('illustration-forge')).toBeDefined();
+    expect(screen.getByTestId('empty-action-button')).toBeDefined();
+  });
+
+  it('should navigate to orgs when empty state CTA clicked', () => {
+    mockOrgState = { orgs: [], selectedOrgId: null };
+    render(<ForgePage />);
+    fireEvent.click(screen.getByTestId('empty-action-button'));
+    expect(mockNavigate).toHaveBeenCalledWith('orgs');
+  });
+
   it('should render with forge-page test id', () => {
     mockPhase = 'input';
     render(<ForgePage />);

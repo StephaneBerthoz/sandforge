@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import type { BackupResult, AnonymizationTemplate } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -54,13 +55,13 @@ export const DataOpsPage: React.FC = () => {
   /** Bridge mutation: create a backup. */
   const backupMutation = useBridgeMutation<Record<string, unknown>>(
     'backup:execute',
-    { responseType: 'operation:completed' },
+    { responseType: 'dataops:backup:response' },
   );
 
   /** Bridge mutation: anonymize data. */
   const anonymizeMutation = useBridgeMutation<Record<string, unknown>>(
     'dataops:anonymize',
-    { responseType: 'operation:completed' },
+    { responseType: 'dataops:anonymize:response' },
   );
 
   /** Bridge query: load anonymization templates. */
@@ -110,12 +111,16 @@ export const DataOpsPage: React.FC = () => {
     });
   };
 
+  const navigate = useAppStore((s) => s.navigate);
+
   if (orgs.length === 0) {
     return (
       <EmptyState
-        icon="tools"
-        title={t('org.noOrgs')}
-        description={t('dataops.selectOrg')}
+        module="dataops"
+        title={t('dataops.emptyState.title')}
+        description={t('dataops.emptyState.description')}
+        actionLabel={t('dataops.emptyState.cta')}
+        onAction={() => navigate('orgs')}
       />
     );
   }
