@@ -15,7 +15,7 @@ Deliver a clean, coherent user experience with no dead features or broken button
 
 ### UX-01: Grappe Sidebar Removal
 - Remove Grappe hero button from Sidebar.tsx (lines 214-230)
-- Remove `grappe` from iconMap and router navigation
+- Remove `grappe` from iconMap (keep route in router.tsx for direct URL access)
 - Keep GrappeProgressPanel as execution overlay (already embedded in SyncPage, etc.)
 - GrappePage.tsx can be kept for direct URL access but not in sidebar nav
 
