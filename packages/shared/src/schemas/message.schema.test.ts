@@ -68,4 +68,25 @@ describe('baseMessageSchema', () => {
     const result = baseMessageSchema.safeParse(undefined);
     expect(result.success).toBe(false);
   });
+
+  it('should accept a message with a valid correlationId', () => {
+    const msg = { id: 'resp-1', type: 'org:list:response', timestamp: 1000, correlationId: 'req-1' };
+    const result = baseMessageSchema.safeParse(msg);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect((result.data as Record<string, unknown>)['correlationId']).toBe('req-1');
+    }
+  });
+
+  it('should accept a message without correlationId (optional)', () => {
+    const msg = { id: 'msg-1', type: 'org:list', timestamp: 1000 };
+    const result = baseMessageSchema.safeParse(msg);
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject a message with empty correlationId', () => {
+    const msg = { id: 'msg-1', type: 'org:list', timestamp: 1000, correlationId: '' };
+    const result = baseMessageSchema.safeParse(msg);
+    expect(result.success).toBe(false);
+  });
 });

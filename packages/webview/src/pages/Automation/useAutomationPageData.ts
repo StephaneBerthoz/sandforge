@@ -138,7 +138,7 @@ export function useAutomationPageData(): AutomationPageData {
   // Bridge mutation: execute a pipeline
   const executeMutation = useBridgeMutation<Record<string, unknown>>(
     'pipeline:execute',
-    { responseType: 'operation:completed' },
+    { responseType: 'pipeline:run:response' },
   );
 
   // Bridge mutation: save a pipeline

@@ -115,6 +115,13 @@ export function useMessageResponse<T>(
           return;
         }
 
+        // correlationId matching: if the response carries a correlationId,
+        // it must match our request's messageId. If absent, fall back to
+        // type-only matching for backward compatibility.
+        if (eventData.correlationId && eventData.correlationId !== messageId) {
+          return;
+        }
+
         if (!mountedRef.current || activeRequestId.current !== messageId) {
           return;
         }

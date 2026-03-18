@@ -7,13 +7,16 @@ import { useMessageResponse } from './useMessageResponse';
 import type { UseMessageResponseOptions } from './useMessageResponse';
 
 /** Dispatch a simulated extension-to-webview message. */
-function simulateResponse(type: string, payload: unknown): void {
+function simulateResponse(type: string, payload: unknown, correlationId?: string): void {
   const message: BaseMessage & { payload: unknown } = {
     id: `resp-${Date.now()}`,
     type,
     timestamp: Date.now(),
     payload,
   };
+  if (correlationId) {
+    message.correlationId = correlationId;
+  }
   window.dispatchEvent(new MessageEvent('message', { data: message }));
 }
 
@@ -220,6 +223,62 @@ describe('useMessageResponse', () => {
     // in the message payload, only in the internal activeRequestId ref)
     expect(result.current.loading).toBe(false);
     expect(result.current.data).toEqual({ orgs: ['org-1'] });
+  });
+
+  it('should accept response with matching correlationId', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-42');
+    });
+
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['org-a'] }, 'req-42');
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual({ orgs: ['org-a'] });
+  });
+
+  it('should reject response with wrong correlationId', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-42');
+    });
+
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['wrong'] }, 'req-99');
+    });
+
+    // Response should be rejected — still loading
+    expect(result.current.loading).toBe(true);
+    expect(result.current.data).toBeNull();
+  });
+
+  it('should fall back to type-only matching when correlationId is absent', () => {
+    const { result } = renderHook(() =>
+      useMessageResponse<{ orgs: string[] }>(defaultOptions),
+    );
+
+    act(() => {
+      result.current.setLoading(true);
+      result.current.listen('req-42');
+    });
+
+    // No correlationId in response — backward-compatible type-only match
+    act(() => {
+      simulateResponse('org:list:response', { orgs: ['fallback'] });
+    });
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.data).toEqual({ orgs: ['fallback'] });
   });
 
   it('should allow setLoading and setError to be called externally', () => {

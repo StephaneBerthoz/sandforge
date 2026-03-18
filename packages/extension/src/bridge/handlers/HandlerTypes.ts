@@ -62,6 +62,33 @@ export interface DomainHandler {
 }
 
 /**
+ * Build a response message that propagates the request's `id` as `correlationId`.
+ *
+ * All handlers should use this helper instead of manually constructing response
+ * objects so that `useMessageResponse` on the webview side can match responses
+ * to the exact request that triggered them.
+ *
+ * @param deps - Handler dependencies (needs `nextId`).
+ * @param request - The incoming request message.
+ * @param type - The response message type (e.g. `"seed:describe-global:response"`).
+ * @param payload - The response payload.
+ */
+export function buildResponse<P extends Record<string, unknown>>(
+  deps: Pick<HandlerDeps, 'nextId'>,
+  request: BaseMessage,
+  type: string,
+  payload: P,
+): BaseMessage & { payload: P } {
+  return {
+    id: deps.nextId(),
+    type,
+    timestamp: Date.now(),
+    correlationId: request.id,
+    payload,
+  };
+}
+
+/**
  * Send a notification message to the webview.
  *
  * @param deps - Handler dependencies containing broker and nextId.

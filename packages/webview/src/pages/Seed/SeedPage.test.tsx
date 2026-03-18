@@ -55,7 +55,7 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
-    if (type === 'seed:describe-fields') {
+    if (type === 'seed:describe-object') {
       return mockDescribeFieldsState;
     }
     if (type === 'seed:execute') {

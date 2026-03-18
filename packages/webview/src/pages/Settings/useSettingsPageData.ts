@@ -67,7 +67,7 @@ export function useSettingsPageData(
   /** Bridge mutation: save settings to extension. */
   const settingsUpdateMutation = useBridgeMutation<{ success: boolean }>(
     'settings:update',
-    { responseType: 'settings:updated' },
+    { responseType: 'settings:response' },
   );
 
   /** AI status query. */

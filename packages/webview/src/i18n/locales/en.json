@@ -230,7 +230,15 @@
       "button": "Export CSV",
       "success": "Limits exported",
       "successDetail": "CSV file downloaded successfully"
-    }
+    },
+    "refreshFailed": "Failed to refresh dashboard data",
+    "retry": "Retry",
+    "details": "Details",
+    "staleData": "Data is {{minutes}}m old",
+    "refreshNow": "Refresh now",
+    "connectionLost": "Connection lost. Auto-refresh failed {{count}} times.",
+    "tryReconnect": "Try Reconnect",
+    "sectionError": "Section {{section}} failed: {{error}}"
   },
   "compare": {
     "title": "Compare Org",
