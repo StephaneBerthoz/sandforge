@@ -4,6 +4,7 @@ import type {
   AIAnomalyScanRequest, AISuggestionsRequest, AISchemaAdviceRequest,
 } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
+import { buildResponse } from '../HandlerTypes.js';
 import type { AIModules } from '../AIHandler.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
@@ -71,22 +72,18 @@ export class AIAnalysisHandler implements DomainHandler {
       const records = await queryWithFieldsFallback<Record<string, unknown>>(conn, safeObj, soql);
       const sample = { records, fields: Object.keys(records[0] ?? {}) };
       const report = this.aiModules.anomalyDetector.detectAnomalies(sample, objectName);
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'ai:anomaly-scan:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: {
-          success: true,
-          anomalies: report.anomalies.map((a: { field: string; type: string; description: string; severity: string }) => ({
-            field: a.field, type: a.type, description: a.description, severity: a.severity,
-          })),
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'ai:anomaly-scan:response', {
+        success: true,
+        anomalies: report.anomalies.map((a: { field: string; type: string; description: string; severity: string }) => ({
+          field: a.field, type: a.type, description: a.description, severity: a.severity,
+        })),
+      });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:anomaly-scan: ${extractErrorMessage(err)}`);
-      const errResp: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'ai:anomaly-scan:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: false, error: extractErrorMessage(err) },
-      };
+      const errResp = buildResponse(this.deps, msg, 'ai:anomaly-scan:response', {
+        success: false, error: extractErrorMessage(err),
+      });
       this.deps.broker.postToWebview(errResp);
     }
   }
@@ -99,20 +96,16 @@ export class AIAnalysisHandler implements DomainHandler {
         throw new Error('AI not configured. Set your API key in Settings > AI to enable this feature.');
       }
       const suggestions = await this.aiModules.smartSuggestions.suggest(module, context ?? {});
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'ai:suggestions:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: {
-          success: true,
-          suggestions: suggestions.map((s: { title: string; description: string; action: string }) => ({ title: s.title, description: s.description, action: s.action })),
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'ai:suggestions:response', {
+        success: true,
+        suggestions: suggestions.map((s: { title: string; description: string; action: string }) => ({ title: s.title, description: s.description, action: s.action })),
+      });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:suggestions: ${extractErrorMessage(err)}`);
-      const errResp: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'ai:suggestions:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: false, error: extractErrorMessage(err) },
-      };
+      const errResp = buildResponse(this.deps, msg, 'ai:suggestions:response', {
+        success: false, error: extractErrorMessage(err),
+      });
       this.deps.broker.postToWebview(errResp);
     }
   }
@@ -140,25 +133,21 @@ export class AIAnalysisHandler implements DomainHandler {
         }),
       );
       const advice = this.aiModules.schemaAdvisor.analyzeSchema(describes);
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'ai:schema-advice:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: {
-          success: true,
-          advice: {
-            issues: advice.issues.map((i: { objectName: string; fieldName?: string; severity: string; description: string }) => ({
-              objectName: i.objectName, field: i.fieldName, severity: i.severity, message: i.description,
-            })),
-            recommendations: advice.suggestions.map((r: { title: string; description: string }) => ({ title: r.title, description: r.description })),
-          },
+      const response = buildResponse(this.deps, msg, 'ai:schema-advice:response', {
+        success: true,
+        advice: {
+          issues: advice.issues.map((i: { objectName: string; fieldName?: string; severity: string; description: string }) => ({
+            objectName: i.objectName, field: i.fieldName, severity: i.severity, message: i.description,
+          })),
+          recommendations: advice.suggestions.map((r: { title: string; description: string }) => ({ title: r.title, description: r.description })),
         },
-      };
+      });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:schema-advice: ${extractErrorMessage(err)}`);
-      const errResp: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'ai:schema-advice:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: false, error: extractErrorMessage(err) },
-      };
+      const errResp = buildResponse(this.deps, msg, 'ai:schema-advice:response', {
+        success: false, error: extractErrorMessage(err),
+      });
       this.deps.broker.postToWebview(errResp);
     }
   }
