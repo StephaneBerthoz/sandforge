@@ -1,7 +1,7 @@
 import type { BaseMessage, SalesforceOrg, OrgConnectRequest } from '@sandforge/shared';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
-import { sendNotification } from './HandlerTypes.js';
+import { buildResponse, sendNotification } from './HandlerTypes.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Message types handled by OrgHandler. */
@@ -48,12 +48,9 @@ export class OrgHandler implements DomainHandler {
   private handleOrgList(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const orgs = this.deps.orgManager.getAllOrgs();
-    const response: BaseMessage & { payload: { orgs: Record<string, unknown>[] } } = {
-      id: this.deps.nextId(),
-      type: 'org:list:response',
-      timestamp: Date.now(),
-      payload: { orgs: orgs as unknown as Record<string, unknown>[] },
-    };
+    const response = buildResponse(this.deps, msg, 'org:list:response', {
+      orgs: orgs as unknown as Record<string, unknown>[],
+    });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -64,10 +61,10 @@ export class OrgHandler implements DomainHandler {
 
     switch (payload.authMethod) {
       case 'sfdx_import':
-        await this.handleSfdxImport();
+        await this.handleSfdxImport(msg);
         break;
       case 'usernamePassword':
-        await this.handleUsernamePassword(payload);
+        await this.handleUsernamePassword(msg, payload);
         break;
       case 'oauth_web':
         await this.handleOAuthWeb(payload);
@@ -80,7 +77,7 @@ export class OrgHandler implements DomainHandler {
     this.syncOrgState();
   }
 
-  private async handleSfdxImport(): Promise<void> {
+  private async handleSfdxImport(msg: BaseMessage): Promise<void> {
     try {
       const available = await this.deps.sfdxBridge.isCliAvailable();
       if (!available) {
@@ -99,12 +96,9 @@ export class OrgHandler implements DomainHandler {
       }
 
       const orgs = this.deps.orgManager.getAllOrgs();
-      const response: BaseMessage & { payload: { orgs: Record<string, unknown>[] } } = {
-        id: this.deps.nextId(),
-        type: 'org:list:response',
-        timestamp: Date.now(),
-        payload: { orgs: orgs as unknown as Record<string, unknown>[] },
-      };
+      const response = buildResponse(this.deps, msg, 'org:list:response', {
+        orgs: orgs as unknown as Record<string, unknown>[],
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
 
@@ -116,7 +110,7 @@ export class OrgHandler implements DomainHandler {
     }
   }
 
-  private async handleUsernamePassword(payload: OrgConnectRequest['payload']): Promise<void> {
+  private async handleUsernamePassword(msg: BaseMessage, payload: OrgConnectRequest['payload']): Promise<void> {
     if (!payload.username || !payload.password) {
       sendNotification(this.deps, 'error', 'Auth', 'Username and password are required.');
       return;
@@ -186,12 +180,9 @@ export class OrgHandler implements DomainHandler {
 
       await this.deps.orgRegistry.saveOrg(org, connectionConfig);
 
-      const statusMsg: BaseMessage & { payload: { orgId: string; status: string } } = {
-        id: this.deps.nextId(),
-        type: 'org:statusChanged',
-        timestamp: Date.now(),
-        payload: { orgId: org.id, status: 'connected' },
-      };
+      const statusMsg = buildResponse(this.deps, msg, 'org:statusChanged', {
+        orgId: org.id, status: 'connected',
+      });
       this.deps.broker.postToWebview(statusMsg);
       this.deps.log(`[TX] ${statusMsg.type} id=${statusMsg.id}`);
 
@@ -239,12 +230,9 @@ export class OrgHandler implements DomainHandler {
 
     await this.deps.orgRegistry.removeOrg(payload.orgId);
 
-    const statusMsg: BaseMessage & { payload: { orgId: string; status: string } } = {
-      id: this.deps.nextId(),
-      type: 'org:statusChanged',
-      timestamp: Date.now(),
-      payload: { orgId: payload.orgId, status: 'disconnected' },
-    };
+    const statusMsg = buildResponse(this.deps, msg, 'org:statusChanged', {
+      orgId: payload.orgId, status: 'disconnected',
+    });
     this.deps.broker.postToWebview(statusMsg);
     this.deps.log(`[TX] ${statusMsg.type} id=${statusMsg.id}`);
 
