@@ -49,15 +49,13 @@ describe('AIAnalysisHandler', () => {
     expect(result).toBe(false);
   });
 
-  it('handles ai:anomaly-scan without modules by sending error', async () => {
+  it('handles ai:anomaly-scan without modules by sending error with correlationId', async () => {
     const result = await handler.handle(createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account' }));
     expect(result).toBe(true);
-    expect(deps.broker.postToWebview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'ai:anomaly-scan:response',
-        payload: expect.objectContaining({ success: false }),
-      }),
-    );
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('ai:anomaly-scan:response');
+    expect(response.payload.success).toBe(false);
+    expect(response.correlationId).toBe('msg-1');
   });
 
   it('handles ai:anomaly-scan with modules', async () => {
@@ -72,23 +70,19 @@ describe('AIAnalysisHandler', () => {
 
     const result = await handler.handle(createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account', sampleSize: 100 }));
     expect(result).toBe(true);
-    expect(deps.broker.postToWebview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'ai:anomaly-scan:response',
-        payload: expect.objectContaining({ success: true }),
-      }),
-    );
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('ai:anomaly-scan:response');
+    expect(response.payload.success).toBe(true);
+    expect(response.correlationId).toBe('msg-1');
   });
 
-  it('handles ai:suggestions without modules', async () => {
+  it('handles ai:suggestions without modules with correlationId', async () => {
     const result = await handler.handle(createMsg('ai:suggestions', { module: 'seed' }));
     expect(result).toBe(true);
-    expect(deps.broker.postToWebview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'ai:suggestions:response',
-        payload: expect.objectContaining({ success: false }),
-      }),
-    );
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('ai:suggestions:response');
+    expect(response.payload.success).toBe(false);
+    expect(response.correlationId).toBe('msg-1');
   });
 
   it('handles ai:suggestions with modules', async () => {
@@ -101,23 +95,19 @@ describe('AIAnalysisHandler', () => {
 
     const result = await handler.handle(createMsg('ai:suggestions', { module: 'seed', context: {} }));
     expect(result).toBe(true);
-    expect(deps.broker.postToWebview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'ai:suggestions:response',
-        payload: expect.objectContaining({ success: true }),
-      }),
-    );
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('ai:suggestions:response');
+    expect(response.payload.success).toBe(true);
+    expect(response.correlationId).toBe('msg-1');
   });
 
-  it('handles ai:schema-advice without modules', async () => {
+  it('handles ai:schema-advice without modules with correlationId', async () => {
     const result = await handler.handle(createMsg('ai:schema-advice', { orgId: 'org1' }));
     expect(result).toBe(true);
-    expect(deps.broker.postToWebview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'ai:schema-advice:response',
-        payload: expect.objectContaining({ success: false }),
-      }),
-    );
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('ai:schema-advice:response');
+    expect(response.payload.success).toBe(false);
+    expect(response.correlationId).toBe('msg-1');
   });
 
   it('handles ai:schema-advice with modules', async () => {
@@ -133,11 +123,9 @@ describe('AIAnalysisHandler', () => {
 
     const result = await handler.handle(createMsg('ai:schema-advice', { orgId: 'org1', objectNames: ['Account'] }));
     expect(result).toBe(true);
-    expect(deps.broker.postToWebview).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'ai:schema-advice:response',
-        payload: expect.objectContaining({ success: true }),
-      }),
-    );
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('ai:schema-advice:response');
+    expect(response.payload.success).toBe(true);
+    expect(response.correlationId).toBe('msg-1');
   });
 });
