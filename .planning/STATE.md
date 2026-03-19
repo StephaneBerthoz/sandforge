@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-18)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** v1.1.0 gap closure — Phase 06
+**Current focus:** v1.1.0 complete — all gaps closed, ready for next milestone
 
 ## Current Position
 
-Phase: 06 — Gap Closure: buildResponse Migration & Verification
-Plan: 06-01 complete
-Status: Plan 06-01 (buildResponse migration) done; remaining: 06-03 (traceability)
-Last activity: 2026-03-19 -- Migrated 6 infrastructure handlers to buildResponse, 36 manual constructions replaced, 4 new test files
+Phase: -- (milestone complete)
+Plan: --
+Status: v1.1.0 shipped — 6 phases, 27 requirements, all gaps closed
+Last activity: 2026-03-19 -- Phase 06 gap closure complete (buildResponse migration + Phase 05 verification)
 
-Progress: [█████████░] 93%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -26,10 +26,10 @@ Progress: [█████████░] 93%
 ## Milestone History
 
 ### v1.1.0 -- Stabilisation & Real-World Readiness
-Completed: 2026-03-18
-Phases: 5
+Completed: 2026-03-19
+Phases: 6 (5 + 1 gap closure)
 Requirements delivered: BRG-01..04, MOD-01..08, AI-01..03, UX-01..05, GHO-01..03, ROB-01..04, MON-01..03
-Key achievements: CorrelationId bridge infrastructure, all 8 modules functional end-to-end, ghost feature cleanup, Bulk API 2.0 + retry logic, competitor benchmark + 5 Monitor feature gaps, dashboard refresh UX with error recovery. 2190 tests passing.
+Key achievements: CorrelationId bridge infrastructure, all 8 modules functional end-to-end, ghost feature cleanup, Bulk API 2.0 + retry logic, competitor benchmark + 5 Monitor feature gaps, dashboard refresh UX with error recovery. Gap closure: buildResponse migration for all 16 handlers (122 calls), Phase 05 verified. 7042 tests passing.
 
 ### v1.0.0 -- Marketplace-Ready Release
 Completed: 2026-03-17
@@ -59,16 +59,14 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
-- Phase 06: Migrate 6 infra handlers to buildResponse (BRG-02 closure) [DONE - 06-01]
-- Phase 06: Write 05-VERIFICATION.md [DONE - 06-02]
-- Phase 06: Update traceability (checkboxes already fixed)
+(None — milestone complete)
 
 ### Blockers/Concerns
 
-(None)
+(None — milestone shipped)
 
 ## Session Continuity
 
 Last session: 2026-03-19
-Stopped at: Plan 06-01 complete (buildResponse migration done for all 6 handlers)
+Stopped at: Milestone v1.1.0 fully complete (all gaps closed)
 Resume file: None
