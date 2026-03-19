@@ -1,6 +1,6 @@
 import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
-import { sendHandlerError } from './HandlerTypes.js';
+import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { ConfigProfileManager } from '../../core/config/ConfigProfileManager.js';
 import type { ConfigCategory } from '../../core/config/ConfigProfileManager.js';
 
@@ -59,18 +59,13 @@ export class ConfigHandler implements DomainHandler {
     try {
       const result = this.profileManager.exportProfile(payload.categories);
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'config:export:response',
-        timestamp: Date.now(),
-        payload: {
-          success: result.success,
-          json: result.json,
-          categoriesExported: result.categoriesExported,
-          entriesExported: result.entriesExported,
-          error: result.error,
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'config:export:response', {
+        success: result.success,
+        json: result.json,
+        categoriesExported: result.categoriesExported,
+        entriesExported: result.entriesExported,
+        error: result.error,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:export:response (${result.entriesExported} entries)`);
     } catch (err: unknown) {
@@ -85,18 +80,13 @@ export class ConfigHandler implements DomainHandler {
     try {
       const result = this.profileManager.importProfile(payload.json, payload.overwrite);
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'config:import:response',
-        timestamp: Date.now(),
-        payload: {
-          success: result.success,
-          categoriesImported: result.categoriesImported,
-          entriesImported: result.entriesImported,
-          warnings: result.warnings,
-          error: result.error,
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'config:import:response', {
+        success: result.success,
+        categoriesImported: result.categoriesImported,
+        entriesImported: result.entriesImported,
+        warnings: result.warnings,
+        error: result.error,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:import:response (${result.entriesImported} entries)`);
     } catch (err: unknown) {
@@ -110,12 +100,9 @@ export class ConfigHandler implements DomainHandler {
     try {
       const categories = this.profileManager.listCategories();
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'config:categories:response',
-        timestamp: Date.now(),
-        payload: { categories },
-      };
+      const response = buildResponse(this.deps, msg, 'config:categories:response', {
+        categories,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:categories:response`);
     } catch (err: unknown) {
@@ -130,16 +117,11 @@ export class ConfigHandler implements DomainHandler {
     try {
       const result = this.profileManager.validateProfile(payload.json);
 
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        id: this.deps.nextId(),
-        type: 'config:validate:response',
-        timestamp: Date.now(),
-        payload: {
-          valid: result.valid,
-          categories: result.categories,
-          error: result.error,
-        },
-      };
+      const response = buildResponse(this.deps, msg, 'config:validate:response', {
+        valid: result.valid,
+        categories: result.categories,
+        error: result.error,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:validate:response`);
     } catch (err: unknown) {
