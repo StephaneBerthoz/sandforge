@@ -29,6 +29,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 - ✓ UX cleanup: Grappe sidebar removed, notifications, version footer, org auto-select, empty states — Milestone v1.1.0
 - ✓ Robustness: Bulk API 2.0, retry with backoff, configurable timeouts, field validation — Milestone v1.1.0
 - ✓ Monitor enrichment: competitor benchmark, 5 feature gaps, dashboard refresh UX — Milestone v1.1.0
+- ✓ Gap closure: buildResponse migration for all 16 handlers (correlationId end-to-end), Phase 05 verified — Milestone v1.1.0
 
 ### Active
 
@@ -48,7 +49,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
 - 558 source files, 487+ test files, 1045+ total files across packages
-- v1.1.0 current — phases 00-11 complete, stabilised, published on VS Code Marketplace
+- v1.1.0 current — phases 00-11 complete + gap closure, stabilised, published on VS Code Marketplace
 - VSIX package at 1.07 MB, well within marketplace limits
 - jsforce v3 for all Salesforce API interactions
 - Strict TypeScript (no `any`), Zod validation on all external data, Winston logging
@@ -75,4 +76,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-18 — Milestone v1.1.0 complete (Stabilisation & Real-World Readiness)*
+*Last updated: 2026-03-19 — Milestone v1.1.0 fully complete with gap closure (6 phases, 27 requirements, 7042 tests)*
