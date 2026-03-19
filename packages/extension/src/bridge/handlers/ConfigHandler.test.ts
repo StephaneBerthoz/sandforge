@@ -59,6 +59,7 @@ describe('ConfigHandler', () => {
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.payload.success).toBe(true);
     expect(response.payload.entriesExported).toBe(1);
+    expect(response.correlationId).toBe('1');
   });
 
   it('handles config:import', async () => {
@@ -84,6 +85,7 @@ describe('ConfigHandler', () => {
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.payload.success).toBe(true);
     expect(response.payload.entriesImported).toBe(1);
+    expect(response.correlationId).toBe('1');
   });
 
   it('handles config:categories', async () => {
@@ -96,6 +98,9 @@ describe('ConfigHandler', () => {
     expect(deps.broker.postToWebview).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'config:categories:response' }),
     );
+
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.correlationId).toBe('1');
   });
 
   it('handles config:validate with valid profile', async () => {
@@ -115,6 +120,7 @@ describe('ConfigHandler', () => {
 
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.payload.valid).toBe(true);
+    expect(response.correlationId).toBe('1');
   });
 
   it('handles config:validate with invalid JSON', async () => {
