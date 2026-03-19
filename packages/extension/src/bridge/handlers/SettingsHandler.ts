@@ -1,5 +1,6 @@
 import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import { buildResponse } from './HandlerTypes.js';
 import type { OnboardingService } from '../../core/onboarding/OnboardingService.js';
 import type { HintTracker } from '../../core/onboarding/HintTracker.js';
 import type {
@@ -94,12 +95,7 @@ export class SettingsHandler implements DomainHandler {
   private handleSettingsGet(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const settings = this.deps.configStore.getByCategory('settings');
-    const response: BaseMessage & { payload: { settings: Record<string, unknown> } } = {
-      id: this.deps.nextId(),
-      type: 'settings:response',
-      timestamp: Date.now(),
-      payload: { settings },
-    };
+    const response = buildResponse(this.deps, msg, 'settings:response', { settings });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -111,12 +107,7 @@ export class SettingsHandler implements DomainHandler {
     this.deps.configStore.set(payload.key, payload.value, 'settings');
 
     const settings = this.deps.configStore.getByCategory('settings');
-    const response: BaseMessage & { payload: { settings: Record<string, unknown> } } = {
-      id: this.deps.nextId(),
-      type: 'settings:response',
-      timestamp: Date.now(),
-      payload: { settings },
-    };
+    const response = buildResponse(this.deps, msg, 'settings:response', { settings });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -151,10 +142,9 @@ export class SettingsHandler implements DomainHandler {
 
   private handlePluginsList(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      type: 'plugins:list:response', id: this.deps.nextId(), timestamp: Date.now(),
-      payload: { success: true, plugins: [] },
-    };
+    const response = buildResponse(this.deps, msg, 'plugins:list:response', {
+      success: true, plugins: [] as unknown[],
+    });
     this.deps.broker.postToWebview(response);
   }
 
@@ -184,17 +174,15 @@ export class SettingsHandler implements DomainHandler {
       };
       const pm = new PluginManager(fsImpl, moduleLoader, pluginPath);
       const loaded = await pm.loadPlugins();
-      const response: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'plugins:load:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: true, loadedPlugins: loaded },
-      };
+      const response = buildResponse(this.deps, msg, 'plugins:load:response', {
+        success: true, loadedPlugins: loaded,
+      });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] plugins:load: ${extractErrorMessage(err)}`);
-      const errResp: BaseMessage & { payload: Record<string, unknown> } = {
-        type: 'plugins:load:response', id: this.deps.nextId(), timestamp: Date.now(),
-        payload: { success: false, error: extractErrorMessage(err) },
-      };
+      const errResp = buildResponse(this.deps, msg, 'plugins:load:response', {
+        success: false, error: extractErrorMessage(err),
+      });
       this.deps.broker.postToWebview(errResp);
     }
   }
@@ -202,30 +190,27 @@ export class SettingsHandler implements DomainHandler {
   private handlePluginsUnload(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const { pluginName } = (msg as PluginsUnloadRequest).payload;
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      type: 'plugins:unload:response', id: this.deps.nextId(), timestamp: Date.now(),
-      payload: { success: true },
-    };
+    const response = buildResponse(this.deps, msg, 'plugins:unload:response', {
+      success: true,
+    });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] plugins:unload:response (${pluginName})`);
   }
 
   private handleTelemetryStatus(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      type: 'telemetry:status:response', id: this.deps.nextId(), timestamp: Date.now(),
-      payload: { enabled: false, eventCount: 0, bufferSize: 0 },
-    };
+    const response = buildResponse(this.deps, msg, 'telemetry:status:response', {
+      enabled: false, eventCount: 0, bufferSize: 0,
+    });
     this.deps.broker.postToWebview(response);
   }
 
   private handleTelemetryToggle(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const { enabled } = (msg as TelemetryToggleRequest).payload;
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      type: 'telemetry:toggle:response', id: this.deps.nextId(), timestamp: Date.now(),
-      payload: { success: true, enabled },
-    };
+    const response = buildResponse(this.deps, msg, 'telemetry:toggle:response', {
+      success: true, enabled,
+    });
     this.deps.broker.postToWebview(response);
   }
 
@@ -233,14 +218,11 @@ export class SettingsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const offlineManager = this.deps.infraServices?.offlineManager;
     const status = offlineManager ? offlineManager.getStatus() : 'online';
-    const response: BaseMessage & { payload: Record<string, unknown> } = {
-      type: 'connectivity:status:response', id: this.deps.nextId(), timestamp: Date.now(),
-      payload: {
-        online: status === 'online',
-        lastChecked: new Date().toISOString(),
-        queueSize: offlineManager ? offlineManager.getQueueSize() : 0,
-      },
-    };
+    const response = buildResponse(this.deps, msg, 'connectivity:status:response', {
+      online: status === 'online',
+      lastChecked: new Date().toISOString(),
+      queueSize: offlineManager ? offlineManager.getQueueSize() : 0,
+    });
     this.deps.broker.postToWebview(response);
   }
 }
