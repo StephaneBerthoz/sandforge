@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 01 — Backend Foundation: Limits Cache + Health Unification
-Plan: --
-Status: Roadmap defined — 4 phases, 25 requirements. Ready for phase planning.
-Last activity: 2026-03-20 — Roadmap created
+Plan: 01-01 complete
+Status: Plan 01-01 done (PERF-01, PERF-02, TREND-03). 7154 tests passing.
+Last activity: 2026-03-20 — Plan 01-01 executed
 
-Progress: [..........] 0%
+Progress: [#.........] 10%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 34 (v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
+- Total plans completed: 35 (v1.2.1: 1 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
 - Average duration: ~15 min/plan
 - Total execution time: ~8.5h
 
@@ -60,6 +60,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - OrgDropdown uses containerRef click-outside pattern with sorted connected-first org list
 - ReviewComplianceTab sends compliance request via useEffect on framework/graph/config change
 - Bulk ID fallback uses bulk-{jobId}-{i} format (includes jobId) for traceability
+- MonitorOpsHandler limitsCache uses vi.hoisted pattern for test mocking (single unified mock per module path per file)
 
 ### Pending Todos
 
@@ -72,5 +73,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Milestone v1.2.1 initialized
+Stopped at: Plan 01-01 complete, ready for plan 01-02
 Resume file: None
