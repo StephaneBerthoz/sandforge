@@ -185,7 +185,7 @@ describe('ForgeNodeDetail', () => {
       />,
     );
     const badge = screen.getByTestId('node-status-badge');
-    expect(badge.className).toContain('text-gray-400');
+    expect(badge.className).toContain('text-gray-300');
     expect(badge.className).not.toContain('text-gray-500');
   });
 });

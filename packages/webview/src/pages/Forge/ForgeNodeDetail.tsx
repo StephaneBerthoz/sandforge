@@ -23,7 +23,7 @@ const statusColors: Record<ForgeGraphNode['status'], string> = {
   running: 'bg-amber-500/20 text-amber-400',
   done: 'bg-green-500/20 text-green-400',
   error: 'bg-red-500/20 text-red-400',
-  skipped: 'bg-gray-500/20 text-gray-400',
+  skipped: 'bg-gray-500/20 text-gray-300',
 };
 
 /** Sample anonymization preview data. */

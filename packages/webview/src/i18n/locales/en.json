@@ -1243,6 +1243,7 @@
     "records": "Records",
     "estSize": "Est. Size",
     "estDuration": "Est. Duration",
+    "estRecords": "Est. Records",
     "selectNode": "Select an object to view details",
     "piiFields": "PII Fields Detected",
     "anonymize": "Anonymize",

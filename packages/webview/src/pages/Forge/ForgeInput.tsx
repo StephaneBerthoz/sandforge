@@ -43,6 +43,9 @@ interface RecordPreview {
   objectLabel: string;
   recordId: string;
   fields: Array<{ name: string; value: string }>;
+  estimatedRecordCount?: number;
+  totalFieldCount?: number;
+  estimatedSize?: number;
 }
 
 /** Common PII field name patterns for badge detection. */
@@ -855,16 +858,16 @@ export const ForgeInput: React.FC = () => {
                 <div className="text-[9px] text-text-muted">{t('forge.objects')}</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-forge" data-testid="est-fields">{preview ? String(preview.fields?.length ?? 0) : '\u2014'}</div>
+                <div className="text-lg font-bold text-forge" data-testid="est-fields">{preview ? String(preview.totalFieldCount ?? preview.fields?.length ?? 0) : '\u2014'}</div>
                 <div className="text-[9px] text-text-muted">{t('forge.fields')}</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-green-500">{'\u2014'}</div>
+                <div className="text-lg font-bold text-green-500" data-testid="est-size">{preview?.estimatedSize != null ? `${preview.estimatedSize.toFixed(2)} MB` : '\u2014'}</div>
                 <div className="text-[9px] text-text-muted">{t('forge.estSize')}</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-yellow-500">{'\u2014'}</div>
-                <div className="text-[9px] text-text-muted">{t('forge.estDuration')}</div>
+                <div className="text-lg font-bold text-yellow-500" data-testid="est-records">{preview?.estimatedRecordCount != null ? String(preview.estimatedRecordCount) : '\u2014'}</div>
+                <div className="text-[9px] text-text-muted">{t('forge.estRecords')}</div>
               </div>
             </div>
           </div>
