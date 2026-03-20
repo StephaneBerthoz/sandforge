@@ -77,6 +77,21 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    * @param config - Forge configuration with source/target org IDs.
    * @returns The execution result with status, timing, and remap count.
    */
+  /** Abort the current forge execution. Delegates to the internal executor. */
+  abort(): void {
+    this.deps.executor.abort();
+  }
+
+  /** Pause the current forge execution. Delegates to the internal executor. */
+  pause(): void {
+    this.deps.executor.pause();
+  }
+
+  /** Resume the current forge execution. Delegates to the internal executor. */
+  resume(): void {
+    this.deps.executor.resume();
+  }
+
   async execute(graph: ForgeGraph, config: ForgeConfig): Promise<ForgeExecutionResult> {
     const startTime = Date.now();
 

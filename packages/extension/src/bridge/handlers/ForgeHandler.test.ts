@@ -112,6 +112,9 @@ function createMockOrchestrator(): ForgeOrchestrator {
     discover: vi.fn().mockResolvedValue(createMockGraph()),
     execute: vi.fn().mockResolvedValue(createMockResult()),
     on: vi.fn().mockReturnValue(vi.fn()),
+    abort: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
   } as unknown as ForgeOrchestrator;
 }
 
@@ -372,27 +375,22 @@ describe('ForgeHandler', () => {
   });
 
   describe('forge:pause', () => {
-    it('sets isPaused to true', async () => {
-      expect(handler.paused).toBe(false);
-
+    it('delegates to orchestrator.pause', async () => {
       const msg = buildMsg('forge:pause');
       const handled = await handler.handle(msg);
 
       expect(handled).toBe(true);
-      expect(handler.paused).toBe(true);
+      expect(orchestrator.pause).toHaveBeenCalledOnce();
     });
   });
 
   describe('forge:resume', () => {
-    it('sets isPaused to false', async () => {
-      await handler.handle(buildMsg('forge:pause'));
-      expect(handler.paused).toBe(true);
-
+    it('delegates to orchestrator.resume', async () => {
       const msg = buildMsg('forge:resume');
       const handled = await handler.handle(msg);
 
       expect(handled).toBe(true);
-      expect(handler.paused).toBe(false);
+      expect(orchestrator.resume).toHaveBeenCalledOnce();
     });
   });
 
@@ -441,6 +439,14 @@ describe('ForgeHandler', () => {
       await discoverPromise;
 
       abortSpy.mockRestore();
+    });
+
+    it('delegates to orchestrator.abort', async () => {
+      const msg = buildMsg('forge:abort');
+      const handled = await handler.handle(msg);
+
+      expect(handled).toBe(true);
+      expect(orchestrator.abort).toHaveBeenCalledOnce();
     });
 
     it('returns true even when no active execution', async () => {
