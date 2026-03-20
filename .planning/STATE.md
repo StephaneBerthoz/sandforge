@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 04 — Backend Hardening + Accessibility (IN PROGRESS)
-Plan: 01-01 COMPLETE, 01-02 COMPLETE, 01-03 COMPLETE, 02-01 COMPLETE (UX-01..05, UX-07..10), 02-02 COMPLETE (UX-06), 02-03 COMPLETE (SP-01..06), 03-01 COMPLETE (UX-11, UX-20, UX-21, UX-22), 03-02 COMPLETE (UX-13, UX-14, UX-17, UX-18, UX-19), 03-03 COMPLETE (UX-12, UX-15, UX-16, UX-23), 03-04 COMPLETE (PERF-01..06), 04-01 COMPLETE (BE-01, BE-03, BE-04, BE-05)
-Status: Phase 04 in progress — plan 04-01 done
-Last activity: 2026-03-20 — Plan 04-01 completed (Structured error payloads, timeouts, lifecycle events, operationId)
+Plan: 01-01 COMPLETE, 01-02 COMPLETE, 01-03 COMPLETE, 02-01 COMPLETE (UX-01..05, UX-07..10), 02-02 COMPLETE (UX-06), 02-03 COMPLETE (SP-01..06), 03-01 COMPLETE (UX-11, UX-20, UX-21, UX-22), 03-02 COMPLETE (UX-13, UX-14, UX-17, UX-18, UX-19), 03-03 COMPLETE (UX-12, UX-15, UX-16, UX-23), 03-04 COMPLETE (PERF-01..06), 04-01 COMPLETE (BE-01, BE-03, BE-04, BE-05), 04-03 COMPLETE (A11Y-01..07)
+Status: Phase 04 in progress — plans 04-01 and 04-03 done
+Last activity: 2026-03-20 — Plan 04-03 completed (ARIA roles, aria-pressed, radiogroup, role=application, onChange, contrast fix)
 
 Progress: [######░░░░] ~40%
 
@@ -81,6 +81,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - sendHandlerError optional code/retryable params with backward-compatible defaults (code='UNKNOWN', retryable=false)
 - planGenerator.generate() wrapped in Promise.resolve() for TimeoutManager compatibility (sync to async)
 - Duplicate execute errors use sendHandlerError with code='DUPLICATE' instead of raw buildResponse
+- ProgressNode checkbox test uses fireEvent.click (not fireEvent.change) for onChange handler due to jsdom behavior
+- handleDepthKeyDown uses document.querySelector for focus management (depth chips rendered via .map())
 
 ### Pending Todos
 
@@ -93,5 +95,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Phase 04 plan 04-01 complete, ready for 04-02
+Stopped at: Phase 04 plans 04-01 and 04-03 complete, ready for 04-02
 Resume file: None
