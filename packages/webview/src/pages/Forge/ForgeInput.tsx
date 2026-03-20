@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
   Database, FileCode, Sparkles, Layers, Search, Loader2, X,
-  ArrowRight, Lock, Ban, AlertTriangle, ChevronDown, Flame,
+  ArrowLeftRight, Lock, Ban, AlertTriangle, ChevronDown, Flame, RefreshCw,
 } from 'lucide-react';
 import { cn } from '../../theme';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -63,6 +63,17 @@ function extractRecordId(input: string): string | null {
   return match?.[1] ?? null;
 }
 
+/** Extract the hostname/pod from a Salesforce URL or instanceUrl. */
+function extractSalesforceDomain(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return host.split('.')[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** CSS class for org status indicator dot. */
 function statusDotClass(status: string): string {
   switch (status) {
@@ -82,8 +93,15 @@ const DEPTH_KEYS: Record<ForgeDepth, string> = {
   custom: 'forge.depthCustom',
 };
 
+/** Map depth value to its tooltip i18n key. */
+const DEPTH_TOOLTIP_KEYS: Record<ForgeDepth, string> = {
+  direct: 'forge.depthDirectTooltip',
+  full: 'forge.depthFullTooltip',
+  custom: 'forge.depthCustomTooltip',
+};
+
 /**
- * Forge input form — Mission Control + Live Preview hybrid layout.
+ * Forge input form -- Mission Control + Live Preview hybrid layout.
  * Org cards with status indicators at top, tabbed input in a card,
  * depth chips, option toggles, and a live preview panel on the right.
  */
@@ -93,6 +111,7 @@ export const ForgeInput: React.FC = () => {
   const setPhase = useForgeStore((s) => s.setPhase);
   const templates = useForgeStore((s) => s.templates);
   const orgs = useOrgStore((s) => s.orgs);
+  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const sendMessage = useSendMessage();
 
   /* ---- Local form state ---- */
@@ -107,6 +126,13 @@ export const ForgeInput: React.FC = () => {
   const [targetOrgId, setTargetOrgId] = useState('');
   const [anonymize, setAnonymize] = useState(false);
   const [skipEmpty, setSkipEmpty] = useState(false);
+
+  /* ---- UX-01: Auto-select source org from global selectedOrgId on mount ---- */
+  useEffect(() => {
+    if (!sourceOrgId && selectedOrgId) {
+      setSourceOrgId(selectedOrgId);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---- Record preview state ---- */
   const [preview, setPreview] = useState<RecordPreview | null>(null);
@@ -153,7 +179,8 @@ export const ForgeInput: React.FC = () => {
     }
   }, [inputMode, recordId, soqlQuery, selectedTemplate, aiPrompt]);
 
-  const canDiscover = hasInput() && sourceOrgId.length > 0 && targetOrgId.length > 0;
+  const sameOrgSelected = sourceOrgId.length > 0 && sourceOrgId === targetOrgId;
+  const canDiscover = hasInput() && sourceOrgId.length > 0 && targetOrgId.length > 0 && !sameOrgSelected;
 
   /** Fetch a preview of the record from the source org. */
   const handlePreview = useCallback(() => {
@@ -219,9 +246,23 @@ export const ForgeInput: React.FC = () => {
           orgs={orgs}
           testId="forge-source-org"
         />
-        <div className="text-forge" aria-hidden="true">
-          <ArrowRight size={22} strokeWidth={2.5} />
-        </div>
+        <button
+          type="button"
+          data-testid="forge-swap-orgs"
+          onClick={() => {
+            const tmp = sourceOrgId;
+            setSourceOrgId(targetOrgId);
+            setTargetOrgId(tmp);
+          }}
+          className={cn(
+            'text-forge hover:text-forge/80 transition-colors p-1 rounded-md',
+            'hover:bg-forge/10',
+          )}
+          aria-label={t('forge.swapOrgs')}
+          title={t('forge.swapOrgs')}
+        >
+          <ArrowLeftRight size={22} strokeWidth={2.5} />
+        </button>
         <OrgCard
           labelKey="forge.targetOrg"
           org={targetOrg}
@@ -231,6 +272,17 @@ export const ForgeInput: React.FC = () => {
           testId="forge-target-org"
         />
       </div>
+
+      {/* UX-03: Same-org warning */}
+      {sameOrgSelected && (
+        <div
+          className="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20"
+          data-testid="forge-same-org-warning"
+        >
+          <AlertTriangle size={14} />
+          {t('forge.sameOrgWarning')}
+        </div>
+      )}
 
       {/* ===== MAIN GRID: Form + Preview ===== */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_260px] gap-4">
@@ -272,7 +324,23 @@ export const ForgeInput: React.FC = () => {
                       data-testid="forge-input-record"
                       type="text"
                       value={recordId}
-                      onChange={(e) => { setRecordId(e.target.value); setPreview(null); setPreviewError(null); }}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setRecordId(val);
+                        setPreview(null);
+                        setPreviewError(null);
+                        // UX-02: Auto-detect org from pasted URL domain
+                        const domain = extractSalesforceDomain(val);
+                        if (domain) {
+                          const matchedOrg = orgs.find((o) => {
+                            const orgDomain = extractSalesforceDomain(o.instanceUrl);
+                            return orgDomain && orgDomain === domain;
+                          });
+                          if (matchedOrg && !sourceOrgId) {
+                            setSourceOrgId(matchedOrg.id);
+                          }
+                        }
+                      }}
                       placeholder={t('forge.recordIdPlaceholder')}
                       className={cn(
                         'flex-1 px-3 py-2 rounded-md text-sm font-mono',
@@ -285,9 +353,10 @@ export const ForgeInput: React.FC = () => {
                     <button
                       type="button"
                       data-testid="forge-preview-btn"
-                      aria-label={t('forge.previewRecord', 'Preview record')}
+                      aria-label={t('forge.refreshPreview')}
                       disabled={extractRecordId(recordId) === null || sourceOrgId.length === 0 || previewLoading}
                       onClick={handlePreview}
+                      title={t('forge.refreshPreview')}
                       className={cn(
                         'shrink-0 px-2.5 py-2 rounded-md text-sm transition-colors',
                         'border border-[var(--vscode-input-border,#3a3a5c)]',
@@ -296,7 +365,7 @@ export const ForgeInput: React.FC = () => {
                         'disabled:opacity-40 disabled:cursor-not-allowed',
                       )}
                     >
-                      {previewLoading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                      {previewLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                     </button>
                   </div>
                   {previewError && (
@@ -312,6 +381,12 @@ export const ForgeInput: React.FC = () => {
                     data-testid="forge-input-soql"
                     value={soqlQuery}
                     onChange={(e) => setSoqlQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canDiscover) {
+                        e.preventDefault();
+                        handleDiscover();
+                      }
+                    }}
                     placeholder={t('forge.soqlPlaceholder')}
                     rows={5}
                     className={cn(
@@ -358,6 +433,12 @@ export const ForgeInput: React.FC = () => {
                     data-testid="forge-input-ai"
                     value={aiPrompt}
                     onChange={(e) => setAiPrompt(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canDiscover) {
+                        e.preventDefault();
+                        handleDiscover();
+                      }
+                    }}
                     placeholder={t('forge.aiPlaceholder')}
                     rows={4}
                     className={cn(
@@ -385,6 +466,7 @@ export const ForgeInput: React.FC = () => {
                   type="button"
                   data-testid={`forge-depth-${d}`}
                   onClick={() => setDepth(d)}
+                  title={t(DEPTH_TOOLTIP_KEYS[d])}
                   className={cn(
                     'px-4 py-1.5 rounded-full text-xs font-medium transition-all border',
                     depth === d
@@ -454,7 +536,7 @@ export const ForgeInput: React.FC = () => {
             </label>
           </div>
 
-          {/* CTA — gradient Discover button */}
+          {/* CTA -- gradient Discover button */}
           <button
             type="button"
             data-testid="forge-discover-btn"
@@ -471,6 +553,18 @@ export const ForgeInput: React.FC = () => {
             <Flame size={16} />
             {t('forge.discoverGraph')}
           </button>
+          {/* UX-05: Disabled CTA hint */}
+          {!canDiscover && (
+            <p className="text-[10px] text-text-muted text-center mt-1" data-testid="forge-discover-hint">
+              {!sourceOrgId
+                ? t('forge.hintNoSource')
+                : !targetOrgId
+                  ? t('forge.hintNoTarget')
+                  : sameOrgSelected
+                    ? t('forge.hintSameOrg')
+                    : t('forge.hintNoInput')}
+            </p>
+          )}
         </div>
 
         {/* ---- RIGHT: Live Preview panel ---- */}
@@ -521,7 +615,13 @@ export const ForgeInput: React.FC = () => {
             <div className="rounded-lg border border-dashed border-subtle p-6 text-center">
               <Search size={20} className="mx-auto mb-2 text-text-muted/50" />
               <p className="text-xs text-text-muted">
-                {sourceOrgId ? t('forge.recordIdPlaceholder') : t('forge.noOrgSelected')}
+                {inputMode === 'record'
+                  ? (sourceOrgId ? t('forge.recordIdPlaceholder') : t('forge.noOrgSelected'))
+                  : inputMode === 'soql'
+                    ? t('forge.soqlPreviewHint')
+                    : inputMode === 'template'
+                      ? t('forge.templatePreviewHint')
+                      : t('forge.aiPreviewHint')}
               </p>
             </div>
           )}
