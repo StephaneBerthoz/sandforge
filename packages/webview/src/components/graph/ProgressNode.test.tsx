@@ -143,11 +143,18 @@ describe('ProgressNode', () => {
     expect(screen.queryByTestId('include-checkbox')).toBeNull();
   });
 
-  it('should call onIncludeToggle when checkbox is clicked', () => {
+  it('should call onIncludeToggle when checkbox is toggled', () => {
     const handler = vi.fn();
     render(<ProgressNode {...makeNodeProps({ onIncludeToggle: handler })} />);
     fireEvent.click(screen.getByTestId('include-checkbox'));
     expect(handler).toHaveBeenCalledWith('Account');
+  });
+
+  /* ---- A11Y-06: checkbox uses onChange, not onClick+readOnly ---- */
+  it('should not have readOnly attribute on checkbox', () => {
+    render(<ProgressNode {...makeNodeProps({ onIncludeToggle: vi.fn() })} />);
+    const checkbox = screen.getByTestId('include-checkbox') as HTMLInputElement;
+    expect(checkbox.hasAttribute('readonly')).toBe(false);
   });
 
   it('should call onSelect with the object name when clicked', () => {

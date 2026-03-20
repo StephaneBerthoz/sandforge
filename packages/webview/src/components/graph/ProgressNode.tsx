@@ -93,7 +93,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
   );
 
   const handleCheckboxChange = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.ChangeEvent<HTMLInputElement>) => {
       e.stopPropagation();
       onIncludeToggle?.(objectApiName);
     },
@@ -125,8 +125,7 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
               type="checkbox"
               data-testid="include-checkbox"
               checked={included}
-              onClick={handleCheckboxChange}
-              readOnly
+              onChange={handleCheckboxChange}
               className="h-3 w-3 accent-forge cursor-pointer"
               aria-label={`Include ${objectApiName}`}
             />

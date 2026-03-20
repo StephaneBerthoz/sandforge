@@ -165,7 +165,7 @@ export const LiveGraph: React.FC<LiveGraphProps> = ({ graph, onNodeClick, onIncl
     <div
       data-testid="live-graph"
       className={cn('h-full w-full', className)}
-      role="img"
+      role="application"
       aria-label={t('seed.graph.title', 'Dependency Graph')}
     >
       <ReactFlow
