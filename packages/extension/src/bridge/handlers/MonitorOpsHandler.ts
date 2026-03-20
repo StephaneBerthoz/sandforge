@@ -24,6 +24,9 @@ import { SandboxRefreshTracker } from '../../modules/monitor/SandboxRefreshTrack
 import type { SandboxRefreshEvent } from '../../modules/monitor/SandboxRefreshTracker.js';
 import { HealthCheck } from '../../modules/monitor/HealthCheck.js';
 import type { HealthSignalProvider } from '../../modules/monitor/HealthCheck.js';
+import { AlertEngine } from '../../modules/monitor/AlertEngine.js';
+import { AlertStateStore } from '../../modules/monitor/AlertStateStore.js';
+import { DEFAULT_ALERT_DEFINITIONS } from '../../modules/monitor/defaultAlertDefinitions.js';
 
 /** Message types handled by MonitorOpsHandler. */
 const MONITOR_TYPES = new Set([
@@ -40,6 +43,9 @@ const MONITOR_TYPES = new Set([
   'monitor:sessions',
   'monitor:apex-insights',
   'monitor:sandbox-refresh',
+  'monitor:alerts',
+  'monitor:alert:acknowledge',
+  'monitor:alert:dismiss',
 ]);
 
 /**
@@ -60,10 +66,35 @@ export class MonitorOpsHandler implements DomainHandler {
   private readonly apexLogAnalyzer: ApexLogAnalyzer;
   private readonly sandboxRefreshTracker: SandboxRefreshTracker;
   private readonly healthCheck: HealthCheck;
+  private readonly alertEngine: AlertEngine;
+  private readonly alertStateStore: AlertStateStore;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.trendStorage = new TrendStorage(deps.configStore);
+
+    // Alert subsystem: state store, engine, and definition seeding
+    this.alertStateStore = new AlertStateStore(deps.configStore);
+    this.alertEngine = new AlertEngine((alert) => {
+      deps.log(`[ALERT] ${alert.severity}: ${alert.message}`);
+      const level = alert.severity === 'critical' ? 'error' as const : 'warning' as const;
+      sendNotification(deps, level, 'Alert', alert.message);
+      this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
+    });
+
+    // Seed definitions from persistence, or use defaults on first launch
+    const persistedDefs = this.alertStateStore.loadDefinitions();
+    const defsToLoad = persistedDefs.length > 0 ? persistedDefs : DEFAULT_ALERT_DEFINITIONS;
+    for (const def of defsToLoad) {
+      this.alertEngine.addDefinition(def);
+    }
+    if (persistedDefs.length === 0) {
+      this.alertStateStore.saveDefinitions(DEFAULT_ALERT_DEFINITIONS);
+    }
+
+    // Restore previously active alerts
+    const persistedAlerts = this.alertStateStore.loadAlerts();
+    this.alertEngine.restoreAlerts(persistedAlerts);
 
     this.errorLogMonitor = new ErrorLogMonitor(async (orgId: string, since: string): Promise<ErrorLogEntry[]> => {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
@@ -245,6 +276,15 @@ export class MonitorOpsHandler implements DomainHandler {
       case 'monitor:sandbox-refresh':
         await this.handleSandboxRefresh(msg);
         return true;
+      case 'monitor:alerts':
+        this.handleAlerts(msg);
+        return true;
+      case 'monitor:alert:acknowledge':
+        this.handleAlertAcknowledge(msg);
+        return true;
+      case 'monitor:alert:dismiss':
+        this.handleAlertDismiss(msg);
+        return true;
       default:
         return false;
     }
@@ -261,6 +301,19 @@ export class MonitorOpsHandler implements DomainHandler {
       const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       const limits = transformLimitsResponse(limitsRaw);
       checkApiLimits(conn.limitInfo, 'monitor:refresh limits');
+
+      // 1b. Evaluate alerts against each limit
+      const triggeredAlerts: import('@sandforge/shared').AlertInstance[] = [];
+      for (const limit of limits) {
+        const triggered = this.alertEngine.evaluate(limit.name, limit.usedPercent, payload.orgId);
+        if (triggered) {
+          triggeredAlerts.push(triggered);
+        }
+      }
+      this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
+      if (triggeredAlerts.length > 0) {
+        this.alertStateStore.saveHistory(triggeredAlerts);
+      }
 
       // 2. Get async jobs
       const jobRecords = await queryAll<{ Id: string; JobType: string; Status: string; NumberOfErrors: number; CreatedDate: string; CreatedById: string }>(
@@ -535,6 +588,8 @@ export class MonitorOpsHandler implements DomainHandler {
         'DailyGenericStreamingApiEvents', 'DailyDurableStreamingApiEvents',
         'DailyAsyncApexExecutions', 'HourlyAsyncReportRuns',
         'HourlyTimeBasedWorkflow', 'DailySoqlQueries',
+        'DailyWorkflowEmails', 'MassEmail', 'SingleEmail',
+        'HourlyPublishedPlatformEvents', 'DailyStandardVolumePlatformMessages',
       ];
 
       const categories: ApiUsageCategory[] = [];
@@ -676,5 +731,46 @@ export class MonitorOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'monitor:sandbox-refresh', 'monitor:sandbox-refresh:response', err);
     }
+  }
+
+  /**
+   * Handle monitor:alerts -- return active alerts and history.
+   * @param msg - The incoming alerts request message.
+   */
+  private handleAlerts(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const alerts = this.alertEngine.getActiveAlerts();
+    const history = this.alertStateStore.loadHistory();
+    const response = buildResponse(this.deps, msg, 'monitor:alerts:result', { alerts, history });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
+  }
+
+  /**
+   * Handle monitor:alert:acknowledge -- acknowledge an active alert.
+   * @param msg - The incoming acknowledge request message.
+   */
+  private handleAlertAcknowledge(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { alertId: string } }).payload;
+    this.alertEngine.acknowledgeAlert(payload.alertId);
+    this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
+    const response = buildResponse(this.deps, msg, 'monitor:alert:acknowledge:response', { success: true });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
+  }
+
+  /**
+   * Handle monitor:alert:dismiss -- dismiss an active alert.
+   * @param msg - The incoming dismiss request message.
+   */
+  private handleAlertDismiss(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { alertId: string } }).payload;
+    this.alertEngine.dismissAlert(payload.alertId);
+    this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
+    const response = buildResponse(this.deps, msg, 'monitor:alert:dismiss:response', { success: true });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
 }
