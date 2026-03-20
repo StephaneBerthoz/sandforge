@@ -62,7 +62,7 @@ describe('ForgeNodeDetail', () => {
     expect(screen.getByTestId('node-record-count').textContent).toContain('42');
   });
 
-  it('should display field count with forge.fields label, not common.object', () => {
+  it('should display field count with Fields label, not Object', () => {
     render(
       <ForgeNodeDetail
         node={makeNode({ fieldCount: 25 })}
@@ -72,8 +72,8 @@ describe('ForgeNodeDetail', () => {
     );
     const fieldCountEl = screen.getByTestId('node-field-count');
     expect(fieldCountEl.textContent).toContain('25');
-    expect(fieldCountEl.textContent).toContain('forge.fields');
-    expect(fieldCountEl.textContent).not.toContain('common.object');
+    expect(fieldCountEl.textContent).toContain('Fields');
+    expect(fieldCountEl.textContent).not.toContain('Object');
   });
 
   it('should show PII fields when present', () => {

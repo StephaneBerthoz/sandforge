@@ -45,6 +45,8 @@ export interface GraphDiscoveryDeps {
   queryCount: (orgId: string, soql: string) => Promise<number>;
   /** Detect PII fields from a list of field describes. */
   detectPII: (fields: FieldDescribe[]) => string[];
+  /** Describe all objects in the org (used for record ID prefix resolution). */
+  describeGlobal: (orgId: string) => Promise<Array<{ name: string; keyPrefix: string | null }>>;
 }
 
 /** Progress event emitted during graph discovery. */
@@ -146,7 +148,7 @@ export class GraphDiscoveryService {
    * @returns The complete ForgeGraph with nodes, edges, and estimates.
    */
   async discover(config: ForgeConfig, options?: DiscoveryOptions): Promise<ForgeGraph> {
-    const rootObject = this.resolveRootObject(config);
+    const rootObject = await this.resolveRootObject(config);
     const maxDepth = this.resolveMaxDepth(config);
     const maxNodes = options?.maxNodes ?? DEFAULT_MAX_NODES;
 
@@ -259,12 +261,18 @@ export class GraphDiscoveryService {
 
   /**
    * Resolve the root object name from the config.
-   * For record mode, extracts object type from the record ID prefix.
+   * For record mode, uses describeGlobal to resolve object type from the record ID prefix.
    * For SOQL mode, parses the FROM clause.
    */
-  private resolveRootObject(config: ForgeConfig): string {
+  private async resolveRootObject(config: ForgeConfig): Promise<string> {
     if (config.inputMode === 'record' && config.recordId) {
-      return resolveObjectFromId(config.recordId);
+      const prefix = config.recordId.substring(0, 3);
+      const globalDesc = await this.deps.describeGlobal(config.sourceOrgId);
+      const match = globalDesc.find(s => s.keyPrefix === prefix);
+      if (!match) {
+        throw new Error(`No object found for record ID prefix "${prefix}". The ID may not belong to any accessible object in this org.`);
+      }
+      return match.name;
     }
     if (config.inputMode === 'soql' && config.soqlQuery) {
       return parseObjectFromSOQL(config.soqlQuery);
@@ -283,32 +291,6 @@ export class GraphDiscoveryService {
         return config.customDepth ?? 3;
     }
   }
-}
-
-/**
- * Known Salesforce record ID prefixes mapped to object API names.
- * Covers the most common standard objects.
- */
-const ID_PREFIX_MAP: Record<string, string> = {
-  '001': 'Account',
-  '003': 'Contact',
-  '006': 'Opportunity',
-  '00Q': 'Lead',
-  '500': 'Case',
-  '00T': 'Task',
-  '00U': 'Event',
-  '005': 'User',
-  '01p': 'Product2',
-  '00k': 'PricebookEntry',
-};
-
-/**
- * Resolve an object API name from a Salesforce record ID prefix.
- * Falls back to 'Unknown' for unrecognized prefixes.
- */
-function resolveObjectFromId(recordId: string): string {
-  const prefix = recordId.substring(0, 3);
-  return ID_PREFIX_MAP[prefix] ?? 'Unknown';
 }
 
 /**

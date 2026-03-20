@@ -163,6 +163,11 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         return result.piiFields.map((p) => p.fieldApiName);
       },
+      describeGlobal: async (orgId) => {
+        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+        const result = await conn.describeGlobal();
+        return result.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+      },
     });
 
     const batchStrategyService = new ForgeBatchStrategyService();
