@@ -4,7 +4,7 @@ import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
-import { HealthScoreCalculator } from '../../modules/monitor/HealthScoreCalculator.js';
+import { UnifiedHealthScorer } from '../../modules/monitor/UnifiedHealthScorer.js';
 import { TrendStorage } from '../../modules/monitor/TrendStorage.js';
 import { OrgInfoFetcher } from '../../modules/monitor/OrgInfoFetcher.js';
 import type { OrgInfoConnection } from '../../modules/monitor/OrgInfoFetcher.js';
@@ -38,7 +38,7 @@ const MONITOR_TYPES = new Set([
 export class MonitorOpsHandler implements DomainHandler {
   private readonly trendStorage: TrendStorage;
   private readonly orgInfoFetcher = new OrgInfoFetcher();
-  private readonly healthCalculator = new HealthScoreCalculator();
+  private readonly healthCalculator = new UnifiedHealthScorer();
   private liveOperationTracker?: LiveOperationTracker;
   private readonly limitsCache: Map<string, { data: RawLimitsResponse; fetchedAt: number }> = new Map();
   private static readonly LIMITS_CACHE_TTL_MS = 30_000;
@@ -144,11 +144,7 @@ export class MonitorOpsHandler implements DomainHandler {
         failedRecords: r.NumberOfErrors,
       }));
 
-      // 3. Calculate health report
-      const healthReport = this.healthCalculator.calculate(limits);
-      const healthScore = healthReport.overallScore;
-
-      // 4. Record snapshot and compute trends
+      // 3. Record snapshot and compute trends
       const snapshot = {
         orgId: payload.orgId,
         limits,
@@ -161,7 +157,7 @@ export class MonitorOpsHandler implements DomainHandler {
         trends[limitName] = this.trendStorage.getTrendData(payload.orgId, limitName);
       }
 
-      // 5. Fetch org info (cached, non-blocking failure)
+      // 4. Fetch org info (cached, non-blocking failure)
       let orgInfo: import('@sandforge/shared').OrgInfo | undefined;
       try {
         const orgInfoConn: OrgInfoConnection = {
@@ -198,6 +194,15 @@ export class MonitorOpsHandler implements DomainHandler {
       } catch (infoErr) {
         this.deps.log(`[WARN] OrgInfo fetch failed: ${String(infoErr)}`);
       }
+
+      // 5. Calculate health report (after orgInfo so metadata dimensions can be included)
+      const healthReport = this.healthCalculator.calculate({
+        limits,
+        orgId: payload.orgId,
+        trendStorage: this.trendStorage,
+        orgInfo,
+      });
+      const healthScore = healthReport.overallScore;
 
       // 6. Send response
       const response = buildResponse(this.deps, msg, 'monitor:data', { limits, jobs, healthScore, healthReport, trends, orgInfo, lastUpdated: new Date().toISOString() });
@@ -251,7 +256,11 @@ export class MonitorOpsHandler implements DomainHandler {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
       const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       const limits = transformLimitsResponse(limitsRaw);
-      const healthReport = this.healthCalculator.calculate(limits);
+      const healthReport = this.healthCalculator.calculate({
+        limits,
+        orgId: payload.orgId,
+        trendStorage: this.trendStorage,
+      });
 
       const dimensions = healthReport.factors.map((f) => ({
         name: f.name,
