@@ -237,6 +237,91 @@ describe('useMonitorPageData', () => {
     expect(result.current.fileStorageLimit.remaining).toBe(0);
   });
 
+  it('should use real timestamps in trendSeries when TrendData.timestamps is present', () => {
+    const realTimestamps = [
+      '2026-03-20T10:00:00Z',
+      '2026-03-20T10:15:00Z',
+      '2026-03-20T10:30:00Z',
+    ];
+    mockMonitorQueryState = {
+      data: {
+        ...standardPayload,
+        trends: {
+          DailyApiRequests: {
+            limitName: 'DailyApiRequests',
+            direction: 'up' as const,
+            changePercent: 5,
+            sparklineData: [50, 60, 70],
+            timestamps: realTimestamps,
+          },
+        },
+      },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    expect(result.current.trendSeries).toHaveLength(1);
+    expect(result.current.trendSeries[0].data[0].timestamp).toBe(realTimestamps[0]);
+    expect(result.current.trendSeries[0].data[1].timestamp).toBe(realTimestamps[1]);
+    expect(result.current.trendSeries[0].data[2].timestamp).toBe(realTimestamps[2]);
+  });
+
+  it('should fall back to synthetic timestamps in trendSeries when timestamps is absent', () => {
+    mockMonitorQueryState = {
+      data: {
+        ...standardPayload,
+        trends: {
+          DailyApiRequests: {
+            limitName: 'DailyApiRequests',
+            direction: 'stable' as const,
+            changePercent: 0,
+            sparklineData: [50, 60, 70],
+          },
+        },
+      },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    expect(result.current.trendSeries).toHaveLength(1);
+    // Synthetic timestamps are ISO strings, not matching any specific real timestamp
+    const ts = result.current.trendSeries[0].data[0].timestamp;
+    expect(typeof ts).toBe('string');
+    expect(new Date(ts).getTime()).toBeGreaterThan(0);
+  });
+
+  it('should use real timestamps in trendChartData when TrendData.timestamps is present', () => {
+    const realTimestamps = [
+      '2026-03-20T10:00:00Z',
+      '2026-03-20T10:15:00Z',
+      '2026-03-20T10:30:00Z',
+    ];
+    mockMonitorQueryState = {
+      data: {
+        ...standardPayload,
+        trends: {
+          DailyApiRequests: {
+            limitName: 'DailyApiRequests',
+            direction: 'up' as const,
+            changePercent: 5,
+            sparklineData: [50, 60, 70],
+            timestamps: realTimestamps,
+          },
+        },
+      },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    expect(result.current.trendChartData).toHaveLength(3);
+    expect(result.current.trendChartData[0].timestamp).toBe(new Date(realTimestamps[0]).getTime());
+    expect(result.current.trendChartData[1].timestamp).toBe(new Date(realTimestamps[1]).getTime());
+    expect(result.current.trendChartData[2].timestamp).toBe(new Date(realTimestamps[2]).getTime());
+  });
+
   it('should return sectionErrors when monitor query fails', () => {
     mockMonitorQueryState = {
       data: standardPayload,
