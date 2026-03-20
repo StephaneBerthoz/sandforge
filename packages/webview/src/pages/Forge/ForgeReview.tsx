@@ -66,12 +66,18 @@ export const ForgeReview: React.FC = () => {
           {/* Tab bar */}
           <div
             data-testid="review-tabs"
+            role="tablist"
+            aria-label={t('forge.review.tabs', 'Review tabs')}
             className="flex border-b border-subtle"
           >
             {tabs.map((tab) => (
               <button
                 key={tab.id}
+                id={`tab-${tab.id}`}
                 data-testid={`tab-${tab.id}`}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                aria-controls={`tabpanel-${tab.id}`}
                 onClick={() => !tab.disabled && setActiveTab(tab.id)}
                 disabled={tab.disabled}
                 className={`px-3 py-2 text-xs font-medium transition-colors flex items-center gap-1 ${
@@ -93,7 +99,12 @@ export const ForgeReview: React.FC = () => {
           </div>
 
           {/* Tab content */}
-          <div className="flex-1 overflow-y-auto p-3">
+          <div
+            role="tabpanel"
+            id={`tabpanel-${activeTab}`}
+            aria-labelledby={`tab-${activeTab}`}
+            className="flex-1 overflow-y-auto p-3"
+          >
             {activeTab === 'plan' && <ReviewPlanTab />}
             {activeTab === 'anonymization' && <ReviewAnonymizationTab />}
             {activeTab === 'compliance' && <ReviewComplianceTab />}

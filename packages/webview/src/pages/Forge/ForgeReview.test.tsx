@@ -188,4 +188,40 @@ describe('ForgeReview', () => {
     fireEvent.click(screen.getByTestId('mock-toggle-Account'));
     expect(mockToggleNodeIncluded).toHaveBeenCalledWith('Account');
   });
+
+  /* ---- A11Y: Tab ARIA roles ---- */
+
+  it('should have role="tablist" on the tab container', () => {
+    render(<ForgeReview />);
+    expect(screen.getByTestId('review-tabs').getAttribute('role')).toBe('tablist');
+  });
+
+  it('should have role="tab" and aria-selected on each tab button', () => {
+    render(<ForgeReview />);
+    const planTab = screen.getByTestId('tab-plan');
+    const complianceTab = screen.getByTestId('tab-compliance');
+    expect(planTab.getAttribute('role')).toBe('tab');
+    expect(planTab.getAttribute('aria-selected')).toBe('true');
+    expect(complianceTab.getAttribute('role')).toBe('tab');
+    expect(complianceTab.getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('should update aria-selected when switching tabs', () => {
+    render(<ForgeReview />);
+    const planTab = screen.getByTestId('tab-plan');
+    const complianceTab = screen.getByTestId('tab-compliance');
+    expect(planTab.getAttribute('aria-selected')).toBe('true');
+    expect(complianceTab.getAttribute('aria-selected')).toBe('false');
+
+    fireEvent.click(complianceTab);
+    expect(planTab.getAttribute('aria-selected')).toBe('false');
+    expect(complianceTab.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('should have role="tabpanel" with aria-labelledby on tab content', () => {
+    render(<ForgeReview />);
+    const tabpanel = screen.getByRole('tabpanel');
+    expect(tabpanel.getAttribute('id')).toBe('tabpanel-plan');
+    expect(tabpanel.getAttribute('aria-labelledby')).toBe('tab-plan');
+  });
 });
