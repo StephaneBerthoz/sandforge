@@ -30,16 +30,15 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 - ✓ Robustness: Bulk API 2.0, retry with backoff, configurable timeouts, field validation — Milestone v1.1.0
 - ✓ Monitor enrichment: competitor benchmark, 5 feature gaps, dashboard refresh UX — Milestone v1.1.0
 - ✓ Gap closure: buildResponse migration for all 16 handlers (correlationId end-to-end), Phase 05 verified — Milestone v1.1.0
+- ✓ Forge bugs: abort/pause wiring, dryRun, static prefix map, raw URL, dead checkboxes, wrong KPIs — Milestone v1.2.0
+- ✓ Forge UX: auto-org, swap orgs, table view, log persistence, ETA, node search, template management, SidePanel refonte — Milestone v1.2.0
+- ✓ Performance: Dagre layout separation, stable callbacks, memoized KPIs, adaptive heights — Milestone v1.2.0
+- ✓ Backend hardening: structured errors, enriched preview, timeouts, lifecycle events, compliance wiring, real bulk IDs — Milestone v1.2.0
+- ✓ Accessibility: ARIA tablist, aria-pressed, role="log", radiogroup, contrast fixes — Milestone v1.2.0
 
 ### Active
 
-- [ ] Forge bugs: abort/pause wiring, dryRun, static prefix map, raw URL, dead checkboxes, wrong KPIs — v1.2.0 Phase 01
-- [ ] Forge UX quick wins: auto-org, swap orgs, CTA hints, depth tooltips, Ctrl+Enter, preview cleanup — v1.2.0 Phase 02
-- [ ] SidePanel refonte: org switcher, compact mode, metrics cleanup, favorites, visual hierarchy — v1.2.0 Phase 02
-- [ ] Forge UX enhancements: table view, log persistence, ETA, node search, template management — v1.2.0 Phase 03
-- [ ] Forge performance: Dagre layout separation, stable callbacks, memoized KPIs, adaptive heights — v1.2.0 Phase 03
-- [ ] Backend hardening: structured errors, enriched preview, timeouts, lifecycle events, compliance wiring — v1.2.0 Phase 04
-- [ ] Accessibility: ARIA roles, aria-pressed, role="log", radiogroup, contrast fixes — v1.2.0 Phase 04
+(No active requirements — ready for next milestone)
 
 ### Deferred
 
@@ -55,7 +54,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
 - 558 source files, 487+ test files, 1045+ total files across packages
-- v1.2.0 active — Forge UX & Reliability (52 items: 9 bugs, 23 UX, 6 perf, 8 backend, 6 cleanup, 6 SidePanel, 7 a11y)
+- v1.2.0 shipped — Forge UX & Reliability (52 items delivered, 7149 tests passing)
 - VSIX package at 1.07 MB, well within marketplace limits
 - jsforce v3 for all Salesforce API interactions
 - Strict TypeScript (no `any`), Zod validation on all external data, Winston logging
@@ -82,4 +81,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-20 — Milestone v1.2.0 started (Forge UX & Reliability, 4 phases, 52 requirements)*
+*Last updated: 2026-03-20 — Milestone v1.2.0 complete (Forge UX & Reliability, 4 phases, 52 requirements, 7149 tests)*
