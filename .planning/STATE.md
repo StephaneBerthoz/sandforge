@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 01 — Bugs + Cleanup (in progress)
-Plan: 01-01 COMPLETE (BUG-01, BUG-02, BUG-03, BUG-06), 01-02 COMPLETE (BUG-04, BUG-05, BUG-07, BUG-08, BUG-09)
-Status: Executing
-Last activity: 2026-03-20 — Plan 01-02 completed (5 UI bug fixes)
+Phase: 01 — Bugs + Cleanup (COMPLETE)
+Plan: 01-01 COMPLETE (BUG-01, BUG-02, BUG-03, BUG-06), 01-02 COMPLETE (BUG-04, BUG-05, BUG-07, BUG-08, BUG-09), 01-03 COMPLETE (CLN-01..06, BE-08)
+Status: Phase 01 complete, ready for Phase 02
+Last activity: 2026-03-20 — Plan 01-03 completed (dead code removal, store hygiene, filter dedup)
 
-Progress: [###░░░░░░░] ~20%
+Progress: [####░░░░░░] ~25%
 
 ## Performance Metrics
 
@@ -65,6 +65,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - GraphDiscoveryDeps requires describeGlobal dep (resolveRootObject is now async)
 - ForgeHandler.isPaused removed (dead code, pause/resume now delegated to ForgeOrchestrator)
 - SeedOpsHandler dryRun branch placed after production guard, before insert logic
+- setConfig clears stale plan/complianceReport/metadataDiffs/result but preserves graph/templates/history
+- canPreview variable removed; condition inlined in preview button disabled prop
+- LogStream hideFilterBar prop controls internal filter tab visibility
 
 ### Pending Todos
 
@@ -77,5 +80,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Plan 01-02 complete, ready for plan 01-03
+Stopped at: Phase 01 complete, ready for Phase 02
 Resume file: None
