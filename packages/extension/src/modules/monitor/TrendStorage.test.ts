@@ -189,6 +189,24 @@ describe('TrendStorage', () => {
       expect(trend.direction).toBe('stable');
     });
 
+    it('should return timestamps array with ISO strings matching snapshot timestamps', () => {
+      vi.setSystemTime(new Date('2026-02-24T10:00:00Z'));
+      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)));
+
+      vi.advanceTimersByTime(15 * 60 * 1000);
+      vi.setSystemTime(new Date('2026-02-24T10:15:00Z'));
+      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(60)));
+
+      const trend = storage.getTrendData('org-1', 'DailyApiRequests');
+      expect(trend.timestamps).toEqual(['2026-02-24T10:00:00Z', '2026-02-24T10:15:00Z']);
+      expect(trend.timestamps).toHaveLength(trend.sparklineData.length);
+    });
+
+    it('should return empty timestamps for no data', () => {
+      const trend = storage.getTrendData('org-1', 'DailyApiRequests');
+      expect(trend.timestamps).toEqual([]);
+    });
+
     it('should return correct sparkline data for a specific limit', () => {
       vi.setSystemTime(new Date('2026-02-24T10:00:00Z'));
       storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(30)));

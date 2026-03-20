@@ -98,6 +98,28 @@ export function computePredictedTimeToLimit(
 }
 
 /**
+ * Extract ISO timestamps from snapshots for a given limit name.
+ *
+ * Returns the `snapshot.timestamp` for each snapshot where the
+ * given limitName exists in `snapshot.limits`. The result is a
+ * parallel array to `extractSparklineData`.
+ *
+ * @param snapshots - Snapshots ordered chronologically (oldest first).
+ * @param limitName - The API limit name to match.
+ * @returns An array of ISO timestamp strings for matching entries.
+ */
+export function extractTimestamps(snapshots: LimitsSnapshot[], limitName: string): string[] {
+  const timestamps: string[] = [];
+  for (const snapshot of snapshots) {
+    const limit = snapshot.limits.find((l) => l.name === limitName);
+    if (limit) {
+      timestamps.push(snapshot.timestamp);
+    }
+  }
+  return timestamps;
+}
+
+/**
  * Compute a full TrendData entry for a single limit.
  *
  * Extracts sparkline data from snapshots, derives direction and change,
@@ -109,6 +131,7 @@ export function computePredictedTimeToLimit(
 export function computeTrendData(options: ComputeTrendOptions): TrendData {
   const { limitName, snapshots, predictTime = false } = options;
   const sparklineData = extractSparklineData(snapshots, limitName);
+  const timestamps = extractTimestamps(snapshots, limitName);
   const { direction, changePercent } = computeTrendDirection(sparklineData);
 
   let predictedTimeToLimit: number | undefined;
@@ -123,5 +146,6 @@ export function computeTrendData(options: ComputeTrendOptions): TrendData {
     changePercent,
     predictedTimeToLimit,
     sparklineData,
+    timestamps,
   };
 }

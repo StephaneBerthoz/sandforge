@@ -87,11 +87,13 @@ export class TrendStorage {
   getTrendData(orgId: string, limitName: string): TrendData {
     const snapshots = this.getHistory(orgId);
     const sparklineData: number[] = [];
+    const timestamps: string[] = [];
 
     for (const snapshot of snapshots) {
       const limit = snapshot.limits.find((l) => l.name === limitName);
       if (limit) {
         sparklineData.push(limit.usedPercent);
+        timestamps.push(snapshot.timestamp);
       }
     }
 
@@ -101,6 +103,7 @@ export class TrendStorage {
         direction: 'stable',
         changePercent: 0,
         sparklineData,
+        timestamps,
       };
     }
 
@@ -137,6 +140,7 @@ export class TrendStorage {
       changePercent: Math.round(changePercent * 10) / 10,
       predictedTimeToLimit,
       sparklineData,
+      timestamps,
     };
   }
 
