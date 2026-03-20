@@ -3,9 +3,10 @@ import { useTranslation } from 'react-i18next';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
   Database, FileCode, Sparkles, Layers, Search, Loader2, X,
-  ArrowLeftRight, Lock, Ban, AlertTriangle, ChevronDown, Flame, RefreshCw,
+  ArrowLeftRight, Lock, Ban, AlertTriangle, Flame, RefreshCw,
 } from 'lucide-react';
 import { cn } from '../../theme';
+import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeConfig, ForgeDepth, ForgeInputMode } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -71,15 +72,6 @@ function extractSalesforceDomain(url: string): string | null {
     return host.split('.')[0] ?? null;
   } catch {
     return null;
-  }
-}
-
-/** CSS class for org status indicator dot. */
-function statusDotClass(status: string): string {
-  switch (status) {
-    case 'connected': return 'bg-green-500';
-    case 'refreshing': return 'bg-yellow-500';
-    default: return 'bg-red-500';
   }
 }
 
@@ -694,7 +686,7 @@ interface OrgCardProps {
   testId: string;
 }
 
-/** Org selection card with status dot, alias, and username. */
+/** Org selection card with custom dropdown, alias, and username. */
 function OrgCard({ labelKey, org, orgId, onOrgChange, orgs, testId }: OrgCardProps): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -708,30 +700,13 @@ function OrgCard({ labelKey, org, orgId, onOrgChange, orgs, testId }: OrgCardPro
       <div className="text-[10px] text-text-muted uppercase tracking-widest mb-1.5">
         {t(labelKey)}
       </div>
-      <div className="flex items-center gap-2">
-        {org && (
-          <div
-            className={cn('w-2 h-2 rounded-full shrink-0', statusDotClass(org.status))}
-            data-testid={`${testId}-status`}
-          />
-        )}
-        <select
-          data-testid={testId}
-          aria-label={t(labelKey)}
-          value={orgId}
-          onChange={(e) => onOrgChange(e.target.value)}
-          className={cn(
-            'w-full bg-transparent text-sm font-semibold appearance-none cursor-pointer focus:outline-none',
-            org ? 'text-text-primary' : 'text-text-muted',
-          )}
-        >
-          <option value="">{t('forge.noOrgSelected')}</option>
-          {orgs.map((o) => (
-            <option key={o.id} value={o.id}>{o.alias || o.username}</option>
-          ))}
-        </select>
-        <ChevronDown size={14} className="text-text-muted shrink-0 pointer-events-none" />
-      </div>
+      <OrgDropdown
+        value={orgId}
+        onChange={onOrgChange}
+        orgs={orgs}
+        ariaLabel={t(labelKey)}
+        testId={testId}
+      />
       {org && (
         <div className="text-[10px] text-text-muted mt-1 truncate">{org.username}</div>
       )}
