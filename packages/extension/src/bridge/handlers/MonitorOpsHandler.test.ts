@@ -9,6 +9,7 @@ import type { BaseMessage } from '@sandforge/shared';
  */
 const mockGetJsforceConnection = vi.hoisted(() => vi.fn());
 const mockQueryAll = vi.hoisted(() => vi.fn());
+const mockCheckApiLimits = vi.hoisted(() => vi.fn());
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: mockGetJsforceConnection,
@@ -16,6 +17,10 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 
 vi.mock('../../core/common/soqlQueryHelper.js', () => ({
   queryAll: mockQueryAll,
+}));
+
+vi.mock('../../core/common/sforceLimitParser.js', () => ({
+  checkApiLimits: mockCheckApiLimits,
 }));
 
 const FAKE_LIMITS: Record<string, { Max: number; Remaining: number }> = {
@@ -61,6 +66,7 @@ describe('MonitorOpsHandler', () => {
   beforeEach(() => {
     mockGetJsforceConnection.mockReset();
     mockQueryAll.mockReset();
+    mockCheckApiLimits.mockReset();
     deps = createMockDeps();
     handler = new MonitorOpsHandler(deps);
   });
@@ -250,6 +256,230 @@ describe('MonitorOpsHandler', () => {
       const types = postToWebview.mock.calls.map((c: unknown[]) => (c[0] as BaseMessage).type);
       expect(types).toContain('monitor:health-score:response');
       expect(types).toContain('monitor:api-usage:response');
+    });
+  });
+
+  describe('WIRE-01: monitor:error-logs', () => {
+    it('handles monitor:error-logs and returns error entries', async () => {
+      const fakeConn = {
+        limitInfo: {},
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        version: '62.0',
+      };
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+      mockQueryAll.mockResolvedValue([
+        { Id: 'log-1', Operation: 'Trigger', Status: 'Fatal Error', DurationMilliseconds: 100, LogLength: 500, StartTime: '2026-03-20T10:00:00Z', LogUser: { Username: 'admin@test.com' } },
+        { Id: 'log-2', Operation: 'VF Page', Status: 'Exception', DurationMilliseconds: 200, LogLength: 800, StartTime: '2026-03-20T11:00:00Z', LogUser: null },
+      ]);
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-err-1',
+        type: 'monitor:error-logs',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-err' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; errors: unknown[]; totalCount: number; errorsByType: unknown[] } };
+      expect(response.type).toBe('monitor:error-logs:response');
+      expect(response.correlationId).toBe('req-err-1');
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.errors).toHaveLength(2);
+      expect(response.payload.totalCount).toBe(2);
+      expect(response.payload.errorsByType).toBeInstanceOf(Array);
+    });
+
+    it('handles monitor:error-logs error and sends handler error', async () => {
+      mockGetJsforceConnection.mockRejectedValue(new Error('auth failed'));
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-err-2',
+        type: 'monitor:error-logs',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-err' },
+      };
+
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+      expect(response.type).toBe('monitor:error-logs:response');
+      expect(response.payload.message).toContain('auth failed');
+    });
+  });
+
+  describe('WIRE-02: monitor:sessions', () => {
+    it('handles monitor:sessions and returns active sessions', async () => {
+      const fakeConn = {
+        limitInfo: {},
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        version: '62.0',
+      };
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+      mockQueryAll.mockResolvedValue([
+        { Id: 'sess-1', UsersId: 'u-1', LoginType: 'Application', SessionType: 'UI', CreatedDate: '2026-03-20T09:00:00Z', SourceIp: '10.0.0.1' },
+        { Id: 'sess-2', UsersId: 'u-2', LoginType: 'API', SessionType: 'API', CreatedDate: '2026-03-20T09:30:00Z', SourceIp: '10.0.0.2' },
+        { Id: 'sess-3', UsersId: 'u-1', LoginType: 'Application', SessionType: 'UI', CreatedDate: '2026-03-20T10:00:00Z', SourceIp: '10.0.0.1' },
+      ]);
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-sess-1',
+        type: 'monitor:sessions',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-sess' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; sessions: unknown[]; activeUserCount: number } };
+      expect(response.type).toBe('monitor:sessions:response');
+      expect(response.correlationId).toBe('req-sess-1');
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.sessions).toHaveLength(3);
+      expect(response.payload.activeUserCount).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('WIRE-03: monitor:apex-insights', () => {
+    it('handles monitor:apex-insights and returns analyses with top issues', async () => {
+      const fakeConn = {
+        limitInfo: {},
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        version: '62.0',
+      };
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+      mockQueryAll.mockResolvedValue([
+        { Id: 'apex-1', Operation: 'BatchApex', Status: 'Success', DurationMilliseconds: 3000, LogLength: 50000, StartTime: '2026-03-20T08:00:00Z', LogUser: { Username: 'dev@test.com' } },
+        { Id: 'apex-2', Operation: 'Trigger', Status: 'Success', DurationMilliseconds: 6000, LogLength: 80000, StartTime: '2026-03-20T09:00:00Z', LogUser: { Username: 'admin@test.com' } },
+      ]);
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-apex-1',
+        type: 'monitor:apex-insights',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-apex' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; analyses: unknown[]; topIssues: unknown[] } };
+      expect(response.type).toBe('monitor:apex-insights:response');
+      expect(response.correlationId).toBe('req-apex-1');
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.analyses).toBeInstanceOf(Array);
+      expect(response.payload.topIssues).toBeInstanceOf(Array);
+    });
+  });
+
+  describe('WIRE-04: monitor:sandbox-refresh', () => {
+    it('handles monitor:sandbox-refresh and returns refresh events', async () => {
+      const fakeConn = {
+        limitInfo: {},
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        version: '62.0',
+      };
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+      mockQueryAll.mockResolvedValue([
+        { Id: 'sbx-1', SandboxName: 'dev1', Status: 'Processing', CreatedDate: '2026-03-20T07:00:00Z', Description: 'Production' },
+        { Id: 'sbx-2', SandboxName: 'qa1', Status: 'Completed', CreatedDate: '2026-03-19T12:00:00Z', Description: null },
+      ]);
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-sbx-1',
+        type: 'monitor:sandbox-refresh',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-sbx' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; refreshes: unknown[]; inProgress: boolean } };
+      expect(response.type).toBe('monitor:sandbox-refresh:response');
+      expect(response.correlationId).toBe('req-sbx-1');
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.refreshes).toHaveLength(2);
+      expect(response.payload.inProgress).toBe(true);
+    });
+  });
+
+  describe('MONITOR_TYPES coverage', () => {
+    it('MONITOR_TYPES includes all new message types', async () => {
+      const fakeConn = {
+        limitInfo: {},
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        version: '62.0',
+      };
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+      mockQueryAll.mockResolvedValue([]);
+
+      const newTypes = ['monitor:error-logs', 'monitor:sessions', 'monitor:apex-insights', 'monitor:sandbox-refresh'];
+      for (const type of newTypes) {
+        const msg: BaseMessage & { payload: { orgId: string } } = {
+          id: `check-${type}`,
+          type,
+          timestamp: Date.now(),
+          payload: { orgId: 'org-check' },
+        };
+        const result = await handler.handle(msg);
+        expect(result).toBe(true);
+      }
+    });
+  });
+
+  describe('WIRE-05: handleRefresh includes orgHealthStatus', () => {
+    it('handleRefresh includes orgHealthStatus in response', async () => {
+      const fakeConn = {
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        identity: vi.fn().mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+        query: vi.fn().mockResolvedValue({
+          totalSize: 10,
+          done: true,
+          records: [{ Name: 'TestOrg', Id: '00Dtest', OrganizationType: 'Developer Edition', NamespacePrefix: null, CreatedDate: '2026-01-01' }],
+        }),
+        version: '62.0',
+        limitInfo: { apiUsage: { used: 100, limit: 15000 } },
+        sobject: vi.fn().mockReturnValue({ update: vi.fn().mockResolvedValue({}) }),
+      };
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+      mockQueryAll.mockResolvedValue([
+        { Id: 'job1', JobType: 'BatchApex', Status: 'Completed', NumberOfErrors: 0, CreatedDate: '2026-03-20', CreatedById: 'user1' },
+      ]);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        alias: 'TestOrg',
+        orgType: 'Developer',
+        metadata: { edition: 'Developer Edition' },
+      });
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-refresh-health',
+        type: 'monitor:refresh',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-health' },
+      };
+
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { orgHealthStatus?: { orgId: string; overall: string } } };
+      expect(response.type).toBe('monitor:data');
+      expect(response.payload.orgHealthStatus).toBeDefined();
+      expect(response.payload.orgHealthStatus?.orgId).toBe('org-health');
+      expect(response.payload.orgHealthStatus?.overall).toBeDefined();
     });
   });
 
