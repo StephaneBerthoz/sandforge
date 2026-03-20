@@ -444,56 +444,92 @@ export class ForgeHandler implements DomainHandler {
   /** Generate a forge execution plan from a graph. */
   private async handlePlanRequest(msg: BaseMessage): Promise<void> {
     if (!this.planGenerator) {
-      sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', new Error('Plan generator not configured'));
+      sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', new Error('Plan generator not configured'), 'NOT_INITIALIZED');
       return;
     }
     const { graph } = (msg as BaseMessage & { payload: PlanRequestPayload }).payload;
+    const operationId = `forge-plan-${this.deps.nextId()}`;
+    sendOperationStarted(this.deps, operationId, 'forge', 'Generating execution plan');
     try {
       logger.info('Forge plan generation started');
-      const plan = this.planGenerator.generate(graph);
+      const plan = await new TimeoutManager(PLAN_TIMEOUT_MS).withTimeout(
+        'forge:plan',
+        () => Promise.resolve(this.planGenerator!.generate(graph)),
+      );
       const response = buildResponse(this.deps, msg, 'forge:plan:response', { plan });
       this.deps.broker.postToWebview(response);
+      sendOperationCompleted(this.deps, operationId, { waveCount: plan.waves?.length ?? 0 });
     } catch (error: unknown) {
-      sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', error);
+      const isTimeout = error instanceof TimeoutError;
+      sendHandlerError(
+        this.deps, 'forge:plan', 'forge:plan:error', error,
+        isTimeout ? 'TIMEOUT' : 'PLAN_ERROR',
+        isTimeout,
+      );
+      sendOperationFailed(this.deps, operationId, String(error), isTimeout);
     }
   }
 
   /** Generate a compliance report for a graph and framework. */
   private async handleComplianceRequest(msg: BaseMessage): Promise<void> {
     if (!this.complianceService) {
-      sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', new Error('Compliance service not configured'));
+      sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', new Error('Compliance service not configured'), 'NOT_INITIALIZED');
       return;
     }
     const { framework, graph, config } = (msg as BaseMessage & { payload: ComplianceRequestPayload }).payload;
+    const operationId = `forge-compliance-${this.deps.nextId()}`;
+    sendOperationStarted(this.deps, operationId, 'forge', 'Generating compliance report');
     try {
       logger.info('Forge compliance report generation started');
-      const report = this.complianceService.generate(
-        framework as ComplianceFrameworkType,
-        graph,
-        config.sourceOrgId,
-        config.targetOrgId,
+      const report = await new TimeoutManager(COMPLIANCE_TIMEOUT_MS).withTimeout(
+        'forge:compliance',
+        () => Promise.resolve(this.complianceService!.generate(
+          framework as ComplianceFrameworkType,
+          graph,
+          config.sourceOrgId,
+          config.targetOrgId,
+        )),
       );
       const response = buildResponse(this.deps, msg, 'forge:compliance:response', { report });
       this.deps.broker.postToWebview(response);
+      sendOperationCompleted(this.deps, operationId, { framework });
     } catch (error: unknown) {
-      sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', error);
+      const isTimeout = error instanceof TimeoutError;
+      sendHandlerError(
+        this.deps, 'forge:compliance', 'forge:compliance:error', error,
+        isTimeout ? 'TIMEOUT' : 'COMPLIANCE_ERROR',
+        isTimeout,
+      );
+      sendOperationFailed(this.deps, operationId, String(error), isTimeout);
     }
   }
 
   /** Compare metadata schemas between source and target orgs. */
   private async handleMetadataDiffRequest(msg: BaseMessage): Promise<void> {
     if (!this.metadataDiff) {
-      sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', new Error('Metadata diff service not configured'));
+      sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', new Error('Metadata diff service not configured'), 'NOT_INITIALIZED');
       return;
     }
     const { sourceOrgId, targetOrgId, objectApiNames } = (msg as BaseMessage & { payload: MetadataDiffRequestPayload }).payload;
+    const operationId = `forge-metadata-diff-${this.deps.nextId()}`;
+    sendOperationStarted(this.deps, operationId, 'forge', 'Comparing metadata schemas');
     try {
       logger.info('Forge metadata diff started');
-      const diffs = await this.metadataDiff.compare(sourceOrgId, targetOrgId, objectApiNames);
+      const diffs = await new TimeoutManager(METADATA_DIFF_TIMEOUT_MS).withTimeout(
+        'forge:metadata-diff',
+        () => this.metadataDiff!.compare(sourceOrgId, targetOrgId, objectApiNames),
+      );
       const response = buildResponse(this.deps, msg, 'forge:metadata-diff:response', { diffs });
       this.deps.broker.postToWebview(response);
+      sendOperationCompleted(this.deps, operationId, { objectCount: objectApiNames.length });
     } catch (error: unknown) {
-      sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', error);
+      const isTimeout = error instanceof TimeoutError;
+      sendHandlerError(
+        this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', error,
+        isTimeout ? 'TIMEOUT' : 'METADATA_DIFF_ERROR',
+        isTimeout,
+      );
+      sendOperationFailed(this.deps, operationId, String(error), isTimeout);
     }
   }
 }
