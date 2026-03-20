@@ -14,6 +14,7 @@ import { transformLimitsResponse } from '../../modules/monitor/transformLimitsRe
 import type { RawLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import type { Connection } from 'jsforce';
 
 /** Message types handled by MonitorOpsHandler. */
 const MONITOR_TYPES = new Set([
@@ -39,6 +40,8 @@ export class MonitorOpsHandler implements DomainHandler {
   private readonly orgInfoFetcher = new OrgInfoFetcher();
   private readonly healthCalculator = new HealthScoreCalculator();
   private liveOperationTracker?: LiveOperationTracker;
+  private readonly limitsCache: Map<string, { data: RawLimitsResponse; fetchedAt: number }> = new Map();
+  private static readonly LIMITS_CACHE_TTL_MS = 30_000;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
@@ -51,6 +54,27 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.liveOperationTracker = tracker;
+  }
+
+  /**
+   * Return a cached /limits response or fetch a fresh one.
+   *
+   * Keyed by orgId with a 30-second TTL so that within a single refresh
+   * cycle, handleRefresh, handleHealthScore, and handleApiUsage share one
+   * API call instead of each requesting /limits independently.
+   *
+   * @param orgId - The Salesforce org identifier used as cache key.
+   * @param conn  - The active jsforce Connection to the target org.
+   * @returns The raw limits response object.
+   */
+  private async getOrFetchLimits(orgId: string, conn: Connection): Promise<RawLimitsResponse> {
+    const cached = this.limitsCache.get(orgId);
+    if (cached && Date.now() - cached.fetchedAt < MonitorOpsHandler.LIMITS_CACHE_TTL_MS) {
+      return cached.data;
+    }
+    const data = await conn.request(`/services/data/${SF_API_VERSION}/limits`) as RawLimitsResponse;
+    this.limitsCache.set(orgId, { data, fetchedAt: Date.now() });
+    return data;
   }
 
   /**
@@ -100,8 +124,8 @@ export class MonitorOpsHandler implements DomainHandler {
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
 
-      // 1. Get limits
-      const limitsRaw = await conn.request(`/services/data/${SF_API_VERSION}/limits`) as RawLimitsResponse;
+      // 1. Get limits (uses shared 30s cache)
+      const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       const limits = transformLimitsResponse(limitsRaw);
       checkApiLimits(conn.limitInfo, 'monitor:refresh limits');
 
@@ -225,7 +249,7 @@ export class MonitorOpsHandler implements DomainHandler {
 
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const limitsRaw = await conn.request(`/services/data/${SF_API_VERSION}/limits`) as RawLimitsResponse;
+      const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       const limits = transformLimitsResponse(limitsRaw);
       const healthReport = this.healthCalculator.calculate(limits);
 
@@ -352,7 +376,7 @@ export class MonitorOpsHandler implements DomainHandler {
 
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const limitsRaw = await conn.request(`/services/data/${SF_API_VERSION}/limits`) as RawLimitsResponse;
+      const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       checkApiLimits(conn.limitInfo, 'monitor:api-usage limits');
 
       const apiCategories = [
