@@ -101,4 +101,20 @@ describe('LogStream', () => {
     const root = screen.getByTestId('logstream');
     expect(root.className).toContain('mt-4');
   });
+
+  it('should hide filter tabs when hideFilterBar is true', () => {
+    render(<LogStream entries={entries} hideFilterBar />);
+    expect(screen.queryByTestId('logstream-filter-all')).toBeNull();
+    expect(screen.queryByTestId('logstream-filter-error')).toBeNull();
+    expect(screen.queryByTestId('logstream-filter-warn')).toBeNull();
+    // Entries should still render
+    expect(screen.getAllByTestId('logstream-entry').length).toBe(4);
+  });
+
+  it('should show filter tabs when hideFilterBar is false or undefined', () => {
+    render(<LogStream entries={entries} hideFilterBar={false} />);
+    expect(screen.getByTestId('logstream-filter-all')).toBeDefined();
+    expect(screen.getByTestId('logstream-filter-error')).toBeDefined();
+    expect(screen.getByTestId('logstream-filter-warn')).toBeDefined();
+  });
 });

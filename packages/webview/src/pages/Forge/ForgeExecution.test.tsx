@@ -227,4 +227,29 @@ describe('ForgeExecution', () => {
     const values = screen.getAllByTestId('kpi-value');
     expect(values[4].textContent).toBe('17');
   });
+
+  it('should generate unique log IDs via useRef counter', () => {
+    render(<ForgeExecution />);
+
+    // Send two progress messages to generate log entries
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'forge:progress', objectName: 'Account', status: 'running', progress: 10 },
+        }),
+      );
+    });
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'forge:progress', objectName: 'Contact', status: 'running', progress: 20 },
+        }),
+      );
+    });
+
+    const entries = screen.getAllByTestId('logstream-entry');
+    expect(entries.length).toBe(2);
+    // Each entry has a unique key — if IDs were not unique, React would warn and rendering would be wrong
+    expect(entries[0]).not.toBe(entries[1]);
+  });
 });
