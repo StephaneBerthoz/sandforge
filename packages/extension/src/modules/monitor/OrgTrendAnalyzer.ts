@@ -37,6 +37,8 @@ const TREND_SLOPE_THRESHOLD = 0.5;
 export class OrgTrendAnalyzer {
   private readonly limitsTracker: LimitsTracker;
   private readonly jobMonitor: JobMonitor;
+  private readonly jobHistory: Map<string, TrendDataPoint[]> = new Map();
+  private static readonly MAX_JOB_HISTORY = 50;
 
   constructor(limitsTracker: LimitsTracker, jobMonitor: JobMonitor) {
     this.limitsTracker = limitsTracker;
@@ -70,25 +72,37 @@ export class OrgTrendAnalyzer {
     };
   }
 
-  /** Analyze the job activity trend based on job stats */
+  /**
+   * Analyze the job activity trend based on accumulated job stats history.
+   *
+   * Each call appends the current active-job count as a new data point,
+   * capped at MAX_JOB_HISTORY entries per org to prevent memory leaks.
+   * With 2+ accumulated points, calculateTrend produces real trend data
+   * instead of always returning 'stable'.
+   */
   analyzeJobTrend(orgId: string): TrendAnalysis {
     const stats = this.jobMonitor.getJobStats(orgId);
-    const dataPoints: TrendDataPoint[] = [
-      {
-        timestamp: new Date().toISOString(),
-        value: stats.active,
-      },
-    ];
+    const point: TrendDataPoint = {
+      timestamp: new Date().toISOString(),
+      value: stats.active,
+    };
 
-    const { trend, changePercent } = calculateTrend(dataPoints);
+    const history = this.jobHistory.get(orgId) ?? [];
+    history.push(point);
+    if (history.length > OrgTrendAnalyzer.MAX_JOB_HISTORY) {
+      history.splice(0, history.length - OrgTrendAnalyzer.MAX_JOB_HISTORY);
+    }
+    this.jobHistory.set(orgId, history);
+
+    const { trend, changePercent } = calculateTrend(history);
 
     return {
       metric: 'jobs:active',
       orgId,
-      dataPoints,
+      dataPoints: [...history],
       trend,
       changePercent,
-      period: computePeriod(dataPoints),
+      period: computePeriod(history),
     };
   }
 
