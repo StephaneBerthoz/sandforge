@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 02 — UX Quick Wins + SidePanel Refonte (IN PROGRESS)
-Plan: 01-01 COMPLETE, 01-02 COMPLETE, 01-03 COMPLETE, 02-01 COMPLETE (UX-01..05, UX-07..10), 02-02 COMPLETE (UX-06), 02-03 COMPLETE (SP-01..06)
-Status: Phase 02 in progress
-Last activity: 2026-03-20 — Plan 02-01 completed (9 ForgeInput UX quick wins)
+Phase: 03 — UX Enhancements + Performance (IN PROGRESS)
+Plan: 01-01 COMPLETE, 01-02 COMPLETE, 01-03 COMPLETE, 02-01 COMPLETE (UX-01..05, UX-07..10), 02-02 COMPLETE (UX-06), 02-03 COMPLETE (SP-01..06), 03-01 COMPLETE (UX-11, UX-20, UX-21, UX-22)
+Status: Phase 03 in progress
+Last activity: 2026-03-20 — Plan 03-01 completed (Discovery UX enhancements: table view, retry, select all, search)
 
-Progress: [####░░░░░░] ~25%
+Progress: [#####░░░░░] ~35%
 
 ## Performance Metrics
 
@@ -71,6 +71,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - extractSalesforceDomain uses first subdomain segment for URL-to-org matching
 - UX-01 auto-select useEffect uses empty deps with eslint-disable for mount-only behavior
 - sameOrgSelected derived variable exposed at component level for canDiscover guard
+- ForgeTableView uses fireEvent.click (not fireEvent.change) for checkbox toggle tests due to jsdom behavior
+- Search auto-select in graph view uses useEffect with first case-insensitive match on objectApiName
 
 ### Pending Todos
 
@@ -83,5 +85,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Phase 02 in progress, plans 02-01, 02-02, 02-03 complete
+Stopped at: Phase 03 in progress, plan 03-01 complete
 Resume file: None
