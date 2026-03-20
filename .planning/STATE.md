@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 02 — UX Quick Wins + SidePanel Refonte (IN PROGRESS)
-Plan: 01-01 COMPLETE, 01-02 COMPLETE, 01-03 COMPLETE, 02-02 COMPLETE (UX-06), 02-03 COMPLETE (SP-01..06)
+Plan: 01-01 COMPLETE, 01-02 COMPLETE, 01-03 COMPLETE, 02-01 COMPLETE (UX-01..05, UX-07..10), 02-02 COMPLETE (UX-06), 02-03 COMPLETE (SP-01..06)
 Status: Phase 02 in progress
-Last activity: 2026-03-20 — Plan 02-03 completed (SidePanel refonte: 6 improvements)
+Last activity: 2026-03-20 — Plan 02-01 completed (9 ForgeInput UX quick wins)
 
 Progress: [####░░░░░░] ~25%
 
@@ -68,6 +68,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - setConfig clears stale plan/complianceReport/metadataDiffs/result but preserves graph/templates/history
 - canPreview variable removed; condition inlined in preview button disabled prop
 - LogStream hideFilterBar prop controls internal filter tab visibility
+- extractSalesforceDomain uses first subdomain segment for URL-to-org matching
+- UX-01 auto-select useEffect uses empty deps with eslint-disable for mount-only behavior
+- sameOrgSelected derived variable exposed at component level for canDiscover guard
 
 ### Pending Todos
 
@@ -80,5 +83,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Phase 02 in progress, plan 02-03 complete
+Stopped at: Phase 02 in progress, plans 02-01, 02-02, 02-03 complete
 Resume file: None
