@@ -82,6 +82,8 @@ export interface MonitorPageData {
   apiLimit: ApiLimit;
   /** DataStorageMB limit detail. */
   storageLimit: ApiLimit;
+  /** FileStorageMB limit detail. */
+  fileStorageLimit: ApiLimit;
   /** Limits sorted by usage percentage descending. */
   sortedLimits: ApiLimit[];
   /** Limits at or above 60% usage. */
@@ -186,6 +188,7 @@ export function useMonitorPageData(): MonitorPageData {
 
   const apiLimit = useMemo(() => findLimit(limits, 'DailyApiRequests'), [limits]);
   const storageLimit = useMemo(() => findLimit(limits, 'DataStorageMB'), [limits]);
+  const fileStorageLimit = useMemo(() => findLimit(limits, 'FileStorageMB'), [limits]);
 
   const sortedLimits = useMemo(
     () => [...limits].sort((a, b) => b.usedPercent - a.usedPercent),
@@ -332,6 +335,7 @@ export function useMonitorPageData(): MonitorPageData {
     activeAlertsCount,
     apiLimit,
     storageLimit,
+    fileStorageLimit,
     sortedLimits,
     criticalLimits,
     trendChartData,

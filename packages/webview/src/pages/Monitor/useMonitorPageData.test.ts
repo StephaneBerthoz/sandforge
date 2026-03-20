@@ -44,6 +44,7 @@ const standardPayload = {
   limits: [
     { name: 'DailyApiRequests', max: 15000, remaining: 2550, usedPercent: 83 },
     { name: 'DataStorageMB', max: 5120, remaining: 1843, usedPercent: 64 },
+    { name: 'FileStorageMB', max: 2048, remaining: 1024, usedPercent: 50 },
   ],
   jobs: [],
   healthScore: 78,
@@ -202,6 +203,38 @@ describe('useMonitorPageData', () => {
     mockRefetch.mockClear();
     act(() => result.current.retryFailed());
     expect(mockRefetch).toHaveBeenCalledOnce();
+  });
+
+  it('should return fileStorageLimit with correct values from limits', () => {
+    mockMonitorQueryState = {
+      data: standardPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    expect(result.current.fileStorageLimit.name).toBe('FileStorageMB');
+    expect(result.current.fileStorageLimit.max).toBe(2048);
+    expect(result.current.fileStorageLimit.remaining).toBe(1024);
+    expect(result.current.fileStorageLimit.usedPercent).toBe(50);
+  });
+
+  it('should return default fileStorageLimit when not in limits', () => {
+    mockMonitorQueryState = {
+      data: {
+        ...standardPayload,
+        limits: [
+          { name: 'DailyApiRequests', max: 15000, remaining: 2550, usedPercent: 83 },
+        ],
+      },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result } = renderHook(() => useMonitorPageData());
+    expect(result.current.fileStorageLimit.name).toBe('FileStorageMB');
+    expect(result.current.fileStorageLimit.max).toBe(0);
+    expect(result.current.fileStorageLimit.remaining).toBe(0);
   });
 
   it('should return sectionErrors when monitor query fails', () => {
