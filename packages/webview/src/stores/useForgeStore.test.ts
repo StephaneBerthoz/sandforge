@@ -366,4 +366,118 @@ describe('useForgeStore', () => {
     expect(state.metadataDiffs).toEqual([]);
     expect(state.anonymizationRules.email).toBe('fake');
   });
+
+  describe('addTemplate', () => {
+    it('should add a new template', () => {
+      const { addTemplate } = getState();
+      const template = {
+        id: 'tpl-001',
+        name: 'Test Template',
+        description: 'A test',
+        config: {
+          inputMode: 'record' as const,
+          depth: 'direct' as const,
+          anonymizePII: false,
+          skipEmpty: false,
+          batchSize: 'auto' as const,
+        },
+        objectCount: 5,
+        recordCount: 100,
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+      };
+      addTemplate(template);
+      expect(getState().templates).toHaveLength(1);
+      expect(getState().templates[0].name).toBe('Test Template');
+    });
+  });
+
+  describe('updateTemplate', () => {
+    it('should update template name and description', () => {
+      const { addTemplate, updateTemplate } = getState();
+      addTemplate({
+        id: 'tpl-002',
+        name: 'Old Name',
+        description: 'Old desc',
+        config: { inputMode: 'record' as const, depth: 'direct' as const, anonymizePII: false, skipEmpty: false, batchSize: 'auto' as const },
+        objectCount: 3,
+        recordCount: 50,
+        createdAt: new Date().toISOString(),
+        lastUsedAt: new Date().toISOString(),
+      });
+      updateTemplate('tpl-002', { name: 'New Name', description: 'New desc' });
+      const tpl = getState().templates.find((t) => t.id === 'tpl-002');
+      expect(tpl?.name).toBe('New Name');
+      expect(tpl?.description).toBe('New desc');
+    });
+
+    it('should not modify other templates', () => {
+      const templates = getState().templates;
+      const otherTemplates = templates.filter((t) => t.id !== 'tpl-002');
+      otherTemplates.forEach((t) => {
+        expect(t.name).not.toBe('New Name');
+      });
+    });
+  });
+
+  describe('addLog / clearLogs', () => {
+    it('should add a log entry', () => {
+      const { addLog } = useForgeStore.getState();
+      addLog({ id: 'log-1', timestamp: Date.now(), level: 'info', message: 'Test log' });
+      expect(useForgeStore.getState().logs).toHaveLength(1);
+      expect(useForgeStore.getState().logs[0].message).toBe('Test log');
+    });
+
+    it('should clear all log entries', () => {
+      const { addLog, clearLogs } = useForgeStore.getState();
+      addLog({ id: 'log-1', timestamp: Date.now(), level: 'info', message: 'Test' });
+      addLog({ id: 'log-2', timestamp: Date.now(), level: 'error', message: 'Error' });
+      clearLogs();
+      expect(useForgeStore.getState().logs).toHaveLength(0);
+    });
+  });
+
+  describe('forgeAgain', () => {
+    it('should clear result/graph/plan but preserve config', () => {
+      const store = useForgeStore.getState();
+      // Set up state
+      store.setConfig({
+        inputMode: 'record',
+        recordId: '001xxx',
+        depth: 'direct',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        anonymizePII: false,
+        skipEmpty: false,
+        batchSize: 'auto',
+      });
+      store.setGraph({
+        nodes: [],
+        edges: [],
+        totalRecords: 0,
+        estimatedSizeMB: 0,
+        estimatedDurationSeconds: 0,
+      });
+      store.setResult({
+        forgeId: 'f1',
+        status: 'success',
+        graph: { nodes: [], edges: [], totalRecords: 0, estimatedSizeMB: 0, estimatedDurationSeconds: 0 },
+        duration: 1000,
+        timestamp: '2026-01-01',
+        idRemapCount: 5,
+      });
+      store.addLog({ id: 'log-1', timestamp: Date.now(), level: 'info', message: 'test' });
+
+      // Call forgeAgain
+      useForgeStore.getState().forgeAgain();
+      const state = useForgeStore.getState();
+
+      expect(state.phase).toBe('input');
+      expect(state.config).not.toBeNull(); // Config preserved
+      expect(state.graph).toBeNull();
+      expect(state.result).toBeNull();
+      expect(state.plan).toBeNull();
+      expect(state.logs).toHaveLength(0);
+    });
+  });
 });
