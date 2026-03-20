@@ -1,4 +1,6 @@
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Copy, Download } from 'lucide-react';
 import { cn } from '../../theme';
 
 /** Single log entry. */
@@ -70,8 +72,10 @@ export const LogStream: React.FC<LogStreamProps> = ({
   hideFilterBar = false,
   className,
 }) => {
+  const { t } = useTranslation();
   const [activeFilter, setActiveFilter] = useState<LogFilter>(filterProp);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
 
   // Sync external filter prop changes to internal state
   useEffect(() => {
@@ -88,8 +92,16 @@ export const LogStream: React.FC<LogStreamProps> = ({
     [trimmedEntries, activeFilter],
   );
 
+  /** Detect when user scrolls away from bottom. */
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const atBottom = scrollHeight - scrollTop - clientHeight < 20;
+    userScrolledUpRef.current = !atBottom;
+  }, []);
+
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
+    if (autoScroll && scrollRef.current && !userScrolledUpRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [visibleEntries, autoScroll]);
@@ -124,9 +136,52 @@ export const LogStream: React.FC<LogStreamProps> = ({
         </div>
       )}
 
+      {/* Toolbar: Copy All / Export */}
+      {entries.length > 0 && (
+        <div className="flex items-center gap-1 px-3 py-1 border-b border-subtle">
+          <button
+            type="button"
+            data-testid="logstream-copy-all"
+            onClick={async () => {
+              const text = visibleEntries
+                .map((e) => `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] ${e.message}`)
+                .join('\n');
+              await navigator.clipboard.writeText(text);
+            }}
+            className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+            title={t('forge.copyAllLogs')}
+          >
+            <Copy size={10} />
+            {t('forge.copyAllLogs')}
+          </button>
+          <button
+            type="button"
+            data-testid="logstream-export"
+            onClick={() => {
+              const text = visibleEntries
+                .map((e) => `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] ${e.message}`)
+                .join('\n');
+              const blob = new Blob([text], { type: 'text/plain' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `forge-logs-${new Date().toISOString().slice(0, 10)}.log`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+            title={t('forge.exportLogs')}
+          >
+            <Download size={10} />
+            {t('forge.exportLogs')}
+          </button>
+        </div>
+      )}
+
       {/* Log entries */}
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         className="overflow-y-auto max-h-64 p-2 font-mono text-xs"
       >
         {visibleEntries.length === 0 ? (
