@@ -31,6 +31,11 @@ import { StorageBreakdownPanel } from './StorageBreakdownPanel';
 import { DeploymentTimeline } from './DeploymentTimeline';
 import { LimitExportButton } from './LimitExportButton';
 import { ApiUsagePanel } from './ApiUsagePanel';
+import { ErrorLogsPanel } from './ErrorLogsPanel';
+import { SessionsPanel } from './SessionsPanel';
+import { ApexInsightsPanel } from './ApexInsightsPanel';
+import { RefreshPanel } from './RefreshPanel';
+import { HealthCheckPanel } from './HealthCheckPanel';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { SalesforceOrg, LiveOperationSnapshot } from '@sandforge/shared';
@@ -209,6 +214,7 @@ export const MonitorPage: React.FC = () => {
     setAutoRefresh,
     handleRefresh,
     handleAbortJob,
+    orgHealthStatus,
   } = useMonitorPageData();
 
   // Live operations tracking
@@ -668,6 +674,17 @@ export const MonitorPage: React.FC = () => {
 
           {/* ── Deployment Timeline ── */}
           <DeploymentTimeline />
+
+          {/* ── Service Panels (WIRE-01..05) ── */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ErrorLogsPanel />
+            <SessionsPanel />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ApexInsightsPanel />
+            <RefreshPanel />
+          </div>
+          <HealthCheckPanel orgHealthStatus={orgHealthStatus} />
 
           {/* ── Anomaly results (if any) ── */}
           {anomalyScan.data?.success && anomalyScan.data.anomalies && anomalyScan.data.anomalies.length > 0 && (

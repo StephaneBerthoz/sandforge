@@ -7,6 +7,7 @@ import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { ApiLimit, HealthReport, TrendData, JobInsight, OrgInfo } from '@sandforge/shared';
 import type { TrendSeries } from './TrendCharts';
 import type { JobDisplayInfo } from './MonitorPage';
+import type { OrgHealthStatus } from './HealthCheckPanel';
 
 /** Payload received from monitor:data message. */
 interface MonitorData {
@@ -17,6 +18,7 @@ interface MonitorData {
   trends?: Record<string, TrendData>;
   jobInsights?: JobInsight[];
   orgInfo?: OrgInfo;
+  orgHealthStatus?: OrgHealthStatus;
   lastUpdated: string;
 }
 
@@ -116,6 +118,8 @@ export interface MonitorPageData {
   handleRefresh: () => void;
   /** Abort a running job by its ID. */
   handleAbortJob: (jobId: string) => void;
+  /** Org health status from the monitor:data response. */
+  orgHealthStatus: OrgHealthStatus | undefined;
 }
 
 /**
@@ -172,6 +176,7 @@ export function useMonitorPageData(): MonitorPageData {
   const trends = useMemo(() => data?.trends ?? {}, [data?.trends]);
   const jobInsights = data?.jobInsights ?? [];
   const orgInfo = data?.orgInfo;
+  const orgHealthStatus = data?.orgHealthStatus;
   const lastUpdated = data?.lastUpdated ?? null;
 
   const activeAlertsCount = useMemo(() => {
@@ -345,5 +350,6 @@ export function useMonitorPageData(): MonitorPageData {
     setAutoRefresh,
     handleRefresh,
     handleAbortJob,
+    orgHealthStatus,
   };
 }
