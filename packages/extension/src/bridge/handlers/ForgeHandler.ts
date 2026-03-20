@@ -111,7 +111,6 @@ const FORGE_CATEGORY = 'forge';
 export class ForgeHandler implements DomainHandler {
   private discoverAbortController: AbortController | null = null;
   private abortController: AbortController | null = null;
-  private isPaused = false;
   private orchestrator?: ForgeOrchestrator;
   private planGenerator?: ForgePlanGenerator;
   private complianceService?: ForgeComplianceService;
@@ -198,11 +197,6 @@ export class ForgeHandler implements DomainHandler {
       default:
         return false;
     }
-  }
-
-  /** Whether the handler is currently in paused state. */
-  get paused(): boolean {
-    return this.isPaused;
   }
 
   /** Load templates from ConfigStore. */
@@ -376,18 +370,19 @@ export class ForgeHandler implements DomainHandler {
   }
 
   private handlePause(_msg: BaseMessage): void {
-    this.isPaused = true;
+    this.orchestrator?.pause();
     logger.info('Forge paused');
   }
 
   private handleResume(_msg: BaseMessage): void {
-    this.isPaused = false;
+    this.orchestrator?.resume();
     logger.info('Forge resumed');
   }
 
   private handleAbort(_msg: BaseMessage): void {
     this.discoverAbortController?.abort();
     this.abortController?.abort();
+    this.orchestrator?.abort();
     logger.info('Forge aborted');
   }
 

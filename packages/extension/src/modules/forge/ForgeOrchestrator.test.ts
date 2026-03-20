@@ -65,6 +65,9 @@ function createMockDeps(): ForgeOrchestratorDeps {
     } as unknown as ForgeOrchestratorDeps['discoveryService'],
     executor: {
       execute: vi.fn().mockResolvedValue(createMockSummary()),
+      abort: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
     } as unknown as ForgeOrchestratorDeps['executor'],
   };
 }
@@ -239,6 +242,27 @@ describe('ForgeOrchestrator', () => {
       unsub();
       await orchestrator.execute(createMockGraph(), createMockConfig());
       expect(results).toHaveLength(1); // No new events
+    });
+  });
+
+  describe('abort', () => {
+    it('should delegate to executor.abort', () => {
+      orchestrator.abort();
+      expect(deps.executor.abort).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('pause', () => {
+    it('should delegate to executor.pause', () => {
+      orchestrator.pause();
+      expect(deps.executor.pause).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('resume', () => {
+    it('should delegate to executor.resume', () => {
+      orchestrator.resume();
+      expect(deps.executor.resume).toHaveBeenCalledOnce();
     });
   });
 
