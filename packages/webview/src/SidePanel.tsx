@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 import {
@@ -78,6 +78,37 @@ export const SidePanel: React.FC = () => {
   const selectedOrg = orgs.find((o) => o.id === selectedOrgId);
   const [orgDropdownOpen, setOrgDropdownOpen] = useState(false);
 
+  /** Sorted orgs: connected first, then alphabetical by alias/username within each group. */
+  const sortedOrgs = useMemo(() => {
+    return [...orgs].sort((a, b) => {
+      const aConn = a.status === 'connected' ? 0 : 1;
+      const bConn = b.status === 'connected' ? 0 : 1;
+      if (aConn !== bConn) return aConn - bConn;
+      const aName = (a.alias || a.username).toLowerCase();
+      const bName = (b.alias || b.username).toLowerCase();
+      return aName.localeCompare(bName);
+    });
+  }, [orgs]);
+
+  // Compact mode for short viewports
+  const [isCompact, setIsCompact] = useState(false);
+
+  useEffect(() => {
+    const checkHeight = (): void => {
+      setIsCompact(window.innerHeight < 650);
+    };
+    checkHeight();
+    window.addEventListener('resize', checkHeight);
+    return () => window.removeEventListener('resize', checkHeight);
+  }, []);
+
+  // Collapsible Quick Metrics
+  const [metricsExpanded, setMetricsExpanded] = useState(true);
+
+  useEffect(() => {
+    if (isCompact) setMetricsExpanded(false);
+  }, [isCompact]);
+
   // Favorites store
   const favorites = useFavoritesStore((s) => s.favorites);
   const toggleFavorite = useFavoritesStore((s) => s.toggle);
@@ -129,7 +160,6 @@ export const SidePanel: React.FC = () => {
           <div className="absolute -inset-1 bg-orange-400/10 rounded-full blur-sm -z-10" />
         </div>
         <span className="text-sm font-bold tracking-tight">SandForge</span>
-        <span className="text-[9px] text-text-muted font-medium ml-auto opacity-60">v1.0</span>
       </div>
 
       {/* Org Switcher */}
@@ -147,9 +177,13 @@ export const SidePanel: React.FC = () => {
           <span
             className={cn(
               'h-2.5 w-2.5 rounded-full shrink-0 ring-2',
-              connectedCount > 0
+              selectedOrg?.status === 'connected'
                 ? 'bg-green-500 ring-green-500/20 shadow-[0_0_6px_rgba(34,197,94,0.4)]'
-                : 'bg-gray-500 ring-gray-500/20',
+                : selectedOrg?.status === 'refreshing'
+                  ? 'bg-yellow-500 ring-yellow-500/20'
+                  : selectedOrg
+                    ? 'bg-red-500 ring-red-500/20'
+                    : 'bg-gray-500 ring-gray-500/20',
             )}
           />
           <div className="flex-1 min-w-0">
@@ -185,7 +219,7 @@ export const SidePanel: React.FC = () => {
           >
             {orgs.length > 0 ? (
               <div className="max-h-[240px] overflow-y-auto">
-                {orgs.map((org) => {
+                {sortedOrgs.map((org) => {
                   const isOrgConnected = org.status === 'connected';
                   return (
                     <button
@@ -249,44 +283,79 @@ export const SidePanel: React.FC = () => {
       </div>
 
       {/* Quick Metrics */}
-      <div className="grid grid-cols-2 gap-2 px-3 pt-2.5" data-testid="sidepanel-metrics">
-        <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-          <div className="text-[10px] text-text-muted uppercase tracking-wide">{t('sidePanel.connectedOrgs', 'Orgs')}</div>
-          <div className="text-lg font-bold tabular-nums">{connectedCount}</div>
-        </div>
-        <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-          <div className="text-[10px] text-text-muted uppercase tracking-wide">{t('sidePanel.recentOps', 'Ops')}</div>
-          <div className="text-lg font-bold tabular-nums">{recentOpsCount}</div>
-        </div>
+      <div className="px-3 pt-2.5">
+        <button
+          className="w-full flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-text-muted px-1 mb-1"
+          onClick={() => setMetricsExpanded(!metricsExpanded)}
+          aria-label={metricsExpanded ? t('sidePanel.hideMetrics') : t('sidePanel.showMetrics')}
+          data-testid="sidepanel-metrics-toggle"
+        >
+          <ChevronDown className={cn(
+            'w-3 h-3 transition-transform duration-200',
+            !metricsExpanded && '-rotate-90',
+          )} />
+          {t('sidePanel.connectedOrgs', 'Orgs')} / {t('sidePanel.recentOps', 'Ops')}
+        </button>
+        {metricsExpanded && (
+          <div className="grid grid-cols-2 gap-2" data-testid="sidepanel-metrics">
+            <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
+              <div className="text-[10px] text-text-muted uppercase tracking-wide">{t('sidePanel.connectedOrgs', 'Orgs')}</div>
+              <div className="text-lg font-bold tabular-nums">{connectedCount}</div>
+            </div>
+            <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
+              <div className="text-[10px] text-text-muted uppercase tracking-wide">{t('sidePanel.recentOps', 'Ops')}</div>
+              <div className="text-lg font-bold tabular-nums">{recentOpsCount}</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Forge Hero */}
-      <div className="px-3 pt-3">
-        <button
-          className={cn(
-            'w-full flex items-center gap-3 rounded-xl px-3.5 py-3 group',
-            'bg-gradient-to-r from-orange-500/10 via-amber-500/8 to-orange-500/5',
-            'border border-orange-500/20',
-            'hover:from-orange-500/20 hover:via-amber-500/15 hover:to-orange-500/10',
-            'hover:border-orange-500/40 hover:shadow-[0_0_16px_rgba(249,115,22,0.12)]',
-            'transition-all duration-200',
-          )}
-          onClick={() => navigate('forge')}
-          data-testid="sidepanel-forge"
-        >
-          <div className="relative shrink-0">
-            <div className="w-9 h-9 rounded-lg bg-orange-500/15 flex items-center justify-center">
-              <Flame className="w-5 h-5 text-orange-400" />
+      {!isCompact && (
+        <div className="px-3 pt-3">
+          <button
+            className={cn(
+              'w-full flex items-center gap-3 rounded-xl px-3.5 py-3 group',
+              'bg-gradient-to-r from-orange-500/10 via-amber-500/8 to-orange-500/5',
+              'border border-orange-500/20',
+              'hover:from-orange-500/20 hover:via-amber-500/15 hover:to-orange-500/10',
+              'hover:border-orange-500/40 hover:shadow-[0_0_16px_rgba(249,115,22,0.12)]',
+              'transition-all duration-200',
+            )}
+            onClick={() => navigate('forge')}
+            data-testid="sidepanel-forge"
+          >
+            <div className="relative shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-orange-500/15 flex items-center justify-center">
+                <Flame className="w-5 h-5 text-orange-400" />
+              </div>
+              <div className="absolute -inset-0.5 bg-orange-400/10 rounded-lg blur-sm -z-10 group-hover:bg-orange-400/20 transition-colors" />
             </div>
-            <div className="absolute -inset-0.5 bg-orange-400/10 rounded-lg blur-sm -z-10 group-hover:bg-orange-400/20 transition-colors" />
-          </div>
-          <div className="text-left flex-1 min-w-0">
-            <div className="text-sm font-bold text-orange-400">{t('sidePanel.forge')}</div>
-            <div className="text-[10px] text-text-muted leading-tight">{t('sidePanel.forgeDesc', 'Seed, sync & transform data')}</div>
-          </div>
-          <ArrowRight className="w-3.5 h-3.5 text-orange-400/40 group-hover:text-orange-400/80 group-hover:translate-x-0.5 transition-all shrink-0" />
-        </button>
-      </div>
+            <div className="text-left flex-1 min-w-0">
+              <div className="text-sm font-bold text-orange-400">{t('sidePanel.forge')}</div>
+              <div className="text-[10px] text-text-muted leading-tight">{t('sidePanel.forgeDesc', 'Seed, sync & transform data')}</div>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5 text-orange-400/40 group-hover:text-orange-400/80 group-hover:translate-x-0.5 transition-all shrink-0" />
+          </button>
+        </div>
+      )}
+      {isCompact && (
+        <div className="px-3 pt-2">
+          <button
+            className={cn(
+              'w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5',
+              'bg-orange-500/10 border border-orange-500/20',
+              'hover:bg-orange-500/20 transition-all text-left',
+            )}
+            onClick={() => navigate('forge')}
+            data-testid="sidepanel-forge-compact"
+          >
+            <Flame className="w-4 h-4 text-orange-400 shrink-0" />
+            <span className="text-xs font-bold text-orange-400">{t('sidePanel.forge')}</span>
+            <ArrowRight className="w-3 h-3 text-orange-400/40 ml-auto shrink-0" />
+          </button>
+        </div>
+      )}
 
       {/* Favorite Modules (if any) */}
       {favorites.length > 0 && (
@@ -337,7 +406,7 @@ export const SidePanel: React.FC = () => {
               </button>
               <button
                 className={cn(
-                  'p-1 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-150',
+                  'p-1 rounded-md opacity-40 hover:opacity-100 transition-all duration-150',
                   'hover:bg-surface-1',
                   favorites.includes(item.id) ? 'text-amber-400 opacity-100' : 'text-text-muted',
                 )}
