@@ -47,15 +47,12 @@ function getEdgeTypeForNode(objectApiName: string, edges: ForgeGraphEdge[]): 'ma
 }
 
 /**
- * Compute Dagre layout for graph nodes and edges.
- * Uses vertical top-down (TB) layout with automatic positioning.
+ * Compute Dagre layout positions based on graph topology.
+ * Only depends on node names and edge connections -- NOT on node status/progress.
  */
-function buildFlowNodes(
-  graph: ForgeGraph,
-  onNodeClick?: (objectName: string) => void,
-  onIncludeToggle?: (objectName: string) => void,
-): Node<ProgressNodeData>[] {
-  if (graph.nodes.length === 0) return [];
+function computeLayout(graph: ForgeGraph): Map<string, { x: number; y: number }> {
+  const positions = new Map<string, { x: number; y: number }>();
+  if (graph.nodes.length === 0) return positions;
 
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
@@ -70,15 +67,31 @@ function buildFlowNodes(
 
   dagre.layout(g);
 
+  for (const node of graph.nodes) {
+    const pos = g.node(node.objectApiName);
+    positions.set(node.objectApiName, {
+      x: pos.x - NODE_WIDTH / 2,
+      y: pos.y - NODE_HEIGHT / 2,
+    });
+  }
+  return positions;
+}
+
+/**
+ * Build React Flow nodes from pre-computed layout positions and current graph data.
+ */
+function buildFlowNodesFromLayout(
+  graph: ForgeGraph,
+  positions: Map<string, { x: number; y: number }>,
+  onNodeClick?: (objectName: string) => void,
+  onIncludeToggle?: (objectName: string) => void,
+): Node<ProgressNodeData>[] {
   return graph.nodes.map((n) => {
-    const pos = g.node(n.objectApiName);
+    const pos = positions.get(n.objectApiName) ?? { x: 0, y: 0 };
     return {
       id: n.objectApiName,
       type: 'progressNode',
-      position: {
-        x: pos.x - NODE_WIDTH / 2,
-        y: pos.y - NODE_HEIGHT / 2,
-      },
+      position: pos,
       data: {
         objectApiName: n.objectApiName,
         recordCount: n.recordCount,
@@ -122,7 +135,23 @@ function buildFlowEdges(graph: ForgeGraph): Edge<AnimatedEdgeData>[] {
  */
 export const LiveGraph: React.FC<LiveGraphProps> = ({ graph, onNodeClick, onIncludeToggle, className }) => {
   const { t } = useTranslation();
-  const nodes = useMemo(() => buildFlowNodes(graph, onNodeClick, onIncludeToggle), [graph, onNodeClick, onIncludeToggle]);
+
+  /** Stable key that changes only when graph topology changes. */
+  const topologyKey = useMemo(() => {
+    const nodeNames = graph.nodes.map((n) => n.objectApiName).sort().join(',');
+    const edgeKeys = graph.edges.map((e) => `${e.sourceObject}->${e.targetObject}`).sort().join(',');
+    return `${nodeNames}|${edgeKeys}`;
+  }, [graph.nodes, graph.edges]);
+
+  // Layout: only recomputes when topology changes (node names + edges)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const positions = useMemo(() => computeLayout(graph), [topologyKey]);
+
+  // Nodes: recomputes when graph data changes (status, progress) but uses cached positions
+  const nodes = useMemo(
+    () => buildFlowNodesFromLayout(graph, positions, onNodeClick, onIncludeToggle),
+    [graph, positions, onNodeClick, onIncludeToggle],
+  );
   const edges = useMemo(() => buildFlowEdges(graph), [graph]);
 
   const handleNodeClick = useCallback(
