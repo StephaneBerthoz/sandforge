@@ -353,6 +353,43 @@ describe('ForgeHandler', () => {
       expect(unsubscribe).toHaveBeenCalled();
     });
 
+    it('includes operationId in forge:execute:response payload', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+      const result = createMockResult();
+      vi.mocked(orchestrator.execute).mockResolvedValue(result);
+
+      const msg = buildMsg('forge:execute', { graph, config });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const responseCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:execute:response',
+      );
+      expect(responseCalls).toHaveLength(1);
+      const response = responseCalls[0][0] as BaseMessage & { payload: { result: ForgeExecutionResult; operationId: string } };
+      expect(response.payload.operationId).toBeDefined();
+      expect(response.payload.operationId).toMatch(/^forge-execute-/);
+    });
+
+    it('includes code and retryable in error payloads when execute fails', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+      vi.mocked(orchestrator.execute).mockRejectedValue(new Error('Execution failed'));
+
+      const msg = buildMsg('forge:execute', { graph, config });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const errCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:execute:error',
+      );
+      expect(errCalls).toHaveLength(1);
+      const errPayload = (errCalls[0][0] as BaseMessage & { payload: { message: string; code: string; retryable: boolean } }).payload;
+      expect(errPayload.code).toBe('EXECUTE_ERROR');
+      expect(errPayload.retryable).toBe(true);
+    });
+
     it('persists result to history via ConfigStore (capped at 20)', async () => {
       const graph = createMockGraph();
 
@@ -643,6 +680,56 @@ describe('ForgeHandler', () => {
       const response = responseCalls[0][0] as BaseMessage & { correlationId?: string };
       expect(response.correlationId).toBe(msg.id);
     });
+
+    it('emits operation:started then operation:completed on success', async () => {
+      const mockPlan: ForgePlan = {
+        waves: [{ order: 0, objectApiNames: ['Account'], totalRecords: 10, estimatedDurationSeconds: 0.5, estimatedApiCalls: 1 }],
+        totalRecords: 10,
+        totalApiCalls: 1,
+        estimatedDurationSeconds: 0.5,
+        cycleResolutions: [],
+      };
+      const planGenerator = { generate: vi.fn().mockReturnValue(mockPlan) } as unknown as ForgePlanGenerator;
+      handler.setForgeOrchestrator(orchestrator, { planGenerator });
+
+      const msg = buildMsg('forge:plan:request', { graph: createMockGraph(), config: createMockConfig() });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const startedCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'operation:started',
+      );
+      const completedCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'operation:completed',
+      );
+      expect(startedCalls).toHaveLength(1);
+      expect(completedCalls).toHaveLength(1);
+      const startedPayload = (startedCalls[0][0] as BaseMessage & { payload: { operationId: string; description: string } }).payload;
+      expect(startedPayload.operationId).toMatch(/^forge-plan-/);
+      expect(startedPayload.description).toBe('Generating execution plan');
+    });
+
+    it('emits operation:failed when planGenerator throws and error has code and retryable', async () => {
+      const planGenerator = { generate: vi.fn().mockImplementation(() => { throw new Error('generation failed'); }) } as unknown as ForgePlanGenerator;
+      handler.setForgeOrchestrator(orchestrator, { planGenerator });
+
+      const msg = buildMsg('forge:plan:request', { graph: createMockGraph(), config: createMockConfig() });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const failedCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'operation:failed',
+      );
+      expect(failedCalls).toHaveLength(1);
+
+      const errCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:plan:error',
+      );
+      expect(errCalls).toHaveLength(1);
+      const errPayload = (errCalls[0][0] as BaseMessage & { payload: { message: string; code: string; retryable: boolean } }).payload;
+      expect(errPayload.code).toBe('PLAN_ERROR');
+      expect(errPayload.retryable).toBe(false);
+    });
   });
 
   describe('forge:compliance:request', () => {
@@ -682,6 +769,28 @@ describe('ForgeHandler', () => {
       expect(responseCalls).toHaveLength(1);
       const response = responseCalls[0][0] as BaseMessage & { correlationId?: string };
       expect(response.correlationId).toBe(msg.id);
+    });
+
+    it('emits operation lifecycle events on success', async () => {
+      const mockReport = { id: 'r-1', framework: 'gdpr' };
+      const complianceService = { generate: vi.fn().mockReturnValue(mockReport) } as unknown as ForgeComplianceService;
+      handler.setForgeOrchestrator(orchestrator, { complianceService });
+
+      const msg = buildMsg('forge:compliance:request', { framework: 'gdpr', graph: createMockGraph(), config: createMockConfig() });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const startedCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'operation:started',
+      );
+      const completedCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'operation:completed',
+      );
+      expect(startedCalls).toHaveLength(1);
+      expect(completedCalls).toHaveLength(1);
+      const startedPayload = (startedCalls[0][0] as BaseMessage & { payload: { operationId: string; description: string } }).payload;
+      expect(startedPayload.operationId).toMatch(/^forge-compliance-/);
+      expect(startedPayload.description).toBe('Generating compliance report');
     });
   });
 
@@ -724,6 +833,58 @@ describe('ForgeHandler', () => {
       expect(responseCalls).toHaveLength(1);
       const response = responseCalls[0][0] as BaseMessage & { correlationId?: string };
       expect(response.correlationId).toBe(msg.id);
+    });
+
+    it('emits operation lifecycle events on success', async () => {
+      const mockDiffs = [{ objectApiName: 'Account', fieldApiName: 'Custom__c', issue: 'missing', severity: 'error', details: 'Missing field' }];
+      const metadataDiff = { compare: vi.fn().mockResolvedValue(mockDiffs) } as unknown as ForgeMetadataDiff;
+      handler.setForgeOrchestrator(orchestrator, { metadataDiff });
+
+      const msg = buildMsg('forge:metadata-diff:request', {
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        objectApiNames: ['Account'],
+      });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const startedCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'operation:started',
+      );
+      const completedCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'operation:completed',
+      );
+      expect(startedCalls).toHaveLength(1);
+      expect(completedCalls).toHaveLength(1);
+      const startedPayload = (startedCalls[0][0] as BaseMessage & { payload: { operationId: string; description: string } }).payload;
+      expect(startedPayload.operationId).toMatch(/^forge-metadata-diff-/);
+      expect(startedPayload.description).toBe('Comparing metadata schemas');
+    });
+
+    it('emits operation:failed when compare throws and error has code', async () => {
+      const metadataDiff = { compare: vi.fn().mockRejectedValue(new Error('diff failed')) } as unknown as ForgeMetadataDiff;
+      handler.setForgeOrchestrator(orchestrator, { metadataDiff });
+
+      const msg = buildMsg('forge:metadata-diff:request', {
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        objectApiNames: ['Account'],
+      });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const failedCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'operation:failed',
+      );
+      expect(failedCalls).toHaveLength(1);
+
+      const errCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:metadata-diff:error',
+      );
+      expect(errCalls).toHaveLength(1);
+      const errPayload = (errCalls[0][0] as BaseMessage & { payload: { message: string; code: string; retryable: boolean } }).payload;
+      expect(errPayload.code).toBe('METADATA_DIFF_ERROR');
+      expect(errPayload.retryable).toBe(false);
     });
   });
 
