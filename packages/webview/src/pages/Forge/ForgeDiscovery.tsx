@@ -5,7 +5,7 @@ import { ArrowLeft, Play, Box, Database, HardDrive, Clock, Loader2 } from 'lucid
 import { SplitView } from '../../components/ui/SplitView';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ForgeNodeDetail } from './ForgeNodeDetail';
-import { MetadataDiffBanner } from './MetadataDiffBanner';
+
 import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
@@ -138,9 +138,6 @@ export const ForgeDiscovery: React.FC = () => {
       initial="hidden"
       animate="visible"
     >
-      {/* Metadata diff banner — placeholder, always hidden for now */}
-      <MetadataDiffBanner diffs={[]} />
-
       {/* Split view: graph + detail */}
       <motion.div variants={slideUp} className="h-[480px]">
         <SplitView

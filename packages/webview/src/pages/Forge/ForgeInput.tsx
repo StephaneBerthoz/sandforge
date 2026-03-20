@@ -534,12 +534,12 @@ export const ForgeInput: React.FC = () => {
             </div>
             <div className="grid grid-cols-2 gap-2 text-center">
               <div>
-                <div className="text-lg font-bold text-forge">{'\u2014'}</div>
+                <div className="text-lg font-bold text-forge" data-testid="est-objects">{preview ? '1' : '\u2014'}</div>
                 <div className="text-[9px] text-text-muted">{t('forge.objects')}</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-forge">{'\u2014'}</div>
-                <div className="text-[9px] text-text-muted">{t('forge.records')}</div>
+                <div className="text-lg font-bold text-forge" data-testid="est-fields">{preview ? String(preview.fields?.length ?? 0) : '\u2014'}</div>
+                <div className="text-[9px] text-text-muted">{t('forge.fields')}</div>
               </div>
               <div>
                 <div className="text-lg font-bold text-green-500">{'\u2014'}</div>

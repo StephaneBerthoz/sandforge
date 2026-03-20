@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import '../../i18n';
 import { ForgeInput } from './ForgeInput';
 
@@ -178,6 +178,44 @@ describe('ForgeInput', () => {
     expect(mockSetConfig).toHaveBeenCalledTimes(1);
     const config = mockSetConfig.mock.calls[0][0];
     expect(config.recordId).toBe('001XXXXXXXXXXXXXXX');
+  });
+
+  it('should show em-dash for estimated objects when no preview is loaded', () => {
+    render(<ForgeInput />);
+    const estObjects = screen.getByTestId('est-objects');
+    expect(estObjects.textContent).toBe('\u2014');
+  });
+
+  it('should show preview-derived data when preview is loaded', async () => {
+    render(<ForgeInput />);
+
+    // Simulate preview response
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'test-preview-1',
+            type: 'forge:preview:response',
+            timestamp: Date.now(),
+            payload: {
+              objectApiName: 'Account',
+              objectLabel: 'Account',
+              recordId: '001XXXXXXXXXXXXXXX',
+              fields: [
+                { name: 'Name', value: 'Test' },
+                { name: 'Industry', value: 'Tech' },
+                { name: 'Phone', value: '555-1234' },
+              ],
+            },
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('est-objects').textContent).toBe('1');
+      expect(screen.getByTestId('est-fields').textContent).toBe('3');
+    });
   });
 
   it('should pass plain 18-char ID as-is when discovering', () => {

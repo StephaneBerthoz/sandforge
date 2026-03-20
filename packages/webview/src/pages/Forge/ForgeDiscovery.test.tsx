@@ -192,6 +192,12 @@ describe('ForgeDiscovery', () => {
     });
   });
 
+  it('should not render MetadataDiffBanner placeholder', () => {
+    const { container } = render(<ForgeDiscovery />);
+    // MetadataDiffBanner had data-testid="metadata-diff-banner" — verify it is absent
+    expect(container.querySelector('[data-testid="metadata-diff-banner"]')).toBeNull();
+  });
+
   it('should call toggleNodeIncluded when include toggle is used', () => {
     render(<ForgeDiscovery />);
     // Select Account node first
