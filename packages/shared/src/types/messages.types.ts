@@ -229,6 +229,10 @@ export type WebViewToExtensionMessage =
   | MonitorStorageRequest
   | MonitorDeploymentsRequest
   | MonitorApiUsageRequest
+  | MonitorErrorLogsRequest
+  | MonitorSessionsRequest
+  | MonitorApexInsightsRequest
+  | MonitorSandboxRefreshRequest
   | SchedulerListRequest
   | SchedulerUpsertRequest
   | SchedulerDeleteRequest
@@ -300,6 +304,10 @@ export type ExtensionToWebViewMessage =
   | MonitorStorageResponse
   | MonitorDeploymentsResponse
   | MonitorApiUsageResponse
+  | MonitorErrorLogsResponse
+  | MonitorSessionsResponse
+  | MonitorApexInsightsResponse
+  | MonitorSandboxRefreshResponse
   | SchedulerListResponse
   | SchedulerUpsertResponse
   | SchedulerDeleteResponse
@@ -1162,6 +1170,115 @@ export interface MonitorApiUsageResponse extends BaseMessage {
   payload: {
     success: boolean;
     categories: ApiUsageCategory[];
+    error?: string;
+  };
+}
+
+// --- Monitor Service Panels ---
+
+/** Request to fetch recent error log entries for an org. */
+export interface MonitorErrorLogsRequest extends BaseMessage {
+  type: 'monitor:error-logs';
+  payload: { orgId: string };
+}
+
+/** Response containing recent error log entries grouped by type. */
+export interface MonitorErrorLogsResponse extends BaseMessage {
+  type: 'monitor:error-logs:response';
+  payload: {
+    success: boolean;
+    errors: Array<{
+      id: string;
+      errorType: string;
+      message: string;
+      stackTrace?: string;
+      timestamp: string;
+      user?: string;
+      context?: string;
+    }>;
+    errorsByType: Array<{ type: string; count: number }>;
+    totalCount: number;
+    error?: string;
+  };
+}
+
+/** Request to fetch active user sessions for an org. */
+export interface MonitorSessionsRequest extends BaseMessage {
+  type: 'monitor:sessions';
+  payload: { orgId: string };
+}
+
+/** Response containing active user sessions and distinct user count. */
+export interface MonitorSessionsResponse extends BaseMessage {
+  type: 'monitor:sessions:response';
+  payload: {
+    success: boolean;
+    sessions: Array<{
+      userId: string;
+      username: string;
+      sessionType: string;
+      loginTime: string;
+      sourceIp: string;
+    }>;
+    activeUserCount: number;
+    error?: string;
+  };
+}
+
+/** Request to fetch Apex log analysis insights for an org. */
+export interface MonitorApexInsightsRequest extends BaseMessage {
+  type: 'monitor:apex-insights';
+  payload: { orgId: string };
+}
+
+/** Response containing Apex log analyses and top performance issues. */
+export interface MonitorApexInsightsResponse extends BaseMessage {
+  type: 'monitor:apex-insights:response';
+  payload: {
+    success: boolean;
+    analyses: Array<{
+      logId: string;
+      totalDuration: number;
+      soqlQueries: number;
+      dmlStatements: number;
+      heapUsed: number;
+      cpuTime: number;
+      issues: Array<{
+        type: string;
+        severity: string;
+        message: string;
+        line?: number;
+      }>;
+    }>;
+    topIssues: Array<{
+      type: string;
+      severity: string;
+      message: string;
+      line?: number;
+    }>;
+    error?: string;
+  };
+}
+
+/** Request to fetch sandbox refresh events for an org. */
+export interface MonitorSandboxRefreshRequest extends BaseMessage {
+  type: 'monitor:sandbox-refresh';
+  payload: { orgId: string };
+}
+
+/** Response containing sandbox refresh events and in-progress status. */
+export interface MonitorSandboxRefreshResponse extends BaseMessage {
+  type: 'monitor:sandbox-refresh:response';
+  payload: {
+    success: boolean;
+    refreshes: Array<{
+      orgId: string;
+      sandboxName: string;
+      refreshDate: string;
+      status: string;
+      sourceOrg?: string;
+    }>;
+    inProgress: boolean;
     error?: string;
   };
 }
