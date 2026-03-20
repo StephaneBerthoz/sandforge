@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { Pause, Play, Square, Flame } from 'lucide-react';
@@ -11,7 +11,7 @@ import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { useForgeStore } from '../../stores/useForgeStore';
-import type { ForgeNodeStatus } from '../../stores/useForgeStore';
+import type { ForgeNodeStatus, ForgeLogEntry } from '../../stores/useForgeStore';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
@@ -45,6 +45,8 @@ export const ForgeExecution: React.FC = () => {
   const graph = useForgeStore((s) => s.graph);
   const updateNodeStatus = useForgeStore((s) => s.updateNodeStatus);
   const setPhase = useForgeStore((s) => s.setPhase);
+  const addLogToStore = useForgeStore((s) => s.addLog);
+  const clearLogs = useForgeStore((s) => s.clearLogs);
 
   const [isPaused, setIsPaused] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('forging');
@@ -78,13 +80,22 @@ export const ForgeExecution: React.FC = () => {
     }
   }, [isPaused, executionStatus]);
 
-  /** Add a log entry. */
+  // Clear store logs on mount so a fresh execution starts clean
+  useEffect(() => {
+    clearLogs();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Add a log entry (local state + store persistence). */
   const addLog = useCallback((level: LogEntry['level'], message: string) => {
-    setLogs((prev) => [
-      ...prev,
-      { id: nextLogId(), timestamp: Date.now(), level, message },
-    ]);
-  }, [nextLogId]);
+    const entry: LogEntry & ForgeLogEntry = {
+      id: nextLogId(),
+      timestamp: Date.now(),
+      level,
+      message,
+    };
+    setLogs((prev) => [...prev, entry]);
+    addLogToStore(entry);
+  }, [nextLogId, addLogToStore]);
 
   // ---- Bridge message listener ----
   useEffect(() => {
@@ -139,6 +150,14 @@ export const ForgeExecution: React.FC = () => {
   const estimatedApiCalls = nodes.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
   const progressPercent = totalNodes > 0 ? Math.round((doneCount / totalNodes) * 100) : 0;
 
+  // ETA calculation
+  const etaSeconds = useMemo(() => {
+    if (doneCount === 0 || totalNodes === 0) return null;
+    const avgTimePerNode = elapsed / doneCount;
+    const remaining = totalNodes - doneCount;
+    return Math.round(avgTimePerNode * remaining);
+  }, [elapsed, doneCount, totalNodes]);
+
   // ---- Pause / Abort handlers ----
   const handlePauseToggle = useCallback(() => {
     setIsPaused((prev) => {
@@ -183,8 +202,13 @@ export const ForgeExecution: React.FC = () => {
             <Flame size={16} />
             <span data-testid="forge-execution-status">{t(STATUS_KEYS[executionStatus])}</span>
           </span>
-          <span className="text-text-secondary tabular-nums" data-testid="forge-execution-timer">
-            {t('forge.elapsed')}: {formatElapsed(elapsed)}
+          <span className="flex items-center gap-3 text-text-secondary tabular-nums">
+            <span data-testid="forge-execution-timer">
+              {t('forge.elapsed')}: {formatElapsed(elapsed)}
+            </span>
+            <span data-testid="forge-execution-eta" className="text-forge">
+              {t('forge.eta')}: {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
+            </span>
           </span>
         </div>
         <div className="h-2 w-full rounded-full bg-surface-2 overflow-hidden" data-testid="forge-execution-progress">

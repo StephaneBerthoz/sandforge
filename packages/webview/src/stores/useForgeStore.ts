@@ -124,6 +124,8 @@ export interface ForgeState {
   updateNodeStatus: (objectName: string, status: ForgeNodeStatus, progress?: number) => void;
   /** Toggle whether a node is included in execution. */
   toggleNodeIncluded: (objectName: string) => void;
+  /** Set all graph nodes' included flag to the given value. */
+  setAllNodesIncluded: (included: boolean) => void;
   /** Toggle a field in a node's anonymizeFields list. */
   toggleAnonymizeField: (objectName: string, fieldName: string) => void;
   /** Set the execution result and append to history. */
@@ -193,6 +195,18 @@ export const useForgeStore = create<ForgeState>((set) => ({
           nodes: state.graph.nodes.map((n: ForgeGraphNode) =>
             n.objectApiName === objectName ? { ...n, included: !n.included } : n,
           ),
+        },
+      };
+    });
+  },
+
+  setAllNodesIncluded(included: boolean): void {
+    set((state) => {
+      if (!state.graph) return state;
+      return {
+        graph: {
+          ...state.graph,
+          nodes: state.graph.nodes.map((n: ForgeGraphNode) => ({ ...n, included })),
         },
       };
     });
