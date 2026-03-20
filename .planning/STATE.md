@@ -72,6 +72,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - formatTime and buildChartPath exported from TrendCharts for direct testing
 - Historical CSV uses 3 columns (Timestamp, Limit Name, Used %) since historical snapshots lack Max/Remaining
 - Export mode selector uses native <select> for simplicity
+- GovernancePanelConnected is a separate export in the same file as GovernancePanel (keeps pure component testable)
+- GovernanceEvaluationResult/GovernancePolicyTemplate types redeclared in webview (extension-only types not in shared)
 
 ### Pending Todos
 
@@ -84,5 +86,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-21
-Stopped at: Phase 04 complete, phase 03 in parallel execution
+Stopped at: All phases complete (01..04). v1.2.1 milestone ready for archival.
 Resume file: None

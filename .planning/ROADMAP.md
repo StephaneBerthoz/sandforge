@@ -8,9 +8,9 @@
 **Requirements:** WIRE-01, WIRE-02, WIRE-03, WIRE-04, WIRE-05
 **Completed:** 2026-03-20. 2 plans, 5 requirements delivered. Bridge handlers for all 5 services (error logs, sessions, apex insights, sandbox refresh, health check) + 5 UI panels wired into MonitorPage with loading/empty/data states and co-located tests. 2293 webview tests passing.
 
-## Phase 03 — Alert System + Governance Wiring
+## Phase 03 — Alert System + Governance Wiring ✓
 **Requirements:** ALERT-01, ALERT-02, ALERT-03, ALERT-04, ALERT-05, GOV-01, GOV-02, GOV-03
-**Rationale:** AlertEngine.evaluate() runs in the refresh cycle (needs Phase 01 cache). Default rules reference unified health thresholds. GovernanceEngine feeds into AlertEngine (GOV-03). Grouped because alerts and governance are two halves of the same threshold→notification pipeline.
+**Completed:** 2026-03-21. 3 plans, 8 requirements delivered. AlertEngine + AlertStateStore (persistence, default definitions), MonitorOpsHandler alert handlers (ack/dismiss/list+history), GovernanceEngine + GovernancePolicyStore + GovernanceOpsHandler (CRUD + evaluate + templates + GOV-03 pipeline), AlertHistoryPanel timeline UI, GovernancePanelConnected bridge wiring, both integrated into MonitorPage.
 
 ## Phase 04 — Limits Coverage + Trends + UI Polish ✓
 **Requirements:** LIMITS-01, LIMITS-02, LIMITS-03, LIMITS-04, TREND-01, TREND-02
@@ -24,7 +24,7 @@
 |-------|------|------|------------|
 | 01 | Backend Foundation ✓ | 6 | — |
 | 02 | Wire Dead Services ✓ | 5 | 01 |
-| 03 | Alert System + Governance | 8 | 01 |
+| 03 | Alert System + Governance ✓ | 8 | 01 |
 | 04 | Limits + Trends + Polish ✓ | 6 | 01 |
 
 **Total:** 4 phases, 25 requirements
@@ -42,4 +42,4 @@ Completed 2026-03-19. 6 phases, 16 plans, 27 requirements delivered. See `.plann
 Completed 2026-03-17. 2 phases, 5 plans, 16 requirements delivered. See `.planning/milestones/v1.0.0-ROADMAP.md`.
 
 ---
-*Last updated: 2026-03-21 (Phase 04 complete)*
+*Last updated: 2026-03-21 (All phases complete -- v1.2.1 milestone done)*
