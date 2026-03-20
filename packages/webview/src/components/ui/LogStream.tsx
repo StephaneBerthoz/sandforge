@@ -132,6 +132,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
               key={tab.key}
               type="button"
               data-testid={tab.testId}
+              aria-pressed={activeFilter === tab.key}
               onClick={() => setActiveFilter(tab.key)}
               className={cn(
                 'px-2 py-1 text-xs transition-colors',
@@ -192,6 +193,8 @@ export const LogStream: React.FC<LogStreamProps> = ({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        role="log"
+        aria-live="polite"
         className="overflow-y-auto flex-1 min-h-0 p-2 font-mono text-xs"
       >
         {visibleEntries.length === 0 ? (

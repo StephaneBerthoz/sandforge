@@ -268,6 +268,22 @@ describe('ForgeExecution', () => {
     expect(screen.getByTestId('forge-execution-eta')).toBeDefined();
   });
 
+  /* ---- A11Y-02: aria-pressed on external filter buttons ---- */
+  it('should have aria-pressed matching logFilter state', () => {
+    render(<ForgeExecution />);
+    expect(screen.getByTestId('log-filter-all').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('log-filter-errors').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('log-filter-warnings').getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('should toggle aria-pressed when clicking a filter button', () => {
+    render(<ForgeExecution />);
+    fireEvent.click(screen.getByTestId('log-filter-errors'));
+    expect(screen.getByTestId('log-filter-all').getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('log-filter-errors').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('log-filter-warnings').getAttribute('aria-pressed')).toBe('false');
+  });
+
   it('should persist log entries to the store via addLog', () => {
     render(<ForgeExecution />);
     // Simulate a forge:progress message
