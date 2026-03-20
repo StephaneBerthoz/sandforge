@@ -285,8 +285,8 @@ describe('MonitorPage', () => {
 
     const kpiRow = screen.getByTestId('kpi-row');
     expect(kpiRow).toBeDefined();
-    // KPI row contains 4 child tiles (health, api, storage, alerts)
-    expect(kpiRow.children.length).toBe(4);
+    // KPI row contains 5 child tiles (health, api, data storage, file storage, alerts)
+    expect(kpiRow.children.length).toBe(5);
   });
 
   it('should render alerts KPI in bento row 1', () => {
