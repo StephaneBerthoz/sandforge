@@ -30,11 +30,44 @@ describe('sendHandlerError', () => {
     const posted = deps.broker.postToWebview.mock.calls[0][0] as {
       type: string;
       id: string;
-      payload: { message: string };
+      payload: { message: string; code: string; retryable: boolean };
     };
     expect(posted.type).toBe('seed:error');
     expect(posted.payload.message).toBe('invalid template');
     expect(posted.id).toBeDefined();
+  });
+
+  it('sends default code=UNKNOWN and retryable=false when no code/retryable provided', () => {
+    const deps = createMockDeps();
+    sendHandlerError(deps, 'sync:error', 'sync:error', new Error('fail'));
+
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
+      payload: { message: string; code: string; retryable: boolean };
+    };
+    expect(posted.payload.code).toBe('UNKNOWN');
+    expect(posted.payload.retryable).toBe(false);
+  });
+
+  it('sends provided code and retryable values in payload', () => {
+    const deps = createMockDeps();
+    sendHandlerError(deps, 'forge:plan', 'forge:plan:error', new Error('timed out'), 'TIMEOUT', true);
+
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
+      payload: { message: string; code: string; retryable: boolean };
+    };
+    expect(posted.payload.code).toBe('TIMEOUT');
+    expect(posted.payload.retryable).toBe(true);
+  });
+
+  it('sends retryable=false default when only code is provided', () => {
+    const deps = createMockDeps();
+    sendHandlerError(deps, 'forge:execute', 'forge:execute:error', new Error('broken'), 'EXECUTE_ERROR');
+
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
+      payload: { message: string; code: string; retryable: boolean };
+    };
+    expect(posted.payload.code).toBe('EXECUTE_ERROR');
+    expect(posted.payload.retryable).toBe(false);
   });
 
   it('logs the TX line after posting', () => {

@@ -171,20 +171,24 @@ export function sendOperationCompleted(
  * @param context - Short label for the log prefix (e.g. `"sync:describe-global"`).
  * @param messageType - The outgoing message type (e.g. `"sync:error"`).
  * @param err - The caught unknown error value.
+ * @param code - Optional error code for structured error classification (default: `'UNKNOWN'`).
+ * @param retryable - Optional flag indicating whether the operation can be retried (default: `false`).
  */
 export function sendHandlerError(
   deps: Pick<HandlerDeps, 'log' | 'broker' | 'nextId'>,
   context: string,
   messageType: string,
   err: unknown,
+  code?: string,
+  retryable?: boolean,
 ): void {
   const message = extractErrorMessage(err);
   deps.log(`[ERR] ${context}: ${message}`);
-  const errMsg: BaseMessage & { payload: { message: string } } = {
+  const errMsg: BaseMessage & { payload: { message: string; code: string; retryable: boolean } } = {
     id: deps.nextId(),
     type: messageType,
     timestamp: Date.now(),
-    payload: { message },
+    payload: { message, code: code ?? 'UNKNOWN', retryable: retryable ?? false },
   };
   deps.broker.postToWebview(errMsg);
   deps.log(`[TX] ${messageType}: ${message}`);
