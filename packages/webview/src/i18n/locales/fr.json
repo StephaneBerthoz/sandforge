@@ -1207,6 +1207,7 @@
     "elapsed": "Ecoule",
     "discovery": "Decouverte du graphe",
     "executeForge": "Executer le Forge",
+    "reviewAndExecute": "Revoir et executer",
     "objects": "Objets",
     "records": "Enregistrements",
     "estSize": "Taille est.",
@@ -1421,6 +1422,8 @@
     "running": "En cours...",
     "newOrg": "Nouvelle organisation...",
     "noOrgHint": "Aucune org — connectez-en une ci-dessous",
+    "showMetrics": "Afficher les metriques",
+    "hideMetrics": "Masquer les metriques",
     "orgType": {
       "prod": "PROD",
       "scratch": "SCRATCH",

@@ -1238,6 +1238,7 @@
     "elapsed": "Elapsed",
     "discovery": "Graph Discovery",
     "executeForge": "Execute Forge",
+    "reviewAndExecute": "Review & Execute",
     "objects": "Objects",
     "records": "Records",
     "estSize": "Est. Size",
@@ -1452,6 +1453,8 @@
     "running": "Running...",
     "newOrg": "New organization...",
     "noOrgHint": "No org yet — connect one below",
+    "showMetrics": "Show metrics",
+    "hideMetrics": "Hide metrics",
     "orgType": {
       "prod": "PROD",
       "scratch": "SCRATCH",
