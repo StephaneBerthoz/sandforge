@@ -161,7 +161,7 @@ export interface CustomMetric {
 /** A factor contributing to the health score */
 export interface HealthFactor {
   name: string;
-  category: 'limits' | 'jobs' | 'storage';
+  category: 'limits' | 'jobs' | 'storage' | 'metadata' | 'coverage' | 'security';
   score: number;
   weight: number;
   status: 'healthy' | 'warning' | 'critical';
