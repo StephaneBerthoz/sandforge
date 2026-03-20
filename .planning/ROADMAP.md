@@ -4,9 +4,9 @@
 **Requirements:** PERF-01, PERF-02, HEALTH-01, HEALTH-02, HEALTH-03, TREND-03
 **Completed:** 2026-03-20. 2 plans, 6 requirements delivered. /limits cache (30s TTL), UnifiedHealthScorer (linear interpolation + trend integration), job trend accumulator fix.
 
-## Phase 02 — Wire Dead Services
+## Phase 02 — Wire Dead Services ✓
 **Requirements:** WIRE-01, WIRE-02, WIRE-03, WIRE-04, WIRE-05
-**Rationale:** All 5 services already have full implementations + unit tests. This phase adds bridge handlers + UI panels. Depends on Phase 01 (cached /limits shared, HealthCheck uses unified scorer).
+**Completed:** 2026-03-20. 2 plans, 5 requirements delivered. Bridge handlers for all 5 services (error logs, sessions, apex insights, sandbox refresh, health check) + 5 UI panels wired into MonitorPage with loading/empty/data states and co-located tests. 2293 webview tests passing.
 
 ## Phase 03 — Alert System + Governance Wiring
 **Requirements:** ALERT-01, ALERT-02, ALERT-03, ALERT-04, ALERT-05, GOV-01, GOV-02, GOV-03
@@ -23,7 +23,7 @@
 | Phase | Name | Reqs | Depends On |
 |-------|------|------|------------|
 | 01 | Backend Foundation ✓ | 6 | — |
-| 02 | Wire Dead Services | 5 | 01 |
+| 02 | Wire Dead Services ✓ | 5 | 01 |
 | 03 | Alert System + Governance | 8 | 01 |
 | 04 | Limits + Trends + Polish | 6 | 01 |
 
@@ -42,4 +42,4 @@ Completed 2026-03-19. 6 phases, 16 plans, 27 requirements delivered. See `.plann
 Completed 2026-03-17. 2 phases, 5 plans, 16 requirements delivered. See `.planning/milestones/v1.0.0-ROADMAP.md`.
 
 ---
-*Last updated: 2026-03-20*
+*Last updated: 2026-03-20 (Phase 02 complete)*

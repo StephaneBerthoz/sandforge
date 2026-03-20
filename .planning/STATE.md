@@ -9,17 +9,17 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 02 in progress
-Plan: 02-01 complete
-Status: Phase 02 plan 01 done (WIRE-01..05 backend wiring). Plan 02-02 next.
-Last activity: 2026-03-20 — Plan 02-01 complete (backend handler wiring)
+Phase: 02 complete
+Plan: 02-02 complete
+Status: Phase 02 done (WIRE-01..05 fully wired: backend handlers + UI panels). Phase 03/04 next.
+Last activity: 2026-03-20 — Plan 02-02 complete (5 frontend panels wired into MonitorPage)
 
-Progress: [###.......] 32%
+Progress: [#####.....] 48%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 37 (v1.2.1: 3 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
+- Total plans completed: 38 (v1.2.1: 4 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
 - Average duration: ~15 min/plan
 - Total execution time: ~8.5h
 
@@ -67,6 +67,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - SandboxRefreshTracker omits onRefreshDetected callback (Pitfall 9)
 - HealthCheck providers reuse limitsCache and errorLogMonitor cache for zero-cost signals
 - handleRefresh includes orgHealthStatus from HealthCheck.computeHealth (WIRE-05)
+- OrgHealthStatus type exported from HealthCheckPanel for reuse by useMonitorPageData
+- HealthCheckPanel is prop-driven (not bridge query) to avoid duplicate fetching from monitor:data
 
 ### Pending Todos
 
@@ -79,5 +81,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Plan 02-01 complete, ready for plan 02-02
+Stopped at: Phase 02 complete, phases 03/04 ready for parallel execution
 Resume file: None
