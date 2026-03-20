@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 01 — Backend Foundation: Limits Cache + Health Unification
-Plan: 01-01 complete
-Status: Plan 01-01 done (PERF-01, PERF-02, TREND-03). 7154 tests passing.
-Last activity: 2026-03-20 — Plan 01-01 executed
+Plan: 01-02 complete
+Status: Plan 01-02 done (HEALTH-01, HEALTH-02, HEALTH-03). 7148 tests passing.
+Last activity: 2026-03-20 — Plan 01-02 executed
 
-Progress: [#.........] 10%
+Progress: [##........] 20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 35 (v1.2.1: 1 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
+- Total plans completed: 36 (v1.2.1: 2 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
 - Average duration: ~15 min/plan
 - Total execution time: ~8.5h
 
@@ -61,6 +61,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - ReviewComplianceTab sends compliance request via useEffect on framework/graph/config change
 - Bulk ID fallback uses bulk-{jobId}-{i} format (includes jobId) for traceability
 - MonitorOpsHandler limitsCache uses vi.hoisted pattern for test mocking (single unified mock per module path per file)
+- UnifiedHealthScorer replaces both HealthScoreCalculator and OrgHealthScoreCalculator (linear interpolation, trend penalties, optional dimensions)
+- handleRefresh health calculation moved after orgInfo fetch for metadata dimension support
 
 ### Pending Todos
 
@@ -73,5 +75,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Plan 01-01 complete, ready for plan 01-02
+Stopped at: Plan 01-02 complete, ready for plan 01-03
 Resume file: None
