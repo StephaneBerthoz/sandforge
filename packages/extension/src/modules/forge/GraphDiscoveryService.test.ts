@@ -15,6 +15,14 @@ function createMockDeps(): GraphDiscoveryDeps {
     }),
     queryCount: vi.fn<GraphDiscoveryDeps['queryCount']>().mockResolvedValue(10),
     detectPII: vi.fn<GraphDiscoveryDeps['detectPII']>().mockReturnValue([]),
+    describeGlobal: vi.fn<GraphDiscoveryDeps['describeGlobal']>().mockResolvedValue([
+      { name: 'Account', keyPrefix: '001' },
+      { name: 'Contact', keyPrefix: '003' },
+      { name: 'Opportunity', keyPrefix: '006' },
+      { name: 'Lead', keyPrefix: '00Q' },
+      { name: 'Case', keyPrefix: '500' },
+      { name: 'CustomObj__c', keyPrefix: 'a0B' },
+    ]),
   };
 }
 
@@ -65,11 +73,31 @@ describe('GraphDiscoveryService', () => {
   });
 
   describe('discover from record ID', () => {
-    it('should resolve root object from record ID prefix', async () => {
+    it('should resolve root object from record ID prefix via describeGlobal', async () => {
       const config = createConfig({ recordId: '001XXXXXXXXXX' });
       const graph = await service.discover(config);
       expect(graph.nodes).toHaveLength(1);
       expect(graph.nodes[0].objectApiName).toBe('Account');
+      expect(deps.describeGlobal).toHaveBeenCalledWith('src-org');
+    });
+
+    it('should resolve custom object prefix via describeGlobal', async () => {
+      const config = createConfig({ recordId: 'a0BXXXXXXXXXX' });
+      vi.mocked(deps.describeObject).mockResolvedValue({
+        name: 'CustomObj__c',
+        fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
+        childRelationships: [],
+      });
+
+      const graph = await service.discover(config);
+      expect(graph.nodes[0].objectApiName).toBe('CustomObj__c');
+    });
+
+    it('should throw when record ID prefix is not found in describeGlobal', async () => {
+      const config = createConfig({ recordId: 'ZZZXXXXXXXXXX' });
+      await expect(service.discover(config)).rejects.toThrow(
+        'No object found for record ID prefix "ZZZ"',
+      );
     });
 
     it('should query record count for the root object', async () => {
