@@ -4,11 +4,14 @@ import * as Tabs from '@radix-ui/react-tabs';
 import {
   Database, FileCode, Sparkles, Layers, Search, Loader2, X,
   ArrowLeftRight, Lock, Ban, AlertTriangle, Flame, RefreshCw,
+  Plus, Pencil, Trash2, Check,
 } from 'lucide-react';
 import { cn } from '../../theme';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { useForgeStore } from '../../stores/useForgeStore';
-import type { ForgeConfig, ForgeDepth, ForgeInputMode } from '../../stores/useForgeStore';
+import { useNotificationStore } from '../../stores/useNotificationStore';
+import type { ForgeConfig, ForgeDepth, ForgeInputMode, ForgeTemplate } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSendMessage, useMessageListener } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
@@ -102,8 +105,12 @@ export const ForgeInput: React.FC = () => {
   const setConfig = useForgeStore((s) => s.setConfig);
   const setPhase = useForgeStore((s) => s.setPhase);
   const templates = useForgeStore((s) => s.templates);
+  const addTemplate = useForgeStore((s) => s.addTemplate);
+  const updateTemplate = useForgeStore((s) => s.updateTemplate);
+  const removeTemplate = useForgeStore((s) => s.removeTemplate);
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
+  const addNotification = useNotificationStore((s) => s.addNotification);
   const sendMessage = useSendMessage();
 
   /* ---- Local form state ---- */
@@ -118,6 +125,15 @@ export const ForgeInput: React.FC = () => {
   const [targetOrgId, setTargetOrgId] = useState('');
   const [anonymize, setAnonymize] = useState(false);
   const [skipEmpty, setSkipEmpty] = useState(false);
+
+  /* ---- Template management state ---- */
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [newTemplateDescription, setNewTemplateDescription] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   /* ---- UX-01: Auto-select source org from global selectedOrgId on mount ---- */
   useEffect(() => {
@@ -197,6 +213,65 @@ export const ForgeInput: React.FC = () => {
     }
     return () => { if (previewTimerRef.current) clearTimeout(previewTimerRef.current); };
   }, [recordId, sourceOrgId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Create a new template from the current config. */
+  const handleCreateTemplate = useCallback(() => {
+    if (!newTemplateName.trim()) return;
+    const template: ForgeTemplate = {
+      id: `tpl-${Date.now()}`,
+      name: newTemplateName.trim(),
+      description: newTemplateDescription.trim(),
+      config: {
+        inputMode,
+        depth,
+        customDepth: depth === 'custom' ? customDepth : undefined,
+        anonymizePII: anonymize,
+        skipEmpty,
+        batchSize: 'auto',
+        ...(inputMode === 'record' && recordId ? { recordId: extractRecordId(recordId) ?? undefined } : {}),
+        ...(inputMode === 'soql' && soqlQuery ? { soqlQuery } : {}),
+        ...(inputMode === 'ai' && aiPrompt ? { aiPrompt } : {}),
+      },
+      objectCount: 0,
+      recordCount: 0,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    };
+    addTemplate(template);
+    setNewTemplateName('');
+    setNewTemplateDescription('');
+    setShowCreateForm(false);
+    addNotification({ level: 'success', title: t('forge.templateCreated'), message: template.name, autoDismissMs: 3000 });
+  }, [newTemplateName, newTemplateDescription, inputMode, depth, customDepth, anonymize, skipEmpty, recordId, soqlQuery, aiPrompt, addTemplate, addNotification, t]);
+
+  /** Start editing a template. */
+  const handleStartEdit = useCallback((tpl: ForgeTemplate) => {
+    setEditingTemplateId(tpl.id);
+    setEditName(tpl.name);
+    setEditDescription(tpl.description);
+  }, []);
+
+  /** Save template edits. */
+  const handleSaveEdit = useCallback(() => {
+    if (editingTemplateId && editName.trim()) {
+      updateTemplate(editingTemplateId, { name: editName.trim(), description: editDescription.trim() });
+      setEditingTemplateId(null);
+      addNotification({ level: 'success', title: t('forge.templateUpdated'), message: editName, autoDismissMs: 3000 });
+    }
+  }, [editingTemplateId, editName, editDescription, updateTemplate, addNotification, t]);
+
+  /** Confirm delete a template. */
+  const handleDeleteTemplate = useCallback(() => {
+    if (deleteConfirmId) {
+      const tpl = templates.find((t2) => t2.id === deleteConfirmId);
+      removeTemplate(tpl?.name ?? '');
+      setDeleteConfirmId(null);
+      if (selectedTemplate === tpl?.name) {
+        setSelectedTemplate('');
+      }
+      addNotification({ level: 'info', title: t('forge.templateDeleted'), message: tpl?.name ?? '', autoDismissMs: 3000 });
+    }
+  }, [deleteConfirmId, templates, removeTemplate, selectedTemplate, addNotification, t]);
 
   /** Build config and transition to discovery phase. */
   const handleDiscover = useCallback(() => {
@@ -391,29 +466,158 @@ export const ForgeInput: React.FC = () => {
                   />
                 </Tabs.Content>
 
-                {/* Template tab */}
-                <Tabs.Content value="template">
+                {/* Template tab — forceMount keeps state alive for CRUD management */}
+                <Tabs.Content value="template" forceMount className={inputMode !== 'template' ? 'hidden' : ''}>
                   <div data-testid="forge-input-template" className="flex flex-col gap-2">
-                    {templates.length === 0 ? (
+                    {/* Create template button/form */}
+                    {showCreateForm ? (
+                      <div className="flex flex-col gap-2 p-3 rounded-md border border-forge/30 bg-forge/5">
+                        <input
+                          type="text"
+                          data-testid="forge-template-name-input"
+                          value={newTemplateName}
+                          onChange={(e) => setNewTemplateName(e.target.value)}
+                          placeholder={t('forge.templateName')}
+                          className={cn(
+                            'px-3 py-1.5 rounded-md text-sm',
+                            'bg-[var(--vscode-input-background,#1e1e3a)]',
+                            'text-[var(--vscode-input-foreground,#d4d4d4)]',
+                            'border border-[var(--vscode-input-border,#3a3a5c)]',
+                            'focus:outline-none focus:border-forge/50',
+                          )}
+                        />
+                        <input
+                          type="text"
+                          data-testid="forge-template-desc-input"
+                          value={newTemplateDescription}
+                          onChange={(e) => setNewTemplateDescription(e.target.value)}
+                          placeholder={t('forge.templateDescription')}
+                          className={cn(
+                            'px-3 py-1.5 rounded-md text-sm',
+                            'bg-[var(--vscode-input-background,#1e1e3a)]',
+                            'text-[var(--vscode-input-foreground,#d4d4d4)]',
+                            'border border-[var(--vscode-input-border,#3a3a5c)]',
+                            'focus:outline-none focus:border-forge/50',
+                          )}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            data-testid="forge-template-save"
+                            onClick={handleCreateTemplate}
+                            disabled={!newTemplateName.trim()}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium bg-forge text-white disabled:opacity-40"
+                          >
+                            <Check size={12} />
+                            {t('forge.createTemplate')}
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="forge-template-cancel"
+                            onClick={() => { setShowCreateForm(false); setNewTemplateName(''); setNewTemplateDescription(''); }}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs text-text-muted hover:text-text-primary"
+                          >
+                            <X size={12} />
+                            {t('forge.cancelEdit')}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        data-testid="forge-template-create"
+                        onClick={() => setShowCreateForm(true)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm border border-dashed border-subtle text-text-muted hover:text-forge hover:border-forge/30 transition-colors"
+                      >
+                        <Plus size={14} />
+                        {t('forge.createTemplate')}
+                      </button>
+                    )}
+
+                    {/* Template list */}
+                    {templates.length === 0 && !showCreateForm ? (
                       <p className="text-sm text-text-muted italic">{t('forge.noTemplates')}</p>
                     ) : (
                       templates.map((tpl) => (
-                        <button
-                          key={tpl.name}
-                          type="button"
-                          onClick={() => setSelectedTemplate(tpl.name)}
+                        <div
+                          key={tpl.id}
                           className={cn(
-                            'text-left px-3 py-2 rounded-md text-sm border transition-colors',
+                            'flex items-start gap-2 px-3 py-2 rounded-md text-sm border transition-colors',
                             selectedTemplate === tpl.name
                               ? 'border-forge bg-forge/10 text-text-primary'
                               : 'border-subtle bg-surface-2 text-text-secondary hover:border-forge/30',
                           )}
                         >
-                          <span className="font-medium">{tpl.name}</span>
-                          {tpl.description && (
-                            <span className="block text-xs text-text-muted mt-0.5">{tpl.description}</span>
+                          {editingTemplateId === tpl.id ? (
+                            <div className="flex-1 flex flex-col gap-1">
+                              <input
+                                type="text"
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                data-testid="forge-template-edit-name"
+                                className={cn(
+                                  'px-2 py-1 rounded text-sm',
+                                  'bg-[var(--vscode-input-background,#1e1e3a)]',
+                                  'text-[var(--vscode-input-foreground,#d4d4d4)]',
+                                  'border border-[var(--vscode-input-border,#3a3a5c)]',
+                                )}
+                              />
+                              <input
+                                type="text"
+                                value={editDescription}
+                                onChange={(e) => setEditDescription(e.target.value)}
+                                data-testid="forge-template-edit-desc"
+                                className={cn(
+                                  'px-2 py-1 rounded text-xs',
+                                  'bg-[var(--vscode-input-background,#1e1e3a)]',
+                                  'text-[var(--vscode-input-foreground,#d4d4d4)]',
+                                  'border border-[var(--vscode-input-border,#3a3a5c)]',
+                                )}
+                              />
+                              <div className="flex gap-1">
+                                <button type="button" onClick={handleSaveEdit} data-testid="forge-template-edit-save" className="text-forge text-xs hover:underline">
+                                  <Check size={12} className="inline" /> {t('forge.saveTemplate')}
+                                </button>
+                                <button type="button" onClick={() => setEditingTemplateId(null)} className="text-text-muted text-xs hover:underline">
+                                  <X size={12} className="inline" /> {t('forge.cancelEdit')}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedTemplate(tpl.name)}
+                                className="flex-1 text-left"
+                              >
+                                <span className="font-medium">{tpl.name}</span>
+                                {tpl.description && (
+                                  <span className="block text-xs text-text-muted mt-0.5">{tpl.description}</span>
+                                )}
+                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  data-testid={`forge-template-edit-${tpl.id}`}
+                                  onClick={(e) => { e.stopPropagation(); handleStartEdit(tpl); }}
+                                  className="p-1 text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+                                  title={t('forge.editTemplate')}
+                                >
+                                  <Pencil size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid={`forge-template-delete-${tpl.id}`}
+                                  onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(tpl.id); }}
+                                  className="p-1 text-text-muted hover:text-red-400 transition-colors rounded hover:bg-red-500/10"
+                                  title={t('forge.deleteTemplate')}
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </>
                           )}
-                        </button>
+                        </div>
                       ))
                     )}
                   </div>
@@ -662,6 +866,16 @@ export const ForgeInput: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Delete template confirmation dialog */}
+      <DangerConfirm
+        open={deleteConfirmId !== null}
+        onClose={() => setDeleteConfirmId(null)}
+        onConfirm={handleDeleteTemplate}
+        title={t('forge.deleteTemplate')}
+        description={t('forge.deleteTemplateConfirm')}
+        confirmText={t('forge.deleteTemplate')}
+      />
     </div>
   );
 };
