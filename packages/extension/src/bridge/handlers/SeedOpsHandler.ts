@@ -131,7 +131,7 @@ export class SeedOpsHandler implements DomainHandler {
 
   private async handleExecute(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; template: Record<string, unknown> } }).payload;
+    const payload = (msg as BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean } }).payload;
     const operationId = crypto.randomUUID();
     const robustnessConfig = this.getRobustnessConfig();
 
@@ -152,6 +152,18 @@ export class SeedOpsHandler implements DomainHandler {
         if (!check.allowed) {
           throw new Error(`Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`);
         }
+      }
+
+      // Dry-run mode: skip real inserts, return synthetic result
+      if (payload.dryRun) {
+        const response = buildResponse(this.deps, msg, 'seed:execute:response', {
+          success: true,
+          dryRun: true,
+          insertedCount: 0,
+          results: [],
+        });
+        this.deps.broker.postToWebview(response);
+        return;
       }
 
       // Start performance tracking
