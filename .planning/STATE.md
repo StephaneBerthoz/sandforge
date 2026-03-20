@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 01 — Backend Foundation: Limits Cache + Health Unification
 Plan: --
-Status: Defining requirements
-Last activity: 2026-03-20 — Milestone v1.2.1 started
+Status: Roadmap defined — 4 phases, 25 requirements. Ready for phase planning.
+Last activity: 2026-03-20 — Roadmap created
 
 Progress: [..........] 0%
 
