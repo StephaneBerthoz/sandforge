@@ -7,6 +7,9 @@ import { ForgeExecution } from './ForgeExecution';
 
 const mockUpdateNodeStatus = vi.fn();
 const mockSetPhase = vi.fn();
+const mockAddLog = vi.fn();
+const mockClearLogs = vi.fn();
+const mockStoreLogs: unknown[] = [];
 
 const makeMockGraph = () => ({
   nodes: [
@@ -98,12 +101,18 @@ vi.mock('../../stores/useForgeStore', () => {
         get graph() { return mockGraph; },
         updateNodeStatus: mockUpdateNodeStatus,
         setPhase: mockSetPhase,
+        addLog: (...args: unknown[]) => { mockAddLog(...args); mockStoreLogs.push(args[0]); },
+        clearLogs: mockClearLogs,
+        logs: mockStoreLogs,
       }),
     {
       getState: () => ({
         graph: mockGraph,
         updateNodeStatus: mockUpdateNodeStatus,
         setPhase: mockSetPhase,
+        addLog: mockAddLog,
+        clearLogs: mockClearLogs,
+        logs: mockStoreLogs,
       }),
     },
   );
@@ -131,6 +140,7 @@ describe('ForgeExecution', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGraph = makeMockGraph();
+    mockStoreLogs.length = 0;
   });
 
   it('should render execution view with progress bar', () => {
@@ -251,5 +261,24 @@ describe('ForgeExecution', () => {
     expect(entries.length).toBe(2);
     // Each entry has a unique key — if IDs were not unique, React would warn and rendering would be wrong
     expect(entries[0]).not.toBe(entries[1]);
+  });
+
+  it('should display ETA in the top bar', () => {
+    render(<ForgeExecution />);
+    expect(screen.getByTestId('forge-execution-eta')).toBeDefined();
+  });
+
+  it('should persist log entries to the store via addLog', () => {
+    render(<ForgeExecution />);
+    // Simulate a forge:progress message
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'forge:progress', objectName: 'Account', status: 'running', progress: 50, message: 'Processing Account' },
+        }),
+      );
+    });
+    // Verify the store's addLog was called
+    expect(mockAddLog).toHaveBeenCalled();
   });
 });
