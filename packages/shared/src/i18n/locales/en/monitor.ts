@@ -42,4 +42,55 @@ export const monitor: TranslationRecord = {
   orgApexClasses: 'Apex Classes',
   orgFlows: 'Active Flows',
   orgInstance: 'Instance',
+
+  // Error Logs panel (WIRE-01)
+  'errorLogs.title': 'Error Logs',
+  'errorLogs.empty': 'No recent errors detected',
+  'errorLogs.totalCount': '{{count}} error(s)',
+  'errorLogs.byType': 'Errors by Type',
+  'errorLogs.stackTrace': 'Stack Trace',
+  'errorLogs.timestamp': 'Timestamp',
+  'errorLogs.user': 'User',
+  'errorLogs.errorType': 'Error Type',
+  'errorLogs.message': 'Message',
+
+  // Sessions panel (WIRE-02)
+  'sessions.title': 'Active Sessions',
+  'sessions.empty': 'No active sessions',
+  'sessions.activeUsers': '{{count}} active user(s)',
+  'sessions.sessionType': 'Session Type',
+  'sessions.loginTime': 'Login Time',
+  'sessions.sourceIp': 'Source IP',
+  'sessions.username': 'Username',
+
+  // Apex Insights panel (WIRE-03)
+  'apexInsights.title': 'Apex Insights',
+  'apexInsights.empty': 'No Apex log data available',
+  'apexInsights.topIssues': 'Top Issues',
+  'apexInsights.duration': 'Duration',
+  'apexInsights.soqlQueries': 'SOQL Queries',
+  'apexInsights.dmlStatements': 'DML Statements',
+  'apexInsights.heapUsed': 'Heap Used',
+  'apexInsights.cpuTime': 'CPU Time',
+  'apexInsights.noIssues': 'No performance issues detected',
+
+  // Sandbox Refresh panel (WIRE-04)
+  'sandboxRefresh.title': 'Sandbox Refreshes',
+  'sandboxRefresh.empty': 'No sandbox refresh events',
+  'sandboxRefresh.inProgress': 'Refresh in progress',
+  'sandboxRefresh.sandboxName': 'Sandbox Name',
+  'sandboxRefresh.status': 'Status',
+  'sandboxRefresh.refreshDate': 'Refresh Date',
+  'sandboxRefresh.sourceOrg': 'Source Org',
+
+  // Health Check (WIRE-05 -- used in refresh response display)
+  'healthCheck.title': 'Org Health Check',
+  'healthCheck.overall': 'Overall',
+  'healthCheck.apiLimits': 'API Limits',
+  'healthCheck.storage': 'Storage',
+  'healthCheck.jobs': 'Active Jobs',
+  'healthCheck.errors': 'Recent Errors',
+  'healthCheck.healthy': 'Healthy',
+  'healthCheck.degraded': 'Degraded',
+  'healthCheck.critical': 'Critical',
 };

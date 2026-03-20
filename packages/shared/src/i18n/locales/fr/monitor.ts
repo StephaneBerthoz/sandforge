@@ -42,4 +42,55 @@ export const monitor: TranslationRecord = {
   orgApexClasses: 'Classes Apex',
   orgFlows: 'Flows actifs',
   orgInstance: 'Instance',
+
+  // Error Logs panel (WIRE-01)
+  'errorLogs.title': 'Journal des erreurs',
+  'errorLogs.empty': 'Aucune erreur recente detectee',
+  'errorLogs.totalCount': '{{count}} erreur(s)',
+  'errorLogs.byType': 'Erreurs par type',
+  'errorLogs.stackTrace': 'Trace de pile',
+  'errorLogs.timestamp': 'Horodatage',
+  'errorLogs.user': 'Utilisateur',
+  'errorLogs.errorType': "Type d'erreur",
+  'errorLogs.message': 'Message',
+
+  // Sessions panel (WIRE-02)
+  'sessions.title': 'Sessions actives',
+  'sessions.empty': 'Aucune session active',
+  'sessions.activeUsers': '{{count}} utilisateur(s) actif(s)',
+  'sessions.sessionType': 'Type de session',
+  'sessions.loginTime': 'Heure de connexion',
+  'sessions.sourceIp': 'IP source',
+  'sessions.username': "Nom d'utilisateur",
+
+  // Apex Insights panel (WIRE-03)
+  'apexInsights.title': 'Analyse Apex',
+  'apexInsights.empty': 'Aucune donnee de log Apex disponible',
+  'apexInsights.topIssues': 'Problemes principaux',
+  'apexInsights.duration': 'Duree',
+  'apexInsights.soqlQueries': 'Requetes SOQL',
+  'apexInsights.dmlStatements': 'Instructions DML',
+  'apexInsights.heapUsed': 'Heap utilise',
+  'apexInsights.cpuTime': 'Temps CPU',
+  'apexInsights.noIssues': 'Aucun probleme de performance detecte',
+
+  // Sandbox Refresh panel (WIRE-04)
+  'sandboxRefresh.title': 'Rafraichissements Sandbox',
+  'sandboxRefresh.empty': 'Aucun rafraichissement de sandbox',
+  'sandboxRefresh.inProgress': 'Rafraichissement en cours',
+  'sandboxRefresh.sandboxName': 'Nom du sandbox',
+  'sandboxRefresh.status': 'Statut',
+  'sandboxRefresh.refreshDate': 'Date de rafraichissement',
+  'sandboxRefresh.sourceOrg': 'Org source',
+
+  // Health Check (WIRE-05)
+  'healthCheck.title': 'Bilan de sante Org',
+  'healthCheck.overall': 'Global',
+  'healthCheck.apiLimits': 'Limites API',
+  'healthCheck.storage': 'Stockage',
+  'healthCheck.jobs': 'Jobs actifs',
+  'healthCheck.errors': 'Erreurs recentes',
+  'healthCheck.healthy': 'Sain',
+  'healthCheck.degraded': 'Degrade',
+  'healthCheck.critical': 'Critique',
 };
