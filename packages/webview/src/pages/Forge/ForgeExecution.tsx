@@ -27,13 +27,6 @@ const STATUS_KEYS: Record<ExecutionStatus, string> = {
   aborted: 'forge.aborted',
 };
 
-/** Generate a unique id for a log entry. */
-let logIdCounter = 0;
-function nextLogId(): string {
-  logIdCounter += 1;
-  return `log-${logIdCounter}`;
-}
-
 /**
  * Forge execution mission-control view.
  *
@@ -42,6 +35,13 @@ function nextLogId(): string {
  */
 export const ForgeExecution: React.FC = () => {
   const { t } = useTranslation();
+
+  /** Ref-based log ID counter — resets naturally on component remount. */
+  const logIdRef = useRef(0);
+  const nextLogId = useCallback(() => {
+    logIdRef.current += 1;
+    return `log-${logIdRef.current}`;
+  }, []);
   const graph = useForgeStore((s) => s.graph);
   const updateNodeStatus = useForgeStore((s) => s.updateNodeStatus);
   const setPhase = useForgeStore((s) => s.setPhase);
@@ -84,7 +84,7 @@ export const ForgeExecution: React.FC = () => {
       ...prev,
       { id: nextLogId(), timestamp: Date.now(), level, message },
     ]);
-  }, []);
+  }, [nextLogId]);
 
   // ---- Bridge message listener ----
   useEffect(() => {
@@ -255,7 +255,7 @@ export const ForgeExecution: React.FC = () => {
                   {t('forge.logFilterWarnings')}
                 </button>
               </div>
-              <LogStream entries={logs} filter={logFilter} className="flex-1" />
+              <LogStream entries={logs} filter={logFilter} hideFilterBar className="flex-1" />
             </div>
           }
         />

@@ -18,6 +18,8 @@ export interface LogStreamProps {
   filter?: LogFilter;
   maxEntries?: number;
   autoScroll?: boolean;
+  /** When true, hides the internal filter tab bar (parent provides its own). */
+  hideFilterBar?: boolean;
   className?: string;
 }
 
@@ -65,6 +67,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
   filter: filterProp = 'all',
   maxEntries = 500,
   autoScroll = true,
+  hideFilterBar = false,
   className,
 }) => {
   const [activeFilter, setActiveFilter] = useState<LogFilter>(filterProp);
@@ -100,24 +103,26 @@ export const LogStream: React.FC<LogStreamProps> = ({
       )}
     >
       {/* Filter tabs */}
-      <div className="flex gap-2 px-3 py-2 border-b border-subtle">
-        {FILTER_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            data-testid={tab.testId}
-            onClick={() => setActiveFilter(tab.key)}
-            className={cn(
-              'px-2 py-1 text-xs transition-colors',
-              activeFilter === tab.key
-                ? 'text-text-primary font-semibold border-b-2 border-forge'
-                : 'text-text-muted hover:text-text-secondary',
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {!hideFilterBar && (
+        <div className="flex gap-2 px-3 py-2 border-b border-subtle">
+          {FILTER_TABS.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              data-testid={tab.testId}
+              onClick={() => setActiveFilter(tab.key)}
+              className={cn(
+                'px-2 py-1 text-xs transition-colors',
+                activeFilter === tab.key
+                  ? 'text-text-primary font-semibold border-b-2 border-forge'
+                  : 'text-text-muted hover:text-text-secondary',
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Log entries */}
       <div
