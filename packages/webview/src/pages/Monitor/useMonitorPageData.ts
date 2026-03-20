@@ -205,7 +205,9 @@ export function useMonitorPageData(): MonitorPageData {
     const apiTrend = trends['DailyApiRequests'];
     if (!apiTrend || apiTrend.sparklineData.length < 2) return [];
     return apiTrend.sparklineData.map((value, i) => ({
-      timestamp: Date.now() - (apiTrend.sparklineData.length - 1 - i) * 15 * 60 * 1000,
+      timestamp: apiTrend.timestamps?.[i]
+        ? new Date(apiTrend.timestamps[i]).getTime()
+        : Date.now() - (apiTrend.sparklineData.length - 1 - i) * 15 * 60 * 1000,
       value,
     }));
   }, [trends]);
@@ -224,7 +226,8 @@ export function useMonitorPageData(): MonitorPageData {
         name: key.replace(/([A-Z])/g, ' $1').trim(),
         color: colorMap[key] ?? 'var(--sf-accent)',
         data: td.sparklineData.map((value, i) => ({
-          timestamp: new Date(Date.now() - (td.sparklineData.length - 1 - i) * 15 * 60 * 1000).toISOString(),
+          timestamp: td.timestamps?.[i]
+            ?? new Date(Date.now() - (td.sparklineData.length - 1 - i) * 15 * 60 * 1000).toISOString(),
           value,
         })),
       }));
