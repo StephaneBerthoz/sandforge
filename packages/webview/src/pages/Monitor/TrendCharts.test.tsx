@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
-import type { TrendSeries } from './TrendCharts';
-import { TrendCharts } from './TrendCharts';
+import type { TrendSeries, TrendDataPoint } from './TrendCharts';
+import { TrendCharts, buildChartPath, formatTime } from './TrendCharts';
 
 const baseSeries: TrendSeries[] = [
   {
@@ -99,5 +99,63 @@ describe('TrendCharts', () => {
     expect(screen.getByTestId('y-label-50')).toBeDefined();
     expect(screen.getByTestId('y-label-75')).toBeDefined();
     expect(screen.getByTestId('y-label-100')).toBeDefined();
+  });
+});
+
+describe('buildChartPath', () => {
+  it('should use time-proportional x-coordinates for non-uniform timestamps', () => {
+    // 3 points: t=0min, t=10min, t=60min (non-uniform spacing)
+    const data: TrendDataPoint[] = [
+      { timestamp: '2024-01-01T10:00:00Z', value: 50 },
+      { timestamp: '2024-01-01T10:10:00Z', value: 50 },
+      { timestamp: '2024-01-01T11:00:00Z', value: 50 },
+    ];
+    const path = buildChartPath(data, 600, 200);
+    // First point should be at PADDING_LEFT = 40
+    expect(path).toContain('M 40,');
+    // Second point: 10min / 60min range = 1/6 of usableWidth (550), so x = 40 + 91.667 ~ 131.667
+    // Third point should be at the end: 40 + 550 = 590
+    expect(path).toContain('590,');
+    // The second point should NOT be at the midpoint (315) since timestamps are non-uniform
+    expect(path).not.toContain(' 315,');
+  });
+
+  it('should return empty string for less than 2 data points', () => {
+    expect(buildChartPath([], 600, 200)).toBe('');
+    expect(buildChartPath([{ timestamp: '2024-01-01T10:00:00Z', value: 50 }], 600, 200)).toBe('');
+  });
+
+  it('should fall back to evenly-spaced when all timestamps are identical', () => {
+    const data: TrendDataPoint[] = [
+      { timestamp: '2024-01-01T10:00:00Z', value: 30 },
+      { timestamp: '2024-01-01T10:00:00Z', value: 60 },
+    ];
+    const path = buildChartPath(data, 600, 200);
+    // Should produce a valid L path with endpoints at PADDING_LEFT and PADDING_LEFT + usableWidth
+    expect(path).toContain('M 40,');
+    expect(path).toContain('L 590,');
+  });
+});
+
+describe('formatTime', () => {
+  it('should show only time for intra-day (multiDay=false)', () => {
+    const result = formatTime('2024-03-19T14:30:00Z', false);
+    // Should contain hour:minute pattern but not a month name
+    expect(result).toMatch(/\d{2}:\d{2}/);
+  });
+
+  it('should show date + time for multi-day range (multiDay=true)', () => {
+    const result = formatTime('2024-03-19T14:30:00Z', true);
+    // Should contain a month abbreviation (locale-dependent, but "Mar" or equivalent)
+    expect(result).toMatch(/\d{2}:\d{2}/);
+    // The result should be longer than time-only since it includes date components
+    const timeOnly = formatTime('2024-03-19T14:30:00Z', false);
+    expect(result.length).toBeGreaterThan(timeOnly.length);
+  });
+
+  it('should default to time-only when multiDay is not provided', () => {
+    const result = formatTime('2024-03-19T14:30:00Z');
+    const explicit = formatTime('2024-03-19T14:30:00Z', false);
+    expect(result).toBe(explicit);
   });
 });
