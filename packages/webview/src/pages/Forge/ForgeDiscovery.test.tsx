@@ -9,6 +9,8 @@ import type { ForgeGraph, ForgeGraphNode } from '../../stores/useForgeStore';
 const mockSetPhase = vi.fn();
 const mockToggleNodeIncluded = vi.fn();
 const mockToggleAnonymizeField = vi.fn();
+const mockSetAllNodesIncluded = vi.fn();
+const mockSendMessage = vi.fn();
 
 function makeNode(overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
   return {
@@ -51,14 +53,15 @@ const defaultGraph: ForgeGraph = {
 };
 
 let mockGraph: ForgeGraph | null = defaultGraph;
+let mockConfig: { inputMode: string; depth: string; sourceOrgId: string; targetOrgId: string; anonymizePII: boolean; skipEmpty: boolean; batchSize: string } | null = null;
 
 const mockSetGraph = vi.fn();
 
 vi.mock('../../stores/useForgeStore', () => {
   const defaultState = {
     get graph() { return mockGraph; },
+    get config() { return mockConfig; },
     phase: 'discovery' as const,
-    config: null,
     templates: [],
     result: null,
     history: [],
@@ -68,6 +71,7 @@ vi.mock('../../stores/useForgeStore', () => {
     updateNodeStatus: vi.fn(),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     toggleAnonymizeField: (...args: unknown[]) => mockToggleAnonymizeField(...args),
+    setAllNodesIncluded: (...args: unknown[]) => mockSetAllNodesIncluded(...args),
     setResult: vi.fn(),
     reset: vi.fn(),
   };
@@ -78,6 +82,14 @@ vi.mock('../../stores/useForgeStore', () => {
   );
 
   return { useForgeStore: store };
+});
+
+vi.mock('../../hooks/useMessageBus', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('../../hooks/useMessageBus');
+  return {
+    ...actual,
+    useSendMessage: () => mockSendMessage,
+  };
 });
 
 // Mock LiveGraph to avoid ReactFlow complexity in unit tests
@@ -118,7 +130,10 @@ describe('ForgeDiscovery', () => {
     mockSetGraph.mockClear();
     mockToggleNodeIncluded.mockClear();
     mockToggleAnonymizeField.mockClear();
+    mockSetAllNodesIncluded.mockClear();
+    mockSendMessage.mockClear();
     mockGraph = defaultGraph;
+    mockConfig = null;
   });
 
   it('should render with forge-discovery test id', () => {
@@ -214,5 +229,75 @@ describe('ForgeDiscovery', () => {
     // Click the include toggle
     fireEvent.click(screen.getByTestId('node-include-toggle'));
     expect(mockToggleNodeIncluded).toHaveBeenCalledWith('Account');
+  });
+
+  // UX-20: Retry discovery
+  it('should show retry button on error state when config is set', async () => {
+    mockGraph = null;
+    mockConfig = {
+      inputMode: 'record',
+      depth: 'direct',
+      sourceOrgId: 'src',
+      targetOrgId: 'tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    };
+    render(<ForgeDiscovery />);
+    // Simulate error
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'test-retry',
+            type: 'forge:discover:error',
+            timestamp: Date.now(),
+            payload: { message: 'Discovery failed' },
+          },
+        }),
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('forge-retry-discovery')).toBeDefined();
+    });
+    // Click retry
+    fireEvent.click(screen.getByTestId('forge-retry-discovery'));
+    expect(mockSendMessage).toHaveBeenCalled();
+  });
+
+  // UX-11: View mode toggle
+  it('should toggle between graph and table view', () => {
+    render(<ForgeDiscovery />);
+    // Default view shows graph
+    expect(screen.getByTestId('live-graph')).toBeDefined();
+    // Switch to table
+    fireEvent.click(screen.getByTestId('forge-view-table'));
+    expect(screen.getByTestId('forge-table-view')).toBeDefined();
+    // Switch back to graph
+    fireEvent.click(screen.getByTestId('forge-view-graph'));
+    expect(screen.getByTestId('live-graph')).toBeDefined();
+  });
+
+  // UX-21: Select All
+  it('should call setAllNodesIncluded(true) when Select All is clicked', () => {
+    render(<ForgeDiscovery />);
+    fireEvent.click(screen.getByTestId('forge-select-all'));
+    expect(mockSetAllNodesIncluded).toHaveBeenCalledWith(true);
+  });
+
+  // UX-21: Deselect All
+  it('should call setAllNodesIncluded(false) when Deselect All is clicked', () => {
+    render(<ForgeDiscovery />);
+    fireEvent.click(screen.getByTestId('forge-deselect-all'));
+    expect(mockSetAllNodesIncluded).toHaveBeenCalledWith(false);
+  });
+
+  // UX-22: Search input
+  it('should render search input and accept input', () => {
+    render(<ForgeDiscovery />);
+    const searchInput = screen.getByTestId('forge-node-search');
+    expect(searchInput).toBeDefined();
+    fireEvent.change(searchInput, { target: { value: 'Account' } });
+    expect((searchInput as HTMLInputElement).value).toBe('Account');
   });
 });

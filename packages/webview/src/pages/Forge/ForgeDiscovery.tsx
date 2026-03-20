@@ -1,18 +1,21 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Play, Box, Database, HardDrive, Clock, Loader2 } from 'lucide-react';
+import { ArrowLeft, Play, Box, Database, HardDrive, Clock, Loader2, LayoutGrid, List, RotateCcw, CheckSquare, XSquare, Search } from 'lucide-react';
 import { SplitView } from '../../components/ui/SplitView';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ForgeNodeDetail } from './ForgeNodeDetail';
+import { ForgeTableView } from './ForgeTableView';
 
 import { Button } from '../../components/ui/Button';
 import { useForgeStore } from '../../stores/useForgeStore';
-import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
+import type { ForgeGraphNode, ForgeGraph, ForgeConfig } from '../../stores/useForgeStore';
 import type { BaseMessage } from '@sandforge/shared';
-import { useMessageListener } from '../../hooks/useMessageBus';
+import { useMessageListener, useSendMessage } from '../../hooks/useMessageBus';
+import { buildMessage } from '../../bridge/messageHelpers';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { formatSizeMB, formatDurationSec } from '../../utils/formatters';
+import { cn } from '../../theme';
 
 /**
  * Main discovery phase component for the Forge wizard.
@@ -28,9 +31,15 @@ export const ForgeDiscovery: React.FC = () => {
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
   const toggleAnonymizeField = useForgeStore((s) => s.toggleAnonymizeField);
 
+  const config = useForgeStore((s) => s.config);
+  const setAllNodesIncluded = useForgeStore((s) => s.setAllNodesIncluded);
+  const sendMessage = useSendMessage();
+
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
   const [loading, setLoading] = useState(!graph);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'graph' | 'table'>('graph');
+  const [searchQuery, setSearchQuery] = useState('');
 
   /** Listen for graph discovery response from the extension. */
   useMessageListener<BaseMessage & { payload: { graph: ForgeGraph } }>(
@@ -89,6 +98,18 @@ export const ForgeDiscovery: React.FC = () => {
     [selectedNodeName, toggleAnonymizeField],
   );
 
+  /** Auto-select first matching node when searching in graph view. */
+  useEffect(() => {
+    if (searchQuery && graph && viewMode === 'graph') {
+      const match = graph.nodes.find((n) =>
+        n.objectApiName.toLowerCase().includes(searchQuery.toLowerCase()),
+      );
+      if (match) {
+        setSelectedNodeName(match.objectApiName);
+      }
+    }
+  }, [searchQuery, graph, viewMode]);
+
   /** Computed stats from the graph. */
   const stats = useMemo(() => {
     if (!graph) {
@@ -115,7 +136,7 @@ export const ForgeDiscovery: React.FC = () => {
     );
   }
 
-  // Error or no graph
+  // Error or no graph (UX-20: retry discovery)
   if (!graph) {
     return (
       <div
@@ -123,9 +144,25 @@ export const ForgeDiscovery: React.FC = () => {
         className="flex flex-col items-center justify-center gap-4 py-16 text-text-secondary"
       >
         <p>{error ?? t('common.noData')}</p>
-        <Button variant="secondary" onClick={handleBack} icon={<ArrowLeft size={14} />}>
-          {t('common.back')}
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={handleBack} icon={<ArrowLeft size={14} />}>
+            {t('common.back')}
+          </Button>
+          {error && config && (
+            <Button
+              variant="primary"
+              data-testid="forge-retry-discovery"
+              onClick={() => {
+                setLoading(true);
+                setError(null);
+                sendMessage(buildMessage<{ config: ForgeConfig }>('forge:discover', { config }));
+              }}
+              icon={<RotateCcw size={14} />}
+            >
+              {t('forge.retryDiscovery')}
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -138,16 +175,72 @@ export const ForgeDiscovery: React.FC = () => {
       initial="hidden"
       animate="visible"
     >
-      {/* Split view: graph + detail */}
+      {/* UX-11/UX-22: View mode toggle + search input */}
+      <motion.div variants={slideUp} className="flex items-center gap-2">
+        <div className="flex rounded-md border border-subtle overflow-hidden">
+          <button
+            type="button"
+            data-testid="forge-view-graph"
+            onClick={() => setViewMode('graph')}
+            className={cn(
+              'px-2.5 py-1.5 text-xs transition-colors',
+              viewMode === 'graph' ? 'bg-forge text-white' : 'text-text-muted hover:text-text-secondary',
+            )}
+            aria-pressed={viewMode === 'graph'}
+          >
+            <LayoutGrid size={14} className="inline mr-1" />
+            {t('forge.graphView')}
+          </button>
+          <button
+            type="button"
+            data-testid="forge-view-table"
+            onClick={() => setViewMode('table')}
+            className={cn(
+              'px-2.5 py-1.5 text-xs transition-colors',
+              viewMode === 'table' ? 'bg-forge text-white' : 'text-text-muted hover:text-text-secondary',
+            )}
+            aria-pressed={viewMode === 'table'}
+          >
+            <List size={14} className="inline mr-1" />
+            {t('forge.tableView')}
+          </button>
+        </div>
+        <div className="relative flex-1 max-w-xs">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+          <input
+            type="text"
+            data-testid="forge-node-search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={t('forge.searchNodes')}
+            className={cn(
+              'w-full pl-8 pr-3 py-1.5 rounded-md text-xs',
+              'bg-[var(--vscode-input-background,#1e1e3a)]',
+              'text-[var(--vscode-input-foreground,#d4d4d4)]',
+              'border border-[var(--vscode-input-border,#3a3a5c)]',
+              'focus:outline-none focus:border-forge/50',
+            )}
+          />
+        </div>
+      </motion.div>
+
+      {/* Split view: graph/table + detail */}
       <motion.div variants={slideUp} className="h-[480px]">
         <SplitView
           ratio="60/40"
           left={
-            <LiveGraph
-              graph={graph}
-              onNodeClick={handleNodeClick}
-              className="h-full"
-            />
+            viewMode === 'graph' ? (
+              <LiveGraph graph={graph} onNodeClick={handleNodeClick} className="h-full" />
+            ) : (
+              <ForgeTableView
+                graph={graph}
+                selectedNodeName={selectedNodeName}
+                onNodeClick={handleNodeClick}
+                onToggleIncluded={(name) => toggleNodeIncluded(name)}
+                searchQuery={searchQuery}
+                className="h-full overflow-auto"
+              />
+            )
           }
           right={
             selectedNode ? (
@@ -214,6 +307,27 @@ export const ForgeDiscovery: React.FC = () => {
         >
           {t('common.back')}
         </Button>
+        {/* UX-21: Select All / Deselect All */}
+        <div className="flex items-center gap-2">
+          <Button
+            data-testid="forge-select-all"
+            variant="ghost"
+            size="sm"
+            onClick={() => setAllNodesIncluded(true)}
+            icon={<CheckSquare size={14} />}
+          >
+            {t('forge.selectAll')}
+          </Button>
+          <Button
+            data-testid="forge-deselect-all"
+            variant="ghost"
+            size="sm"
+            onClick={() => setAllNodesIncluded(false)}
+            icon={<XSquare size={14} />}
+          >
+            {t('forge.deselectAll')}
+          </Button>
+        </div>
         <Button
           data-testid="forge-execute-btn"
           variant="primary"
