@@ -1,128 +1,116 @@
-# SandForge -- Forge your Salesforce Sandboxes
+# SandForge — Forge your Salesforce Sandboxes
 
-**The all-in-one Salesforce sandbox ETL toolkit for VSCode.** Seed test data with AI, sync orgs bidirectionally, compare metadata, monitor limits, manage bulk operations, and automate pipelines -- all from a single WebView UI. No Command Palette required.
-
----
-
-## Screenshots
-
-![Home Dashboard](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/home.png)
-
-![Seed Wizard](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/seed.png)
-
-![Sync Field Mapping](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/sync.png)
-
-![Monitor Dashboard](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/monitor.png)
-
-![Autopilot Execution](https://raw.githubusercontent.com/sandforge/sandforge/master/assets/screenshots/autopilot.png)
+**The all-in-one Salesforce sandbox ETL toolkit for VSCode.** Seed test data with AI, sync orgs bidirectionally, compare metadata, monitor limits, manage bulk operations, and automate pipelines — all from a single WebView UI. No Command Palette required.
 
 ---
 
 ## Getting Started
 
-1. **Install** -- Search for **SandForge** in the Extensions tab (`Ctrl+Shift+X`) and click Install
-2. **Connect** -- Click the SandForge icon in the Activity Bar, then go to Organizations and import your Salesforce CLI-authenticated orgs
-3. **Explore** -- The Home Dashboard shows your connected orgs, quick actions, and recent operations
-4. **Seed** -- Navigate to Seed, select an object, set a record count, and generate test data in seconds
-
-For a complete walkthrough, see the [Getting Started guide](https://github.com/sandforge/sandforge/blob/master/docs/getting-started.md).
+1. **Install** — Search for **SandForge** in the Extensions tab (`Ctrl+Shift+X`) and click Install
+2. **Connect** — Click the SandForge icon in the Activity Bar, then go to Organizations and import your Salesforce CLI-authenticated orgs
+3. **Explore** — The Home Dashboard shows your connected orgs, quick actions, and recent operations
+4. **Seed** — Navigate to Seed, select an object, set a record count, and generate test data in seconds
 
 ---
 
 ## Features
 
-### Seed -- AI-Powered Data Generation
+### Seed — AI-Powered Data Generation
 
 AI-powered and template-driven data generation with full dependency resolution.
 
-- **Guided Wizard** -- 4-step flow: Select objects, configure fields, execute, view results
-- **AI Generation** -- LLM-backed realistic data with context-aware field values (OpenAI, Anthropic, Ollama)
-- **NL2SOQL** -- Describe what you need in plain English and get a validated SOQL query
-- **Faker Profiles** -- 30+ locale-aware generators for names, addresses, emails, and more
-- **Forge Mode** -- Graph-based discovery with source-to-target org cloning and PII anonymization
-- **Dependency Resolution** -- Automatic topological sort of parent-child relationships before insert
+- **Guided Wizard** — 4-step flow: Select objects, configure fields, execute, view results
+- **AI Generation** — LLM-backed realistic data with context-aware field values (OpenAI, Anthropic, Ollama)
+- **NL2SOQL** — Describe what you need in plain English and get a validated SOQL query
+- **Faker Profiles** — 30+ locale-aware generators for names, addresses, emails, and more
+- **Forge Mode** — Graph-based discovery with source-to-target org cloning and PII anonymization
+- **Dependency Resolution** — Automatic topological sort of parent-child relationships before insert
 
-### Sync -- Bidirectional Data Synchronization
+### Sync — Bidirectional Data Synchronization
 
 Full-featured data sync with field mapping, transforms, and conflict resolution.
 
-- **4 Sync Modes** -- Full, Incremental, Delta, and Change Data Capture (CDC)
-- **Visual Field Mapper** -- Drag-and-drop mapping with auto-match and 7 mapping types
-- **13 Transforms** -- String, date, number formatting, regex replace, and conditional logic
-- **5 Conflict Strategies** -- Source wins, target wins, newest wins, manual, or auto-merge
-- **Sankey Flow Diagram** -- Visualize data flow before execution
-- **Rollback** -- Automatic savepoints with one-click rollback on partial failures
+- **3 Sync Modes** — Full, Incremental, and Delta
+- **Visual Field Mapper** — Drag-and-drop mapping with auto-match and 7 mapping types
+- **13 Transforms** — String, date, number formatting, regex replace, and conditional logic
+- **5 Conflict Strategies** — Source wins, target wins, newest wins, manual, or auto-merge
+- **Field Type Validation** — Automatic source-to-target type compatibility check before upsert
+- **Sankey Flow Diagram** — Visualize data flow before execution
+- **Rollback** — Automatic savepoints with one-click rollback on partial failures
 
-### Monitor -- Real-Time Org Health
+### Monitor — Real-Time Org Health
 
-Live dashboard for tracking API limits, jobs, and org health.
+Live dashboard for tracking API limits, jobs, storage, and org health.
 
-- **Health Score Gauge** -- Composite metric aggregating limits, jobs, storage, and error rates
-- **API Limits Tracking** -- Live REST, Bulk, and Metadata API quota consumption
-- **Governor Limits** -- Expandable list of all limits sorted by usage percentage
-- **Trend Charts** -- Historical trends with predictive analytics
-- **Anomaly Detection** -- AI-powered statistical outlier detection
-- **Live Operations** -- Real-time progress for running SandForge operations
+- **Health Score Gauge** — Composite metric aggregating limits, jobs, storage, and error rates
+- **API Limits Tracking** — Live REST, Bulk, and Metadata API quota consumption with CSV export
+- **API Usage Breakdown** — Per-category usage with progress bars and warning/critical badges
+- **Storage Breakdown** — Per-object record count donut chart
+- **Deployment Timeline** — Recent deployments with status indicators
+- **Governor Limits** — Expandable list of all limits sorted by usage percentage
+- **Trend Charts** — Historical trends with predictive analytics
+- **Anomaly Detection** — AI-powered statistical outlier detection
+- **Live Operations** — Real-time progress for running SandForge operations
+- **Dashboard Refresh UX** — Panel-level loading, stale data indicator, error recovery, connection loss warning
 
-### Compare -- Metadata Diff and Permissions
+### Compare — Metadata Diff and Permissions
 
 Side-by-side comparison with six analysis tabs.
 
-- **Metadata Diff** -- Side-by-side comparison of fields, objects, flows, and Apex classes
-- **Permission Matrix** -- Visual CRUD and FLS grid across profiles and permission sets
-- **Drift Detection** -- Flag configuration drift between orgs
-- **Impact Graph** -- Interactive dependency visualization for change impact analysis
-- **Deploy from Diff** -- Cherry-pick and deploy individual metadata changes
-- **Schema Advice** -- AI-powered schema analysis with actionable recommendations
+- **Metadata Diff** — Side-by-side comparison of fields, objects, flows, and Apex classes
+- **Permission Matrix** — Visual CRUD and FLS grid across profiles and permission sets
+- **Drift Detection** — Flag configuration drift between orgs
+- **Impact Graph** — Interactive dependency visualization for change impact analysis
+- **Deploy from Diff** — Cherry-pick and deploy individual metadata changes
+- **Schema Advice** — AI-powered schema analysis with actionable recommendations
 
-### DataOps -- Backup, Compliance, and Quality
+### DataOps — Backup, Compliance, and Quality
 
 Full data lifecycle management with compliance built in.
 
-- **Backup and Restore** -- Full or incremental backups with point-in-time restore
-- **Anonymization** -- PII detection and masking with pre-built GDPR/CCPA/HIPAA templates
-- **Compliance (GDPR)** -- Data Subject Request workflows, audit reports
-- **Data Quality** -- Rule-based validation for completeness, format, and consistency
-- **Cleanup** -- AI-recommended removal of stale, orphaned, or duplicate records
+- **Backup and Restore** — Full or incremental backups with point-in-time restore
+- **Anonymization** — PII detection and masking with pre-built GDPR/CCPA/HIPAA templates
+- **Compliance (GDPR)** — Data Subject Request workflows, audit reports
+- **Data Quality** — Rule-based validation for completeness, format, and consistency
+- **Cleanup** — AI-recommended removal of stale, orphaned, or duplicate records
 
-### Automation -- Visual Pipeline Builder
+### Automation — Visual Pipeline Builder
 
-Build, schedule, and run multi-step workflows visually.
+Build and run multi-step workflows visually.
 
-- **Drag-and-Drop Canvas** -- Compose pipelines from 15 step types
-- **AI Pipeline Generator** -- Describe your workflow in natural language
-- **Triggers** -- Manual, scheduled (cron), webhook, file watch, record change
-- **Scheduler Calendar** -- Visual timeline with timezone support
-- **Pipeline Marketplace** -- Pre-configured templates organized by category
-- **Execution History** -- Searchable log with per-step timing and error details
+- **Drag-and-Drop Canvas** — Compose pipelines from 15 step types
+- **AI Pipeline Generator** — Describe your workflow in natural language
+- **Triggers** — Manual, scheduled (cron), webhook, file watch, record change
+- **Pipeline Marketplace** — Pre-configured templates organized by category
+- **Execution History** — Searchable log with per-step timing and error details
 
 ### AI Assistant
 
 Intelligent assistance across every module.
 
-- **NL2SOQL** -- Natural language to SOQL translation
-- **AI Data Generation** -- Context-aware realistic data generation
-- **Schema Advice** -- AI-powered schema analysis and recommendations
-- **Pipeline Generator** -- Build automation pipelines from natural language
-- **Predictive Analytics** -- Trend forecasting for API limits and storage
+- **NL2SOQL** — Natural language to SOQL translation
+- **AI Data Generation** — Context-aware realistic data generation
+- **Schema Advice** — AI-powered schema analysis and recommendations
+- **Pipeline Generator** — Build automation pipelines from natural language
+- **Predictive Analytics** — Trend forecasting for API limits and storage
 
-### Grappe Engine (Parallel Processing)
+### Robustness
 
-Automatic parallel processing for large datasets.
+Production-grade reliability for real-world scale.
 
-- **Auto-Activation** -- Kicks in above configurable threshold (default: 10K records)
-- **7 Partitioning Strategies** -- Round-robin, by-record-type, by-parent, by-hash, and more
-- **Back-Pressure Management** -- Throttling when API limits approach critical levels
-- **Checkpoint and Recovery** -- Resume from last checkpoint after interruption
+- **Bulk API 2.0** — Automatic switch for operations above 200 records
+- **Retry with Backoff** — Exponential backoff with smart error classification (max 3 retries)
+- **Configurable Timeouts** — Per-operation timeout with AbortController for long-running queries
+- **Parallel Processing** — Grappe engine with 7 partitioning strategies for 10K+ records
 
 ### Production Guard
 
 Safety first for production orgs.
 
-- **3 Safety Tiers** -- Configurable protection levels per org
-- **Double Confirmation** -- Required for any production operation
-- **DELETE Blocking** -- Production DELETE operations blocked by default
-- **Audit Trail** -- Immutable log of every operation
+- **3 Safety Tiers** — Configurable protection levels per org
+- **Double Confirmation** — Required for any production operation
+- **DELETE Blocking** — Production DELETE operations blocked by default
+- **Audit Trail** — Immutable log of every operation
 
 ---
 
@@ -164,19 +152,6 @@ Safety first for production orgs.
 
 ---
 
-## Documentation
-
-- [Getting Started](https://github.com/sandforge/sandforge/blob/master/docs/getting-started.md) -- Install, connect, first operation
-- [Seed](https://github.com/sandforge/sandforge/blob/master/docs/modules/seed.md) -- AI data generation and templates
-- [Sync](https://github.com/sandforge/sandforge/blob/master/docs/modules/sync.md) -- Bidirectional sync with field mapping
-- [Monitor](https://github.com/sandforge/sandforge/blob/master/docs/modules/monitor.md) -- Org health and API limits
-- [Compare](https://github.com/sandforge/sandforge/blob/master/docs/modules/compare.md) -- Metadata diff and permissions
-- [DataOps](https://github.com/sandforge/sandforge/blob/master/docs/modules/dataops.md) -- Backup, compliance, quality
-- [Automation](https://github.com/sandforge/sandforge/blob/master/docs/modules/automation.md) -- Pipeline builder
-- [FAQ and Troubleshooting](https://github.com/sandforge/sandforge/blob/master/docs/faq.md) -- Common questions and solutions
-
----
-
 ## Internationalization
 
 SandForge supports 6 languages:
@@ -192,16 +167,10 @@ SandForge supports 6 languages:
 
 ---
 
-## Feedback and Issues
-
-Found a bug or have a feature request? Open an issue on [GitHub](https://github.com/sandforge/sandforge/issues).
-
----
-
 ## Author
 
 Crafted with passion by **Stephane Berthoz**.
 
 ## License
 
-[MIT](https://github.com/sandforge/sandforge/blob/master/LICENSE)
+[MIT](LICENSE)
