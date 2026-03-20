@@ -127,6 +127,56 @@ describe('SeedOpsHandler', () => {
     expect(response.payload.message).toBe('connection failed');
   });
 
+  describe('seed:execute dryRun', () => {
+    it('returns synthetic result when dryRun is true without performing inserts', async () => {
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
+        id: 'req-dry-1',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: true },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean; dryRun: boolean; insertedCount: number; results: unknown[] };
+      };
+      expect(response.type).toBe('seed:execute:response');
+      expect(response.correlationId).toBe('req-dry-1');
+      expect(response.payload.dryRun).toBe(true);
+      expect(response.payload.insertedCount).toBe(0);
+      expect(response.payload.results).toEqual([]);
+    });
+
+    it('proceeds with normal execution when dryRun is false', async () => {
+      // When dryRun is false, the handler proceeds to the full execution path
+      // which requires heavy dependencies. We verify it does NOT short-circuit.
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
+        id: 'req-dry-2',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: false },
+      };
+
+      // The handler will eventually fail during lazy imports, but the key
+      // assertion is that it did NOT return the dryRun response
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const responses = postToWebview.mock.calls.map((c) => (c[0] as BaseMessage).type);
+      expect(responses).not.toContain('seed:execute:response');
+    });
+  });
+
   describe('robustness integration', () => {
     it('wraps describe-global with TimeoutManager', async () => {
       const describeGlobalFn = vi.fn().mockResolvedValue({
