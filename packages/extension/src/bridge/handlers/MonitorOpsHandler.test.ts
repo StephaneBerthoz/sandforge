@@ -35,6 +35,11 @@ const FAKE_LIMITS: Record<string, { Max: number; Remaining: number }> = {
   HourlyAsyncReportRuns: { Max: 1200, Remaining: 1100 },
   HourlyTimeBasedWorkflow: { Max: 1000, Remaining: 950 },
   DailySoqlQueries: { Max: 100, Remaining: 90 },
+  DailyWorkflowEmails: { Max: 1000, Remaining: 800 },
+  MassEmail: { Max: 5000, Remaining: 4500 },
+  SingleEmail: { Max: 5000, Remaining: 4800 },
+  HourlyPublishedPlatformEvents: { Max: 50000, Remaining: 49000 },
+  DailyStandardVolumePlatformMessages: { Max: 100000, Remaining: 95000 },
 };
 
 /**
@@ -256,6 +261,60 @@ describe('MonitorOpsHandler', () => {
       const types = postToWebview.mock.calls.map((c: unknown[]) => (c[0] as BaseMessage).type);
       expect(types).toContain('monitor:health-score:response');
       expect(types).toContain('monitor:api-usage:response');
+    });
+  });
+
+  describe('LIMITS-01/02: api-usage includes email and platform event categories', () => {
+    beforeEach(() => {
+      const fakeConn = {
+        limitInfo: { apiUsage: { used: 100, limit: 15000 } },
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        version: '62.0',
+      };
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+      mockCheckApiLimits.mockImplementation(() => undefined);
+    });
+
+    it('api-usage response includes DailyWorkflowEmails, SingleEmail, and HourlyPublishedPlatformEvents', async () => {
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-limits-new',
+        type: 'monitor:api-usage',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-limits' },
+      };
+
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { success: boolean; categories: Array<{ category: string }> };
+      };
+      expect(response.type).toBe('monitor:api-usage:response');
+      expect(response.payload.success).toBe(true);
+
+      const categoryNames = response.payload.categories.map((c) => c.category);
+      expect(categoryNames).toContain('DailyWorkflowEmails');
+      expect(categoryNames).toContain('SingleEmail');
+      expect(categoryNames).toContain('HourlyPublishedPlatformEvents');
+    });
+
+    it('api-usage response has 16 categories total', async () => {
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-limits-count',
+        type: 'monitor:api-usage',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-limits' },
+      };
+
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { categories: Array<{ category: string }> };
+      };
+      expect(response.payload.categories).toHaveLength(16);
     });
   });
 
