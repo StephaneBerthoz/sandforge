@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 ## Current Position
 
 Phase: 03 — UX Enhancements + Performance (IN PROGRESS)
-Plan: 01-01 COMPLETE, 01-02 COMPLETE, 01-03 COMPLETE, 02-01 COMPLETE (UX-01..05, UX-07..10), 02-02 COMPLETE (UX-06), 02-03 COMPLETE (SP-01..06), 03-01 COMPLETE (UX-11, UX-20, UX-21, UX-22), 03-02 COMPLETE (UX-13, UX-14, UX-17, UX-18, UX-19)
-Status: Phase 03 in progress
-Last activity: 2026-03-20 — Plan 03-02 completed (Execution + Results UX: logs persistence, ETA, sort/filter, duration/timestamp, forgeAgain)
+Plan: 01-01 COMPLETE, 01-02 COMPLETE, 01-03 COMPLETE, 02-01 COMPLETE (UX-01..05, UX-07..10), 02-02 COMPLETE (UX-06), 02-03 COMPLETE (SP-01..06), 03-01 COMPLETE (UX-11, UX-20, UX-21, UX-22), 03-02 COMPLETE (UX-13, UX-14, UX-17, UX-18, UX-19), 03-03 COMPLETE (UX-12, UX-15, UX-16, UX-23)
+Status: Phase 03 complete
+Last activity: 2026-03-20 — Plan 03-03 completed (LogStream + OrgCard + Templates: OrgDropdown, copy/export, auto-scroll pause, template CRUD)
 
 Progress: [#####░░░░░] ~35%
 
@@ -73,6 +73,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - sameOrgSelected derived variable exposed at component level for canDiscover guard
 - ForgeTableView uses fireEvent.click (not fireEvent.change) for checkbox toggle tests due to jsdom behavior
 - Search auto-select in graph view uses useEffect with first case-insensitive match on objectApiName
+- ForgeInput template Tabs.Content uses forceMount + CSS hidden for JSDOM test compat and persistent form state
+- OrgDropdown uses containerRef click-outside pattern with sorted connected-first org list
 
 ### Pending Todos
 
@@ -85,5 +87,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Phase 03 in progress, plan 03-02 complete
+Stopped at: Phase 03 complete, plan 03-03 complete
 Resume file: None
