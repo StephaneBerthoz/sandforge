@@ -42,14 +42,44 @@ const PADDING_BOTTOM = 30;
 /** Y-axis label positions (0%, 25%, 50%, 75%, 100%). */
 const Y_LABELS = [0, 25, 50, 75, 100];
 
-/** Format timestamp for x-axis display using locale-aware formatting. */
-function formatTime(ts: string): string {
+/** Milliseconds in 24 hours. */
+const MS_24H = 24 * 60 * 60 * 1000;
+
+/**
+ * Format timestamp for x-axis display using locale-aware formatting.
+ * Shows date + time for multi-day ranges, time-only for intra-day.
+ * @param ts - ISO timestamp string to format.
+ * @param multiDay - Whether the chart spans more than 24 hours.
+ * @returns Formatted time or date+time string.
+ */
+export function formatTime(ts: string, multiDay = false): string {
   const date = new Date(ts);
-  return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+  if (multiDay) {
+    return new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
 }
 
-/** Build a smooth SVG path from data points within the chart area. */
-function buildChartPath(
+/**
+ * Build a smooth SVG path from data points within the chart area.
+ * Uses time-proportional x-positioning when timestamps are valid.
+ * Falls back to evenly-spaced positioning when time range is zero.
+ * @param data - Array of trend data points with timestamps and values.
+ * @param chartWidth - Total chart width in SVG units.
+ * @param chartHeight - Total chart height in SVG units.
+ * @returns SVG path string.
+ */
+export function buildChartPath(
   data: TrendDataPoint[],
   chartWidth: number,
   chartHeight: number,
@@ -59,8 +89,16 @@ function buildChartPath(
   const usableWidth = chartWidth - PADDING_LEFT - PADDING_RIGHT;
   const usableHeight = chartHeight - PADDING_TOP - PADDING_BOTTOM;
 
+  const timestamps = data.map((d) => new Date(d.timestamp).getTime());
+  const minT = timestamps[0];
+  const maxT = timestamps[timestamps.length - 1];
+  const timeRange = maxT - minT;
+
   const points = data.map((d, i) => ({
-    x: PADDING_LEFT + (i / (data.length - 1)) * usableWidth,
+    x:
+      timeRange > 0
+        ? PADDING_LEFT + ((timestamps[i] - minT) / timeRange) * usableWidth
+        : PADDING_LEFT + (i / Math.max(data.length - 1, 1)) * usableWidth,
     y: PADDING_TOP + usableHeight - (d.value / 100) * usableHeight,
   }));
 
@@ -98,7 +136,11 @@ const PERIOD_I18N: Record<PeriodOption, { key: string; defaultValue: string }> =
 };
 
 /** Pure SVG trend charts for monitoring data visualization. */
-export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className, onPeriodChange }) => {
+export const TrendCharts: React.FC<TrendChartsProps> = ({
+  series,
+  className,
+  onPeriodChange,
+}) => {
   const { t } = useTranslation();
   const [activeSeriesId, setActiveSeriesId] = React.useState(series[0]?.id ?? '');
   const [activePeriod, setActivePeriod] = React.useState<PeriodOption>('24h');
@@ -107,10 +149,13 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className, onP
   const tabs = React.useMemo(() => series.map((s) => ({ id: s.id, label: s.name })), [series]);
 
   /** Handle period button clicks. */
-  const handlePeriodChange = React.useCallback((period: PeriodOption): void => {
-    setActivePeriod(period);
-    onPeriodChange?.(period);
-  }, [onPeriodChange]);
+  const handlePeriodChange = React.useCallback(
+    (period: PeriodOption): void => {
+      setActivePeriod(period);
+      onPeriodChange?.(period);
+    },
+    [onPeriodChange],
+  );
 
   const usableHeight = CHART_HEIGHT - PADDING_TOP - PADDING_BOTTOM;
 
@@ -118,16 +163,25 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className, onP
   const threshold75Y = PADDING_TOP + usableHeight - (75 / 100) * usableHeight;
   const threshold90Y = PADDING_TOP + usableHeight - (90 / 100) * usableHeight;
 
-  /** Build x-axis labels from active series timestamps. */
+  /** Build x-axis labels from active series timestamps with time-proportional positioning. */
   const xLabels = React.useMemo(() => {
     if (!activeSeries || activeSeries.data.length === 0) return [];
     const usableWidth = CHART_WIDTH - PADDING_LEFT - PADDING_RIGHT;
+    const timestamps = activeSeries.data.map((d) => new Date(d.timestamp).getTime());
+    const minT = timestamps[0];
+    const maxT = timestamps[timestamps.length - 1];
+    const timeRange = maxT - minT;
+    const multiDay = timeRange > MS_24H;
+
     const maxLabels = 6;
     const step = Math.max(1, Math.floor(activeSeries.data.length / maxLabels));
     const labels: Array<{ x: number; text: string }> = [];
     for (let i = 0; i < activeSeries.data.length; i += step) {
-      const x = PADDING_LEFT + (i / (activeSeries.data.length - 1)) * usableWidth;
-      labels.push({ x, text: formatTime(activeSeries.data[i].timestamp) });
+      const x =
+        timeRange > 0
+          ? PADDING_LEFT + ((timestamps[i] - minT) / timeRange) * usableWidth
+          : PADDING_LEFT + (i / (activeSeries.data.length - 1)) * usableWidth;
+      labels.push({ x, text: formatTime(activeSeries.data[i].timestamp, multiDay) });
     }
     return labels;
   }, [activeSeries]);
@@ -159,8 +213,12 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className, onP
                     fontSize: 'var(--sf-font-size-xs)',
                     borderRadius: 'var(--sf-radius-sm)',
                     border: '1px solid var(--sf-border)',
-                    backgroundColor: activePeriod === period ? 'var(--sf-accent)' : 'transparent',
-                    color: activePeriod === period ? 'var(--sf-bg-card)' : 'var(--sf-text-secondary)',
+                    backgroundColor:
+                      activePeriod === period ? 'var(--sf-accent)' : 'transparent',
+                    color:
+                      activePeriod === period
+                        ? 'var(--sf-bg-card)'
+                        : 'var(--sf-text-secondary)',
                     cursor: 'pointer',
                   }}
                 >
