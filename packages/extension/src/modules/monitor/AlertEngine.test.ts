@@ -226,4 +226,82 @@ describe('AlertEngine', () => {
       expect(() => engine.dismissAlert('non-existent')).not.toThrow();
     });
   });
+
+  describe('restoreAlerts', () => {
+    it('should restore active alerts into the engine', () => {
+      engine.restoreAlerts([
+        {
+          id: 'restored-1',
+          definitionId: 'def-1',
+          severity: 'critical',
+          status: 'active',
+          message: 'Restored alert',
+          currentValue: 92,
+          threshold: 90,
+          orgId: 'org-1',
+          triggeredAt: '2026-03-20T10:00:00.000Z',
+        },
+      ]);
+
+      const active = engine.getActiveAlerts();
+      expect(active).toHaveLength(1);
+      expect(active[0].id).toBe('restored-1');
+    });
+
+    it('should restore acknowledged alerts', () => {
+      engine.restoreAlerts([
+        {
+          id: 'ack-1',
+          definitionId: 'def-1',
+          severity: 'warning',
+          status: 'acknowledged',
+          message: 'Ack alert',
+          currentValue: 85,
+          threshold: 80,
+          orgId: 'org-1',
+          triggeredAt: '2026-03-20T10:00:00.000Z',
+          acknowledgedAt: '2026-03-20T10:05:00.000Z',
+        },
+      ]);
+
+      const active = engine.getActiveAlerts();
+      expect(active).toHaveLength(1);
+      expect(active[0].status).toBe('acknowledged');
+    });
+
+    it('should skip resolved and dismissed alerts', () => {
+      engine.restoreAlerts([
+        {
+          id: 'resolved-1',
+          definitionId: 'def-1',
+          severity: 'critical',
+          status: 'resolved',
+          message: 'Resolved',
+          currentValue: 92,
+          threshold: 90,
+          orgId: 'org-1',
+          triggeredAt: '2026-03-20T10:00:00.000Z',
+          resolvedAt: '2026-03-20T10:10:00.000Z',
+        },
+        {
+          id: 'dismissed-1',
+          definitionId: 'def-1',
+          severity: 'critical',
+          status: 'dismissed',
+          message: 'Dismissed',
+          currentValue: 92,
+          threshold: 90,
+          orgId: 'org-1',
+          triggeredAt: '2026-03-20T10:00:00.000Z',
+        },
+      ]);
+
+      expect(engine.getActiveAlerts()).toHaveLength(0);
+    });
+
+    it('should handle empty array', () => {
+      engine.restoreAlerts([]);
+      expect(engine.getActiveAlerts()).toHaveLength(0);
+    });
+  });
 });

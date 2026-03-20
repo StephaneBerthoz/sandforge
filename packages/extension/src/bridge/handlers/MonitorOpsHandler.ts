@@ -209,6 +209,16 @@ export class MonitorOpsHandler implements DomainHandler {
   }
 
   /**
+   * Expose the AlertEngine instance so other handlers (e.g. GovernanceOpsHandler)
+   * can feed governance-sourced violations into the unified alert pipeline.
+   *
+   * @returns The AlertEngine instance managed by this handler.
+   */
+  getAlertEngine(): AlertEngine {
+    return this.alertEngine;
+  }
+
+  /**
    * Return a cached /limits response or fetch a fresh one.
    *
    * Keyed by orgId with a 30-second TTL so that within a single refresh
