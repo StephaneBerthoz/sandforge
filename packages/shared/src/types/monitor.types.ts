@@ -137,6 +137,8 @@ export interface TrendData {
   changePercent: number;
   predictedTimeToLimit?: number;
   sparklineData: number[];
+  /** ISO timestamps corresponding to each sparklineData entry. When present, charts should use these instead of synthesizing timestamps. */
+  timestamps?: string[];
 }
 
 /** Trend data collection for an org */

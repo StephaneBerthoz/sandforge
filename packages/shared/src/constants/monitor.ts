@@ -21,6 +21,7 @@ export const MONITOR_PERIOD_MAP: Record<string, number> = {
 export const MONITOR_KEY_LIMITS = [
   'DailyApiRequests',
   'DataStorageMB',
+  'FileStorageMB',
   'DailySoqlQueries',
   'DailyDmlStatements',
   'DailyAsyncApexExecutions',
