@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { LimitsSnapshot } from '@sandforge/shared';
 import {
   extractSparklineData,
+  extractTimestamps,
   computeTrendDirection,
   computePredictedTimeToLimit,
   computeTrendData,
@@ -42,6 +43,42 @@ describe('trendUtils', () => {
 
     it('should return empty array for empty snapshots', () => {
       expect(extractSparklineData([], 'DailyApiRequests')).toEqual([]);
+    });
+  });
+
+  describe('extractTimestamps', () => {
+    it('should return ISO timestamps for matching snapshots', () => {
+      const snapshots = [
+        makeSnapshot('org-1', '2026-01-01T00:00:00Z', makeLimits('DailyApiRequests', 10)),
+        makeSnapshot('org-1', '2026-01-01T01:00:00Z', makeLimits('DailyApiRequests', 20)),
+        makeSnapshot('org-1', '2026-01-01T02:00:00Z', makeLimits('DailyApiRequests', 30)),
+      ];
+      expect(extractTimestamps(snapshots, 'DailyApiRequests')).toEqual([
+        '2026-01-01T00:00:00Z',
+        '2026-01-01T01:00:00Z',
+        '2026-01-01T02:00:00Z',
+      ]);
+    });
+
+    it('should return empty array when limit name is not found', () => {
+      const snapshots = [
+        makeSnapshot('org-1', '2026-01-01T00:00:00Z', makeLimits('DataStorageMB', 50)),
+      ];
+      expect(extractTimestamps(snapshots, 'DailyApiRequests')).toEqual([]);
+    });
+
+    it('should return empty array for empty snapshots', () => {
+      expect(extractTimestamps([], 'DailyApiRequests')).toEqual([]);
+    });
+
+    it('should be parallel to extractSparklineData', () => {
+      const snapshots = [
+        makeSnapshot('org-1', '2026-01-01T00:00:00Z', makeLimits('DailyApiRequests', 10)),
+        makeSnapshot('org-1', '2026-01-01T01:00:00Z', makeLimits('DailyApiRequests', 20)),
+      ];
+      const sparkline = extractSparklineData(snapshots, 'DailyApiRequests');
+      const timestamps = extractTimestamps(snapshots, 'DailyApiRequests');
+      expect(timestamps).toHaveLength(sparkline.length);
     });
   });
 
@@ -128,6 +165,7 @@ describe('trendUtils', () => {
         changePercent: 0,
         predictedTimeToLimit: undefined,
         sparklineData: [50],
+        timestamps: ['2026-01-01T00:00:00Z'],
       });
     });
 
@@ -153,6 +191,16 @@ describe('trendUtils', () => {
       expect(result.predictedTimeToLimit).toBeDefined();
       // 20% change over 1 hour, at 30% => 70% remaining => 3.5 hours
       expect(result.predictedTimeToLimit).toBe(3.5);
+    });
+
+    it('should return timestamps array parallel to sparklineData', () => {
+      const snapshots = [
+        makeSnapshot('org-1', '2026-01-01T00:00:00Z', makeLimits('DailyApiRequests', 10)),
+        makeSnapshot('org-1', '2026-01-01T01:00:00Z', makeLimits('DailyApiRequests', 30)),
+      ];
+      const result = computeTrendData({ limitName: 'DailyApiRequests', snapshots });
+      expect(result.timestamps).toEqual(['2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z']);
+      expect(result.timestamps).toHaveLength(result.sparklineData.length);
     });
 
     it('should not predict time for down trends even with predictTime true', () => {
