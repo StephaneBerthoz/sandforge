@@ -28,13 +28,18 @@ describe('MONITOR_KEY_LIMITS', () => {
     expect(MONITOR_KEY_LIMITS).toEqual([
       'DailyApiRequests',
       'DataStorageMB',
+      'FileStorageMB',
       'DailySoqlQueries',
       'DailyDmlStatements',
       'DailyAsyncApexExecutions',
     ]);
   });
 
-  it('has exactly 5 entries', () => {
-    expect(MONITOR_KEY_LIMITS).toHaveLength(5);
+  it('has exactly 6 entries', () => {
+    expect(MONITOR_KEY_LIMITS).toHaveLength(6);
+  });
+
+  it('includes FileStorageMB', () => {
+    expect(MONITOR_KEY_LIMITS).toContain('FileStorageMB');
   });
 });
