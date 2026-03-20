@@ -187,7 +187,7 @@ export const ForgeInput: React.FC = () => {
     const config: ForgeConfig = {
       inputMode,
       depth,
-      recordId: inputMode === 'record' ? recordId.trim() : undefined,
+      recordId: inputMode === 'record' ? (extractRecordId(recordId) ?? undefined) : undefined,
       soqlQuery: inputMode === 'soql' ? soqlQuery.trim() : undefined,
       templateId: inputMode === 'template' ? selectedTemplate : undefined,
       aiPrompt: inputMode === 'ai' ? aiPrompt.trim() : undefined,

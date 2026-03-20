@@ -158,4 +158,44 @@ describe('ForgeInput', () => {
     expect(config.sourceOrgId).toBe('org-src');
     expect(config.targetOrgId).toBe('org-tgt');
   });
+
+  it('should extract record ID from a full Salesforce URL when discovering', () => {
+    render(<ForgeInput />);
+
+    const recordInput = screen.getByTestId('forge-input-record') as HTMLInputElement;
+    fireEvent.change(recordInput, {
+      target: { value: 'https://myorg.lightning.force.com/lightning/r/Account/001XXXXXXXXXXXXXXX/view' },
+    });
+
+    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
+
+    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
+    fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
+
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+
+    expect(mockSetConfig).toHaveBeenCalledTimes(1);
+    const config = mockSetConfig.mock.calls[0][0];
+    expect(config.recordId).toBe('001XXXXXXXXXXXXXXX');
+  });
+
+  it('should pass plain 18-char ID as-is when discovering', () => {
+    render(<ForgeInput />);
+
+    const recordInput = screen.getByTestId('forge-input-record') as HTMLInputElement;
+    fireEvent.change(recordInput, { target: { value: '003ABCDEFGHIJKLMNO' } });
+
+    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
+
+    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
+    fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
+
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+
+    expect(mockSetConfig).toHaveBeenCalledTimes(1);
+    const config = mockSetConfig.mock.calls[0][0];
+    expect(config.recordId).toBe('003ABCDEFGHIJKLMNO');
+  });
 });
