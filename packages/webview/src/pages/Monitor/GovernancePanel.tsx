@@ -5,6 +5,9 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import type { BadgeVariant } from '../../components/ui/Badge';
+import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useOrgStore } from '../../stores/useOrgStore';
 
 /** A single governance rule result for display. */
 export interface GovernanceRuleDisplay {
@@ -252,6 +255,154 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
           </CardBody>
         </Card>
       )}
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* Bridge-connected wrapper (GovernancePanelConnected)                  */
+/* ------------------------------------------------------------------ */
+
+/** Shape of a governance policy from the templates endpoint. */
+interface GovernancePolicyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  rules: Array<{
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    condition: Record<string, unknown>;
+    remediation: string;
+    enabled: boolean;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Evaluation result shape from the governance:evaluate:response. */
+interface GovernanceEvaluationResult {
+  policyId: string;
+  policyName: string;
+  evaluatedAt: string;
+  complianceScore: number;
+  ruleResults: GovernanceRuleDisplay[];
+  remediations: string[];
+}
+
+/**
+ * Connected wrapper for GovernancePanel that wires bridge queries
+ * for live CRUD, evaluation, and template operations.
+ *
+ * Fetches policies from governance:policies:list, evaluates via
+ * governance:evaluate, deletes via governance:policy:delete, and
+ * adds from templates via governance:policy:save + governance:templates.
+ */
+export const GovernancePanelConnected: React.FC = () => {
+  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
+  const [evaluationResult, setEvaluationResult] = useState<GovernanceEvaluationResult | null>(null);
+
+  /** Fetch policy list. */
+  const policiesQuery = useBridgeQuery<{ policies: GovernancePolicySummary[] }>(
+    'governance:policies:list',
+    undefined,
+    { responseType: 'governance:policies:result' },
+  );
+
+  /** Fetch templates for the add-policy flow. */
+  const templatesQuery = useBridgeQuery<{ templates: GovernancePolicyTemplate[] }>(
+    'governance:templates',
+    undefined,
+    { responseType: 'governance:templates:response' },
+  );
+
+  /** Evaluate mutation. */
+  const evaluateMutation = useBridgeMutation<{ success: boolean; result: GovernanceEvaluationResult }>(
+    'governance:evaluate',
+    { responseType: 'governance:evaluate:response' },
+  );
+
+  /** Delete mutation. */
+  const deleteMutation = useBridgeMutation<{ success: boolean }>(
+    'governance:policy:delete',
+    { responseType: 'governance:policy:delete:response' },
+  );
+
+  /** Save mutation (for adding from templates). */
+  const saveMutation = useBridgeMutation<{ success: boolean }>(
+    'governance:policy:save',
+    { responseType: 'governance:policy:save:response' },
+  );
+
+  /** Evaluate a policy. */
+  const handleEvaluate = useCallback(
+    (policyId: string) => {
+      if (!selectedOrgId) return;
+      evaluateMutation.mutate({ policyId, orgId: selectedOrgId });
+    },
+    [selectedOrgId, evaluateMutation],
+  );
+
+  /** Store evaluation result when mutation completes. */
+  React.useEffect(() => {
+    if (evaluateMutation.data?.success && evaluateMutation.data.result) {
+      setEvaluationResult(evaluateMutation.data.result);
+    }
+  }, [evaluateMutation.data]);
+
+  /** Delete a policy and refetch list. */
+  const handleDeletePolicy = useCallback(
+    (policyId: string) => {
+      deleteMutation.mutate({ policyId });
+    },
+    [deleteMutation],
+  );
+
+  /** Refetch policies after delete succeeds. */
+  React.useEffect(() => {
+    if (deleteMutation.data?.success) {
+      policiesQuery.refetch();
+      deleteMutation.reset();
+    }
+  }, [deleteMutation, policiesQuery]);
+
+  /** Add all default templates as policies. */
+  const handleAddPolicy = useCallback(() => {
+    const templates = templatesQuery.data?.templates ?? [];
+    const existingIds = new Set((policiesQuery.data?.policies ?? []).map((p) => p.id));
+    for (const tmpl of templates) {
+      if (!existingIds.has(tmpl.id)) {
+        saveMutation.mutate({ policy: tmpl });
+      }
+    }
+  }, [templatesQuery.data, policiesQuery.data, saveMutation]);
+
+  /** Refetch policies after save succeeds. */
+  React.useEffect(() => {
+    if (saveMutation.data?.success) {
+      policiesQuery.refetch();
+      saveMutation.reset();
+    }
+  }, [saveMutation, policiesQuery]);
+
+  const policies = policiesQuery.data?.policies ?? [];
+  const ruleResults = evaluationResult?.ruleResults ?? [];
+  const complianceScore = evaluationResult?.complianceScore;
+  const remediations = evaluationResult?.remediations ?? [];
+
+  return (
+    <div data-testid="governance-panel-connected">
+      <GovernancePanel
+        policies={policies}
+        ruleResults={ruleResults}
+        complianceScore={complianceScore}
+        remediations={remediations}
+        loading={evaluateMutation.loading}
+        onEvaluate={handleEvaluate}
+        onDeletePolicy={handleDeletePolicy}
+        onAddPolicy={handleAddPolicy}
+      />
     </div>
   );
 };
