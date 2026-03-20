@@ -107,9 +107,50 @@ describe('OrgTrendAnalyzer', () => {
       expect(result.dataPoints).toHaveLength(1);
     });
 
+    /** First call produces only 1 data point, so calculateTrend returns stable. */
     it('should return stable trend with single data point', () => {
       const result = analyzer.analyzeJobTrend('org-1');
       expect(result.trend).toBe('stable');
+    });
+
+    it('should detect increasing job trend after multiple calls', () => {
+      // First call: active = 2
+      mockJobMonitor.getJobStats = () => ({ total: 5, active: 2, completed: 2, failed: 1 });
+      analyzer.analyzeJobTrend('org-1');
+
+      // Second call: active = 10 (significant increase)
+      mockJobMonitor.getJobStats = () => ({ total: 15, active: 10, completed: 4, failed: 1 });
+      const result = analyzer.analyzeJobTrend('org-1');
+
+      expect(result.dataPoints).toHaveLength(2);
+      expect(result.trend).toBe('increasing');
+      expect(result.changePercent).toBeGreaterThan(0);
+    });
+
+    it('should detect decreasing job trend after multiple calls', () => {
+      // First call: active = 10
+      mockJobMonitor.getJobStats = () => ({ total: 15, active: 10, completed: 4, failed: 1 });
+      analyzer.analyzeJobTrend('org-1');
+
+      // Second call: active = 2 (significant decrease)
+      mockJobMonitor.getJobStats = () => ({ total: 5, active: 2, completed: 2, failed: 1 });
+      const result = analyzer.analyzeJobTrend('org-1');
+
+      expect(result.dataPoints).toHaveLength(2);
+      expect(result.trend).toBe('decreasing');
+      expect(result.changePercent).toBeLessThan(0);
+    });
+
+    it('should cap job history at MAX_JOB_HISTORY entries', () => {
+      mockJobMonitor.getJobStats = () => ({ total: 5, active: 3, completed: 1, failed: 1 });
+
+      for (let i = 0; i < 55; i++) {
+        analyzer.analyzeJobTrend('org-1');
+      }
+
+      const result = analyzer.analyzeJobTrend('org-1');
+      // 55 + 1 = 56 calls total, but capped at 50
+      expect(result.dataPoints).toHaveLength(50);
     });
   });
 
