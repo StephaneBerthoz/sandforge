@@ -33,7 +33,13 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 ### Active
 
-(No active requirements — ready for next milestone)
+- [ ] Forge bugs: abort/pause wiring, dryRun, static prefix map, raw URL, dead checkboxes, wrong KPIs — v1.2.0 Phase 01
+- [ ] Forge UX quick wins: auto-org, swap orgs, CTA hints, depth tooltips, Ctrl+Enter, preview cleanup — v1.2.0 Phase 02
+- [ ] SidePanel refonte: org switcher, compact mode, metrics cleanup, favorites, visual hierarchy — v1.2.0 Phase 02
+- [ ] Forge UX enhancements: table view, log persistence, ETA, node search, template management — v1.2.0 Phase 03
+- [ ] Forge performance: Dagre layout separation, stable callbacks, memoized KPIs, adaptive heights — v1.2.0 Phase 03
+- [ ] Backend hardening: structured errors, enriched preview, timeouts, lifecycle events, compliance wiring — v1.2.0 Phase 04
+- [ ] Accessibility: ARIA roles, aria-pressed, role="log", radiogroup, contrast fixes — v1.2.0 Phase 04
 
 ### Deferred
 
@@ -49,7 +55,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
 - 558 source files, 487+ test files, 1045+ total files across packages
-- v1.1.0 current — phases 00-11 complete + gap closure, stabilised, published on VS Code Marketplace
+- v1.2.0 active — Forge UX & Reliability (52 items: 9 bugs, 23 UX, 6 perf, 8 backend, 6 cleanup, 6 SidePanel, 7 a11y)
 - VSIX package at 1.07 MB, well within marketplace limits
 - jsforce v3 for all Salesforce API interactions
 - Strict TypeScript (no `any`), Zod validation on all external data, Winston logging
@@ -76,4 +82,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-19 — Milestone v1.1.0 fully complete with gap closure (6 phases, 27 requirements, 7042 tests)*
+*Last updated: 2026-03-20 — Milestone v1.2.0 started (Forge UX & Reliability, 4 phases, 52 requirements)*

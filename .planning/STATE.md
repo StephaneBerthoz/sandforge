@@ -2,19 +2,19 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-18)
+See: .planning/PROJECT.md (updated 2026-03-20)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** v1.1.0 complete — all gaps closed, ready for next milestone
+**Current focus:** v1.2.0 — Forge UX & Reliability (52 items across 4 phases)
 
 ## Current Position
 
-Phase: -- (milestone complete)
-Plan: --
-Status: v1.1.0 shipped — 6 phases, 27 requirements, all gaps closed
-Last activity: 2026-03-19 -- Phase 06 gap closure complete (buildResponse migration + Phase 05 verification)
+Phase: 01 — Bugs + Cleanup (not started)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-20 — Milestone v1.2.0 started
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -25,13 +25,19 @@ Progress: [██████████] 100%
 
 ## Milestone History
 
-### v1.1.0 -- Stabilisation & Real-World Readiness
+### v1.2.0 — Forge UX & Reliability
+Started: 2026-03-20
+Phases: 4
+Requirements: 52 (BUG-01..09, UX-01..23, PERF-01..06, BE-01..08, CLN-01..06, SP-01..06, A11Y-01..07)
+Focus: Fix all Forge bugs, deliver polished UX, SidePanel refonte, performance + backend hardening, accessibility
+
+### v1.1.0 — Stabilisation & Real-World Readiness
 Completed: 2026-03-19
 Phases: 6 (5 + 1 gap closure)
 Requirements delivered: BRG-01..04, MOD-01..08, AI-01..03, UX-01..05, GHO-01..03, ROB-01..04, MON-01..03
 Key achievements: CorrelationId bridge infrastructure, all 8 modules functional end-to-end, ghost feature cleanup, Bulk API 2.0 + retry logic, competitor benchmark + 5 Monitor feature gaps, dashboard refresh UX with error recovery. Gap closure: buildResponse migration for all 16 handlers (122 calls), Phase 05 verified. 7042 tests passing.
 
-### v1.0.0 -- Marketplace-Ready Release
+### v1.0.0 — Marketplace-Ready Release
 Completed: 2026-03-17
 Phases: 2 (E2E Testing + Marketplace Publication)
 Requirements delivered: E2E-01 through E2E-07, MKT-01 through MKT-09
@@ -59,14 +65,14 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
-(None — milestone complete)
+(None)
 
 ### Blockers/Concerns
 
-(None — milestone shipped)
+(None)
 
 ## Session Continuity
 
-Last session: 2026-03-19
-Stopped at: Milestone v1.1.0 fully complete (all gaps closed)
+Last session: 2026-03-20
+Stopped at: Milestone v1.2.0 initialized, ready for plan-phase 01
 Resume file: None
