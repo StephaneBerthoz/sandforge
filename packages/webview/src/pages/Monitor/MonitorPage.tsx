@@ -36,6 +36,8 @@ import { SessionsPanel } from './SessionsPanel';
 import { ApexInsightsPanel } from './ApexInsightsPanel';
 import { RefreshPanel } from './RefreshPanel';
 import { HealthCheckPanel } from './HealthCheckPanel';
+import { AlertHistoryPanel } from './AlertHistoryPanel';
+import { GovernancePanelConnected } from './GovernancePanel';
 import { ResetCountdown } from './ResetCountdown';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -740,6 +742,16 @@ export const MonitorPage: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* ── Alert History ── */}
+          <div className="rounded-lg border border-subtle bg-surface-1 p-4">
+            <AlertHistoryPanel />
+          </div>
+
+          {/* ── Governance ── */}
+          <div className="rounded-lg border border-subtle bg-surface-1 p-4">
+            <GovernancePanelConnected />
+          </div>
 
         </motion.div>
       </AnimatePresence>
