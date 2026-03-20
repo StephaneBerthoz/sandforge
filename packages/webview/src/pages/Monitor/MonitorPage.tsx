@@ -36,6 +36,7 @@ import { SessionsPanel } from './SessionsPanel';
 import { ApexInsightsPanel } from './ApexInsightsPanel';
 import { RefreshPanel } from './RefreshPanel';
 import { HealthCheckPanel } from './HealthCheckPanel';
+import { ResetCountdown } from './ResetCountdown';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { SalesforceOrg, LiveOperationSnapshot } from '@sandforge/shared';
@@ -327,6 +328,7 @@ export const MonitorPage: React.FC = () => {
 
         {/* Actions */}
         <div className="flex items-center gap-2 shrink-0">
+          <ResetCountdown />
           {lastUpdatedStr && (
             <span className="text-xs text-text-muted">
               {lastUpdatedStr}
