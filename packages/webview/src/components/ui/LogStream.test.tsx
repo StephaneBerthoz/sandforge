@@ -153,4 +153,16 @@ describe('LogStream', () => {
     const container = screen.getByTestId('logstream').querySelector('.overflow-y-auto');
     expect(container).toBeDefined();
   });
+
+  /* ---- PERF-05: All filter returns all entries without copying ---- */
+  it('should render all entries without filtering when filter is "all"', () => {
+    const mixedEntries: LogEntry[] = [
+      { id: '1', timestamp: Date.now(), level: 'info', message: 'Info message' },
+      { id: '2', timestamp: Date.now(), level: 'error', message: 'Error message' },
+      { id: '3', timestamp: Date.now(), level: 'warn', message: 'Warn message' },
+    ];
+    render(<LogStream entries={mixedEntries} filter="all" />);
+    const logEntries = screen.getAllByTestId('logstream-entry');
+    expect(logEntries).toHaveLength(3);
+  });
 });

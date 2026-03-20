@@ -51,15 +51,15 @@ function formatTimestamp(ts: number): string {
   return date.toTimeString().slice(0, 8);
 }
 
-/** Filter entries based on the active filter. */
-function filterEntries(entries: readonly LogEntry[], filter: LogFilter): LogEntry[] {
+/** Filter entries based on the active filter. Returns original array for 'all' (no copy). */
+function filterEntries(entries: readonly LogEntry[], filter: LogFilter): readonly LogEntry[] {
   switch (filter) {
     case 'error':
       return entries.filter((e) => e.level === 'error');
     case 'warn':
       return entries.filter((e) => e.level === 'warn' || e.level === 'error');
     default:
-      return [...entries];
+      return entries;
   }
 }
 
@@ -76,6 +76,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
   const [activeFilter, setActiveFilter] = useState<LogFilter>(filterProp);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledUpRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
 
   // Sync external filter prop changes to internal state
   useEffect(() => {
@@ -102,15 +103,24 @@ export const LogStream: React.FC<LogStreamProps> = ({
 
   useEffect(() => {
     if (autoScroll && scrollRef.current && !userScrolledUpRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+        rafRef.current = null;
+      });
     }
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
   }, [visibleEntries, autoScroll]);
 
   return (
     <div
       data-testid="logstream"
       className={cn(
-        'bg-surface-0 rounded-xl border border-subtle overflow-hidden',
+        'bg-surface-0 rounded-xl border border-subtle overflow-hidden flex flex-col',
         className,
       )}
     >
@@ -182,7 +192,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="overflow-y-auto max-h-64 p-2 font-mono text-xs"
+        className="overflow-y-auto flex-1 min-h-0 p-2 font-mono text-xs"
       >
         {visibleEntries.length === 0 ? (
           <p data-testid="logstream-empty" className="text-text-muted text-center py-4">
