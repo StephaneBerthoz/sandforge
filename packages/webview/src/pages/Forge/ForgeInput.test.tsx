@@ -7,6 +7,9 @@ import { ForgeInput } from './ForgeInput';
 
 const mockSetConfig = vi.fn();
 const mockSetPhase = vi.fn();
+const mockAddTemplate = vi.fn();
+const mockUpdateTemplate = vi.fn();
+const mockRemoveTemplate = vi.fn();
 
 vi.mock('../../stores/useForgeStore', () => {
   const defaultState = {
@@ -18,6 +21,9 @@ vi.mock('../../stores/useForgeStore', () => {
     history: [],
     setConfig: (...args: unknown[]) => mockSetConfig(...args),
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
+    addTemplate: (...args: unknown[]) => mockAddTemplate(...args),
+    updateTemplate: (...args: unknown[]) => mockUpdateTemplate(...args),
+    removeTemplate: (...args: unknown[]) => mockRemoveTemplate(...args),
     setGraph: vi.fn(),
     updateNodeStatus: vi.fn(),
     toggleNodeIncluded: vi.fn(),
@@ -33,6 +39,16 @@ vi.mock('../../stores/useForgeStore', () => {
 
   return { useForgeStore: store };
 });
+
+vi.mock('../../stores/useNotificationStore', () => ({
+  useNotificationStore: (selector: (state: Record<string, unknown>) => unknown) =>
+    selector({ addNotification: vi.fn() }),
+}));
+
+vi.mock('../../components/ui/DangerConfirm', () => ({
+  DangerConfirm: ({ open, onConfirm, title }: { open: boolean; onConfirm: () => void; title: string }) =>
+    open ? <div data-testid="danger-confirm"><span>{title}</span><button onClick={onConfirm}>Confirm</button></div> : null,
+}));
 
 vi.mock('../../stores/useOrgStore', () => ({
   useOrgStore: (selector: (state: Record<string, unknown>) => unknown) =>
@@ -77,6 +93,9 @@ describe('ForgeInput', () => {
   beforeEach(() => {
     mockSetConfig.mockClear();
     mockSetPhase.mockClear();
+    mockAddTemplate.mockClear();
+    mockUpdateTemplate.mockClear();
+    mockRemoveTemplate.mockClear();
   });
 
   it('should render 4 tabs', () => {
@@ -314,5 +333,29 @@ describe('ForgeInput', () => {
     render(<ForgeInput />);
     const previewBtn = screen.getByTestId('forge-preview-btn');
     expect(previewBtn.getAttribute('aria-label')).toContain('efresh');
+  });
+
+  /* ---- UX-23: Template management ---- */
+  it('should show create template button in template tab', () => {
+    render(<ForgeInput />);
+    fireEvent.click(screen.getByTestId('forge-tab-template'));
+    expect(screen.getByTestId('forge-template-create')).toBeDefined();
+  });
+
+  it('should open create template form when create button is clicked', () => {
+    render(<ForgeInput />);
+    fireEvent.click(screen.getByTestId('forge-tab-template'));
+    fireEvent.click(screen.getByTestId('forge-template-create'));
+    expect(screen.getByTestId('forge-template-name-input')).toBeDefined();
+    expect(screen.getByTestId('forge-template-desc-input')).toBeDefined();
+  });
+
+  it('should cancel create template form', () => {
+    render(<ForgeInput />);
+    fireEvent.click(screen.getByTestId('forge-tab-template'));
+    fireEvent.click(screen.getByTestId('forge-template-create'));
+    fireEvent.click(screen.getByTestId('forge-template-cancel'));
+    // Should go back to the create button
+    expect(screen.getByTestId('forge-template-create')).toBeDefined();
   });
 });
