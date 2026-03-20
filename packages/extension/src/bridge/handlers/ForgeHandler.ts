@@ -7,6 +7,7 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
+import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
@@ -91,6 +92,15 @@ interface MetadataDiffRequestPayload {
   targetOrgId: string;
   objectApiNames: string[];
 }
+
+/** Timeout for plan generation in milliseconds. */
+const PLAN_TIMEOUT_MS = 30_000;
+
+/** Timeout for compliance report generation in milliseconds. */
+const COMPLIANCE_TIMEOUT_MS = 30_000;
+
+/** Timeout for metadata diff comparison in milliseconds. */
+const METADATA_DIFF_TIMEOUT_MS = 60_000;
 
 /** ConfigStore key for persisted forge templates. */
 const TEMPLATES_KEY = 'forge:templates';
@@ -271,21 +281,41 @@ export class ForgeHandler implements DomainHandler {
         .slice(0, 8)
         .map(([key, value]) => ({ name: key, value: String(value) }));
 
+      // Describe the object for total field count
+      const objectDesc = await conn.describe(sobjectInfo.name);
+      checkApiLimits(conn.limitInfo, `forge:preview describe ${sobjectInfo.name}`);
+      const totalFieldCount = objectDesc.fields.length;
+
+      // Count records in the object
+      let estimatedRecordCount = 0;
+      try {
+        const countResult = await conn.query(`SELECT COUNT() FROM ${sobjectInfo.name}`);
+        estimatedRecordCount = countResult.totalSize;
+      } catch {
+        // Some objects may not support COUNT() -- fall back to 0
+      }
+
+      // Compute estimated size using the same heuristic as GraphDiscoveryService
+      const estimatedSize = estimatedRecordCount * 0.001; // MB_PER_RECORD
+
       const response = buildResponse(this.deps, msg, 'forge:preview:response', {
         objectApiName: sobjectInfo.name,
         objectLabel: sobjectInfo.label,
         recordId,
         fields,
+        estimatedRecordCount,
+        totalFieldCount,
+        estimatedSize,
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'forge:preview', 'forge:preview:error', err);
+      sendHandlerError(this.deps, 'forge:preview', 'forge:preview:error', err, 'PREVIEW_ERROR');
     }
   }
 
   private async handleDiscover(msg: BaseMessage): Promise<void> {
     if (!this.orchestrator) {
-      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', new Error('Forge module is not initialized'));
+      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', new Error('Forge module is not initialized'), 'NOT_INITIALIZED');
       return;
     }
 
@@ -307,7 +337,7 @@ export class ForgeHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { nodeCount: graph.nodes?.length ?? 0 });
     } catch (error: unknown) {
-      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', error);
+      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', error, 'DISCOVER_ERROR', true);
       sendOperationFailed(this.deps, operationId, String(error), true);
     }
     this.discoverAbortController = null;
@@ -315,7 +345,7 @@ export class ForgeHandler implements DomainHandler {
 
   private async handleExecute(msg: BaseMessage): Promise<void> {
     if (!this.orchestrator) {
-      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', new Error('Forge module is not initialized'));
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', new Error('Forge module is not initialized'), 'NOT_INITIALIZED');
       return;
     }
 
@@ -328,10 +358,7 @@ export class ForgeHandler implements DomainHandler {
 
     if (this.dmlTracker.isDuplicate(forgeOpId)) {
       logger.warn('Duplicate forge execution detected', { operationId: forgeOpId });
-      const dupResponse = buildResponse(this.deps, msg, 'forge:execute:error', {
-        message: `Duplicate forge operation: ${forgeOpId}`,
-      });
-      this.deps.broker.postToWebview(dupResponse);
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', new Error(`Duplicate forge operation: ${forgeOpId}`), 'DUPLICATE');
       return;
     }
 
@@ -355,13 +382,13 @@ export class ForgeHandler implements DomainHandler {
       const history = [result, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY);
       this.saveHistory(history);
 
-      const response = buildResponse(this.deps, msg, 'forge:execute:response', { result });
+      const response = buildResponse(this.deps, msg, 'forge:execute:response', { result, operationId });
       this.deps.broker.postToWebview(response);
       this.dmlTracker.markCompleted(forgeOpId);
       sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
       this.dmlTracker.markFailed(forgeOpId);
-      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', error);
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', error, 'EXECUTE_ERROR', true);
       sendOperationFailed(this.deps, operationId, String(error), true);
     } finally {
       unsubProgress();
