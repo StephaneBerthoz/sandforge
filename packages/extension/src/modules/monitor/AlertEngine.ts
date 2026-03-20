@@ -92,6 +92,22 @@ export class AlertEngine {
     }
   }
 
+  /**
+   * Restore previously persisted alerts into the engine.
+   *
+   * Only alerts with status `active` or `acknowledged` are restored;
+   * resolved/dismissed alerts are skipped since they no longer need tracking.
+   *
+   * @param alerts - The alert instances to restore from persistence.
+   */
+  restoreAlerts(alerts: AlertInstance[]): void {
+    for (const alert of alerts) {
+      if (alert.status === 'active' || alert.status === 'acknowledged') {
+        this.activeAlerts.set(alert.id, alert);
+      }
+    }
+  }
+
   /** Mark an alert as dismissed */
   dismissAlert(id: string): void {
     const alert = this.activeAlerts.get(id);

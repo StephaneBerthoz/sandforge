@@ -609,4 +609,150 @@ describe('MonitorOpsHandler', () => {
       expect(postToWebview).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe('ALERT-01: AlertEngine integration', () => {
+    it('constructor seeds default alert definitions when no persisted definitions exist', () => {
+      const localDeps = createMockDeps();
+      new MonitorOpsHandler(localDeps);
+
+      // The constructor should have called configStore.set to persist default definitions
+      const setCalls = (localDeps.configStore.set as ReturnType<typeof vi.fn>).mock.calls;
+      const defSaveCall = setCalls.find(
+        (c: unknown[]) => c[0] === 'alert:state:definitions',
+      );
+      expect(defSaveCall).toBeDefined();
+    });
+
+    it('handleRefresh evaluates alerts for each limit', async () => {
+      // Set up fake limits with API at 95% usage (should trigger alert)
+      const highUsageLimits = {
+        ...FAKE_LIMITS,
+        DailyApiRequests: { Max: 15000, Remaining: 750 }, // 95% used
+      };
+      const fakeConn = {
+        request: vi.fn().mockResolvedValue(highUsageLimits),
+        identity: vi.fn().mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+        query: vi.fn().mockResolvedValue({
+          totalSize: 10,
+          done: true,
+          records: [{ Name: 'TestOrg', Id: '00Dtest', OrganizationType: 'Developer Edition', NamespacePrefix: null, CreatedDate: '2026-01-01' }],
+        }),
+        version: '62.0',
+        limitInfo: { apiUsage: { used: 14250, limit: 15000 } },
+        sobject: vi.fn().mockReturnValue({ update: vi.fn().mockResolvedValue({}) }),
+      };
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+      mockQueryAll.mockResolvedValue([]);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        alias: 'TestOrg',
+        orgType: 'Developer',
+        metadata: { edition: 'Developer Edition' },
+      });
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-alert-refresh',
+        type: 'monitor:refresh',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-alert' },
+      };
+
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      // Should have at least the monitor:data response + notification for the alert
+      const types = postToWebview.mock.calls.map((c: unknown[]) => (c[0] as BaseMessage).type);
+      expect(types).toContain('monitor:data');
+      // Notification sent for the triggered critical alert
+      expect(types).toContain('notification');
+    });
+  });
+
+  describe('ALERT-02: monitor:alerts handler', () => {
+    it('handles monitor:alerts and returns alerts:result with alerts and history', async () => {
+      const msg: BaseMessage = {
+        id: 'req-alerts-1',
+        type: 'monitor:alerts',
+        timestamp: Date.now(),
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const calls = postToWebview.mock.calls.filter(
+        (c: unknown[]) => (c[0] as BaseMessage).type === 'monitor:alerts:result',
+      );
+      expect(calls).toHaveLength(1);
+
+      const response = calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { alerts: unknown[]; history: unknown[] };
+      };
+      expect(response.correlationId).toBe('req-alerts-1');
+      expect(response.payload.alerts).toBeInstanceOf(Array);
+      expect(response.payload.history).toBeInstanceOf(Array);
+    });
+  });
+
+  describe('ALERT-03: monitor:alert:acknowledge handler', () => {
+    it('handles monitor:alert:acknowledge and responds with success', async () => {
+      const msg: BaseMessage & { payload: { alertId: string } } = {
+        id: 'req-ack-1',
+        type: 'monitor:alert:acknowledge',
+        timestamp: Date.now(),
+        payload: { alertId: 'alert-1' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const calls = postToWebview.mock.calls.filter(
+        (c: unknown[]) => (c[0] as BaseMessage).type === 'monitor:alert:acknowledge:response',
+      );
+      expect(calls).toHaveLength(1);
+
+      const response = calls[0][0] as BaseMessage & { payload: { success: boolean } };
+      expect(response.payload.success).toBe(true);
+    });
+  });
+
+  describe('ALERT-04: monitor:alert:dismiss handler', () => {
+    it('handles monitor:alert:dismiss and responds with success', async () => {
+      const msg: BaseMessage & { payload: { alertId: string } } = {
+        id: 'req-dismiss-1',
+        type: 'monitor:alert:dismiss',
+        timestamp: Date.now(),
+        payload: { alertId: 'alert-1' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const calls = postToWebview.mock.calls.filter(
+        (c: unknown[]) => (c[0] as BaseMessage).type === 'monitor:alert:dismiss:response',
+      );
+      expect(calls).toHaveLength(1);
+
+      const response = calls[0][0] as BaseMessage & { payload: { success: boolean } };
+      expect(response.payload.success).toBe(true);
+    });
+  });
+
+  describe('ALERT-05: MONITOR_TYPES includes alert types', () => {
+    it('handles all three alert message types', async () => {
+      const alertTypes = ['monitor:alerts', 'monitor:alert:acknowledge', 'monitor:alert:dismiss'];
+      for (const type of alertTypes) {
+        const msg: BaseMessage & { payload: { alertId?: string } } = {
+          id: `check-${type}`,
+          type,
+          timestamp: Date.now(),
+          payload: { alertId: 'alert-1' },
+        };
+        const result = await handler.handle(msg);
+        expect(result).toBe(true);
+      }
+    });
+  });
 });
