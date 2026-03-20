@@ -170,7 +170,7 @@ export const ForgeDiscovery: React.FC = () => {
   return (
     <motion.div
       data-testid="forge-discovery"
-      className="flex flex-col gap-4"
+      className="flex flex-col gap-4 h-full"
       variants={staggerContainer}
       initial="hidden"
       animate="visible"
@@ -225,7 +225,7 @@ export const ForgeDiscovery: React.FC = () => {
       </motion.div>
 
       {/* Split view: graph/table + detail */}
-      <motion.div variants={slideUp} className="h-[480px]">
+      <motion.div variants={slideUp} className="flex-1 min-h-0 min-h-[350px]">
         <SplitView
           ratio="60/40"
           left={
