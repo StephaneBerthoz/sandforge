@@ -120,15 +120,17 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
       {/* Header: checkbox + object name + edge type badge */}
       <div className="flex items-center justify-between gap-1">
         <div className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            data-testid="include-checkbox"
-            checked={included}
-            onClick={handleCheckboxChange}
-            readOnly
-            className="h-3 w-3 accent-forge cursor-pointer"
-            aria-label={`Include ${objectApiName}`}
-          />
+          {onIncludeToggle && (
+            <input
+              type="checkbox"
+              data-testid="include-checkbox"
+              checked={included}
+              onClick={handleCheckboxChange}
+              readOnly
+              className="h-3 w-3 accent-forge cursor-pointer"
+              aria-label={`Include ${objectApiName}`}
+            />
+          )}
           <span className="text-xs font-semibold text-text-primary truncate">{objectApiName}</span>
         </div>
         <div className="flex items-center gap-1">
