@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
@@ -168,6 +168,17 @@ export const ForgeInput: React.FC = () => {
       orgId: sourceOrgId,
     }));
   }, [recordId, sourceOrgId, sendMessage]);
+
+  /* ---- Auto-trigger preview when record ID is valid ---- */
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    const id = extractRecordId(recordId);
+    if (id && sourceOrgId && !previewLoading) {
+      previewTimerRef.current = setTimeout(() => handlePreview(), 400);
+    }
+    return () => { if (previewTimerRef.current) clearTimeout(previewTimerRef.current); };
+  }, [recordId, sourceOrgId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Build config and transition to discovery phase. */
   const handleDiscover = useCallback(() => {
