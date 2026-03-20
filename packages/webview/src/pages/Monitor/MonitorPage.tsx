@@ -196,6 +196,7 @@ export const MonitorPage: React.FC = () => {
     activeAlertsCount,
     apiLimit,
     storageLimit,
+    fileStorageLimit,
     sortedLimits,
     criticalLimits,
     trendChartData,
@@ -282,8 +283,8 @@ export const MonitorPage: React.FC = () => {
     return (
       <div className="flex flex-col gap-4 p-6 w-full" data-testid="monitor-loading">
         <Skeleton variant="text" width="30%" height="1.5em" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} variant="rect" height="110px" />)}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} variant="rect" height="110px" />)}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Skeleton variant="rect" height="200px" />
@@ -297,6 +298,7 @@ export const MonitorPage: React.FC = () => {
   // ─── Dashboard ─────────────────────────────────────────────────────────
   const apiUsed = apiLimit.max - apiLimit.remaining;
   const storageUsedMB = storageLimit.max - storageLimit.remaining;
+  const fileStorageUsedMB = fileStorageLimit.max - fileStorageLimit.remaining;
 
   return (
     <div className="flex flex-col gap-4 p-6 w-full" data-testid="monitor-page">
@@ -449,7 +451,7 @@ export const MonitorPage: React.FC = () => {
 
           {/* ── KPI Row ── */}
           <PanelOverlay isRefreshing={isRefreshing}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="kpi-row">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3" data-testid="kpi-row">
             {/* Health */}
             <div className="rounded-lg border border-subtle bg-surface-1 p-4 flex flex-col items-center justify-center gap-1">
               {healthReport ? (
@@ -488,6 +490,21 @@ export const MonitorPage: React.FC = () => {
               warning={
                 trends['DataStorageMB']?.predictedTimeToLimit
                   ? t('monitor.limitReachedIn', 'Limit reached in ~{{hours}}h').replace('{{hours}}', String(Math.round(trends['DataStorageMB'].predictedTimeToLimit)))
+                  : undefined
+              }
+            />
+
+            {/* File Storage */}
+            <KPIStat
+              icon={<Database className="w-4 h-4" />}
+              label={t('monitor.fileStorage', 'File Storage')}
+              value={`${fmtGB(fileStorageUsedMB)} GB`}
+              sub={`/ ${fmtGB(fileStorageLimit.max)} GB`}
+              pct={fileStorageLimit.usedPercent}
+              variant={usageVariant(fileStorageLimit.usedPercent)}
+              warning={
+                trends['FileStorageMB']?.predictedTimeToLimit
+                  ? t('monitor.limitReachedIn', 'Limit reached in ~{{hours}}h').replace('{{hours}}', String(Math.round(trends['FileStorageMB'].predictedTimeToLimit)))
                   : undefined
               }
             />
