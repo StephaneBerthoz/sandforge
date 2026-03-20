@@ -191,4 +191,77 @@ describe('SidePanel', () => {
     render(<SidePanel />);
     expect(screen.queryByTestId('sidepanel-grappe')).toBeNull();
   });
+
+  // SP-01: Org switcher sorts connected first
+  it('sorts connected orgs before disconnected in dropdown', () => {
+    const disconnectedOrg: SalesforceOrg = {
+      ...mockOrg,
+      id: 'org-expired',
+      alias: 'AAA-Expired',
+      username: 'expired@test.com',
+      status: 'expired',
+    };
+    const connectedOrg2: SalesforceOrg = {
+      ...mockOrg,
+      id: 'org-2',
+      alias: 'ZZZ-Connected',
+      username: 'connected2@test.com',
+      status: 'connected',
+    };
+    useOrgStore.setState({ orgs: [disconnectedOrg, connectedOrg2], selectedOrgId: null });
+    render(<SidePanel />);
+    fireEvent.click(screen.getByTestId('sidepanel-org'));
+    const dropdown = screen.getByTestId('sidepanel-org-dropdown');
+    const buttons = dropdown.querySelectorAll('button[data-testid^="sidepanel-org-option"]');
+    // Connected org should be first despite being alphabetically last
+    expect(buttons[0]?.getAttribute('data-testid')).toBe('sidepanel-org-option-org-2');
+    expect(buttons[1]?.getAttribute('data-testid')).toBe('sidepanel-org-option-org-expired');
+  });
+
+  // SP-01: Status dot reflects selected org status
+  it('shows red status dot when selected org is expired', () => {
+    const expiredOrg: SalesforceOrg = {
+      ...mockOrg,
+      id: 'org-exp',
+      status: 'expired',
+    };
+    useOrgStore.setState({ orgs: [expiredOrg], selectedOrgId: 'org-exp' });
+    render(<SidePanel />);
+    const orgButton = screen.getByTestId('sidepanel-org');
+    const dot = orgButton.querySelector('span.rounded-full');
+    // Should have red indicator classes, not green
+    expect(dot?.className).toContain('bg-red-500');
+    expect(dot?.className).not.toContain('bg-green-500');
+  });
+
+  // SP-03: Collapsible Quick Metrics
+  it('toggles Quick Metrics visibility when clicking the toggle', () => {
+    useOrgStore.setState({ orgs: [mockOrg] });
+    render(<SidePanel />);
+    // Metrics should be visible by default
+    expect(screen.getByTestId('sidepanel-metrics')).toBeInTheDocument();
+    // Click toggle to collapse
+    fireEvent.click(screen.getByTestId('sidepanel-metrics-toggle'));
+    expect(screen.queryByTestId('sidepanel-metrics')).toBeNull();
+    // Click again to expand
+    fireEvent.click(screen.getByTestId('sidepanel-metrics-toggle'));
+    expect(screen.getByTestId('sidepanel-metrics')).toBeInTheDocument();
+  });
+
+  // SP-04: Favorite stars always visible
+  it('renders favorite stars with visible opacity (not hidden)', () => {
+    render(<SidePanel />);
+    const starBtn = screen.getByTestId('sidepanel-star-monitor');
+    // Should NOT have opacity-0 (hidden)
+    expect(starBtn.className).not.toContain('opacity-0');
+  });
+
+  // SP-06: No version badge in header
+  it('does not render version badge in branding header', () => {
+    render(<SidePanel />);
+    const root = screen.getByTestId('sidepanel-root');
+    // v1.0 text should not appear in the branding area
+    const brandingArea = root.querySelector('.border-b');
+    expect(brandingArea?.textContent).not.toContain('v1.0');
+  });
 });
