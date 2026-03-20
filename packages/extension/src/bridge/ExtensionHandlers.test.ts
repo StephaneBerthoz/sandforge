@@ -413,9 +413,9 @@ describe('ExtensionHandlers', () => {
       const dataMsg = posted.find((p) => p.type === 'monitor:data');
       expect(dataMsg).toBeDefined();
       const payload = (dataMsg as BaseMessage & { payload: { healthScore: number } }).payload;
-      // HealthScoreCalculator: CriticalLimit: 95% → score 0, WarningLimit: 80% → score 50, OkLimit: 50% → score 80
-      // Weighted average = round((0 + 50 + 80) / 3) = 43
-      expect(payload.healthScore).toBe(43);
+      // UnifiedHealthScorer (linear): CriticalLimit: 95% → score 7, WarningLimit: 80% → score 28, OkLimit: 50% → score 70
+      // Weighted average = round((7 + 28 + 70) / 3) = 35
+      expect(payload.healthScore).toBe(35);
     });
   });
 
