@@ -6,6 +6,7 @@ import { ForgeResults } from './ForgeResults';
 /* ---- Mocks ---- */
 
 const mockReset = vi.fn();
+const mockForgeAgain = vi.fn();
 const mockSetPhase = vi.fn();
 const mockSetGraph = vi.fn();
 
@@ -72,6 +73,11 @@ const makeMockGraph = () => ({
   estimatedDurationSeconds: 10,
 });
 
+const mockLogs = [
+  { id: 'log-1', timestamp: Date.now(), level: 'info' as const, message: 'Processing Account' },
+  { id: 'log-2', timestamp: Date.now(), level: 'error' as const, message: 'Error on Case' },
+];
+
 const makeMockResult = () => ({
   id: 'exec-001',
   startedAt: Date.now() - 10_000,
@@ -82,6 +88,8 @@ const makeMockResult = () => ({
   status: 'partial' as const,
   graph: makeMockGraph(),
   idRemapCount: 42,
+  duration: 10000,
+  timestamp: '2026-03-20T10:00:00.000Z',
 });
 
 const makeErrorNode = () => ({
@@ -122,16 +130,20 @@ vi.mock('../../stores/useForgeStore', () => {
         get graph() { return mockGraph; },
         get result() { return mockResult; },
         reset: (...args: unknown[]) => mockReset(...args),
+        forgeAgain: (...args: unknown[]) => mockForgeAgain(...args),
         setPhase: (...args: unknown[]) => mockSetPhase(...args),
         setGraph: (...args: unknown[]) => mockSetGraph(...args),
+        logs: mockLogs,
       }),
     {
       getState: () => ({
         graph: mockGraph,
         result: mockResult,
         reset: mockReset,
+        forgeAgain: mockForgeAgain,
         setPhase: mockSetPhase,
         setGraph: mockSetGraph,
+        logs: mockLogs,
       }),
     },
   );
@@ -200,11 +212,12 @@ describe('ForgeResults', () => {
     expect(screen.getByText('FIELD_INTEGRITY_EXCEPTION')).toBeDefined();
   });
 
-  it('should call reset when forge again button is clicked', () => {
+  it('should call forgeAgain (not reset) when forge again button is clicked', () => {
     render(<ForgeResults />);
     const btn = screen.getByTestId('forge-again');
     fireEvent.click(btn);
-    expect(mockReset).toHaveBeenCalledTimes(1);
+    expect(mockForgeAgain).toHaveBeenCalledTimes(1);
+    expect(mockReset).not.toHaveBeenCalled();
   });
 
   it('should render copy report button', () => {
@@ -252,5 +265,68 @@ describe('ForgeResults', () => {
     expect(retryNode.status).toBe('idle');
     expect(retryNode.progress).toBe(0);
     expect(mockSetPhase).toHaveBeenCalledWith('execution');
+  });
+
+  /* ---- UX-19: Duration + Timestamp ---- */
+
+  it('should display duration and timestamp from result', () => {
+    render(<ForgeResults />);
+    const duration = screen.getByTestId('forge-results-duration');
+    expect(duration).toBeDefined();
+    // duration = 10000ms => 10s => formatElapsed(10) = "0:10"
+    expect(duration.textContent).toContain('0:10');
+    const timestamp = screen.getByTestId('forge-results-timestamp');
+    expect(timestamp).toBeDefined();
+    expect(timestamp.textContent).toContain('2026');
+  });
+
+  /* ---- UX-18: Sort by column ---- */
+
+  it('should sort table rows when clicking a column header', () => {
+    render(<ForgeResults />);
+    // Default sort is objectApiName asc: Account, Case, Contact
+    const rows = screen.getAllByTestId('forge-results-row');
+    expect(rows[0].textContent).toContain('Account');
+    expect(rows[1].textContent).toContain('Case');
+    expect(rows[2].textContent).toContain('Contact');
+
+    // Click objectApiName header again to toggle to desc
+    fireEvent.click(screen.getByTestId('forge-results-sort-object'));
+    const rowsDesc = screen.getAllByTestId('forge-results-row');
+    expect(rowsDesc[0].textContent).toContain('Contact');
+    expect(rowsDesc[1].textContent).toContain('Case');
+    expect(rowsDesc[2].textContent).toContain('Account');
+  });
+
+  /* ---- UX-18: Filter by status ---- */
+
+  it('should filter table rows by status', () => {
+    render(<ForgeResults />);
+    const filter = screen.getByTestId('forge-results-status-filter');
+    expect(filter).toBeDefined();
+
+    // Filter to "done" only
+    fireEvent.change(filter, { target: { value: 'done' } });
+    const rows = screen.getAllByTestId('forge-results-row');
+    // Account (done) + Contact (done) = 2 rows, Case (skipped) filtered out
+    expect(rows.length).toBe(2);
+    expect(rows[0].textContent).toContain('Account');
+    expect(rows[1].textContent).toContain('Contact');
+  });
+
+  /* ---- UX-14: Collapsible logs toggle ---- */
+
+  it('should toggle execution logs visibility', () => {
+    render(<ForgeResults />);
+    const toggleBtn = screen.getByTestId('forge-results-toggle-logs');
+    expect(toggleBtn).toBeDefined();
+    // Logs should be collapsed by default (no logstream visible)
+    expect(screen.queryByTestId('logstream')).toBeNull();
+    // Click to expand
+    fireEvent.click(toggleBtn);
+    expect(screen.getByTestId('logstream')).toBeDefined();
+    // Click again to collapse
+    fireEvent.click(toggleBtn);
+    expect(screen.queryByTestId('logstream')).toBeNull();
   });
 });
