@@ -43,6 +43,18 @@ export interface MetadataDiffEntry {
   details: string;
 }
 
+/** Log entry persisted in the forge store. */
+export interface ForgeLogEntry {
+  /** Unique log entry ID. */
+  id: string;
+  /** Unix timestamp in milliseconds. */
+  timestamp: number;
+  /** Log severity level. */
+  level: 'info' | 'warn' | 'error' | 'debug';
+  /** Log message text. */
+  message: string;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -76,6 +88,7 @@ const INITIAL_STATE = {
   complianceReport: null as ComplianceReport | null,
   metadataDiffs: [] as MetadataDiffEntry[],
   anonymizationRules: { ...DEFAULT_ANONYMIZATION_RULES },
+  logs: [] as ForgeLogEntry[],
 };
 
 /** Forge state machine store — state and actions. */
@@ -117,6 +130,10 @@ export interface ForgeState {
   setResult: (result: ForgeExecutionResult) => void;
   /** Remove a template by name. */
   removeTemplate: (name: string) => void;
+  /** Add a new template to the list. */
+  addTemplate: (template: ForgeTemplate) => void;
+  /** Update an existing template's name and/or description. */
+  updateTemplate: (id: string, updates: { name?: string; description?: string }) => void;
   /** Set the execution plan. */
   setPlan: (plan: ForgePlan) => void;
   /** Set the compliance report. */
@@ -127,6 +144,14 @@ export interface ForgeState {
   setAnonymizationRule: (category: ForgeAnonymizationCategory, method: AnonymizationMethod) => void;
   /** Update a node's batch strategy. */
   updateNodeBatchStrategy: (objectApiName: string, strategy: ForgeBatchStrategy) => void;
+  /** Execution log entries (persisted across phase transitions). */
+  logs: ForgeLogEntry[];
+  /** Append a log entry. */
+  addLog: (entry: ForgeLogEntry) => void;
+  /** Clear all log entries. */
+  clearLogs: () => void;
+  /** Soft reset: clear result/graph/plan/compliance/diffs but keep config/templates/history/rules. Go to input phase. */
+  forgeAgain: () => void;
   /** Reset the store to its initial state. */
   reset: () => void;
 }
@@ -204,6 +229,20 @@ export const useForgeStore = create<ForgeState>((set) => ({
     }));
   },
 
+  addTemplate(template: ForgeTemplate): void {
+    set((state) => ({
+      templates: [...state.templates, template],
+    }));
+  },
+
+  updateTemplate(id: string, updates: { name?: string; description?: string }): void {
+    set((state) => ({
+      templates: state.templates.map((t: ForgeTemplate) =>
+        t.id === id ? { ...t, ...updates } : t,
+      ),
+    }));
+  },
+
   setPlan(plan: ForgePlan): void {
     set({ plan });
   },
@@ -239,7 +278,30 @@ export const useForgeStore = create<ForgeState>((set) => ({
     });
   },
 
+  addLog(entry: ForgeLogEntry): void {
+    set((state) => ({
+      logs: [...state.logs, entry],
+    }));
+  },
+
+  clearLogs(): void {
+    set({ logs: [] });
+  },
+
+  forgeAgain(): void {
+    set({
+      phase: 'input' as ForgePhase,
+      graph: null,
+      result: null,
+      plan: null,
+      complianceReport: null,
+      metadataDiffs: [],
+      logs: [],
+      // Preserve: config, templates, history, anonymizationRules
+    });
+  },
+
   reset(): void {
-    set({ ...INITIAL_STATE, templates: [], history: [] });
+    set({ ...INITIAL_STATE, templates: [], history: [], logs: [] });
   },
 }));
