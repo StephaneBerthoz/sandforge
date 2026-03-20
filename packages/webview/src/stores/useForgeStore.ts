@@ -136,7 +136,7 @@ export const useForgeStore = create<ForgeState>((set) => ({
   ...INITIAL_STATE,
 
   setConfig(config: ForgeConfig): void {
-    set({ config });
+    set({ config, plan: null, complianceReport: null, metadataDiffs: [], result: null });
   },
 
   setGraph(graph: ForgeGraph): void {
