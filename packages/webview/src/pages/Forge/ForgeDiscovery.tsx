@@ -220,7 +220,7 @@ export const ForgeDiscovery: React.FC = () => {
           onClick={handleExecute}
           icon={<Play size={14} />}
         >
-          {t('forge.executeForge')}
+          {t('forge.reviewAndExecute')}
         </Button>
       </motion.div>
     </motion.div>
