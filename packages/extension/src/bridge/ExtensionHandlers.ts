@@ -206,6 +206,7 @@ export class ExtensionHandlers {
       'monitor:refresh', 'monitor:start', 'monitor:trends', 'monitor:abort-job',
       'monitor:live-operations', 'monitor:health-score',
       'monitor:storage', 'monitor:deployments', 'monitor:api-usage',
+      'monitor:error-logs', 'monitor:sessions', 'monitor:apex-insights', 'monitor:sandbox-refresh',
     ], this.monitorHandler);
 
     // Compare
