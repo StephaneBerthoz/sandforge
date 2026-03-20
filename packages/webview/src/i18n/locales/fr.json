@@ -1212,6 +1212,7 @@
     "records": "Enregistrements",
     "estSize": "Taille est.",
     "estDuration": "Duree est.",
+    "estRecords": "Enreg. est.",
     "selectNode": "Selectionnez un objet pour voir les details",
     "piiFields": "Champs PII detectes",
     "anonymize": "Anonymiser",

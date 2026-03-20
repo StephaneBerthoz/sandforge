@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
@@ -312,8 +314,6 @@ describe('SeedOpsHandler', () => {
       // bulkResult.successIds (not Array.from with synthetic bulk-N IDs).
       // The actual bulk executor is tested in BulkApiExecutor.test.ts.
       // Here we just verify the code references bulkResult.successIds.
-      const fs = require('fs');
-      const path = require('path');
       const handlerPath = path.join(__dirname, 'SeedOpsHandler.ts');
       const source = fs.readFileSync(handlerPath, 'utf-8') as string;
 

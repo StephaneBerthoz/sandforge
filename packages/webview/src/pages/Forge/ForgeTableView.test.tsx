@@ -161,7 +161,7 @@ describe('ForgeTableView', () => {
 
   it('should highlight the selected row', () => {
     const graph = makeGraph();
-    const { container } = render(
+    render(
       <ForgeTableView
         graph={graph}
         selectedNodeName="Contact"
