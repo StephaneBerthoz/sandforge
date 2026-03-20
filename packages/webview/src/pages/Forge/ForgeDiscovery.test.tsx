@@ -198,6 +198,15 @@ describe('ForgeDiscovery', () => {
     expect(container.querySelector('[data-testid="metadata-diff-banner"]')).toBeNull();
   });
 
+  it('should render "Review & Execute" label on the execute button', () => {
+    render(<ForgeDiscovery />);
+    const btn = screen.getByTestId('forge-execute-btn');
+    expect(btn.textContent).toContain('Review');
+    expect(btn.textContent).toContain('Execute');
+    // Ensure old label is gone
+    expect(btn.textContent).not.toBe('Execute Forge');
+  });
+
   it('should call toggleNodeIncluded when include toggle is used', () => {
     render(<ForgeDiscovery />);
     // Select Account node first
