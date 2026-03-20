@@ -245,6 +245,7 @@ export const ForgeExecution: React.FC = () => {
                 <button
                   type="button"
                   data-testid="log-filter-all"
+                  aria-pressed={logFilter === 'all'}
                   onClick={() => setLogFilter('all')}
                   className={cn(
                     'px-2 py-0.5 text-xs rounded transition-colors',
@@ -258,6 +259,7 @@ export const ForgeExecution: React.FC = () => {
                 <button
                   type="button"
                   data-testid="log-filter-errors"
+                  aria-pressed={logFilter === 'error'}
                   onClick={() => setLogFilter('error')}
                   className={cn(
                     'px-2 py-0.5 text-xs rounded transition-colors',
@@ -271,6 +273,7 @@ export const ForgeExecution: React.FC = () => {
                 <button
                   type="button"
                   data-testid="log-filter-warnings"
+                  aria-pressed={logFilter === 'warn'}
                   onClick={() => setLogFilter('warn')}
                   className={cn(
                     'px-2 py-0.5 text-xs rounded transition-colors',
