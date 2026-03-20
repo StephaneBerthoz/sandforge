@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForgeStore } from '../../stores/useForgeStore';
+import { useSendMessage, useMessageListener } from '../../hooks/useMessageBus';
+import { buildMessage } from '../../bridge/messageHelpers';
+import type { BaseMessage, ComplianceReport } from '@sandforge/shared';
 
 /** Supported compliance frameworks. */
 const FRAMEWORKS = ['none', 'gdpr', 'ccpa', 'hipaa', 'pci_dss'] as const;
@@ -18,12 +21,46 @@ const FRAMEWORK_LABELS: Record<string, string> = {
  * Compliance tab within the Forge Review phase.
  *
  * Allows the user to select a regulatory framework and displays
- * the compliance report when available.
+ * the compliance report when available. Sends a compliance request
+ * to the backend when a non-none framework is selected.
  */
 export const ReviewComplianceTab: React.FC = () => {
   const { t } = useTranslation();
   const [framework, setFramework] = useState<string>('none');
+  const [loading, setLoading] = useState(false);
   const complianceReport = useForgeStore((s) => s.complianceReport);
+  const graph = useForgeStore((s) => s.graph);
+  const config = useForgeStore((s) => s.config);
+  const setComplianceReport = useForgeStore((s) => s.setComplianceReport);
+  const sendMessage = useSendMessage();
+
+  // Send compliance request when framework changes to a non-none value
+  useEffect(() => {
+    if (framework === 'none' || !graph || !config) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    sendMessage(
+      buildMessage('forge:compliance:request', {
+        framework,
+        graph,
+        config,
+      }),
+    );
+  }, [framework, graph, config, sendMessage]);
+
+  // Listen for compliance response from backend
+  useMessageListener<BaseMessage & { payload: { report: ComplianceReport } }>(
+    'forge:compliance:response',
+    useCallback(
+      (msg) => {
+        setComplianceReport(msg.payload.report);
+        setLoading(false);
+      },
+      [setComplianceReport],
+    ),
+  );
 
   return (
     <div data-testid="review-compliance-tab" className="flex flex-col gap-3">
@@ -57,13 +94,25 @@ export const ReviewComplianceTab: React.FC = () => {
         </p>
       )}
 
-      {framework !== 'none' && !complianceReport && (
+      {framework !== 'none' && loading && !complianceReport && (
         <p
           data-testid="compliance-loading"
           className="text-xs text-text-muted py-4"
         >
           {t(
             'forge.review.complianceLoading',
+            'Analyzing compliance...',
+          )}
+        </p>
+      )}
+
+      {framework !== 'none' && !loading && !complianceReport && (
+        <p
+          data-testid="compliance-waiting"
+          className="text-xs text-text-muted py-4"
+        >
+          {t(
+            'forge.review.complianceWaiting',
             'Select a framework and execute to generate compliance report.',
           )}
         </p>
