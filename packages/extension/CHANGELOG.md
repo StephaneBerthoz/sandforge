@@ -5,6 +5,46 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-03-20
+
+### Stabilisation & Real-World Readiness
+
+This release focuses on making every module work end-to-end with real Salesforce orgs, cleaning up ghost features, and adding production-grade robustness.
+
+### Added
+
+- **Competitor Benchmark** — Comparison matrix against SF Inspector, ORGanizer, Org Monitor across 14 features
+- **StorageBreakdownPanel** — Per-object record count donut chart via EntityDefinition SOQL
+- **DeploymentTimeline** — Recent deployments with status indicators via DeployRequest query
+- **ApiUsagePanel** — Per-category API usage with ProgressBars and warning/critical badges
+- **LimitExportButton** — CSV export of governor limits via Blob API
+- **Dashboard Refresh UX** — Panel-level loading overlays, stale data indicator, error retry banner, connection loss warning with auto-reconnect
+- **Empty States** — Tailored first-launch experience with guidance and CTA for all 5 modules (Forge, Monitor, DataOps, Automation, Autopilot)
+- **Bulk API 2.0** — Automatic switch for operations > 200 records (Seed, Sync) via BulkApiExecutor
+- **RetryableOperation** — Exponential backoff with smart record-level vs connection-level error classification
+- **TimeoutManager** — Configurable timeout with AbortController for long-running operations
+- **FieldTypeValidator** — Source-to-target field type compatibility checking before Sync upsert
+- **Robustness Config** — Zod-validated configuration for timeouts, retry, and bulk thresholds
+
+### Fixed
+
+- **CorrelationId propagation** — All 16 handlers now use buildResponse with correlationId for reliable request/response matching (122 total calls)
+- **Response type mismatches** — Audit and fix of all useBridgeQuery/useBridgeMutation response types across 70+ message types
+- **Ghost features cleaned** — Removed dead message types (audit, governance, team, recovery), added "Coming Soon" overlays for Scheduler (v1.2) and RealTime Sync (v2.0) with NoOpHandler
+- **Notifications bell** — Bell button in TopBar now opens NotificationCenter with unread badge
+- **Version footer** — StatusFooter reads version from build-time env, no longer hardcoded
+- **Org auto-select** — First connected org automatically selected on mount
+- **Grappe sidebar** — Removed from sidebar navigation (kept as execution overlay)
+- **AI guidance** — Clear empty state with Settings link when AI API key not configured
+- **AI persistence** — Conversations persisted to ConfigStore, survive extension reloads
+- **Unhandled messages** — MessageBroker logs warnings for unhandled message types
+
+### Stats
+
+- 7042 tests passing across 230+ test files
+- 27 requirements delivered across 6 phases
+- Zero TODO/FIXME/PLACEHOLDER in source code
+
 ## [3.2.0] — 2026-03-13
 
 ### Added
