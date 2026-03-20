@@ -63,6 +63,16 @@ vi.mock('../../stores/useOrgStore', () => ({
 
 /* ---- Tests ---- */
 
+/** Helper to select an org from the OrgDropdown custom component.
+ * Use orgId='empty' to select the placeholder (clear selection).
+ */
+function selectOrg(testId: string, orgId: string): void {
+  const trigger = screen.getByTestId(testId);
+  fireEvent.click(trigger);
+  const optionTestId = orgId === 'empty' ? `${testId}-option-empty` : `${testId}-option-${orgId}`;
+  fireEvent.click(screen.getByTestId(optionTestId));
+}
+
 describe('ForgeInput', () => {
   beforeEach(() => {
     mockSetConfig.mockClear();
@@ -138,8 +148,7 @@ describe('ForgeInput', () => {
     fireEvent.change(recordInput, { target: { value: '001XXXXXXXXXXXXXXX' } });
 
     // Source org is auto-selected from selectedOrgId; just set target
-    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
-    fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
+    selectOrg('forge-target-org', 'org-tgt');
 
     // Click discover
     const btn = screen.getByTestId('forge-discover-btn') as HTMLButtonElement;
@@ -165,8 +174,7 @@ describe('ForgeInput', () => {
     });
 
     // Source is auto-selected; set target
-    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
-    fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
+    selectOrg('forge-target-org', 'org-tgt');
 
     fireEvent.click(screen.getByTestId('forge-discover-btn'));
 
@@ -220,8 +228,7 @@ describe('ForgeInput', () => {
     fireEvent.change(recordInput, { target: { value: '003ABCDEFGHIJKLMNO' } });
 
     // Source is auto-selected; set target
-    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
-    fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
+    selectOrg('forge-target-org', 'org-tgt');
 
     fireEvent.click(screen.getByTestId('forge-discover-btn'));
 
@@ -233,17 +240,16 @@ describe('ForgeInput', () => {
   /* ---- UX-01: Auto-select source org on mount ---- */
   it('should auto-select source org from global selectedOrgId on mount', () => {
     render(<ForgeInput />);
-    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
-    expect(sourceSelect.value).toBe('org-src');
+    const sourceTrigger = screen.getByTestId('forge-source-org');
+    // OrgDropdown shows the alias of the auto-selected org
+    expect(sourceTrigger.textContent).toContain('SourceOrg');
   });
 
   /* ---- UX-03: Same org guard ---- */
   it('should show warning and disable discover when source === target', () => {
     render(<ForgeInput />);
-    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
-    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
-    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
-    fireEvent.change(targetSelect, { target: { value: 'org-src' } });
+    // Source is auto-selected to org-src; set target to the same
+    selectOrg('forge-target-org', 'org-src');
     // Fill input to isolate the guard
     const input = screen.getByTestId('forge-input-record') as HTMLInputElement;
     fireEvent.change(input, { target: { value: '001XXXXXXXXXXXXXXX' } });
@@ -254,21 +260,21 @@ describe('ForgeInput', () => {
   /* ---- UX-04: Swap orgs ---- */
   it('should swap source and target orgs when swap button is clicked', () => {
     render(<ForgeInput />);
-    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
-    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
-    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
-    fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
+    // Source is auto-selected to org-src; set target to org-tgt
+    selectOrg('forge-target-org', 'org-tgt');
     fireEvent.click(screen.getByTestId('forge-swap-orgs'));
-    expect(sourceSelect.value).toBe('org-tgt');
-    expect(targetSelect.value).toBe('org-src');
+    // After swap: source should show TargetOrg, target should show SourceOrg
+    const sourceTrigger = screen.getByTestId('forge-source-org');
+    const targetTrigger = screen.getByTestId('forge-target-org');
+    expect(sourceTrigger.textContent).toContain('TargetOrg');
+    expect(targetTrigger.textContent).toContain('SourceOrg');
   });
 
   /* ---- UX-05: Disabled CTA hint ---- */
   it('should show hint message when discover button is disabled', () => {
     render(<ForgeInput />);
-    // Clear source org that was auto-selected
-    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
-    fireEvent.change(sourceSelect, { target: { value: '' } });
+    // Clear source org that was auto-selected by selecting the empty option
+    selectOrg('forge-source-org', 'empty');
     expect(screen.getByTestId('forge-discover-hint')).toBeDefined();
   });
 
