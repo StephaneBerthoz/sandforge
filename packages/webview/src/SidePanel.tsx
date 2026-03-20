@@ -4,7 +4,7 @@ import './i18n';
 import {
   Flame, Activity, ExternalLink, CheckCircle, XCircle, Loader,
   Shield, Zap, Plug, Settings, HelpCircle, GitCompare, ChevronDown,
-  Star, Network, ArrowRight,
+  Star, ArrowRight,
 } from 'lucide-react';
 import { cn } from './theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
@@ -285,34 +285,6 @@ export const SidePanel: React.FC = () => {
             <div className="text-[10px] text-text-muted leading-tight">{t('sidePanel.forgeDesc', 'Seed, sync & transform data')}</div>
           </div>
           <ArrowRight className="w-3.5 h-3.5 text-orange-400/40 group-hover:text-orange-400/80 group-hover:translate-x-0.5 transition-all shrink-0" />
-        </button>
-      </div>
-
-      {/* Grappe Hero */}
-      <div className="px-3 pt-2">
-        <button
-          className={cn(
-            'w-full flex items-center gap-3 rounded-xl px-3.5 py-3 group',
-            'bg-gradient-to-r from-indigo-500/10 via-violet-500/8 to-indigo-500/5',
-            'border border-indigo-500/20',
-            'hover:from-indigo-500/20 hover:via-violet-500/15 hover:to-indigo-500/10',
-            'hover:border-indigo-500/40 hover:shadow-[0_0_16px_rgba(99,102,241,0.12)]',
-            'transition-all duration-200',
-          )}
-          onClick={() => navigate('grappe')}
-          data-testid="sidepanel-grappe"
-        >
-          <div className="relative shrink-0">
-            <div className="w-9 h-9 rounded-lg bg-indigo-500/15 flex items-center justify-center">
-              <Network className="w-5 h-5 text-indigo-400" />
-            </div>
-            <div className="absolute -inset-0.5 bg-indigo-400/10 rounded-lg blur-sm -z-10 group-hover:bg-indigo-400/20 transition-colors" />
-          </div>
-          <div className="text-left flex-1 min-w-0">
-            <div className="text-sm font-bold text-indigo-400">{t('sidePanel.grappe')}</div>
-            <div className="text-[10px] text-text-muted leading-tight">{t('sidePanel.grappeDesc', 'Parallel execution engine')}</div>
-          </div>
-          <ArrowRight className="w-3.5 h-3.5 text-indigo-400/40 group-hover:text-indigo-400/80 group-hover:translate-x-0.5 transition-all shrink-0" />
         </button>
       </div>
 

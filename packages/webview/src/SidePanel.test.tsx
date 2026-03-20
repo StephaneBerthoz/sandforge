@@ -186,4 +186,9 @@ describe('SidePanel', () => {
     fireEvent.click(screen.getByTestId('sidepanel-star-monitor'));
     expect(useFavoritesStore.getState().favorites).toContain('monitor');
   });
+
+  it('does not render grappe hero button', () => {
+    render(<SidePanel />);
+    expect(screen.queryByTestId('sidepanel-grappe')).toBeNull();
+  });
 });
