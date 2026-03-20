@@ -1,13 +1,16 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Copy, Save, RotateCcw, Download, RefreshCw } from 'lucide-react';
+import { Copy, Save, RotateCcw, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
+import { LogStream } from '../../components/ui/LogStream';
+import type { LogEntry } from '../../components/ui/LogStream';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { staggerContainer, slideUp } from '../../motion/presets';
 import { cn } from '../../theme';
+import { formatElapsed } from '../../utils/formatters';
 
 /** Status badge colors. */
 const statusBadgeStyles: Record<string, string> = {
@@ -33,12 +36,21 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const { t } = useTranslation();
   const result = useForgeStore((s) => s.result);
   const graph = useForgeStore((s) => s.graph);
-  const reset = useForgeStore((s) => s.reset);
+  const forgeAgain = useForgeStore((s) => s.forgeAgain);
   const setPhase = useForgeStore((s) => s.setPhase);
   const setGraph = useForgeStore((s) => s.setGraph);
+  const logs = useForgeStore((s) => s.logs);
   const addNotification = useNotificationStore((s) => s.addNotification);
 
   const nodes = useMemo(() => graph?.nodes ?? [], [graph]);
+
+  // Sort/filter state
+  type SortField = 'objectApiName' | 'recordCount' | 'status';
+  type SortDir = 'asc' | 'desc';
+  const [sortField, setSortField] = useState<SortField>('objectApiName');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [showLogs, setShowLogs] = useState(false);
 
   const inserted = useMemo(
     () => nodes.reduce((sum, n) => sum + n.successCount, 0),
@@ -72,6 +84,37 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     () => nodes.filter((n) => n.status === 'error'),
     [nodes],
   );
+
+  /** Sorted and filtered nodes for the results table. */
+  const sortedFilteredNodes = useMemo(() => {
+    let filtered = nodes;
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((n) => n.status === statusFilter);
+    }
+    return [...filtered].sort((a, b) => {
+      const aVal = a[sortField];
+      const bVal = b[sortField];
+      if (typeof aVal === 'string' && typeof bVal === 'string') {
+        return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      return 0;
+    });
+  }, [nodes, statusFilter, sortField, sortDir]);
+
+  /** Handle sort column click. */
+  const handleSort = useCallback((field: SortField) => {
+    setSortField((prev) => {
+      if (prev === field) {
+        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+        return prev;
+      }
+      setSortDir('asc');
+      return field;
+    });
+  }, []);
 
   /** Build a markdown report from the current results. */
   const buildReport = useCallback((): string => {
@@ -130,10 +173,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     setPhase('execution');
   }, [graph, failedNodes, setGraph, setPhase]);
 
-  /** Reset forge to go back to input phase. */
+  /** Soft reset: clear result but keep config. */
   const handleForgeAgain = useCallback(() => {
-    reset();
-  }, [reset]);
+    forgeAgain();
+  }, [forgeAgain]);
 
   return (
     <div data-testid="forge-results" className={cn('flex flex-col gap-4', className)}>
@@ -182,8 +225,38 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         />
       </motion.div>
 
+      {/* Duration + timestamp */}
+      {result && (
+        <div className="flex items-center gap-4 text-sm text-text-secondary">
+          <span data-testid="forge-results-duration">
+            {t('forge.executionDuration')}: <strong className="text-text-primary">{formatElapsed(Math.round(result.duration / 1000))}</strong>
+          </span>
+          <span data-testid="forge-results-timestamp">
+            {t('forge.executionTimestamp')}: <strong className="text-text-primary">{new Date(result.timestamp).toLocaleString()}</strong>
+          </span>
+        </div>
+      )}
+
       {/* Per-object results table */}
       <motion.div variants={slideUp} initial="hidden" animate="visible">
+        <div className="flex items-center gap-2 mb-2">
+          <select
+            data-testid="forge-results-status-filter"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className={cn(
+              'px-2 py-1 rounded text-xs',
+              'bg-[var(--vscode-input-background,#1e1e3a)]',
+              'text-[var(--vscode-input-foreground,#d4d4d4)]',
+              'border border-[var(--vscode-input-border,#3a3a5c)]',
+            )}
+          >
+            <option value="all">{t('forge.filterByStatus')}</option>
+            <option value="done">{t('forge.done')}</option>
+            <option value="error">{t('forge.failed')}</option>
+            <option value="skipped">{t('forge.skipped')}</option>
+          </select>
+        </div>
         <div className="overflow-x-auto rounded-lg border border-subtle bg-surface-1">
           <table
             className="w-full text-sm"
@@ -191,16 +264,38 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           >
             <thead>
               <tr className="border-b border-subtle text-left text-text-secondary">
-                <th className="px-4 py-2 font-medium">{t('forge.object')}</th>
-                <th className="px-4 py-2 font-medium">{t('forge.records')}</th>
-                <th className="px-4 py-2 font-medium">{t('forge.status')}</th>
+                <th
+                  className="px-4 py-2 font-medium cursor-pointer hover:text-text-primary select-none"
+                  data-testid="forge-results-sort-object"
+                  onClick={() => handleSort('objectApiName')}
+                >
+                  {t('forge.object')}
+                  {sortField === 'objectApiName' && (sortDir === 'asc' ? <ChevronUp size={12} className="inline ml-1" /> : <ChevronDown size={12} className="inline ml-1" />)}
+                </th>
+                <th
+                  className="px-4 py-2 font-medium cursor-pointer hover:text-text-primary select-none"
+                  data-testid="forge-results-sort-records"
+                  onClick={() => handleSort('recordCount')}
+                >
+                  {t('forge.records')}
+                  {sortField === 'recordCount' && (sortDir === 'asc' ? <ChevronUp size={12} className="inline ml-1" /> : <ChevronDown size={12} className="inline ml-1" />)}
+                </th>
+                <th
+                  className="px-4 py-2 font-medium cursor-pointer hover:text-text-primary select-none"
+                  data-testid="forge-results-sort-status"
+                  onClick={() => handleSort('status')}
+                >
+                  {t('forge.status')}
+                  {sortField === 'status' && (sortDir === 'asc' ? <ChevronUp size={12} className="inline ml-1" /> : <ChevronDown size={12} className="inline ml-1" />)}
+                </th>
                 <th className="px-4 py-2 font-medium">{t('forge.errors')}</th>
               </tr>
             </thead>
             <tbody>
-              {nodes.map((node) => (
+              {sortedFilteredNodes.map((node) => (
                 <tr
                   key={node.objectApiName}
+                  data-testid="forge-results-row"
                   className="border-b border-subtle last:border-b-0"
                 >
                   <td className="px-4 py-2 font-mono text-text-primary">
@@ -228,6 +323,30 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </table>
         </div>
       </motion.div>
+
+      {/* Collapsible execution logs */}
+      {logs.length > 0 && (
+        <motion.div variants={slideUp} initial="hidden" animate="visible">
+          <button
+            type="button"
+            data-testid="forge-results-toggle-logs"
+            onClick={() => setShowLogs((prev) => !prev)}
+            className="flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors mb-2"
+          >
+            <ChevronRight size={14} className={cn('transition-transform', showLogs && 'rotate-90')} />
+            <FileText size={14} />
+            {showLogs ? t('forge.hideLogs') : t('forge.showLogs')}
+            <span className="text-text-muted">({String(logs.length)})</span>
+          </button>
+          {showLogs && (
+            <LogStream
+              entries={logs as unknown as LogEntry[]}
+              className="max-h-64"
+              autoScroll={false}
+            />
+          )}
+        </motion.div>
+      )}
 
       {/* Actions row */}
       <motion.div variants={slideUp} initial="hidden" animate="visible" className="flex flex-wrap items-center gap-3">

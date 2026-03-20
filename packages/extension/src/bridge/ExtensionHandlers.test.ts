@@ -876,7 +876,7 @@ describe('ExtensionHandlers', () => {
       const guard = new ProductionGuard();
       handlers.setInfraServices({
         productionGuard: guard,
-        performanceTracker: { start: vi.fn(), stop: vi.fn() } as never,
+        performanceTracker: { start: vi.fn(), update: vi.fn(), complete: vi.fn(), stop: vi.fn() } as never,
         offlineManager: { isOffline: vi.fn().mockReturnValue(false) } as never,
         piiDetector: { detectPII: vi.fn() } as never,
       });
