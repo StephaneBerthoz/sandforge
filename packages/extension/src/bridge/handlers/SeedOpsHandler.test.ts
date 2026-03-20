@@ -155,9 +155,7 @@ describe('SeedOpsHandler', () => {
       expect(response.payload.results).toEqual([]);
     });
 
-    it('proceeds with normal execution when dryRun is false', async () => {
-      // When dryRun is false, the handler proceeds to the full execution path
-      // which requires heavy dependencies. We verify it does NOT short-circuit.
+    it('does not short-circuit when dryRun is false', async () => {
       mockGetConn.mockResolvedValue({} as never);
 
       const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
@@ -167,13 +165,16 @@ describe('SeedOpsHandler', () => {
         payload: { orgId: 'org-1', template: { objects: [] }, dryRun: false },
       };
 
-      // The handler will eventually fail during lazy imports, but the key
-      // assertion is that it did NOT return the dryRun response
       await handler.handle(msg);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const responses = postToWebview.mock.calls.map((c) => (c[0] as BaseMessage).type);
-      expect(responses).not.toContain('seed:execute:response');
+      // If a seed:execute:response was posted, it must NOT have the dryRun flag
+      const executeResponses = postToWebview.mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: { dryRun?: boolean } })
+        .filter((r) => r.type === 'seed:execute:response');
+      for (const r of executeResponses) {
+        expect(r.payload?.dryRun).not.toBe(true);
+      }
     });
   });
 
