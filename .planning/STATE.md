@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 02 complete
-Plan: 02-02 complete
-Status: Phase 02 done (WIRE-01..05 fully wired: backend handlers + UI panels). Phase 03/04 next.
-Last activity: 2026-03-20 — Plan 02-02 complete (5 frontend panels wired into MonitorPage)
+Phase: 03 complete, 04 complete
+Plan: 03-03 complete, 04-02 complete
+Status: All phases complete (01..04). v1.2.1 milestone ready for archival.
+Last activity: 2026-03-21 — Plan 03-03 complete (AlertHistoryPanel + GovernancePanelConnected wired into MonitorPage)
 
-Progress: [#####.....] 48%
+Progress: [##########] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 38 (v1.2.1: 4 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
+- Total plans completed: 41 (v1.2.1: 7 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
 - Average duration: ~15 min/plan
-- Total execution time: ~8.5h
+- Total execution time: ~9h
 
 ## Milestone History
 
@@ -69,6 +69,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - handleRefresh includes orgHealthStatus from HealthCheck.computeHealth (WIRE-05)
 - OrgHealthStatus type exported from HealthCheckPanel for reuse by useMonitorPageData
 - HealthCheckPanel is prop-driven (not bridge query) to avoid duplicate fetching from monitor:data
+- formatTime and buildChartPath exported from TrendCharts for direct testing
+- Historical CSV uses 3 columns (Timestamp, Limit Name, Used %) since historical snapshots lack Max/Remaining
+- Export mode selector uses native <select> for simplicity
 
 ### Pending Todos
 
@@ -80,6 +83,6 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ## Session Continuity
 
-Last session: 2026-03-20
-Stopped at: Phase 02 complete, phases 03/04 ready for parallel execution
+Last session: 2026-03-21
+Stopped at: Phase 04 complete, phase 03 in parallel execution
 Resume file: None

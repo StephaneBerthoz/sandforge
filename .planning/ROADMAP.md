@@ -12,9 +12,9 @@
 **Requirements:** ALERT-01, ALERT-02, ALERT-03, ALERT-04, ALERT-05, GOV-01, GOV-02, GOV-03
 **Rationale:** AlertEngine.evaluate() runs in the refresh cycle (needs Phase 01 cache). Default rules reference unified health thresholds. GovernanceEngine feeds into AlertEngine (GOV-03). Grouped because alerts and governance are two halves of the same threshold→notification pipeline.
 
-## Phase 04 — Limits Coverage + Trends + UI Polish
+## Phase 04 — Limits Coverage + Trends + UI Polish ✓
 **Requirements:** LIMITS-01, LIMITS-02, LIMITS-03, LIMITS-04, TREND-01, TREND-02
-**Rationale:** New limit categories plug into the cached /limits response (Phase 01). Trend timestamp fix and historical export are independent UI improvements. Reset countdown is a standalone UI addition. All are leaf items with no downstream dependencies.
+**Completed:** 2026-03-21. 2 plans, 6 requirements delivered. Email/platform/file storage limits, reset countdown, real timestamps in TrendCharts (time-proportional x-positioning, multi-day format), historical CSV export via LimitExportButton.
 
 ---
 
@@ -25,7 +25,7 @@
 | 01 | Backend Foundation ✓ | 6 | — |
 | 02 | Wire Dead Services ✓ | 5 | 01 |
 | 03 | Alert System + Governance | 8 | 01 |
-| 04 | Limits + Trends + Polish | 6 | 01 |
+| 04 | Limits + Trends + Polish ✓ | 6 | 01 |
 
 **Total:** 4 phases, 25 requirements
 **Parallelism:** Phases 02, 03, 04 can execute in parallel after Phase 01 completes.
@@ -42,4 +42,4 @@ Completed 2026-03-19. 6 phases, 16 plans, 27 requirements delivered. See `.plann
 Completed 2026-03-17. 2 phases, 5 plans, 16 requirements delivered. See `.planning/milestones/v1.0.0-ROADMAP.md`.
 
 ---
-*Last updated: 2026-03-20 (Phase 02 complete)*
+*Last updated: 2026-03-21 (Phase 04 complete)*
