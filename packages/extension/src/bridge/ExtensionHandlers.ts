@@ -33,6 +33,7 @@ import type { ForgeServices } from './handlers/ForgeHandler.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
 import { ConfigHandler } from './handlers/ConfigHandler.js';
+import { GovernanceOpsHandler } from './handlers/GovernanceOpsHandler.js';
 import { NoOpHandler } from './handlers/NoOpHandler.js';
 
 // Re-export interfaces for backward compatibility
@@ -78,6 +79,7 @@ export class ExtensionHandlers {
   private readonly forgeHandler: ForgeHandler;
   private readonly migrationHandler: MigrationHandler;
   private readonly configHandler: ConfigHandler;
+  private readonly governanceHandler: GovernanceOpsHandler;
   private readonly noOpHandler: NoOpHandler;
 
   constructor(deps: ExtensionHandlersDeps) {
@@ -108,6 +110,10 @@ export class ExtensionHandlers {
     this.forgeHandler = new ForgeHandler(this.handlerDeps);
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
+    this.governanceHandler = new GovernanceOpsHandler(
+      this.handlerDeps,
+      this.monitorHandler.getAlertEngine(),
+    );
     this.noOpHandler = new NoOpHandler(this.handlerDeps);
   }
 
@@ -208,6 +214,14 @@ export class ExtensionHandlers {
       'monitor:storage', 'monitor:deployments', 'monitor:api-usage',
       'monitor:error-logs', 'monitor:sessions', 'monitor:apex-insights', 'monitor:sandbox-refresh',
     ], this.monitorHandler);
+
+    // Governance
+    route([
+      'governance:policies:list', 'governance:policy:get',
+      'governance:policy:save', 'governance:policy:delete',
+      'governance:policies:export', 'governance:policies:import',
+      'governance:evaluate', 'governance:templates',
+    ], this.governanceHandler);
 
     // Compare
     route(['compare:execute', 'compare:start', 'compare:permissions', 'compare:snapshots', 'compare:drift'], this.compareHandler);
