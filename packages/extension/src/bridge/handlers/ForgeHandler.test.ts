@@ -29,6 +29,12 @@ vi.mock('../../core/common/sforceLimitParser.js', () => ({
   checkApiLimits: vi.fn(),
 }));
 
+import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
+
+const mockGetConn = vi.mocked(getJsforceConnection);
+const mockQueryFallback = vi.mocked(queryWithFieldsFallback);
+
 function createMockGraph(): ForgeGraph {
   return {
     nodes: [
@@ -718,6 +724,78 @@ describe('ForgeHandler', () => {
       expect(responseCalls).toHaveLength(1);
       const response = responseCalls[0][0] as BaseMessage & { correlationId?: string };
       expect(response.correlationId).toBe(msg.id);
+    });
+  });
+
+  describe('forge:preview', () => {
+    it('includes estimatedRecordCount, totalFieldCount, and estimatedSize in response', async () => {
+      const mockConn = {
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: [{ name: 'Account', label: 'Account', keyPrefix: '001' }],
+        }),
+        describe: vi.fn().mockResolvedValue({
+          fields: [{ name: 'Name' }, { name: 'Phone' }, { name: 'Industry' }],
+        }),
+        query: vi.fn().mockResolvedValue({ totalSize: 5000 }),
+        limitInfo: {},
+      };
+      mockGetConn.mockResolvedValue(mockConn as never);
+      mockQueryFallback.mockResolvedValue([
+        { Id: '001xx000003DGb1', Name: 'Acme', Phone: '555-1234' },
+      ]);
+
+      const msg = buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-1' });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const responseCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:preview:response',
+      );
+      expect(responseCalls).toHaveLength(1);
+      const response = responseCalls[0][0] as BaseMessage & {
+        payload: {
+          estimatedRecordCount: number;
+          totalFieldCount: number;
+          estimatedSize: number;
+        };
+      };
+      expect(response.payload.totalFieldCount).toBe(3);
+      expect(response.payload.estimatedRecordCount).toBe(5000);
+      expect(response.payload.estimatedSize).toBeCloseTo(5);
+    });
+
+    it('defaults estimatedRecordCount to 0 when COUNT() query fails', async () => {
+      const mockConn = {
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: [{ name: 'Account', label: 'Account', keyPrefix: '001' }],
+        }),
+        describe: vi.fn().mockResolvedValue({
+          fields: [{ name: 'Name' }],
+        }),
+        query: vi.fn().mockRejectedValue(new Error('INVALID_QUERY')),
+        limitInfo: {},
+      };
+      mockGetConn.mockResolvedValue(mockConn as never);
+      mockQueryFallback.mockResolvedValue([
+        { Id: '001xx000003DGb1', Name: 'Acme' },
+      ]);
+
+      const msg = buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-1' });
+      await handler.handle(msg);
+
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const responseCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:preview:response',
+      );
+      expect(responseCalls).toHaveLength(1);
+      const response = responseCalls[0][0] as BaseMessage & {
+        payload: {
+          estimatedRecordCount: number;
+          estimatedSize: number;
+        };
+      };
+      expect(response.payload.estimatedRecordCount).toBe(0);
+      expect(response.payload.estimatedSize).toBe(0);
     });
   });
 });
