@@ -132,10 +132,15 @@ describe('ProgressNode', () => {
     expect(screen.queryByTestId('edge-type-badge')).toBeNull();
   });
 
-  it('should render include checkbox', () => {
-    render(<ProgressNode {...makeNodeProps({ included: true })} />);
+  it('should render include checkbox when onIncludeToggle is provided', () => {
+    render(<ProgressNode {...makeNodeProps({ included: true, onIncludeToggle: vi.fn() })} />);
     const checkbox = screen.getByTestId('include-checkbox') as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
+  });
+
+  it('should hide include checkbox when onIncludeToggle is not provided', () => {
+    render(<ProgressNode {...makeNodeProps({ onIncludeToggle: undefined })} />);
+    expect(screen.queryByTestId('include-checkbox')).toBeNull();
   });
 
   it('should call onIncludeToggle when checkbox is clicked', () => {
