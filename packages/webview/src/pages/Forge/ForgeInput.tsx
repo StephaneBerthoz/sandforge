@@ -154,7 +154,6 @@ export const ForgeInput: React.FC = () => {
   }, [inputMode, recordId, soqlQuery, selectedTemplate, aiPrompt]);
 
   const canDiscover = hasInput() && sourceOrgId.length > 0 && targetOrgId.length > 0;
-  const canPreview = extractRecordId(recordId) !== null && sourceOrgId.length > 0 && !previewLoading;
 
   /** Fetch a preview of the record from the source org. */
   const handlePreview = useCallback(() => {
@@ -287,7 +286,7 @@ export const ForgeInput: React.FC = () => {
                       type="button"
                       data-testid="forge-preview-btn"
                       aria-label={t('forge.previewRecord', 'Preview record')}
-                      disabled={!canPreview}
+                      disabled={extractRecordId(recordId) === null || sourceOrgId.length === 0 || previewLoading}
                       onClick={handlePreview}
                       className={cn(
                         'shrink-0 px-2.5 py-2 rounded-md text-sm transition-colors',

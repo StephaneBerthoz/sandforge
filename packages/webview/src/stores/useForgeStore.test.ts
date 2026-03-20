@@ -111,6 +111,33 @@ describe('useForgeStore', () => {
     expect(getState().config).toEqual(config);
   });
 
+  it('should clear stale artifacts when setConfig is called', () => {
+    // Set up stale state from a previous run
+    getState().setPlan(createMockPlan());
+    getState().setComplianceReport({ id: 'rpt-stale' } as unknown as import('@sandforge/shared').ComplianceReport);
+    getState().setMetadataDiffs([
+      { objectApiName: 'Account', fieldApiName: 'Custom__c', issue: 'missing', severity: 'error', details: '' },
+    ]);
+    getState().setResult(createMockResult());
+    getState().setGraph(createMockGraph());
+
+    // Now set a new config
+    const newConfig = createMockConfig({ recordId: '001NEW' });
+    getState().setConfig(newConfig);
+
+    // Stale artifacts should be cleared
+    expect(getState().plan).toBeNull();
+    expect(getState().complianceReport).toBeNull();
+    expect(getState().metadataDiffs).toEqual([]);
+    expect(getState().result).toBeNull();
+
+    // Config should be updated
+    expect(getState().config).toEqual(newConfig);
+
+    // Graph, templates, and history should NOT be cleared
+    expect(getState().graph).not.toBeNull();
+  });
+
   it('should update graph via setGraph', () => {
     const graph = createMockGraph();
     getState().setGraph(graph);
