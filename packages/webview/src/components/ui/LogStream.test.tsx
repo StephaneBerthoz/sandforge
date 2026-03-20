@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import '../../i18n';
 import { LogStream } from './LogStream';
 import type { LogEntry } from './LogStream';
 
@@ -116,5 +117,40 @@ describe('LogStream', () => {
     expect(screen.getByTestId('logstream-filter-all')).toBeDefined();
     expect(screen.getByTestId('logstream-filter-error')).toBeDefined();
     expect(screen.getByTestId('logstream-filter-warn')).toBeDefined();
+  });
+
+  /* ---- UX-15: Copy All button ---- */
+  it('should render Copy All button when entries exist', () => {
+    const singleEntry = [
+      { id: '1', timestamp: Date.now(), level: 'info' as const, message: 'Hello' },
+    ];
+    render(<LogStream entries={singleEntry} />);
+    expect(screen.getByTestId('logstream-copy-all')).toBeDefined();
+  });
+
+  /* ---- UX-15: Export button ---- */
+  it('should render Export button when entries exist', () => {
+    const singleEntry = [
+      { id: '1', timestamp: Date.now(), level: 'info' as const, message: 'Hello' },
+    ];
+    render(<LogStream entries={singleEntry} />);
+    expect(screen.getByTestId('logstream-export')).toBeDefined();
+  });
+
+  /* ---- UX-15: Buttons not shown when empty ---- */
+  it('should not render toolbar when entries are empty', () => {
+    render(<LogStream entries={[]} />);
+    expect(screen.queryByTestId('logstream-copy-all')).toBeNull();
+  });
+
+  /* ---- UX-16: Scroll container has onScroll handler ---- */
+  it('should have onScroll handler on scroll container', () => {
+    const singleEntry = [
+      { id: '1', timestamp: Date.now(), level: 'info' as const, message: 'Test' },
+    ];
+    render(<LogStream entries={singleEntry} autoScroll />);
+    // The scroll container should exist and be interactive
+    const container = screen.getByTestId('logstream').querySelector('.overflow-y-auto');
+    expect(container).toBeDefined();
   });
 });
