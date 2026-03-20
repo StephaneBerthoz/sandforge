@@ -126,6 +126,24 @@ export const ForgeInput: React.FC = () => {
   const [anonymize, setAnonymize] = useState(false);
   const [skipEmpty, setSkipEmpty] = useState(false);
 
+  /** Arrow-key navigation handler for depth radio chips. */
+  const handleDepthKeyDown = useCallback((e: React.KeyboardEvent, currentDepth: ForgeDepth) => {
+    const idx = DEPTH_OPTIONS.indexOf(currentDepth);
+    let nextIdx = idx;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      nextIdx = (idx + 1) % DEPTH_OPTIONS.length;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      nextIdx = (idx - 1 + DEPTH_OPTIONS.length) % DEPTH_OPTIONS.length;
+    }
+    if (nextIdx !== idx) {
+      setDepth(DEPTH_OPTIONS[nextIdx]);
+      const nextEl = document.querySelector(`[data-testid="forge-depth-${DEPTH_OPTIONS[nextIdx]}"]`) as HTMLElement;
+      nextEl?.focus();
+    }
+  }, [setDepth]);
+
   /* ---- Template management state ---- */
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -655,13 +673,17 @@ export const ForgeInput: React.FC = () => {
             <div className="text-[10px] text-text-muted uppercase tracking-widest mb-2">
               {t('forge.depth')}
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap" role="radiogroup" aria-label={t('forge.depth', 'Depth')}>
               {DEPTH_OPTIONS.map((d) => (
                 <button
                   key={d}
                   type="button"
+                  role="radio"
+                  aria-checked={depth === d}
+                  tabIndex={depth === d ? 0 : -1}
                   data-testid={`forge-depth-${d}`}
                   onClick={() => setDepth(d)}
+                  onKeyDown={(e) => handleDepthKeyDown(e, d)}
                   title={t(DEPTH_TOOLTIP_KEYS[d])}
                   className={cn(
                     'px-4 py-1.5 rounded-full text-xs font-medium transition-all border',

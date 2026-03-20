@@ -358,4 +358,33 @@ describe('ForgeInput', () => {
     // Should go back to the create button
     expect(screen.getByTestId('forge-template-create')).toBeDefined();
   });
+
+  /* ---- A11Y-04: Depth chips radiogroup ---- */
+  it('should have role="radiogroup" on depth chips container', () => {
+    render(<ForgeInput />);
+    const radiogroup = screen.getByRole('radiogroup');
+    expect(radiogroup).toBeDefined();
+  });
+
+  it('should have aria-checked on depth radio chips', () => {
+    render(<ForgeInput />);
+    const direct = screen.getByTestId('forge-depth-direct');
+    const full = screen.getByTestId('forge-depth-full');
+    const custom = screen.getByTestId('forge-depth-custom');
+    expect(direct.getAttribute('aria-checked')).toBe('true');
+    expect(full.getAttribute('aria-checked')).toBe('false');
+    expect(custom.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('should navigate depth chips with ArrowRight key', () => {
+    render(<ForgeInput />);
+    const direct = screen.getByTestId('forge-depth-direct');
+    // Initially "direct" is selected
+    expect(direct.getAttribute('aria-checked')).toBe('true');
+    // Press ArrowRight on direct -> should select full
+    fireEvent.keyDown(direct, { key: 'ArrowRight' });
+    const full = screen.getByTestId('forge-depth-full');
+    expect(full.getAttribute('aria-checked')).toBe('true');
+    expect(direct.getAttribute('aria-checked')).toBe('false');
+  });
 });

@@ -165,10 +165,10 @@ describe('LiveGraph', () => {
     expect(screen.getByTestId('live-graph')).toBeDefined();
   });
 
-  it('should have role="img" on the graph container', () => {
+  it('should have role="application" on the graph container', () => {
     render(<LiveGraph graph={makeSampleGraph()} />);
     const container = screen.getByTestId('live-graph');
-    expect(container.getAttribute('role')).toBe('img');
+    expect(container.getAttribute('role')).toBe('application');
   });
 
   it('should have aria-label on the graph container', () => {

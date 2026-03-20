@@ -174,4 +174,18 @@ describe('ForgeNodeDetail', () => {
     );
     expect(screen.queryByTestId('node-errors-list')).toBeNull();
   });
+
+  /* ---- A11Y-07: Contrast fix for skipped status ---- */
+  it('should use text-gray-400 for skipped status badge', () => {
+    render(
+      <ForgeNodeDetail
+        node={makeNode({ status: 'skipped' })}
+        onToggleIncluded={vi.fn()}
+        onToggleAnonymize={vi.fn()}
+      />,
+    );
+    const badge = screen.getByTestId('node-status-badge');
+    expect(badge.className).toContain('text-gray-400');
+    expect(badge.className).not.toContain('text-gray-500');
+  });
 });
