@@ -200,7 +200,7 @@ export class SeedOpsHandler implements DomainHandler {
           };
           const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectApiName, 'insert', records);
           return {
-            successIds: Array.from({ length: bulkResult.successCount }, (_, i) => `bulk-${i}`),
+            successIds: bulkResult.successIds,
             errors: bulkResult.failures.map((f) => f.error),
           };
         }

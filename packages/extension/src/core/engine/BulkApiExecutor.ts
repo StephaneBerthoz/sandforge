@@ -19,6 +19,8 @@ export interface BulkExecutionResult {
   jobId: string;
   /** Whether Bulk API 2.0 was used (vs REST) */
   usedBulkApi: boolean;
+  /** Real Salesforce record IDs for successfully processed records */
+  successIds: string[];
 }
 
 /** A single record failure from a bulk job */
@@ -53,7 +55,11 @@ export interface BulkJobCheckResult {
 
 /** Individual record result from bulk job */
 export interface BulkJobRecordResult {
+  /** Whether this individual record was processed successfully */
   success: boolean;
+  /** Salesforce record ID (present on success for insert/upsert operations) */
+  id?: string;
+  /** Error messages for failed records */
   errors?: string[];
 }
 
@@ -154,9 +160,12 @@ export class BulkApiExecutor {
 
     const results = await job.getAllResults();
     const failures: BulkRecordFailure[] = [];
+    const successIds: string[] = [];
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-      if (!r.success) {
+      if (r.success) {
+        successIds.push(r.id ?? `bulk-${jobId}-${i}`);
+      } else {
         failures.push({
           recordIndex: i,
           error: r.errors?.join(', ') ?? 'Unknown error',
@@ -180,6 +189,7 @@ export class BulkApiExecutor {
       failures,
       jobId,
       usedBulkApi: true,
+      successIds,
     };
   }
 }
