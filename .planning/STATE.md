@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 01 — Bugs + Cleanup (not started)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-20 — Milestone v1.2.0 started
+Phase: 01 — Bugs + Cleanup (in progress)
+Plan: 01-01 COMPLETE (BUG-01, BUG-02, BUG-03, BUG-06), 01-02 COMPLETE (BUG-04, BUG-05, BUG-07, BUG-08, BUG-09)
+Status: Executing
+Last activity: 2026-03-20 — Plan 01-02 completed (5 UI bug fixes)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [###░░░░░░░] ~20%
 
 ## Performance Metrics
 
@@ -62,6 +62,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - DeploymentTimeline queries DeployRequest directly (not DeploymentTracker) for richer data
 - Badge component requires wrapper span for data-testid (does not spread extra HTML props)
 - Button variant "outline" does not exist — use "secondary" instead
+- GraphDiscoveryDeps requires describeGlobal dep (resolveRootObject is now async)
+- ForgeHandler.isPaused removed (dead code, pause/resume now delegated to ForgeOrchestrator)
+- SeedOpsHandler dryRun branch placed after production guard, before insert logic
 
 ### Pending Todos
 
@@ -74,5 +77,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Milestone v1.2.0 initialized, ready for plan-phase 01
+Stopped at: Plan 01-01 complete, ready for plan 01-02
 Resume file: None
