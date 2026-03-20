@@ -20,9 +20,9 @@
 
 ### Health Score Unification (HEALTH-01..03)
 
-- [ ] **HEALTH-01** — Merge HealthScoreCalculator + OrgHealthScoreCalculator into single unified scorer
-- [ ] **HEALTH-02** — Trend data feeds into health factor scoring (rising usage trend = lower sub-score)
-- [ ] **HEALTH-03** — Smooth scoring curve (linear interpolation replaces cliff-effect step function)
+- [x] **HEALTH-01** — Merge HealthScoreCalculator + OrgHealthScoreCalculator into single unified scorer
+- [x] **HEALTH-02** — Trend data feeds into health factor scoring (rising usage trend = lower sub-score)
+- [x] **HEALTH-03** — Smooth scoring curve (linear interpolation replaces cliff-effect step function)
 
 ### Limits Coverage (LIMITS-01..04)
 
@@ -33,14 +33,14 @@
 
 ### API Efficiency (PERF-01..02)
 
-- [ ] **PERF-01** — /limits response cached at handler level, shared across monitor:refresh, monitor:api-usage, monitor:health-score
-- [ ] **PERF-02** — OrgInfoFetcher 5-min cache verified shared across handler calls (no duplicate SOQL)
+- [x] **PERF-01** — /limits response cached at handler level, shared across monitor:refresh, monitor:api-usage, monitor:health-score
+- [x] **PERF-02** — OrgInfoFetcher 5-min cache verified shared across handler calls (no duplicate SOQL)
 
 ### Trend Quality (TREND-01..03)
 
 - [ ] **TREND-01** — TrendStorage stores real timestamps; TrendCharts uses real timestamps on x-axis
 - [ ] **TREND-02** — Export historical trend data as CSV with real timestamps via LimitExportButton
-- [ ] **TREND-03** — Fix OrgTrendAnalyzer.analyzeJobTrend single-point defect (accumulate history, not single snapshot)
+- [x] **TREND-03** — Fix OrgTrendAnalyzer.analyzeJobTrend single-point defect (accumulate history, not single snapshot)
 
 ### Governance Wiring (GOV-01..03)
 

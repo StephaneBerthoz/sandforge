@@ -1,8 +1,8 @@
 # Roadmap: SandForge v1.2.1 — Monitor Enrichment & Wiring
 
-## Phase 01 — Backend Foundation: Limits Cache + Health Unification
+## Phase 01 — Backend Foundation: Limits Cache + Health Unification ✓
 **Requirements:** PERF-01, PERF-02, HEALTH-01, HEALTH-02, HEALTH-03, TREND-03
-**Rationale:** Cache must exist before wiring new handlers (avoid multiplying API calls). Health scorer unification is a prerequisite for alert default rules (ALERT-01 needs the unified scorer). Trend job fix is small and blocks HEALTH-02 (trend feedback).
+**Completed:** 2026-03-20. 2 plans, 6 requirements delivered. /limits cache (30s TTL), UnifiedHealthScorer (linear interpolation + trend integration), job trend accumulator fix.
 
 ## Phase 02 — Wire Dead Services
 **Requirements:** WIRE-01, WIRE-02, WIRE-03, WIRE-04, WIRE-05
@@ -22,7 +22,7 @@
 
 | Phase | Name | Reqs | Depends On |
 |-------|------|------|------------|
-| 01 | Backend Foundation | 6 | — |
+| 01 | Backend Foundation ✓ | 6 | — |
 | 02 | Wire Dead Services | 5 | 01 |
 | 03 | Alert System + Governance | 8 | 01 |
 | 04 | Limits + Trends + Polish | 6 | 01 |
