@@ -1,4 +1,4 @@
-import type { BaseMessage, TrendData, OrgTrendPayload, StorageObjectEntry, DeploymentEntry, ApiUsageCategory } from '@sandforge/shared';
+import type { BaseMessage, TrendData, OrgTrendPayload, StorageObjectEntry, DeploymentEntry, ApiUsageCategory, OrgHealthStatus, ApexLogEntry } from '@sandforge/shared';
 import { SF_API_VERSION, MONITOR_PERIOD_MAP, MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
@@ -15,6 +15,15 @@ import type { RawLimitsResponse } from '../../modules/monitor/transformLimitsRes
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { Connection } from 'jsforce';
+import { ErrorLogMonitor } from '../../modules/monitor/ErrorLogMonitor.js';
+import type { ErrorLogEntry } from '../../modules/monitor/ErrorLogMonitor.js';
+import { UserSessionMonitor } from '../../modules/monitor/UserSessionMonitor.js';
+import type { UserSessionInfo } from '../../modules/monitor/UserSessionMonitor.js';
+import { ApexLogAnalyzer } from '../../modules/monitor/ApexLogAnalyzer.js';
+import { SandboxRefreshTracker } from '../../modules/monitor/SandboxRefreshTracker.js';
+import type { SandboxRefreshEvent } from '../../modules/monitor/SandboxRefreshTracker.js';
+import { HealthCheck } from '../../modules/monitor/HealthCheck.js';
+import type { HealthSignalProvider } from '../../modules/monitor/HealthCheck.js';
 
 /** Message types handled by MonitorOpsHandler. */
 const MONITOR_TYPES = new Set([
@@ -27,6 +36,10 @@ const MONITOR_TYPES = new Set([
   'monitor:storage',
   'monitor:deployments',
   'monitor:api-usage',
+  'monitor:error-logs',
+  'monitor:sessions',
+  'monitor:apex-insights',
+  'monitor:sandbox-refresh',
 ]);
 
 /**
@@ -42,10 +55,118 @@ export class MonitorOpsHandler implements DomainHandler {
   private liveOperationTracker?: LiveOperationTracker;
   private readonly limitsCache: Map<string, { data: RawLimitsResponse; fetchedAt: number }> = new Map();
   private static readonly LIMITS_CACHE_TTL_MS = 30_000;
+  private readonly errorLogMonitor: ErrorLogMonitor;
+  private readonly userSessionMonitor: UserSessionMonitor;
+  private readonly apexLogAnalyzer: ApexLogAnalyzer;
+  private readonly sandboxRefreshTracker: SandboxRefreshTracker;
+  private readonly healthCheck: HealthCheck;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.trendStorage = new TrendStorage(deps.configStore);
+
+    this.errorLogMonitor = new ErrorLogMonitor(async (orgId: string, since: string): Promise<ErrorLogEntry[]> => {
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const records = await queryAll<{ Id: string; Operation: string; Status: string; DurationMilliseconds: number; LogLength: number; StartTime: string; LogUser: { Username: string } | null }>(
+        conn,
+        `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog WHERE Status != 'Success' AND StartTime > ${since} ORDER BY StartTime DESC LIMIT 50`,
+      );
+      checkApiLimits(conn.limitInfo, 'monitor:error-logs apexLog');
+      return records.map(r => ({
+        id: r.Id,
+        errorType: r.Status,
+        message: `${r.Operation} - ${r.Status}`,
+        timestamp: r.StartTime,
+        user: r.LogUser?.Username ?? undefined,
+        context: r.Operation,
+      }));
+    });
+
+    this.userSessionMonitor = new UserSessionMonitor(async (orgId: string): Promise<UserSessionInfo[]> => {
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const records = await queryAll<{ Id: string; UsersId: string; LoginType: string; SessionType: string; CreatedDate: string; SourceIp: string }>(
+        conn,
+        'SELECT Id, UsersId, LoginType, SessionType, CreatedDate, SourceIp FROM AuthSession ORDER BY CreatedDate DESC LIMIT 100',
+      );
+      checkApiLimits(conn.limitInfo, 'monitor:sessions authSession');
+      return records.map(r => ({
+        userId: r.UsersId,
+        username: r.UsersId,
+        sessionType: r.SessionType ?? r.LoginType ?? 'Unknown',
+        loginTime: r.CreatedDate,
+        sourceIp: r.SourceIp ?? '',
+      }));
+    });
+
+    this.apexLogAnalyzer = new ApexLogAnalyzer(async (orgId: string, count: number): Promise<ApexLogEntry[]> => {
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const records = await queryAll<{ Id: string; Operation: string; Status: string; DurationMilliseconds: number; LogLength: number; StartTime: string; LogUser: { Username: string } | null }>(
+        conn,
+        `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog ORDER BY StartTime DESC LIMIT ${count}`,
+      );
+      checkApiLimits(conn.limitInfo, 'monitor:apex-insights apexLog');
+      return records.map(r => ({
+        id: r.Id,
+        operation: r.Operation ?? 'Unknown',
+        status: r.Status,
+        durationMs: r.DurationMilliseconds ?? 0,
+        logSize: r.LogLength ?? 0,
+        startTime: r.StartTime,
+        user: r.LogUser?.Username ?? 'Unknown',
+      }));
+    });
+
+    this.sandboxRefreshTracker = new SandboxRefreshTracker(async (orgId: string): Promise<SandboxRefreshEvent[]> => {
+      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const records = await queryAll<{ Id: string; SandboxName: string; Status: string; CreatedDate: string; Description: string | null }>(
+        conn,
+        'SELECT Id, SandboxName, Status, CreatedDate, Description FROM SandboxProcess ORDER BY CreatedDate DESC LIMIT 20',
+      );
+      checkApiLimits(conn.limitInfo, 'monitor:sandbox-refresh sandboxProcess');
+      return records.map(r => ({
+        orgId,
+        sandboxName: r.SandboxName ?? 'Unknown',
+        refreshDate: r.CreatedDate,
+        status: (r.Status as SandboxRefreshEvent['status']) ?? 'Completed',
+        sourceOrg: r.Description ?? undefined,
+      }));
+    });
+    // No onRefreshDetected callback -- see Pitfall 9 in research
+
+    const apiLimitsProvider: HealthSignalProvider = async (orgId: string) => {
+      try {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const limitsRaw = await this.getOrFetchLimits(orgId, conn);
+        const apiEntry = limitsRaw['DailyApiRequests'] as { Max: number; Remaining: number } | undefined;
+        const pct = apiEntry ? Math.round(((apiEntry.Max - apiEntry.Remaining) / apiEntry.Max) * 100) : 0;
+        const status = pct > 80 ? 'critical' as const : pct > 60 ? 'warning' as const : 'ok' as const;
+        return { name: 'apiLimits', status, score: 100 - pct, message: `API usage at ${pct}%` };
+      } catch { return { name: 'apiLimits', status: 'ok' as const, score: 100, message: 'Unable to fetch limits' }; }
+    };
+
+    const storageProvider: HealthSignalProvider = async (orgId: string) => {
+      try {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const limitsRaw = await this.getOrFetchLimits(orgId, conn);
+        const storageEntry = limitsRaw['DataStorageMB'] as { Max: number; Remaining: number } | undefined;
+        const pct = storageEntry ? Math.round(((storageEntry.Max - storageEntry.Remaining) / storageEntry.Max) * 100) : 0;
+        const status = pct > 85 ? 'critical' as const : pct > 70 ? 'warning' as const : 'ok' as const;
+        return { name: 'storage', status, score: 100 - pct, message: `Storage usage at ${pct}%` };
+      } catch { return { name: 'storage', status: 'ok' as const, score: 100, message: 'Unable to fetch storage' }; }
+    };
+
+    const errorsProvider: HealthSignalProvider = async (orgId: string) => {
+      const errorCount = this.errorLogMonitor.getErrorCount(orgId);
+      const score = Math.max(0, 100 - errorCount * 5);
+      const status = errorCount > 10 ? 'critical' as const : errorCount > 3 ? 'warning' as const : 'ok' as const;
+      return { name: 'recentErrors', status, score, message: `${errorCount} recent errors` };
+    };
+
+    const jobsProvider: HealthSignalProvider = async () => {
+      return { name: 'activeJobs', status: 'ok' as const, score: 90, message: 'Jobs nominal' };
+    };
+
+    this.healthCheck = new HealthCheck([apiLimitsProvider, storageProvider, errorsProvider, jobsProvider]);
   }
 
   /**
@@ -111,6 +232,18 @@ export class MonitorOpsHandler implements DomainHandler {
         return true;
       case 'monitor:api-usage':
         await this.handleApiUsage(msg);
+        return true;
+      case 'monitor:error-logs':
+        await this.handleErrorLogs(msg);
+        return true;
+      case 'monitor:sessions':
+        await this.handleSessions(msg);
+        return true;
+      case 'monitor:apex-insights':
+        await this.handleApexInsights(msg);
+        return true;
+      case 'monitor:sandbox-refresh':
+        await this.handleSandboxRefresh(msg);
         return true;
       default:
         return false;
@@ -204,8 +337,16 @@ export class MonitorOpsHandler implements DomainHandler {
       });
       const healthScore = healthReport.overallScore;
 
+      // 5b. Compute org health status (WIRE-05)
+      let orgHealthStatus: OrgHealthStatus | undefined;
+      try {
+        orgHealthStatus = await this.healthCheck.computeHealth(payload.orgId);
+      } catch (healthErr) {
+        this.deps.log(`[WARN] HealthCheck failed: ${String(healthErr)}`);
+      }
+
       // 6. Send response
-      const response = buildResponse(this.deps, msg, 'monitor:data', { limits, jobs, healthScore, healthReport, trends, orgInfo, lastUpdated: new Date().toISOString() });
+      const response = buildResponse(this.deps, msg, 'monitor:data', { limits, jobs, healthScore, healthReport, trends, orgInfo, orgHealthStatus, lastUpdated: new Date().toISOString() });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -436,6 +577,104 @@ export class MonitorOpsHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', { jobId: payload.jobId, success: false, message });
       this.deps.broker.postToWebview(response);
       sendNotification(this.deps, 'error', 'Monitor', `Failed to abort job: ${message}`);
+    }
+  }
+
+  /**
+   * Handle monitor:error-logs -- fetch recent error log entries.
+   * @param msg - The incoming error-logs request message.
+   */
+  private async handleErrorLogs(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const errors = await this.errorLogMonitor.fetch(payload.orgId);
+      const errorsByTypeMap = this.errorLogMonitor.getErrorsByType(payload.orgId);
+      const errorsByType = [...errorsByTypeMap.entries()].map(([type, count]) => ({ type, count }));
+
+      const response = buildResponse(this.deps, msg, 'monitor:error-logs:response', {
+        success: true,
+        errors,
+        errorsByType,
+        totalCount: errors.length,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:error-logs', 'monitor:error-logs:response', err);
+    }
+  }
+
+  /**
+   * Handle monitor:sessions -- fetch active user sessions.
+   * @param msg - The incoming sessions request message.
+   */
+  private async handleSessions(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const sessions = await this.userSessionMonitor.fetch(payload.orgId);
+      const activeUserCount = this.userSessionMonitor.getActiveUserCount(payload.orgId);
+
+      const response = buildResponse(this.deps, msg, 'monitor:sessions:response', {
+        success: true,
+        sessions,
+        activeUserCount,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:sessions', 'monitor:sessions:response', err);
+    }
+  }
+
+  /**
+   * Handle monitor:apex-insights -- fetch and analyze Apex logs.
+   * @param msg - The incoming apex-insights request message.
+   */
+  private async handleApexInsights(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const analyses = await this.apexLogAnalyzer.fetchAndAnalyze(payload.orgId, 20);
+      const topIssues = this.apexLogAnalyzer.getTopIssues(payload.orgId);
+
+      const response = buildResponse(this.deps, msg, 'monitor:apex-insights:response', {
+        success: true,
+        analyses,
+        topIssues,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:apex-insights', 'monitor:apex-insights:response', err);
+    }
+  }
+
+  /**
+   * Handle monitor:sandbox-refresh -- fetch sandbox refresh events.
+   * @param msg - The incoming sandbox-refresh request message.
+   */
+  private async handleSandboxRefresh(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+
+    try {
+      const refreshes = await this.sandboxRefreshTracker.fetch(payload.orgId);
+      const inProgress = this.sandboxRefreshTracker.isRefreshInProgress(payload.orgId);
+
+      const response = buildResponse(this.deps, msg, 'monitor:sandbox-refresh:response', {
+        success: true,
+        refreshes,
+        inProgress,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:sandbox-refresh', 'monitor:sandbox-refresh:response', err);
     }
   }
 }
