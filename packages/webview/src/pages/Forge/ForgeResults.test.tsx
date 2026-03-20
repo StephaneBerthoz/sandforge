@@ -81,6 +81,7 @@ const makeMockResult = () => ({
   totalFailures: 2,
   status: 'partial' as const,
   graph: makeMockGraph(),
+  idRemapCount: 42,
 });
 
 const makeErrorNode = () => ({
@@ -169,6 +170,13 @@ describe('ForgeResults', () => {
     const values = screen.getAllByTestId('kpi-value');
     // skipped = Case with 5 records (status=skipped)
     expect(values[1].textContent).toBe('5');
+  });
+
+  it('should display idRemaps from result.idRemapCount, not inserted', () => {
+    render(<ForgeResults />);
+    const values = screen.getAllByTestId('kpi-value');
+    // idRemaps = result.idRemapCount = 42, NOT inserted count of 28
+    expect(values[2].textContent).toBe('42');
   });
 
   it('should display success rate in KPI', () => {

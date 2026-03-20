@@ -50,7 +50,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     [nodes],
   );
 
-  const idRemaps = useMemo(() => inserted, [inserted]);
+  const idRemaps = result?.idRemapCount ?? 0;
 
   const successRate = useMemo(() => {
     const total = result?.graph.totalRecords ?? nodes.reduce((sum, n) => sum + n.recordCount, 0);
