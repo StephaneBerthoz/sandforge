@@ -57,6 +57,7 @@ vi.mock('../../stores/useOrgStore', () => ({
           safetyTier: 'low',
         },
       ],
+      selectedOrgId: 'org-src',
     }),
 }));
 
@@ -136,11 +137,7 @@ describe('ForgeInput', () => {
     const recordInput = screen.getByTestId('forge-input-record') as HTMLInputElement;
     fireEvent.change(recordInput, { target: { value: '001XXXXXXXXXXXXXXX' } });
 
-    // Select source org
-    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
-    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
-
-    // Select target org
+    // Source org is auto-selected from selectedOrgId; just set target
     const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
     fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
 
@@ -167,9 +164,7 @@ describe('ForgeInput', () => {
       target: { value: 'https://myorg.lightning.force.com/lightning/r/Account/001XXXXXXXXXXXXXXX/view' },
     });
 
-    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
-    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
-
+    // Source is auto-selected; set target
     const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
     fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
 
@@ -224,9 +219,7 @@ describe('ForgeInput', () => {
     const recordInput = screen.getByTestId('forge-input-record') as HTMLInputElement;
     fireEvent.change(recordInput, { target: { value: '003ABCDEFGHIJKLMNO' } });
 
-    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
-    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
-
+    // Source is auto-selected; set target
     const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
     fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
 
@@ -235,5 +228,85 @@ describe('ForgeInput', () => {
     expect(mockSetConfig).toHaveBeenCalledTimes(1);
     const config = mockSetConfig.mock.calls[0][0];
     expect(config.recordId).toBe('003ABCDEFGHIJKLMNO');
+  });
+
+  /* ---- UX-01: Auto-select source org on mount ---- */
+  it('should auto-select source org from global selectedOrgId on mount', () => {
+    render(<ForgeInput />);
+    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
+    expect(sourceSelect.value).toBe('org-src');
+  });
+
+  /* ---- UX-03: Same org guard ---- */
+  it('should show warning and disable discover when source === target', () => {
+    render(<ForgeInput />);
+    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
+    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
+    fireEvent.change(targetSelect, { target: { value: 'org-src' } });
+    // Fill input to isolate the guard
+    const input = screen.getByTestId('forge-input-record') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '001XXXXXXXXXXXXXXX' } });
+    expect(screen.getByTestId('forge-same-org-warning')).toBeDefined();
+    expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  /* ---- UX-04: Swap orgs ---- */
+  it('should swap source and target orgs when swap button is clicked', () => {
+    render(<ForgeInput />);
+    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
+    const targetSelect = screen.getByTestId('forge-target-org') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: 'org-src' } });
+    fireEvent.change(targetSelect, { target: { value: 'org-tgt' } });
+    fireEvent.click(screen.getByTestId('forge-swap-orgs'));
+    expect(sourceSelect.value).toBe('org-tgt');
+    expect(targetSelect.value).toBe('org-src');
+  });
+
+  /* ---- UX-05: Disabled CTA hint ---- */
+  it('should show hint message when discover button is disabled', () => {
+    render(<ForgeInput />);
+    // Clear source org that was auto-selected
+    const sourceSelect = screen.getByTestId('forge-source-org') as HTMLSelectElement;
+    fireEvent.change(sourceSelect, { target: { value: '' } });
+    expect(screen.getByTestId('forge-discover-hint')).toBeDefined();
+  });
+
+  /* ---- UX-07: Depth chip tooltips ---- */
+  it('should render depth chips with title tooltips', () => {
+    render(<ForgeInput />);
+    const directChip = screen.getByTestId('forge-depth-direct');
+    expect(directChip.getAttribute('title')).toBeTruthy();
+    const fullChip = screen.getByTestId('forge-depth-full');
+    expect(fullChip.getAttribute('title')).toBeTruthy();
+  });
+
+  /* ---- UX-08: Ctrl+Enter submit ---- */
+  it('should not trigger discover on Ctrl+Enter when canDiscover is false', () => {
+    render(<ForgeInput />);
+    // Record input is visible by default; type something but do NOT set target org
+    const input = screen.getByTestId('forge-input-record') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '001XXXXXXXXXXXXXXX' } });
+    // Ctrl+Enter on the input should NOT trigger discover (no target org)
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
+    expect(mockSetPhase).not.toHaveBeenCalled();
+  });
+
+  /* ---- UX-09: Preview panel shows record-mode text by default ---- */
+  it('should show record-mode preview placeholder on record tab', () => {
+    render(<ForgeInput />);
+    // On the record tab with a source org auto-selected, the placeholder should show recordIdPlaceholder text
+    const previewArea = document.querySelector('[data-testid="forge-input"] .rounded-lg.border-dashed');
+    expect(previewArea).toBeDefined();
+    // Should NOT show SOQL/AI/Template hints when on the record tab
+    expect(previewArea?.textContent).not.toContain('SOQL');
+    expect(previewArea?.textContent).not.toContain('AI');
+  });
+
+  /* ---- UX-10: Refresh button exists ---- */
+  it('should render a refresh preview button', () => {
+    render(<ForgeInput />);
+    const previewBtn = screen.getByTestId('forge-preview-btn');
+    expect(previewBtn.getAttribute('aria-label')).toContain('efresh');
   });
 });
