@@ -9,17 +9,17 @@ See: .planning/PROJECT.md (updated 2026-03-20)
 
 ## Current Position
 
-Phase: 01 complete — ready for phases 02, 03, 04 (parallelizable)
-Plan: --
-Status: Phase 01 done (6/25 requirements). Phases 02-04 ready for planning.
-Last activity: 2026-03-20 — Phase 01 verified
+Phase: 02 in progress
+Plan: 02-01 complete
+Status: Phase 02 plan 01 done (WIRE-01..05 backend wiring). Plan 02-02 next.
+Last activity: 2026-03-20 — Plan 02-01 complete (backend handler wiring)
 
-Progress: [##........] 24%
+Progress: [###.......] 32%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 36 (v1.2.1: 2 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
+- Total plans completed: 37 (v1.2.1: 3 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
 - Average duration: ~15 min/plan
 - Total execution time: ~8.5h
 
@@ -63,6 +63,10 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - MonitorOpsHandler limitsCache uses vi.hoisted pattern for test mocking (single unified mock per module path per file)
 - UnifiedHealthScorer replaces both HealthScoreCalculator and OrgHealthScoreCalculator (linear interpolation, trend penalties, optional dimensions)
 - handleRefresh health calculation moved after orgInfo fetch for metadata dimension support
+- Monitor service query functions capture handler context for lazy connection resolution
+- SandboxRefreshTracker omits onRefreshDetected callback (Pitfall 9)
+- HealthCheck providers reuse limitsCache and errorLogMonitor cache for zero-cost signals
+- handleRefresh includes orgHealthStatus from HealthCheck.computeHealth (WIRE-05)
 
 ### Pending Todos
 
@@ -75,5 +79,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-20
-Stopped at: Plan 01-02 complete, ready for plan 01-03
+Stopped at: Plan 02-01 complete, ready for plan 02-02
 Resume file: None
