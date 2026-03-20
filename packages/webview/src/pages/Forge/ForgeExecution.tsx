@@ -140,23 +140,26 @@ export const ForgeExecution: React.FC = () => {
     return () => window.removeEventListener('message', handler);
   }, [graph, updateNodeStatus, setPhase, addLog]);
 
-  // ---- Node KPIs ----
-  const nodes = graph?.nodes ?? [];
-  const totalNodes = nodes.length;
-  const doneCount = nodes.filter((n) => n.status === 'done').length;
-  const runningCount = nodes.filter((n) => n.status === 'running' || n.status === 'scanning').length;
-  const queuedCount = nodes.filter((n) => n.status === 'idle').length;
-  const failedCount = nodes.filter((n) => n.status === 'error').length;
-  const estimatedApiCalls = nodes.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
-  const progressPercent = totalNodes > 0 ? Math.round((doneCount / totalNodes) * 100) : 0;
+  // ---- Node KPIs (memoized to avoid redundant .filter() on every render) ----
+  const kpis = useMemo(() => {
+    const nodeList = graph?.nodes ?? [];
+    const total = nodeList.length;
+    const done = nodeList.filter((n) => n.status === 'done').length;
+    const running = nodeList.filter((n) => n.status === 'running' || n.status === 'scanning').length;
+    const queued = nodeList.filter((n) => n.status === 'idle').length;
+    const failed = nodeList.filter((n) => n.status === 'error').length;
+    const apiCalls = nodeList.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
+    const progress = total > 0 ? Math.round((done / total) * 100) : 0;
+    return { total, done, running, queued, failed, apiCalls, progress };
+  }, [graph]);
 
   // ETA calculation
   const etaSeconds = useMemo(() => {
-    if (doneCount === 0 || totalNodes === 0) return null;
-    const avgTimePerNode = elapsed / doneCount;
-    const remaining = totalNodes - doneCount;
+    if (kpis.done === 0 || kpis.total === 0) return null;
+    const avgTimePerNode = elapsed / kpis.done;
+    const remaining = kpis.total - kpis.done;
     return Math.round(avgTimePerNode * remaining);
-  }, [elapsed, doneCount, totalNodes]);
+  }, [elapsed, kpis.done, kpis.total]);
 
   // ---- Pause / Abort handlers ----
   const handlePauseToggle = useCallback(() => {
@@ -194,7 +197,7 @@ export const ForgeExecution: React.FC = () => {
   }, [t, addLog, setPhase]);
 
   return (
-    <div data-testid="forge-execution" className="flex flex-col gap-4">
+    <div data-testid="forge-execution" className="flex flex-col gap-4 h-full">
       {/* ---- Top bar: progress, timer, status ---- */}
       <motion.div variants={slideUp} initial="hidden" animate="visible" className="space-y-2">
         <div className="flex items-center justify-between text-sm">
@@ -214,9 +217,9 @@ export const ForgeExecution: React.FC = () => {
         <div className="h-2 w-full rounded-full bg-surface-2 overflow-hidden" data-testid="forge-execution-progress">
           <div
             className="h-full rounded-full bg-forge transition-all duration-300 ease-out"
-            style={{ width: `${progressPercent}%` }}
+            style={{ width: `${kpis.progress}%` }}
             role="progressbar"
-            aria-valuenow={progressPercent}
+            aria-valuenow={kpis.progress}
             aria-valuemin={0}
             aria-valuemax={100}
           />
@@ -224,7 +227,7 @@ export const ForgeExecution: React.FC = () => {
       </motion.div>
 
       {/* ---- Middle: SplitView (graph + logs) ---- */}
-      <div className="h-[400px]">
+      <div className="flex-1 min-h-0 min-h-[300px]">
         <SplitView
           ratio="60/40"
           left={
@@ -298,31 +301,31 @@ export const ForgeExecution: React.FC = () => {
           <KPICard
             icon="check"
             label={t('forge.done')}
-            value={doneCount}
+            value={kpis.done}
             variant="success"
           />
           <KPICard
             icon="sync"
             label={t('forge.running')}
-            value={runningCount}
+            value={kpis.running}
             variant="default"
           />
           <KPICard
             icon="clock"
             label={t('forge.queued')}
-            value={queuedCount}
+            value={kpis.queued}
             variant="warning"
           />
           <KPICard
             icon="error"
             label={t('forge.failed')}
-            value={failedCount}
+            value={kpis.failed}
             variant="error"
           />
           <KPICard
             icon="zap"
             label={t('forge.apiCallsConsumed')}
-            value={estimatedApiCalls}
+            value={kpis.apiCalls}
             variant="default"
           />
         </div>
