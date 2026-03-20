@@ -305,4 +305,22 @@ describe('SeedOpsHandler', () => {
       expect(result).toBe(true);
     });
   });
+
+  describe('bulk path uses real IDs', () => {
+    it('passes bulkResult.successIds instead of synthetic IDs', () => {
+      // This is a structural test: verify the SeedOpsHandler source uses
+      // bulkResult.successIds (not Array.from with synthetic bulk-N IDs).
+      // The actual bulk executor is tested in BulkApiExecutor.test.ts.
+      // Here we just verify the code references bulkResult.successIds.
+      const fs = require('fs');
+      const path = require('path');
+      const handlerPath = path.join(__dirname, 'SeedOpsHandler.ts');
+      const source = fs.readFileSync(handlerPath, 'utf-8') as string;
+
+      // Should use bulkResult.successIds
+      expect(source).toContain('bulkResult.successIds');
+      // Should NOT contain the old synthetic pattern
+      expect(source).not.toContain("Array.from({ length: bulkResult.successCount }");
+    });
+  });
 });

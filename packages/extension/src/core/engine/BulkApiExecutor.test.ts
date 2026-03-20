@@ -285,5 +285,84 @@ describe('BulkApiExecutor', () => {
       expect(trackedJob?.numberRecordsProcessed).toBe(2);
       expect(trackedJob?.numberRecordsFailed).toBe(1);
     });
+
+    it('should return real IDs from getAllResults when records have id field', async () => {
+      const job = createMockJob({
+        checkResults: [
+          { state: 'JobComplete', numberRecordsProcessed: 3 },
+        ],
+        allResults: [
+          { success: true, id: '001xx000001AAA' },
+          { success: true, id: '001xx000001BBB' },
+          { success: true, id: '001xx000001CCC' },
+        ],
+      });
+      const connection = createMockConnection(job);
+      const deps = createDeps(connection);
+      const executor = new BulkApiExecutor();
+
+      const records = [{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }];
+      const promise = executor.executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.successIds).toEqual([
+        '001xx000001AAA',
+        '001xx000001BBB',
+        '001xx000001CCC',
+      ]);
+      expect(result.successIds).toHaveLength(result.successCount);
+    });
+
+    it('should fall back to bulk-{jobId}-{i} when id is undefined in results', async () => {
+      const job = createMockJob({
+        checkResults: [
+          { state: 'JobComplete', numberRecordsProcessed: 2 },
+        ],
+        allResults: [
+          { success: true },
+          { success: true },
+        ],
+      });
+      const connection = createMockConnection(job);
+      const deps = createDeps(connection);
+      const executor = new BulkApiExecutor();
+
+      const records = [{ Name: 'A' }, { Name: 'B' }];
+      const promise = executor.executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.successIds).toEqual([
+        'bulk-test-job-123-0',
+        'bulk-test-job-123-1',
+      ]);
+      expect(result.successIds).toHaveLength(result.successCount);
+    });
+
+    it('should have successIds length matching successCount', async () => {
+      const job = createMockJob({
+        checkResults: [
+          { state: 'JobComplete', numberRecordsProcessed: 3 },
+        ],
+        allResults: [
+          { success: true, id: '001xx000001AAA' },
+          { success: false, errors: ['ERR'] },
+          { success: true, id: '001xx000001CCC' },
+        ],
+      });
+      const connection = createMockConnection(job);
+      const deps = createDeps(connection);
+      const executor = new BulkApiExecutor();
+
+      const records = [{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }];
+      const promise = executor.executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.successCount).toBe(2);
+      expect(result.successIds).toHaveLength(2);
+      expect(result.successIds).toEqual(['001xx000001AAA', '001xx000001CCC']);
+    });
   });
 });
