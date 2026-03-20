@@ -75,7 +75,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
           {node.recordCount} {t('forge.records')}
         </span>
         <span data-testid="node-field-count">
-          {node.fieldCount} {t('common.object')}
+          {node.fieldCount} {t('forge.fields')}
         </span>
       </motion.div>
 

@@ -1246,6 +1246,7 @@
     "exportJson": "Exporter JSON",
     "retryFailed": "Retenter les echecs",
     "anonymizedFields": "Champs anonymises",
+    "fields": "Champs",
     "emptyState": {
       "title": "Explorez le schema de votre org",
       "description": "Connectez un org Salesforce pour explorer ses relations, generer des plans de donnees et forger des jeux complets.",

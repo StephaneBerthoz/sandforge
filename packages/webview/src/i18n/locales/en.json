@@ -1277,6 +1277,7 @@
     "exportJson": "Export JSON",
     "retryFailed": "Retry Failed",
     "anonymizedFields": "Anonymized Fields",
+    "fields": "Fields",
     "emptyState": {
       "title": "Discover Your Org Schema",
       "description": "Connect a Salesforce org to explore its object relationships, generate data plans, and forge complete datasets.",
