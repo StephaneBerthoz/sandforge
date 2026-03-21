@@ -37,12 +37,8 @@ describe('ResetCountdown', () => {
     });
 
     const after = screen.getByTestId('reset-countdown-value').textContent;
-    // The value should have changed (decremented by 1 second)
-    // In rare edge cases they could be the same if we're right at a boundary,
-    // but for a 24h countdown they should differ
     expect(after).toMatch(/\d{2}:\d{2}:\d{2}/);
-    // At least the format is valid after the tick
-    expect(typeof after).toBe('string');
+    expect(initial).toMatch(/\d{2}:\d{2}:\d{2}/);
   });
 
   it('countdown does not display negative values', () => {
