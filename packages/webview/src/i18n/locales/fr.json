@@ -394,6 +394,16 @@
         "name": "Demo minimale",
         "description": "Modele de demo leger avec seulement Comptes, Contacts et Opportunites. Ideal pour les demos rapides et les tests."
       }
+    },
+    "gallery": {
+      "title": "Seed rapide depuis un template",
+      "subtitle": "Choisissez un template et commencez en quelques secondes",
+      "objects": "{{count}} objets",
+      "records": "{{count}} enregistrements",
+      "useThis": "Utiliser",
+      "customize": "Personnaliser les volumes",
+      "startSeeding": "Lancer le seed",
+      "orCustomize": "ou configurez manuellement"
     }
   },
   "sync": {
@@ -1685,5 +1695,36 @@
     "conflictsDetected": "{{count}} conflits detectes",
     "importSuccess": "{{imported}} cles importees, {{skipped}} ignorees",
     "importFailed": "Echec de l'import"
+  },
+  "quickSync": {
+    "title": "Sync Rapide",
+    "subtitle": "Prod vers sandbox en 3 clics",
+    "start": "Demarrer le Sync Rapide",
+    "backToWizard": "Retour au wizard complet",
+    "selectOrgs": "Selectionnez les orgs source et cible",
+    "selectObjects": "Selectionnez les objets a synchroniser",
+    "suggestedObjects": "Objets suggeres",
+    "addParent": "Ajouter le parent {{parent}} pour {{child}} ?",
+    "preview": "Apercu",
+    "totalRecords": "Total enregistrements",
+    "totalApiCalls": "Appels API estimes",
+    "estimatedDuration": "Duree estimee",
+    "go": "Synchroniser",
+    "executing": "Synchronisation...",
+    "complete": "Synchronisation terminee",
+    "objectCount": "{{count}} objets",
+    "parentDependency": "Dependance parent",
+    "newQuickSync": "Nouveau Sync Rapide",
+    "add": "Ajouter",
+    "dismiss": "Ignorer",
+    "seconds": "{{count}}s",
+    "sourceOrg": "Org source",
+    "targetOrg": "Org cible",
+    "next": "Suivant",
+    "back": "Retour",
+    "searchObjects": "Rechercher des objets...",
+    "noObjectsSelected": "Aucun objet selectionne",
+    "orgs": "Orgs",
+    "objects": "Objets"
   }
 }

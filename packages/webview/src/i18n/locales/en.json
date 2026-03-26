@@ -418,6 +418,16 @@
         "name": "Minimal Demo",
         "description": "Lightweight demo template with just Accounts, Contacts, and Opportunities. Perfect for quick demos and testing."
       }
+    },
+    "gallery": {
+      "title": "Quick Seed from Template",
+      "subtitle": "Pick a template and start seeding in seconds",
+      "objects": "{{count}} objects",
+      "records": "{{count}} records",
+      "useThis": "Use This",
+      "customize": "Customize Record Counts",
+      "startSeeding": "Start Seeding",
+      "orCustomize": "or build your own"
     }
   },
   "sync": {
@@ -1716,5 +1726,36 @@
     "conflictsDetected": "{{count}} conflicts detected",
     "importSuccess": "Imported {{imported}} keys, skipped {{skipped}}",
     "importFailed": "Import failed"
+  },
+  "quickSync": {
+    "title": "Quick Sync",
+    "subtitle": "Prod to sandbox in 3 clicks",
+    "start": "Start Quick Sync",
+    "backToWizard": "Back to full wizard",
+    "selectOrgs": "Select source and target orgs",
+    "selectObjects": "Select objects to sync",
+    "suggestedObjects": "Suggested objects",
+    "addParent": "Add parent {{parent}} for {{child}}?",
+    "preview": "Preview",
+    "totalRecords": "Total records",
+    "totalApiCalls": "Estimated API calls",
+    "estimatedDuration": "Estimated duration",
+    "go": "Sync Now",
+    "executing": "Syncing...",
+    "complete": "Sync complete",
+    "objectCount": "{{count}} objects",
+    "parentDependency": "Parent dependency",
+    "newQuickSync": "New Quick Sync",
+    "add": "Add",
+    "dismiss": "Dismiss",
+    "seconds": "{{count}}s",
+    "sourceOrg": "Source org",
+    "targetOrg": "Target org",
+    "next": "Next",
+    "back": "Back",
+    "searchObjects": "Search objects...",
+    "noObjectsSelected": "No objects selected yet",
+    "orgs": "Orgs",
+    "objects": "Objects"
   }
 }
