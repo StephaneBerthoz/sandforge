@@ -1,4 +1,5 @@
 import type { SeedTemplate, UUID } from '@sandforge/shared';
+import type { SeedTemplateStore } from './SeedTemplateStore.js';
 
 /** Function signature for generating unique IDs */
 export type GenerateIdFn = () => UUID;
@@ -8,17 +9,27 @@ export type NowFn = () => string;
 
 /**
  * Manages CRUD operations on seed templates.
+ *
  * Stores templates in an in-memory Map with auto-generated IDs
- * and automatic timestamp management.
+ * and automatic timestamp management. When an optional {@link SeedTemplateStore}
+ * is provided, all mutations are written through to persistent storage while
+ * the Map serves as a fast read cache.
  */
 export class SeedTemplateManager {
   private readonly templates: Map<string, SeedTemplate> = new Map();
   private readonly generateId: GenerateIdFn;
   private readonly now: NowFn;
+  private readonly store?: SeedTemplateStore;
 
-  constructor(generateId: GenerateIdFn, now: NowFn) {
+  /**
+   * @param generateId - Function to generate unique IDs.
+   * @param now - Function returning the current ISO timestamp.
+   * @param store - Optional persistent store. When provided, all CRUD ops are write-through.
+   */
+  constructor(generateId: GenerateIdFn, now: NowFn, store?: SeedTemplateStore) {
     this.generateId = generateId;
     this.now = now;
+    this.store = store;
   }
 
   /** Create a new seed template with auto-generated ID and timestamps */
@@ -34,12 +45,22 @@ export class SeedTemplateManager {
     };
 
     this.templates.set(template.id, template);
+    this.store?.save(template);
     return template;
   }
 
   /** Retrieve a template by ID */
   get(id: string): SeedTemplate | undefined {
-    return this.templates.get(id);
+    const cached = this.templates.get(id);
+    if (cached) return cached;
+    if (this.store) {
+      const persisted = this.store.load(id);
+      if (persisted) {
+        this.templates.set(id, persisted);
+      }
+      return persisted;
+    }
+    return undefined;
   }
 
   /** List all templates sorted by updatedAt descending */
@@ -65,12 +86,17 @@ export class SeedTemplateManager {
     };
 
     this.templates.set(id, updated);
+    this.store?.save(updated);
     return updated;
   }
 
   /** Delete a template by ID. Returns true if the template existed. */
   delete(id: string): boolean {
-    return this.templates.delete(id);
+    const existed = this.templates.delete(id);
+    if (this.store) {
+      return this.store.delete(id) || existed;
+    }
+    return existed;
   }
 
   /** Duplicate an existing template with a new name and fresh ID */
@@ -91,6 +117,7 @@ export class SeedTemplateManager {
     };
 
     this.templates.set(duplicated.id, duplicated);
+    this.store?.save(duplicated);
     return duplicated;
   }
 }

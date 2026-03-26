@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SeedTemplateManager } from './SeedTemplateManager';
 import type { GenerateIdFn, NowFn } from './SeedTemplateManager';
+import type { SeedTemplateStore } from './SeedTemplateStore';
 import type { SeedTemplate } from '@sandforge/shared';
 
 function createTemplateInput(): Omit<SeedTemplate, 'id' | 'createdAt' | 'updatedAt'> {
@@ -190,6 +191,68 @@ describe('SeedTemplateManager', () => {
 
       const unchanged = manager.get(original.id);
       expect(unchanged?.name).toBe('Test Template');
+    });
+  });
+
+  describe('with SeedTemplateStore (persistence)', () => {
+    let mockStore: { save: ReturnType<typeof vi.fn>; load: ReturnType<typeof vi.fn>; list: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+    let persistedManager: SeedTemplateManager;
+
+    beforeEach(() => {
+      mockStore = {
+        save: vi.fn(),
+        load: vi.fn(),
+        list: vi.fn().mockReturnValue([]),
+        delete: vi.fn().mockReturnValue(true),
+      };
+      persistedManager = new SeedTemplateManager(generateId, now, mockStore as unknown as SeedTemplateStore);
+    });
+
+    it('should persist on create', () => {
+      const template = persistedManager.create(createTemplateInput());
+      expect(mockStore.save).toHaveBeenCalledWith(template);
+    });
+
+    it('should persist on update', () => {
+      persistedManager.create(createTemplateInput());
+      const updated = persistedManager.update('id-1', { name: 'Updated' });
+      expect(mockStore.save).toHaveBeenCalledWith(updated);
+    });
+
+    it('should persist on duplicate', () => {
+      persistedManager.create(createTemplateInput());
+      const dup = persistedManager.duplicate('id-1', 'Copy');
+      expect(mockStore.save).toHaveBeenCalledWith(dup);
+    });
+
+    it('should call store.delete on delete', () => {
+      persistedManager.create(createTemplateInput());
+      persistedManager.delete('id-1');
+      expect(mockStore.delete).toHaveBeenCalledWith('id-1');
+    });
+
+    it('should fall back to store.load for cache miss', () => {
+      const persisted: SeedTemplate = {
+        id: 'ext-1',
+        name: 'External',
+        description: 'From store',
+        version: 1,
+        strategy: 'faker',
+        objects: [],
+        tags: [],
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      };
+      mockStore.load.mockReturnValue(persisted);
+
+      const result = persistedManager.get('ext-1');
+      expect(result).toEqual(persisted);
+      expect(mockStore.load).toHaveBeenCalledWith('ext-1');
+    });
+
+    it('should return undefined when store also has no match', () => {
+      mockStore.load.mockReturnValue(undefined);
+      expect(persistedManager.get('ghost')).toBeUndefined();
     });
   });
 });
