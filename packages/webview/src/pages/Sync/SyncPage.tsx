@@ -26,6 +26,8 @@ import { useGrappeStore } from '../../stores/useGrappeStore';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { useSyncPageData } from './useSyncPageData';
 import type { ObjectSetEntry } from './ObjectSetEditor';
+import { QuickSyncCard } from './QuickSync/QuickSyncCard';
+import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
 
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
@@ -113,6 +115,7 @@ const SyncGrappePanel: React.FC = () => {
 export const SyncPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const [quickSyncActive, setQuickSyncActive] = React.useState(false);
 
   const {
     availableObjects,
@@ -225,6 +228,13 @@ export const SyncPage: React.FC = () => {
         <ErrorBanner message={error} onDismiss={clearError} data-testid="sync-error" />
       )}
 
+      {!quickSyncActive && (
+        <QuickSyncCard onStart={() => setQuickSyncActive(true)} />
+      )}
+
+      {quickSyncActive ? (
+        <QuickSyncFlow onBack={() => setQuickSyncActive(false)} />
+      ) : (
       <SyncWizard
         steps={SYNC_STEPS}
         currentStep={currentStep}
@@ -444,6 +454,7 @@ export const SyncPage: React.FC = () => {
           </div>
         )}
       </SyncWizard>
+      )}
     </div>
   );
 };
