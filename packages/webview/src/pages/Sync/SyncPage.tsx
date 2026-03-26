@@ -16,6 +16,7 @@ import type { SyncWizardStep } from './SyncWizard';
 import { FieldMappingCanvas } from './FieldMappingCanvas';
 import { TransformBuilder } from './TransformBuilder';
 import { ObjectSetEditor } from './ObjectSetEditor';
+import { SyncTemplatePicker } from './SyncTemplatePicker';
 import { SankeyFlow } from './SankeyFlow';
 import type { SankeyNode, SankeyLink } from './SankeyFlow';
 import { FieldMapper } from '../../components/graph/FieldMapper';
@@ -27,8 +28,7 @@ import { useSyncPageData } from './useSyncPageData';
 import type { ObjectSetEntry } from './ObjectSetEditor';
 
 const SYNC_STEPS: SyncWizardStep[] = [
-  { id: 'select-orgs', labelKey: 'sync.selectOrgs' },
-  { id: 'configure-objects', labelKey: 'sync.configureObjects' },
+  { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
   { id: 'field-mapping', labelKey: 'sync.fieldMapping' },
   { id: 'transforms', labelKey: 'sync.transforms' },
   { id: 'review', labelKey: 'sync.review' },
@@ -150,6 +150,7 @@ export const SyncPage: React.FC = () => {
     handleAddTransform,
     handleRemoveTransform,
     handleExecute,
+    handleApplyTemplate,
     canGoNext,
     isFinished,
     overallPercent,
@@ -232,7 +233,7 @@ export const SyncPage: React.FC = () => {
         isFinished={isFinished}
         onFinish={handleExecute}
       >
-        {/* Step 0: Select orgs */}
+        {/* Step 0: Select orgs + Configure objects (merged) */}
         {currentStep === 0 && (
           <div className="flex flex-col gap-4" data-testid="sync-step-orgs">
             <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
@@ -247,30 +248,42 @@ export const SyncPage: React.FC = () => {
               <Select label={t('sync.mode')} options={modeOptions} value={mode} onChange={(e) => setMode(e.target.value as SyncMode)} />
               <Select label={t('sync.conflictStrategy')} options={conflictOptions} value={conflictStrategy} onChange={(e) => setConflictStrategy(e.target.value as ConflictStrategy)} />
             </div>
+
+            {/* Template picker — only show when both orgs are selected */}
+            {sourceOrgId && targetOrgId && (
+              <details className="mt-2" data-testid="sync-template-section">
+                <summary className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)] cursor-pointer">
+                  {t('sync.templates.title')}
+                </summary>
+                <div className="mt-2">
+                  <SyncTemplatePicker onApply={handleApplyTemplate} />
+                </div>
+              </details>
+            )}
+
+            {/* Object set editor — inline in merged step */}
+            {sourceOrgId && (
+              objectsLoading ? (
+                <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="sync-objects-skeleton">
+                  <Skeleton variant="text" width="30%" height="1em" />
+                  <Skeleton variant="rect" height="140px" />
+                  <Skeleton variant="text" width="50%" height="1em" />
+                </div>
+              ) : (
+                <ObjectSetEditor
+                  entries={objectEntries}
+                  availableObjects={availableObjects}
+                  onAdd={handleAddObject}
+                  onRemove={handleRemoveObject}
+                  onChange={handleObjectChange}
+                />
+              )
+            )}
           </div>
         )}
 
-        {/* Step 1: Configure objects */}
-        {currentStep === 1 && (
-          objectsLoading ? (
-            <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="sync-objects-skeleton">
-              <Skeleton variant="text" width="30%" height="1em" />
-              <Skeleton variant="rect" height="140px" />
-              <Skeleton variant="text" width="50%" height="1em" />
-            </div>
-          ) : (
-            <ObjectSetEditor
-              entries={objectEntries}
-              availableObjects={availableObjects}
-              onAdd={handleAddObject}
-              onRemove={handleRemoveObject}
-              onChange={handleObjectChange}
-            />
-          )
-        )}
-
-        {/* Step 2: Field mapping */}
-        {currentStep === 2 && fieldsLoading && (
+        {/* Step 1: Field mapping */}
+        {currentStep === 1 && fieldsLoading && (
           <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="sync-fields-skeleton">
             <Skeleton variant="text" width="25%" height="1em" />
             <div className="grid grid-cols-2 gap-[var(--sf-space-4)]">
@@ -279,7 +292,7 @@ export const SyncPage: React.FC = () => {
             </div>
           </div>
         )}
-        {currentStep === 2 && !fieldsLoading && (
+        {currentStep === 1 && !fieldsLoading && (
           <div className="flex flex-col gap-4" data-testid="sync-step-field-mapping">
             <FieldMapper
               sourceFields={sourceFields.map((f) => f.apiName)}
@@ -317,8 +330,8 @@ export const SyncPage: React.FC = () => {
           </div>
         )}
 
-        {/* Step 3: Transforms */}
-        {currentStep === 3 && (
+        {/* Step 2: Transforms */}
+        {currentStep === 2 && (
           <TransformBuilder
             rules={transforms}
             onAddRule={handleAddTransform}
@@ -327,8 +340,8 @@ export const SyncPage: React.FC = () => {
           />
         )}
 
-        {/* Step 4: Review */}
-        {currentStep === 4 && (
+        {/* Step 3: Review */}
+        {currentStep === 3 && (
           <div className="flex flex-col gap-3" data-testid="sync-step-review">
             <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
               {t('sync.reviewDesc')}
@@ -370,8 +383,8 @@ export const SyncPage: React.FC = () => {
           </div>
         )}
 
-        {/* Step 5: Execute */}
-        {currentStep === 5 && (
+        {/* Step 4: Execute */}
+        {currentStep === 4 && (
           <div className="flex flex-col gap-3" data-testid="sync-step-execute">
             <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
               {t('sync.executeDesc')}
@@ -390,8 +403,8 @@ export const SyncPage: React.FC = () => {
           </div>
         )}
 
-        {/* Step 6: Results */}
-        {currentStep === 6 && (
+        {/* Step 5: Results */}
+        {currentStep === 5 && (
           <div className="flex flex-col gap-3" data-testid="sync-step-results">
             {!result ? (
               <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4">

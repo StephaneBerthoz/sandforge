@@ -136,10 +136,10 @@ describe('SyncPage', () => {
     expect(screen.getByText('Conflict Strategy')).toBeDefined();
   });
 
-  it('should show 7 step indicators', () => {
+  it('should show 6 step indicators', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
-    expect(screen.getByTestId('sync-step-indicator').children.length).toBeGreaterThanOrEqual(7);
+    expect(screen.getByTestId('sync-step-indicator').children.length).toBeGreaterThanOrEqual(6);
   });
 
   it('should display error from bridge hook', () => {
