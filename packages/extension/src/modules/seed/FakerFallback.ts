@@ -1,4 +1,7 @@
 import type { FieldRule } from '@sandforge/shared';
+import { getLocaleData, formatPhone } from './LocaleData';
+import type { LocaleDataSet } from './LocaleData';
+import { GeoCoherentGenerator } from './GeoCoherentGenerator';
 
 /** Supported faker method names */
 export type FakerMethodName =
@@ -10,6 +13,7 @@ export type FakerMethodName =
   | 'address'
   | 'city'
   | 'country'
+  | 'state'
   | 'company'
   | 'date'
   | 'pastDate'
@@ -33,10 +37,34 @@ interface NumberRange {
 
 /**
  * Generates data records using deterministic faker-like methods.
- * Maps fakerMethod strings from field rules to generation functions
- * for reproducible test data without an AI dependency.
+ * Supports locale-aware generation for culturally-appropriate data
+ * and geo-coherent address tuples.
  */
 export class FakerFallback {
+  private locale: string;
+  private localeData: LocaleDataSet;
+  private geoGenerator: GeoCoherentGenerator;
+
+  /**
+   * Create a new FakerFallback instance.
+   * @param locale - Locale for data generation (e.g. 'fr_FR'). Defaults to 'en_US'.
+   */
+  constructor(locale?: string) {
+    this.locale = locale ?? 'en_US';
+    this.localeData = getLocaleData(this.locale);
+    this.geoGenerator = new GeoCoherentGenerator(this.locale);
+  }
+
+  /**
+   * Change the locale for subsequent generations.
+   * @param locale - New locale string
+   */
+  setLocale(locale: string): void {
+    this.locale = locale;
+    this.localeData = getLocaleData(locale);
+    this.geoGenerator = new GeoCoherentGenerator(locale);
+  }
+
   /**
    * Generate records from field rules using faker-style generation.
    * Each field rule with ruleType 'faker' uses its config.fakerMethod
@@ -70,134 +98,141 @@ export class FakerFallback {
       max: rule.config.maxValue ?? 1000,
     };
 
-    return generateByMethod(method, index, range);
+    // Per-rule locale override
+    const ruleLocale = rule.config.fakerLocale;
+    if (ruleLocale && ruleLocale !== this.locale) {
+      const savedLocale = this.locale;
+      const savedData = this.localeData;
+      const savedGeo = this.geoGenerator;
+      this.locale = ruleLocale;
+      this.localeData = getLocaleData(ruleLocale);
+      this.geoGenerator = new GeoCoherentGenerator(ruleLocale);
+      const value = this.generateByMethodInstance(method, index, range);
+      this.locale = savedLocale;
+      this.localeData = savedData;
+      this.geoGenerator = savedGeo;
+      return value;
+    }
+
+    return this.generateByMethodInstance(method, index, range);
+  }
+
+  /**
+   * Generate a value using the specified faker method, using instance locale data.
+   */
+  private generateByMethodInstance(
+    method: string,
+    index: number,
+    range: NumberRange,
+  ): unknown {
+    switch (method) {
+      case 'name':
+        return this.generateName(index);
+      case 'firstName':
+        return this.generateFirstName(index);
+      case 'lastName':
+        return this.generateLastName(index);
+      case 'email':
+        return this.generateEmail(index);
+      case 'phone':
+        return this.generatePhone(index);
+      case 'address':
+        return this.generateAddress(index);
+      case 'city':
+        return this.geoGenerator.getCity(index);
+      case 'country':
+        return this.geoGenerator.getCountry(index);
+      case 'state':
+        return this.geoGenerator.getState(index);
+      case 'company':
+        return this.generateCompany(index);
+      case 'date':
+      case 'pastDate':
+        return generatePastDate(index);
+      case 'futureDate':
+        return generateFutureDate(index);
+      case 'number':
+      case 'integer':
+        return generateInteger(range);
+      case 'float':
+        return generateFloat(range);
+      case 'boolean':
+        return index % 2 === 0;
+      case 'lorem':
+      case 'sentence':
+        return generateSentence(index);
+      case 'paragraph':
+        return generateParagraph(index);
+      case 'uuid':
+        return generateUUID(index);
+      case 'url':
+        return `https://example.com/resource/${index}`;
+      case 'zipCode':
+        return this.geoGenerator.getZipCode(index);
+      default:
+        return generateSentence(index);
+    }
+  }
+
+  private generateFirstName(index: number): string {
+    return this.localeData.firstNames[index % this.localeData.firstNames.length];
+  }
+
+  private generateLastName(index: number): string {
+    return this.localeData.lastNames[index % this.localeData.lastNames.length];
+  }
+
+  private generateName(index: number): string {
+    return `${this.generateFirstName(index)} ${this.generateLastName(index)}`;
+  }
+
+  private generateEmail(index: number): string {
+    const first = this.generateFirstName(index).toLowerCase().replace(/[^a-z]/g, '');
+    const last = this.generateLastName(index).toLowerCase().replace(/[^a-z]/g, '');
+    const domain = this.localeData.emailDomains[index % this.localeData.emailDomains.length];
+    return `${first}.${last}${index}@${domain}`;
+  }
+
+  private generatePhone(index: number): string {
+    return formatPhone(this.localeData.phoneFormat, index);
+  }
+
+  private generateAddress(index: number): string {
+    const number = 100 + index;
+    const streets = ['Main St', 'Oak Ave', 'Elm St', 'Park Blvd', 'Cedar Ln'];
+    const city = this.geoGenerator.getCity(index);
+    return `${number} ${streets[index % streets.length]}, ${city}`;
+  }
+
+  private generateCompany(index: number): string {
+    return this.localeData.companies[index % this.localeData.companies.length];
   }
 }
 
 /**
  * Generate a value using the specified faker method name.
+ * Standalone function for backward compatibility.
  * Falls back to a lorem-style string for unrecognized methods.
+ *
+ * @param method - Faker method name
+ * @param index - Record index for deterministic generation
+ * @param range - Number range for numeric methods
+ * @param locale - Optional locale for locale-aware generation
  */
 export function generateByMethod(
   method: string,
   index: number,
-  range: NumberRange
+  range: NumberRange,
+  locale?: string,
 ): unknown {
-  switch (method) {
-    case 'name':
-      return generateName(index);
-    case 'firstName':
-      return generateFirstName(index);
-    case 'lastName':
-      return generateLastName(index);
-    case 'email':
-      return generateEmail(index);
-    case 'phone':
-      return generatePhone(index);
-    case 'address':
-      return generateAddress(index);
-    case 'city':
-      return generateCity(index);
-    case 'country':
-      return generateCountry(index);
-    case 'company':
-      return generateCompany(index);
-    case 'date':
-    case 'pastDate':
-      return generatePastDate(index);
-    case 'futureDate':
-      return generateFutureDate(index);
-    case 'number':
-    case 'integer':
-      return generateInteger(range);
-    case 'float':
-      return generateFloat(range);
-    case 'boolean':
-      return index % 2 === 0;
-    case 'lorem':
-    case 'sentence':
-      return generateSentence(index);
-    case 'paragraph':
-      return generateParagraph(index);
-    case 'uuid':
-      return generateUUID(index);
-    case 'url':
-      return `https://example.com/resource/${index}`;
-    case 'zipCode':
-      return generateZipCode(index);
-    default:
-      return generateSentence(index);
-  }
-}
-
-const FIRST_NAMES = [
-  'Alice', 'Bob', 'Charlie', 'Diana', 'Eve',
-  'Frank', 'Grace', 'Hank', 'Ivy', 'Jack',
-  'Kate', 'Leo', 'Mia', 'Noah', 'Olivia',
-];
-
-const LAST_NAMES = [
-  'Smith', 'Johnson', 'Williams', 'Brown', 'Jones',
-  'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez',
-  'Hernandez', 'Lopez', 'Gonzalez', 'Wilson', 'Anderson',
-];
-
-const CITIES = [
-  'New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix',
-  'Philadelphia', 'San Antonio', 'San Diego', 'Dallas', 'Austin',
-];
-
-const COUNTRIES = [
-  'United States', 'Canada', 'United Kingdom', 'France', 'Germany',
-  'Japan', 'Australia', 'Brazil', 'India', 'Mexico',
-];
-
-const COMPANIES = [
-  'Acme Corp', 'Globex Inc', 'Initech', 'Umbrella Corp', 'Stark Industries',
-  'Wayne Enterprises', 'Cyberdyne Systems', 'Oscorp', 'LexCorp', 'Massive Dynamic',
-];
-
-function generateFirstName(index: number): string {
-  return FIRST_NAMES[index % FIRST_NAMES.length];
-}
-
-function generateLastName(index: number): string {
-  return LAST_NAMES[index % LAST_NAMES.length];
-}
-
-function generateName(index: number): string {
-  return `${generateFirstName(index)} ${generateLastName(index)}`;
-}
-
-function generateEmail(index: number): string {
-  const first = generateFirstName(index).toLowerCase();
-  const last = generateLastName(index).toLowerCase();
-  return `${first}.${last}${index}@example.com`;
-}
-
-function generatePhone(index: number): string {
-  const area = 200 + (index % 800);
-  const mid = 200 + ((index * 7) % 800);
-  const last = 1000 + (index % 9000);
-  return `(${area}) ${mid}-${last}`;
-}
-
-function generateAddress(index: number): string {
-  const number = 100 + index;
-  const streets = ['Main St', 'Oak Ave', 'Elm St', 'Park Blvd', 'Cedar Ln'];
-  return `${number} ${streets[index % streets.length]}`;
-}
-
-function generateCity(index: number): string {
-  return CITIES[index % CITIES.length];
-}
-
-function generateCountry(index: number): string {
-  return COUNTRIES[index % COUNTRIES.length];
-}
-
-function generateCompany(index: number): string {
-  return COMPANIES[index % COMPANIES.length];
+  const faker = new FakerFallback(locale);
+  const rule: FieldRule = {
+    fieldApiName: 'temp',
+    ruleType: 'faker',
+    config: { fakerMethod: method, minValue: range.min, maxValue: range.max },
+  };
+  const records = faker.generate([rule], index + 1);
+  return records[index]?.['temp'];
 }
 
 function generatePastDate(index: number): string {
@@ -242,8 +277,4 @@ function generateParagraph(index: number): string {
 function generateUUID(index: number): string {
   const hex = index.toString(16).padStart(12, '0');
   return `00000000-0000-4000-8000-${hex}`;
-}
-
-function generateZipCode(index: number): string {
-  return String(10000 + (index % 90000));
 }
