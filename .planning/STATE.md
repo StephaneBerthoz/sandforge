@@ -9,17 +9,17 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: 01 complete, 02 complete, 03 complete, 04 complete, 05-01 complete → ready for 05-02
-Plan: 04-02 complete
-Status: Phase 04 (Quick Seed) complete. Template gallery UI with card grid, record count customization modal, and full Quick Seed flow (gallery -> customize -> select org -> execute -> results).
-Last activity: 2026-03-26 — Phase 04-02 complete (STPL-04, STPL-05, QSEED-01..03 delivered)
+Phase: 01 complete, 02 complete, 03 complete, 04 complete, 05-01 complete, 06-01 complete → ready for next
+Plan: 06-01 complete
+Status: Phase 06 (Onboarding) complete. Sandbox detection, contextual banners, WelcomePage Seed+Sync, HomePage Populate Sandbox action, SyncPage/SeedPage guided cards.
+Last activity: 2026-03-26 — Phase 06-01 complete (ONBO-01..04 delivered)
 
-Progress: [#######---] ~70%
+Progress: [########--] ~80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 59 (v1.2.2: 9 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 60 (v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -66,5 +66,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-26
-Stopped at: Phase 04 complete. Quick Seed template gallery + 1-click execution flow delivered.
-Resume file: .planning/phases/04-quick-seed/04-02-SUMMARY.md
+Stopped at: Phase 06 complete. Onboarding & first-run sandbox guidance delivered.
+Resume file: .planning/phases/06-onboarding/06-01-SUMMARY.md
