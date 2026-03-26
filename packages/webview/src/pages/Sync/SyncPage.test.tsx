@@ -142,6 +142,13 @@ describe('SyncPage', () => {
     expect(screen.getByTestId('sync-step-indicator').children.length).toBeGreaterThanOrEqual(6);
   });
 
+  it('should show guided first step card on initial state with 2 orgs', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+    expect(screen.getByTestId('guided-first-step-card')).toBeDefined();
+    expect(screen.getByText('Get Started with Sync')).toBeDefined();
+  });
+
   it('should display error from bridge hook', () => {
     mockObjectsQueryState = {
       data: null,

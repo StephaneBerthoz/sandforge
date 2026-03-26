@@ -210,6 +210,13 @@ describe('SeedPage', () => {
     expect(screen.getByTestId('seed-step-configure-content')).toBeDefined();
   });
 
+  it('should show guided first step card on step 0 when idle', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    expect(screen.getByTestId('guided-first-step-card')).toBeDefined();
+    expect(screen.getByText('Get Started with Seed')).toBeDefined();
+  });
+
   it('should display error from bridge query', () => {
     mockDescribeGlobalState = {
       data: null,

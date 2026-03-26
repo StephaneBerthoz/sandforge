@@ -8,6 +8,20 @@ import { HomePage } from './HomePage';
 import type { SalesforceOrg } from '@sandforge/shared';
 
 /* ------------------------------------------------------------------ */
+/* Mock localStorage                                                   */
+/* ------------------------------------------------------------------ */
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: (key: string): string | null => store[key] ?? null,
+    setItem: (key: string, value: string): void => { store[key] = value; },
+    removeItem: (key: string): void => { delete store[key]; },
+    reset: (): void => { store = {}; },
+  };
+})();
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
+
+/* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
 /* ------------------------------------------------------------------ */
 const mockRefetch = vi.fn();
@@ -67,6 +81,7 @@ function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
 
 describe('HomePage', () => {
   beforeEach(() => {
+    localStorageMock.reset();
     useAppStore.setState({ currentRoute: 'home' });
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useRecentOpsStore.setState({ ops: [] });
@@ -218,6 +233,37 @@ describe('HomePage', () => {
   it('should render the forge record input', () => {
     render(<HomePage />);
     expect(screen.getByTestId('forge-record-input')).toBeDefined();
+  });
+
+  it('should show sandbox banner when sandbox org exists', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Sandbox' })] });
+    render(<HomePage />);
+    expect(screen.getByTestId('sandbox-banner')).toBeDefined();
+  });
+
+  it('should not show sandbox banner when no sandbox org', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Production' })] });
+    render(<HomePage />);
+    expect(screen.queryByTestId('sandbox-banner')).toBeNull();
+  });
+
+  it('should show populate sandbox button when sandbox org exists', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Sandbox' })] });
+    render(<HomePage />);
+    expect(screen.getByTestId('populate-sandbox-btn')).toBeDefined();
+  });
+
+  it('should not show populate sandbox button when no sandbox org', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Production' })] });
+    render(<HomePage />);
+    expect(screen.queryByTestId('populate-sandbox-btn')).toBeNull();
+  });
+
+  it('should navigate to seed when populate sandbox is clicked', () => {
+    useOrgStore.setState({ orgs: [createMockOrg({ orgType: 'Sandbox' })] });
+    render(<HomePage />);
+    fireEvent.click(screen.getByTestId('populate-sandbox-btn'));
+    expect(useAppStore.getState().currentRoute).toBe('seed');
   });
 
   it('should display recent ops from the store', () => {

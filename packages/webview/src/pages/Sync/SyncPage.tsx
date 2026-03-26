@@ -28,6 +28,7 @@ import { useSyncPageData } from './useSyncPageData';
 import type { ObjectSetEntry } from './ObjectSetEditor';
 import { QuickSyncCard } from './QuickSync/QuickSyncCard';
 import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
+import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
@@ -226,6 +227,17 @@ export const SyncPage: React.FC = () => {
 
       {error && (
         <ErrorBanner message={error} onDismiss={clearError} data-testid="sync-error" />
+      )}
+
+      {!quickSyncActive && currentStep === 0 && (
+        <GuidedFirstStepCard
+          variant="sync"
+          icon="sync"
+          titleKey="onboarding.syncFirstStepTitle"
+          descKey="onboarding.syncFirstStepDesc"
+          actionKey="onboarding.startQuickSync"
+          onAction={() => setQuickSyncActive(true)}
+        />
       )}
 
       {!quickSyncActive && (

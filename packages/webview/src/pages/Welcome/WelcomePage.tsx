@@ -298,7 +298,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
             >
               {orgType === 'production'
                 ? t('onboarding.suggestMonitor')
-                : t('onboarding.suggestSeed')}
+                : t('onboarding.suggestSeedAndSync')}
             </p>
             <div className="flex gap-3 justify-center mb-4">
               {orgType === 'production' ? (
@@ -306,18 +306,34 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
                   {t('onboarding.openMonitor')}
                 </Button>
               ) : (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    if (dontShowAgain) {
-                      localStorage.setItem(DONT_SHOW_KEY, 'true');
-                    }
-                    onComplete();
-                    navigate('forge');
-                  }}
-                >
-                  {t('onboarding.openForge')}
-                </Button>
+                <>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      if (dontShowAgain) {
+                        localStorage.setItem(DONT_SHOW_KEY, 'true');
+                      }
+                      onComplete();
+                      navigate('seed');
+                    }}
+                    data-testid="welcome-open-seed-btn"
+                  >
+                    {t('onboarding.openSeed')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      if (dontShowAgain) {
+                        localStorage.setItem(DONT_SHOW_KEY, 'true');
+                      }
+                      onComplete();
+                      navigate('sync');
+                    }}
+                    data-testid="welcome-open-sync-btn"
+                  >
+                    {t('onboarding.openSync')}
+                  </Button>
+                </>
               )}
               <Button variant="secondary" onClick={handleOpenSettings}>
                 {t('onboarding.openSettings')}

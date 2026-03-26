@@ -23,6 +23,7 @@ import { TemplateGallery } from './TemplateGallery';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import { useSeedWizardState } from './useSeedWizardState';
 import { useQuickSeed } from './useQuickSeed';
+import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import type { PIIObjectResult } from './useSeedWizardState';
 import type { BadgeVariant } from '../../components/ui/Badge';
 
@@ -92,6 +93,18 @@ export const SeedPage: React.FC = () => {
         <QuickSeedFlow quickSeed={quickSeed} orgs={orgs} />
       ) : (
         <>
+          {/* ----- GUIDED FIRST STEP (visible on step 0, idle) ----- */}
+          {state.currentStep === 0 && (
+            <GuidedFirstStepCard
+              variant="seed"
+              icon="database"
+              titleKey="onboarding.seedFirstStepTitle"
+              descKey="onboarding.seedFirstStepDesc"
+              actionKey="onboarding.startQuickSeed"
+              onAction={() => { /* Gallery is right below */ }}
+            />
+          )}
+
           {/* ----- QUICK SEED GALLERY (visible on step 0) ----- */}
           {state.currentStep === 0 && (
             <>

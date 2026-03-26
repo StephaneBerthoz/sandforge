@@ -107,15 +107,16 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('welcome-step-4')).toBeDefined();
   });
 
-  it('should suggest Seed for sandbox org type', () => {
+  it('should suggest Seed and Sync for sandbox org type', () => {
     render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
     // Navigate to step 4
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
-    expect(screen.getByText('onboarding.suggestSeed')).toBeDefined();
-    expect(screen.getByText('onboarding.openForge')).toBeDefined();
+    expect(screen.getByText('onboarding.suggestSeedAndSync')).toBeDefined();
+    expect(screen.getByText('onboarding.openSeed')).toBeDefined();
+    expect(screen.getByText('onboarding.openSync')).toBeDefined();
   });
 
   it('should suggest Monitor for production org type', () => {
@@ -169,16 +170,28 @@ describe('WelcomePage', () => {
     expect(localStorageMock.getItem('sandforge-welcome-dont-show')).toBeNull();
   });
 
-  it('should navigate to forge from step 4 for sandbox org type', () => {
+  it('should navigate to seed from step 4 for sandbox org type', () => {
     render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
     // Navigate to step 4
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
     fireEvent.click(screen.getByText('common.next'));
-    fireEvent.click(screen.getByText('onboarding.openForge'));
+    fireEvent.click(screen.getByText('onboarding.openSeed'));
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(mockNavigate).toHaveBeenCalledWith('forge');
+    expect(mockNavigate).toHaveBeenCalledWith('seed');
+  });
+
+  it('should navigate to sync from step 4 for sandbox org type', () => {
+    render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
+    // Navigate to step 4
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByText('common.next'));
+    fireEvent.click(screen.getByText('onboarding.openSync'));
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('sync');
   });
 
   it('should navigate to monitor from step 4 for production org type', () => {

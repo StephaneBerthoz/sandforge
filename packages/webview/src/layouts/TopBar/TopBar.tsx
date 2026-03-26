@@ -16,6 +16,8 @@ const ROUTE_LABELS: Record<ModuleRoute, string> = {
   forge: 'nav.forge',
   grappe: 'nav.grappe',
   monitor: 'nav.monitor',
+  seed: 'nav.seed',
+  sync: 'nav.sync',
   compare: 'nav.compare',
   dataops: 'nav.dataops',
   automation: 'nav.automation',
