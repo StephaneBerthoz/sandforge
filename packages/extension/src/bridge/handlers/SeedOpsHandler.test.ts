@@ -13,6 +13,44 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
+/** In-memory ConfigStore mock with real data tracking. */
+function createMockConfigStoreWithData() {
+  const data: Record<string, { value: string; category: string }> = {};
+
+  return {
+    get: vi.fn(<T>(key: string): T | undefined => {
+      const entry = data[key];
+      if (!entry) return undefined;
+      return JSON.parse(entry.value) as T;
+    }),
+    set: vi.fn(<T>(key: string, value: T, category: string): void => {
+      data[key] = { value: JSON.stringify(value), category };
+    }),
+    delete: vi.fn((key: string): boolean => {
+      if (!(key in data)) return false;
+      delete data[key];
+      return true;
+    }),
+    has: vi.fn((key: string): boolean => key in data),
+    getKeysByPrefix: vi.fn((prefix: string): string[] =>
+      Object.keys(data).filter((k) => k.startsWith(prefix)),
+    ),
+    getByCategory: vi.fn((category: string): Record<string, unknown> => {
+      const result: Record<string, unknown> = {};
+      for (const [key, entry] of Object.entries(data)) {
+        if (entry.category === category) {
+          result[key] = JSON.parse(entry.value);
+        }
+      }
+      return result;
+    }),
+    getAllKeys: vi.fn((): string[] => Object.keys(data)),
+    clearCategory: vi.fn(),
+    clearAll: vi.fn(),
+    initialize: vi.fn(),
+  };
+}
+
 /**
  * Creates minimal mock deps for SeedOpsHandler tests.
  */
@@ -24,10 +62,7 @@ function createMockDeps(): HandlerDeps {
     stateSync: {} as HandlerDeps['stateSync'],
     orgManager: { getOrg: vi.fn() } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
-    configStore: {
-      get: vi.fn().mockReturnValue(undefined),
-      set: vi.fn(),
-    } as unknown as HandlerDeps['configStore'],
+    configStore: createMockConfigStoreWithData() as unknown as HandlerDeps['configStore'],
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
@@ -321,6 +356,108 @@ describe('SeedOpsHandler', () => {
       expect(source).toContain('bulkResult.successIds');
       // Should NOT contain the old synthetic pattern
       expect(source).not.toContain("Array.from({ length: bulkResult.successCount }");
+    });
+  });
+
+  describe('seed:template CRUD handlers', () => {
+    it('handles seed:template:save for a new template and responds with success', async () => {
+      const template = {
+        name: 'New Template',
+        description: 'desc',
+        version: 1,
+        strategy: 'faker',
+        objects: [],
+        tags: ['test'],
+      };
+
+      const msg: BaseMessage & { payload: { template: Record<string, unknown> } } = {
+        id: 'req-tpl-save',
+        type: 'seed:template:save',
+        timestamp: Date.now(),
+        payload: { template: template as unknown as Record<string, unknown> },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; id: string } };
+      expect(response.type).toBe('seed:template:save:response');
+      expect(response.correlationId).toBe('req-tpl-save');
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.id).toBeDefined();
+    });
+
+    it('handles seed:template:list and responds with summaries', async () => {
+      // Save first
+      await handler.handle({
+        id: 'save-1',
+        type: 'seed:template:save',
+        timestamp: Date.now(),
+        payload: {
+          template: {
+            name: 'T1',
+            description: 'd1',
+            version: 1,
+            strategy: 'faker',
+            objects: [{ objectApiName: 'Account', recordCount: 10, fieldRules: [], excludedFields: [], insertOrder: 1, batchSize: 200 }],
+            tags: ['a'],
+          },
+        },
+      } as BaseMessage & { payload: { template: Record<string, unknown> } });
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      postToWebview.mockClear();
+
+      const msg: BaseMessage = {
+        id: 'req-tpl-list',
+        type: 'seed:template:list',
+        timestamp: Date.now(),
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { templates: Array<{ id: string; name: string; objectCount: number; totalRecords: number }> } };
+      expect(response.type).toBe('seed:template:list:response');
+      expect(response.payload.templates).toHaveLength(1);
+      expect(response.payload.templates[0].name).toBe('T1');
+      expect(response.payload.templates[0].objectCount).toBe(1);
+      expect(response.payload.templates[0].totalRecords).toBe(10);
+    });
+
+    it('handles seed:template:load for non-existent returns null', async () => {
+      const msg: BaseMessage & { payload: { id: string } } = {
+        id: 'req-tpl-load',
+        type: 'seed:template:load',
+        timestamp: Date.now(),
+        payload: { id: 'ghost' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { template: unknown } };
+      expect(response.type).toBe('seed:template:load:response');
+      expect(response.payload.template).toBeNull();
+    });
+
+    it('handles seed:template:delete for non-existent returns false', async () => {
+      const msg: BaseMessage & { payload: { id: string } } = {
+        id: 'req-tpl-del',
+        type: 'seed:template:delete',
+        timestamp: Date.now(),
+        payload: { id: 'ghost' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { success: boolean } };
+      expect(response.type).toBe('seed:template:delete:response');
+      expect(response.payload.success).toBe(false);
     });
   });
 });

@@ -1,4 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, SeedTemplate } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
 import type { RobustnessConfig } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
@@ -6,6 +6,8 @@ import {
   buildResponse, sendHandlerError, sendOperationStarted, sendOperationProgress,
   sendOperationCompleted, sendOperationFailed,
 } from './HandlerTypes.js';
+import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
+import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
@@ -19,6 +21,10 @@ const SEED_TYPES = new Set([
   'seed:execute',
   'seed:describe-global',
   'seed:describe-object',
+  'seed:template:save',
+  'seed:template:load',
+  'seed:template:list',
+  'seed:template:delete',
 ]);
 
 /**
@@ -29,8 +35,21 @@ const SEED_TYPES = new Set([
  * performance tracking, retry, timeout, and bulk API support.
  */
 export class SeedOpsHandler implements DomainHandler {
+  /** Persistence facade for seed templates. */
+  private readonly seedTemplateStore: SeedTemplateStore;
+
+  /** Template manager backed by persistent store. */
+  private readonly templateManager: SeedTemplateManager;
+
   /** @param deps - Injected handler dependencies. */
-  constructor(private readonly deps: HandlerDeps) {}
+  constructor(private readonly deps: HandlerDeps) {
+    this.seedTemplateStore = new SeedTemplateStore(deps.configStore);
+    this.templateManager = new SeedTemplateManager(
+      () => crypto.randomUUID(),
+      () => new Date().toISOString(),
+      this.seedTemplateStore,
+    );
+  }
 
   /**
    * Handle an incoming bridge message.
@@ -51,8 +70,95 @@ export class SeedOpsHandler implements DomainHandler {
       case 'seed:execute':
         await this.handleExecute(msg);
         return true;
+      case 'seed:template:save':
+        await this.handleTemplateSave(msg);
+        return true;
+      case 'seed:template:load':
+        await this.handleTemplateLoad(msg);
+        return true;
+      case 'seed:template:list':
+        await this.handleTemplateList(msg);
+        return true;
+      case 'seed:template:delete':
+        await this.handleTemplateDelete(msg);
+        return true;
       default:
         return false;
+    }
+  }
+
+  /** Save a seed template (create new or update existing). */
+  private async handleTemplateSave(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const payload = (msg as BaseMessage & { payload: { template: Record<string, unknown> } }).payload;
+      const template = payload.template as unknown as SeedTemplate;
+
+      if (template.id && this.templateManager.get(template.id)) {
+        const updated = this.templateManager.update(template.id, template);
+        const response = buildResponse(this.deps, msg, 'seed:template:save:response', { success: true, id: updated.id });
+        this.deps.broker.postToWebview(response);
+        this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      } else {
+        const created = this.templateManager.create(template);
+        const response = buildResponse(this.deps, msg, 'seed:template:save:response', { success: true, id: created.id });
+        this.deps.broker.postToWebview(response);
+        this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      }
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:template:save', 'seed:error', err);
+    }
+  }
+
+  /** Load a seed template by ID. */
+  private async handleTemplateLoad(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
+      const template = this.seedTemplateStore.load(payload.id);
+      const response = buildResponse(this.deps, msg, 'seed:template:load:response', {
+        template: (template as unknown as Record<string, unknown>) ?? null,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:template:load', 'seed:error', err);
+    }
+  }
+
+  /** List all seed templates (summary view). */
+  private async handleTemplateList(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const templates = this.seedTemplateStore.list();
+      const summaries = templates.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        tags: t.tags,
+        updatedAt: t.updatedAt,
+        objectCount: t.objects.length,
+        totalRecords: t.objects.reduce((sum, o) => sum + o.recordCount, 0),
+      }));
+      const response = buildResponse(this.deps, msg, 'seed:template:list:response', { templates: summaries });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:template:list', 'seed:error', err);
+    }
+  }
+
+  /** Delete a seed template by ID. */
+  private async handleTemplateDelete(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
+      const success = this.seedTemplateStore.delete(payload.id);
+      const response = buildResponse(this.deps, msg, 'seed:template:delete:response', { success });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:template:delete', 'seed:error', err);
     }
   }
 

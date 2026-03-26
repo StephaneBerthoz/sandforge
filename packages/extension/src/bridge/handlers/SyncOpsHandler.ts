@@ -1,4 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, SyncConfig } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
 import type { RobustnessConfig } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
@@ -6,6 +6,7 @@ import {
   buildResponse, sendHandlerError, sendOperationStarted, sendOperationProgress,
   sendOperationCompleted, sendOperationFailed,
 } from './HandlerTypes.js';
+import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
@@ -25,6 +26,10 @@ const SYNC_TYPES = new Set([
   'sync:execute',
   'sync:describe-global',
   'sync:describe-fields',
+  'sync:config:save',
+  'sync:config:load',
+  'sync:config:list',
+  'sync:config:delete',
 ]);
 
 /**
@@ -52,8 +57,13 @@ export class SyncOpsHandler implements DomainHandler {
   /** Tracks DML operations to prevent duplicate submissions. */
   private readonly dmlTracker = new DmlOperationTracker();
 
+  /** Persistence facade for sync configurations. */
+  private readonly syncConfigStore: SyncConfigStore;
+
   /** @param deps - Injected handler dependencies. */
-  constructor(private readonly deps: HandlerDeps) {}
+  constructor(private readonly deps: HandlerDeps) {
+    this.syncConfigStore = new SyncConfigStore(deps.configStore);
+  }
 
   /**
    * Handle an incoming bridge message.
@@ -74,8 +84,84 @@ export class SyncOpsHandler implements DomainHandler {
       case 'sync:execute':
         await this.handleExecute(msg);
         return true;
+      case 'sync:config:save':
+        await this.handleConfigSave(msg);
+        return true;
+      case 'sync:config:load':
+        await this.handleConfigLoad(msg);
+        return true;
+      case 'sync:config:list':
+        await this.handleConfigList(msg);
+        return true;
+      case 'sync:config:delete':
+        await this.handleConfigDelete(msg);
+        return true;
       default:
         return false;
+    }
+  }
+
+  /** Save a sync configuration. */
+  private async handleConfigSave(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const payload = (msg as BaseMessage & { payload: { config: Record<string, unknown> } }).payload;
+      const config = payload.config as unknown as SyncConfig;
+      this.syncConfigStore.save(config);
+      const response = buildResponse(this.deps, msg, 'sync:config:save:response', { success: true, id: config.id });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'sync:config:save', 'sync:error', err);
+    }
+  }
+
+  /** Load a sync configuration by ID. */
+  private async handleConfigLoad(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
+      const config = this.syncConfigStore.load(payload.id);
+      const response = buildResponse(this.deps, msg, 'sync:config:load:response', {
+        config: (config as unknown as Record<string, unknown>) ?? null,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'sync:config:load', 'sync:error', err);
+    }
+  }
+
+  /** List all sync configurations (summary view). */
+  private async handleConfigList(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const configs = this.syncConfigStore.list();
+      const summaries = configs.map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        updatedAt: c.updatedAt,
+      }));
+      const response = buildResponse(this.deps, msg, 'sync:config:list:response', { configs: summaries });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'sync:config:list', 'sync:error', err);
+    }
+  }
+
+  /** Delete a sync configuration by ID. */
+  private async handleConfigDelete(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
+      const success = this.syncConfigStore.delete(payload.id);
+      const response = buildResponse(this.deps, msg, 'sync:config:delete:response', { success });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'sync:config:delete', 'sync:error', err);
     }
   }
 

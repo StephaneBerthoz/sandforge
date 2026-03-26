@@ -40,6 +40,44 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
+/** In-memory ConfigStore mock with real data tracking. */
+function createMockConfigStoreWithData() {
+  const data: Record<string, { value: string; category: string }> = {};
+
+  return {
+    get: vi.fn(<T>(key: string): T | undefined => {
+      const entry = data[key];
+      if (!entry) return undefined;
+      return JSON.parse(entry.value) as T;
+    }),
+    set: vi.fn(<T>(key: string, value: T, category: string): void => {
+      data[key] = { value: JSON.stringify(value), category };
+    }),
+    delete: vi.fn((key: string): boolean => {
+      if (!(key in data)) return false;
+      delete data[key];
+      return true;
+    }),
+    has: vi.fn((key: string): boolean => key in data),
+    getKeysByPrefix: vi.fn((prefix: string): string[] =>
+      Object.keys(data).filter((k) => k.startsWith(prefix)),
+    ),
+    getByCategory: vi.fn((category: string): Record<string, unknown> => {
+      const result: Record<string, unknown> = {};
+      for (const [key, entry] of Object.entries(data)) {
+        if (entry.category === category) {
+          result[key] = JSON.parse(entry.value);
+        }
+      }
+      return result;
+    }),
+    getAllKeys: vi.fn((): string[] => Object.keys(data)),
+    clearCategory: vi.fn(),
+    clearAll: vi.fn(),
+    initialize: vi.fn(),
+  };
+}
+
 /**
  * Creates minimal mock deps for SyncOpsHandler tests.
  */
@@ -51,10 +89,7 @@ function createMockDeps(): HandlerDeps {
     stateSync: {} as HandlerDeps['stateSync'],
     orgManager: { getOrg: vi.fn() } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
-    configStore: {
-      get: vi.fn().mockReturnValue(undefined),
-      set: vi.fn(),
-    } as unknown as HandlerDeps['configStore'],
+    configStore: createMockConfigStoreWithData() as unknown as HandlerDeps['configStore'],
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
@@ -273,6 +308,120 @@ describe('SyncOpsHandler', () => {
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
+    });
+  });
+
+  describe('sync:config CRUD handlers', () => {
+    it('handles sync:config:save and responds with success', async () => {
+      const config = {
+        id: 'cfg-1',
+        name: 'Test Config',
+        description: 'desc',
+        updatedAt: '2026-03-01T00:00:00Z',
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        direction: 'source-to-target',
+        mode: 'full',
+        objects: [],
+        conflictStrategy: 'source-wins',
+        enableRollback: false,
+        dryRun: false,
+        createdAt: '2026-03-01T00:00:00Z',
+      };
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'req-save',
+        type: 'sync:config:save',
+        timestamp: Date.now(),
+        payload: { config: config as unknown as Record<string, unknown> },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; id: string } };
+      expect(response.type).toBe('sync:config:save:response');
+      expect(response.correlationId).toBe('req-save');
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.id).toBe('cfg-1');
+    });
+
+    it('handles sync:config:list and responds with summaries', async () => {
+      // Save a config first
+      const config = {
+        id: 'cfg-list',
+        name: 'List Config',
+        description: 'test desc',
+        updatedAt: '2026-03-01T00:00:00Z',
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        direction: 'source-to-target',
+        mode: 'full',
+        objects: [],
+        conflictStrategy: 'source-wins',
+        enableRollback: false,
+        dryRun: false,
+        createdAt: '2026-03-01T00:00:00Z',
+      };
+      await handler.handle({
+        id: 'save-1',
+        type: 'sync:config:save',
+        timestamp: Date.now(),
+        payload: { config },
+      } as BaseMessage & { payload: { config: Record<string, unknown> } });
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      postToWebview.mockClear();
+
+      const msg: BaseMessage = {
+        id: 'req-list',
+        type: 'sync:config:list',
+        timestamp: Date.now(),
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { configs: Array<{ id: string; name: string }> } };
+      expect(response.type).toBe('sync:config:list:response');
+      expect(response.payload.configs).toHaveLength(1);
+      expect(response.payload.configs[0].id).toBe('cfg-list');
+      expect(response.payload.configs[0].name).toBe('List Config');
+    });
+
+    it('handles sync:config:load and responds with config or null', async () => {
+      const msg: BaseMessage & { payload: { id: string } } = {
+        id: 'req-load',
+        type: 'sync:config:load',
+        timestamp: Date.now(),
+        payload: { id: 'non-existent' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { config: unknown } };
+      expect(response.type).toBe('sync:config:load:response');
+      expect(response.payload.config).toBeNull();
+    });
+
+    it('handles sync:config:delete and responds with success boolean', async () => {
+      const msg: BaseMessage & { payload: { id: string } } = {
+        id: 'req-del',
+        type: 'sync:config:delete',
+        timestamp: Date.now(),
+        payload: { id: 'non-existent' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { success: boolean } };
+      expect(response.type).toBe('sync:config:delete:response');
+      expect(response.payload.success).toBe(false);
     });
   });
 });
