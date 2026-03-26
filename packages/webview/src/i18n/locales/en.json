@@ -404,7 +404,21 @@
     "nl2soqlGenerate": "Generate SOQL",
     "piiScanning": "Scanning for PII fields...",
     "piiWarningTitle": "PII Fields Detected",
-    "piiWarningHint": "Consider anonymizing or masking these fields before seeding."
+    "piiWarningHint": "Consider anonymizing or masking these fields before seeding.",
+    "templates": {
+      "salesCloudStarter": {
+        "name": "Sales Cloud Starter",
+        "description": "Pre-built template for Sales Cloud with Accounts, Contacts, Opportunities, Products, and Price Books. Includes full referential integrity chain for OpportunityLineItems."
+      },
+      "serviceCloudStarter": {
+        "name": "Service Cloud Starter",
+        "description": "Pre-built template for Service Cloud with Accounts, Contacts, Cases, Case Comments, and Knowledge articles."
+      },
+      "minimalDemo": {
+        "name": "Minimal Demo",
+        "description": "Lightweight demo template with just Accounts, Contacts, and Opportunities. Perfect for quick demos and testing."
+      }
+    }
   },
   "sync": {
     "title": "Sync Data",

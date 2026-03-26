@@ -87,4 +87,18 @@ export const seed: TranslationRecord = {
   piiScanning: 'Analyse des champs PII en cours...',
   piiWarningTitle: 'Champs PII detectes',
   piiWarningHint: 'Envisagez de masquer ou exclure ces champs pour eviter d\'exposer des donnees personnelles dans votre sandbox.',
+  templates: {
+    salesCloudStarter: {
+      name: 'Sales Cloud - Demarrage',
+      description: 'Modele pre-construit pour Sales Cloud avec Comptes, Contacts, Opportunites, Produits et Catalogues de prix. Inclut la chaine complete d\'integrite referentielle pour les lignes d\'opportunite.',
+    },
+    serviceCloudStarter: {
+      name: 'Service Cloud - Demarrage',
+      description: 'Modele pre-construit pour Service Cloud avec Comptes, Contacts, Requetes, Commentaires de requete et articles Knowledge.',
+    },
+    minimalDemo: {
+      name: 'Demo minimale',
+      description: 'Modele de demo leger avec seulement Comptes, Contacts et Opportunites. Ideal pour les demos rapides et les tests.',
+    },
+  },
 };

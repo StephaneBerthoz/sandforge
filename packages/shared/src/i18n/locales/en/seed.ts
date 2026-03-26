@@ -87,4 +87,18 @@ export const seed: TranslationRecord = {
   piiScanning: 'Scanning for PII fields...',
   piiWarningTitle: 'PII Fields Detected',
   piiWarningHint: 'Consider masking or excluding these fields to avoid exposing personal data in your sandbox.',
+  templates: {
+    salesCloudStarter: {
+      name: 'Sales Cloud Starter',
+      description: 'Pre-built template for Sales Cloud with Accounts, Contacts, Opportunities, Products, and Price Books. Includes full referential integrity chain for OpportunityLineItems.',
+    },
+    serviceCloudStarter: {
+      name: 'Service Cloud Starter',
+      description: 'Pre-built template for Service Cloud with Accounts, Contacts, Cases, Case Comments, and Knowledge articles.',
+    },
+    minimalDemo: {
+      name: 'Minimal Demo',
+      description: 'Lightweight demo template with just Accounts, Contacts, and Opportunities. Perfect for quick demos and testing.',
+    },
+  },
 };
