@@ -1,15 +1,8 @@
 # Roadmap: SandForge v1.2.2 — Adoption-First: Sync & Seed Polish
 
-## Phase 01 — Persistence & Templates Foundation
+## Phase 01 — Persistence & Templates Foundation ✓
 **Requirements:** SWIZ-01, SWIZ-02, STPL-06, STPL-01, STPL-02, STPL-03
-**Why first:** Everything else depends on config persistence (Quick Sync saves configs, templates need storage, auto-save needs draft store). Pre-built templates are the content that Quick Seed and the template gallery will serve.
-
-**Scope:**
-- SyncConfigStore: save/load/list/delete named sync configs via ConfigStore
-- SeedTemplateStore: persist seed templates to ConfigStore (replace in-memory store)
-- Wizard draft auto-save on step change (survives page refresh)
-- 3 pre-built Seed templates: Sales Cloud Starter, Service Cloud Starter, Minimal Demo
-- Template data: realistic field rules, correct insertOrder, proper relationships
+**Completed:** 2026-03-26. 2 plans, 6 requirements delivered. SyncConfigStore + SeedTemplateStore with CRUD bridge handlers. 3 pre-built seed templates (Sales Cloud 7 objects, Service Cloud 5 objects, Minimal Demo 3 objects). useWebviewPersistedState hook + wizard draft auto-save for Sync and Seed.
 
 ## Phase 02 — Seed Quality & Realism
 **Requirements:** SQUAL-01, SQUAL-02, SQUAL-03, SQUAL-04, SQUAL-05

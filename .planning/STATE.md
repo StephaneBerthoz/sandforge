@@ -9,16 +9,12 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: 01 — Persistence & Templates Foundation
+Phase: 01 complete → ready for 02, 03, 05 (parallel)
 Plan: 01-02 complete
-Status: Plan 01-02 delivered (seed templates, useWebviewPersistedState, wizard auto-save)
-Last activity: 2026-03-26 — Plan 01-02 executed
+Status: Phase 01 complete. Phases 02, 03, 05 can start in parallel.
+Last activity: 2026-03-26 — Phase 01 verified (17/17 must-haves)
 
-Progress: [##--------] ~10%
-
-### Phase 01 Progress
-- [x] 01-01: Backend persistence stores + bridge handlers
-- [x] 01-02: Pre-built seed templates + wizard draft auto-save
+Progress: [##--------] ~17%
 
 ## Performance Metrics
 

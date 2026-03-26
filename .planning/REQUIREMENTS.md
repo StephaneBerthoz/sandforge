@@ -13,8 +13,8 @@
 
 ### Sync Wizard Polish (SWIZ-01..06)
 
-- [ ] **SWIZ-01** — Persist sync configs to ConfigStore: save, load, list, delete named sync configurations
-- [ ] **SWIZ-02** — Config auto-save: wizard state auto-saved to draft on every step change (survives page refresh)
+- [x] **SWIZ-01** — Persist sync configs to ConfigStore: save, load, list, delete named sync configurations
+- [x] **SWIZ-02** — Config auto-save: wizard state auto-saved to draft on every step change (survives page refresh)
 - [ ] **SWIZ-03** — Sync templates: pre-built configs for common patterns ("Full Account hierarchy", "Opportunities + Products", "Cases + Attachments")
 - [ ] **SWIZ-04** — Step reduction: merge Steps 0+1 (org selection + object selection on same screen), making wizard 6 steps instead of 7
 - [ ] **SWIZ-05** — Smart object suggestions: after org selection, suggest top 5 most-used objects (Account, Contact, Opportunity, Case, Lead) with one-click add
@@ -22,12 +22,12 @@
 
 ### Seed Templates (STPL-01..06)
 
-- [ ] **STPL-01** — Pre-built template: "Sales Cloud Starter" (Account + Contact + Opportunity + OpportunityLineItem + Product2 + Pricebook2, 500+1000+2000+4000+50+1 records)
-- [ ] **STPL-02** — Pre-built template: "Service Cloud Starter" (Account + Contact + Case + CaseComment + Knowledge__kav, 200+500+1000+2000+100 records)
-- [ ] **STPL-03** — Pre-built template: "Minimal Demo" (Account + Contact + Opportunity, 50+100+200 records — for trailblazers / small orgs)
+- [x] **STPL-01** — Pre-built template: "Sales Cloud Starter" (Account + Contact + Opportunity + OpportunityLineItem + Product2 + Pricebook2, 500+1000+2000+4000+50+1 records)
+- [x] **STPL-02** — Pre-built template: "Service Cloud Starter" (Account + Contact + Case + CaseComment + Knowledge__kav, 200+500+1000+2000+100 records)
+- [x] **STPL-03** — Pre-built template: "Minimal Demo" (Account + Contact + Opportunity, 50+100+200 records — for trailblazers / small orgs)
 - [ ] **STPL-04** — Template picker UI: gallery/card view on SeedPage with template name, description, object count, total records, "Use This" button
 - [ ] **STPL-05** — Template customization: after selecting a template, user can adjust record counts per object before execution (pre-filled with defaults)
-- [ ] **STPL-06** — Persist seed templates to ConfigStore: save custom templates from wizard, list/load/delete saved templates
+- [x] **STPL-06** — Persist seed templates to ConfigStore: save custom templates from wizard, list/load/delete saved templates
 
 ### Seed Quality (SQUAL-01..05)
 
