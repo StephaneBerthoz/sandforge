@@ -104,6 +104,17 @@ describe('VRPreChecker', () => {
       expect(result.potentialConflicts).not.toContain('NOT');
       expect(result.potentialConflicts).not.toContain('ISNULL');
     });
+
+    it('should include fieldConstraints in result', () => {
+      const rule = makeRule({
+        errorConditionFormula: 'ISBLANK(Phone)',
+      });
+      const result = checker.analyzeRule(rule);
+      expect(result.fieldConstraints).toBeDefined();
+      expect(result.fieldConstraints.length).toBeGreaterThan(0);
+      expect(result.fieldConstraints[0].fieldName).toBe('Phone');
+      expect(result.fieldConstraints[0].constraintType).toBe('required');
+    });
   });
 
   describe('extractFields', () => {
@@ -132,6 +143,73 @@ describe('VRPreChecker', () => {
     });
   });
 
+  describe('extractConstraints', () => {
+    it('should extract required constraint from ISBLANK(Phone)', () => {
+      const constraints = checker.extractConstraints('ISBLANK(Phone)');
+      expect(constraints).toHaveLength(1);
+      expect(constraints[0].fieldName).toBe('Phone');
+      expect(constraints[0].constraintType).toBe('required');
+    });
+
+    it('should extract required constraint from ISNULL(Email)', () => {
+      const constraints = checker.extractConstraints('ISNULL(Email)');
+      expect(constraints).toHaveLength(1);
+      expect(constraints[0].constraintType).toBe('required');
+    });
+
+    it('should extract picklist_value from ISPICKVAL(Status, "Active")', () => {
+      const constraints = checker.extractConstraints('ISPICKVAL(Status, "Active")');
+      expect(constraints).toHaveLength(1);
+      expect(constraints[0].fieldName).toBe('Status');
+      expect(constraints[0].constraintType).toBe('picklist_value');
+      expect(constraints[0].expectedValue).toBe('Active');
+    });
+
+    it('should extract picklist_value with single quotes', () => {
+      const constraints = checker.extractConstraints("ISPICKVAL(Stage__c, 'Closed Won')");
+      expect(constraints).toHaveLength(1);
+      expect(constraints[0].expectedValue).toBe('Closed Won');
+    });
+
+    it('should extract length constraint from LEN(Name) > 5', () => {
+      const constraints = checker.extractConstraints('LEN(Name) > 5');
+      expect(constraints).toHaveLength(1);
+      expect(constraints[0].fieldName).toBe('Name');
+      expect(constraints[0].constraintType).toBe('length');
+      expect(constraints[0].minLength).toBe(6);
+    });
+
+    it('should extract length constraint from LEN(Code) < 10', () => {
+      const constraints = checker.extractConstraints('LEN(Code) < 10');
+      expect(constraints).toHaveLength(1);
+      expect(constraints[0].constraintType).toBe('length');
+      expect(constraints[0].maxLength).toBe(9);
+    });
+
+    it('should extract regex constraint from REGEX(Email, "^[a-z]+@")', () => {
+      const constraints = checker.extractConstraints('REGEX(Email, "^[a-z]+@")');
+      expect(constraints).toHaveLength(1);
+      expect(constraints[0].fieldName).toBe('Email');
+      expect(constraints[0].constraintType).toBe('regex');
+      expect(constraints[0].regexPattern).toBe('^[a-z]+@');
+    });
+
+    it('should extract multiple constraints from complex formula', () => {
+      const formula = 'AND(ISBLANK(Phone), ISPICKVAL(Status, "Active"), LEN(Name) > 3)';
+      const constraints = checker.extractConstraints(formula);
+      expect(constraints.length).toBeGreaterThanOrEqual(3);
+      const types = constraints.map((c) => c.constraintType);
+      expect(types).toContain('required');
+      expect(types).toContain('picklist_value');
+      expect(types).toContain('length');
+    });
+
+    it('should return empty array for formula with no recognizable patterns', () => {
+      const constraints = checker.extractConstraints('True');
+      expect(constraints).toEqual([]);
+    });
+  });
+
   describe('risk assessment', () => {
     it('should assign medium risk for REGEX rules', () => {
       const rule = makeRule({
@@ -154,7 +232,6 @@ describe('VRPreChecker', () => {
         errorConditionFormula: 'AND(ISBLANK(Account.Name), NOT(REGEX(Email__c, "^.+@.+$")))',
       });
       const result = checker.analyzeRule(rule);
-      // ISBLANK=+3, cross-object=+2, REGEX=+3 → score 8 → high
       expect(result.risk).toBe('high');
     });
 
@@ -171,7 +248,6 @@ describe('VRPreChecker', () => {
         errorConditionFormula: 'AND(A__c = 1, OR(B__c = 2, C__c = 3), AND(D__c = 4, E__c = 5))',
       });
       const result = checker.analyzeRule(rule);
-      // Many AND/OR operators + multiple fields
       expect(['medium', 'high']).toContain(result.risk);
     });
   });

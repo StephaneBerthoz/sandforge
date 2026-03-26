@@ -1,4 +1,4 @@
-import type { VRCheckResult } from '@sandforge/shared';
+import type { VRCheckResult, VRFieldConstraint } from '@sandforge/shared';
 
 /** Salesforce validation rule metadata from Tooling API. */
 export interface ValidationRuleInfo {
@@ -18,6 +18,8 @@ export interface VRConnection {
  * Pre-checks Salesforce validation rules against seed field configurations.
  * Parses validation rule formulas to identify fields that may conflict
  * with generated data and assigns a risk level.
+ * Extracts structured constraints (required, picklist_value, length, regex)
+ * that VRAutoAdjuster can use to auto-fix field generation configs.
  */
 export class VRPreChecker {
   /**
@@ -56,10 +58,12 @@ export class VRPreChecker {
 
   /**
    * Analyze a single validation rule and assess its risk for seeded data.
+   * Includes structured field constraints extracted from the formula.
    */
   analyzeRule(rule: ValidationRuleInfo): VRCheckResult {
     const fields = this.extractFields(rule.errorConditionFormula);
     const risk = this.assessRisk(rule.errorConditionFormula, fields);
+    const fieldConstraints = this.extractConstraints(rule.errorConditionFormula);
 
     return {
       ruleName: rule.fullName,
@@ -68,6 +72,7 @@ export class VRPreChecker {
       errorMessage: rule.errorMessage,
       potentialConflicts: fields,
       risk,
+      fieldConstraints,
     };
   }
 
@@ -78,8 +83,6 @@ export class VRPreChecker {
   extractFields(formula: string): string[] {
     const fields = new Set<string>();
 
-    // Match field references: word patterns that look like API names
-    // Excludes known functions and operators
     const functionNames = new Set([
       'ISBLANK', 'ISNULL', 'NOT', 'AND', 'OR', 'IF', 'CASE',
       'LEN', 'TEXT', 'VALUE', 'BEGINS', 'CONTAINS', 'INCLUDES',
@@ -91,7 +94,6 @@ export class VRPreChecker {
       'BR', 'HYPERLINK', 'IMAGE', 'SUBSTITUTE',
     ]);
 
-    // Pattern: word chars optionally followed by __c, __r, etc.
     const fieldPattern = /\b([A-Z][A-Za-z0-9_]*(?:__[a-z])?)\b/g;
     let match: RegExpExecArray | null;
 
@@ -106,6 +108,83 @@ export class VRPreChecker {
   }
 
   /**
+   * Extract structured constraints from a validation rule formula.
+   * Parses ISBLANK, ISPICKVAL, LEN, REGEX patterns into VRFieldConstraint objects.
+   *
+   * @param formula - Salesforce validation rule formula string
+   * @returns Array of structured field constraints
+   */
+  extractConstraints(formula: string): VRFieldConstraint[] {
+    const constraints: VRFieldConstraint[] = [];
+    let match: RegExpExecArray | null;
+
+    // ISBLANK(FieldName) or ISNULL(FieldName) -> required
+    const isblankPattern = /(?:ISBLANK|ISNULL)\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*\)/gi;
+    while ((match = isblankPattern.exec(formula)) !== null) {
+      constraints.push({
+        fieldName: match[1],
+        constraintType: 'required',
+      });
+    }
+
+    // ISPICKVAL(FieldName, 'Value') or ISPICKVAL(FieldName, "Value") -> picklist_value
+    const ispickvalPattern = /ISPICKVAL\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*,\s*["']([^"']*)["']\s*\)/gi;
+    while ((match = ispickvalPattern.exec(formula)) !== null) {
+      constraints.push({
+        fieldName: match[1],
+        constraintType: 'picklist_value',
+        expectedValue: match[2],
+      });
+    }
+
+    // LEN(FieldName) > N -> minLength = N + 1
+    const lenGtPattern = /LEN\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*\)\s*>\s*(\d+)/gi;
+    while ((match = lenGtPattern.exec(formula)) !== null) {
+      constraints.push({
+        fieldName: match[1],
+        constraintType: 'length',
+        minLength: parseInt(match[2], 10) + 1,
+      });
+    }
+
+    // LEN(FieldName) < N -> maxLength = N - 1
+    const lenLtPattern = /LEN\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*\)\s*<\s*(\d+)/gi;
+    while ((match = lenLtPattern.exec(formula)) !== null) {
+      constraints.push({
+        fieldName: match[1],
+        constraintType: 'length',
+        maxLength: parseInt(match[2], 10) - 1,
+      });
+    }
+
+    // REGEX(FieldName, 'pattern') or REGEX(FieldName, "pattern") -> regex
+    const regexPatternRe = /REGEX\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*,\s*["']([^"']*)["']\s*\)/gi;
+    while ((match = regexPatternRe.exec(formula)) !== null) {
+      constraints.push({
+        fieldName: match[1],
+        constraintType: 'regex',
+        regexPattern: match[2],
+      });
+    }
+
+    // Cross-field: IF(Field1 = ..., ...(Field2)...) -- best effort
+    const ifPattern = /IF\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*[=!<>]/gi;
+    while ((match = ifPattern.exec(formula)) !== null) {
+      const condField = match[1];
+      const otherFields = this.extractFields(formula).filter((f) => f !== condField);
+      if (otherFields.length > 0) {
+        constraints.push({
+          fieldName: condField,
+          constraintType: 'cross_field',
+          relatedField: otherFields[0],
+        });
+      }
+    }
+
+    return constraints;
+  }
+
+  /**
    * Assess risk level based on formula complexity and patterns.
    */
   private assessRisk(
@@ -114,33 +193,27 @@ export class VRPreChecker {
   ): 'low' | 'medium' | 'high' {
     let score = 0;
 
-    // Required field checks (ISBLANK) are high risk for seeded data
     if (/ISBLANK|ISNULL/i.test(formula)) {
       score += 3;
     }
 
-    // Cross-object references increase risk
     if (/\w+\.\w+/i.test(formula)) {
       score += 2;
     }
 
-    // REGEX validation is high risk — generated data likely won't match
     if (/REGEX/i.test(formula)) {
       score += 3;
     }
 
-    // PRIORVALUE/ISCHANGED — update-only rules, lower risk for inserts
     if (/PRIORVALUE|ISCHANGED/i.test(formula)) {
       score -= 1;
     }
 
-    // Complex formulas with many AND/OR conditions
     const logicalOps = (formula.match(/\bAND\b|\bOR\b|\b&&\b|\|\|/gi) ?? []).length;
     if (logicalOps >= 3) {
       score += 2;
     }
 
-    // Many fields referenced increases conflict surface
     if (fields.length >= 5) {
       score += 1;
     }
