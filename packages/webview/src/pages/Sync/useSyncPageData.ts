@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SyncExecutionResult, FieldMapping, TransformRule, SyncConfig, SyncObjectConfig, SyncDirection, SyncMode, SyncOperation, ConflictStrategy, MappingType, TransformRuleType } from '@sandforge/shared';
+import type { SyncExecutionResult, FieldMapping, TransformRule, SyncConfig, SyncObjectConfig, SyncDirection, SyncMode, SyncOperation, ConflictStrategy, MappingType, TransformRuleType, SyncTemplateConfig } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -100,6 +100,8 @@ export interface SyncPageData {
   handleRemoveTransform: (index: number) => void;
   /** Execute the sync with current configuration. */
   handleExecute: () => void;
+  /** Apply a pre-built sync template to populate wizard state. */
+  handleApplyTemplate: (template: SyncTemplateConfig) => void;
   /** Whether the wizard can advance to the next step. */
   canGoNext: () => boolean;
   /** Whether the sync has completed with results. */
@@ -234,20 +236,20 @@ export function useSyncPageData(): SyncPageData {
   // Navigate to results step when execution completes
   useEffect(() => {
     if (result && !isRunning) {
-      setCurrentStep(6);
+      setCurrentStep(5);
     }
   }, [result, isRunning]);
 
   // Trigger PII scan when entering the review step
   useEffect(() => {
-    if (currentStep === 4 && sourceOrgId && objectEntries.length > 0) {
+    if (currentStep === 3 && sourceOrgId && objectEntries.length > 0) {
       piiScan.mutate({ orgId: sourceOrgId, objectNames: objectEntries.map(e => e.objectApiName) });
     }
   }, [currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch fields when entering field mapping step
   useEffect(() => {
-    if (currentStep === 2 && sourceOrgId && targetOrgId && objectEntries.length > 0) {
+    if (currentStep === 1 && sourceOrgId && targetOrgId && objectEntries.length > 0) {
       fieldsMutation.mutate({
         sourceOrgId,
         targetOrgId,
@@ -289,6 +291,22 @@ export function useSyncPageData(): SyncPageData {
     setTransforms((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleApplyTemplate = useCallback((template: SyncTemplateConfig) => {
+    setDirection(template.direction);
+    setMode(template.mode);
+    setConflictStrategy(template.conflictStrategy);
+    setObjectEntries(template.objects.map((o) => ({
+      objectApiName: o.objectApiName,
+      operation: o.operation,
+      externalIdField: o.externalIdField,
+      batchSize: o.batchSize,
+      where: '',
+    })));
+    // Clear any existing mappings/transforms since template objects changed
+    setMappings([]);
+    setTransforms([]);
+  }, []);
+
   const handleExecute = () => {
     if (!sourceOrgId || !targetOrgId) return;
     setError(null);
@@ -325,14 +343,13 @@ export function useSyncPageData(): SyncPageData {
 
   const canGoNext = (): boolean => {
     switch (currentStep) {
-      case 0: return !!sourceOrgId && !!targetOrgId && sourceOrgId !== targetOrgId;
-      case 1: return objectEntries.length > 0;
-      case 5: return !isRunning;
+      case 0: return !!sourceOrgId && !!targetOrgId && sourceOrgId !== targetOrgId && objectEntries.length > 0;
+      case 4: return !isRunning;
       default: return true;
     }
   };
 
-  const isFinished = currentStep === 6 && !!result;
+  const isFinished = currentStep === 5 && !!result;
 
   return {
     availableObjects,
@@ -370,6 +387,7 @@ export function useSyncPageData(): SyncPageData {
     handleAddTransform,
     handleRemoveTransform,
     handleExecute,
+    handleApplyTemplate,
     canGoNext,
     isFinished,
     overallPercent,
