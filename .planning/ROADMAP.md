@@ -4,58 +4,25 @@
 **Requirements:** SWIZ-01, SWIZ-02, STPL-06, STPL-01, STPL-02, STPL-03
 **Completed:** 2026-03-26. 2 plans, 6 requirements delivered. SyncConfigStore + SeedTemplateStore with CRUD bridge handlers. 3 pre-built seed templates (Sales Cloud 7 objects, Service Cloud 5 objects, Minimal Demo 3 objects). useWebviewPersistedState hook + wizard draft auto-save for Sync and Seed.
 
-## Phase 02 — Seed Quality & Realism
+## Phase 02 — Seed Quality & Realism ✓
 **Requirements:** SQUAL-01, SQUAL-02, SQUAL-03, SQUAL-04, SQUAL-05
-**Why second:** Pre-built templates from Phase 01 are only as good as the generated data. Better data quality makes templates actually useful and builds trust.
+**Completed:** 2026-03-26. 1 plan, 5 requirements delivered. Locale-aware FakerFallback (6 locales), GeoCoherentGenerator for address consistency, ContextualRanges for realistic amounts/dates, full picklist pass-through in SmartFieldGenerator, VRAutoAdjuster for validation rule compliance. 184 new tests.
 
-**Scope:**
-- Locale-aware FakerFallback (fr_FR, de_DE, es_ES, ja_JP, pt_BR — matching i18n locales)
-- Geo-coherent address generation (city+state+country consistent)
-- Picklist-aware Smart Suggest (all active values, not subset)
-- VR-aware auto-adjustment (high-risk rules → auto-fix field rules)
-- Context-aware amount/date ranges per object type
-
-## Phase 03 — Quick Sync
+## Phase 03 — Quick Sync ✓
 **Requirements:** QSYNC-01, QSYNC-02, QSYNC-03, QSYNC-04, QSYNC-05, QSYNC-06, SWIZ-05, SWIZ-06
-**Why third:** Depends on persistence (Phase 01) to save Quick Sync configs. This is the highest-impact adoption feature — the "3 clicks to data" promise.
+**Completed:** 2026-03-26. 2 plans, 8 requirements delivered. SmartObjectSuggester + RelationshipDetector + QuickSyncPreviewEstimator backend. QuickSyncHandler bridge with smart defaults. 6 React components (QuickSyncCard, OrgStep, ObjectStep, PreviewStep, Flow, useQuickSyncFlow). Auto-field mapping via AutoFieldMapper. 73 new tests.
 
-**Scope:**
-- Quick Sync entry point on SyncPage (card/button above wizard)
-- 3-screen flow: pick orgs → multi-select objects → preview & go
-- Auto-field mapping (same-name match)
-- Smart defaults (source_to_target, full, source_wins, upsert)
-- Preview screen (object count, record estimates, API calls)
-- Results reuse existing Step6 component
-- Smart object suggestions (top 5 common objects)
-- Relationship auto-detection (add parent objects automatically)
-
-## Phase 04 — Quick Seed & Template Gallery
+## Phase 04 — Quick Seed & Template Gallery ✓
 **Requirements:** STPL-04, STPL-05, QSEED-01, QSEED-02, QSEED-03
-**Why fourth:** Depends on persisted templates (Phase 01) and quality data (Phase 02). This is the Seed equivalent of Quick Sync — the "1-click to realistic data" promise.
+**Completed:** 2026-03-26. 1 plan, 5 requirements delivered. TemplateGallery card grid with pre-built + saved templates. TemplateCustomizeModal for record count adjustment. QuickSeedFlow with org selection + progress + results reusing Step7/Step8.
 
-**Scope:**
-- Template gallery UI on SeedPage (card grid with name, description, object count, total records)
-- "Use This" → customize record counts → execute
-- Quick Seed bypasses field config (uses Smart Suggest defaults)
-- Progress + results reuse existing Step7/Step8 components
-
-## Phase 05 — Sync Wizard Polish
+## Phase 05 — Sync Wizard Polish ✓
 **Requirements:** SWIZ-03, SWIZ-04
-**Why fifth:** Lower priority than Quick flows (most users will use Quick Sync/Seed). Still important for power users who need the full wizard.
+**Completed:** 2026-03-26. 1 plan, 2 requirements delivered. 3 pre-built sync templates (Full Account hierarchy, Opportunities+Products, Cases+Attachments). SyncTemplatePicker card grid. Wizard reduced from 7 to 6 steps (merged org+object selection).
 
-**Scope:**
-- Sync templates: pre-built configs for common patterns (Account hierarchy, Opps+Products, Cases+Attachments)
-- Step merge: combine org selection + object selection into one screen (7→6 steps)
-
-## Phase 06 — Onboarding & First-Run
+## Phase 06 — Onboarding & First-Run ✓
 **Requirements:** ONBO-01, ONBO-02, ONBO-03, ONBO-04
-**Why last:** Depends on Quick Seed gallery (Phase 04) and Quick Sync (Phase 03) existing as destinations. Onboarding wires everything together into a cohesive first-run experience.
-
-**Scope:**
-- Sandbox detection banner ("Your sandbox is empty — populate it")
-- Welcome wizard update: sandbox orgs → suggest Seed/Sync
-- Home dashboard: "Populate Sandbox" quick action → template gallery
-- SyncPage + SeedPage: guided first-step cards when empty
+**Completed:** 2026-03-26. 1 plan, 4 requirements delivered. useSandboxDetection hook, SandboxBanner component, GuidedFirstStepCard reusable component. WelcomePage Step 4 updated for sandbox orgs. HomePage "Populate Sandbox" action. SyncPage + SeedPage guided cards when empty. 7623 total tests.
 
 ---
 
@@ -88,4 +55,4 @@ Completed 2026-03-19. 6 phases, 16 plans, 27 requirements delivered. See `.plann
 Completed 2026-03-17. 2 phases, 5 plans, 16 requirements delivered. See `.planning/milestones/v1.0.0-ROADMAP.md`.
 
 ---
-*Last updated: 2026-03-26 — v1.2.2 roadmap created*
+*Last updated: 2026-03-26 — all 6 phases complete, 30/30 requirements delivered*
