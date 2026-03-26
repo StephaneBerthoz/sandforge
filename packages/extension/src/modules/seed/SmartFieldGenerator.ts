@@ -4,6 +4,7 @@ import type {
   FieldGenerationMode,
   FieldGenerationConstraints,
 } from '@sandforge/shared';
+import { getAmountRange, getDateRange } from './ContextualRanges';
 
 /**
  * Smart field generation engine that auto-detects the optimal generation
@@ -11,6 +12,8 @@ import type {
  *
  * Analyzes field name patterns, type, required/unique flags, picklist values,
  * and reference targets to suggest the best FieldGenerationConfig.
+ * Uses ContextualRanges for object-specific amount/date ranges and
+ * supports geo-coherent address generation via GeoCoherentGenerator (in FakerFallback).
  */
 export class SmartFieldGenerator {
   /** Well-known field name patterns mapped to faker methods. */
@@ -27,6 +30,7 @@ export class SmartFieldGenerator {
     { pattern: /^(street|address|mailing)/i, fakerMethod: 'address', mode: 'faker' },
     { pattern: /^city/i, fakerMethod: 'city', mode: 'faker' },
     { pattern: /^(country|pays)/i, fakerMethod: 'country', mode: 'faker' },
+    { pattern: /^(state|province|billing\s?state|shipping\s?state)/i, fakerMethod: 'state', mode: 'faker' },
     { pattern: /^(zip|postal)/i, fakerMethod: 'zipCode', mode: 'faker' },
     { pattern: /^company|^account\s?name/i, fakerMethod: 'company', mode: 'faker' },
     { pattern: /website|url|link/i, fakerMethod: 'url', mode: 'faker' },
@@ -38,64 +42,110 @@ export class SmartFieldGenerator {
   /**
    * Generate smart field configurations for all fields of an object.
    * Analyzes each field's metadata to suggest the optimal generation strategy.
+   *
+   * @param fields - Array of field metadata
+   * @param objectApiName - Optional object API name for context-aware ranges
    */
-  suggestConfigs(fields: SeedFieldInfo[]): FieldGenerationConfig[] {
-    return fields.map((field) => this.suggestForField(field));
+  suggestConfigs(fields: SeedFieldInfo[], objectApiName?: string): FieldGenerationConfig[] {
+    return fields.map((field) => this.suggestForField(field, objectApiName));
   }
 
   /**
    * Suggest the optimal generation config for a single field.
+   * When objectApiName is provided, uses context-aware ranges for currency/date fields.
+   *
+   * @param field - Field metadata
+   * @param objectApiName - Optional object API name for context-aware ranges
    */
-  suggestForField(field: SeedFieldInfo): FieldGenerationConfig {
+  suggestForField(field: SeedFieldInfo, objectApiName?: string): FieldGenerationConfig {
     const constraints = this.buildConstraints(field);
+    const objName = objectApiName ?? '';
 
-    // System/auto fields → null
+    // System/auto fields -> null
     if (this.isSystemField(field)) {
       return this.buildConfig(field, 'null', constraints);
     }
 
-    // Picklist → picklist_random
+    // Picklist -> picklist_random
     if (field.type === 'picklist' || field.type === 'multipicklist') {
       if (field.picklistValues && field.picklistValues.length > 0) {
         return this.buildConfig(field, 'picklist_random', constraints);
       }
     }
 
-    // Reference (Lookup/MasterDetail) → null (handled by ReferenceLinker)
+    // Reference (Lookup/MasterDetail) -> null (handled by ReferenceLinker)
     if (field.referenceTo) {
       return this.buildConfig(field, 'null', constraints);
     }
 
-    // Boolean → auto (random true/false)
+    // Boolean -> auto (random true/false)
     if (field.type === 'boolean') {
       return this.buildConfig(field, 'auto', constraints);
     }
 
-    // Id/ExternalId fields with unique constraint → sequence
+    // Id/ExternalId fields with unique constraint -> sequence
     if (field.unique || field.externalId) {
       return this.buildConfig(field, 'sequence', constraints, {
         sequencePattern: `${field.apiName}-{n}`,
       });
     }
 
-    // Date fields → faker
+    // Date fields -> faker with contextual range
     if (field.type === 'date' || field.type === 'datetime') {
-      return this.buildConfig(field, 'faker', constraints, {
-        fakerMethod: 'date',
+      const dateRange = getDateRange(objName, field.apiName);
+      let fakerMethod: string;
+      if (dateRange.minDaysFromNow >= 0) {
+        fakerMethod = 'futureDate';
+      } else if (dateRange.maxDaysFromNow <= 0) {
+        fakerMethod = 'pastDate';
+      } else {
+        fakerMethod = 'date';
+      }
+      const dateConstraints: FieldGenerationConstraints = {
+        ...constraints,
+        min: dateRange.minDaysFromNow,
+        max: dateRange.maxDaysFromNow,
+      };
+      return this.buildConfig(field, 'faker', dateConstraints, {
+        fakerMethod,
       });
     }
 
-    // Number types → auto
+    // Number types -> auto with contextual ranges
     if (
       field.type === 'double' ||
       field.type === 'currency' ||
       field.type === 'percent' ||
       field.type === 'int'
     ) {
-      return this.buildConfig(field, 'auto', constraints);
+      if (field.type === 'currency') {
+        const amountRange = getAmountRange(objName, field.apiName);
+        const currencyConstraints: FieldGenerationConstraints = {
+          ...constraints,
+          min: amountRange.min,
+          max: amountRange.max,
+        };
+        return this.buildConfig(field, 'auto', currencyConstraints);
+      }
+      if (field.type === 'percent') {
+        const percentConstraints: FieldGenerationConstraints = {
+          ...constraints,
+          min: 0,
+          max: 100,
+        };
+        return this.buildConfig(field, 'auto', percentConstraints);
+      }
+      // int/double: check for known patterns via getAmountRange
+      const amountRange = getAmountRange(objName, field.apiName);
+      const numConstraints: FieldGenerationConstraints = {
+        ...constraints,
+        min: amountRange.min,
+        max: amountRange.max,
+      };
+      return this.buildConfig(field, 'auto', numConstraints);
     }
 
-    // Text fields — try to match by name pattern
+    // Text fields -- try to match by name pattern
     if (
       field.type === 'string' ||
       field.type === 'textarea' ||
@@ -103,26 +153,26 @@ export class SmartFieldGenerator {
       field.type === 'phone' ||
       field.type === 'url'
     ) {
-      // Email type → faker email
+      // Email type -> faker email
       if (field.type === 'email') {
         return this.buildConfig(field, 'faker', constraints, {
           fakerMethod: 'email',
         });
       }
-      // Phone type → faker phone
+      // Phone type -> faker phone
       if (field.type === 'phone') {
         return this.buildConfig(field, 'faker', constraints, {
           fakerMethod: 'phone',
         });
       }
-      // URL type → faker url
+      // URL type -> faker url
       if (field.type === 'url') {
         return this.buildConfig(field, 'faker', constraints, {
           fakerMethod: 'url',
         });
       }
 
-      // Match name patterns
+      // Match name patterns (includes state pattern for geo-coherent addresses)
       const match = SmartFieldGenerator.NAME_PATTERNS.find((p) =>
         p.pattern.test(field.apiName) || p.pattern.test(field.label),
       );
@@ -132,7 +182,7 @@ export class SmartFieldGenerator {
         });
       }
 
-      // Default text → faker lorem
+      // Default text -> faker lorem
       return this.buildConfig(field, 'faker', constraints, {
         fakerMethod: field.maxLength && field.maxLength <= 80 ? 'sentence' : 'paragraph',
       });
