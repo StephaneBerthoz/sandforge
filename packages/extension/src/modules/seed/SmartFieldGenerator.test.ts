@@ -91,11 +91,11 @@ describe('SmartFieldGenerator', () => {
     expect(config.generationMode).toBe('sequence');
   });
 
-  it('should suggest faker date for date fields', () => {
+  it('should suggest faker pastDate for BirthDate (contextual range)', () => {
     const field = makeField({ apiName: 'BirthDate', label: 'Birth Date', type: 'date' });
     const config = generator.suggestForField(field);
     expect(config.generationMode).toBe('faker');
-    expect(config.fakerMethod).toBe('date');
+    expect(config.fakerMethod).toBe('pastDate');
   });
 
   it('should suggest auto for numeric fields', () => {
@@ -218,5 +218,88 @@ describe('SmartFieldGenerator', () => {
     const config = generator.suggestForField(field);
     expect(config.fieldName).toBe('MyField__c');
     expect(config.fieldType).toBe('double');
+  });
+
+  // -- New tests for contextual ranges and geo-coherence --
+
+  describe('contextual ranges', () => {
+    it('should set min=5000, max=500000 for Opportunity.Amount currency field', () => {
+      const field = makeField({ apiName: 'Amount', label: 'Amount', type: 'currency' });
+      const config = generator.suggestForField(field, 'Opportunity');
+      expect(config.generationMode).toBe('auto');
+      expect(config.constraints.min).toBe(5000);
+      expect(config.constraints.max).toBe(500000);
+    });
+
+    it('should set futureDate for Opportunity.CloseDate', () => {
+      const field = makeField({ apiName: 'CloseDate', label: 'Close Date', type: 'date' });
+      const config = generator.suggestForField(field, 'Opportunity');
+      expect(config.generationMode).toBe('faker');
+      expect(config.fakerMethod).toBe('futureDate');
+      expect(config.constraints.min).toBeGreaterThan(0);
+    });
+
+    it('should set pastDate for Contact.Birthdate', () => {
+      const field = makeField({ apiName: 'Birthdate', label: 'Birthdate', type: 'date' });
+      const config = generator.suggestForField(field, 'Contact');
+      expect(config.generationMode).toBe('faker');
+      expect(config.fakerMethod).toBe('pastDate');
+      expect(config.constraints.max).toBeLessThan(0);
+    });
+
+    it('should set min=0, max=100 for percent fields', () => {
+      const field = makeField({ apiName: 'Probability', label: 'Probability', type: 'percent' });
+      const config = generator.suggestForField(field);
+      expect(config.generationMode).toBe('auto');
+      expect(config.constraints.min).toBe(0);
+      expect(config.constraints.max).toBe(100);
+    });
+
+    it('should pass objectApiName through suggestConfigs', () => {
+      const fields = [
+        makeField({ apiName: 'Amount', label: 'Amount', type: 'currency' }),
+      ];
+      const configs = generator.suggestConfigs(fields, 'Opportunity');
+      expect(configs[0].constraints.min).toBe(5000);
+      expect(configs[0].constraints.max).toBe(500000);
+    });
+
+    it('should fall back to default ranges when no objectApiName', () => {
+      const field = makeField({ apiName: 'Amount', label: 'Amount', type: 'currency' });
+      const config = generator.suggestForField(field);
+      // Amount pattern match: min=100, max=100000
+      expect(config.constraints.min).toBe(100);
+      expect(config.constraints.max).toBe(100000);
+    });
+  });
+
+  describe('state pattern recognition', () => {
+    it('should recognize State field name', () => {
+      const field = makeField({ apiName: 'State', label: 'State', type: 'string' });
+      const config = generator.suggestForField(field);
+      expect(config.generationMode).toBe('faker');
+      expect(config.fakerMethod).toBe('state');
+    });
+
+    it('should recognize BillingState field name', () => {
+      const field = makeField({ apiName: 'BillingState', label: 'Billing State', type: 'string' });
+      const config = generator.suggestForField(field);
+      expect(config.generationMode).toBe('faker');
+      expect(config.fakerMethod).toBe('state');
+    });
+
+    it('should recognize ShippingState field name', () => {
+      const field = makeField({ apiName: 'ShippingState', label: 'Shipping State', type: 'string' });
+      const config = generator.suggestForField(field);
+      expect(config.generationMode).toBe('faker');
+      expect(config.fakerMethod).toBe('state');
+    });
+
+    it('should recognize Province field name', () => {
+      const field = makeField({ apiName: 'Province', label: 'Province', type: 'string' });
+      const config = generator.suggestForField(field);
+      expect(config.generationMode).toBe('faker');
+      expect(config.fakerMethod).toBe('state');
+    });
   });
 });
