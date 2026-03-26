@@ -184,12 +184,33 @@ export interface FieldGenerationConstraints {
   required: boolean;
   unique: boolean;
   maxLength?: number;
+  minLength?: number;
   picklistValues?: string[];
   min?: number;
   max?: number;
+  /** Whether this field is a multipicklist (values separated by semicolons) */
+  multipicklist?: boolean;
 }
 
 // ── Validation Rule Pre-Check ────────────────────────────
+
+/** Constraint extracted from a validation rule formula */
+export interface VRFieldConstraint {
+  /** Field API name referenced in the formula */
+  fieldName: string;
+  /** Type of constraint detected */
+  constraintType: 'required' | 'picklist_value' | 'length' | 'regex' | 'cross_field';
+  /** Expected picklist value (for picklist_value constraints) */
+  expectedValue?: string;
+  /** Minimum length (for length constraints) */
+  minLength?: number;
+  /** Maximum length (for length constraints) */
+  maxLength?: number;
+  /** Regex pattern (for regex constraints) */
+  regexPattern?: string;
+  /** Related field name (for cross_field constraints) */
+  relatedField?: string;
+}
 
 /** Validation rule analysis result */
 export interface VRCheckResult {
@@ -199,4 +220,6 @@ export interface VRCheckResult {
   errorMessage: string;
   potentialConflicts: string[];
   risk: 'low' | 'medium' | 'high';
+  /** Structured constraints extracted from the formula */
+  fieldConstraints: VRFieldConstraint[];
 }
