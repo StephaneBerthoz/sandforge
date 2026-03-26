@@ -17,8 +17,9 @@ status: ready
 ## Must-Have Features
 
 ### Sync — "Prod to Sandbox in 3 clicks"
-- Quick Sync mode: simplified flow for the common case (pick objects → pick target → go)
-- Reduce friction in the existing wizard (too many steps, too many options for a basic sync)
+- Quick Sync mode AND polish on existing wizard (both, not either/or)
+- Quick Sync: simplified flow for the common case (pick objects → pick target → go)
+- Full wizard: reduce friction, smarter steps, less overwhelming for basic use cases
 - Smart defaults: auto-detect relationships, suggest field mappings, skip unnecessary config
 - Better onboarding: first-run guidance for a user who just installed SandForge
 - Reliability: edge cases and error handling that break trust
@@ -37,12 +38,8 @@ status: ready
 
 ## Anti-Goals
 
-- **No new modules** — enrich Sync and Seed, don't add Compare/DataOps/Automation features
-- **No CDC/Streaming/real-time** — that's v2+
-- **No enterprise integrations** — no Datadog, PagerDuty, Slack, PDF reports
-- **No architecture refactoring** — no monorepo restructuring, no message bridge changes
-- **No Monitor changes** — v1.2.1 just shipped Monitor enrichment, leave it alone
-- **No multi-org/team features** — focus on the solo developer/admin experience first
+- None imposed by the user — go all out on quality, intelligence, and polish
+- Self-imposed guardrails: don't break what works, don't add complexity for complexity's sake
 
 ## Constraints
 
