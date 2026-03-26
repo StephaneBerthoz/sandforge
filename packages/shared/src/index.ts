@@ -61,6 +61,7 @@ export * from './constants/error-codes.js';
 export * from './constants/defaults.js';
 export * from './constants/ai-config.js';
 export * from './constants/monitor.js';
+export * from './constants/seed-templates.js';
 
 // Barrel exports — Utils
 export * from './utils/sf-utils.js';
