@@ -45,7 +45,11 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 ### Active
 
-(None — ready for next milestone)
+- [ ] Quick Sync mode + full wizard polish — v1.2.2
+- [ ] Pre-built Seed templates + 1-click seed — v1.2.2
+- [ ] Config persistence (save/load sync configs and seed templates) — v1.2.2
+- [ ] Onboarding flow guides to Sync/Seed for empty sandboxes — v1.2.2
+- [ ] Data realism improvements (Seed quality, validation rule awareness) — v1.2.2
 
 ### Deferred
 
@@ -61,6 +65,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
 - 558 source files, 487+ test files, 1045+ total files across packages
+- v1.2.2 in progress — Adoption-First: Sync & Seed Polish
 - v1.2.1 shipped — Monitor Enrichment & Wiring (25 items delivered)
 - v1.2.0 shipped — Forge UX & Reliability (52 items delivered, 7149 tests passing)
 - VSIX package at 1.07 MB, well within marketplace limits
@@ -89,4 +94,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-26 — Milestone v1.2.1 shipped (Monitor Enrichment & Wiring, 25 requirements delivered)*
+*Last updated: 2026-03-26 — Milestone v1.2.2 started (Adoption-First: Sync & Seed Polish)*
