@@ -45,11 +45,16 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 ### Active
 
-- [ ] Quick Sync mode + full wizard polish — v1.2.2
-- [ ] Pre-built Seed templates + 1-click seed — v1.2.2
-- [ ] Config persistence (save/load sync configs and seed templates) — v1.2.2
-- [ ] Onboarding flow guides to Sync/Seed for empty sandboxes — v1.2.2
-- [ ] Data realism improvements (Seed quality, validation rule awareness) — v1.2.2
+(No active milestone — ready for next)
+
+### Recently Validated (v1.2.2)
+
+- ✓ Quick Sync mode: 3-click flow with smart defaults, auto-field mapping, smart object suggestions, relationship detection — Milestone v1.2.2
+- ✓ Sync Wizard polish: 3 pre-built sync templates, wizard reduced from 7 to 6 steps — Milestone v1.2.2
+- ✓ Seed templates: 3 pre-built templates (Sales Cloud, Service Cloud, Minimal Demo), template gallery UI, 1-click seed — Milestone v1.2.2
+- ✓ Config persistence: SyncConfigStore + SeedTemplateStore, CRUD bridge handlers, wizard draft auto-save — Milestone v1.2.2
+- ✓ Onboarding: sandbox detection, contextual banners, WelcomePage update, guided first-step cards — Milestone v1.2.2
+- ✓ Seed quality: locale-aware Faker (6 locales), geo-coherent addresses, VR-aware generation, contextual ranges — Milestone v1.2.2
 
 ### Deferred
 
@@ -65,10 +70,10 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
 - 558 source files, 487+ test files, 1045+ total files across packages
-- v1.2.2 in progress — Adoption-First: Sync & Seed Polish
+- v1.2.2 shipped — Adoption-First: Sync & Seed Polish (30 items delivered, 7623 tests passing)
 - v1.2.1 shipped — Monitor Enrichment & Wiring (25 items delivered)
 - v1.2.0 shipped — Forge UX & Reliability (52 items delivered, 7149 tests passing)
-- VSIX package at 1.07 MB, well within marketplace limits
+- VSIX package at 1.16 MB, well within marketplace limits
 - jsforce v3 for all Salesforce API interactions
 - Strict TypeScript (no `any`), Zod validation on all external data, Winston logging
 
@@ -94,4 +99,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-26 — Milestone v1.2.2 started (Adoption-First: Sync & Seed Polish)*
+*Last updated: 2026-03-26 — Milestone v1.2.2 shipped (Adoption-First: Sync & Seed Polish)*

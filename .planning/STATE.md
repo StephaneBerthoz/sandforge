@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** v1.2.2 — Adoption-First: Sync & Seed Polish
+**Current focus:** No active milestone — ready for next
 
 ## Current Position
 
-Phase: All 6 phases complete → ready for milestone audit & completion
-Plan: All 10 plans executed
-Status: All 30/30 v1.2.2 requirements delivered. Quick Sync, Quick Seed, Template Gallery, Seed Quality, Sync Polish, Onboarding.
-Last activity: 2026-03-26 — All phases complete, requirements checked off
+Phase: —
+Plan: —
+Status: v1.2.2 shipped. Ready for next milestone.
+Last activity: 2026-03-26 — v1.2.2 archived and tagged
 
-Progress: [##########] 100%
+Progress: [##########] milestone complete
 
 ## Performance Metrics
 
@@ -24,6 +24,12 @@ Progress: [##########] 100%
 - Total execution time: ~12h
 
 ## Milestone History
+
+### v1.2.2 — Adoption-First: Sync & Seed Polish
+Completed: 2026-03-26
+Phases: 6
+Requirements delivered: QSYNC-01..06, SWIZ-01..06, STPL-01..06, SQUAL-01..05, QSEED-01..03, ONBO-01..04
+Key achievements: Quick Sync 3-click flow with smart defaults and auto-field mapping. Quick Seed 1-click from template gallery. 3 pre-built seed templates + 3 sync templates. Locale-aware data generation (6 locales), geo-coherent addresses, VR-aware generation. Wizard reduced from 7 to 6 steps. Sandbox onboarding with guided first-step cards. 7623 tests passing.
 
 ### v1.2.1 — Monitor Enrichment & Wiring
 Completed: 2026-03-26
@@ -66,5 +72,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-26
-Stopped at: All 6 phases complete. 30/30 requirements delivered. Ready for milestone audit.
-Resume file: .planning/REQUIREMENTS.md
+Stopped at: v1.2.2 shipped. Ready for next milestone.
+Resume file: .planning/ROADMAP.md
