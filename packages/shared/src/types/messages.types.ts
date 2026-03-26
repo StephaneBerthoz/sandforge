@@ -169,9 +169,17 @@ export type WebViewToExtensionMessage =
   | SeedExecuteRequest
   | SeedDescribeGlobalRequest
   | SeedDescribeObjectRequest
+  | SeedTemplateSaveRequest
+  | SeedTemplateLoadRequest
+  | SeedTemplateListRequest
+  | SeedTemplateDeleteRequest
   | SyncExecuteRequest
   | SyncDescribeGlobalRequest
   | SyncDescribeFieldsRequest
+  | SyncConfigSaveRequest
+  | SyncConfigLoadRequest
+  | SyncConfigListRequest
+  | SyncConfigDeleteRequest
   | MonitorRefreshRequest
   | MonitorStartRequest
   | MonitorTrendsRequest
@@ -264,6 +272,14 @@ export type ExtensionToWebViewMessage =
   | AIStatusResponse
   | AISaveKeyResponse
   | MonitorAbortJobResponse
+  | SeedTemplateSaveResponse
+  | SeedTemplateLoadResponse
+  | SeedTemplateListResponse
+  | SeedTemplateDeleteResponse
+  | SyncConfigSaveResponse
+  | SyncConfigLoadResponse
+  | SyncConfigListResponse
+  | SyncConfigDeleteResponse
   | PipelineTemplatesResponse
   | AnonymizationTemplatesResponse
   | OnboardingShowMessage
@@ -374,6 +390,53 @@ export interface SeedDescribeObjectRequest extends BaseMessage {
   payload: { orgId: string; objectApiName: string };
 }
 
+/** Request to save a seed template (create or update). */
+export interface SeedTemplateSaveRequest extends BaseMessage {
+  type: 'seed:template:save';
+  payload: { template: Record<string, unknown> };
+}
+
+/** Request to load a seed template by ID. */
+export interface SeedTemplateLoadRequest extends BaseMessage {
+  type: 'seed:template:load';
+  payload: { id: string };
+}
+
+/** Request to list all seed templates. */
+export interface SeedTemplateListRequest extends BaseMessage {
+  type: 'seed:template:list';
+}
+
+/** Request to delete a seed template by ID. */
+export interface SeedTemplateDeleteRequest extends BaseMessage {
+  type: 'seed:template:delete';
+  payload: { id: string };
+}
+
+/** Response for seed template save. */
+export interface SeedTemplateSaveResponse extends BaseMessage {
+  type: 'seed:template:save:response';
+  payload: { success: boolean; id: string };
+}
+
+/** Response for seed template load. */
+export interface SeedTemplateLoadResponse extends BaseMessage {
+  type: 'seed:template:load:response';
+  payload: { template: Record<string, unknown> | null };
+}
+
+/** Response for seed template list. */
+export interface SeedTemplateListResponse extends BaseMessage {
+  type: 'seed:template:list:response';
+  payload: { templates: Array<{ id: string; name: string; description: string; tags: string[]; updatedAt: string; objectCount: number; totalRecords: number }> };
+}
+
+/** Response for seed template delete. */
+export interface SeedTemplateDeleteResponse extends BaseMessage {
+  type: 'seed:template:delete:response';
+  payload: { success: boolean };
+}
+
 /** Sync messages */
 export interface SyncExecuteRequest extends BaseMessage {
   type: 'sync:execute';
@@ -390,6 +453,53 @@ export interface SyncDescribeGlobalRequest extends BaseMessage {
 export interface SyncDescribeFieldsRequest extends BaseMessage {
   type: 'sync:describe-fields';
   payload: { sourceOrgId: string; targetOrgId: string; objectApiName: string };
+}
+
+/** Request to save a sync configuration (create or update). */
+export interface SyncConfigSaveRequest extends BaseMessage {
+  type: 'sync:config:save';
+  payload: { config: Record<string, unknown> };
+}
+
+/** Request to load a sync configuration by ID. */
+export interface SyncConfigLoadRequest extends BaseMessage {
+  type: 'sync:config:load';
+  payload: { id: string };
+}
+
+/** Request to list all sync configurations. */
+export interface SyncConfigListRequest extends BaseMessage {
+  type: 'sync:config:list';
+}
+
+/** Request to delete a sync configuration by ID. */
+export interface SyncConfigDeleteRequest extends BaseMessage {
+  type: 'sync:config:delete';
+  payload: { id: string };
+}
+
+/** Response for sync config save. */
+export interface SyncConfigSaveResponse extends BaseMessage {
+  type: 'sync:config:save:response';
+  payload: { success: boolean; id: string };
+}
+
+/** Response for sync config load. */
+export interface SyncConfigLoadResponse extends BaseMessage {
+  type: 'sync:config:load:response';
+  payload: { config: Record<string, unknown> | null };
+}
+
+/** Response for sync config list. */
+export interface SyncConfigListResponse extends BaseMessage {
+  type: 'sync:config:list:response';
+  payload: { configs: Array<{ id: string; name: string; description: string; updatedAt: string }> };
+}
+
+/** Response for sync config delete. */
+export interface SyncConfigDeleteResponse extends BaseMessage {
+  type: 'sync:config:delete:response';
+  payload: { success: boolean };
 }
 
 /** Monitor messages */
