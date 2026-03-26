@@ -34,6 +34,7 @@ import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
 import { ConfigHandler } from './handlers/ConfigHandler.js';
 import { GovernanceOpsHandler } from './handlers/GovernanceOpsHandler.js';
+import { QuickSyncHandler } from './handlers/QuickSyncHandler.js';
 import { NoOpHandler } from './handlers/NoOpHandler.js';
 
 // Re-export interfaces for backward compatibility
@@ -80,6 +81,7 @@ export class ExtensionHandlers {
   private readonly migrationHandler: MigrationHandler;
   private readonly configHandler: ConfigHandler;
   private readonly governanceHandler: GovernanceOpsHandler;
+  private readonly quickSyncHandler: QuickSyncHandler;
   private readonly noOpHandler: NoOpHandler;
 
   constructor(deps: ExtensionHandlersDeps) {
@@ -114,6 +116,7 @@ export class ExtensionHandlers {
       this.handlerDeps,
       this.monitorHandler.getAlertEngine(),
     );
+    this.quickSyncHandler = new QuickSyncHandler(this.handlerDeps);
     this.noOpHandler = new NoOpHandler(this.handlerDeps);
   }
 
@@ -206,6 +209,12 @@ export class ExtensionHandlers {
 
     // Sync
     route(['sync:execute', 'sync:describe-global', 'sync:describe-fields'], this.syncHandler);
+
+    // Quick Sync
+    route([
+      'quicksync:suggest-objects', 'quicksync:detect-relationships',
+      'quicksync:preview', 'quicksync:execute',
+    ], this.quickSyncHandler);
 
     // Monitor
     route([
