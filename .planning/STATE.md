@@ -10,19 +10,20 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 01 — Persistence & Templates Foundation
-Plan: 01-01 complete
-Status: Plan 01-01 delivered (SyncConfigStore, SeedTemplateStore, bridge handlers)
-Last activity: 2026-03-26 — Plan 01-01 executed
+Plan: 01-02 complete
+Status: Plan 01-02 delivered (seed templates, useWebviewPersistedState, wizard auto-save)
+Last activity: 2026-03-26 — Plan 01-02 executed
 
-Progress: [#---------] ~5%
+Progress: [##--------] ~10%
 
 ### Phase 01 Progress
 - [x] 01-01: Backend persistence stores + bridge handlers
+- [x] 01-02: Pre-built seed templates + wizard draft auto-save
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 51 (v1.2.2: 1 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 52 (v1.2.2: 2 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -69,5 +70,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-26
-Stopped at: Plan 01-01 complete. Ready for 01-02.
-Resume file: .planning/phases/01-persistence-templates/01-01-SUMMARY.md
+Stopped at: Plan 01-02 complete. Ready for 01-03.
+Resume file: .planning/phases/01-persistence-templates/01-02-SUMMARY.md
