@@ -196,7 +196,7 @@ describe('SmartFieldGenerator', () => {
     expect(config.constraints.maxLength).toBe(10);
   });
 
-  it('should handle multipicklist fields', () => {
+  it('should handle multipicklist fields with multipicklist flag', () => {
     const field = makeField({
       apiName: 'Interests__c',
       label: 'Interests',
@@ -205,6 +205,8 @@ describe('SmartFieldGenerator', () => {
     });
     const config = generator.suggestForField(field);
     expect(config.generationMode).toBe('picklist_random');
+    expect(config.constraints.multipicklist).toBe(true);
+    expect(config.constraints.picklistValues).toEqual(['Sports', 'Music', 'Art']);
   });
 
   it('should fallback to auto for unknown types', () => {
@@ -300,6 +302,54 @@ describe('SmartFieldGenerator', () => {
       const config = generator.suggestForField(field);
       expect(config.generationMode).toBe('faker');
       expect(config.fakerMethod).toBe('state');
+    });
+  });
+
+  describe('picklist handling', () => {
+    it('should pass all 5 picklist values into constraints', () => {
+      const field = makeField({
+        apiName: 'Stage__c',
+        label: 'Stage',
+        type: 'picklist',
+        picklistValues: ['Draft', 'Review', 'Approved', 'Rejected', 'Archived'],
+      });
+      const config = generator.suggestForField(field);
+      expect(config.constraints.picklistValues).toEqual(['Draft', 'Review', 'Approved', 'Rejected', 'Archived']);
+    });
+
+    it('should pass all 20 picklist values without truncation', () => {
+      const values = Array.from({ length: 20 }, (_, i) => `Value_${i}`);
+      const field = makeField({
+        apiName: 'BigPicklist__c',
+        label: 'Big Picklist',
+        type: 'picklist',
+        picklistValues: values,
+      });
+      const config = generator.suggestForField(field);
+      expect(config.constraints.picklistValues).toHaveLength(20);
+      expect(config.constraints.picklistValues).toEqual(values);
+    });
+
+    it('should return picklist_random with empty values when no values available', () => {
+      const field = makeField({
+        apiName: 'EmptyPicklist__c',
+        label: 'Empty Picklist',
+        type: 'picklist',
+        picklistValues: [],
+      });
+      const config = generator.suggestForField(field);
+      expect(config.generationMode).toBe('picklist_random');
+    });
+
+    it('should not set multipicklist flag for regular picklist', () => {
+      const field = makeField({
+        apiName: 'Status__c',
+        label: 'Status',
+        type: 'picklist',
+        picklistValues: ['Active', 'Inactive'],
+      });
+      const config = generator.suggestForField(field);
+      expect(config.constraints.multipicklist).toBeUndefined();
     });
   });
 });

@@ -66,11 +66,19 @@ export class SmartFieldGenerator {
       return this.buildConfig(field, 'null', constraints);
     }
 
-    // Picklist -> picklist_random
+    // Picklist -> picklist_random (use ALL active values, no truncation)
     if (field.type === 'picklist' || field.type === 'multipicklist') {
       if (field.picklistValues && field.picklistValues.length > 0) {
-        return this.buildConfig(field, 'picklist_random', constraints);
+        const picklistConstraints: FieldGenerationConstraints = {
+          ...constraints,
+          picklistValues: [...field.picklistValues],
+          multipicklist: field.type === 'multipicklist' ? true : undefined,
+        };
+        return this.buildConfig(field, 'picklist_random', picklistConstraints);
       }
+      // No picklist values available -- return picklist_random with empty values
+      // Downstream generator handles empty arrays by returning null
+      return this.buildConfig(field, 'picklist_random', constraints);
     }
 
     // Reference (Lookup/MasterDetail) -> null (handled by ReferenceLinker)

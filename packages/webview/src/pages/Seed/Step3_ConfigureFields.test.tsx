@@ -134,7 +134,7 @@ describe('Step3ConfigureFields', () => {
 
   it('should show VR warning badge on object header', () => {
     const vrResults: VRCheckResult[] = [
-      { ruleName: 'Account.RequireName', objectName: 'Account', formula: 'ISBLANK(Name)', errorMessage: 'Name required', potentialConflicts: ['Name'], risk: 'high' },
+      { ruleName: 'Account.RequireName', objectName: 'Account', formula: 'ISBLANK(Name)', errorMessage: 'Name required', potentialConflicts: ['Name'], risk: 'high', fieldConstraints: [] },
     ];
     render(
       <Step3ConfigureFields
@@ -149,7 +149,7 @@ describe('Step3ConfigureFields', () => {
 
   it('should show VR warnings inside expanded object', () => {
     const vrResults: VRCheckResult[] = [
-      { ruleName: 'Account.RequireName', objectName: 'Account', formula: 'ISBLANK(Name)', errorMessage: 'Name required', potentialConflicts: ['Name'], risk: 'high' },
+      { ruleName: 'Account.RequireName', objectName: 'Account', formula: 'ISBLANK(Name)', errorMessage: 'Name required', potentialConflicts: ['Name'], risk: 'high', fieldConstraints: [] },
     ];
     render(
       <Step3ConfigureFields
