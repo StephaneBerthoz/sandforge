@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 01 — Persistence & Templates Foundation
 Plan: —
-Status: Defining requirements
-Last activity: 2026-03-26 — Milestone v1.2.2 started
+Status: Ready for planning (6 phases, 30 requirements defined)
+Last activity: 2026-03-26 — v1.2.2 roadmap created
 
 Progress: [----------] 0%
 
