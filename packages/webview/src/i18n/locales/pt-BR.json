@@ -365,6 +365,24 @@
     "previewConflicts": "Conflitos",
     "previewApiCalls": "Chamadas de API",
     "previewDuration": "Dur. estimada",
+    "selectAndConfigure": "Select Orgs & Objects",
+    "templates": {
+      "title": "Quick Start Templates",
+      "useThis": "Use This",
+      "objectCount": "{{count}} objects",
+      "accountHierarchy": {
+        "name": "Full Account Hierarchy",
+        "description": "Sync accounts with contacts, opportunities, tasks and notes"
+      },
+      "oppsProducts": {
+        "name": "Opportunities + Products",
+        "description": "Sync the full opportunity pipeline with products and pricing"
+      },
+      "casesAttachments": {
+        "name": "Cases + Attachments",
+        "description": "Sync service cases with comments and file attachments"
+      }
+    },
     "realtime": {
       "comingSoon": "Requires CDC \u2014 Coming in v2.0"
     }
