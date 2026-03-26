@@ -404,6 +404,14 @@
       "customize": "Personnaliser les volumes",
       "startSeeding": "Lancer le seed",
       "orCustomize": "ou configurez manuellement"
+    },
+    "quickSeed": {
+      "title": "Seed rapide",
+      "selectOrg": "Choisir l'org cible",
+      "templateSelected": "Template : {{name}}",
+      "startSeeding": "Lancer le seed",
+      "backToGallery": "Retour a la galerie",
+      "seedAgain": "Relancer le seed"
     }
   },
   "sync": {

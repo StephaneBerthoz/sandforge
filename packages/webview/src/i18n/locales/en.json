@@ -428,6 +428,14 @@
       "customize": "Customize Record Counts",
       "startSeeding": "Start Seeding",
       "orCustomize": "or build your own"
+    },
+    "quickSeed": {
+      "title": "Quick Seed",
+      "selectOrg": "Select target org",
+      "templateSelected": "Template: {{name}}",
+      "startSeeding": "Start Seeding",
+      "backToGallery": "Back to Gallery",
+      "seedAgain": "Seed Again"
     }
   },
   "sync": {
