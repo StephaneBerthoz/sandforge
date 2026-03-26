@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
+import type { SeedTemplate } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -12,11 +13,13 @@ import { Badge } from '../../components/ui/Badge';
 import { Select } from '../../components/ui/Select';
 import { Accordion } from '../../components/ui/Accordion';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Divider } from '../../components/ui/Divider';
 import { SeedWizard } from './SeedWizard';
 import type { WizardStep } from './SeedWizard';
 import { Step2SelectObjects } from './Step2_SelectObjects';
 import { Step3ConfigureFields } from './Step3_ConfigureFields';
 import { Step7Execute } from './Step7_Execute';
+import { TemplateGallery } from './TemplateGallery';
 import { useSeedWizardState } from './useSeedWizardState';
 import type { PIIObjectResult } from './useSeedWizardState';
 import type { BadgeVariant } from '../../components/ui/Badge';
@@ -39,6 +42,10 @@ export const SeedPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const state = useSeedWizardState(t);
+
+  const handleSelectTemplate = (_template: SeedTemplate, _customizedCounts: Record<string, number>) => {
+    /* Wired in Plan 04-02 (Quick Seed flow) */
+  };
 
   if (orgs.length === 0) {
     return (
@@ -70,6 +77,14 @@ export const SeedPage: React.FC = () => {
 
       {state.error && (
         <ErrorBanner message={state.error} onDismiss={() => state.setError(null)} data-testid="seed-error" />
+      )}
+
+      {/* ----- QUICK SEED GALLERY (visible on step 0) ----- */}
+      {state.currentStep === 0 && (
+        <>
+          <TemplateGallery onSelectTemplate={handleSelectTemplate} />
+          <Divider label={t('seed.gallery.orCustomize')} />
+        </>
       )}
 
       <SeedWizard

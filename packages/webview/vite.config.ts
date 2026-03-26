@@ -28,6 +28,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      /* Map @sandforge/shared to TypeScript source so Vite can bundle value exports */
+      '@sandforge/shared': path.resolve(__dirname, '../shared/src/index.ts'),
     },
   },
   define: {
