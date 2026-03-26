@@ -1,12 +1,26 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SyncExecutionResult, FieldMapping, TransformRule, SyncConfig, SyncObjectConfig, SyncDirection, SyncMode, SyncOperation, ConflictStrategy, MappingType, TransformRuleType } from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { FieldInfo } from './FieldMappingCanvas';
 import type { ObjectSetEntry } from './ObjectSetEditor';
+
+/** Draft state safe to persist (no credentials, no execution results). */
+interface SyncDraftState {
+  currentStep: number;
+  direction: SyncDirection;
+  mode: SyncMode;
+  conflictStrategy: ConflictStrategy;
+  sourceOrgId: string;
+  targetOrgId: string;
+  objectEntries: ObjectSetEntry[];
+  mappings: FieldMapping[];
+  transforms: TransformRule[];
+}
 
 /** PII warning entry for display. */
 export interface PIIWarning {
@@ -114,16 +128,46 @@ export function useSyncPageData(): SyncPageData {
   const { t } = useTranslation();
   const addNotification = useNotificationStore((s) => s.addNotification);
 
-  const [currentStep, setCurrentStep] = useState(0);
-  const [sourceOrgId, setSourceOrgId] = useState('');
-  const [targetOrgId, setTargetOrgId] = useState('');
-  const [direction, setDirection] = useState<SyncDirection>('source_to_target');
-  const [mode, setMode] = useState<SyncMode>('full');
-  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>('source_wins');
-  const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>([]);
-  const [mappings, setMappings] = useState<FieldMapping[]>([]);
-  const [transforms, setTransforms] = useState<TransformRule[]>([]);
+  const defaultDraft: SyncDraftState = {
+    currentStep: 0,
+    direction: 'source_to_target',
+    mode: 'full',
+    conflictStrategy: 'source_wins',
+    sourceOrgId: '',
+    targetOrgId: '',
+    objectEntries: [],
+    mappings: [],
+    transforms: [],
+  };
+
+  const [draft, setDraft] = useWebviewPersistedState<SyncDraftState>('syncDraft', defaultDraft);
+  const initialDraft = useRef(draft);
+
+  const [currentStep, setCurrentStep] = useState(initialDraft.current.currentStep);
+  const [sourceOrgId, setSourceOrgId] = useState(initialDraft.current.sourceOrgId);
+  const [targetOrgId, setTargetOrgId] = useState(initialDraft.current.targetOrgId);
+  const [direction, setDirection] = useState<SyncDirection>(initialDraft.current.direction);
+  const [mode, setMode] = useState<SyncMode>(initialDraft.current.mode);
+  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>(initialDraft.current.conflictStrategy);
+  const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>(initialDraft.current.objectEntries);
+  const [mappings, setMappings] = useState<FieldMapping[]>(initialDraft.current.mappings);
+  const [transforms, setTransforms] = useState<TransformRule[]>(initialDraft.current.transforms);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-save draft on any form state change
+  useEffect(() => {
+    setDraft({
+      currentStep,
+      direction,
+      mode,
+      conflictStrategy,
+      sourceOrgId,
+      targetOrgId,
+      objectEntries,
+      mappings,
+      transforms,
+    });
+  }, [currentStep, direction, mode, conflictStrategy, sourceOrgId, targetOrgId, objectEntries, mappings, transforms, setDraft]);
 
   // Progress tracking (updated via future progress messages)
   const overallPercent = 0;

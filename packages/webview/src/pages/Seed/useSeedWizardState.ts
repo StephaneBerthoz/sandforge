@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { TFunction } from 'i18next';
 import type { SalesforceOrg, SeedExecutionResult, FieldRuleType } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useNL2SOQL } from '../../hooks/useAIFeatures';
+import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { SeedRelation } from './Step4_ConfigureRelations';
@@ -13,6 +14,15 @@ import { useSeedFieldConfig } from './useSeedFieldConfig';
 import { useSeedRelations } from './useSeedRelations';
 import { useSeedExecution } from './useSeedExecution';
 import { useSeedNL2SOQL } from './useSeedNL2SOQL';
+
+/** Draft state safe to persist (no credentials, no execution results, no PII). */
+interface SeedDraftState {
+  currentStep: number;
+  selectedOrgId: string;
+  selectedObjects: string[];
+  volumes: Record<string, { count: number; batchSize: number }>;
+  nl2soqlQuery: string;
+}
 
 /** PII field detection result for a single object. */
 export interface PIIObjectResult {
@@ -85,7 +95,19 @@ export interface SeedWizardState {
 export function useSeedWizardState(t: TFunction): SeedWizardState {
   const addNotification = useNotificationStore((s) => s.addNotification);
 
-  const [currentStep, setCurrentStep] = useState(0);
+  const defaultSeedDraft: SeedDraftState = {
+    currentStep: 0,
+    selectedOrgId: '',
+    selectedObjects: [],
+    volumes: {},
+    nl2soqlQuery: '',
+  };
+
+  const [draft, setDraft] = useWebviewPersistedState<SeedDraftState>('seedDraft', defaultSeedDraft);
+  const initialDraft = useRef(draft);
+  const restoredRef = useRef(false);
+
+  const [currentStep, setCurrentStep] = useState(initialDraft.current.currentStep);
   const [error, setError] = useState<string | null>(null);
 
   /* ------------------------------------------------------------------ */
@@ -108,6 +130,35 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     fieldConfig.fieldConfigs,
     t,
   );
+
+  /* ------------------------------------------------------------------ */
+  /* Draft persistence — restore on mount                                */
+  /* ------------------------------------------------------------------ */
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const saved = initialDraft.current;
+    if (saved.selectedOrgId) {
+      orgSelection.handleOrgSelect(saved.selectedOrgId);
+    }
+    for (const objName of saved.selectedObjects) {
+      objectSelection.handleToggleObject(objName);
+    }
+    if (saved.nl2soqlQuery) {
+      nl2soqlState.setNl2soqlQuery(saved.nl2soqlQuery);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Draft persistence — save on form state changes */
+  useEffect(() => {
+    setDraft({
+      currentStep,
+      selectedOrgId: orgSelection.selectedOrgId,
+      selectedObjects: objectSelection.selectedObjects,
+      volumes: fieldConfig.volumes,
+      nl2soqlQuery: nl2soqlState.nl2soqlQuery,
+    });
+  }, [currentStep, orgSelection.selectedOrgId, objectSelection.selectedObjects, fieldConfig.volumes, nl2soqlState.nl2soqlQuery, setDraft]);
 
   /* ------------------------------------------------------------------ */
   /* Error aggregation                                                   */
