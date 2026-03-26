@@ -12,6 +12,8 @@ import { GrappePage } from './pages/Grappe/GrappePage';
 import { ReportsPage } from './pages/Reports/ReportsPage';
 import { SettingsPage } from './pages/Settings/SettingsPage';
 import { HelpPage } from './pages/Help/HelpPage';
+import { SeedPage } from './pages/Seed/SeedPage';
+import { SyncPage } from './pages/Sync/SyncPage';
 
 /** Placeholder for welcome route (handled in App.tsx overlay). */
 const WelcomePlaceholder: React.FC = () => null;
@@ -23,6 +25,8 @@ const routeComponents: Record<ModuleRoute, React.FC> = {
   forge: ForgePage,
   grappe: GrappePage,
   monitor: MonitorPage,
+  seed: SeedPage,
+  sync: SyncPage,
   compare: ComparePage,
   dataops: DataOpsPage,
   automation: AutomationPage,

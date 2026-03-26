@@ -7,6 +7,8 @@ export type ModuleRoute =
   | 'forge'
   | 'grappe'
   | 'monitor'
+  | 'seed'
+  | 'sync'
   | 'compare'
   | 'dataops'
   | 'automation'
@@ -22,6 +24,8 @@ export const ALL_ROUTES: readonly ModuleRoute[] = [
   'forge',
   'grappe',
   'monitor',
+  'seed',
+  'sync',
   'compare',
   'dataops',
   'automation',

@@ -17,6 +17,8 @@ import { formatRelativeTimeI18n } from '../../utils/formatters';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { OrgBadge } from '../../components/ui/OrgBadge';
 import { staggerContainer, slideUp, fadeIn } from '../../motion/presets';
+import { SandboxBanner } from '../../components/ui/SandboxBanner';
+import { useSandboxDetection } from '../../hooks/useSandboxDetection';
 import { moduleColors, cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
 
@@ -65,6 +67,8 @@ export const HomePage: React.FC = () => {
     () => recentOps.filter((op) => op.status === 'running').length,
     [recentOps],
   );
+  const { hasSandbox } = useSandboxDetection();
+
   const opsLast7dCount = useMemo(() => {
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     return recentOps.filter((op) => op.timestamp >= sevenDaysAgo).length;
@@ -143,6 +147,9 @@ export const HomePage: React.FC = () => {
           </m.div>
         )}
       </AnimatePresence>
+
+      {/* Sandbox Banner */}
+      <SandboxBanner onNavigate={(page) => navigate(page)} />
 
       {/* Bento Grid */}
       <BentoGrid columns={3}>
@@ -312,6 +319,17 @@ export const HomePage: React.FC = () => {
               >
                 {t('home.runLastPipeline')}
               </Button>
+              {hasSandbox && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Icon name="database" />}
+                  onClick={() => navigate('seed')}
+                  data-testid="populate-sandbox-btn"
+                >
+                  {t('onboarding.populateSandbox')}
+                </Button>
+              )}
             </div>
           </div>
         </BentoTile>

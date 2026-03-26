@@ -49,8 +49,21 @@ vi.mock('./hooks/useBridgeMutation', () => ({
   }),
 }));
 
+/* Mock localStorage for components that use it */
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+  return {
+    getItem: (key: string): string | null => store[key] ?? null,
+    setItem: (key: string, value: string): void => { store[key] = value; },
+    removeItem: (key: string): void => { delete store[key]; },
+    reset: (): void => { store = {}; },
+  };
+})();
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
+
 describe('Router', () => {
   beforeEach(() => {
+    localStorageMock.reset();
     useAppStore.setState({ currentRoute: 'home' });
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
   });
