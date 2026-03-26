@@ -2,28 +2,34 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-20)
+See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** v1.2.1 — Monitor Enrichment & Wiring
+**Current focus:** Milestone complete — ready for next milestone
 
 ## Current Position
 
-Phase: 03 complete, 04 complete
-Plan: 03-03 complete, 04-02 complete
-Status: All phases complete (01..04). v1.2.1 milestone ready for archival.
-Last activity: 2026-03-21 — Plan 03-03 complete (AlertHistoryPanel + GovernancePanelConnected wired into MonitorPage)
+Phase: —
+Plan: —
+Status: v1.2.1 shipped. Ready for next milestone.
+Last activity: 2026-03-26 — Milestone v1.2.1 archived
 
 Progress: [##########] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 41 (v1.2.1: 7 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5)
+- Total plans completed: 50 (v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
-- Total execution time: ~9h
+- Total execution time: ~12h
 
 ## Milestone History
+
+### v1.2.1 — Monitor Enrichment & Wiring
+Completed: 2026-03-26
+Phases: 4
+Requirements delivered: WIRE-01..05, ALERT-01..05, HEALTH-01..03, LIMITS-01..04, PERF-01..02, TREND-01..03, GOV-01..03
+Key achievements: Wired 5 dead backend services end-to-end with UI panels. Full alert system (default rules, persistence, VSCode notifications, history timeline). Unified health scorer with trend feedback and linear interpolation. Expanded limits coverage (email, platform events, file storage, reset countdown). API caching (/limits 30s TTL, OrgInfo 5min). Real timestamps in trends + CSV export. Governance CRUD + evaluate + AlertEngine pipeline.
 
 ### v1.2.0 — Forge UX & Reliability
 Completed: 2026-03-20
@@ -49,32 +55,6 @@ Key achievements: 162 E2E tests, WCAG 2.1 AA, GitHub Actions CI, published on Ma
 
 Decisions are logged in PROJECT.md Key Decisions table.
 
-- NoOpHandler returns {success: false, comingSoon: true} for ghost feature types
-- GraphDiscoveryDeps requires describeGlobal dep (resolveRootObject is now async)
-- ForgeHandler.isPaused removed (dead code, pause/resume now delegated to ForgeOrchestrator)
-- SeedOpsHandler dryRun branch placed after production guard, before insert logic
-- setConfig clears stale plan/complianceReport/metadataDiffs/result but preserves graph/templates/history
-- LogStream hideFilterBar prop controls internal filter tab visibility
-- LiveGraph topologyKey uses sorted node names + edge keys for stable Dagre layout caching
-- sendHandlerError optional code/retryable params with backward-compatible defaults
-- OrgDropdown uses containerRef click-outside pattern with sorted connected-first org list
-- ReviewComplianceTab sends compliance request via useEffect on framework/graph/config change
-- Bulk ID fallback uses bulk-{jobId}-{i} format (includes jobId) for traceability
-- MonitorOpsHandler limitsCache uses vi.hoisted pattern for test mocking (single unified mock per module path per file)
-- UnifiedHealthScorer replaces both HealthScoreCalculator and OrgHealthScoreCalculator (linear interpolation, trend penalties, optional dimensions)
-- handleRefresh health calculation moved after orgInfo fetch for metadata dimension support
-- Monitor service query functions capture handler context for lazy connection resolution
-- SandboxRefreshTracker omits onRefreshDetected callback (Pitfall 9)
-- HealthCheck providers reuse limitsCache and errorLogMonitor cache for zero-cost signals
-- handleRefresh includes orgHealthStatus from HealthCheck.computeHealth (WIRE-05)
-- OrgHealthStatus type exported from HealthCheckPanel for reuse by useMonitorPageData
-- HealthCheckPanel is prop-driven (not bridge query) to avoid duplicate fetching from monitor:data
-- formatTime and buildChartPath exported from TrendCharts for direct testing
-- Historical CSV uses 3 columns (Timestamp, Limit Name, Used %) since historical snapshots lack Max/Remaining
-- Export mode selector uses native <select> for simplicity
-- GovernancePanelConnected is a separate export in the same file as GovernancePanel (keeps pure component testable)
-- GovernanceEvaluationResult/GovernancePolicyTemplate types redeclared in webview (extension-only types not in shared)
-
 ### Pending Todos
 
 (None)
@@ -85,6 +65,6 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ## Session Continuity
 
-Last session: 2026-03-21
-Stopped at: All phases complete (01..04). v1.2.1 milestone ready for archival.
+Last session: 2026-03-26
+Stopped at: v1.2.1 archived. Ready for next milestone.
 Resume file: None

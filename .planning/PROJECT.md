@@ -35,16 +35,17 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 - ✓ Performance: Dagre layout separation, stable callbacks, memoized KPIs, adaptive heights — Milestone v1.2.0
 - ✓ Backend hardening: structured errors, enriched preview, timeouts, lifecycle events, compliance wiring, real bulk IDs — Milestone v1.2.0
 - ✓ Accessibility: ARIA tablist, aria-pressed, role="log", radiogroup, contrast fixes — Milestone v1.2.0
+- ✓ Wire 5 dead backend services (ErrorLogMonitor, UserSessionMonitor, ApexLogAnalyzer, SandboxRefreshTracker, HealthCheck) — Milestone v1.2.1
+- ✓ Alert system: default rules, persistence, VSCode notifications, history timeline — Milestone v1.2.1
+- ✓ Unified health scoring: merged calculators, trend feedback, linear interpolation — Milestone v1.2.1
+- ✓ Expanded limits: email, Platform Events, FileStorage, reset countdown — Milestone v1.2.1
+- ✓ API efficiency: /limits 30s cache, OrgInfo 5min cache — Milestone v1.2.1
+- ✓ Trend quality: real timestamps, CSV export, job trend accumulator fix — Milestone v1.2.1
+- ✓ Governance wiring: CRUD, evaluate, AlertEngine pipeline — Milestone v1.2.1
 
 ### Active
 
-- [ ] Wire 5 dead backend services end-to-end (ErrorLogMonitor, UserSessionMonitor, ApexLogAnalyzer, SandboxRefreshTracker, HealthCheck) — v1.2.1
-- [ ] Functional alert system with default rules, persistence, VSCode notifications — v1.2.1
-- [ ] Unified health scoring (merge 2 calculators, trend feedback, smooth curve) — v1.2.1
-- [ ] Expanded governor limits coverage (email, Platform Events, FileStorage, reset countdown) — v1.2.1
-- [ ] API efficiency (/limits caching, dedup) — v1.2.1
-- [ ] Trend data quality (real timestamps, historical export, job trend fix) — v1.2.1
-- [ ] Governance wiring (backend CRUD, evaluate, AlertEngine integration) — v1.2.1
+(None — ready for next milestone)
 
 ### Deferred
 
@@ -60,7 +61,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
 - 558 source files, 487+ test files, 1045+ total files across packages
-- v1.2.1 in progress — Monitor Enrichment & Wiring (25 items planned)
+- v1.2.1 shipped — Monitor Enrichment & Wiring (25 items delivered)
 - v1.2.0 shipped — Forge UX & Reliability (52 items delivered, 7149 tests passing)
 - VSIX package at 1.07 MB, well within marketplace limits
 - jsforce v3 for all Salesforce API interactions
@@ -88,4 +89,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-20 — Milestone v1.2.1 started (Monitor Enrichment & Wiring, 25 requirements)*
+*Last updated: 2026-03-26 — Milestone v1.2.1 shipped (Monitor Enrichment & Wiring, 25 requirements delivered)*
