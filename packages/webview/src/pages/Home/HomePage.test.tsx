@@ -38,6 +38,23 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
 }));
 
 /* ------------------------------------------------------------------ */
+/* Mock useSmartAction hook                                             */
+/* ------------------------------------------------------------------ */
+let mockSmartActionState = {
+  recommendation: null as import('@sandforge/shared').SmartActionRecommendation | null,
+  loading: false,
+  error: null as string | null,
+  showConfirmation: false,
+  requestConfirm: vi.fn(),
+  confirm: vi.fn(),
+  cancelConfirm: vi.fn(),
+};
+
+vi.mock('./useSmartAction', () => ({
+  useSmartAction: () => mockSmartActionState,
+}));
+
+/* ------------------------------------------------------------------ */
 /* Mock framer-motion to avoid animation issues in tests               */
 /* ------------------------------------------------------------------ */
 const MOTION_KEYS = new Set(['variants', 'initial', 'animate', 'whileHover', 'whileTap', 'transition', 'exit']);
@@ -90,6 +107,15 @@ describe('HomePage', () => {
       loading: false,
       error: null,
       refetch: mockRefetch,
+    };
+    mockSmartActionState = {
+      recommendation: null,
+      loading: false,
+      error: null,
+      showConfirmation: false,
+      requestConfirm: vi.fn(),
+      confirm: vi.fn(),
+      cancelConfirm: vi.fn(),
     };
   });
 
@@ -282,5 +308,56 @@ describe('HomePage', () => {
     render(<HomePage />);
     expect(screen.getByText('Seed Accounts')).toBeDefined();
     expect(screen.getAllByTestId('recent-op-item').length).toBe(1);
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Smart Action card tests                                           */
+  /* ---------------------------------------------------------------- */
+
+  it('should show SmartActionCard when recommendation is available and orgs connected', () => {
+    useOrgStore.setState({ orgs: [createMockOrg()] });
+    mockSmartActionState.recommendation = {
+      action: 'quick-seed',
+      confidence: 0.9,
+      reason: 'Your sandbox is empty',
+      reasonKey: 'home.smartAction.reasonEmpty',
+      details: {
+        targetOrgId: 'org-1',
+        recordCounts: { Account: 0, Contact: 0, Opportunity: 0, Case: 0, Lead: 0 },
+      },
+    };
+    render(<HomePage />);
+    expect(screen.getByTestId('smart-action-card')).toBeDefined();
+  });
+
+  it('should not show SmartActionCard when recommendation is none', () => {
+    useOrgStore.setState({ orgs: [createMockOrg()] });
+    mockSmartActionState.recommendation = {
+      action: 'none',
+      confidence: 0,
+      reason: '',
+      reasonKey: '',
+      details: {
+        targetOrgId: 'org-1',
+        recordCounts: { Account: 50, Contact: 100 },
+      },
+    };
+    render(<HomePage />);
+    expect(screen.queryByTestId('smart-action-card')).toBeNull();
+  });
+
+  it('should not show SmartActionCard when no orgs connected', () => {
+    mockSmartActionState.recommendation = {
+      action: 'quick-seed',
+      confidence: 0.9,
+      reason: 'Empty sandbox',
+      reasonKey: 'home.smartAction.reasonEmpty',
+      details: {
+        targetOrgId: 'org-1',
+        recordCounts: { Account: 0, Contact: 0 },
+      },
+    };
+    render(<HomePage />);
+    expect(screen.queryByTestId('smart-action-card')).toBeNull();
   });
 });
