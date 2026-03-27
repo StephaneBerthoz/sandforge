@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { ConflictStrategy } from '@sandforge/shared';
+import type { ConflictStrategy, UIConflict, ConflictType } from '@sandforge/shared';
 import { buildMessage } from '../bridge/messageHelpers';
 import { getVscodeApi } from '../hooks/useVSCodeApi';
+import { useConflictStore } from './useConflictStore';
 
 /** A single event in the live CDC feed, displayed in the WebView. */
 export interface CDCFeedEvent {
@@ -229,6 +230,43 @@ function handleExtensionMessage(event: MessageEvent): void {
     }
     case 'realtime:stopped': {
       useCDCLiveStore.getState().setStatus('disconnected');
+      break;
+    }
+    case 'realtime:conflict': {
+      const p = msg.payload as Record<string, unknown> | undefined;
+      if (p) {
+        const objectApiName = String(p.objectApiName ?? '');
+        const recordIds = (p.recordIds ?? []) as string[];
+        const changeType = String(p.changeType ?? 'UPDATE');
+        const sourceValues = (p.sourceValues ?? {}) as Record<string, unknown>;
+        const targetValues = (p.targetValues ?? {}) as Record<string, unknown>;
+        const replayId = String(p.replayId ?? Date.now());
+        const targetLastModified = String(p.targetLastModified ?? new Date().toISOString());
+
+        const conflictTypeMap: Record<string, ConflictType> = {
+          UPDATE: 'edit/edit',
+          DELETE: 'delete/edit',
+          CREATE: 'create/edit',
+        };
+
+        const conflictFields = Object.keys(sourceValues).filter(
+          (k) => JSON.stringify(sourceValues[k]) !== JSON.stringify(targetValues[k]),
+        );
+
+        const uiConflict: UIConflict = {
+          id: `${objectApiName}:${recordIds[0] ?? 'unknown'}:${replayId}`,
+          objectApiName,
+          recordId: recordIds[0] ?? 'unknown',
+          conflictType: conflictTypeMap[changeType] ?? 'edit/edit',
+          sourceValues,
+          targetValues,
+          conflictFields,
+          timestamp: targetLastModified,
+          resolved: false,
+        };
+
+        useConflictStore.getState().addConflict(uiConflict);
+      }
       break;
     }
     case 'realtime:status:response': {
