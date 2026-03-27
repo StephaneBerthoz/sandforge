@@ -1,5 +1,6 @@
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { SyncPage } from './SyncPage';
@@ -50,6 +51,39 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
       return mockObjectsQueryState;
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
+  },
+}));
+
+const mockVSCodeApi = {
+  postMessage: vi.fn(),
+  getState: () => undefined,
+  setState: () => undefined,
+};
+
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => mockVSCodeApi,
+  useVSCodeApi: () => mockVSCodeApi,
+}));
+
+vi.mock('../../components/ui/VirtualList', () => ({
+  VirtualList: <T,>({ items, renderItem, keyExtractor, emptyMessage }: {
+    items: T[];
+    renderItem: (item: T, index: number) => React.ReactNode;
+    keyExtractor: (item: T, index: number) => string;
+    emptyMessage?: string;
+  }) => {
+    if (items.length === 0) {
+      return <div data-testid="virtual-list">{emptyMessage ?? 'No items'}</div>;
+    }
+    return (
+      <div data-testid="virtual-list" role="list">
+        {items.map((item, index) => (
+          <div key={keyExtractor(item, index)} role="listitem">
+            {renderItem(item, index)}
+          </div>
+        ))}
+      </div>
+    );
   },
 }));
 
@@ -161,5 +195,19 @@ describe('SyncPage', () => {
 
     expect(screen.getByTestId('sync-error')).toBeDefined();
     expect(screen.getByText('Sync failed')).toBeDefined();
+  });
+
+  it('should render realtime tab in tab bar', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+    expect(screen.getByTestId('tab-realtime')).toBeDefined();
+  });
+
+  it('should render RealTimeSyncPanel when realtime tab is clicked', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+    const realtimeTab = screen.getByTestId('tab-realtime');
+    fireEvent.click(realtimeTab);
+    expect(screen.getByTestId('realtime-sync-panel')).toBeDefined();
   });
 });

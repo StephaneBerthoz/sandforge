@@ -31,9 +31,10 @@ import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
 import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { SyncSchedulePanel } from './SyncSchedulePanel';
+import { RealTimeSyncPanel } from './RealTimeSyncPanel';
 
 /** Tab options for the Sync page. */
-type SyncTab = 'sync' | 'history' | 'schedules';
+type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime';
 
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
@@ -237,7 +238,7 @@ export const SyncPage: React.FC = () => {
 
       {/* Tab navigation */}
       <div className="flex gap-0 border-b border-[var(--vscode-panel-border)]" role="tablist" data-testid="sync-tabs">
-        {(['sync', 'history', 'schedules'] as const).map((tab) => (
+        {(['sync', 'history', 'schedules', 'realtime'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -261,6 +262,15 @@ export const SyncPage: React.FC = () => {
 
       {/* Schedules tab */}
       {activeTab === 'schedules' && <SyncSchedulePanel />}
+
+      {/* Real-time tab */}
+      {activeTab === 'realtime' && (
+        <RealTimeSyncPanel
+          sourceOrgId={sourceOrgId}
+          targetOrgId={targetOrgId}
+          availableObjects={availableObjects}
+        />
+      )}
 
       {/* Sync tab (default) */}
       {activeTab === 'sync' && !quickSyncActive && currentStep === 0 && (

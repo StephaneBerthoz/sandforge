@@ -1,24 +1,41 @@
-import { describe, it, expect, vi } from 'vitest';
+import React from 'react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import '../../i18n';
 import { RealTimeSyncPanel } from './RealTimeSyncPanel';
+import { useCDCLiveStore } from '../../stores/useCDCLiveStore';
 
-/* ------------------------------------------------------------------ */
-/* Mocks                                                               */
-/* ------------------------------------------------------------------ */
-vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: vi.fn(),
-    data: null,
-    loading: false,
-    error: null,
-    reset: vi.fn(),
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => ({
+    postMessage: vi.fn(),
+    getState: () => undefined,
+    setState: () => undefined,
   }),
 }));
 
-vi.mock('../../hooks/useMessageBus', () => ({
-  useMessageListener: vi.fn(),
-  useSendMessage: vi.fn().mockReturnValue(vi.fn()),
+/**
+ * Mock VirtualList for jsdom (no layout engine).
+ */
+vi.mock('../../components/ui/VirtualList', () => ({
+  VirtualList: <T,>({ items, renderItem, keyExtractor, emptyMessage }: {
+    items: T[];
+    renderItem: (item: T, index: number) => React.ReactNode;
+    keyExtractor: (item: T, index: number) => string;
+    emptyMessage?: string;
+  }) => {
+    if (items.length === 0) {
+      return <div data-testid="virtual-list">{emptyMessage ?? 'No items'}</div>;
+    }
+    return (
+      <div data-testid="virtual-list" role="list">
+        {items.map((item, index) => (
+          <div key={keyExtractor(item, index)} role="listitem">
+            {renderItem(item, index)}
+          </div>
+        ))}
+      </div>
+    );
+  },
 }));
 
 const defaultProps = {
@@ -28,76 +45,41 @@ const defaultProps = {
 };
 
 describe('RealTimeSyncPanel', () => {
-  describe('rendering', () => {
-    it('should render the panel with test ID', () => {
-      render(<RealTimeSyncPanel {...defaultProps} />);
-
-      expect(screen.getByTestId('realtime-sync-panel')).toBeDefined();
-    });
-
-    it('should render the status badge', () => {
-      render(<RealTimeSyncPanel {...defaultProps} />);
-
-      expect(screen.getByTestId('realtime-status')).toBeDefined();
-    });
-
-    it('should render object selection checkboxes', () => {
-      render(<RealTimeSyncPanel {...defaultProps} />);
-
-      expect(screen.getByTestId('realtime-object-Account')).toBeDefined();
-      expect(screen.getByTestId('realtime-object-Contact')).toBeDefined();
-      expect(screen.getByTestId('realtime-object-Opportunity')).toBeDefined();
-    });
-
-    it('should render toggle button', () => {
-      render(<RealTimeSyncPanel {...defaultProps} />);
-
-      expect(screen.getByTestId('realtime-toggle')).toBeDefined();
-    });
-
-    it('should have toggle button disabled (coming soon)', () => {
-      render(<RealTimeSyncPanel {...defaultProps} />);
-
-      const button = screen.getByTestId('realtime-toggle');
-      expect(button).toHaveProperty('disabled', true);
-    });
-
-    it('should render objects card when availableObjects is empty', () => {
-      render(
-        <RealTimeSyncPanel
-          {...defaultProps}
-          availableObjects={[]}
-        />,
-      );
-
-      expect(screen.getByTestId('realtime-objects')).toBeDefined();
-    });
+  beforeEach(() => {
+    useCDCLiveStore.getState().reset();
   });
 
-  describe('coming soon overlay', () => {
-    it('should render "Coming in v2.0" badge text', () => {
-      render(<RealTimeSyncPanel {...defaultProps} />);
+  it('should render the panel with test ID', () => {
+    render(<RealTimeSyncPanel {...defaultProps} />);
+    expect(screen.getByTestId('realtime-sync-panel')).toBeDefined();
+  });
 
-      expect(screen.getByTestId('realtime-coming-soon')).toBeDefined();
-      expect(screen.getByText(/Coming in v2\.0/)).toBeDefined();
-    });
+  it('should render CDCSubscriptionPanel', () => {
+    render(<RealTimeSyncPanel {...defaultProps} />);
+    expect(screen.getByTestId('cdc-subscription-panel')).toBeDefined();
+  });
 
-    it('should have all checkboxes disabled', () => {
-      render(<RealTimeSyncPanel {...defaultProps} />);
+  it('should render CDCEventFeed', () => {
+    render(<RealTimeSyncPanel {...defaultProps} />);
+    expect(screen.getByTestId('cdc-event-feed')).toBeDefined();
+  });
 
-      const accountCb = screen.getByTestId('realtime-object-Account') as HTMLInputElement;
-      const contactCb = screen.getByTestId('realtime-object-Contact') as HTMLInputElement;
-      expect(accountCb.disabled).toBe(true);
-      expect(contactCb.disabled).toBe(true);
-    });
+  it('should call setOrgs on mount with source and target org IDs', () => {
+    render(<RealTimeSyncPanel {...defaultProps} />);
+    const state = useCDCLiveStore.getState();
+    expect(state.sourceOrgId).toBe('org-src-001');
+    expect(state.targetOrgId).toBe('org-tgt-001');
+  });
 
-    it('should have content with pointer-events-none and reduced opacity', () => {
-      render(<RealTimeSyncPanel {...defaultProps} />);
+  it('should not render Coming Soon badge', () => {
+    render(<RealTimeSyncPanel {...defaultProps} />);
+    expect(screen.queryByTestId('realtime-coming-soon')).toBeNull();
+  });
 
-      const container = screen.getByTestId('realtime-sync-panel');
-      const disabledContent = container.querySelector('.pointer-events-none.opacity-50');
-      expect(disabledContent).toBeDefined();
-      expect(disabledContent).not.toBeNull();
-    });
+  it('should not have pointer-events-none wrapper', () => {
+    render(<RealTimeSyncPanel {...defaultProps} />);
+    const container = screen.getByTestId('realtime-sync-panel');
+    const disabledContent = container.querySelector('.pointer-events-none');
+    expect(disabledContent).toBeNull();
   });
 });
