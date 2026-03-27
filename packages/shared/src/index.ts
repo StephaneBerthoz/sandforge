@@ -5,6 +5,7 @@ export * from './types/errors.types.js';
 export * from './types/pipeline.types.js';
 export * from './types/grappe.types.js';
 export * from './types/seed.types.js';
+export * from './types/clone.types.js';
 export * from './types/sync.types.js';
 export * from './types/monitor.types.js';
 export * from './types/compare.types.js';
