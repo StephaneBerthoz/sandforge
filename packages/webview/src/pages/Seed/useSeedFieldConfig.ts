@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 
 import type { TFunction } from 'i18next';
-import type { FieldRuleType } from '@sandforge/shared';
+import type { FieldRuleType, PersonaMsg } from '@sandforge/shared';
 
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { PIIObjectResult } from './useSeedWizardState';
@@ -17,6 +17,8 @@ export interface SeedFieldConfigState {
   handleChangeFieldRule: (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => void;
   /** Change a configuration parameter for a specific field rule. */
   handleChangeFieldConfig: (objectApiName: string, fieldApiName: string, key: string, value: string) => void;
+  /** Apply a persona's data patterns to field configs. Returns matched field count. */
+  applyPersona: (persona: PersonaMsg) => number;
   /** PII scan results per object. */
   piiResults: PIIObjectResult[];
   /** Whether any object has PII warnings. */
@@ -56,6 +58,7 @@ export function useSeedFieldConfig(
     fieldConfigs: fieldRules.fieldConfigs,
     handleChangeFieldRule: fieldRules.handleChangeFieldRule,
     handleChangeFieldConfig: fieldRules.handleChangeFieldConfig,
+    applyPersona: fieldRules.applyPersona,
     piiResults: piiScan.piiResults,
     hasPiiWarnings: piiScan.hasPiiWarnings,
     piiLoading: piiScan.piiLoading,
@@ -67,6 +70,7 @@ export function useSeedFieldConfig(
     fieldRules.fieldConfigs,
     fieldRules.handleChangeFieldRule,
     fieldRules.handleChangeFieldConfig,
+    fieldRules.applyPersona,
     piiScan.piiResults,
     piiScan.hasPiiWarnings,
     piiScan.piiLoading,

@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { TFunction } from 'i18next';
-import type { SalesforceOrg, SeedExecutionResult, FieldRuleType } from '@sandforge/shared';
+import type { SalesforceOrg, SeedExecutionResult, FieldRuleType, PersonaMsg } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
@@ -82,6 +82,16 @@ export interface SeedWizardState {
   handleExecute: () => void;
   objectProgress: ObjectProgress[];
 
+  /* Persona */
+  /** Currently selected AI persona, or null. */
+  selectedPersona: PersonaMsg | null;
+  /** Set the selected persona (from PersonaGallery callback). */
+  setSelectedPersona: (persona: PersonaMsg | null) => void;
+  /** Apply the selected persona's data patterns to field configs. Returns matched count. */
+  applySelectedPersona: () => number;
+  /** Number of fields last configured by persona application. */
+  personaMatchedFields: number;
+
   /* Error */
   error: string | null;
   setError: (e: string | null) => void;
@@ -109,6 +119,8 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
 
   const [currentStep, setCurrentStep] = useState(initialDraft.current.currentStep);
   const [error, setError] = useState<string | null>(null);
+  const [selectedPersona, setSelectedPersona] = useState<PersonaMsg | null>(null);
+  const [personaMatchedFields, setPersonaMatchedFields] = useState(0);
 
   /* ------------------------------------------------------------------ */
   /* Sub-hooks                                                           */
@@ -179,6 +191,30 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   }, [execution.executionCompletedStep]);
 
   /* ------------------------------------------------------------------ */
+  /* Persona application                                                 */
+  /* ------------------------------------------------------------------ */
+  const applySelectedPersona = useCallback((): number => {
+    if (!selectedPersona) return 0;
+    const count = fieldConfig.applyPersona(selectedPersona);
+    setPersonaMatchedFields(count);
+    return count;
+  }, [selectedPersona, fieldConfig.applyPersona]);
+
+  /* Auto-apply persona when field configs become available */
+  const personaAppliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      selectedPersona &&
+      fieldConfig.fieldConfigs.length > 0 &&
+      personaAppliedRef.current !== selectedPersona.id
+    ) {
+      personaAppliedRef.current = selectedPersona.id;
+      const count = fieldConfig.applyPersona(selectedPersona);
+      setPersonaMatchedFields(count);
+    }
+  }, [selectedPersona, fieldConfig.fieldConfigs.length, fieldConfig.applyPersona]);
+
+  /* ------------------------------------------------------------------ */
   /* Navigation guards                                                   */
   /* ------------------------------------------------------------------ */
   const canGoNext = useMemo((): boolean => {
@@ -202,6 +238,10 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     ...relations,
     ...nl2soqlState,
     ...execution,
+    selectedPersona,
+    setSelectedPersona,
+    applySelectedPersona,
+    personaMatchedFields,
     error,
     setError,
   };
