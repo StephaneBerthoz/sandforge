@@ -607,7 +607,19 @@
       },
       "nMore": "+{{count}} more",
       "agoSeconds": "{{count}}s ago",
-      "tab": "Real-Time"
+      "tab": "Real-Time",
+      "metricsPanel": {
+        "throughput": "Throughput",
+        "lag": "Replication Lag",
+        "applied": "Events Applied",
+        "failed": "Events Failed",
+        "errorRate": "Error Rate",
+        "uptime": "Uptime",
+        "noMetrics": "Start a CDC stream to see metrics.",
+        "average": "avg: {{value}}ms",
+        "since": "since {{time}}",
+        "evtPerSec": "evt/s"
+      }
     }
   },
   "dataops": {
