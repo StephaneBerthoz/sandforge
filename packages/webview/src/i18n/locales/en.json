@@ -1831,5 +1831,35 @@
     "rowsPerPage": "Rows per page",
     "previous": "Previous page",
     "next": "Next page"
+  },
+  "combobox": {
+    "search": "Search...",
+    "noResults": "No results found",
+    "selected": "{{count}} selected"
+  },
+  "list": {
+    "empty": "No items"
+  },
+  "execution": {
+    "overallProgress": "Overall Progress",
+    "recordsOf": "{{processed}} / {{total}} records",
+    "elapsed": "Elapsed: {{time}}",
+    "queued": "Queued",
+    "processing": "Processing",
+    "complete": "Complete",
+    "failed": "Failed",
+    "aborted": "Aborted",
+    "failedRecords": "{{count}} failed"
+  },
+  "retry": {
+    "title": "Error Recovery",
+    "attemptOf": "Attempt {{current}} of {{max}}",
+    "retryingIn": "Retrying in {{seconds}}s",
+    "exhausted": "All retries exhausted",
+    "retryNow": "Retry Now",
+    "abort": "Abort",
+    "noFailures": "No failed operations",
+    "errorDetails": "Error Details",
+    "manualRetryTriggered": "Manual retry triggered"
   }
 }

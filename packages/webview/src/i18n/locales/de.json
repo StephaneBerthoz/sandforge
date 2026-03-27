@@ -989,5 +989,35 @@
     "rowsPerPage": "Zeilen pro Seite",
     "previous": "Vorherige Seite",
     "next": "Naechste Seite"
+  },
+  "combobox": {
+    "search": "Suchen...",
+    "noResults": "Keine Ergebnisse gefunden",
+    "selected": "{{count}} ausgewaehlt"
+  },
+  "list": {
+    "empty": "Keine Eintraege"
+  },
+  "execution": {
+    "overallProgress": "Gesamtfortschritt",
+    "recordsOf": "{{processed}} / {{total}} Datens\u00e4tze",
+    "elapsed": "Vergangen: {{time}}",
+    "queued": "Warteschlange",
+    "processing": "Verarbeitung",
+    "complete": "Abgeschlossen",
+    "failed": "Fehlgeschlagen",
+    "aborted": "Abgebrochen",
+    "failedRecords": "{{count}} fehlgeschlagen"
+  },
+  "retry": {
+    "title": "Fehlerwiederherstellung",
+    "attemptOf": "Versuch {{current}} von {{max}}",
+    "retryingIn": "Neuer Versuch in {{seconds}}s",
+    "exhausted": "Alle Versuche ersch\u00f6pft",
+    "retryNow": "Jetzt wiederholen",
+    "abort": "Abbrechen",
+    "noFailures": "Keine fehlgeschlagenen Operationen",
+    "errorDetails": "Fehlerdetails",
+    "manualRetryTriggered": "Manueller Wiederholungsversuch ausgel\u00f6st"
   }
 }

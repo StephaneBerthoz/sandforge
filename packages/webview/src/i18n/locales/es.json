@@ -989,5 +989,35 @@
     "rowsPerPage": "Filas por pagina",
     "previous": "Pagina anterior",
     "next": "Pagina siguiente"
+  },
+  "combobox": {
+    "search": "Buscar...",
+    "noResults": "Sin resultados",
+    "selected": "{{count}} seleccionados"
+  },
+  "list": {
+    "empty": "Sin elementos"
+  },
+  "execution": {
+    "overallProgress": "Progreso general",
+    "recordsOf": "{{processed}} / {{total}} registros",
+    "elapsed": "Transcurrido: {{time}}",
+    "queued": "En cola",
+    "processing": "Procesando",
+    "complete": "Completado",
+    "failed": "Fallido",
+    "aborted": "Cancelado",
+    "failedRecords": "{{count}} fallidos"
+  },
+  "retry": {
+    "title": "Recuperaci\u00f3n de errores",
+    "attemptOf": "Intento {{current}} de {{max}}",
+    "retryingIn": "Reintentando en {{seconds}}s",
+    "exhausted": "Todos los intentos agotados",
+    "retryNow": "Reintentar ahora",
+    "abort": "Cancelar",
+    "noFailures": "Sin operaciones fallidas",
+    "errorDetails": "Detalles del error",
+    "manualRetryTriggered": "Reintento manual iniciado"
   }
 }
