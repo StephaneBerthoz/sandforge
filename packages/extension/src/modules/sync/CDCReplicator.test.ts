@@ -258,6 +258,92 @@ describe('CDCReplicator', () => {
     });
   });
 
+  describe('error handling', () => {
+    it('should call onError callback when applyFn throws', async () => {
+      const onError = vi.fn();
+      const applyError = new Error('Network timeout');
+      deps = createMockDeps({
+        applyFn: vi.fn().mockRejectedValue(applyError),
+        onError,
+      });
+      replicator = new CDCReplicator(deps);
+
+      replicator.receive(createEvent());
+      await replicator.flush();
+
+      expect(onError).toHaveBeenCalledWith(
+        'Account',
+        'update',
+        applyError,
+        1,
+      );
+      expect(replicator.getTotalFailed()).toBe(1);
+    });
+
+    it('should call onApplyResult for each event after apply', async () => {
+      const onApplyResult = vi.fn();
+      deps = createMockDeps({
+        applyFn: vi.fn().mockResolvedValue([
+          createSuccessResult(),
+          createFailureResult('001xx0000005678'),
+        ]),
+        onApplyResult,
+      });
+      replicator = new CDCReplicator(deps);
+
+      replicator.receive(createEvent({ replayId: 10 }));
+      replicator.receive(createEvent({ replayId: 11, recordIds: ['001xx0000005678'] }));
+      await replicator.flush();
+
+      expect(onApplyResult).toHaveBeenCalledWith(10, true, undefined);
+      expect(onApplyResult).toHaveBeenCalledWith(11, false, 'FIELD_INTEGRITY_EXCEPTION');
+    });
+  });
+
+  describe('timings ring buffer', () => {
+    it('should correctly wrap after exceeding capacity', async () => {
+      vi.useRealTimers();
+      const eventCount = 1005;
+      deps = createMockDeps({
+        applyFn: vi.fn().mockImplementation(
+          (_obj: string, _op: string, records: Record<string, unknown>[]) =>
+            Promise.resolve(records.map((r) => ({ recordId: String(r.Id), success: true }))),
+        ),
+      });
+      replicator = new CDCReplicator(deps);
+
+      // Apply events one-by-one and flush individually to avoid batch grouping issues
+      for (let i = 0; i < eventCount; i++) {
+        replicator.receive(
+          createEvent({
+            replayId: i,
+            commitTimestamp: new Date(Date.now() - 500).toISOString(),
+          }),
+        );
+        await replicator.flush();
+      }
+
+      expect(replicator.getTotalApplied()).toBe(eventCount);
+      // Ring buffer should still work after wrapping
+      expect(replicator.getAverageLagMs()).toBeGreaterThan(0);
+      expect(replicator.getCurrentLagMs()).toBeGreaterThan(0);
+    });
+
+    it('should report correct average lag with ring buffer', async () => {
+      vi.useRealTimers();
+      deps = createMockDeps();
+      replicator = new CDCReplicator(deps);
+
+      const eventTime = new Date(Date.now() - 1000).toISOString();
+      replicator.receive(createEvent({ commitTimestamp: eventTime }));
+      await replicator.flush();
+
+      const avgLag = replicator.getAverageLagMs();
+      expect(avgLag).toBeGreaterThanOrEqual(900);
+      expect(avgLag).toBeLessThan(2000);
+    });
+  });
+
   describe('start and stop', () => {
     it('should report running state after start', () => {
       replicator.start();
