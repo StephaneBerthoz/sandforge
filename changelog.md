@@ -5,6 +5,34 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-03-27
+
+### Added
+
+**Seed Extensions — CSV Import & Clone from Org**
+- `CsvFieldMapper` — Auto-maps CSV column headers to Salesforce fields using case-insensitive, underscore-tolerant matching with type conversion (numeric, boolean, date, datetime)
+- `CsvValidator` — Validates CSV records against Salesforce field metadata: type mismatches, missing required fields, length violations, invalid picklist values, duplicate external IDs (capped at 100 errors)
+- `FileDropZone` — Reusable drag-and-drop file upload component with file size validation
+- `CsvUploadWizard` — 4-step wizard: Upload → Map Columns → Validate → Execute
+- `CsvColumnMapper` — Visual column mapping with auto-match, manual override via Select dropdowns, and mapped/unmapped/incompatible status indicators
+- `CsvPreview` — First 10 rows preview with DataTable and total row count
+- `CsvValidationPanel` — Inline validation errors grouped by type with accordion sections and "Proceed Anyway" gated by <10% error rate
+- `useCsvImport` — React hook managing full CSV import lifecycle: file parsing (papaparse, BOM stripping), column mapping, validation, and execution
+- `CloneRecordFetcher` — Cursor-based pagination via queryMore for fetching records from source orgs (2000/batch)
+- `CloneReferenceLinker` — Topological sort for relationship-ordered insert with cycle detection and self-referential two-pass handling
+- `CloneWizard` — 4-step wizard: Source Org → Select Objects → Preview → Execute
+- `CloneSourcePicker` — Source/target org picker with visual direction indicator, excludes current target from source list
+- `CloneObjectSelector` — Searchable object list with checkboxes and per-object SOQL WHERE filter
+- `ClonePreviewPanel` — Insert order visualization, record counts, and sample records in accordions
+- `CloneResultsPanel` — Per-object results with ID mapping table, pagination, and CSV export
+- `useClone` — React hook managing clone lifecycle: source org selection, object configuration, preview, and execution
+- SeedPage mode selector: 3 cards (AI Generate, CSV Upload, Clone from Org) with card-based selection
+- 42 i18n keys in en.json and fr.json under `seed.csv.*`, `seed.clone.*`, and `seed.modeSelect.*` namespaces
+
+### Performance
+
+- 8156 tests passing (shared: 904, extension: 4459, webview: 2793)
+
 ## [1.2.2] - 2026-03-27
 
 ### Added

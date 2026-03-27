@@ -9,7 +9,8 @@ vi.mock('framer-motion', () => ({
     div: 'div',
     tbody: 'tbody',
     tr: ({ children, ...props }: Record<string, unknown>) => {
-      const { variants: _v, initial: _i, animate: _a, exit: _e, whileHover: _w, transition: _t, ...rest } = props;
+      const { variants, initial, animate, exit, whileHover, transition, ...rest } = props;
+      void variants; void initial; void animate; void exit; void whileHover; void transition;
       return <tr {...rest}>{children as React.ReactNode}</tr>;
     },
   },

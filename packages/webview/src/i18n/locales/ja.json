@@ -257,7 +257,114 @@
     "regexPlaceholder": "[A-Z]{3}-\\d{4}",
     "aiPromptPlaceholder": "生成...",
     "csvColumnPlaceholder": "列名",
-    "suggested": "提案"
+    "suggested": "提案",
+    "csv": {
+      "dropzone": {
+        "title": "CSVファイルをここにドラッグ＆ドロップ",
+        "subtitle": "またはボタンをクリックして参照",
+        "browse": "ファイルを参照",
+        "maxSize": "ファイルが最大サイズ{{max}} MBを超えています"
+      },
+      "mapper": {
+        "title": "CSV列をSalesforceフィールドにマッピング",
+        "mapped": "{{total}}列中{{count}}列がマッピング済み",
+        "unmapped": "未マッピング",
+        "incompatible": "型の不一致",
+        "selectField": "Salesforceフィールドを選択",
+        "noMatch": "一致なし"
+      },
+      "preview": {
+        "title": "CSVデータプレビュー",
+        "showing": "{{total}}行中{{shown}}行を表示",
+        "noData": "プレビューするデータがありません"
+      },
+      "validation": {
+        "title": "バリデーション結果",
+        "valid": "{{count}}行すべてが有効です",
+        "errors": "{{count}}件のエラーが見つかりました",
+        "proceedAnyway": "続行する",
+        "fixAndRevalidate": "修正して再検証",
+        "andMore": "他{{count}}件...",
+        "warningProceed": "エラーは行の10%未満です。部分インポートで続行できます。",
+        "row": "行{{row}}",
+        "errorTypes": {
+          "type_mismatch": "型の不一致",
+          "missing_required": "必須フィールドが未入力",
+          "length_exceeded": "文字数超過",
+          "duplicate_external_id": "外部IDの重複",
+          "invalid_picklist": "無効な選択リスト値"
+        }
+      },
+      "wizard": {
+        "stepUpload": "アップロード",
+        "stepMap": "列マッピング",
+        "stepValidate": "検証",
+        "stepExecute": "実行",
+        "selectOrg": "対象組織を選択",
+        "selectObject": "対象オブジェクトを選択",
+        "cancel": "キャンセル",
+        "next": "次へ",
+        "back": "戻る",
+        "execute": "インポート実行",
+        "done": "完了",
+        "executing": "レコードをインポート中...",
+        "inserted": "{{count}}件のレコードが挿入されました",
+        "failed": "{{count}}件のレコードが失敗しました"
+      }
+    },
+    "modeSelect": {
+      "title": "Seedモードを選択",
+      "ai": "AI生成",
+      "aiDesc": "AIを使用してリアルなテストデータを生成",
+      "csv": "CSVアップロード",
+      "csvDesc": "CSVファイルからデータをインポート",
+      "clone": "組織からクローン",
+      "cloneDesc": "別の組織からレコードをクローン",
+      "backToModes": "モード選択に戻る",
+      "comingSoon": "近日公開"
+    },
+    "clone": {
+      "sourcePicker": {
+        "title": "ソースとターゲットの組織を選択",
+        "sourceLabel": "ソース組織",
+        "targetLabel": "ターゲット組織",
+        "targetHint": "レコードはこの組織にクローンされます",
+        "direction": "ソースからターゲット",
+        "selectSource": "ソース組織を選択...",
+        "sameOrgWarning": "ソースとターゲットの組織が同じです"
+      },
+      "objectSelector": {
+        "title": "クローンするオブジェクトを選択",
+        "search": "オブジェクトを検索...",
+        "selected": "{{count}}個のオブジェクトが選択済み",
+        "whereHint": "一致するレコードのみクローンするオプションフィルター",
+        "wherePlaceholder": "例: Industry = 'Technology'"
+      },
+      "preview": {
+        "title": "クローンプレビュー",
+        "insertOrder": "挿入順序",
+        "recordCounts": "レコード数",
+        "sampleRecords": "サンプルレコード",
+        "largeWarning": "このクローンは10,000件以上のレコードを含みます。完了まで数分かかる場合があります。",
+        "execute": "クローン実行"
+      },
+      "results": {
+        "title": "クローン結果",
+        "summary": "ソースレコード",
+        "inserted": "挿入済み",
+        "failed": "失敗",
+        "duration": "所要時間",
+        "idMapping": "IDマッピング",
+        "exportMapping": "IDマッピングをエクスポート",
+        "done": "完了"
+      },
+      "wizard": {
+        "stepSource": "ソース組織",
+        "stepObjects": "オブジェクト選択",
+        "stepPreview": "プレビュー",
+        "stepExecute": "実行"
+      }
+    }
   },
   "sync": {
     "title": "データ同期",

@@ -257,7 +257,114 @@
     "regexPlaceholder": "[A-Z]{3}-\\d{4}",
     "aiPromptPlaceholder": "Gerar...",
     "csvColumnPlaceholder": "nome_coluna",
-    "suggested": "Sugerido"
+    "suggested": "Sugerido",
+    "csv": {
+      "dropzone": {
+        "title": "Arraste e solte seu arquivo CSV aqui",
+        "subtitle": "ou clique no botao para procurar",
+        "browse": "Procurar arquivos",
+        "maxSize": "Arquivo excede o tamanho maximo de {{max}} MB"
+      },
+      "mapper": {
+        "title": "Mapear colunas CSV para campos do Salesforce",
+        "mapped": "{{count}} de {{total}} colunas mapeadas",
+        "unmapped": "Nao mapeado",
+        "incompatible": "Tipo incompativel",
+        "selectField": "Selecionar um campo do Salesforce",
+        "noMatch": "Sem correspondencia"
+      },
+      "preview": {
+        "title": "Pre-visualizacao de dados CSV",
+        "showing": "Mostrando {{shown}} de {{total}} linhas",
+        "noData": "Sem dados para pre-visualizar"
+      },
+      "validation": {
+        "title": "Resultados da validacao",
+        "valid": "Todas as {{count}} linhas sao validas",
+        "errors": "{{count}} erros encontrados",
+        "proceedAnyway": "Continuar mesmo assim",
+        "fixAndRevalidate": "Corrigir e revalidar",
+        "andMore": "e mais {{count}}...",
+        "warningProceed": "Erros afetam menos de 10% das linhas. Voce pode continuar com importacao parcial.",
+        "row": "Linha {{row}}",
+        "errorTypes": {
+          "type_mismatch": "Tipo incompativel",
+          "missing_required": "Campo obrigatorio ausente",
+          "length_exceeded": "Comprimento excedido",
+          "duplicate_external_id": "ID externo duplicado",
+          "invalid_picklist": "Valor de lista de selecao invalido"
+        }
+      },
+      "wizard": {
+        "stepUpload": "Upload",
+        "stepMap": "Mapear colunas",
+        "stepValidate": "Validar",
+        "stepExecute": "Executar",
+        "selectOrg": "Selecionar org de destino",
+        "selectObject": "Selecionar objeto de destino",
+        "cancel": "Cancelar",
+        "next": "Proximo",
+        "back": "Voltar",
+        "execute": "Executar importacao",
+        "done": "Concluido",
+        "executing": "Importando registros...",
+        "inserted": "{{count}} registros inseridos",
+        "failed": "{{count}} registros falharam"
+      }
+    },
+    "modeSelect": {
+      "title": "Escolher um modo de Seed",
+      "ai": "Geracao IA",
+      "aiDesc": "Gerar dados de teste realistas com IA",
+      "csv": "Upload CSV",
+      "csvDesc": "Importar dados de um arquivo CSV",
+      "clone": "Clonar de Org",
+      "cloneDesc": "Clonar registros de outra org",
+      "backToModes": "Voltar a selecao de modo",
+      "comingSoon": "Em breve"
+    },
+    "clone": {
+      "sourcePicker": {
+        "title": "Selecionar orgs de origem e destino",
+        "sourceLabel": "Org de origem",
+        "targetLabel": "Org de destino",
+        "targetHint": "Registros serao clonados PARA esta org",
+        "direction": "Origem para destino",
+        "selectSource": "Selecionar org de origem...",
+        "sameOrgWarning": "Orgs de origem e destino sao as mesmas"
+      },
+      "objectSelector": {
+        "title": "Selecionar objetos para clonar",
+        "search": "Buscar objetos...",
+        "selected": "{{count}} objetos selecionados",
+        "whereHint": "Filtro opcional para clonar apenas registros correspondentes",
+        "wherePlaceholder": "ex. Industry = 'Technology'"
+      },
+      "preview": {
+        "title": "Pre-visualizacao de clonagem",
+        "insertOrder": "Ordem de insercao",
+        "recordCounts": "Quantidade de registros",
+        "sampleRecords": "Registros de amostra",
+        "largeWarning": "Esta clonagem envolve mais de 10.000 registros. Pode levar varios minutos para concluir.",
+        "execute": "Executar clonagem"
+      },
+      "results": {
+        "title": "Resultados da clonagem",
+        "summary": "Registros de origem",
+        "inserted": "Inseridos",
+        "failed": "Falhados",
+        "duration": "Duracao",
+        "idMapping": "Mapeamento de IDs",
+        "exportMapping": "Exportar mapeamento de IDs",
+        "done": "Concluido"
+      },
+      "wizard": {
+        "stepSource": "Org de origem",
+        "stepObjects": "Selecionar objetos",
+        "stepPreview": "Pre-visualizacao",
+        "stepExecute": "Executar"
+      }
+    }
   },
   "sync": {
     "title": "Sincronizar dados",

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { useOrgSwitchInvalidation } from './useOrgSwitchInvalidation';
 
 // Track postMessage calls
@@ -20,7 +20,6 @@ vi.mock('../bridge/messageHelpers', () => ({
 }));
 
 // Create a minimal reactive store mock
-let orgStoreListeners: Array<() => void> = [];
 let currentOrgId: string | null = null;
 
 const mockAddNotification = vi.fn();
@@ -40,7 +39,6 @@ describe('useOrgSwitchInvalidation', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
     mockAddNotification.mockClear();
-    orgStoreListeners = [];
     currentOrgId = null;
   });
 

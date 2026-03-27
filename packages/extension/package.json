@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -46,7 +46,10 @@
     "automation",
     "apex",
     "flow",
-    "bulk-api"
+    "bulk-api",
+    "csv-import",
+    "data-import",
+    "org-cloning"
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",

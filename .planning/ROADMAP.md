@@ -29,19 +29,10 @@
 **Plans:** 2 plans, 2 waves, 6 tasks, 19/19 must-haves verified
 **Key deliverables:** microdiff installed, ConflictDiffService (2-way + 3-way), unified UIConflict type, conflict feed wiring, resolve-conflict handler, resolvePerField, useConflictStore, ConflictListPanel (DataTable + Pagination + filters), ConflictDiffViewer (side-by-side + base value), ConflictResolutionPanel (per-field + bulk), SyncPage conflicts tab with badge
 
-## Phase 05 — Seed Extensions (CSV + Clone)
+## Phase 05 — Seed Extensions (CSV + Clone) ✓ Complete (2026-03-27)
 **Requirements:** CSV-01, CSV-02, CSV-03, CSV-04, CLONE-01, CLONE-02, CLONE-03, CLONE-04
-**Why fifth:** Independent from sync features. Uses existing BulkApiManager and RecordIdRemapper. CSV uses papaparse (already installed). Clone is the most net-new feature (no backend exists).
-
-**Scope:**
-- CSV upload UI (file picker, drag-and-drop, preview, header detection)
-- Column mapping with auto-match and type compatibility
-- CSV validation (inline errors)
-- CSV execution via Seed pipeline
-- Clone source picker (org + objects + SOQL filter)
-- Clone record fetcher (paginated, relationship-ordered)
-- Clone relationship remapper (RecordIdRemapper)
-- Clone execution with per-object results + ID mapping
+**Plans:** 4 plans, 2 waves, 12 tasks, all must-haves verified
+**Key deliverables:** CsvFieldMapper (auto-match + type conversion), CsvValidator (5 validation rules), FileDropZone (drag-and-drop), CsvUploadWizard (4-step), CsvColumnMapper, CsvPreview, CsvValidationPanel, useCsvImport hook, CloneRecordFetcher (cursor-based pagination), CloneReferenceLinker (topological sort + cycle detection), CloneWizard (4-step), CloneSourcePicker, CloneObjectSelector, ClonePreviewPanel, CloneResultsPanel (ID mapping + CSV export), useClone hook, SeedPage mode selector (AI/CSV/Clone), i18n en+fr
 
 ## Phase 06 — AI Personas & Smart Actions
 **Requirements:** PERSONA-01, PERSONA-02, PERSONA-03, PERSONA-04, SIMPLE-01, SIMPLE-02, SIMPLE-03, SIMPLE-04
@@ -102,4 +93,4 @@ Completed 2026-03-19. 6 phases, 16 plans, 27 requirements delivered. See `.plann
 Completed 2026-03-17. 2 phases, 5 plans, 16 requirements delivered. See `.planning/milestones/v1.0.0-ROADMAP.md`.
 
 ---
-*Last updated: 2026-03-27 — v1.2.3 roadmap created*
+*Last updated: 2026-03-27 — Phase 05 complete, 8156 tests passing*
