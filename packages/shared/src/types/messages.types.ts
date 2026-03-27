@@ -343,6 +343,7 @@ export type ExtensionToWebViewMessage =
   | RealTimeStartedResponse
   | RealTimeStoppedResponse
   | RealTimeCDCEventMessage
+  | RealTimeEventsBatchMessage
   | RealTimeStatusResponse
   | RealTimeMetricsResponse
   | RealTimeConflictDetected
@@ -1611,6 +1612,25 @@ export interface RealTimeCDCEventMessage extends BaseMessage {
     commitTimestamp: string;
     applied: boolean;
     error?: string;
+  };
+}
+
+/** Batched CDC events for efficient WebView delivery. */
+export interface RealTimeEventsBatchMessage extends BaseMessage {
+  type: 'realtime:events-batch';
+  payload: {
+    events: Array<{
+      replayId: number;
+      objectApiName: string;
+      changeType: string;
+      recordIds: string[];
+      commitTimestamp: string;
+      changedFields: Record<string, unknown>;
+      commitUser: string;
+      transactionKey: string;
+      applied: boolean;
+      error?: string;
+    }>;
   };
 }
 

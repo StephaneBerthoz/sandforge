@@ -5,6 +5,7 @@ import type {
   StreamingClient,
   StreamingClientFactory,
   StreamingSubscription,
+  ReplayIdPersister,
 } from './CDCListener';
 
 function createConfig(overrides?: Partial<CDCListenerConfig>): CDCListenerConfig {
@@ -408,6 +409,160 @@ describe('CDCListener', () => {
       // Verify by checking that connHandler was called with false during stop,
       // and that's the last call
       expect(connHandler).toHaveBeenCalledWith(false);
+    });
+  });
+
+  describe('replay ID persistence', () => {
+    it('should load persisted replay IDs on start', async () => {
+      const persister: ReplayIdPersister = {
+        load: vi.fn().mockResolvedValue(42),
+        save: vi.fn().mockResolvedValue(undefined),
+      };
+
+      listener = new CDCListener(
+        createConfig({ replayIdPersister: persister }),
+        factory,
+      );
+
+      await listener.start();
+
+      expect(persister.load).toHaveBeenCalledWith('org-001', 'Account');
+      expect(persister.load).toHaveBeenCalledWith('org-001', 'Contact');
+      // Should use the minimum loaded replay ID (42 for both)
+      expect(mockClient.subscribe).toHaveBeenCalledWith(
+        expect.any(String),
+        42,
+        expect.any(Function),
+      );
+    });
+
+    it('should use minimum of loaded replay IDs', async () => {
+      const persister: ReplayIdPersister = {
+        load: vi.fn()
+          .mockResolvedValueOnce(100) // Account
+          .mockResolvedValueOnce(50),  // Contact
+        save: vi.fn().mockResolvedValue(undefined),
+      };
+
+      listener = new CDCListener(
+        createConfig({ replayIdPersister: persister }),
+        factory,
+      );
+
+      await listener.start();
+
+      expect(mockClient.subscribe).toHaveBeenCalledWith(
+        expect.any(String),
+        50,
+        expect.any(Function),
+      );
+    });
+
+    it('should save replay ID on event', async () => {
+      const persister: ReplayIdPersister = {
+        load: vi.fn().mockResolvedValue(-1),
+        save: vi.fn().mockResolvedValue(undefined),
+      };
+
+      let messageCallback: ((msg: Record<string, unknown>) => void) | null = null;
+      mockClient = createMockClient((_channel, callback) => {
+        messageCallback = callback;
+      });
+      factory = vi.fn().mockResolvedValue(mockClient);
+
+      listener = new CDCListener(
+        createConfig({ replayIdPersister: persister }),
+        factory,
+      );
+      listener.onEvent(vi.fn());
+      await listener.start();
+
+      messageCallback?.({ payload: createValidCDCPayload({ replayId: 99 }) });
+
+      expect(persister.save).toHaveBeenCalledWith('org-001', 'Account', 99);
+    });
+
+    it('should fall back to initial replay ID when load fails', async () => {
+      const persister: ReplayIdPersister = {
+        load: vi.fn().mockRejectedValue(new Error('Storage unavailable')),
+        save: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const errorHandler = vi.fn();
+      listener = new CDCListener(
+        createConfig({ replayIdPersister: persister, initialReplayId: -2 }),
+        factory,
+      );
+      listener.onError(errorHandler);
+
+      await listener.start();
+
+      // Should fall back to initialReplayId (-2)
+      expect(mockClient.subscribe).toHaveBeenCalledWith(
+        expect.any(String),
+        -2,
+        expect.any(Function),
+      );
+    });
+  });
+
+  describe('watchdog timer', () => {
+    it('should force reconnect after 240s of silence', async () => {
+      await listener.start();
+
+      expect(listener.isConnected()).toBe(true);
+
+      // Advance past the watchdog check interval (60s) + silence threshold (240s)
+      // First check at 60s: only 60s of silence -- no reconnect
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(factory).toHaveBeenCalledTimes(1);
+
+      // Advance to 120s
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(factory).toHaveBeenCalledTimes(1);
+
+      // Advance to 180s
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(factory).toHaveBeenCalledTimes(1);
+
+      // Advance to 300s -- at 300s check, silence > 240s triggers reconnect
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(factory).toHaveBeenCalledTimes(2);
+    });
+
+    it('should reset watchdog on received events', async () => {
+      let messageCallback: ((msg: Record<string, unknown>) => void) | null = null;
+      mockClient = createMockClient((_channel, callback) => {
+        messageCallback = callback;
+      });
+      factory = vi.fn().mockResolvedValue(mockClient);
+      listener = new CDCListener(createConfig(), factory);
+      listener.onEvent(vi.fn());
+
+      await listener.start();
+
+      // Advance 200s
+      await vi.advanceTimersByTimeAsync(200_000);
+
+      // Send an event -- this resets the activity timer
+      messageCallback?.({ payload: createValidCDCPayload() });
+
+      // Advance another 200s -- total 400s since start, but only 200s since last activity
+      await vi.advanceTimersByTimeAsync(200_000);
+
+      // Should not have reconnected because activity was reset
+      expect(factory).toHaveBeenCalledTimes(1);
+    });
+
+    it('should clear watchdog timer on stop', async () => {
+      await listener.start();
+      listener.stop();
+
+      // Advancing should not trigger reconnect
+      const callCount = vi.mocked(factory).mock.calls.length;
+      await vi.advanceTimersByTimeAsync(600_000);
+
+      expect(vi.mocked(factory).mock.calls.length).toBe(callCount);
     });
   });
 });

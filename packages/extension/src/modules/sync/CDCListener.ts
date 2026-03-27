@@ -46,6 +46,23 @@ export interface StreamingClient {
 /** Factory function that creates a StreamingClient from an org connection */
 export type StreamingClientFactory = (orgId: string) => Promise<StreamingClient>;
 
+/**
+ * Interface for persisting and loading replay IDs to/from durable storage.
+ * Enables CDC subscriptions to resume from the last known position across restarts.
+ */
+export interface ReplayIdPersister {
+  /** Load the last saved replay ID for a given org and object */
+  load(orgId: string, objectName: string): Promise<number>;
+  /** Save a replay ID for a given org and object */
+  save(orgId: string, objectName: string, replayId: number): Promise<void>;
+}
+
+/** Watchdog silence threshold in milliseconds (4 minutes) */
+const WATCHDOG_SILENCE_THRESHOLD_MS = 240_000;
+
+/** Watchdog check interval in milliseconds (1 minute) */
+const WATCHDOG_CHECK_INTERVAL_MS = 60_000;
+
 /** Configuration for the CDC listener */
 export interface CDCListenerConfig {
   /** Source org identifier */
@@ -58,13 +75,16 @@ export interface CDCListenerConfig {
   maxReconnectAttempts: number;
   /** Base delay for exponential backoff in milliseconds */
   baseReconnectDelayMs: number;
+  /** Optional persister for replay ID persistence to globalState */
+  replayIdPersister?: ReplayIdPersister;
 }
 
 /**
  * Listens to Salesforce Change Data Capture events via the Streaming API.
  * Connects to `/data/ChangeEvents` (or per-object channels), parses incoming
  * CDC events, and emits typed events to registered handlers.
- * Supports automatic reconnection with exponential backoff.
+ * Supports automatic reconnection with exponential backoff, replay ID
+ * persistence, and a watchdog timer for stale CometD connections.
  */
 export class CDCListener {
   private readonly config: CDCListenerConfig;
@@ -79,6 +99,8 @@ export class CDCListener {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private lastReplayId: number;
   private stopped = false;
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private lastActivityTime = Date.now();
 
   constructor(config: CDCListenerConfig, clientFactory: StreamingClientFactory) {
     this.config = config;
@@ -134,20 +156,28 @@ export class CDCListener {
   /**
    * Start listening for CDC events.
    * Connects to the Streaming API and subscribes to the configured channels.
+   * If a replay ID persister is configured, loads the last known replay IDs.
    */
   async start(): Promise<void> {
     this.stopped = false;
     this.reconnectAttempts = 0;
+
+    // Load persisted replay IDs if persister is configured
+    if (this.config.replayIdPersister && this.config.watchedObjects.length > 0) {
+      await this.loadPersistedReplayId();
+    }
+
     await this.connect();
   }
 
   /**
    * Stop listening for CDC events.
-   * Cancels all subscriptions, disconnects, and clears reconnect timers.
+   * Cancels all subscriptions, disconnects, clears timers, and clears handlers.
    */
   stop(): void {
     this.stopped = true;
     this.clearReconnectTimer();
+    this.clearWatchdogTimer();
     this.cancelSubscriptions();
     if (this.client) {
       this.client.disconnect();
@@ -180,6 +210,8 @@ export class CDCListener {
       this.subscribeToChannels();
       this.setConnected(true);
       this.reconnectAttempts = 0;
+      this.lastActivityTime = Date.now();
+      this.startWatchdog();
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       this.emitError(error);
@@ -220,11 +252,14 @@ export class CDCListener {
   }
 
   private handleMessage(message: Record<string, unknown>): void {
+    this.lastActivityTime = Date.now();
+
     try {
       const payload = message.payload ?? message;
       const parsed = this.parseEvent(payload as Record<string, unknown>);
       if (parsed) {
         this.lastReplayId = parsed.replayId;
+        this.persistReplayId(parsed.objectApiName, parsed.replayId);
         this.emitEvent(parsed);
       }
     } catch (err) {
@@ -272,6 +307,83 @@ export class CDCListener {
       commitUser: header.commitUser,
       transactionKey: header.transactionKey,
     };
+  }
+
+  /**
+   * Load persisted replay IDs and use the minimum as the starting replay ID.
+   * Falls back to the configured initial replay ID on error.
+   */
+  private async loadPersistedReplayId(): Promise<void> {
+    const persister = this.config.replayIdPersister;
+    if (!persister) {
+      return;
+    }
+
+    try {
+      const replayIds: number[] = [];
+      for (const objectName of this.config.watchedObjects) {
+        const replayId = await persister.load(this.config.orgId, objectName);
+        if (replayId > 0) {
+          replayIds.push(replayId);
+        }
+      }
+      if (replayIds.length > 0) {
+        this.lastReplayId = Math.min(...replayIds);
+      }
+    } catch {
+      // Fall back to configured initial replay ID on load failure
+      this.emitError(new Error('Failed to load persisted replay IDs, using initial value'));
+    }
+  }
+
+  /**
+   * Persist the replay ID for a given object (fire and forget).
+   */
+  private persistReplayId(objectName: string, replayId: number): void {
+    const persister = this.config.replayIdPersister;
+    if (!persister) {
+      return;
+    }
+    persister.save(this.config.orgId, objectName, replayId).catch(() => {
+      // Silently ignore save errors -- replay IDs are best-effort
+    });
+  }
+
+  /**
+   * Start the watchdog timer that force-reconnects after a silence threshold.
+   * Checks every 60 seconds if the last activity was more than 240 seconds ago.
+   */
+  private startWatchdog(): void {
+    this.clearWatchdogTimer();
+    this.watchdogTimer = setInterval(() => {
+      const silenceMs = Date.now() - this.lastActivityTime;
+      if (silenceMs > WATCHDOG_SILENCE_THRESHOLD_MS) {
+        this.emitError(new Error(`Watchdog: no activity for ${Math.round(silenceMs / 1000)}s, forcing reconnect`));
+        this.forceReconnect();
+      }
+    }, WATCHDOG_CHECK_INTERVAL_MS);
+  }
+
+  /**
+   * Force a reconnection by cancelling current subscriptions,
+   * disconnecting, and connecting again.
+   */
+  private forceReconnect(): void {
+    this.cancelSubscriptions();
+    if (this.client) {
+      this.client.disconnect();
+      this.client = null;
+    }
+    this.setConnected(false);
+    this.lastActivityTime = Date.now();
+    void this.connect();
+  }
+
+  private clearWatchdogTimer(): void {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
   }
 
   private scheduleReconnect(): void {
