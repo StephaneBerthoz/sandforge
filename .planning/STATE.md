@@ -9,17 +9,17 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: Ready for Phase 04
-Plan: —
-Status: Phase 03 complete (3 plans, 6 requirements). Verified 31/31 automated must-haves. 7986 tests passing.
-Last activity: 2026-03-27 — Phase 03 executed and verified
+Phase: 04 — Conflict Resolution
+Plan: 04-01 complete, ready for 04-02
+Status: Plan 04-01 complete (3 tasks, 13 must-haves). microdiff installed, UIConflict type, ConflictDiffService, conflict feed wiring, resolve-conflict handler, resolvePerField.
+Last activity: 2026-03-27 — Plan 04-01 executed
 
-Progress: [####------] 42% (3/7 phases)
+Progress: [####------] 42% (3/7 phases, plan 1/N of phase 04)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 70 (v1.2.3: 10 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 71 (v1.2.3: 11 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -70,6 +70,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - CDCEventFeed tests mock VirtualList (jsdom has no layout engine for tanstack/react-virtual)
 - CDC metrics i18n keys placed under `sync.realtime.metricsPanel.*` to match existing namespace
 - Sparkline uses inline SVG polyline (no external lib), polling interval ID as module-level var
+- Renamed shared FieldDiff to ConflictFieldDiff to avoid collision with compare.types.ts FieldDiff
+- Added CDCReplicator.setOnConflict() for post-creation callback wiring by orchestrator
 
 ### Pending Todos
 
@@ -82,5 +84,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-27
-Stopped at: Phase 03 complete and verified. Ready for Phase 04 planning.
+Stopped at: Plan 04-01 complete. Ready for plan 04-02.
 Resume file: .planning/ROADMAP.md
