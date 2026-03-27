@@ -45,7 +45,16 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 ### Active
 
-(No active milestone — ready for next)
+- [ ] Sync scheduling with cron UI + schedule management — v1.2.3
+- [ ] Sync history & audit log (past executions, replay, export) — v1.2.3
+- [ ] Seed from CSV upload (column mapping, preview, validation) — v1.2.3
+- [ ] Seed clone mode (org-to-org record copy, relationship remapping) — v1.2.3
+- [ ] AI persona catalogue (10 pre-built personas, preview, customization) — v1.2.3
+- [ ] Sync conflict resolution UI (diff viewer, per-field merge, bulk resolution) — v1.2.3
+- [ ] CDC real-time sync (subscription UI, live stream, auto-sync, backend hardening) — v1.2.3
+- [ ] Enterprise scaling (pagination, streaming 100K+, virtual scrolling, memory management) — v1.2.3
+- [ ] Small project optimizations (auto-detection, "Just Do It" mode, reduced steps) — v1.2.3
+- [ ] Existing feature polish (error recovery, caching, skeleton screens, keyboard shortcuts) — v1.2.3
 
 ### Recently Validated (v1.2.2)
 
@@ -58,7 +67,7 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 
 ### Deferred
 
-- [ ] Advanced features: real-time sync (CDC/Streaming), collaborative editing, multi-LLM, enterprise integrations — Phase 12
+- [ ] Advanced features: collaborative editing, multi-LLM, enterprise integrations (Slack, Datadog, PagerDuty) — future
 
 ### Out of Scope
 
@@ -99,4 +108,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-26 — Milestone v1.2.2 shipped (Adoption-First: Sync & Seed Polish)*
+*Last updated: 2026-03-27 — Milestone v1.2.3 started (Scale & Complete)*

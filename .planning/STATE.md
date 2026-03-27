@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** No active milestone — ready for next
+**Current focus:** v1.2.3 — Scale & Complete
 
 ## Current Position
 
-Phase: —
+Phase: Not started (defining requirements)
 Plan: —
-Status: v1.2.2 shipped. Ready for next milestone.
-Last activity: 2026-03-26 — v1.2.2 archived and tagged
+Status: Defining requirements for v1.2.3
+Last activity: 2026-03-27 — Milestone v1.2.3 started
 
-Progress: [##########] milestone complete
+Progress: [----------] 0%
 
 ## Performance Metrics
 
@@ -71,6 +71,6 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ## Session Continuity
 
-Last session: 2026-03-26
-Stopped at: v1.2.2 shipped. Ready for next milestone.
-Resume file: .planning/ROADMAP.md
+Last session: 2026-03-27
+Stopped at: Defining v1.2.3 requirements and roadmap.
+Resume file: .planning/MILESTONE-CONTEXT.md
