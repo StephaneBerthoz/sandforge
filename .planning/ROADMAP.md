@@ -34,19 +34,10 @@
 **Plans:** 4 plans, 2 waves, 12 tasks, all must-haves verified
 **Key deliverables:** CsvFieldMapper (auto-match + type conversion), CsvValidator (5 validation rules), FileDropZone (drag-and-drop), CsvUploadWizard (4-step), CsvColumnMapper, CsvPreview, CsvValidationPanel, useCsvImport hook, CloneRecordFetcher (cursor-based pagination), CloneReferenceLinker (topological sort + cycle detection), CloneWizard (4-step), CloneSourcePicker, CloneObjectSelector, ClonePreviewPanel, CloneResultsPanel (ID mapping + CSV export), useClone hook, SeedPage mode selector (AI/CSV/Clone), i18n en+fr
 
-## Phase 06 — AI Personas & Smart Actions
+## Phase 06 — AI Personas & Smart Actions ✓ Complete (2026-03-28)
 **Requirements:** PERSONA-01, PERSONA-02, PERSONA-03, PERSONA-04, SIMPLE-01, SIMPLE-02, SIMPLE-03, SIMPLE-04
-**Why sixth:** Polish features that enhance the UX on top of all other work. Personas use existing AIPersonaManager. Smart actions need all prior features to exist as destinations.
-
-**Scope:**
-- Persona gallery UI (card grid, industry icons, locale badges)
-- Persona preview (5 sample records)
-- Persona customization (field weights, distributions)
-- Persona application to Seed wizard
-- Smart action recommender (analyze org state → suggest action)
-- "Just Do It" mode (auto-detect best action, one click)
-- Adaptive wizard (fewer steps for small, grouping for large)
-- Contextual help tooltips
+**Plans:** 3 plans, 2 waves, 10 tasks, all must-haves verified
+**Key deliverables:** PersonaGallery (10 industry cards with icons/locale badges), PersonaPreviewPopover (5 sample records), PersonaCustomizePanel (editable field patterns), persona application to seed wizard field rules, SmartActionAnalyzer (record count analysis on 5 standard objects), SmartActionCard on HomePage (recommendation + Just Do It CTA with confirmation), adaptive wizard (auto-advance <5 objects, grouping >20 objects), InfoTooltip (dismissible contextual help via localStorage)
 
 ## Phase 07 — Streaming Execution & Background Ops
 **Requirements:** SCALE-03, SCALE-04
