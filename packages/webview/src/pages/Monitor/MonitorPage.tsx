@@ -18,6 +18,8 @@ import { Button } from '../../components/ui/Button';
 import { ProgressBar } from '../../components/ui/ProgressBar';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { Spinner } from '../../components/ui/Spinner';
+import { SkeletonTable } from '../../components/ui/SkeletonTable';
+import { SkeletonPanel } from '../../components/ui/SkeletonPanel';
 import { HealthScoreCard } from './HealthScoreCard';
 import { HealthGauge } from './HealthGauge';
 import { TrendChart } from './TrendChart';
@@ -290,10 +292,10 @@ export const MonitorPage: React.FC = () => {
           {Array.from({ length: 5 }, (_, i) => <Skeleton key={i} variant="rect" height="110px" />)}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Skeleton variant="rect" height="200px" />
-          <Skeleton variant="rect" height="200px" />
+          <SkeletonPanel sections={2} />
+          <SkeletonTable rows={4} columns={3} />
         </div>
-        <Skeleton variant="rect" height="160px" />
+        <SkeletonPanel sections={1} />
       </div>
     );
   }
