@@ -89,25 +89,46 @@ export class CDCListener {
   /**
    * Register a handler for CDC events.
    * The handler is called for each parsed and validated CDC event.
+   * @returns An unsubscribe function that removes the handler.
    */
-  onEvent(handler: CDCEventHandler): void {
+  onEvent(handler: CDCEventHandler): () => void {
     this.eventHandlers.push(handler);
+    return () => {
+      const idx = this.eventHandlers.indexOf(handler);
+      if (idx >= 0) {
+        this.eventHandlers.splice(idx, 1);
+      }
+    };
   }
 
   /**
    * Register a handler for connection state changes.
    * Called with `true` when connected, `false` when disconnected.
+   * @returns An unsubscribe function that removes the handler.
    */
-  onConnection(handler: CDCConnectionHandler): void {
+  onConnection(handler: CDCConnectionHandler): () => void {
     this.connectionHandlers.push(handler);
+    return () => {
+      const idx = this.connectionHandlers.indexOf(handler);
+      if (idx >= 0) {
+        this.connectionHandlers.splice(idx, 1);
+      }
+    };
   }
 
   /**
    * Register a handler for errors.
    * Called when a non-recoverable error occurs or when parsing fails.
+   * @returns An unsubscribe function that removes the handler.
    */
-  onError(handler: CDCErrorHandler): void {
+  onError(handler: CDCErrorHandler): () => void {
     this.errorHandlers.push(handler);
+    return () => {
+      const idx = this.errorHandlers.indexOf(handler);
+      if (idx >= 0) {
+        this.errorHandlers.splice(idx, 1);
+      }
+    };
   }
 
   /**
@@ -133,6 +154,9 @@ export class CDCListener {
       this.client = null;
     }
     this.setConnected(false);
+    this.eventHandlers = [];
+    this.connectionHandlers = [];
+    this.errorHandlers = [];
   }
 
   /** Whether the listener is currently connected to the Streaming API. */

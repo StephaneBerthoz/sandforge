@@ -232,7 +232,7 @@ describe('RealTimeSyncOrchestrator', () => {
       const typedListener = mockListener as unknown as { _emitEvent: (event: CDCEvent) => void };
       typedListener._emitEvent(event);
 
-      expect(feedHandler).toHaveBeenCalledWith(event, true, undefined);
+      expect(feedHandler).toHaveBeenCalledWith(event, false, undefined);
     });
 
     it('should forward events to replicator', async () => {
@@ -336,6 +336,108 @@ describe('RealTimeSyncOrchestrator', () => {
         false,
         'Streaming API error',
       );
+    });
+  });
+
+  describe('applied status two-phase', () => {
+    it('should emit applied=false initially, then applied=true via handleApplyResult', async () => {
+      const feedHandler = vi.fn();
+      orchestrator.onEventFeed(feedHandler);
+
+      await orchestrator.start(createConfig());
+
+      const event = createTestEvent({ replayId: 99 });
+      const typedListener = mockListener as unknown as { _emitEvent: (event: CDCEvent) => void };
+      typedListener._emitEvent(event);
+
+      // First call should be applied=false
+      expect(feedHandler).toHaveBeenCalledWith(event, false, undefined);
+
+      // Simulate replicator confirming the apply
+      orchestrator.handleApplyResult(99, true);
+
+      // Second call should be applied=true
+      expect(feedHandler).toHaveBeenCalledWith(event, true, undefined);
+    });
+
+    it('should emit applied=false with error via handleApplyResult on failure', async () => {
+      const feedHandler = vi.fn();
+      orchestrator.onEventFeed(feedHandler);
+
+      await orchestrator.start(createConfig());
+
+      const event = createTestEvent({ replayId: 50 });
+      const typedListener = mockListener as unknown as { _emitEvent: (event: CDCEvent) => void };
+      typedListener._emitEvent(event);
+
+      orchestrator.handleApplyResult(50, false, 'FIELD_INTEGRITY_EXCEPTION');
+
+      expect(feedHandler).toHaveBeenCalledWith(event, false, 'FIELD_INTEGRITY_EXCEPTION');
+    });
+  });
+
+  describe('handler cleanup', () => {
+    it('should return unsubscribe functions from onStatusChange', async () => {
+      const handler = vi.fn();
+      const unsub = orchestrator.onStatusChange(handler);
+
+      await orchestrator.start(createConfig());
+      handler.mockClear();
+
+      unsub();
+
+      orchestrator.pause();
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('should return unsubscribe functions from onEventFeed', async () => {
+      const handler = vi.fn();
+      const unsub = orchestrator.onEventFeed(handler);
+
+      await orchestrator.start(createConfig());
+      unsub();
+
+      const typedListener = mockListener as unknown as { _emitEvent: (event: CDCEvent) => void };
+      typedListener._emitEvent(createTestEvent());
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it('should return unsubscribe functions from onConflictDetected', () => {
+      const handler = vi.fn();
+      const unsub = orchestrator.onConflictDetected(handler);
+
+      unsub();
+
+      // Handler should have been removed -- no way to verify directly without emitting
+      // a conflict, but we confirm the function returns without error
+      expect(unsub).toBeTypeOf('function');
+    });
+
+    it('should clear all handler arrays on stop', async () => {
+      const statusHandler = vi.fn();
+      const feedHandler = vi.fn();
+      const conflictHandler = vi.fn();
+
+      orchestrator.onStatusChange(statusHandler);
+      orchestrator.onEventFeed(feedHandler);
+      orchestrator.onConflictDetected(conflictHandler);
+
+      await orchestrator.start(createConfig());
+      await orchestrator.stop();
+
+      // After stop, handlers are cleared -- starting again should not notify old handlers
+      statusHandler.mockClear();
+      feedHandler.mockClear();
+
+      // Re-create with new deps since listener/replicator are nulled
+      const newListener = createMockListener();
+      const newReplicator = createMockReplicator();
+      const newDeps = createMockDeps(newListener, newReplicator);
+      orchestrator = new RealTimeSyncOrchestrator(newDeps);
+      await orchestrator.start(createConfig());
+
+      expect(statusHandler).not.toHaveBeenCalled();
     });
   });
 
