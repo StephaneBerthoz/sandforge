@@ -477,6 +477,48 @@
       "cloneDesc": "Clonez des enregistrements depuis une autre org",
       "backToModes": "Retour a la selection du mode",
       "comingSoon": "Bientot disponible"
+    },
+    "clone": {
+      "sourcePicker": {
+        "title": "Selectionner les orgs source et cible",
+        "sourceLabel": "Org source",
+        "targetLabel": "Org cible",
+        "targetHint": "Les enregistrements seront clones DANS cette org",
+        "direction": "Source vers cible",
+        "selectSource": "Selectionner une org source...",
+        "sameOrgWarning": "Les orgs source et cible sont identiques"
+      },
+      "objectSelector": {
+        "title": "Selectionner les objets a cloner",
+        "search": "Rechercher des objets...",
+        "selected": "{{count}} objets selectionnes",
+        "whereHint": "Filtre optionnel pour cloner uniquement les enregistrements correspondants",
+        "wherePlaceholder": "ex. Industry = 'Technology'"
+      },
+      "preview": {
+        "title": "Apercu du clonage",
+        "insertOrder": "Ordre d'insertion",
+        "recordCounts": "Nombre d'enregistrements",
+        "sampleRecords": "Exemples d'enregistrements",
+        "largeWarning": "Ce clonage concerne plus de 10 000 enregistrements. Cela peut prendre plusieurs minutes.",
+        "execute": "Executer le clonage"
+      },
+      "results": {
+        "title": "Resultats du clonage",
+        "summary": "Enregistrements source",
+        "inserted": "Inseres",
+        "failed": "Echoues",
+        "duration": "Duree",
+        "idMapping": "Correspondance des IDs",
+        "exportMapping": "Exporter la correspondance",
+        "done": "Terminer"
+      },
+      "wizard": {
+        "stepSource": "Org source",
+        "stepObjects": "Selection objets",
+        "stepPreview": "Apercu",
+        "stepExecute": "Execution"
+      }
     }
   },
   "sync": {
