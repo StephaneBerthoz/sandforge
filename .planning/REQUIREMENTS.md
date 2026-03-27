@@ -1,0 +1,99 @@
+# Requirements: v1.2.3 — Scale & Complete
+
+## v1 — Must Ship
+
+### Sync Scheduling (SCHED-01..05)
+
+- [ ] **SCHED-01** — Cron schedule UI: create/edit sync schedules with cron expression builder (visual picker + raw input), timezone selector
+- [ ] **SCHED-02** — Schedule management panel: list all schedules with next run time, status (active/paused), last result, edit/delete actions
+- [ ] **SCHED-03** — Schedule execution: wire OperationScheduler to trigger sync:execute on due schedules (use cron-parser for 5-field cron support)
+- [ ] **SCHED-04** — Schedule persistence: save schedules to ConfigStore with schedule:sync:{id} prefix, survive extension restart
+- [ ] **SCHED-05** — Schedule notifications: VSCode notification on schedule start/complete/fail, opt-in desktop notification
+
+### Sync History & Audit Log (HIST-01..05)
+
+- [ ] **HIST-01** — Sync execution logger: persist every sync execution (id, config, startTime, endTime, status, per-object results) to ConfigStore
+- [ ] **HIST-02** — History list UI: paginated table of past sync executions with date, objects, record count, status, duration
+- [ ] **HIST-03** — History detail view: click on a past execution to see per-object success/fail/skip counts, error messages, field mapping used
+- [ ] **HIST-04** — Re-run from history: "Run Again" button that pre-fills Quick Sync or wizard with the same config
+- [ ] **HIST-05** — History export: export filtered history as CSV or JSON
+
+### Seed from CSV (CSV-01..04)
+
+- [ ] **CSV-01** — CSV upload UI: file picker + drag-and-drop in Seed wizard, preview first 10 rows, detect headers automatically
+- [ ] **CSV-02** — Column mapping: map CSV columns to Salesforce fields (auto-match by name, manual override), show field type compatibility
+- [ ] **CSV-03** — CSV validation: inline errors for type mismatches, missing required fields, value length violations, duplicate external IDs
+- [ ] **CSV-04** — CSV execution: feed mapped CSV rows to the existing Seed execution pipeline (BulkApiManager), show per-row results
+
+### Seed Clone Mode (CLONE-01..04)
+
+- [ ] **CLONE-01** — Clone source picker: select source org + objects to clone, with optional SOQL WHERE filter per object
+- [ ] **CLONE-02** — Clone record fetcher: query records from source org with pagination (2000/batch), respect relationship order (parent before child)
+- [ ] **CLONE-03** — Clone relationship remapper: remap parent IDs to target org IDs using RecordIdRemapper (existing), handle self-referential lookups
+- [ ] **CLONE-04** — Clone execution: insert cloned records into target org via BulkApiManager, show per-object results with original→new ID mapping
+
+### AI Persona Catalogue (PERSONA-01..04)
+
+- [ ] **PERSONA-01** — Persona gallery UI: card grid on SeedPage showing all 10 built-in personas + custom personas, with industry icon, locale badge, description
+- [ ] **PERSONA-02** — Persona preview: click "Preview" to see 5 sample records generated with that persona's field rules (no execution)
+- [ ] **PERSONA-03** — Persona customization: after selecting a persona, adjust field weights, value distributions, add/remove field rules before execution
+- [ ] **PERSONA-04** — Persona application: apply selected persona to Seed wizard (pre-fills field rules for all objects matching persona's field definitions)
+
+### Sync Conflict Resolution UI (CONFLICT-01..05)
+
+- [ ] **CONFLICT-01** — Conflict detection feed: when sync runs in bidirectional mode, collect conflicts and display count badge on results
+- [ ] **CONFLICT-02** — Conflict list view: paginated list of conflicting records with object name, record ID, field count, conflict type (edit/edit, delete/edit)
+- [ ] **CONFLICT-03** — Conflict diff viewer: side-by-side source vs target record with per-field diff highlighting (use microdiff), base value shown for 3-way context
+- [ ] **CONFLICT-04** — Per-field resolution: for each conflicting field, pick source/target/manual-edit, with "Apply source to all" / "Apply target to all" bulk actions
+- [ ] **CONFLICT-05** — Conflict resolution execution: apply resolved values to target org, log resolution decisions in sync history
+
+### CDC Real-Time Sync (CDC-01..06)
+
+- [ ] **CDC-01** — CDC subscription UI: select objects to watch, start/stop live stream, show connection status indicator (connected/reconnecting/disconnected)
+- [ ] **CDC-02** — Live event feed: real-time scrolling list of CDC events with object, record ID, change type (create/update/delete/undelete), timestamp, changed fields
+- [ ] **CDC-03** — Auto-sync on change: toggle per-object auto-apply (CDC event → replicate to target org automatically), with conflict strategy selector
+- [ ] **CDC-04** — CDC backend hardening: fix custom object channel naming bug, persist replay IDs to globalState, add watchdog reconnection on sleep/wake, fix event applied false positive, add handler cleanup on stop
+- [ ] **CDC-05** — CDC event batching: batch events from extension to WebView (100-200ms window), ring buffer on WebView side, virtual scrolling for event feed (@tanstack/react-virtual)
+- [ ] **CDC-06** — CDC metrics dashboard: events/sec throughput, replication lag, applied/failed/conflict counters, uptime indicator
+
+### Enterprise Scaling (SCALE-01..06)
+
+- [ ] **SCALE-01** — Pagination component: reusable Pagination UI component (page size selector, page navigation, total count), wire to all list views
+- [ ] **SCALE-02** — Virtual scrolling: install @tanstack/react-virtual, apply to DataTable, sync history, CDC event feed, object selector (1000+ items)
+- [ ] **SCALE-03** — Streaming execution: chunked sync for 100K+ records (2000/chunk), memory-efficient pipeline that doesn't hold all records in memory
+- [ ] **SCALE-04** — Background execution: long-running sync/seed operations continue when WebView panel is hidden, with notification on completion
+- [ ] **SCALE-05** — Cache management: audit all TTLs, add cache invalidation on org switch, dispose stale caches on memory pressure, cache size limits
+- [ ] **SCALE-06** — Progress granularity: per-record progress for bulk operations (parse Bulk API 2.0 job progress), replace percentage placeholders with real data
+
+### Small Project Optimizations (SIMPLE-01..04)
+
+- [ ] **SIMPLE-01** — Smart action recommender: analyze connected org state (record counts, last modified dates) and suggest "Seed", "Sync", or "Clone" with one-click execute
+- [ ] **SIMPLE-02** — "Just Do It" mode: single button on HomePage that auto-detects the best action (empty sandbox → Quick Seed with recommended template, stale data → Quick Sync from prod)
+- [ ] **SIMPLE-03** — Adaptive wizard: for < 5 objects, skip review step and show inline preview; for > 20 objects, show grouping/filtering controls
+- [ ] **SIMPLE-04** — Contextual help: info tooltips on every wizard step and major UI element, with "Learn more" links to relevant docs, dismissible per-user
+
+### Existing Feature Polish (POLISH-01..06)
+
+- [ ] **POLISH-01** — Error recovery UI: retry failed operations with exponential backoff, show retry count/next attempt, allow manual retry or abort
+- [ ] **POLISH-02** — Skeleton screens: replace all remaining spinner loading states with Skeleton components (shimmer animation)
+- [ ] **POLISH-03** — Keyboard shortcuts: module navigation (Ctrl+1..6), trigger actions (Ctrl+Enter to execute), Escape to cancel, Tab to navigate wizard steps
+- [ ] **POLISH-04** — Notification center: centralized panel showing all alerts, sync completions, schedule runs, errors — filterable by type and date
+- [ ] **POLISH-05** — Batch progress detail: per-object live progress bars during sync/seed execution (records processed / total), replace 50% placeholder
+- [ ] **POLISH-06** — Org switch cache invalidation: clear all module caches (schema, describe, limits) when user switches active org, show "Refreshing..." indicator
+
+## v2 — Next Milestone Candidates
+
+- [ ] Delta clone: only new/modified records since last clone (requires change tracking)
+- [ ] Sync conflict auto-learning: ML model that learns user's resolution preferences
+- [ ] Custom persona creation via AI (chat-driven persona builder)
+- [ ] Pipeline scheduling via cron (extend SCHED to Automation module)
+- [ ] Real-time collaboration (multi-user editing of sync configs)
+- [ ] Enterprise integrations (Slack notifications, Datadog metrics, PagerDuty alerts)
+
+## Out of Scope
+
+- Monitor module changes (v1.2.1 just shipped, stable)
+- Forge/Autopilot module changes (v1.2.0 just shipped, stable)
+- New modules (no new top-level modules this milestone)
+- Multi-LLM support (future milestone)
+- Architecture refactoring (bridge, Grappe system — works fine as-is)
