@@ -37,6 +37,7 @@ function createMockBroker() {
 function createMockOrchestrator() {
   let statusHandler: ((status: RealTimeSyncStatus) => void) | null = null;
   let eventFeedHandler: ((event: unknown, applied: boolean, error?: string) => void) | null = null;
+  let conflictFeedHandler: ((conflict: unknown) => void) | null = null;
 
   return {
     start: vi.fn().mockResolvedValue(undefined),
@@ -62,6 +63,10 @@ function createMockOrchestrator() {
       eventFeedHandler = handler;
       return () => { eventFeedHandler = null; };
     }),
+    onConflictDetected: vi.fn((handler: (conflict: unknown) => void) => {
+      conflictFeedHandler = handler;
+      return () => { conflictFeedHandler = null; };
+    }),
     /** Simulate a status change. */
     emitStatus(status: RealTimeSyncStatus): void {
       statusHandler?.(status);
@@ -69,6 +74,10 @@ function createMockOrchestrator() {
     /** Simulate an event feed. */
     emitEvent(event: unknown, applied: boolean, error?: string): void {
       eventFeedHandler?.(event, applied, error);
+    },
+    /** Simulate a conflict detection. */
+    emitConflict(conflict: unknown): void {
+      conflictFeedHandler?.(conflict);
     },
   };
 }
@@ -211,5 +220,85 @@ describe('RealTimeSyncMessageHandler', () => {
   it('should clean up handlers on dispose', () => {
     handler.dispose();
     expect(batcher.dispose).toHaveBeenCalled();
+  });
+
+  it('should subscribe to conflict feed and post realtime:conflict messages', () => {
+    expect(orchestrator.onConflictDetected).toHaveBeenCalled();
+
+    const mockConflict = {
+      event: {
+        replayId: 42,
+        objectApiName: 'Account',
+        changeType: 'UPDATE',
+        recordIds: ['001xx0000001234'],
+        changedFields: { Name: 'New Name' },
+        commitTimestamp: '2026-03-27T10:00:00Z',
+        commitUser: '005xx',
+        transactionKey: 'tx-1',
+      },
+      targetValues: { Name: 'Old Name', LastModifiedDate: '2026-03-27T10:01:00Z' },
+      targetLastModified: '2026-03-27T10:01:00Z',
+      resolved: false,
+    };
+
+    orchestrator.emitConflict(mockConflict);
+
+    expect(broker.postToWebview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'realtime:conflict',
+        payload: expect.objectContaining({
+          replayId: 42,
+          objectApiName: 'Account',
+          sourceValues: { Name: 'New Name' },
+          targetValues: { Name: 'Old Name', LastModifiedDate: '2026-03-27T10:01:00Z' },
+        }),
+      }),
+    );
+  });
+
+  it('should register handler for realtime:resolve-conflict', () => {
+    expect(broker.on).toHaveBeenCalledWith('realtime:resolve-conflict', expect.any(Function));
+  });
+
+  it('should handle realtime:resolve-conflict with bulk strategy', () => {
+    const msg = makeMsg('realtime:resolve-conflict', {
+      conflictId: 'Account:001xx:2026-03-27T10:00:00Z',
+      resolution: 'source_wins',
+    });
+
+    broker.dispatch(msg);
+
+    expect(broker.postToWebview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'realtime:conflict-resolved',
+        payload: expect.objectContaining({
+          conflictId: 'Account:001xx:2026-03-27T10:00:00Z',
+          resolution: 'source_wins',
+          success: true,
+        }),
+      }),
+    );
+  });
+
+  it('should handle realtime:resolve-conflict with per-field resolutions', () => {
+    const msg = makeMsg('realtime:resolve-conflict', {
+      conflictId: 'Account:001xx:2026-03-27T10:00:00Z',
+      resolution: 'manual',
+      fieldResolutions: {
+        Name: { value: 'Custom', source: 'manual' },
+      },
+    });
+
+    broker.dispatch(msg);
+
+    expect(broker.postToWebview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'realtime:conflict-resolved',
+        payload: expect.objectContaining({
+          conflictId: 'Account:001xx:2026-03-27T10:00:00Z',
+          success: true,
+        }),
+      }),
+    );
   });
 });

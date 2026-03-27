@@ -1,4 +1,4 @@
-import type { ConflictRecord, ConflictStrategy } from '@sandforge/shared';
+import type { ConflictRecord, ConflictStrategy, FieldResolution } from '@sandforge/shared';
 
 /** A record after conflict resolution with chosen values */
 export interface ResolvedRecord {
@@ -22,6 +22,44 @@ export class ConflictResolver {
     strategy: ConflictStrategy
   ): ResolvedRecord[] {
     return conflicts.map((conflict) => resolveConflict(conflict, strategy));
+  }
+
+  /**
+   * Resolve a conflict using per-field resolution choices.
+   * Each conflicting field gets its value from the specified source.
+   * Non-conflict fields are taken from the target record as baseline.
+   *
+   * @param conflict - The conflict record with source, target, and conflict field info
+   * @param fieldResolutions - Per-field choices mapping field name to resolution
+   * @returns Merged record values with all fields resolved
+   */
+  static resolvePerField(
+    conflict: ConflictRecord,
+    fieldResolutions: Record<string, FieldResolution>,
+  ): Record<string, unknown> {
+    // Start with all target values as baseline
+    const merged: Record<string, unknown> = { ...conflict.targetValues };
+
+    for (const field of conflict.conflictFields) {
+      const resolution = fieldResolutions[field];
+      if (!resolution) {
+        continue;
+      }
+
+      switch (resolution.source) {
+        case 'source':
+          merged[field] = conflict.sourceValues[field];
+          break;
+        case 'target':
+          merged[field] = conflict.targetValues[field];
+          break;
+        case 'manual':
+          merged[field] = resolution.value;
+          break;
+      }
+    }
+
+    return merged;
   }
 
   /**

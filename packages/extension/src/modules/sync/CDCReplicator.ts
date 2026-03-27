@@ -77,6 +77,15 @@ export class CDCReplicator {
   }
 
   /**
+   * Set or replace the conflict handler callback.
+   * Used by RealTimeSyncOrchestrator to wire conflict feed handlers
+   * after the replicator is created by the factory.
+   */
+  setOnConflict(handler: ConflictHandler): void {
+    (this.deps as { onConflict?: ConflictHandler }).onConflict = handler;
+  }
+
+  /**
    * Start the replicator, enabling event buffering and periodic flush.
    * Sets up a timer that flushes buffered events at the configured interval.
    */

@@ -42,7 +42,7 @@ describe('NoOpHandler', () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
 
-    for (const type of ['realtime:start', 'realtime:stop', 'realtime:status', 'realtime:metrics', 'realtime:resolve-conflict']) {
+    for (const type of ['realtime:start', 'realtime:stop', 'realtime:status', 'realtime:metrics']) {
       const msg: BaseMessage = { id: `req-${type}`, type, timestamp: Date.now() };
       expect(await handler.handle(msg)).toBe(true);
     }
