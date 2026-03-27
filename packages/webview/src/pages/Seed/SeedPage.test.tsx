@@ -69,10 +69,17 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 vi.mock('./Persona/PersonaGallery', () => ({
   PersonaGallery: ({ onPersonaSelected }: { onPersonaSelected: (p: unknown) => void }) => (
     <div data-testid="persona-gallery">
-      <button data-testid="mock-persona-select" onClick={() => onPersonaSelected({ id: 'test', name: 'Test' })}>
+      <button data-testid="mock-persona-select" onClick={() => onPersonaSelected({ id: 'test', name: 'Test', description: 'Test', industry: 'tech', locale: 'en_US', dataPatterns: {} })}>
         Select Persona
       </button>
     </div>
+  ),
+}));
+
+/* Mock InfoTooltip to simplify DOM assertions */
+vi.mock('../../components/ui/InfoTooltip', () => ({
+  InfoTooltip: ({ id }: { id: string; content: string }) => (
+    <span data-testid={`info-tooltip-${id}`} />
   ),
 }));
 
@@ -211,5 +218,23 @@ describe('SeedPage', () => {
 
     expect(screen.getByTestId('seed-error')).toBeDefined();
     expect(screen.getByText('Connection failed')).toBeDefined();
+  });
+
+  it('should show InfoTooltip on the Select step header', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-ai'));
+    fireEvent.click(screen.getByTestId('fork-card-scratch'));
+    expect(screen.getByTestId('info-tooltip-help.seed.selectObjects')).toBeDefined();
+  });
+
+  it('should switch to wizard when persona is selected from gallery', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-ai'));
+    fireEvent.click(screen.getByTestId('fork-card-persona'));
+    fireEvent.click(screen.getByTestId('mock-persona-select'));
+    // After persona selection, should switch to ai-scratch mode (wizard)
+    expect(screen.getByTestId('seed-wizard')).toBeDefined();
   });
 });

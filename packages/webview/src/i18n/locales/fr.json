@@ -513,6 +513,14 @@
       "backToPersonas": "Retour aux personas",
       "backToFork": "Retour au mode IA"
     },
+    "adaptive": {
+      "usingDefaults": "Utilisation des regles par defaut du persona.",
+      "customizeLink": "Personnaliser",
+      "searchObjects": "Rechercher des objets...",
+      "groupStandard": "Objets standard",
+      "groupCustom": "Objets personnalises",
+      "groupManaged": "Objets de packages geres"
+    },
     "clone": {
       "sourcePicker": {
         "title": "Selectionner les orgs source et cible",
@@ -554,6 +562,22 @@
         "stepPreview": "Apercu",
         "stepExecute": "Execution"
       }
+    }
+  },
+  "help": {
+    "seed": {
+      "selectObjects": "Choisissez les objets Salesforce a remplir avec des donnees",
+      "configureFields": "Personnalisez la generation de chaque champ — regles, plages et patterns",
+      "execute": "Verifiez et lancez la generation. Les resultats apparaissent ici"
+    },
+    "sync": {
+      "direction": "Choisissez quelle org envoie les donnees et laquelle les recoit"
+    },
+    "clone": {
+      "sourcePicker": "Selectionnez l'org source pour copier les enregistrements"
+    },
+    "home": {
+      "quickActions": "Acces rapide aux operations courantes en un clic"
     }
   },
   "sync": {

@@ -537,6 +537,14 @@
       "backToPersonas": "Back to personas",
       "backToFork": "Back to AI mode"
     },
+    "adaptive": {
+      "usingDefaults": "Using default field rules from persona.",
+      "customizeLink": "Customize",
+      "searchObjects": "Search objects...",
+      "groupStandard": "Standard Objects",
+      "groupCustom": "Custom Objects",
+      "groupManaged": "Managed Package Objects"
+    },
     "clone": {
       "sourcePicker": {
         "title": "Select Source & Target Orgs",
@@ -578,6 +586,22 @@
         "stepPreview": "Preview",
         "stepExecute": "Execute"
       }
+    }
+  },
+  "help": {
+    "seed": {
+      "selectObjects": "Choose which Salesforce objects to populate with data",
+      "configureFields": "Customize how each field is generated — rules, ranges, and patterns",
+      "execute": "Review and run the data generation. Results appear here when complete"
+    },
+    "sync": {
+      "direction": "Choose which org sends data and which receives it"
+    },
+    "clone": {
+      "sourcePicker": "Select the org to copy records from"
+    },
+    "home": {
+      "quickActions": "Jump to common operations with one click"
     }
   },
   "sync": {

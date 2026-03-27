@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
-import { Step3ConfigureFields } from './Step3_ConfigureFields';
+import { Step3ConfigureFields, categorizeObject } from './Step3_ConfigureFields';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { VRCheckResult, FieldGenerationConfig } from '@sandforge/shared';
 
@@ -199,5 +199,98 @@ describe('Step3ConfigureFields', () => {
     const input = field.querySelector('input');
     expect(input).toBeDefined();
     expect(input?.value).toBe('[A-Z]{3}');
+  });
+
+  it('should show grouped view with search filter for >20 objects', () => {
+    const makeField = (name: string) => ({
+      fieldApiName: name,
+      label: name,
+      type: 'String',
+      required: false,
+      ruleType: 'faker' as const,
+      config: {},
+    });
+
+    // Generate 25 objects: 10 standard + 10 custom + 5 managed
+    const largeConfigs: ObjectFieldConfig[] = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        objectApiName: `Obj${i}`,
+        objectLabel: `Obj ${i}`,
+        fields: [makeField('Field1')],
+      })),
+      ...Array.from({ length: 10 }, (_, i) => ({
+        objectApiName: `Custom${i}__c`,
+        objectLabel: `Custom ${i}`,
+        fields: [makeField('Field1')],
+      })),
+      ...Array.from({ length: 5 }, (_, i) => ({
+        objectApiName: `ns__Managed${i}__c`,
+        objectLabel: `Managed ${i}`,
+        fields: [makeField('Field1')],
+      })),
+    ];
+
+    render(
+      <Step3ConfigureFields objectConfigs={largeConfigs} onChangeRule={vi.fn()} onChangeConfig={vi.fn()} />,
+    );
+
+    // Should show search filter
+    expect(screen.getByTestId('configure-search-filter')).toBeDefined();
+    // Should show grouped accordion
+    expect(screen.getByTestId('configure-grouped-accordion')).toBeDefined();
+  });
+
+  it('should not show grouped view for <=20 objects', () => {
+    render(
+      <Step3ConfigureFields objectConfigs={configs} onChangeRule={vi.fn()} onChangeConfig={vi.fn()} />,
+    );
+    expect(screen.queryByTestId('configure-search-filter')).toBeNull();
+    expect(screen.queryByTestId('configure-grouped-accordion')).toBeNull();
+  });
+
+  it('should filter objects by search term in grouped view', () => {
+    const makeField = (name: string) => ({
+      fieldApiName: name,
+      label: name,
+      type: 'String',
+      required: false,
+      ruleType: 'faker' as const,
+      config: {},
+    });
+
+    const largeConfigs: ObjectFieldConfig[] = Array.from({ length: 22 }, (_, i) => ({
+      objectApiName: i === 0 ? 'UniqueSearchTarget' : `Obj${i}`,
+      objectLabel: i === 0 ? 'Unique Search Target' : `Obj ${i}`,
+      fields: [makeField('Field1')],
+    }));
+
+    render(
+      <Step3ConfigureFields objectConfigs={largeConfigs} onChangeRule={vi.fn()} onChangeConfig={vi.fn()} />,
+    );
+
+    const searchInput = screen.getByTestId('configure-search-filter');
+    fireEvent.change(searchInput, { target: { value: 'UniqueSearch' } });
+
+    // Only the matching object's header should appear
+    expect(screen.getByTestId('obj-header-UniqueSearchTarget')).toBeDefined();
+    expect(screen.queryByTestId('obj-header-Obj1')).toBeNull();
+  });
+});
+
+describe('categorizeObject', () => {
+  it('should categorize standard objects', () => {
+    expect(categorizeObject('Account')).toBe('standard');
+    expect(categorizeObject('Contact')).toBe('standard');
+    expect(categorizeObject('Lead')).toBe('standard');
+  });
+
+  it('should categorize custom objects', () => {
+    expect(categorizeObject('MyObject__c')).toBe('custom');
+    expect(categorizeObject('Invoice__c')).toBe('custom');
+  });
+
+  it('should categorize managed package objects', () => {
+    expect(categorizeObject('ns__ManagedObj__c')).toBe('managed');
+    expect(categorizeObject('copado__Deployment__c')).toBe('managed');
   });
 });
