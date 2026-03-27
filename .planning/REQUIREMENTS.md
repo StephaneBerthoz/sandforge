@@ -49,12 +49,12 @@
 
 ### CDC Real-Time Sync (CDC-01..06)
 
-- [ ] **CDC-01** — CDC subscription UI: select objects to watch, start/stop live stream, show connection status indicator (connected/reconnecting/disconnected)
-- [ ] **CDC-02** — Live event feed: real-time scrolling list of CDC events with object, record ID, change type (create/update/delete/undelete), timestamp, changed fields
-- [ ] **CDC-03** — Auto-sync on change: toggle per-object auto-apply (CDC event → replicate to target org automatically), with conflict strategy selector
-- [ ] **CDC-04** — CDC backend hardening: fix custom object channel naming bug, persist replay IDs to globalState, add watchdog reconnection on sleep/wake, fix event applied false positive, add handler cleanup on stop
-- [ ] **CDC-05** — CDC event batching: batch events from extension to WebView (100-200ms window), ring buffer on WebView side, virtual scrolling for event feed (@tanstack/react-virtual)
-- [ ] **CDC-06** — CDC metrics dashboard: events/sec throughput, replication lag, applied/failed/conflict counters, uptime indicator
+- [x] **CDC-01** — CDC subscription UI: select objects to watch, start/stop live stream, show connection status indicator (connected/reconnecting/disconnected)
+- [x] **CDC-02** — Live event feed: real-time scrolling list of CDC events with object, record ID, change type (create/update/delete/undelete), timestamp, changed fields
+- [x] **CDC-03** — Auto-sync on change: toggle per-object auto-apply (CDC event → replicate to target org automatically), with conflict strategy selector
+- [x] **CDC-04** — CDC backend hardening: fix custom object channel naming bug, persist replay IDs to globalState, add watchdog reconnection on sleep/wake, fix event applied false positive, add handler cleanup on stop
+- [x] **CDC-05** — CDC event batching: batch events from extension to WebView (100-200ms window), ring buffer on WebView side, virtual scrolling for event feed (@tanstack/react-virtual)
+- [x] **CDC-06** — CDC metrics dashboard: events/sec throughput, replication lag, applied/failed/conflict counters, uptime indicator
 
 ### Enterprise Scaling (SCALE-01..06)
 

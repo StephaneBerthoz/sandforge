@@ -12,14 +12,10 @@
 - Schedule persistence + restart survival
 - Schedule notifications (VSCode + opt-in desktop)
 
-## Phase 03 — CDC Real-Time Sync
+## Phase 03 — CDC Real-Time Sync ✓ Complete (2026-03-27)
 **Requirements:** CDC-01, CDC-02, CDC-03, CDC-04, CDC-05, CDC-06
-**Why third:** Depends on virtual scrolling (Phase 01) for event feed and history infrastructure (Phase 02) for logging CDC events. Biggest backend hardening effort — 4 bugs to fix + replay persistence + watchdog.
-
-**Scope:**
-- Fix CDCListener.buildChannels() custom object bug (share monitor module's logic)
-- Fix RealTimeSyncOrchestrator false positive event applied status
-- Persist replay IDs to ExtensionContext.globalState
+**Plans:** 3 plans, 3 waves, 9 tasks, 31/31 must-haves verified
+**Key deliverables:** Shared buildCdcChannel (custom object fix), replay ID persistence, watchdog reconnection, handler cleanup, CDCEventBatcher (150ms), CDCSubscriptionPanel, CDCEventFeed (VirtualList + ring buffer 5000), auto-sync toggle with conflict strategy, RealTimeSyncMessageHandler, CDCMetricsDashboard (sparkline, lag, counters, uptime), 7986 tests passing
 - Add watchdog reconnection on sleep/wake
 - Add handler cleanup on stop (prevent memory leaks)
 - Event batching (100-200ms window) + ring buffer on WebView
