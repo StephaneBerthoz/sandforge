@@ -1,7 +1,14 @@
-import type { BaseMessage, RealTimeSyncConfig } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  RealTimeSyncConfig,
+  CDCConflict,
+  ConflictStrategy,
+  FieldResolution,
+} from '@sandforge/shared';
 import type { MessageBroker } from '../../bridge/MessageBroker.js';
 import type { RealTimeSyncOrchestrator } from './RealTimeSyncOrchestrator.js';
 import type { CDCEventBatcher } from './CDCEventBatcher.js';
+import { ConflictResolver } from './ConflictResolver.js';
 
 /**
  * Wires WebView <-> Extension messaging for real-time CDC sync.
@@ -13,9 +20,11 @@ export class RealTimeSyncMessageHandler {
   private readonly broker: MessageBroker;
   private readonly orchestrator: RealTimeSyncOrchestrator;
   private readonly batcher: CDCEventBatcher;
+  private readonly conflictResolver: ConflictResolver;
   private unsubscribers: Array<() => void> = [];
   private statusUnsub: (() => void) | null = null;
   private eventFeedUnsub: (() => void) | null = null;
+  private conflictFeedUnsub: (() => void) | null = null;
 
   /**
    * @param broker - Central message broker for WebView communication
@@ -30,6 +39,7 @@ export class RealTimeSyncMessageHandler {
     this.broker = broker;
     this.orchestrator = orchestrator;
     this.batcher = batcher;
+    this.conflictResolver = new ConflictResolver();
   }
 
   /**
@@ -42,6 +52,28 @@ export class RealTimeSyncMessageHandler {
       this.broker.on('realtime:stop', (msg) => this.handleStop(msg)),
       this.broker.on('realtime:status', (msg) => this.handleStatus(msg)),
       this.broker.on('realtime:metrics', (msg) => this.handleMetrics(msg)),
+      this.broker.on('realtime:resolve-conflict', (msg) => this.handleResolveConflict(msg)),
+    );
+
+    // Subscribe to conflict feed from orchestrator
+    this.conflictFeedUnsub?.();
+    this.conflictFeedUnsub = this.orchestrator.onConflictDetected(
+      (conflict: CDCConflict) => {
+        this.broker.postToWebview({
+          id: `rt-conflict-${Date.now()}`,
+          type: 'realtime:conflict',
+          timestamp: Date.now(),
+          payload: {
+            replayId: conflict.event.replayId,
+            objectApiName: conflict.event.objectApiName,
+            recordIds: conflict.event.recordIds,
+            changeType: conflict.event.changeType,
+            sourceValues: conflict.event.changedFields,
+            targetValues: conflict.targetValues,
+            targetLastModified: conflict.targetLastModified,
+          },
+        } as BaseMessage);
+      },
     );
   }
 
@@ -58,6 +90,8 @@ export class RealTimeSyncMessageHandler {
     this.statusUnsub = null;
     this.eventFeedUnsub?.();
     this.eventFeedUnsub = null;
+    this.conflictFeedUnsub?.();
+    this.conflictFeedUnsub = null;
     this.batcher.dispose();
   }
 
@@ -135,6 +169,68 @@ export class RealTimeSyncMessageHandler {
         status,
         watchedObjects: this.orchestrator.getWatchedObjects(),
         sessionId: this.orchestrator.getSessionId(),
+      },
+    } as BaseMessage);
+  }
+
+  private handleResolveConflict(msg: BaseMessage): void {
+    const payload = (msg as BaseMessage & {
+      payload: {
+        conflictId: string;
+        eventReplayId?: number;
+        resolution: string;
+        fieldResolutions?: Record<string, FieldResolution>;
+      };
+    }).payload;
+
+    const { conflictId, resolution, fieldResolutions } = payload;
+
+    let resolvedValues: Record<string, unknown> | undefined;
+    let success = true;
+
+    try {
+      if (fieldResolutions && Object.keys(fieldResolutions).length > 0) {
+        // Per-field resolution via ConflictResolver.resolvePerField
+        // Build a minimal ConflictRecord from the payload
+        const conflictFields = Object.keys(fieldResolutions);
+        resolvedValues = ConflictResolver.resolvePerField(
+          {
+            objectApiName: '',
+            recordId: conflictId,
+            sourceValues: {},
+            targetValues: {},
+            conflictFields,
+          },
+          fieldResolutions,
+        );
+      } else {
+        // Bulk strategy resolution -- delegate to ConflictResolver
+        const strategy = resolution as ConflictStrategy;
+        const resolved = this.conflictResolver.resolve(
+          [{
+            objectApiName: '',
+            recordId: conflictId,
+            sourceValues: {},
+            targetValues: {},
+            conflictFields: [],
+          }],
+          strategy,
+        );
+        resolvedValues = resolved[0]?.resolvedValues;
+      }
+    } catch {
+      success = false;
+    }
+
+    this.broker.postToWebview({
+      id: `rt-conflict-resolved-${Date.now()}`,
+      type: 'realtime:conflict-resolved',
+      timestamp: Date.now(),
+      payload: {
+        conflictId,
+        resolution,
+        success,
+        resolvedValues,
       },
     } as BaseMessage);
   }

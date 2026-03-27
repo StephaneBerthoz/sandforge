@@ -71,6 +71,7 @@ function createMockReplicator(): CDCReplicator {
     getAverageLagMs: vi.fn().mockReturnValue(0),
     getCurrentLagMs: vi.fn().mockReturnValue(0),
     isRunning: vi.fn().mockReturnValue(false),
+    setOnConflict: vi.fn(),
   } as unknown as CDCReplicator;
 }
 
@@ -412,6 +413,30 @@ describe('RealTimeSyncOrchestrator', () => {
       // Handler should have been removed -- no way to verify directly without emitting
       // a conflict, but we confirm the function returns without error
       expect(unsub).toBeTypeOf('function');
+    });
+
+    it('should wire conflict feed handlers via replicator onConflict callback', async () => {
+      const conflictHandler = vi.fn();
+      orchestrator.onConflictDetected(conflictHandler);
+
+      await orchestrator.start(createConfig());
+
+      // Verify setOnConflict was called on the replicator
+      expect(vi.mocked(mockReplicator.setOnConflict)).toHaveBeenCalledWith(
+        expect.any(Function),
+      );
+
+      // Simulate replicator emitting a conflict via the wired callback
+      const onConflictFn = vi.mocked(mockReplicator.setOnConflict).mock.calls[0][0];
+      const conflict = {
+        event: createTestEvent(),
+        targetValues: { Name: 'Target' },
+        targetLastModified: new Date().toISOString(),
+        resolved: false,
+      };
+      onConflictFn(conflict);
+
+      expect(conflictHandler).toHaveBeenCalledWith(conflict);
     });
 
     it('should clear all handler arrays on stop', async () => {

@@ -347,6 +347,7 @@ export type ExtensionToWebViewMessage =
   | RealTimeStatusResponse
   | RealTimeMetricsResponse
   | RealTimeConflictDetected
+  | RealTimeConflictResolvedResponse
   | CacheInvalidateAllResponse
   | CacheStatsResponse
   | ExecutionProgressMessage
@@ -1678,6 +1679,17 @@ export interface RealTimeConflictDetected extends BaseMessage {
     sourceValues: Record<string, unknown>;
     targetValues: Record<string, unknown>;
     targetLastModified: string;
+  };
+}
+
+/** Response confirming a real-time sync conflict has been resolved. */
+export interface RealTimeConflictResolvedResponse extends BaseMessage {
+  type: 'realtime:conflict-resolved';
+  payload: {
+    conflictId: string;
+    resolution: string;
+    success: boolean;
+    resolvedValues?: Record<string, unknown>;
   };
 }
 

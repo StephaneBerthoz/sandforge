@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ConflictResolver } from './ConflictResolver';
-import type { ConflictRecord } from '@sandforge/shared';
+import type { ConflictRecord, FieldResolution } from '@sandforge/shared';
 
 function createConflict(overrides?: Partial<ConflictRecord>): ConflictRecord {
   return {
@@ -170,6 +170,98 @@ describe('ConflictResolver', () => {
       const conflicts = resolver.detectConflicts(source, target, 'Id');
 
       expect(conflicts).toHaveLength(0);
+    });
+  });
+
+  describe('resolvePerField', () => {
+    it('should resolve all fields from source', () => {
+      const conflict = createConflict({
+        sourceValues: { Name: 'Source', Industry: 'Tech' },
+        targetValues: { Name: 'Target', Industry: 'Finance' },
+        conflictFields: ['Name', 'Industry'],
+      });
+
+      const resolutions: Record<string, FieldResolution> = {
+        Name: { value: 'Source', source: 'source' },
+        Industry: { value: 'Tech', source: 'source' },
+      };
+
+      const result = ConflictResolver.resolvePerField(conflict, resolutions);
+
+      expect(result.Name).toBe('Source');
+      expect(result.Industry).toBe('Tech');
+    });
+
+    it('should resolve all fields from target', () => {
+      const conflict = createConflict({
+        sourceValues: { Name: 'Source', Industry: 'Tech' },
+        targetValues: { Name: 'Target', Industry: 'Finance' },
+        conflictFields: ['Name', 'Industry'],
+      });
+
+      const resolutions: Record<string, FieldResolution> = {
+        Name: { value: 'Target', source: 'target' },
+        Industry: { value: 'Finance', source: 'target' },
+      };
+
+      const result = ConflictResolver.resolvePerField(conflict, resolutions);
+
+      expect(result.Name).toBe('Target');
+      expect(result.Industry).toBe('Finance');
+    });
+
+    it('should resolve with mixed source/target/manual choices', () => {
+      const conflict = createConflict({
+        sourceValues: { Name: 'Source', Industry: 'Tech', Phone: '111' },
+        targetValues: { Name: 'Target', Industry: 'Finance', Phone: '222' },
+        conflictFields: ['Name', 'Industry', 'Phone'],
+      });
+
+      const resolutions: Record<string, FieldResolution> = {
+        Name: { value: 'Source', source: 'source' },
+        Industry: { value: 'Finance', source: 'target' },
+        Phone: { value: '333', source: 'manual' },
+      };
+
+      const result = ConflictResolver.resolvePerField(conflict, resolutions);
+
+      expect(result.Name).toBe('Source');
+      expect(result.Industry).toBe('Finance');
+      expect(result.Phone).toBe('333');
+    });
+
+    it('should use manual edit values for manual source', () => {
+      const conflict = createConflict({
+        sourceValues: { Name: 'Source' },
+        targetValues: { Name: 'Target' },
+        conflictFields: ['Name'],
+      });
+
+      const resolutions: Record<string, FieldResolution> = {
+        Name: { value: 'Custom Value', source: 'manual' },
+      };
+
+      const result = ConflictResolver.resolvePerField(conflict, resolutions);
+
+      expect(result.Name).toBe('Custom Value');
+    });
+
+    it('should preserve non-conflict target fields as baseline', () => {
+      const conflict = createConflict({
+        sourceValues: { Name: 'Source' },
+        targetValues: { Name: 'Target', Phone: '555', Industry: 'Tech' },
+        conflictFields: ['Name'],
+      });
+
+      const resolutions: Record<string, FieldResolution> = {
+        Name: { value: 'Source', source: 'source' },
+      };
+
+      const result = ConflictResolver.resolvePerField(conflict, resolutions);
+
+      expect(result.Name).toBe('Source');
+      expect(result.Phone).toBe('555');
+      expect(result.Industry).toBe('Tech');
     });
   });
 });

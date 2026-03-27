@@ -113,6 +113,11 @@ export class RealTimeSyncOrchestrator {
     this.listener = this.deps.createListener(config);
     this.replicator = this.deps.createReplicator(config);
 
+    // Wire conflict feed: forward CDCReplicator conflicts to registered handlers
+    this.replicator.setOnConflict((conflict) => {
+      this.emitConflict(conflict);
+    });
+
     // Wire listener events to replicator
     this.listener.onEvent((event) => {
       this.eventsReceived++;
@@ -294,6 +299,12 @@ export class RealTimeSyncOrchestrator {
   ): void {
     for (const handler of this.eventFeedHandlers) {
       handler(event, applied, error);
+    }
+  }
+
+  private emitConflict(conflict: CDCConflict): void {
+    for (const handler of this.conflictFeedHandlers) {
+      handler(conflict);
     }
   }
 
