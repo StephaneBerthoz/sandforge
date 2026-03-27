@@ -253,7 +253,15 @@ export type WebViewToExtensionMessage =
   | CacheInvalidateAllRequest
   | CacheGetStatsRequest
   | ExecutionManualRetryRequest
-  | ExecutionAbortRequest;
+  | ExecutionAbortRequest
+  | SyncHistoryListRequest
+  | SyncHistoryDetailRequest
+  | SyncHistoryRerunRequest
+  | SyncHistoryExportRequest
+  | SyncScheduleListRequest
+  | SyncScheduleUpsertRequest
+  | SyncScheduleToggleRequest
+  | SyncScheduleDeleteRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -341,7 +349,14 @@ export type ExtensionToWebViewMessage =
   | CacheInvalidateAllResponse
   | CacheStatsResponse
   | ExecutionProgressMessage
-  | ExecutionRetryStatusMessage;
+  | ExecutionRetryStatusMessage
+  | SyncHistoryListResponse
+  | SyncHistoryDetailResponse
+  | SyncHistoryExportResponse
+  | SyncScheduleListResponse
+  | SyncScheduleUpsertResponse
+  | SyncScheduleToggleResponse
+  | SyncScheduleDeleteResponse;
 
 /** Org management messages */
 export interface OrgListRequest extends BaseMessage {
@@ -1690,5 +1705,97 @@ export interface CacheStatsResponse extends BaseMessage {
   payload: {
     stats: Array<{ name: string; size: number }>;
   };
+}
+
+// ─── Sync History Messages ───────────────────────────────────────────────────
+
+/** Request to list all sync history entries. */
+export interface SyncHistoryListRequest extends BaseMessage {
+  type: 'sync:history:list';
+}
+
+/** Response containing all sync history entries. */
+export interface SyncHistoryListResponse extends BaseMessage {
+  type: 'sync:history:list:response';
+  payload: { entries: import('./sync.types.js').SyncHistoryEntry[] };
+}
+
+/** Request to get a single sync history entry by ID. */
+export interface SyncHistoryDetailRequest extends BaseMessage {
+  type: 'sync:history:detail';
+  payload: { entryId: string };
+}
+
+/** Response containing a single sync history entry. */
+export interface SyncHistoryDetailResponse extends BaseMessage {
+  type: 'sync:history:detail:response';
+  payload: { entry: import('./sync.types.js').SyncHistoryEntry | null };
+}
+
+/** Request to re-run a sync from a history entry's config snapshot. */
+export interface SyncHistoryRerunRequest extends BaseMessage {
+  type: 'sync:history:rerun';
+  payload: { entryId: string };
+}
+
+/** Request to export sync history entries. */
+export interface SyncHistoryExportRequest extends BaseMessage {
+  type: 'sync:history:export';
+  payload: { format: import('./reporting.types.js').ExportFormat; entryIds?: string[] };
+}
+
+/** Response containing exported sync history data. */
+export interface SyncHistoryExportResponse extends BaseMessage {
+  type: 'sync:history:export:response';
+  payload: { data: string; format: import('./reporting.types.js').ExportFormat; filename: string };
+}
+
+// ─── Sync Schedule Messages ──────────────────────────────────────────────────
+
+/** Request to list all sync schedules. */
+export interface SyncScheduleListRequest extends BaseMessage {
+  type: 'sync:schedule:list';
+}
+
+/** Response containing all sync schedule entries. */
+export interface SyncScheduleListResponse extends BaseMessage {
+  type: 'sync:schedule:list:response';
+  payload: { schedules: import('./sync.types.js').SyncScheduleEntry[] };
+}
+
+/** Request to create or update a sync schedule. */
+export interface SyncScheduleUpsertRequest extends BaseMessage {
+  type: 'sync:schedule:upsert';
+  payload: { schedule: Omit<import('./sync.types.js').SyncScheduleEntry, 'nextRunAt' | 'lastRunAt' | 'lastResult'> };
+}
+
+/** Response after creating or updating a sync schedule. */
+export interface SyncScheduleUpsertResponse extends BaseMessage {
+  type: 'sync:schedule:upsert:response';
+  payload: { success: boolean; schedule?: import('./sync.types.js').SyncScheduleEntry };
+}
+
+/** Request to toggle a sync schedule on/off. */
+export interface SyncScheduleToggleRequest extends BaseMessage {
+  type: 'sync:schedule:toggle';
+  payload: { scheduleId: string; enabled: boolean };
+}
+
+/** Response after toggling a sync schedule. */
+export interface SyncScheduleToggleResponse extends BaseMessage {
+  type: 'sync:schedule:toggle:response';
+  payload: { success: boolean; schedule?: import('./sync.types.js').SyncScheduleEntry };
+}
+
+/** Request to delete a sync schedule. */
+export interface SyncScheduleDeleteRequest extends BaseMessage {
+  type: 'sync:schedule:delete';
+  payload: { scheduleId: string };
+}
+
+/** Response after deleting a sync schedule. */
+export interface SyncScheduleDeleteResponse extends BaseMessage {
+  type: 'sync:schedule:delete:response';
+  payload: { success: boolean };
 }
 
