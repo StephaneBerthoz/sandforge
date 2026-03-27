@@ -1,4 +1,4 @@
-import type { BaseMessage, SeedTemplate } from '@sandforge/shared';
+import type { BaseMessage, SeedTemplate, PersonaMsg } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
 import type { RobustnessConfig } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
@@ -8,6 +8,7 @@ import {
 } from './HandlerTypes.js';
 import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
 import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
+import { AIPersonaManager } from '../../modules/ai/AIPersonaManager.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
@@ -26,6 +27,8 @@ const SEED_TYPES = new Set([
   'seed:template:load',
   'seed:template:list',
   'seed:template:delete',
+  'seed:list-personas',
+  'seed:create-persona',
 ]);
 
 /**
@@ -42,6 +45,9 @@ export class SeedOpsHandler implements DomainHandler {
   /** Template manager backed by persistent store. */
   private readonly templateManager: SeedTemplateManager;
 
+  /** AI persona manager for built-in and custom personas. */
+  private readonly personaManager: AIPersonaManager;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.seedTemplateStore = new SeedTemplateStore(deps.configStore);
@@ -50,6 +56,7 @@ export class SeedOpsHandler implements DomainHandler {
       () => new Date().toISOString(),
       this.seedTemplateStore,
     );
+    this.personaManager = new AIPersonaManager();
   }
 
   /**
@@ -82,6 +89,12 @@ export class SeedOpsHandler implements DomainHandler {
         return true;
       case 'seed:template:delete':
         await this.handleTemplateDelete(msg);
+        return true;
+      case 'seed:list-personas':
+        await this.handleListPersonas(msg);
+        return true;
+      case 'seed:create-persona':
+        await this.handleCreatePersona(msg);
         return true;
       default:
         return false;
@@ -170,6 +183,71 @@ export class SeedOpsHandler implements DomainHandler {
   private getRobustnessConfig(): RobustnessConfig {
     const raw = this.deps.configStore.get<Partial<RobustnessConfig>>('robustness:config');
     return RobustnessConfigSchema.parse(raw ?? {});
+  }
+
+  /** List all built-in and custom personas. */
+  private async handleListPersonas(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const builtIn = this.personaManager.getBuiltInPersonas();
+      const custom = this.personaManager.getCustomPersonas();
+      const personas: PersonaMsg[] = [...builtIn, ...custom].map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        industry: p.industry,
+        locale: p.locale,
+        dataPatterns: p.dataPatterns,
+      }));
+      const response = buildResponse(this.deps, msg, 'seed:list-personas:response', { personas });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:list-personas', 'seed:error', err);
+    }
+  }
+
+  /** Create a custom persona from a text description using AI. */
+  private async handleCreatePersona(msg: BaseMessage): Promise<void> {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    try {
+      const payload = (msg as BaseMessage & { payload: { description: string } }).payload;
+      if (!payload.description || payload.description.trim().length === 0) {
+        const response = buildResponse(this.deps, msg, 'seed:create-persona:response', {
+          persona: { id: '', name: '', description: '', industry: '', locale: '', dataPatterns: {} },
+          success: false,
+          error: 'Description is required to create a custom persona',
+        });
+        this.deps.broker.postToWebview(response);
+        return;
+      }
+
+      const aiProvider = async (prompt: string): Promise<string> => {
+        const aiKey = await this.deps.secretVault.getSecret('ai:apiKey');
+        if (!aiKey) {
+          throw new Error('AI provider not configured. Please set an API key in Settings.');
+        }
+        return prompt;
+      };
+
+      const persona = await this.personaManager.createCustomPersona(payload.description, aiProvider);
+      const personaMsg: PersonaMsg = {
+        id: persona.id,
+        name: persona.name,
+        description: persona.description,
+        industry: persona.industry,
+        locale: persona.locale,
+        dataPatterns: persona.dataPatterns,
+      };
+      const response = buildResponse(this.deps, msg, 'seed:create-persona:response', {
+        persona: personaMsg,
+        success: true,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'seed:create-persona', 'seed:error', err);
+    }
   }
 
   private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
