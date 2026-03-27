@@ -18,6 +18,7 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
 import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
 
@@ -238,6 +239,8 @@ export class SyncOpsHandler implements DomainHandler {
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
     const robustnessConfig = this.getRobustnessConfig();
+    let progressTracker: BulkJobProgressTracker | undefined;
+    let unsubProgress: (() => void) | undefined;
 
     try {
       const config = payload.config as unknown as import('@sandforge/shared').SyncConfig;
@@ -282,6 +285,15 @@ export class SyncOpsHandler implements DomainHandler {
       // Build robustness utilities
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
       const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
+      progressTracker = new BulkJobProgressTracker(bulkManager);
+      unsubProgress = progressTracker.onProgress((progress) => {
+        this.deps.broker.postToWebview({
+          id: crypto.randomUUID(),
+          type: 'execution:progress',
+          timestamp: Date.now(),
+          payload: progress,
+        } as unknown as import('@sandforge/shared').BaseMessage);
+      });
       const retryOp = new RetryableOperation({
         retryConfig: robustnessConfig.retry,
         onRetry: (attempt, classified, delay) => {
@@ -542,6 +554,9 @@ export class SyncOpsHandler implements DomainHandler {
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
       sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
     } finally {
+      progressTracker?.stopTracking(operationId);
+      unsubProgress?.();
+      progressTracker?.dispose();
       if (this.activeOperationIds.has(operationId)) {
         this.deps.infraServices?.performanceTracker?.complete(operationId);
         this.activeOperationIds.delete(operationId);

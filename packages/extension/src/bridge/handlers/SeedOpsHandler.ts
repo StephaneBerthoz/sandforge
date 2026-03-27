@@ -15,6 +15,7 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
+import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
 
 /** Message types handled by SeedOpsHandler. */
 const SEED_TYPES = new Set([
@@ -240,6 +241,8 @@ export class SeedOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean } }).payload;
     const operationId = crypto.randomUUID();
     const robustnessConfig = this.getRobustnessConfig();
+    let progressTracker: BulkJobProgressTracker | undefined;
+    let unsubProgress: (() => void) | undefined;
 
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
@@ -280,6 +283,15 @@ export class SeedOpsHandler implements DomainHandler {
       // Build robustness-aware insert function
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
       const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
+      progressTracker = new BulkJobProgressTracker(bulkManager);
+      unsubProgress = progressTracker.onProgress((progress) => {
+        this.deps.broker.postToWebview({
+          id: crypto.randomUUID(),
+          type: 'execution:progress',
+          timestamp: Date.now(),
+          payload: progress,
+        } as unknown as import('@sandforge/shared').BaseMessage);
+      });
       const retryOp = new RetryableOperation({
         retryConfig: robustnessConfig.retry,
         onRetry: (attempt, classified, delay) => {
@@ -379,6 +391,10 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
       sendHandlerError(this.deps, 'seed:execute', 'seed:error', err);
+    } finally {
+      progressTracker?.stopTracking(operationId);
+      unsubProgress?.();
+      progressTracker?.dispose();
     }
   }
 }

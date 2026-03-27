@@ -16,6 +16,8 @@ export interface BulkJobInfo {
   numberRecordsFailed: number;
   totalProcessingTime: number;
   createdDate: string;
+  /** Total records submitted to the job (set when known). */
+  totalRecords?: number;
 }
 
 /** Options for creating a Bulk API 2.0 job */
@@ -66,6 +68,14 @@ export class BulkApiManager {
     if (!job) return false;
     job.numberRecordsProcessed = processed;
     job.numberRecordsFailed = failed;
+    return true;
+  }
+
+  /** Update the total records count for a tracked job */
+  updateTotalRecords(jobId: string, total: number): boolean {
+    const job = this.activeJobs.get(jobId);
+    if (!job) return false;
+    job.totalRecords = total;
     return true;
   }
 
