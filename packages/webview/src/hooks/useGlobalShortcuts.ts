@@ -18,9 +18,21 @@ const CHORD_MAP: Record<string, ModuleRoute> = {
   e: 'settings',
 };
 
+/** Ctrl+number direct navigation map. */
+const CTRL_NUM_MAP: Record<string, ModuleRoute> = {
+  '1': 'monitor',
+  '2': 'seed',
+  '3': 'sync',
+  '4': 'compare',
+  '5': 'dataops',
+  '6': 'automation',
+};
+
 /**
  * Registers global keyboard shortcuts for navigation and actions.
- * Supports chord sequences like G→H for "Go to Home".
+ * Supports chord sequences like G followed by H for "Go to Home",
+ * Ctrl+1..6 for direct module navigation,
+ * Ctrl+Enter for execute, and Escape for cancel.
  * Ignores keystrokes inside input/textarea elements.
  */
 export function useGlobalShortcuts(): void {
@@ -31,12 +43,40 @@ export function useGlobalShortcuts(): void {
     const handleKeyDown = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement;
       const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+
+      /* ── Ctrl/Meta shortcuts (work even in inputs for Ctrl+Enter) ── */
+      const ctrlOrMeta = e.ctrlKey || e.metaKey;
+
+      // Ctrl+1..6 — direct module navigation (skip in inputs)
+      if (ctrlOrMeta && !e.shiftKey && !e.altKey && !isInput) {
+        const route = CTRL_NUM_MAP[e.key];
+        if (route) {
+          e.preventDefault();
+          useAppStore.getState().navigate(route);
+          return;
+        }
+      }
+
+      // Ctrl+Enter — dispatch sandforge:execute event
+      if (ctrlOrMeta && e.key === 'Enter') {
+        e.preventDefault();
+        document.dispatchEvent(new CustomEvent('sandforge:execute'));
+        return;
+      }
+
+      // Escape — dispatch sandforge:cancel event (only if not already handled)
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        document.dispatchEvent(new CustomEvent('sandforge:cancel'));
+        return;
+      }
+
+      // Skip chord navigation in inputs
       if (isInput) return;
 
       const key = e.key.toLowerCase();
 
       // Handle chord second key
-      if (pendingChord.current === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (pendingChord.current === 'g' && !ctrlOrMeta && !e.altKey) {
         if (chordTimer.current) {
           clearTimeout(chordTimer.current);
           chordTimer.current = null;
@@ -52,7 +92,7 @@ export function useGlobalShortcuts(): void {
       }
 
       // Start chord with 'g'
-      if (key === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if (key === 'g' && !ctrlOrMeta && !e.altKey && !e.shiftKey) {
         pendingChord.current = 'g';
         chordTimer.current = setTimeout(() => {
           pendingChord.current = null;

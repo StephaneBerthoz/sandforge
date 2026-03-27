@@ -30,6 +30,18 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     ],
   },
   {
+    titleKey: 'shortcuts.quickNav',
+    fallback: 'Quick Navigation',
+    shortcuts: [
+      { keys: ['Ctrl', '1'], descriptionKey: 'shortcuts.ctrlModule1', fallback: 'Go to Monitor' },
+      { keys: ['Ctrl', '2'], descriptionKey: 'shortcuts.ctrlModule2', fallback: 'Go to Seed' },
+      { keys: ['Ctrl', '3'], descriptionKey: 'shortcuts.ctrlModule3', fallback: 'Go to Sync' },
+      { keys: ['Ctrl', '4'], descriptionKey: 'shortcuts.ctrlModule4', fallback: 'Go to Compare' },
+      { keys: ['Ctrl', '5'], descriptionKey: 'shortcuts.ctrlModule5', fallback: 'Go to DataOps' },
+      { keys: ['Ctrl', '6'], descriptionKey: 'shortcuts.ctrlModule6', fallback: 'Go to Automation' },
+    ],
+  },
+  {
     titleKey: 'shortcuts.modules',
     fallback: 'Modules',
     shortcuts: [
@@ -47,7 +59,8 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     fallback: 'Actions',
     shortcuts: [
       { keys: ['Ctrl', 'S'], descriptionKey: 'shortcuts.saveSettings', fallback: 'Save Settings' },
-      { keys: ['Ctrl', 'Enter'], descriptionKey: 'shortcuts.executeAction', fallback: 'Execute / Confirm' },
+      { keys: ['Ctrl', 'Enter'], descriptionKey: 'shortcuts.execute', fallback: 'Execute current action' },
+      { keys: ['Esc'], descriptionKey: 'shortcuts.cancel', fallback: 'Cancel / Close' },
       { keys: ['Ctrl', 'Shift', 'P'], descriptionKey: 'shortcuts.openSettings', fallback: 'Open Settings' },
     ],
   },
