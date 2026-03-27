@@ -79,6 +79,7 @@ function createEmptyResult(): SyncObjectResult {
     success: 0,
     failed: 0,
     skipped: 0,
+    conflictCount: 0,
     errors: [],
   };
 }
@@ -109,6 +110,7 @@ function buildResult(outcomes: DeployOutcome[]): SyncObjectResult {
     success,
     failed,
     skipped: 0,
+    conflictCount: 0,
     errors,
   };
 }

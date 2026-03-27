@@ -198,6 +198,8 @@ export interface SyncObjectResult {
   success: number;
   failed: number;
   skipped: number;
+  /** Number of conflicts detected during this object's sync */
+  conflictCount: number;
   errors: string[];
 }
 
@@ -207,8 +209,53 @@ export interface ConflictRecord {
   recordId: string;
   sourceValues: Record<string, unknown>;
   targetValues: Record<string, unknown>;
+  /** Base (common ancestor) values for 3-way merge, if available */
+  baseValues?: Record<string, unknown>;
   conflictFields: string[];
   resolution?: ConflictStrategy;
+}
+
+/** Type of conflict detected between source and target */
+export type ConflictType = 'edit/edit' | 'delete/edit' | 'edit/delete' | 'create/edit';
+
+/** Per-field resolution choice for manual conflict resolution */
+export interface FieldResolution {
+  /** The resolved value for this field */
+  value: unknown;
+  /** Where the value came from */
+  source: 'source' | 'target' | 'manual';
+}
+
+/**
+ * Unified conflict representation for the UI.
+ * Normalizes both CDCConflict (real-time) and ConflictRecord (batch sync)
+ * into a single shape for display and resolution in the WebView.
+ */
+export interface UIConflict {
+  /** Unique ID for this conflict (e.g., `${objectApiName}:${recordId}:${timestamp}`) */
+  id: string;
+  /** API name of the Salesforce object */
+  objectApiName: ApiName;
+  /** Salesforce record ID */
+  recordId: string;
+  /** Type of conflict */
+  conflictType: ConflictType;
+  /** Values from the source org */
+  sourceValues: Record<string, unknown>;
+  /** Values from the target org */
+  targetValues: Record<string, unknown>;
+  /** Base (common ancestor) values for 3-way merge */
+  baseValues?: Record<string, unknown>;
+  /** List of field API names that are in conflict */
+  conflictFields: string[];
+  /** When the conflict was detected */
+  timestamp: ISODateString;
+  /** Whether the conflict has been resolved */
+  resolved: boolean;
+  /** Bulk resolution strategy applied, if any */
+  resolution?: ConflictStrategy;
+  /** Per-field resolution choices when strategy is 'manual' */
+  fieldResolutions?: Record<string, FieldResolution>;
 }
 
 /** Delta detection result */

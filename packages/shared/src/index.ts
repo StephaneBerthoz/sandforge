@@ -79,7 +79,7 @@ export * from './utils/cdcChannel.js';
 
 // Barrel exports — Services
 export { ConflictDiffService } from './services/ConflictDiffService.js';
-export type { FieldDiff, ThreeWayDiffResult } from './services/ConflictDiffService.js';
+export type { ConflictFieldDiff, ThreeWayDiffResult } from './services/ConflictDiffService.js';
 
 // Barrel exports — I18n
 export * from './i18n/index.js';

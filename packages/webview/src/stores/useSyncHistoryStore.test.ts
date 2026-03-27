@@ -30,6 +30,7 @@ const makeMockEntry = (id: string): SyncHistoryEntry => ({
         success: 98,
         failed: 2,
         skipped: 0,
+        conflictCount: 0,
         errors: ['Row 55: duplicate value'],
       },
     ],

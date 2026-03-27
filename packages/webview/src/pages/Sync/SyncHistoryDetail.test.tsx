@@ -42,6 +42,7 @@ const makeMockEntry = (): SyncHistoryEntry => ({
         success: 90,
         failed: 8,
         skipped: 2,
+        conflictCount: 0,
         errors: ['Row 55: duplicate value', 'Row 72: required field missing'],
       },
       {
@@ -51,6 +52,7 @@ const makeMockEntry = (): SyncHistoryEntry => ({
         success: 50,
         failed: 0,
         skipped: 0,
+        conflictCount: 0,
         errors: [],
       },
     ],

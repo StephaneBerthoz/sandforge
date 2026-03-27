@@ -33,6 +33,7 @@ const makeMockEntry = (id: string, status: 'success' | 'partial' | 'failure' = '
         success: 98,
         failed: 2,
         skipped: 0,
+        conflictCount: 0,
         errors: [],
       },
     ],

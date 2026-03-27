@@ -3,7 +3,7 @@ import diff from 'microdiff';
 /**
  * Represents a single field-level difference between two record snapshots.
  */
-export interface FieldDiff {
+export interface ConflictFieldDiff {
   /** The field API name that differs */
   field: string;
   /** Value in the source record */
@@ -23,7 +23,7 @@ export interface ThreeWayDiffResult {
   /** Fields that were automatically resolved (no overlap) */
   autoResolved: Record<string, unknown>;
   /** Fields where both source and target diverged from base */
-  conflicts: FieldDiff[];
+  conflicts: ConflictFieldDiff[];
 }
 
 /**
@@ -33,21 +33,21 @@ export interface ThreeWayDiffResult {
  */
 export class ConflictDiffService {
   /**
-   * Compare two flat records and return one FieldDiff per differing top-level field.
+   * Compare two flat records and return one ConflictFieldDiff per differing top-level field.
    * Salesforce records are flat key-value objects, so nested paths from microdiff
    * are collapsed to top-level field names only.
    *
    * @param source - The source record values
    * @param target - The target record values
-   * @returns An array of FieldDiff entries for every field that differs
+   * @returns An array of ConflictFieldDiff entries for every field that differs
    */
   static diffFields(
     source: Record<string, unknown>,
     target: Record<string, unknown>,
-  ): FieldDiff[] {
+  ): ConflictFieldDiff[] {
     const changes = diff(source, target);
     const seen = new Set<string>();
-    const result: FieldDiff[] = [];
+    const result: ConflictFieldDiff[] = [];
 
     for (const change of changes) {
       const field = String(change.path[0]);
@@ -59,7 +59,7 @@ export class ConflictDiffService {
       const sourceValue = source[field];
       const targetValue = target[field];
 
-      let type: FieldDiff['type'];
+      let type: ConflictFieldDiff['type'];
       if (change.type === 'CREATE') {
         type = 'added';
       } else if (change.type === 'REMOVE') {
@@ -107,7 +107,7 @@ export class ConflictDiffService {
     }
 
     const autoResolved: Record<string, unknown> = {};
-    const conflicts: FieldDiff[] = [];
+    const conflicts: ConflictFieldDiff[] = [];
 
     // Fields changed only in source
     for (const [field, value] of sourceChanges) {

@@ -182,6 +182,7 @@ export class SyncOrchestrator {
         success: sourceRecords.length,
         failed: 0,
         skipped: 0,
+        conflictCount: 0,
         errors: [],
       });
 
@@ -264,6 +265,7 @@ function createEmptyResult(objectConfig: SyncObjectConfig): SyncObjectResult {
     success: 0,
     failed: 0,
     skipped: 0,
+    conflictCount: 0,
     errors: [],
   };
 }
