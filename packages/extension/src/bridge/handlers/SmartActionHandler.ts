@@ -63,7 +63,7 @@ export class SmartActionHandler implements DomainHandler {
    */
   private async handleAnalyze(msg: BaseMessage): Promise<void> {
     try {
-      const payload = msg.payload as { targetOrgId: string; sourceOrgId?: string } | undefined;
+      const payload = (msg as unknown as { payload?: { targetOrgId: string; sourceOrgId?: string } }).payload;
       const targetOrgId = payload?.targetOrgId ?? '';
       const sourceOrgId = payload?.sourceOrgId;
 
