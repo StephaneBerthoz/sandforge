@@ -39,6 +39,15 @@ function getApi(): VSCodeApi {
 }
 
 /**
+ * Non-hook accessor for the VSCode webview API.
+ * Use this in Zustand stores and other non-React contexts
+ * where hooks cannot be called.
+ */
+export function getVscodeApi(): VSCodeApi {
+  return getApi();
+}
+
+/**
  * Hook that provides typed access to the VSCode webview API.
  * The underlying API instance is acquired once and cached for the
  * lifetime of the webview.
