@@ -367,7 +367,10 @@ export type ExtensionToWebViewMessage =
   | SyncScheduleToggleResponse
   | SyncScheduleDeleteResponse
   // CSV Import messages (05-01)
-  | SeedCsvValidateResponse;
+  | SeedCsvValidateResponse
+  // Clone messages (05-02)
+  | SeedClonePreviewResponse
+  | SeedCloneDescribeSourceResponse;
 
 /** Org management messages */
 export interface OrgListRequest extends BaseMessage {
