@@ -23,6 +23,9 @@ export interface RealTimeSyncOrchestratorDeps {
   createReplicator: (config: RealTimeSyncConfig) => CDCReplicator;
 }
 
+/** Maximum number of recent events tracked for apply result correlation */
+const MAX_RECENT_EVENTS = 1000;
+
 /**
  * Orchestrates real-time CDC sync sessions between a source and target org.
  * Manages the lifecycle of CDCListener and CDCReplicator, tracks metrics,
@@ -43,6 +46,7 @@ export class RealTimeSyncOrchestrator {
   private minuteEventCounts: number[] = [];
   private minuteTimer: ReturnType<typeof setInterval> | null = null;
   private currentMinuteCount = 0;
+  private recentEvents: Map<number, CDCEvent> = new Map();
 
   constructor(deps: RealTimeSyncOrchestratorDeps) {
     this.deps = deps;
@@ -51,25 +55,46 @@ export class RealTimeSyncOrchestrator {
   /**
    * Register a handler for sync status changes.
    * Called whenever the session transitions between states.
+   * @returns An unsubscribe function that removes the handler.
    */
-  onStatusChange(handler: StatusChangeHandler): void {
+  onStatusChange(handler: StatusChangeHandler): () => void {
     this.statusHandlers.push(handler);
+    return () => {
+      const idx = this.statusHandlers.indexOf(handler);
+      if (idx >= 0) {
+        this.statusHandlers.splice(idx, 1);
+      }
+    };
   }
 
   /**
    * Register a handler for the live event feed.
    * Called for each CDC event received, with apply status.
+   * @returns An unsubscribe function that removes the handler.
    */
-  onEventFeed(handler: EventFeedHandler): void {
+  onEventFeed(handler: EventFeedHandler): () => void {
     this.eventFeedHandlers.push(handler);
+    return () => {
+      const idx = this.eventFeedHandlers.indexOf(handler);
+      if (idx >= 0) {
+        this.eventFeedHandlers.splice(idx, 1);
+      }
+    };
   }
 
   /**
    * Register a handler for conflict notifications.
    * Called when a replication conflict is detected.
+   * @returns An unsubscribe function that removes the handler.
    */
-  onConflictDetected(handler: ConflictFeedHandler): void {
+  onConflictDetected(handler: ConflictFeedHandler): () => void {
     this.conflictFeedHandlers.push(handler);
+    return () => {
+      const idx = this.conflictFeedHandlers.indexOf(handler);
+      if (idx >= 0) {
+        this.conflictFeedHandlers.splice(idx, 1);
+      }
+    };
   }
 
   /**
@@ -94,7 +119,16 @@ export class RealTimeSyncOrchestrator {
       this.currentMinuteCount++;
       this.lastEventAt = new Date().toISOString();
       this.replicator?.receive(event);
-      this.emitEventFeed(event, true);
+      // Emit with applied=false initially -- replicator will confirm later
+      this.emitEventFeed(event, false);
+      // Track event for apply result correlation
+      this.recentEvents.set(event.replayId, event);
+      if (this.recentEvents.size > MAX_RECENT_EVENTS) {
+        const firstKey = this.recentEvents.keys().next().value;
+        if (firstKey !== undefined) {
+          this.recentEvents.delete(firstKey);
+        }
+      }
     });
 
     this.listener.onConnection((connected) => {
@@ -144,6 +178,7 @@ export class RealTimeSyncOrchestrator {
   /**
    * Stop the current real-time sync session.
    * Shuts down both the listener and replicator gracefully.
+   * Clears all handler arrays to prevent memory leaks.
    */
   async stop(): Promise<void> {
     if (this.minuteTimer) {
@@ -159,7 +194,11 @@ export class RealTimeSyncOrchestrator {
 
     this.listener = null;
     this.replicator = null;
+    this.recentEvents.clear();
     this.setStatus('disconnected');
+    this.statusHandlers = [];
+    this.eventFeedHandlers = [];
+    this.conflictFeedHandlers = [];
   }
 
   /**
@@ -223,6 +262,17 @@ export class RealTimeSyncOrchestrator {
     return this.config?.watchedObjects ?? [];
   }
 
+  /**
+   * Handle replicator apply result -- called by replicator's onApplyResult callback.
+   * Emits an updated event feed entry with the final applied status.
+   */
+  handleApplyResult(replayId: number, success: boolean, error?: string): void {
+    const event = this.recentEvents.get(replayId);
+    if (event) {
+      this.emitEventFeed(event, success, error);
+    }
+  }
+
   private isStopped(): boolean {
     return this.status === 'disconnected';
   }
@@ -253,6 +303,7 @@ export class RealTimeSyncOrchestrator {
     this.lastEventAt = null;
     this.minuteEventCounts = [];
     this.currentMinuteCount = 0;
+    this.recentEvents.clear();
   }
 
   private calculateEventsPerMinute(): number {

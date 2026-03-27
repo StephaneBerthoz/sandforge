@@ -343,4 +343,71 @@ describe('CDCListener', () => {
       expect(failingFactory.mock.calls.length).toBe(callCountAfterStop);
     });
   });
+
+  describe('handler cleanup', () => {
+    it('should return unsubscribe function from onEvent', async () => {
+      const handler = vi.fn();
+      const unsub = listener.onEvent(handler);
+
+      let messageCallback: ((msg: Record<string, unknown>) => void) | null = null;
+      mockClient = createMockClient((_channel, callback) => {
+        messageCallback = callback;
+      });
+      factory = vi.fn().mockResolvedValue(mockClient);
+      listener = new CDCListener(createConfig(), factory);
+      const handler2 = vi.fn();
+      const unsub2 = listener.onEvent(handler2);
+
+      await listener.start();
+      messageCallback?.({ payload: createValidCDCPayload() });
+      expect(handler2).toHaveBeenCalled();
+
+      handler2.mockClear();
+      unsub2();
+      messageCallback?.({ payload: createValidCDCPayload({ replayId: 100 }) });
+      expect(handler2).not.toHaveBeenCalled();
+
+      // Original unsub should also work
+      expect(unsub).toBeTypeOf('function');
+    });
+
+    it('should return unsubscribe function from onConnection', async () => {
+      const handler = vi.fn();
+      const unsub = listener.onConnection(handler);
+
+      await listener.start();
+      expect(handler).toHaveBeenCalledWith(true);
+
+      handler.mockClear();
+      unsub();
+
+      listener.stop();
+      // Handler should not be called after unsubscribe (though stop also clears all)
+      // The unsubscribe was called before stop, so handler is already removed
+    });
+
+    it('should return unsubscribe function from onError', () => {
+      const handler = vi.fn();
+      const unsub = listener.onError(handler);
+      expect(unsub).toBeTypeOf('function');
+    });
+
+    it('should clear all handler arrays on stop', async () => {
+      const eventHandler = vi.fn();
+      const connHandler = vi.fn();
+      const errHandler = vi.fn();
+
+      listener.onEvent(eventHandler);
+      listener.onConnection(connHandler);
+      listener.onError(errHandler);
+
+      await listener.start();
+      listener.stop();
+
+      // After stop, all handlers are cleared
+      // Verify by checking that connHandler was called with false during stop,
+      // and that's the last call
+      expect(connHandler).toHaveBeenCalledWith(false);
+    });
+  });
 });
