@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 04 — Conflict Resolution
-Plan: 04-01 complete, ready for 04-02
-Status: Plan 04-01 complete (3 tasks, 13 must-haves). microdiff installed, UIConflict type, ConflictDiffService, conflict feed wiring, resolve-conflict handler, resolvePerField.
-Last activity: 2026-03-27 — Plan 04-01 executed
+Plan: 04-02 complete, ready for 04-03 (if any)
+Status: Plan 04-02 complete (3 tasks, 10 must-haves). useConflictStore, CDC conflict forwarding, ConflictListPanel, ConflictDiffViewer, ConflictResolutionPanel, SyncPage 5th tab with SplitView, i18n keys.
+Last activity: 2026-03-27 — Plan 04-02 executed
 
-Progress: [####------] 42% (3/7 phases, plan 1/N of phase 04)
+Progress: [####------] 45% (3/7 phases, plan 2/N of phase 04)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 71 (v1.2.3: 11 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 72 (v1.2.3: 12 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -72,6 +72,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Sparkline uses inline SVG polyline (no external lib), polling interval ID as module-level var
 - Renamed shared FieldDiff to ConflictFieldDiff to avoid collision with compare.types.ts FieldDiff
 - Added CDCReplicator.setOnConflict() for post-creation callback wiring by orchestrator
+- ConflictResolutionPanel tracks field resolutions in local React state (not Zustand) to avoid polluting global state
+- Added sync.tabs.* i18n keys that were missing from en.json/fr.json (SyncPage was using them via fallback)
 
 ### Pending Todos
 
@@ -84,5 +86,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-27
-Stopped at: Plan 04-01 complete. Ready for plan 04-02.
+Stopped at: Plan 04-02 complete. Ready for plan 04-03 (if any).
 Resume file: .planning/ROADMAP.md
