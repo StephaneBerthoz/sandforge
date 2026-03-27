@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 06 — AI Personas & Smart Actions
-Plan: (none yet — context gathered, ready for planning)
-Status: Phase 06 context captured. Ready for plan-phase 06.
-Last activity: 2026-03-27 — Phase 06 context discussion
+Plan: 06-02 Smart Action Recommender & Just Do It -- COMPLETE
+Status: Plan 06-02 executed (3 tasks, 3 commits). Smart Action system fully wired.
+Last activity: 2026-03-28 — Plan 06-02 execution complete
 
 Progress: [#######---] 71% (5/7 phases)
 
@@ -82,6 +82,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - useClone syncs bridge mutation results via render-time checks (not useEffect) to avoid stale closures
 - CloneResultsPanel uses fixed page size of 25 for ID mapping pagination
 - Large clone warning threshold is 10,000 records
+- SmartActionAnalyzer uses local Map cache (5min TTL) not CacheManager.register(), matching MonitorOpsHandler pattern
+- SmartAction decision priority: clone > quick-seed > sync > none (source data presence is strongest signal)
+- useSmartAction uses first connected org as target, second as source
 
 ### Pending Todos
 
@@ -93,6 +96,6 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ## Session Continuity
 
-Last session: 2026-03-27
-Stopped at: Phase 06 context gathered. Next: plan-phase 06.
-Resume file: .planning/phases/06-ai-personas-smart-actions/06-CONTEXT.md
+Last session: 2026-03-28
+Stopped at: Plan 06-02 complete. Remaining: plans 06-03, 06-04.
+Resume file: .planning/phases/06-ai-personas-smart-actions/06-02-SUMMARY.md
