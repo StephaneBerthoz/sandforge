@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 06 — AI Personas & Smart Actions
-Plan: 06-01 Persona Gallery UI -- COMPLETE
-Status: Plan 06-01 executed (4 tasks, 4 commits). Full persona gallery with bridge, UI, and SeedPage integration.
-Last activity: 2026-03-27 — Plan 06-01 execution complete
+Plan: 06-03 Persona Application, Adaptive Wizard & Contextual Help -- COMPLETE
+Status: Plans 06-01, 06-02, 06-03 complete. Remaining: plan 06-04.
+Last activity: 2026-03-27 — Plan 06-03 execution complete (3 tasks, 3 commits)
 
-Progress: [#######---] 71% (5/7 phases)
+Progress: [########--] 78% (5/7 phases)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 72 (v1.2.3: 12 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 74 (v1.2.3: 14 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -88,7 +88,11 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - PersonaMsg/PersonaFieldPatternMsg are separate message-layer types (decoupled from AIPersonaManager internals)
 - SeedPage AI mode uses fork pattern: ai -> ai-persona | ai-scratch (back button returns to fork, not mode selector)
 - PersonaPreviewPopover uses centered fixed overlay (not anchor-relative) for VSCode webview reliability
-- Selected persona stored in SeedPage local state, ready for Plan 06-03 wizard pre-fill
+- Selected persona stored in useSeedWizardState (moved from SeedPage local state by Plan 06-03)
+- mapGeneratorToRuleType maps weighted_pick/random_pick to picklist_random, range to random, relative_date to faker
+- Auto-advance threshold: 5 objects (skip Configure step); Grouping threshold: 20 objects (accordion categories)
+- Object categorization: no __ = standard, single __c = custom, multiple __ segments = managed package
+- InfoTooltip dismissed IDs stored in localStorage key sf-dismissed-tooltips as JSON string array
 
 ### Pending Todos
 
@@ -101,5 +105,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-27
-Stopped at: Plan 06-01 complete. Remaining: plans 06-02, 06-03, 06-04.
-Resume file: .planning/phases/06-ai-personas-smart-actions/06-01-SUMMARY.md
+Stopped at: Plan 06-03 complete. Remaining: plan 06-04.
+Resume file: .planning/phases/06-ai-personas-smart-actions/06-03-SUMMARY.md
