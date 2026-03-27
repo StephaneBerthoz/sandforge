@@ -478,6 +478,41 @@
       "backToModes": "Retour a la selection du mode",
       "comingSoon": "Bientot disponible"
     },
+    "persona": {
+      "title": "Personas IA",
+      "subtitle": "Choisissez un persona metier pour pre-remplir les regles de generation",
+      "forkPersonaTitle": "Choisir un Persona",
+      "forkPersonaDesc": "Selectionnez un persona metier avec des patterns de champs pre-construits",
+      "forkScratchTitle": "Partir de zero",
+      "forkScratchDesc": "Construisez vos propres regles de champs depuis une page blanche",
+      "card": {
+        "preview": "Apercu",
+        "select": "Selectionner",
+        "fields": "{{count}} champs",
+        "locale": "Langue",
+        "createCustom": "Creer un persona",
+        "createCustomDesc": "Decrivez votre secteur et laissez l'IA generer un persona",
+        "generateBtn": "Generer",
+        "generating": "Generation en cours...",
+        "custom": "Personnalise"
+      },
+      "preview": {
+        "title": "Apercu du persona",
+        "sampleData": "Donnees exemples (5 lignes)"
+      },
+      "customize": {
+        "title": "Personnaliser le persona",
+        "confirm": "Appliquer le persona",
+        "cancel": "Retour a la galerie",
+        "rangeMin": "Min",
+        "rangeMax": "Max",
+        "values": "Valeurs",
+        "fieldPattern": "Pattern de champ",
+        "generator": "Generateur"
+      },
+      "backToPersonas": "Retour aux personas",
+      "backToFork": "Retour au mode IA"
+    },
     "clone": {
       "sourcePicker": {
         "title": "Selectionner les orgs source et cible",

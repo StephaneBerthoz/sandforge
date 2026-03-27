@@ -65,6 +65,17 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+/* Mock PersonaGallery to avoid bridge hooks in unit tests */
+vi.mock('./Persona/PersonaGallery', () => ({
+  PersonaGallery: ({ onPersonaSelected }: { onPersonaSelected: (p: unknown) => void }) => (
+    <div data-testid="persona-gallery">
+      <button data-testid="mock-persona-select" onClick={() => onPersonaSelected({ id: 'test', name: 'Test' })}>
+        Select Persona
+      </button>
+    </div>
+  ),
+}));
+
 describe('SeedPage', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
@@ -121,11 +132,13 @@ describe('SeedPage', () => {
     expect(screen.getByTestId('mode-card-clone')).toBeDefined();
   });
 
-  it('should show AI Generate mode with wizard when clicking AI card', () => {
+  it('should show AI fork selector when clicking AI card', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
     fireEvent.click(screen.getByTestId('mode-card-ai'));
-    expect(screen.getByTestId('seed-wizard')).toBeDefined();
+    expect(screen.getByTestId('ai-fork-selector')).toBeDefined();
+    expect(screen.getByTestId('fork-card-persona')).toBeDefined();
+    expect(screen.getByTestId('fork-card-scratch')).toBeDefined();
     expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
   });
 
@@ -155,12 +168,32 @@ describe('SeedPage', () => {
     expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
   });
 
-  it('should show AI mode step 1 with org selector after AI card click', () => {
+  it('should show wizard with org selector after navigating AI > Start from Scratch', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
     fireEvent.click(screen.getByTestId('mode-card-ai'));
+    fireEvent.click(screen.getByTestId('fork-card-scratch'));
     expect(screen.getByTestId('seed-step-select-content')).toBeDefined();
     expect(screen.getByTestId('org-selector')).toBeDefined();
+  });
+
+  it('should show PersonaGallery after navigating AI > Choose a Persona', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-ai'));
+    fireEvent.click(screen.getByTestId('fork-card-persona'));
+    expect(screen.getByTestId('persona-gallery')).toBeDefined();
+  });
+
+  it('should navigate back from AI sub-mode to fork selector', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-ai'));
+    fireEvent.click(screen.getByTestId('fork-card-scratch'));
+    expect(screen.getByTestId('seed-wizard')).toBeDefined();
+
+    fireEvent.click(screen.getByTestId('back-to-modes'));
+    expect(screen.getByTestId('ai-fork-selector')).toBeDefined();
   });
 
   it('should display error from bridge query', () => {
@@ -172,8 +205,9 @@ describe('SeedPage', () => {
     };
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
-    // Switch to AI mode to trigger error display
+    // Switch to AI scratch mode to trigger error display
     fireEvent.click(screen.getByTestId('mode-card-ai'));
+    fireEvent.click(screen.getByTestId('fork-card-scratch'));
 
     expect(screen.getByTestId('seed-error')).toBeDefined();
     expect(screen.getByText('Connection failed')).toBeDefined();
