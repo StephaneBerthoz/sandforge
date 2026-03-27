@@ -564,22 +564,6 @@
       }
     }
   },
-  "help": {
-    "seed": {
-      "selectObjects": "Choisissez les objets Salesforce a remplir avec des donnees",
-      "configureFields": "Personnalisez la generation de chaque champ — regles, plages et patterns",
-      "execute": "Verifiez et lancez la generation. Les resultats apparaissent ici"
-    },
-    "sync": {
-      "direction": "Choisissez quelle org envoie les donnees et laquelle les recoit"
-    },
-    "clone": {
-      "sourcePicker": "Selectionnez l'org source pour copier les enregistrements"
-    },
-    "home": {
-      "quickActions": "Acces rapide aux operations courantes en un clic"
-    }
-  },
   "sync": {
     "title": "Synchroniser les donnees",
     "selectOrgs": "Selectionner les orgs",
@@ -1318,6 +1302,20 @@
     }
   },
   "help": {
+    "seed": {
+      "selectObjects": "Choisissez les objets Salesforce a remplir avec des donnees",
+      "configureFields": "Personnalisez la generation de chaque champ — regles, plages et patterns",
+      "execute": "Verifiez et lancez la generation. Les resultats apparaissent ici"
+    },
+    "sync": {
+      "direction": "Choisissez quelle org envoie les donnees et laquelle les recoit"
+    },
+    "clone": {
+      "sourcePicker": "Selectionnez l'org source pour copier les enregistrements"
+    },
+    "home": {
+      "quickActions": "Acces rapide aux operations courantes en un clic"
+    },
     "title": "Aide & Ressources",
     "gettingStarted": "Premiers pas",
     "gettingStartedDesc": "Apprenez les bases de SandForge",
