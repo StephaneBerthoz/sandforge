@@ -213,6 +213,22 @@ describe('MonitorPage', () => {
     expect(skeletons.length).toBeGreaterThanOrEqual(4);
   });
 
+  it('should render SkeletonTable and SkeletonPanel during loading', () => {
+    mockMonitorQueryState = {
+      data: null,
+      loading: true,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+    expect(screen.getByTestId('skeleton-table')).toBeDefined();
+    expect(screen.getAllByTestId('skeleton-panel-section').length).toBeGreaterThanOrEqual(2);
+  });
+
   // 3. Dashboard render with KPI row layout
   it('should render the monitor page with bento layout after receiving data', () => {
     mockMonitorQueryState = {
