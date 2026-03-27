@@ -620,6 +620,42 @@
         "since": "since {{time}}",
         "evtPerSec": "evt/s"
       }
+    },
+    "tabs": {
+      "sync": "Sync",
+      "history": "History",
+      "schedules": "Schedules",
+      "realtime": "Real-Time",
+      "conflicts": "Conflicts"
+    },
+    "conflictResolution": {
+      "title": "Conflict Resolution",
+      "noConflicts": "No conflicts detected",
+      "unresolvedCount": "{{count}} unresolved",
+      "filterByObject": "Filter by object",
+      "filterByType": "Filter by type",
+      "sourceValue": "Source value",
+      "targetValue": "Target value",
+      "baseValue": "Base value",
+      "pickSource": "Use source",
+      "pickTarget": "Use target",
+      "manualEdit": "Manual edit",
+      "applySourceAll": "Apply source to all",
+      "applyTargetAll": "Apply target to all",
+      "applyResolution": "Apply resolution",
+      "confirmBulk": "This will resolve {{count}} conflicts. This cannot be undone.",
+      "resolved": "Resolved",
+      "clearResolved": "Clear resolved",
+      "fieldCount": "{{count}} field(s)",
+      "fieldName": "Field Name",
+      "selectConflict": "Select a conflict to view details",
+      "unresolved": "Unresolved",
+      "conflictTypes": {
+        "editEdit": "Edit / Edit",
+        "deleteEdit": "Delete / Edit",
+        "editDelete": "Edit / Delete",
+        "createEdit": "Create / Edit"
+      }
     }
   },
   "dataops": {

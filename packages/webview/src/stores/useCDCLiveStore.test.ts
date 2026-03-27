@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useCDCLiveStore } from './useCDCLiveStore';
 import type { CDCFeedEvent } from './useCDCLiveStore';
+import { useConflictStore } from './useConflictStore';
 
 /** Create a mock CDCFeedEvent with the given replay ID. */
 function makeMockEvent(replayId: number): CDCFeedEvent {
@@ -140,5 +141,38 @@ describe('useCDCLiveStore', () => {
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
     const msg = mockPostMessage.mock.calls[0][0] as { type: string };
     expect(msg.type).toBe('realtime:stop');
+  });
+
+  it('should forward realtime:conflict messages to useConflictStore', () => {
+    // Reset conflict store
+    useConflictStore.setState({ conflicts: [], selectedConflictId: null, filterObject: null, filterType: null });
+
+    // Simulate a realtime:conflict message from the extension
+    const conflictPayload = {
+      objectApiName: 'Account',
+      recordIds: ['001000000000001'],
+      changeType: 'UPDATE',
+      sourceValues: { Name: 'Source Name', Industry: 'Tech' },
+      targetValues: { Name: 'Target Name', Industry: 'Tech' },
+      replayId: 42,
+      targetLastModified: '2026-03-27T12:00:00Z',
+    };
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'realtime:conflict', payload: conflictPayload },
+      }),
+    );
+
+    const conflicts = useConflictStore.getState().conflicts;
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].id).toBe('Account:001000000000001:42');
+    expect(conflicts[0].objectApiName).toBe('Account');
+    expect(conflicts[0].recordId).toBe('001000000000001');
+    expect(conflicts[0].conflictType).toBe('edit/edit');
+    expect(conflicts[0].conflictFields).toContain('Name');
+    expect(conflicts[0].conflictFields).not.toContain('Industry'); // Same value, not a conflict
+    expect(conflicts[0].resolved).toBe(false);
+    expect(conflicts[0].timestamp).toBe('2026-03-27T12:00:00Z');
   });
 });

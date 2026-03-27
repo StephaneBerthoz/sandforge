@@ -561,6 +561,42 @@
         "error": "Erreur"
       },
       "comingSoon": "Necessite CDC \u2014 Disponible dans la v2.0"
+    },
+    "tabs": {
+      "sync": "Sync",
+      "history": "Historique",
+      "schedules": "Planifications",
+      "realtime": "Temps reel",
+      "conflicts": "Conflits"
+    },
+    "conflictResolution": {
+      "title": "Resolution des conflits",
+      "noConflicts": "Aucun conflit detecte",
+      "unresolvedCount": "{{count}} non resolu(s)",
+      "filterByObject": "Filtrer par objet",
+      "filterByType": "Filtrer par type",
+      "sourceValue": "Valeur source",
+      "targetValue": "Valeur cible",
+      "baseValue": "Valeur de base",
+      "pickSource": "Utiliser source",
+      "pickTarget": "Utiliser cible",
+      "manualEdit": "Edition manuelle",
+      "applySourceAll": "Appliquer source a tout",
+      "applyTargetAll": "Appliquer cible a tout",
+      "applyResolution": "Appliquer la resolution",
+      "confirmBulk": "Cela resoudra {{count}} conflits. Cette action est irreversible.",
+      "resolved": "Resolu",
+      "clearResolved": "Effacer les resolus",
+      "fieldCount": "{{count}} champ(s)",
+      "fieldName": "Nom du champ",
+      "selectConflict": "Selectionnez un conflit pour voir les details",
+      "unresolved": "Non resolu",
+      "conflictTypes": {
+        "editEdit": "Edit / Edit",
+        "deleteEdit": "Suppression / Edit",
+        "editDelete": "Edit / Suppression",
+        "createEdit": "Creation / Edit"
+      }
     }
   },
   "dataops": {
