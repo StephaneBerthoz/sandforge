@@ -29,6 +29,11 @@ import type { ObjectSetEntry } from './ObjectSetEditor';
 import { QuickSyncCard } from './QuickSync/QuickSyncCard';
 import { QuickSyncFlow } from './QuickSync/QuickSyncFlow';
 import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
+import { SyncHistoryPanel } from './SyncHistoryPanel';
+import { SyncSchedulePanel } from './SyncSchedulePanel';
+
+/** Tab options for the Sync page. */
+type SyncTab = 'sync' | 'history' | 'schedules';
 
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
@@ -117,6 +122,7 @@ export const SyncPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const [quickSyncActive, setQuickSyncActive] = React.useState(false);
+  const [activeTab, setActiveTab] = React.useState<SyncTab>('sync');
 
   const {
     availableObjects,
@@ -229,7 +235,35 @@ export const SyncPage: React.FC = () => {
         <ErrorBanner message={error} onDismiss={clearError} data-testid="sync-error" />
       )}
 
-      {!quickSyncActive && currentStep === 0 && (
+      {/* Tab navigation */}
+      <div className="flex gap-0 border-b border-[var(--vscode-panel-border)]" role="tablist" data-testid="sync-tabs">
+        {(['sync', 'history', 'schedules'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            className={`text-xs px-4 py-2 border-b-2 transition-colors ${
+              activeTab === tab
+                ? 'border-[var(--vscode-focusBorder)] text-[var(--vscode-editor-foreground)] font-semibold'
+                : 'border-transparent text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-editor-foreground)]'
+            }`}
+            onClick={() => setActiveTab(tab)}
+            data-testid={`tab-${tab}`}
+          >
+            {t(`sync.tabs.${tab}`)}
+          </button>
+        ))}
+      </div>
+
+      {/* History tab */}
+      {activeTab === 'history' && <SyncHistoryPanel />}
+
+      {/* Schedules tab */}
+      {activeTab === 'schedules' && <SyncSchedulePanel />}
+
+      {/* Sync tab (default) */}
+      {activeTab === 'sync' && !quickSyncActive && currentStep === 0 && (
         <GuidedFirstStepCard
           variant="sync"
           icon="sync"
@@ -240,13 +274,15 @@ export const SyncPage: React.FC = () => {
         />
       )}
 
-      {!quickSyncActive && (
+      {activeTab === 'sync' && !quickSyncActive && (
         <QuickSyncCard onStart={() => setQuickSyncActive(true)} />
       )}
 
-      {quickSyncActive ? (
+      {activeTab === 'sync' && quickSyncActive && (
         <QuickSyncFlow onBack={() => setQuickSyncActive(false)} />
-      ) : (
+      )}
+
+      {activeTab === 'sync' && !quickSyncActive && (
       <SyncWizard
         steps={SYNC_STEPS}
         currentStep={currentStep}
@@ -467,6 +503,7 @@ export const SyncPage: React.FC = () => {
         )}
       </SyncWizard>
       )}
+      {/* End of sync tab content */}
     </div>
   );
 };
