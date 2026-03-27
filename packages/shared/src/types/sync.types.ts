@@ -138,6 +138,58 @@ export interface SyncExecutionResult {
   timestamp: ISODateString;
 }
 
+/** A snapshot of a sync execution for history tracking and re-run support. */
+export interface SyncHistoryEntry {
+  /** Unique identifier for this history entry. */
+  id: UUID;
+  /** Full copy of the SyncConfig used at execution time (for re-run support). */
+  configSnapshot: SyncConfig;
+  /** The execution result returned by the orchestrator. */
+  result: SyncExecutionResult;
+  /** When the sync execution started (computed from result.timestamp - result.duration). */
+  startTime: ISODateString;
+  /** When the sync execution ended. */
+  endTime: ISODateString;
+  /** How this execution was triggered. */
+  triggeredBy: 'manual' | 'schedule' | 'rerun';
+  /** If triggered by a schedule, the schedule entry ID. */
+  scheduleId?: UUID;
+}
+
+/** A scheduled sync entry with cron, toggle, and audit metadata. */
+export interface SyncScheduleEntry {
+  /** Unique schedule identifier. */
+  id: UUID;
+  /** Human-readable name for the schedule. */
+  name: string;
+  /** Reference to the SyncConfig to execute. */
+  configId: UUID;
+  /** Cron expression (5-field). */
+  cron: string;
+  /** IANA timezone string. */
+  timezone: string;
+  /** Whether this schedule is currently active. */
+  enabled: boolean;
+  /** Maximum retry attempts on failure. */
+  maxRetries: number;
+  /** Notify on successful completion. */
+  notifyOnComplete: boolean;
+  /** Notify on failure. */
+  notifyOnFailure: boolean;
+  /** Next planned execution time. */
+  nextRunAt?: ISODateString;
+  /** Last execution time. */
+  lastRunAt?: ISODateString;
+  /** Result of the last execution. */
+  lastResult?: 'success' | 'partial' | 'failure';
+  /** When this schedule was created. */
+  createdAt: ISODateString;
+  /** When this schedule was last updated. */
+  updatedAt: ISODateString;
+  /** Schema version for future migration support. */
+  version: number;
+}
+
 /** Per-object sync result */
 export interface SyncObjectResult {
   objectApiName: ApiName;

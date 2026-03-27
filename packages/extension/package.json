@@ -294,6 +294,7 @@
   },
   "dependencies": {
     "@sandforge/shared": "workspace:*",
+    "cron-parser": "^5.5.0",
     "glob": "^10",
     "jsforce": "^3",
     "winston": "^3",
