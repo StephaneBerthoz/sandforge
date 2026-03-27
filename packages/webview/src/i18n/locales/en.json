@@ -588,22 +588,6 @@
       }
     }
   },
-  "help": {
-    "seed": {
-      "selectObjects": "Choose which Salesforce objects to populate with data",
-      "configureFields": "Customize how each field is generated — rules, ranges, and patterns",
-      "execute": "Review and run the data generation. Results appear here when complete"
-    },
-    "sync": {
-      "direction": "Choose which org sends data and which receives it"
-    },
-    "clone": {
-      "sourcePicker": "Select the org to copy records from"
-    },
-    "home": {
-      "quickActions": "Jump to common operations with one click"
-    }
-  },
   "sync": {
     "title": "Sync Data",
     "selectOrgs": "Select Orgs",
@@ -1377,6 +1361,20 @@
     }
   },
   "help": {
+    "seed": {
+      "selectObjects": "Choose which Salesforce objects to populate with data",
+      "configureFields": "Customize how each field is generated — rules, ranges, and patterns",
+      "execute": "Review and run the data generation. Results appear here when complete"
+    },
+    "sync": {
+      "direction": "Choose which org sends data and which receives it"
+    },
+    "clone": {
+      "sourcePicker": "Select the org to copy records from"
+    },
+    "home": {
+      "quickActions": "Jump to common operations with one click"
+    },
     "title": "Help & Resources",
     "gettingStarted": "Getting Started",
     "gettingStartedDesc": "Learn the basics of SandForge",
