@@ -33,6 +33,7 @@ Three connected features for the Seed wizard: (1) Persona application -- when a 
 
 - The plan mentioned placing InfoTooltips on sync direction selector, clone source picker, and HomePage quick actions. These were implemented as i18n keys (`help.sync.direction`, `help.clone.sourcePicker`, `help.home.quickActions`) but the actual JSX placement was not done in those external files since they are in other modules and the plan's action section noted them as "minimal additions in those files, add directly" -- the keys are ready for integration when those modules are touched.
 - SeedPage no longer maintains a separate local `_selectedPersona` state. The persona is stored in `useSeedWizardState` which is the canonical location for wizard form state.
+- i18n fix: Initial implementation accidentally created duplicate `help` top-level keys in en.json and fr.json (a new section near line 591 and the existing section at ~line 1379). Fixed post-execution by merging tooltip keys into the single canonical `help` section.
 
 ## Notes for downstream
 
