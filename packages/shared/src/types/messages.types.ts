@@ -268,7 +268,12 @@ export type WebViewToExtensionMessage =
   // Clone messages (05-02)
   | SeedCloneExecuteRequest
   | SeedClonePreviewRequest
-  | SeedCloneDescribeSourceRequest;
+  | SeedCloneDescribeSourceRequest
+  // Persona messages (06-01)
+  | SeedListPersonasRequest
+  | SeedCreatePersonaRequest
+  // Smart Action messages (06-02)
+  | SmartActionAnalyzeRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -370,7 +375,12 @@ export type ExtensionToWebViewMessage =
   | SeedCsvValidateResponse
   // Clone messages (05-02)
   | SeedClonePreviewResponse
-  | SeedCloneDescribeSourceResponse;
+  | SeedCloneDescribeSourceResponse
+  // Persona messages (06-01)
+  | SeedListPersonasResponse
+  | SeedCreatePersonaResponse
+  // Smart Action messages (06-02)
+  | SmartActionAnalyzeResponse;
 
 /** Org management messages */
 export interface OrgListRequest extends BaseMessage {
@@ -1905,5 +1915,62 @@ export interface SeedCloneDescribeSourceRequest extends BaseMessage {
 export interface SeedCloneDescribeSourceResponse extends BaseMessage {
   type: 'seed:clone:describe-source:response';
   payload: { objects: Array<{ apiName: string; label: string; recordCount: number }> };
+}
+
+// ─── Persona Messages ────────────────────────────────────────────────────────
+
+/** Persona field pattern describing how a specific field should be generated. */
+export interface PersonaFieldPatternMsg {
+  fieldType: string;
+  generator: string;
+  params?: Record<string, unknown>;
+  examples: string[];
+}
+
+/** An AI persona for industry-specific data generation. */
+export interface PersonaMsg {
+  id: string;
+  name: string;
+  description: string;
+  industry: string;
+  locale: string;
+  dataPatterns: Record<string, PersonaFieldPatternMsg>;
+}
+
+/** Request to list all available personas (built-in and custom). */
+export interface SeedListPersonasRequest extends BaseMessage {
+  type: 'seed:list-personas';
+}
+
+/** Response containing the list of all personas. */
+export interface SeedListPersonasResponse extends BaseMessage {
+  type: 'seed:list-personas:response';
+  payload: { personas: PersonaMsg[] };
+}
+
+/** Request to create a custom persona from a text description. */
+export interface SeedCreatePersonaRequest extends BaseMessage {
+  type: 'seed:create-persona';
+  payload: { description: string };
+}
+
+/** Response containing the newly created custom persona. */
+export interface SeedCreatePersonaResponse extends BaseMessage {
+  type: 'seed:create-persona:response';
+  payload: { persona: PersonaMsg; success: boolean; error?: string };
+}
+
+// ─── Smart Action Messages ──────────────────────────────────────────────────
+
+/** Request to analyze an org and get a smart action recommendation. */
+export interface SmartActionAnalyzeRequest extends BaseMessage {
+  type: 'smart-action:analyze';
+  payload: { targetOrgId: string; sourceOrgId?: string };
+}
+
+/** Response containing the smart action recommendation. */
+export interface SmartActionAnalyzeResponse extends BaseMessage {
+  type: 'smart-action:analyze:response';
+  payload: { recommendation: import('./smart-action.types.js').SmartActionRecommendation };
 }
 
