@@ -68,8 +68,28 @@ describe('KeyboardShortcuts', () => {
     render(<KeyboardShortcuts />);
     fireEvent.keyDown(document, { key: '?' });
     expect(screen.getByText('Navigation')).toBeInTheDocument();
+    expect(screen.getByText('Quick Navigation')).toBeInTheDocument();
     expect(screen.getByText('Modules')).toBeInTheDocument();
     expect(screen.getByText('Actions')).toBeInTheDocument();
+  });
+
+  it('shows Ctrl+1..6 shortcuts in Quick Navigation group', () => {
+    render(<KeyboardShortcuts />);
+    fireEvent.keyDown(document, { key: '?' });
+    // "Go to Monitor" appears in both Quick Nav (Ctrl+1) and Modules (G+M) groups
+    expect(screen.getAllByText('Go to Monitor').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Go to Seed').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Go to Sync').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Go to Compare').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Go to DataOps').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText('Go to Automation').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('shows execute and cancel shortcuts in Actions group', () => {
+    render(<KeyboardShortcuts />);
+    fireEvent.keyDown(document, { key: '?' });
+    expect(screen.getByText('Execute current action')).toBeInTheDocument();
+    expect(screen.getByText('Cancel / Close')).toBeInTheDocument();
   });
 
   it('has correct aria attributes for dialog', () => {
