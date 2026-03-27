@@ -343,6 +343,77 @@ describe('SeedOpsHandler', () => {
     });
   });
 
+  describe('seed:list-personas', () => {
+    it('returns 10 built-in personas', async () => {
+      const msg: BaseMessage = {
+        id: 'req-personas-1',
+        type: 'seed:list-personas',
+        timestamp: Date.now(),
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { personas: Array<{ id: string; name: string; industry: string }> };
+      };
+      expect(response.type).toBe('seed:list-personas:response');
+      expect(response.correlationId).toBe('req-personas-1');
+      expect(response.payload.personas).toHaveLength(10);
+      expect(response.payload.personas[0].id).toBe('assureur-fr');
+      expect(response.payload.personas[0].industry).toBe('Insurance');
+    });
+  });
+
+  describe('seed:create-persona', () => {
+    it('returns error when description is empty', async () => {
+      const msg: BaseMessage & { payload: { description: string } } = {
+        id: 'req-create-1',
+        type: 'seed:create-persona',
+        timestamp: Date.now(),
+        payload: { description: '' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { success: boolean; error?: string };
+      };
+      expect(response.type).toBe('seed:create-persona:response');
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.error).toContain('Description is required');
+    });
+
+    it('returns error when description is whitespace only', async () => {
+      const msg: BaseMessage & { payload: { description: string } } = {
+        id: 'req-create-2',
+        type: 'seed:create-persona',
+        timestamp: Date.now(),
+        payload: { description: '   ' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { success: boolean; error?: string };
+      };
+      expect(response.type).toBe('seed:create-persona:response');
+      expect(response.payload.success).toBe(false);
+    });
+  });
+
   describe('bulk path uses real IDs', () => {
     it('passes bulkResult.successIds instead of synthetic IDs', () => {
       // This is a structural test: verify the SeedOpsHandler source uses
