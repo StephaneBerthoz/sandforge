@@ -249,7 +249,9 @@ export type WebViewToExtensionMessage =
   | RealTimeStopRequest
   | RealTimeStatusRequest
   | RealTimeMetricsRequest
-  | RealTimeResolveConflictRequest;
+  | RealTimeResolveConflictRequest
+  | CacheInvalidateAllRequest
+  | CacheGetStatsRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -333,7 +335,9 @@ export type ExtensionToWebViewMessage =
   | RealTimeCDCEventMessage
   | RealTimeStatusResponse
   | RealTimeMetricsResponse
-  | RealTimeConflictDetected;
+  | RealTimeConflictDetected
+  | CacheInvalidateAllResponse
+  | CacheStatsResponse;
 
 /** Org management messages */
 export interface OrgListRequest extends BaseMessage {
@@ -1629,6 +1633,32 @@ export interface RealTimeConflictDetected extends BaseMessage {
     sourceValues: Record<string, unknown>;
     targetValues: Record<string, unknown>;
     targetLastModified: string;
+  };
+}
+
+// ─── Cache Messages ──────────────────────────────────────────────────────────
+
+/** Request to invalidate all caches (e.g. on org switch). */
+export interface CacheInvalidateAllRequest extends BaseMessage {
+  type: 'cache:invalidate-all';
+}
+
+/** Response confirming all caches were invalidated. */
+export interface CacheInvalidateAllResponse extends BaseMessage {
+  type: 'cache:invalidate-all:response';
+  payload: { success: boolean };
+}
+
+/** Request cache diagnostic stats. */
+export interface CacheGetStatsRequest extends BaseMessage {
+  type: 'cache:get-stats';
+}
+
+/** Response containing cache stats. */
+export interface CacheStatsResponse extends BaseMessage {
+  type: 'cache:stats-response';
+  payload: {
+    stats: Array<{ name: string; size: number }>;
   };
 }
 
