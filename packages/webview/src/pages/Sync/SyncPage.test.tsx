@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useConflictStore } from '../../stores/useConflictStore';
 import { SyncPage } from './SyncPage';
+import type { UIConflict } from '@sandforge/shared';
 
 const mockOrgs = [
   { id: 'org-1', alias: 'dev1', username: 'user@dev1.com', instanceUrl: 'https://dev1.salesforce.com', orgType: 'sandbox' as const, status: 'connected' as const, safetyTier: 'low' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
@@ -102,6 +104,7 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 describe('SyncPage', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
+    useConflictStore.setState({ conflicts: [], selectedConflictId: null, filterObject: null, filterType: null });
     mockObjectsRefetch.mockClear();
     mockFieldsMutate.mockClear();
     mockFieldsReset.mockClear();
@@ -209,5 +212,81 @@ describe('SyncPage', () => {
     const realtimeTab = screen.getByTestId('tab-realtime');
     fireEvent.click(realtimeTab);
     expect(screen.getByTestId('realtime-sync-panel')).toBeDefined();
+  });
+
+  it('should render conflicts tab in tab bar', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+    expect(screen.getByTestId('tab-conflicts')).toBeDefined();
+  });
+
+  it('should show conflict list when conflicts tab is clicked', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+    const conflictsTab = screen.getByTestId('tab-conflicts');
+    fireEvent.click(conflictsTab);
+    expect(screen.getByTestId('splitview')).toBeDefined();
+    expect(screen.getByTestId('conflict-list-panel')).toBeDefined();
+  });
+
+  it('should show unresolved count badge when conflicts exist', () => {
+    const conflict: UIConflict = {
+      id: 'Account:001:1',
+      objectApiName: 'Account',
+      recordId: '001',
+      conflictType: 'edit/edit',
+      sourceValues: { Name: 'Source' },
+      targetValues: { Name: 'Target' },
+      conflictFields: ['Name'],
+      timestamp: '2026-03-27T00:00:00Z',
+      resolved: false,
+    };
+    useConflictStore.setState({ conflicts: [conflict] });
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+
+    // The badge should show "1"
+    const badge = screen.getByTestId('tab-conflicts');
+    expect(badge.textContent).toContain('1');
+  });
+
+  it('should show placeholder when no conflict is selected on conflicts tab', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    const conflict: UIConflict = {
+      id: 'Account:001:1',
+      objectApiName: 'Account',
+      recordId: '001',
+      conflictType: 'edit/edit',
+      sourceValues: { Name: 'Source' },
+      targetValues: { Name: 'Target' },
+      conflictFields: ['Name'],
+      timestamp: '2026-03-27T00:00:00Z',
+      resolved: false,
+    };
+    useConflictStore.setState({ conflicts: [conflict] });
+    render(<SyncPage />);
+    fireEvent.click(screen.getByTestId('tab-conflicts'));
+
+    expect(screen.getByTestId('conflict-placeholder')).toBeDefined();
+  });
+
+  it('should show ConflictResolutionPanel when a conflict is selected', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    const conflict: UIConflict = {
+      id: 'Account:001:1',
+      objectApiName: 'Account',
+      recordId: '001',
+      conflictType: 'edit/edit',
+      sourceValues: { Name: 'Source' },
+      targetValues: { Name: 'Target' },
+      conflictFields: ['Name'],
+      timestamp: '2026-03-27T00:00:00Z',
+      resolved: false,
+    };
+    useConflictStore.setState({ conflicts: [conflict], selectedConflictId: 'Account:001:1' });
+    render(<SyncPage />);
+    fireEvent.click(screen.getByTestId('tab-conflicts'));
+
+    expect(screen.getByTestId('conflict-resolution-panel')).toBeDefined();
   });
 });

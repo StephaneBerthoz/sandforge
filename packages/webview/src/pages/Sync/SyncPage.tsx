@@ -32,9 +32,13 @@ import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { SyncSchedulePanel } from './SyncSchedulePanel';
 import { RealTimeSyncPanel } from './RealTimeSyncPanel';
+import { ConflictListPanel } from './ConflictListPanel';
+import { ConflictResolutionPanel } from './ConflictResolutionPanel';
+import { useConflictStore } from '../../stores/useConflictStore';
+import { SplitView } from '../../components/ui/SplitView';
 
 /** Tab options for the Sync page. */
-type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime';
+type SyncTab = 'sync' | 'history' | 'schedules' | 'realtime' | 'conflicts';
 
 const SYNC_STEPS: SyncWizardStep[] = [
   { id: 'select-and-configure', labelKey: 'sync.selectAndConfigure' },
@@ -110,6 +114,37 @@ function buildSankeyLinks(
 
   return links;
 }
+
+/** Badge showing unresolved conflict count, hidden when zero. */
+const ConflictCountBadge: React.FC = () => {
+  const count = useConflictStore((s) => s.conflicts.filter((c) => !c.resolved).length);
+  if (count === 0) return null;
+  return <Badge variant="warning" data-testid="conflict-count-badge">{count}</Badge>;
+};
+
+/** Conflicts tab content — master/detail SplitView layout. */
+const ConflictsTabContent: React.FC = () => {
+  const { t } = useTranslation();
+  const selectedConflictId = useConflictStore((s) => s.selectedConflictId);
+  const conflicts = useConflictStore((s) => s.conflicts);
+  const selectedConflict = conflicts.find((c) => c.id === selectedConflictId);
+
+  return (
+    <SplitView
+      ratio="60/40"
+      left={<ConflictListPanel />}
+      right={
+        selectedConflict ? (
+          <ConflictResolutionPanel conflict={selectedConflict} />
+        ) : (
+          <div className="flex items-center justify-center h-full text-xs text-[var(--vscode-descriptionForeground)]" data-testid="conflict-placeholder">
+            {t('sync.conflictResolution.selectConflict')}
+          </div>
+        )
+      }
+    />
+  );
+};
 
 /** Wrapper that only mounts GrappeProgressPanel when grappe is active. */
 const SyncGrappePanel: React.FC = () => {
@@ -238,13 +273,13 @@ export const SyncPage: React.FC = () => {
 
       {/* Tab navigation */}
       <div className="flex gap-0 border-b border-[var(--vscode-panel-border)]" role="tablist" data-testid="sync-tabs">
-        {(['sync', 'history', 'schedules', 'realtime'] as const).map((tab) => (
+        {(['sync', 'history', 'schedules', 'realtime', 'conflicts'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
             role="tab"
             aria-selected={activeTab === tab}
-            className={`text-xs px-4 py-2 border-b-2 transition-colors ${
+            className={`text-xs px-4 py-2 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === tab
                 ? 'border-[var(--vscode-focusBorder)] text-[var(--vscode-editor-foreground)] font-semibold'
                 : 'border-transparent text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-editor-foreground)]'
@@ -253,6 +288,7 @@ export const SyncPage: React.FC = () => {
             data-testid={`tab-${tab}`}
           >
             {t(`sync.tabs.${tab}`)}
+            {tab === 'conflicts' && <ConflictCountBadge />}
           </button>
         ))}
       </div>
@@ -262,6 +298,9 @@ export const SyncPage: React.FC = () => {
 
       {/* Schedules tab */}
       {activeTab === 'schedules' && <SyncSchedulePanel />}
+
+      {/* Conflicts tab */}
+      {activeTab === 'conflicts' && <ConflictsTabContent />}
 
       {/* Real-time tab */}
       {activeTab === 'realtime' && (
