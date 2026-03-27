@@ -628,7 +628,53 @@
     "title": "Benachrichtigungen",
     "markAllRead": "Alle als gelesen markieren",
     "clearAll": "Alle loeschen",
-    "noNotifications": "Keine Benachrichtigungen"
+    "noNotifications": "Keine Benachrichtigungen",
+    "filterAll": "Alle",
+    "filterInfo": "Info",
+    "filterSuccess": "Erfolg",
+    "filterWarning": "Warnung",
+    "filterError": "Fehler",
+    "categorySync": "Sync",
+    "categorySeed": "Seed",
+    "categoryMonitor": "Monitor",
+    "categorySchedule": "Zeitplan",
+    "categorySystem": "System",
+    "today": "Heute",
+    "earlier": "Frueher",
+    "searchPlaceholder": "Benachrichtigungen durchsuchen...",
+    "noMatching": "Keine passenden Benachrichtigungen"
+  },
+  "shortcuts": {
+    "title": "Tastenkuerzel",
+    "navigation": "Navigation",
+    "commandPalette": "Befehlspalette",
+    "toggleSidebar": "Seitenleiste umschalten",
+    "showShortcuts": "Tastenkuerzel anzeigen",
+    "closeOverlay": "Overlay / Dialog schliessen",
+    "quickNav": "Schnellnavigation",
+    "ctrlModule1": "Zum Monitor",
+    "ctrlModule2": "Zum Seed",
+    "ctrlModule3": "Zum Sync",
+    "ctrlModule4": "Zum Vergleich",
+    "ctrlModule5": "Zu DataOps",
+    "ctrlModule6": "Zur Automatisierung",
+    "modules": "Module",
+    "goHome": "Zur Startseite",
+    "goMonitor": "Zum Monitor",
+    "goSeed": "Zum Seed",
+    "goSync": "Zum Sync",
+    "goCompare": "Zum Vergleich",
+    "goDataOps": "Zu DataOps",
+    "goAutomation": "Zur Automatisierung",
+    "actions": "Aktionen",
+    "saveSettings": "Einstellungen speichern",
+    "execute": "Aktuelle Aktion ausfuehren",
+    "executeAction": "Ausfuehren / Bestaetigen",
+    "cancel": "Abbrechen / Schliessen",
+    "openSettings": "Einstellungen oeffnen",
+    "pressToClose": "Druecken Sie",
+    "or": "oder",
+    "toClose": "zum Schliessen"
   },
   "reports": {
     "title": "Berichte & Analysen",
@@ -935,5 +981,13 @@
   },
   "scheduler": {
     "comingSoon": "Coming in v1.2"
+  },
+  "pagination": {
+    "navigation": "Seitennavigation",
+    "showing": "Zeige {{start}}-{{end}} von {{total}}",
+    "pageOf": "Seite {{page}} von {{totalPages}}",
+    "rowsPerPage": "Zeilen pro Seite",
+    "previous": "Vorherige Seite",
+    "next": "Naechste Seite"
   }
 }

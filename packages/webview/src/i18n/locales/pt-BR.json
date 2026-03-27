@@ -628,7 +628,53 @@
     "title": "Notificacoes",
     "markAllRead": "Marcar tudo como lido",
     "clearAll": "Limpar tudo",
-    "noNotifications": "Sem notificacoes"
+    "noNotifications": "Sem notificacoes",
+    "filterAll": "Todos",
+    "filterInfo": "Info",
+    "filterSuccess": "Sucesso",
+    "filterWarning": "Aviso",
+    "filterError": "Erro",
+    "categorySync": "Sync",
+    "categorySeed": "Seed",
+    "categoryMonitor": "Monitor",
+    "categorySchedule": "Agendamento",
+    "categorySystem": "Sistema",
+    "today": "Hoje",
+    "earlier": "Anteriores",
+    "searchPlaceholder": "Pesquisar notificacoes...",
+    "noMatching": "Nenhuma notificacao correspondente"
+  },
+  "shortcuts": {
+    "title": "Atalhos de teclado",
+    "navigation": "Navegacao",
+    "commandPalette": "Paleta de comandos",
+    "toggleSidebar": "Alternar barra lateral",
+    "showShortcuts": "Mostrar atalhos de teclado",
+    "closeOverlay": "Fechar sobreposicao / Dialogo",
+    "quickNav": "Navegacao rapida",
+    "ctrlModule1": "Ir para Monitor",
+    "ctrlModule2": "Ir para Seed",
+    "ctrlModule3": "Ir para Sync",
+    "ctrlModule4": "Ir para Compare",
+    "ctrlModule5": "Ir para DataOps",
+    "ctrlModule6": "Ir para Automation",
+    "modules": "Modulos",
+    "goHome": "Ir para Inicio",
+    "goMonitor": "Ir para Monitor",
+    "goSeed": "Ir para Seed",
+    "goSync": "Ir para Sync",
+    "goCompare": "Ir para Compare",
+    "goDataOps": "Ir para DataOps",
+    "goAutomation": "Ir para Automation",
+    "actions": "Acoes",
+    "saveSettings": "Salvar configuracoes",
+    "execute": "Executar acao atual",
+    "executeAction": "Executar / Confirmar",
+    "cancel": "Cancelar / Fechar",
+    "openSettings": "Abrir configuracoes",
+    "pressToClose": "Pressione",
+    "or": "ou",
+    "toClose": "para fechar"
   },
   "reports": {
     "title": "Relatorios e Analiticos",
@@ -935,5 +981,13 @@
   },
   "scheduler": {
     "comingSoon": "Coming in v1.2"
+  },
+  "pagination": {
+    "navigation": "Paginacao",
+    "showing": "Mostrando {{start}}-{{end}} de {{total}}",
+    "pageOf": "Pagina {{page}} de {{totalPages}}",
+    "rowsPerPage": "Linhas por pagina",
+    "previous": "Pagina anterior",
+    "next": "Proxima pagina"
   }
 }

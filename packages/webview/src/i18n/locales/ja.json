@@ -935,5 +935,13 @@
   },
   "scheduler": {
     "comingSoon": "Coming in v1.2"
+  },
+  "pagination": {
+    "navigation": "ページネーション",
+    "showing": "{{start}}-{{end}} / {{total}}件",
+    "pageOf": "{{page}} / {{totalPages}}ページ",
+    "rowsPerPage": "表示件数",
+    "previous": "前のページ",
+    "next": "次のページ"
   }
 }
