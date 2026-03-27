@@ -40,6 +40,10 @@ export interface CDCReplicatorDeps {
   flushIntervalMs: number;
   maxBatchSize: number;
   onConflict?: ConflictHandler;
+  /** Called when applyFn throws an error for a batch of events */
+  onError?: (objectName: string, operation: string, error: Error, eventCount: number) => void;
+  /** Called after each event is applied with its result */
+  onApplyResult?: (replayId: number, success: boolean, error?: string) => void;
 }
 
 /** Replication metrics tracked per event */
@@ -47,6 +51,9 @@ interface ReplicationTiming {
   eventTimestamp: number;
   appliedTimestamp: number;
 }
+
+/** Ring buffer capacity for replication timings */
+const TIMINGS_CAPACITY = 1000;
 
 /**
  * Applies CDC events received from CDCListener to a target org.
@@ -57,13 +64,16 @@ export class CDCReplicator {
   private readonly deps: CDCReplicatorDeps;
   private buffer: Map<string, CDCEvent[]> = new Map();
   private flushTimer: ReturnType<typeof setInterval> | null = null;
-  private timings: ReplicationTiming[] = [];
+  private readonly timingsBuffer: Array<ReplicationTiming | undefined>;
+  private timingsWriteIndex = 0;
+  private timingsCount = 0;
   private totalApplied = 0;
   private totalFailed = 0;
   private running = false;
 
   constructor(deps: CDCReplicatorDeps) {
     this.deps = deps;
+    this.timingsBuffer = new Array<ReplicationTiming | undefined>(TIMINGS_CAPACITY);
   }
 
   /**
@@ -144,16 +154,25 @@ export class CDCReplicator {
   /**
    * Calculate the average replication lag in milliseconds.
    * Lag is measured from when the event was committed in source to when it was applied.
+   * Uses a ring buffer to bound memory usage.
    */
   getAverageLagMs(): number {
-    if (this.timings.length === 0) {
+    if (this.timingsCount === 0) {
       return 0;
     }
     let total = 0;
-    for (const t of this.timings) {
-      total += t.appliedTimestamp - t.eventTimestamp;
+    const count = this.timingsCount;
+    const start = this.timingsCount < TIMINGS_CAPACITY
+      ? 0
+      : this.timingsWriteIndex;
+    for (let i = 0; i < count; i++) {
+      const idx = (start + i) % TIMINGS_CAPACITY;
+      const t = this.timingsBuffer[idx];
+      if (t) {
+        total += t.appliedTimestamp - t.eventTimestamp;
+      }
     }
-    return Math.round(total / this.timings.length);
+    return Math.round(total / count);
   }
 
   /**
@@ -161,10 +180,14 @@ export class CDCReplicator {
    * Returns 0 if no events have been applied yet.
    */
   getCurrentLagMs(): number {
-    if (this.timings.length === 0) {
+    if (this.timingsCount === 0) {
       return 0;
     }
-    const last = this.timings[this.timings.length - 1];
+    const lastIdx = (this.timingsWriteIndex - 1 + TIMINGS_CAPACITY) % TIMINGS_CAPACITY;
+    const last = this.timingsBuffer[lastIdx];
+    if (!last) {
+      return 0;
+    }
     return last.appliedTimestamp - last.eventTimestamp;
   }
 
@@ -205,23 +228,28 @@ export class CDCReplicator {
           const event = groupEvents[i];
           if (result.success) {
             this.totalApplied++;
-            this.timings.push({
+            this.recordTiming({
               eventTimestamp: new Date(event.commitTimestamp).getTime(),
               appliedTimestamp: now,
             });
           } else {
             this.totalFailed++;
           }
+          this.deps.onApplyResult?.(event.replayId, result.success, result.error);
         }
-
-        // Keep only the last 1000 timings to bound memory
-        if (this.timings.length > 1000) {
-          this.timings = this.timings.slice(-500);
-        }
-      } catch {
+      } catch (err) {
         this.totalFailed += groupEvents.length;
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.deps.onError?.(objectName, sfOperation, error, groupEvents.length);
       }
     }
+  }
+
+  /** Write a timing entry to the ring buffer */
+  private recordTiming(timing: ReplicationTiming): void {
+    this.timingsBuffer[this.timingsWriteIndex] = timing;
+    this.timingsWriteIndex = (this.timingsWriteIndex + 1) % TIMINGS_CAPACITY;
+    this.timingsCount = Math.min(this.timingsCount + 1, TIMINGS_CAPACITY);
   }
 
   private groupByChangeType(
