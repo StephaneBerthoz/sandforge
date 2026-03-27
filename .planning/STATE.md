@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 05 — Seed Extensions (CSV + Clone)
-Plan: 05-03 complete (CSV Import UI)
-Status: Plan 05-03 delivered 3 tasks: FileDropZone + useCsvImport, CsvColumnMapper + CsvPreview + CsvValidationPanel, CsvUploadWizard + SeedPage mode selector.
-Last activity: 2026-03-27 — Plan 05-03 executed (CSV Import UI)
+Plan: 05-04 complete (Clone UI)
+Status: All 4 plans complete (05-01 CSV types, 05-02 Clone types, 05-03 CSV UI, 05-04 Clone UI). Phase 05 fully delivered.
+Last activity: 2026-03-27 — Plan 05-04 executed (Clone UI)
 
-Progress: [######----] 57% (4/7 phases)
+Progress: [#######---] 71% (5/7 phases)
 
 ## Performance Metrics
 
@@ -78,6 +78,10 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - SeedPage mode selector uses local React state (not persisted); always starts at mode selection
 - useCsvImport auto-map uses case-insensitive, underscore-tolerant matching against apiName and label
 - CsvValidationPanel "Proceed Anyway" gated by <10% error rate threshold
+- CloneWizard uses clone-wizard-container testId to avoid collision with Wizard's auto-generated clone-wizard
+- useClone syncs bridge mutation results via render-time checks (not useEffect) to avoid stale closures
+- CloneResultsPanel uses fixed page size of 25 for ID mapping pagination
+- Large clone warning threshold is 10,000 records
 
 ### Pending Todos
 
@@ -90,5 +94,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-27
-Stopped at: Plan 05-03 (CSV Import UI) complete. Plans 05-01, 05-02, 05-03 done. Plans 05-04 may be in progress (parallel).
+Stopped at: Phase 05 complete. All 4 plans delivered (CSV types, Clone types, CSV UI, Clone UI). Ready for Phase 06.
 Resume file: .planning/ROADMAP.md
