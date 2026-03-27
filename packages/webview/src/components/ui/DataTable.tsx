@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { motion } from 'framer-motion';
 import { cn } from '../../theme';
 import { Icon } from './Icon';
@@ -39,6 +40,12 @@ export interface DataTableProps<T> {
   stickyHeader?: boolean;
   /** Whether to alternate row background colors. */
   striped?: boolean;
+  /** Enable virtual scrolling for large datasets. When false, renders all rows normally. */
+  enableVirtualization?: boolean;
+  /** Estimated height of each row in pixels (used by the virtualizer). */
+  estimatedRowHeight?: number;
+  /** Maximum height of the scroll container when virtualization is enabled. */
+  maxHeight?: string;
 }
 
 /** Sort direction type. */
@@ -52,6 +59,7 @@ interface SortState {
 
 /**
  * Generic data table with sortable columns, sticky header, striped rows, and empty state.
+ * Supports virtual scrolling for large datasets via enableVirtualization prop.
  * All colors use design system CSS variables.
  */
 export function DataTable<T extends Record<string, unknown>>({
@@ -63,11 +71,15 @@ export function DataTable<T extends Record<string, unknown>>({
   className,
   stickyHeader = true,
   striped = false,
+  enableVirtualization = false,
+  estimatedRowHeight = 40,
+  maxHeight = '400px',
 }: DataTableProps<T>): React.ReactElement {
   const { t } = useTranslation();
   const [sort, setSort] = useState<SortState | null>(null);
   const [focusedRow, setFocusedRow] = useState<number>(-1);
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const handleSort = useCallback(
     (column: DataTableColumn<T>) => {
@@ -97,6 +109,13 @@ export function DataTable<T extends Record<string, unknown>>({
       return direction === 'asc' ? cmp : -cmp;
     });
   }, [data, sort]);
+
+  const virtualizer = useVirtualizer({
+    count: enableVirtualization ? sortedData.length : 0,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => estimatedRowHeight,
+    overscan: 5,
+  });
 
   const alignClass = (align?: 'left' | 'center' | 'right'): string => {
     if (align === 'center') return 'text-center';
@@ -138,6 +157,169 @@ export function DataTable<T extends Record<string, unknown>>({
     [sortedData, focusedRow, onRowClick],
   );
 
+  const renderHeader = () => (
+    <thead>
+      <tr
+        className={cn(
+          'bg-[var(--sf-bg-secondary)]',
+          stickyHeader && 'sticky top-0 z-10',
+        )}
+      >
+        {columns.map((col) => (
+          <th
+            key={col.key}
+            className={cn(
+              'font-semibold border-b border-[var(--sf-border)]',
+              alignClass(col.align),
+              col.sortable && 'cursor-pointer select-none',
+            )}
+            style={{
+              padding: 'var(--sf-space-2) var(--sf-space-3)',
+              color: 'var(--sf-text-secondary)',
+              fontSize: 'var(--sf-font-size-sm)',
+              width: col.width,
+            }}
+            onClick={() => handleSort(col)}
+            aria-sort={
+              sort?.key === col.key
+                ? sort.direction === 'asc'
+                  ? 'ascending'
+                  : 'descending'
+                : undefined
+            }
+          >
+            <span className="inline-flex items-center" style={{ gap: 'var(--sf-space-1)' }}>
+              {col.header}
+              {col.sortable && getSortIcon(col.key) && (
+                <Icon name={getSortIcon(col.key) as string} className="text-xs" />
+              )}
+              {col.sortable && !getSortIcon(col.key) && (
+                <Icon name="arrow-swap" className="text-xs opacity-30" />
+              )}
+            </span>
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+
+  const renderEmptyRow = () => (
+    <tr>
+      <td
+        colSpan={columns.length}
+        className="text-center"
+        style={{
+          padding: 'var(--sf-space-8) var(--sf-space-4)',
+          color: 'var(--sf-text-muted)',
+        }}
+      >
+        {emptyMessage ?? t('common.noData', 'No data available')}
+      </td>
+    </tr>
+  );
+
+  if (enableVirtualization) {
+    return (
+      <div
+        data-testid="data-table"
+        className={cn('rounded-[var(--sf-radius-md)] border border-[var(--sf-border)]', className)}
+      >
+        <table
+          className="w-full border-collapse"
+          style={{ fontSize: 'var(--sf-font-size)' }}
+          role="grid"
+        >
+          {renderHeader()}
+        </table>
+        <div
+          ref={scrollContainerRef}
+          data-testid="virtual-scroll-container"
+          style={{ maxHeight, overflowY: 'auto' }}
+        >
+          {sortedData.length === 0 ? (
+            <table
+              className="w-full border-collapse"
+              style={{ fontSize: 'var(--sf-font-size)' }}
+            >
+              <tbody>{renderEmptyRow()}</tbody>
+            </table>
+          ) : (
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              <table
+                className="w-full border-collapse"
+                style={{ fontSize: 'var(--sf-font-size)' }}
+              >
+                <tbody
+                  ref={tbodyRef}
+                  onKeyDown={handleTableKeyDown}
+                >
+                  {virtualizer.getVirtualItems().map((virtualItem) => {
+                    const row = sortedData[virtualItem.index];
+                    const rowIndex = virtualItem.index;
+                    return (
+                      <tr
+                        key={keyExtractor(row, rowIndex)}
+                        className={cn(
+                          'transition-colors hover:bg-[var(--sf-bg-hover)]',
+                          onRowClick && 'cursor-pointer',
+                          striped && rowIndex % 2 === 1 && 'bg-[var(--sf-bg-secondary)]',
+                          focusedRow === rowIndex && 'ring-1 ring-[var(--sf-accent)] outline-none',
+                        )}
+                        style={{
+                          transitionDuration: 'var(--sf-transition-fast)',
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: `${virtualItem.size}px`,
+                          transform: `translateY(${virtualItem.start}px)`,
+                          display: 'table-row',
+                        }}
+                        onClick={() => {
+                          setFocusedRow(rowIndex);
+                          onRowClick?.(row, rowIndex);
+                        }}
+                        onFocus={() => setFocusedRow(rowIndex)}
+                        tabIndex={rowIndex === 0 ? 0 : -1}
+                        aria-selected={focusedRow === rowIndex}
+                        aria-rowindex={rowIndex + 2}
+                        data-testid={`table-row-${rowIndex}`}
+                      >
+                        {columns.map((col) => (
+                          <td
+                            key={col.key}
+                            className={cn(
+                              'border-b border-[var(--sf-border-subtle)]',
+                              alignClass(col.align),
+                            )}
+                            style={{
+                              padding: 'var(--sf-space-2) var(--sf-space-3)',
+                              color: 'var(--sf-text-primary)',
+                            }}
+                          >
+                            {col.render
+                              ? col.render(row, rowIndex)
+                              : String(row[col.key] ?? '')}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="data-table"
@@ -148,49 +330,7 @@ export function DataTable<T extends Record<string, unknown>>({
         style={{ fontSize: 'var(--sf-font-size)' }}
         role="grid"
       >
-        <thead>
-          <tr
-            className={cn(
-              'bg-[var(--sf-bg-secondary)]',
-              stickyHeader && 'sticky top-0 z-10',
-            )}
-          >
-            {columns.map((col) => (
-              <th
-                key={col.key}
-                className={cn(
-                  'font-semibold border-b border-[var(--sf-border)]',
-                  alignClass(col.align),
-                  col.sortable && 'cursor-pointer select-none',
-                )}
-                style={{
-                  padding: 'var(--sf-space-2) var(--sf-space-3)',
-                  color: 'var(--sf-text-secondary)',
-                  fontSize: 'var(--sf-font-size-sm)',
-                  width: col.width,
-                }}
-                onClick={() => handleSort(col)}
-                aria-sort={
-                  sort?.key === col.key
-                    ? sort.direction === 'asc'
-                      ? 'ascending'
-                      : 'descending'
-                    : undefined
-                }
-              >
-                <span className="inline-flex items-center" style={{ gap: 'var(--sf-space-1)' }}>
-                  {col.header}
-                  {col.sortable && getSortIcon(col.key) && (
-                    <Icon name={getSortIcon(col.key) as string} className="text-xs" />
-                  )}
-                  {col.sortable && !getSortIcon(col.key) && (
-                    <Icon name="arrow-swap" className="text-xs opacity-30" />
-                  )}
-                </span>
-              </th>
-            ))}
-          </tr>
-        </thead>
+        {renderHeader()}
         <motion.tbody
           ref={tbodyRef}
           onKeyDown={handleTableKeyDown}
@@ -199,18 +339,7 @@ export function DataTable<T extends Record<string, unknown>>({
           animate="visible"
         >
           {sortedData.length === 0 ? (
-            <tr>
-              <td
-                colSpan={columns.length}
-                className="text-center"
-                style={{
-                  padding: 'var(--sf-space-8) var(--sf-space-4)',
-                  color: 'var(--sf-text-muted)',
-                }}
-              >
-                {emptyMessage ?? t('common.noData', 'No data available')}
-              </td>
-            </tr>
+            renderEmptyRow()
           ) : (
             sortedData.map((row, rowIndex) => (
               <motion.tr

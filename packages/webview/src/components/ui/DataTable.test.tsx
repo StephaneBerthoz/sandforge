@@ -34,6 +34,29 @@ vi.mock('framer-motion', async () => {
   };
 });
 
+/* Mock @tanstack/react-virtual */
+let mockVirtualItems: Array<{ index: number; start: number; size: number }> = [];
+let mockTotalSize = 0;
+
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: () => number; overscan: number }) => {
+    const rowHeight = opts.estimateSize();
+    const overscan = opts.overscan ?? 5;
+    /* Simulate: visible area fits ~10 rows, plus overscan on each side */
+    const visibleCount = Math.min(opts.count, 10 + overscan * 2);
+    const items: Array<{ index: number; start: number; size: number }> = [];
+    for (let i = 0; i < visibleCount; i++) {
+      items.push({ index: i, start: i * rowHeight, size: rowHeight });
+    }
+    mockVirtualItems = items;
+    mockTotalSize = opts.count * rowHeight;
+    return {
+      getVirtualItems: () => mockVirtualItems,
+      getTotalSize: () => mockTotalSize,
+    };
+  },
+}));
+
 interface TestRow {
   id: string;
   name: string;
@@ -250,5 +273,135 @@ describe('DataTable', () => {
     expect(screen.getByTestId('table-row-0')).toBeDefined();
     expect(screen.getByTestId('table-row-1')).toBeDefined();
     expect(screen.getByTestId('table-row-2')).toBeDefined();
+  });
+});
+
+describe('DataTable - Virtual Scrolling', () => {
+  const generateLargeData = (count: number): TestRow[] =>
+    Array.from({ length: count }, (_, i) => ({
+      id: String(i),
+      name: `Item ${String(i).padStart(4, '0')}`,
+      count: i,
+    }));
+
+  it('should render only visible rows in virtual mode', () => {
+    const largeData = generateLargeData(500);
+    render(
+      <DataTable
+        columns={columns}
+        data={largeData}
+        keyExtractor={keyExtractor}
+        enableVirtualization
+        maxHeight="400px"
+      />,
+    );
+    // With mock: 10 visible + 2*5 overscan = 20 rows max, not all 500
+    const renderedRows = screen.getAllByTestId(/^table-row-/);
+    expect(renderedRows.length).toBeLessThan(500);
+    expect(renderedRows.length).toBeGreaterThan(0);
+  });
+
+  it('should have a virtual scroll container in virtual mode', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={data}
+        keyExtractor={keyExtractor}
+        enableVirtualization
+      />,
+    );
+    expect(screen.getByTestId('virtual-scroll-container')).toBeDefined();
+  });
+
+  it('should not have a virtual scroll container in non-virtual mode', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={data}
+        keyExtractor={keyExtractor}
+      />,
+    );
+    expect(screen.queryByTestId('virtual-scroll-container')).toBeNull();
+  });
+
+  it('should render with sorting in virtual mode', () => {
+    const unsortedData: TestRow[] = [
+      { id: '1', name: 'Charlie', count: 30 },
+      { id: '2', name: 'Alpha', count: 10 },
+      { id: '3', name: 'Bravo', count: 20 },
+    ];
+    render(
+      <DataTable
+        columns={columns}
+        data={unsortedData}
+        keyExtractor={keyExtractor}
+        enableVirtualization
+      />,
+    );
+    // Sort ascending by name
+    fireEvent.click(screen.getByText('Name'));
+    const row0 = screen.getByTestId('table-row-0');
+    const row1 = screen.getByTestId('table-row-1');
+    const row2 = screen.getByTestId('table-row-2');
+    expect(row0.textContent).toContain('Alpha');
+    expect(row1.textContent).toContain('Bravo');
+    expect(row2.textContent).toContain('Charlie');
+  });
+
+  it('should render sticky header in virtual mode', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={data}
+        keyExtractor={keyExtractor}
+        enableVirtualization
+        stickyHeader
+      />,
+    );
+    const headerRow = screen.getByText('Name').closest('tr');
+    expect(headerRow?.className).toContain('sticky');
+  });
+
+  it('should call onRowClick in virtual mode', () => {
+    const handler = vi.fn();
+    render(
+      <DataTable
+        columns={columns}
+        data={data}
+        keyExtractor={keyExtractor}
+        enableVirtualization
+        onRowClick={handler}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('table-row-1'));
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledWith(data[1], 1);
+  });
+
+  it('should render empty state in virtual mode', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={[]}
+        keyExtractor={keyExtractor}
+        enableVirtualization
+        emptyMessage="No virtual items"
+      />,
+    );
+    expect(screen.getByText('No virtual items')).toBeDefined();
+  });
+
+  it('should apply absolute positioning on virtual rows', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={data}
+        keyExtractor={keyExtractor}
+        enableVirtualization
+      />,
+    );
+    const row0 = screen.getByTestId('table-row-0');
+    expect(row0.style.position).toBe('absolute');
+    expect(row0.style.transform).toContain('translateY');
   });
 });
