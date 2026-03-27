@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sparkles, Upload, Copy, ArrowLeft, Users } from 'lucide-react';
 import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
@@ -15,6 +15,7 @@ import { Select } from '../../components/ui/Select';
 import { Accordion } from '../../components/ui/Accordion';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Divider } from '../../components/ui/Divider';
+import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { SeedWizard } from './SeedWizard';
 import type { WizardStep } from './SeedWizard';
 import { Step2SelectObjects } from './Step2_SelectObjects';
@@ -47,6 +48,9 @@ const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
   failure: 'error',
 };
 
+/** Threshold below which wizard auto-advances past Configure step. */
+const AUTO_ADVANCE_THRESHOLD = 5;
+
 /** Main Seed page -- mode selector + 4-step wizard with progressive disclosure. */
 export const SeedPage: React.FC = () => {
   const { t } = useTranslation();
@@ -54,17 +58,38 @@ export const SeedPage: React.FC = () => {
   const state = useSeedWizardState(t);
   const quickSeed = useQuickSeed();
   const [seedMode, setSeedMode] = useState<SeedMode>('select');
-  const [_selectedPersona, setSelectedPersona] = useState<PersonaMsg | null>(null);
+  /** Tracks whether the configure step was auto-skipped (for the "Customize" banner). */
+  const [configSkipped, setConfigSkipped] = useState(false);
+  const prevStepRef = useRef(state.currentStep);
 
   const handleSelectTemplate = (template: SeedTemplate, customizedCounts: Record<string, number>) => {
     quickSeed.startQuickSeed(template, customizedCounts);
   };
 
   /** Handle persona selection from the PersonaGallery. Stores persona and switches to wizard. */
-  const handlePersonaSelected = (persona: PersonaMsg) => {
-    setSelectedPersona(persona);
+  const handlePersonaSelected = useCallback((persona: PersonaMsg) => {
+    state.setSelectedPersona(persona);
     setSeedMode('ai-scratch');
-  };
+  }, [state]);
+
+  /**
+   * Custom step change handler that implements adaptive auto-advance.
+   * When moving from Select (0) to Configure (1), if there are fewer than
+   * AUTO_ADVANCE_THRESHOLD objects, skip Configure and go directly to Execute (2).
+   */
+  const handleStepChange = useCallback((nextStep: number) => {
+    const movingForwardFromSelect = prevStepRef.current === 0 && nextStep === 1;
+    if (movingForwardFromSelect && state.selectedObjects.length < AUTO_ADVANCE_THRESHOLD) {
+      setConfigSkipped(true);
+      state.setCurrentStep(2);
+    } else {
+      if (nextStep === 1) {
+        setConfigSkipped(false);
+      }
+      state.setCurrentStep(nextStep);
+    }
+    prevStepRef.current = nextStep;
+  }, [state]);
 
   if (orgs.length === 0) {
     return (
@@ -255,7 +280,7 @@ export const SeedPage: React.FC = () => {
               <SeedWizard
                 steps={SEED_STEPS}
                 currentStep={state.currentStep}
-                onStepChange={state.setCurrentStep}
+                onStepChange={handleStepChange}
                 canGoNext={state.canGoNext}
                 isFinished={state.isFinished}
                 onFinish={state.handleExecute}
@@ -263,6 +288,9 @@ export const SeedPage: React.FC = () => {
                 {/* STEP 1: SELECT */}
                 {state.currentStep === 0 && (
                   <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-select-content">
+                    <div className="flex items-center gap-1.5">
+                      <InfoTooltip id="help.seed.selectObjects" content={t('help.seed.selectObjects')} />
+                    </div>
                     {/* Org selector */}
                     <Select
                       label={t('seed.selectOrg')}
@@ -410,6 +438,9 @@ export const SeedPage: React.FC = () => {
                 {/* STEP 2: CONFIGURE */}
                 {state.currentStep === 1 && (
                   <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-configure-content">
+                    <div className="flex items-center gap-1.5">
+                      <InfoTooltip id="help.seed.configureFields" content={t('help.seed.configureFields')} />
+                    </div>
                     {/* Collapsible field tree per object */}
                     {state.piiLoading && (
                       <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="pii-scan-loading">
@@ -515,6 +546,30 @@ export const SeedPage: React.FC = () => {
                 {/* STEP 3: EXECUTE */}
                 {state.currentStep === 2 && (
                   <div data-testid="seed-step-execute-content">
+                    <div className="flex items-center gap-1.5">
+                      <InfoTooltip id="help.seed.execute" content={t('help.seed.execute')} />
+                    </div>
+
+                    {/* Adaptive: show "using defaults" banner when configure was skipped */}
+                    {configSkipped && (
+                      <div
+                        className="flex items-center gap-2 p-2 rounded text-xs bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-descriptionForeground,#868686)] mb-2"
+                        data-testid="adaptive-defaults-banner"
+                      >
+                        <span>{t('seed.adaptive.usingDefaults')}</span>
+                        <button
+                          className="text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline"
+                          onClick={() => {
+                            setConfigSkipped(false);
+                            state.setCurrentStep(1);
+                          }}
+                          data-testid="adaptive-customize-link"
+                        >
+                          {t('seed.adaptive.customizeLink')}
+                        </button>
+                      </div>
+                    )}
+
                     <Step7Execute
                       isRunning={state.isRunning}
                       objectProgress={state.objectProgress}
