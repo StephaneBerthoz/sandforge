@@ -3,6 +3,9 @@ import { create } from 'zustand';
 /** Severity level for a notification */
 export type NotificationLevel = 'info' | 'success' | 'warning' | 'error';
 
+/** Category for a notification */
+export type NotificationCategory = 'sync' | 'seed' | 'monitor' | 'schedule' | 'system';
+
 /** Action button attached to a notification */
 export interface NotificationAction {
   label: string;
@@ -19,6 +22,8 @@ export interface Notification {
   message: string;
   timestamp: number;
   read: boolean;
+  /** Notification category. Defaults to 'system'. */
+  category?: NotificationCategory;
   autoDismissMs?: number;
   actions?: NotificationAction[];
 }
@@ -30,12 +35,18 @@ export type NotificationInput = Omit<Notification, 'id' | 'timestamp' | 'read'>;
 export interface NotificationState {
   notifications: Notification[];
   maxNotifications: number;
+  filterLevel: NotificationLevel | 'all';
+  filterCategory: NotificationCategory | 'all';
+  searchQuery: string;
   addNotification: (notification: NotificationInput) => string;
   removeNotification: (id: string) => void;
   markRead: (id: string) => void;
   markAllRead: () => void;
   clearAll: () => void;
   unreadCount: () => number;
+  setFilterLevel: (level: NotificationLevel | 'all') => void;
+  setFilterCategory: (category: NotificationCategory | 'all') => void;
+  setSearchQuery: (query: string) => void;
 }
 
 let notificationCounter = 0;
@@ -54,6 +65,9 @@ export function resetNotificationCounter(): void {
 export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],
   maxNotifications: 50,
+  filterLevel: 'all',
+  filterCategory: 'all',
+  searchQuery: '',
 
   addNotification(input: NotificationInput): string {
     const id = generateNotificationId();
@@ -62,6 +76,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       id,
       timestamp: Date.now(),
       read: false,
+      category: input.category ?? 'system',
     };
 
     set((state) => {
@@ -102,8 +117,42 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   unreadCount(): number {
     return get().notifications.filter((n) => !n.read).length;
   },
+
+  setFilterLevel(level: NotificationLevel | 'all'): void {
+    set({ filterLevel: level });
+  },
+
+  setFilterCategory(category: NotificationCategory | 'all'): void {
+    set({ filterCategory: category });
+  },
+
+  setSearchQuery(query: string): void {
+    set({ searchQuery: query });
+  },
 }));
 
 /** External selector for reactive unread count subscriptions */
 export const selectUnreadCount = (state: NotificationState): number =>
   state.notifications.filter((n) => !n.read).length;
+
+/** Selector that applies level, category, and search filters */
+export const selectFilteredNotifications = (state: NotificationState): Notification[] => {
+  let filtered = state.notifications;
+
+  if (state.filterLevel !== 'all') {
+    filtered = filtered.filter((n) => n.level === state.filterLevel);
+  }
+
+  if (state.filterCategory !== 'all') {
+    filtered = filtered.filter((n) => (n.category ?? 'system') === state.filterCategory);
+  }
+
+  if (state.searchQuery.trim()) {
+    const query = state.searchQuery.toLowerCase();
+    filtered = filtered.filter(
+      (n) => n.title.toLowerCase().includes(query) || n.message.toLowerCase().includes(query),
+    );
+  }
+
+  return filtered;
+};
