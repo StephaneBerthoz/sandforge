@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: Ready for Phase 05
-Plan: —
-Status: Phase 04 complete (2 plans, 5 requirements). Verified 19/19 automated must-haves.
-Last activity: 2026-03-27 — Phase 04 executed and verified
+Phase: 05 — Seed Extensions (CSV + Clone)
+Plan: 05-03 complete (CSV Import UI)
+Status: Plan 05-03 delivered 3 tasks: FileDropZone + useCsvImport, CsvColumnMapper + CsvPreview + CsvValidationPanel, CsvUploadWizard + SeedPage mode selector.
+Last activity: 2026-03-27 — Plan 05-03 executed (CSV Import UI)
 
 Progress: [######----] 57% (4/7 phases)
 
@@ -74,6 +74,10 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - Added CDCReplicator.setOnConflict() for post-creation callback wiring by orchestrator
 - ConflictResolutionPanel tracks field resolutions in local React state (not Zustand) to avoid polluting global state
 - Added sync.tabs.* i18n keys that were missing from en.json/fr.json (SyncPage was using them via fallback)
+- CSV Import UI uses FileReader (not File.text()) for jsdom test compatibility
+- SeedPage mode selector uses local React state (not persisted); always starts at mode selection
+- useCsvImport auto-map uses case-insensitive, underscore-tolerant matching against apiName and label
+- CsvValidationPanel "Proceed Anyway" gated by <10% error rate threshold
 
 ### Pending Todos
 
@@ -86,5 +90,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-27
-Stopped at: Phase 04 complete and verified. Ready for Phase 05 planning.
+Stopped at: Plan 05-03 (CSV Import UI) complete. Plans 05-01, 05-02, 05-03 done. Plans 05-04 may be in progress (parallel).
 Resume file: .planning/ROADMAP.md
