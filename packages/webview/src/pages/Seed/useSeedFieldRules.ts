@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-import type { FieldRuleType } from '@sandforge/shared';
+import type { FieldRuleType, PersonaMsg, PersonaFieldPatternMsg } from '@sandforge/shared';
 
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { ObjectFieldConfig, FieldConfig } from './Step3_ConfigureFields';
@@ -16,6 +16,26 @@ interface DescribedField {
   length: number;
 }
 
+/**
+ * Map a persona field pattern generator string to the corresponding FieldRuleType.
+ *
+ * @param generator - The generator type from the persona data patterns
+ * @returns The matching FieldRuleType, or null if unmapped
+ */
+export function mapGeneratorToRuleType(generator: string): FieldRuleType | null {
+  const mapping: Record<string, FieldRuleType> = {
+    faker: 'faker',
+    random_pick: 'picklist_random',
+    weighted_pick: 'picklist_random',
+    range: 'random',
+    sequence: 'sequence',
+    pattern: 'regex',
+    ai_generate: 'ai_generate',
+    relative_date: 'faker',
+  };
+  return mapping[generator] ?? null;
+}
+
 /** Return type for the useSeedFieldRules hook. */
 export interface SeedFieldRulesState {
   /** Per-object field configurations. */
@@ -24,6 +44,15 @@ export interface SeedFieldRulesState {
   handleChangeFieldRule: (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => void;
   /** Change a configuration parameter for a specific field rule. */
   handleChangeFieldConfig: (objectApiName: string, fieldApiName: string, key: string, value: string) => void;
+  /**
+   * Apply a persona's data patterns to field configs.
+   * For each field matching a key in persona.dataPatterns, sets the rule type
+   * and config from the pattern.
+   *
+   * @param persona - The persona whose data patterns to apply
+   * @returns The number of fields that were matched and configured
+   */
+  applyPersona: (persona: PersonaMsg) => number;
 }
 
 /**
@@ -124,9 +153,34 @@ export function useSeedFieldRules(
     [],
   );
 
+  const applyPersona = useCallback((persona: PersonaMsg): number => {
+    let matchedCount = 0;
+
+    setFieldConfigs((prev) =>
+      prev.map((obj) => ({
+        ...obj,
+        fields: obj.fields.map((field) => {
+          const pattern: PersonaFieldPatternMsg | undefined = persona.dataPatterns[field.fieldApiName];
+          if (!pattern) return field;
+
+          const ruleType = mapGeneratorToRuleType(pattern.generator);
+          if (!ruleType) return field;
+
+          matchedCount++;
+          const config: Record<string, unknown> = { ...(pattern.params ?? {}) };
+
+          return { ...field, ruleType, config };
+        }),
+      })),
+    );
+
+    return matchedCount;
+  }, []);
+
   return {
     fieldConfigs,
     handleChangeFieldRule,
     handleChangeFieldConfig,
+    applyPersona,
   };
 }

@@ -173,4 +173,40 @@ describe('useSeedWizardState', () => {
     });
     expect(result.current.isFinished).toBe(false);
   });
+
+  it('should initialize with no selected persona', () => {
+    const { result } = renderHook(() => useSeedWizardState(mockT));
+    expect(result.current.selectedPersona).toBeNull();
+    expect(result.current.personaMatchedFields).toBe(0);
+  });
+
+  it('should set selected persona via setSelectedPersona', () => {
+    const { result } = renderHook(() => useSeedWizardState(mockT));
+
+    const persona = {
+      id: 'test-persona',
+      name: 'Test',
+      description: 'Test persona',
+      industry: 'tech',
+      locale: 'en_US',
+      dataPatterns: {},
+    };
+
+    act(() => {
+      result.current.setSelectedPersona(persona);
+    });
+
+    expect(result.current.selectedPersona).toEqual(persona);
+  });
+
+  it('should expose applySelectedPersona that returns 0 when no persona set', () => {
+    const { result } = renderHook(() => useSeedWizardState(mockT));
+
+    let count = 0;
+    act(() => {
+      count = result.current.applySelectedPersona();
+    });
+
+    expect(count).toBe(0);
+  });
 });
