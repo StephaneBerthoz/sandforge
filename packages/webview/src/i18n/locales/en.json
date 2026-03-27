@@ -436,6 +436,71 @@
       "startSeeding": "Start Seeding",
       "backToGallery": "Back to Gallery",
       "seedAgain": "Seed Again"
+    },
+    "csv": {
+      "dropzone": {
+        "title": "Drag & drop your CSV file here",
+        "subtitle": "or click the button below to browse",
+        "browse": "Browse Files",
+        "maxSize": "File exceeds maximum size of {{max}} MB"
+      },
+      "mapper": {
+        "title": "Map CSV Columns to Salesforce Fields",
+        "mapped": "{{count}} of {{total}} columns mapped",
+        "unmapped": "Unmapped",
+        "incompatible": "Type incompatible",
+        "selectField": "Select a Salesforce field",
+        "noMatch": "No match"
+      },
+      "preview": {
+        "title": "CSV Data Preview",
+        "showing": "Showing {{shown}} of {{total}} rows",
+        "noData": "No data to preview"
+      },
+      "validation": {
+        "title": "Validation Results",
+        "valid": "All {{count}} rows are valid",
+        "errors": "{{count}} errors found",
+        "proceedAnyway": "Proceed Anyway",
+        "fixAndRevalidate": "Fix and Re-validate",
+        "andMore": "and {{count}} more...",
+        "warningProceed": "Errors affect less than 10% of rows. You can proceed with partial import.",
+        "row": "Row {{row}}",
+        "errorTypes": {
+          "type_mismatch": "Type Mismatch",
+          "missing_required": "Missing Required",
+          "length_exceeded": "Length Exceeded",
+          "duplicate_external_id": "Duplicate External ID",
+          "invalid_picklist": "Invalid Picklist Value"
+        }
+      },
+      "wizard": {
+        "stepUpload": "Upload",
+        "stepMap": "Map Columns",
+        "stepValidate": "Validate",
+        "stepExecute": "Execute",
+        "selectOrg": "Select Target Org",
+        "selectObject": "Select Target Object",
+        "cancel": "Cancel",
+        "next": "Next",
+        "back": "Back",
+        "execute": "Execute Import",
+        "done": "Done",
+        "executing": "Importing records...",
+        "inserted": "{{count}} records inserted",
+        "failed": "{{count}} records failed"
+      }
+    },
+    "modeSelect": {
+      "title": "Choose a Seed Mode",
+      "ai": "AI Generate",
+      "aiDesc": "Generate realistic test data using AI",
+      "csv": "CSV Upload",
+      "csvDesc": "Import data from a CSV file",
+      "clone": "Clone from Org",
+      "cloneDesc": "Clone records from another org",
+      "backToModes": "Back to mode selection",
+      "comingSoon": "Coming soon"
     }
   },
   "sync": {

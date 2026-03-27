@@ -412,6 +412,71 @@
       "startSeeding": "Lancer le seed",
       "backToGallery": "Retour a la galerie",
       "seedAgain": "Relancer le seed"
+    },
+    "csv": {
+      "dropzone": {
+        "title": "Glissez-deposez votre fichier CSV ici",
+        "subtitle": "ou cliquez sur le bouton ci-dessous pour parcourir",
+        "browse": "Parcourir les fichiers",
+        "maxSize": "Le fichier depasse la taille maximale de {{max}} Mo"
+      },
+      "mapper": {
+        "title": "Mapper les colonnes CSV aux champs Salesforce",
+        "mapped": "{{count}} sur {{total}} colonnes mappees",
+        "unmapped": "Non mappe",
+        "incompatible": "Type incompatible",
+        "selectField": "Selectionner un champ Salesforce",
+        "noMatch": "Aucune correspondance"
+      },
+      "preview": {
+        "title": "Apercu des donnees CSV",
+        "showing": "Affichage de {{shown}} sur {{total}} lignes",
+        "noData": "Aucune donnee a afficher"
+      },
+      "validation": {
+        "title": "Resultats de validation",
+        "valid": "Les {{count}} lignes sont valides",
+        "errors": "{{count}} erreurs trouvees",
+        "proceedAnyway": "Continuer quand meme",
+        "fixAndRevalidate": "Corriger et revalider",
+        "andMore": "et {{count}} de plus...",
+        "warningProceed": "Les erreurs affectent moins de 10% des lignes. Vous pouvez continuer avec un import partiel.",
+        "row": "Ligne {{row}}",
+        "errorTypes": {
+          "type_mismatch": "Type incompatible",
+          "missing_required": "Champ requis manquant",
+          "length_exceeded": "Longueur depassee",
+          "duplicate_external_id": "ID externe en double",
+          "invalid_picklist": "Valeur de liste de selection invalide"
+        }
+      },
+      "wizard": {
+        "stepUpload": "Charger",
+        "stepMap": "Mapper les colonnes",
+        "stepValidate": "Valider",
+        "stepExecute": "Executer",
+        "selectOrg": "Selectionner l'org cible",
+        "selectObject": "Selectionner l'objet cible",
+        "cancel": "Annuler",
+        "next": "Suivant",
+        "back": "Retour",
+        "execute": "Executer l'import",
+        "done": "Termine",
+        "executing": "Import des enregistrements en cours...",
+        "inserted": "{{count}} enregistrements inseres",
+        "failed": "{{count}} enregistrements echoues"
+      }
+    },
+    "modeSelect": {
+      "title": "Choisir un mode de Seed",
+      "ai": "Generation IA",
+      "aiDesc": "Generez des donnees de test realistes avec l'IA",
+      "csv": "Import CSV",
+      "csvDesc": "Importez des donnees depuis un fichier CSV",
+      "clone": "Cloner depuis une org",
+      "cloneDesc": "Clonez des enregistrements depuis une autre org",
+      "backToModes": "Retour a la selection du mode",
+      "comingSoon": "Bientot disponible"
     }
   },
   "sync": {
