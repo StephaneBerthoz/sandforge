@@ -1,4 +1,5 @@
 import type { CDCEvent, CDCChangeType, ApiName } from '@sandforge/shared';
+import { buildCdcChannel } from '@sandforge/shared';
 import { z } from 'zod';
 
 /** Zod schema for validating raw CDC event payloads from the Streaming API */
@@ -190,7 +191,7 @@ export class CDCListener {
     }
 
     return this.config.watchedObjects.map(
-      (objectName) => `/data/${objectName}ChangeEvent`
+      (objectName) => buildCdcChannel(objectName)
     );
   }
 

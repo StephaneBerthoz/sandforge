@@ -1,3 +1,5 @@
+import { buildCdcChannel } from '@sandforge/shared';
+
 /** A Salesforce Change Data Capture event */
 export interface CdcEvent {
   entityName: string;
@@ -72,13 +74,4 @@ export class ChangeDataCaptureListener {
     }
     this.events.push(event);
   }
-}
-
-/** Build the CDC channel name for a given entity */
-function buildCdcChannel(entityName: string): string {
-  if (entityName.endsWith('__c')) {
-    const base = entityName.slice(0, -1);
-    return `/data/${base}e`;
-  }
-  return `/data/${entityName}ChangeEvent`;
 }

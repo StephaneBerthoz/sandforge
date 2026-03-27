@@ -97,6 +97,25 @@ describe('CDCListener', () => {
       );
     });
 
+    it('should subscribe to correct channels for custom objects (__c -> __ChangeEvent)', async () => {
+      listener = new CDCListener(
+        createConfig({ watchedObjects: ['MyObj__c', 'ns__Foo__c'] }),
+        factory,
+      );
+      await listener.start();
+
+      expect(mockClient.subscribe).toHaveBeenCalledWith(
+        '/data/MyObj__ChangeEvent',
+        -1,
+        expect.any(Function),
+      );
+      expect(mockClient.subscribe).toHaveBeenCalledWith(
+        '/data/ns__Foo__ChangeEvent',
+        -1,
+        expect.any(Function),
+      );
+    });
+
     it('should subscribe to global channel when no watchedObjects specified', async () => {
       listener = new CDCListener(createConfig({ watchedObjects: [] }), factory);
       await listener.start();

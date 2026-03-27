@@ -38,7 +38,7 @@ describe('ChangeDataCaptureListener', () => {
     it('should subscribe to the CDC channel for a custom object', () => {
       listener.watch('MyObject__c');
       expect(subscribe).toHaveBeenCalledWith(
-        '/data/MyObject__e',
+        '/data/MyObject__ChangeEvent',
         expect.any(Function)
       );
     });

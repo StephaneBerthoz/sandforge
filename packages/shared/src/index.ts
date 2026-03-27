@@ -75,6 +75,7 @@ export * from './utils/format-utils.js';
 export * from './utils/hash-utils.js';
 export * from './utils/validation-utils.js';
 export * from './utils/execution-result.js';
+export * from './utils/cdcChannel.js';
 
 // Barrel exports — I18n
 export * from './i18n/index.js';
