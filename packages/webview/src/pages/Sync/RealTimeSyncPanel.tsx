@@ -1,6 +1,8 @@
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useCDCLiveStore } from '../../stores/useCDCLiveStore';
 import { CDCSubscriptionPanel } from './CDCSubscriptionPanel';
+import { CDCMetricsDashboard } from './CDCMetricsDashboard';
 import { CDCEventFeed } from './CDCEventFeed';
 
 /** Props for the RealTimeSyncPanel component. */
@@ -23,11 +25,15 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
   targetOrgId,
   availableObjects,
 }) => {
+  const { t } = useTranslation();
   const setOrgs = useCDCLiveStore((s) => s.setOrgs);
+  const status = useCDCLiveStore((s) => s.status);
 
   useEffect(() => {
     setOrgs(sourceOrgId, targetOrgId);
   }, [sourceOrgId, targetOrgId, setOrgs]);
+
+  const isStreaming = status === 'syncing' || status === 'paused';
 
   return (
     <div
@@ -35,6 +41,12 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
       data-testid="realtime-sync-panel"
     >
       <CDCSubscriptionPanel availableObjects={availableObjects} />
+      <details open={isStreaming} data-testid="cdc-metrics-section">
+        <summary className="cursor-pointer text-sm font-medium text-[var(--sf-text)] mb-2">
+          {t('sync.realtime.metrics')}
+        </summary>
+        <CDCMetricsDashboard />
+      </details>
       <CDCEventFeed />
     </div>
   );
