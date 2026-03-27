@@ -501,6 +501,48 @@
       "cloneDesc": "Clone records from another org",
       "backToModes": "Back to mode selection",
       "comingSoon": "Coming soon"
+    },
+    "clone": {
+      "sourcePicker": {
+        "title": "Select Source & Target Orgs",
+        "sourceLabel": "Source Org",
+        "targetLabel": "Target Org",
+        "targetHint": "Records will be cloned TO this org",
+        "direction": "Source to Target",
+        "selectSource": "Select a source org...",
+        "sameOrgWarning": "Source and target orgs are the same"
+      },
+      "objectSelector": {
+        "title": "Select Objects to Clone",
+        "search": "Search objects...",
+        "selected": "{{count}} objects selected",
+        "whereHint": "Optional filter to clone only matching records",
+        "wherePlaceholder": "e.g., Industry = 'Technology'"
+      },
+      "preview": {
+        "title": "Clone Preview",
+        "insertOrder": "Insert Order",
+        "recordCounts": "Record Counts",
+        "sampleRecords": "Sample Records",
+        "largeWarning": "This clone involves over 10,000 records. It may take several minutes to complete.",
+        "execute": "Execute Clone"
+      },
+      "results": {
+        "title": "Clone Results",
+        "summary": "Source records",
+        "inserted": "Inserted",
+        "failed": "Failed",
+        "duration": "Duration",
+        "idMapping": "ID Mapping",
+        "exportMapping": "Export ID Mapping",
+        "done": "Done"
+      },
+      "wizard": {
+        "stepSource": "Source Org",
+        "stepObjects": "Select Objects",
+        "stepPreview": "Preview",
+        "stepExecute": "Execute"
+      }
     }
   },
   "sync": {

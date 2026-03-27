@@ -99,11 +99,11 @@ describe('SeedPage', () => {
     expect(screen.getByText('No organizations connected')).toBeDefined();
   });
 
-  it('should render seed page with wizard', () => {
+  it('should render seed page with mode selector', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
     expect(screen.getByTestId('seed-page')).toBeDefined();
-    expect(screen.getByTestId('seed-wizard')).toBeDefined();
+    expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
   });
 
   it('should show title in page header', () => {
@@ -113,108 +113,54 @@ describe('SeedPage', () => {
     expect(screen.getByText('Seed Data')).toBeDefined();
   });
 
-  it('should start on step 1 (Select)', () => {
+  it('should render 3 mode cards in selector', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
+    expect(screen.getByTestId('mode-card-ai')).toBeDefined();
+    expect(screen.getByTestId('mode-card-csv')).toBeDefined();
+    expect(screen.getByTestId('mode-card-clone')).toBeDefined();
+  });
+
+  it('should show AI Generate mode with wizard when clicking AI card', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-ai'));
+    expect(screen.getByTestId('seed-wizard')).toBeDefined();
+    expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
+  });
+
+  it('should show CsvUploadWizard when clicking CSV card', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-csv'));
+    expect(screen.getByTestId('csv-upload-wizard')).toBeDefined();
+    expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
+  });
+
+  it('should show CloneWizard when clicking Clone card', () => {
+    useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-clone'));
+    expect(screen.getByTestId('clone-wizard-container')).toBeDefined();
+    expect(screen.queryByTestId('seed-mode-selector')).toBeNull();
+  });
+
+  it('should return to mode selector when clicking back', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-csv'));
+    expect(screen.getByTestId('csv-upload-wizard')).toBeDefined();
+
+    fireEvent.click(screen.getByTestId('back-to-modes'));
+    expect(screen.getByTestId('seed-mode-selector')).toBeDefined();
+  });
+
+  it('should show AI mode step 1 with org selector after AI card click', () => {
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SeedPage />);
+    fireEvent.click(screen.getByTestId('mode-card-ai'));
     expect(screen.getByTestId('seed-step-select-content')).toBeDefined();
-  });
-
-  it('should show 4 step indicators', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
-    expect(screen.getByTestId('seed-step-indicator').children.length).toBe(4);
-  });
-
-  it('should disable next when no org or objects selected', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
-    expect(screen.getByTestId('seed-wizard-next')).toHaveProperty('disabled', true);
-  });
-
-  it('should show org selector on step 1', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
     expect(screen.getByTestId('org-selector')).toBeDefined();
-  });
-
-  it('should show objects when org is selected and describe-global data is available', () => {
-    mockDescribeGlobalState = {
-      data: {
-        objects: [
-          { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
-          { apiName: 'Contact', label: 'Contact', recordCount: 0, dependencies: ['Account'] },
-        ],
-      },
-      loading: false,
-      error: null,
-      refetch: mockDescribeGlobalRefetch,
-    };
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
-
-    // Select org
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: 'org-1' } });
-
-    expect(screen.getByTestId('obj-Account')).toBeDefined();
-    expect(screen.getByTestId('obj-Contact')).toBeDefined();
-  });
-
-  it('should enable next when org and at least one object are selected', () => {
-    mockDescribeGlobalState = {
-      data: {
-        objects: [
-          { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
-        ],
-      },
-      loading: false,
-      error: null,
-      refetch: mockDescribeGlobalRefetch,
-    };
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
-
-    // Select org
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: 'org-1' } });
-
-    // Select an object
-    fireEvent.click(screen.getByTestId('obj-Account'));
-
-    expect(screen.getByTestId('seed-wizard-next')).toHaveProperty('disabled', false);
-  });
-
-  it('should navigate to configure step when clicking next', () => {
-    mockDescribeGlobalState = {
-      data: {
-        objects: [
-          { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
-        ],
-      },
-      loading: false,
-      error: null,
-      refetch: mockDescribeGlobalRefetch,
-    };
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
-
-    // Select org
-    const select = screen.getByRole('combobox');
-    fireEvent.change(select, { target: { value: 'org-1' } });
-
-    // Select object
-    fireEvent.click(screen.getByTestId('obj-Account'));
-
-    // Navigate to step 2
-    fireEvent.click(screen.getByTestId('seed-wizard-next'));
-    expect(screen.getByTestId('seed-step-configure-content')).toBeDefined();
-  });
-
-  it('should show guided first step card on step 0 when idle', () => {
-    useOrgStore.setState({ orgs: mockOrgs });
-    render(<SeedPage />);
-    expect(screen.getByTestId('guided-first-step-card')).toBeDefined();
-    expect(screen.getByText('Get Started with Seed')).toBeDefined();
   });
 
   it('should display error from bridge query', () => {
@@ -226,6 +172,8 @@ describe('SeedPage', () => {
     };
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SeedPage />);
+    // Switch to AI mode to trigger error display
+    fireEvent.click(screen.getByTestId('mode-card-ai'));
 
     expect(screen.getByTestId('seed-error')).toBeDefined();
     expect(screen.getByText('Connection failed')).toBeDefined();
