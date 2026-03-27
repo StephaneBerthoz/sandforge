@@ -502,6 +502,41 @@
       "backToModes": "Back to mode selection",
       "comingSoon": "Coming soon"
     },
+    "persona": {
+      "title": "AI Personas",
+      "subtitle": "Choose an industry persona to pre-fill field generation rules",
+      "forkPersonaTitle": "Choose a Persona",
+      "forkPersonaDesc": "Pick an industry persona with pre-built field patterns",
+      "forkScratchTitle": "Start from Scratch",
+      "forkScratchDesc": "Build your own field rules from a blank canvas",
+      "card": {
+        "preview": "Preview",
+        "select": "Select",
+        "fields": "{{count}} fields",
+        "locale": "Locale",
+        "createCustom": "Create Custom",
+        "createCustomDesc": "Describe your industry and let AI generate a persona",
+        "generateBtn": "Generate",
+        "generating": "Generating...",
+        "custom": "Custom"
+      },
+      "preview": {
+        "title": "Persona Preview",
+        "sampleData": "Sample data (5 rows)"
+      },
+      "customize": {
+        "title": "Customize Persona",
+        "confirm": "Apply Persona",
+        "cancel": "Back to Gallery",
+        "rangeMin": "Min",
+        "rangeMax": "Max",
+        "values": "Values",
+        "fieldPattern": "Field Pattern",
+        "generator": "Generator"
+      },
+      "backToPersonas": "Back to personas",
+      "backToFork": "Back to AI mode"
+    },
     "clone": {
       "sourcePicker": {
         "title": "Select Source & Target Orgs",

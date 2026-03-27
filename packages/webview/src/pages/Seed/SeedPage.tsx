@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sparkles, Upload, Copy, ArrowLeft } from 'lucide-react';
-import type { SeedTemplate } from '@sandforge/shared';
+import { Sparkles, Upload, Copy, ArrowLeft, Users } from 'lucide-react';
+import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -27,11 +27,12 @@ import { useQuickSeed } from './useQuickSeed';
 import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { CsvUploadWizard } from './CsvUpload/CsvUploadWizard';
 import { CloneWizard } from './Clone/CloneWizard';
+import { PersonaGallery } from './Persona/PersonaGallery';
 import type { PIIObjectResult } from './useSeedWizardState';
 import type { BadgeVariant } from '../../components/ui/Badge';
 
-/** Seed mode selection. */
-type SeedMode = 'select' | 'ai' | 'csv' | 'clone';
+/** Seed mode selection with AI sub-modes. */
+type SeedMode = 'select' | 'ai' | 'ai-persona' | 'ai-scratch' | 'csv' | 'clone';
 
 const SEED_STEPS: WizardStep[] = [
   { id: 'select', labelKey: 'seed.stepSelect' },
@@ -53,9 +54,16 @@ export const SeedPage: React.FC = () => {
   const state = useSeedWizardState(t);
   const quickSeed = useQuickSeed();
   const [seedMode, setSeedMode] = useState<SeedMode>('select');
+  const [_selectedPersona, setSelectedPersona] = useState<PersonaMsg | null>(null);
 
   const handleSelectTemplate = (template: SeedTemplate, customizedCounts: Record<string, number>) => {
     quickSeed.startQuickSeed(template, customizedCounts);
+  };
+
+  /** Handle persona selection from the PersonaGallery. Stores persona and switches to wizard. */
+  const handlePersonaSelected = (persona: PersonaMsg) => {
+    setSelectedPersona(persona);
+    setSeedMode('ai-scratch');
   };
 
   if (orgs.length === 0) {
@@ -72,8 +80,10 @@ export const SeedPage: React.FC = () => {
   const getPageSubtitle = (): string => {
     if (seedMode === 'csv') return t('seed.modeSelect.csv');
     if (seedMode === 'clone') return t('seed.modeSelect.clone');
+    if (seedMode === 'ai-persona') return t('seed.persona.title');
     if (quickSeed.phase !== 'idle') return t('seed.quickSeed.title');
-    if (seedMode === 'ai') return t(SEED_STEPS[state.currentStep].labelKey);
+    if (seedMode === 'ai-scratch') return t(SEED_STEPS[state.currentStep].labelKey);
+    if (seedMode === 'ai') return t('seed.modeSelect.ai');
     return t('seed.modeSelect.title');
   };
 
@@ -99,15 +109,23 @@ export const SeedPage: React.FC = () => {
         <ErrorBanner message={state.error} onDismiss={() => state.setError(null)} data-testid="seed-error" />
       )}
 
-      {/* Back to mode selection button */}
+      {/* Back navigation button */}
       {seedMode !== 'select' && quickSeed.phase === 'idle' && (
         <button
           className="flex items-center gap-1 text-xs text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline self-start"
-          onClick={() => setSeedMode('select')}
+          onClick={() => {
+            if (seedMode === 'ai-persona' || seedMode === 'ai-scratch') {
+              setSeedMode('ai');
+            } else {
+              setSeedMode('select');
+            }
+          }}
           data-testid="back-to-modes"
         >
           <ArrowLeft className="w-3 h-3" />
-          {t('seed.modeSelect.backToModes')}
+          {seedMode === 'ai-persona' || seedMode === 'ai-scratch'
+            ? t('seed.persona.backToFork')
+            : t('seed.modeSelect.backToModes')}
         </button>
       )}
 
@@ -168,8 +186,46 @@ export const SeedPage: React.FC = () => {
         <CloneWizard onBack={() => setSeedMode('select')} />
       )}
 
-      {/* ----- AI GENERATE MODE (existing behavior) ----- */}
-      {seedMode === 'ai' && (
+      {/* ----- AI GENERATE MODE: Fork selection ----- */}
+      {seedMode === 'ai' && quickSeed.phase === 'idle' && (
+        <div className="grid grid-cols-2 gap-4" data-testid="ai-fork-selector">
+          <Card hoverable onClick={() => setSeedMode('ai-persona')} data-testid="fork-card-persona">
+            <CardBody>
+              <div className="flex flex-col items-center gap-2 py-6">
+                <Users className="w-8 h-8 text-[var(--vscode-focusBorder,#007fd4)]" />
+                <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  {t('seed.persona.forkPersonaTitle')}
+                </span>
+                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center">
+                  {t('seed.persona.forkPersonaDesc')}
+                </span>
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card hoverable onClick={() => setSeedMode('ai-scratch')} data-testid="fork-card-scratch">
+            <CardBody>
+              <div className="flex flex-col items-center gap-2 py-6">
+                <Sparkles className="w-8 h-8 text-[var(--vscode-focusBorder,#007fd4)]" />
+                <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  {t('seed.persona.forkScratchTitle')}
+                </span>
+                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center">
+                  {t('seed.persona.forkScratchDesc')}
+                </span>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+      )}
+
+      {/* ----- AI PERSONA MODE ----- */}
+      {seedMode === 'ai-persona' && (
+        <PersonaGallery onPersonaSelected={handlePersonaSelected} />
+      )}
+
+      {/* ----- AI SCRATCH MODE (existing wizard behavior) ----- */}
+      {seedMode === 'ai-scratch' && (
         <>
           {/* QUICK SEED FLOW (replaces gallery + wizard when active) */}
           {quickSeed.phase !== 'idle' ? (
