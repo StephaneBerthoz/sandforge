@@ -1,18 +1,9 @@
 # Roadmap: SandForge v1.2.3 — Scale & Complete
 
-## Phase 01 — Enterprise Foundation & Polish
+## Phase 01 — Enterprise Foundation & Polish ✓ Complete (2026-03-27)
 **Requirements:** SCALE-01, SCALE-02, SCALE-05, SCALE-06, POLISH-01, POLISH-02, POLISH-03, POLISH-04, POLISH-05, POLISH-06
-**Why first:** Foundation work that every subsequent phase benefits from. Pagination, virtual scrolling, and skeleton screens improve all list views. Error recovery and cache management prevent issues during heavy CDC/scheduling features. Progress granularity needed before wiring more execution flows.
-
-**Scope:**
-- Install @tanstack/react-virtual, create reusable Pagination component
-- Virtual scrolling on DataTable, object selectors, any 1000+ list
-- Skeleton screens replacing all remaining spinners
-- Keyboard shortcuts for module navigation and actions
-- Notification center panel (centralized alerts/completions/errors)
-- Error recovery UI with retry/backoff
-- Per-object live progress bars (Bulk API 2.0 job progress)
-- Cache audit: TTLs, org-switch invalidation, memory limits
+**Plans:** 4 plans, 2 waves, 11 tasks, 32/32 must-haves verified
+**Key deliverables:** Pagination component + usePagination hook, @tanstack/react-virtual installed + DataTable/VirtualList/VirtualCombobox, CacheManager with org-switch invalidation, SkeletonTable/Card/Panel, Ctrl+1..6 keyboard shortcuts, NotificationCenter with filters, BulkJobProgressTracker + ObjectProgressPanel, ErrorRecoveryPanel with retry/backoff
 
 ## Phase 02 — Sync History & Scheduling
 **Requirements:** HIST-01, HIST-02, HIST-03, HIST-04, HIST-05, SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05

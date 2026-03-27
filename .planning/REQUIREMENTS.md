@@ -58,12 +58,12 @@
 
 ### Enterprise Scaling (SCALE-01..06)
 
-- [ ] **SCALE-01** — Pagination component: reusable Pagination UI component (page size selector, page navigation, total count), wire to all list views
-- [ ] **SCALE-02** — Virtual scrolling: install @tanstack/react-virtual, apply to DataTable, sync history, CDC event feed, object selector (1000+ items)
+- [x] **SCALE-01** — Pagination component: reusable Pagination UI component (page size selector, page navigation, total count), wire to all list views
+- [x] **SCALE-02** — Virtual scrolling: install @tanstack/react-virtual, apply to DataTable, sync history, CDC event feed, object selector (1000+ items)
 - [ ] **SCALE-03** — Streaming execution: chunked sync for 100K+ records (2000/chunk), memory-efficient pipeline that doesn't hold all records in memory
 - [ ] **SCALE-04** — Background execution: long-running sync/seed operations continue when WebView panel is hidden, with notification on completion
-- [ ] **SCALE-05** — Cache management: audit all TTLs, add cache invalidation on org switch, dispose stale caches on memory pressure, cache size limits
-- [ ] **SCALE-06** — Progress granularity: per-record progress for bulk operations (parse Bulk API 2.0 job progress), replace percentage placeholders with real data
+- [x] **SCALE-05** — Cache management: audit all TTLs, add cache invalidation on org switch, dispose stale caches on memory pressure, cache size limits
+- [x] **SCALE-06** — Progress granularity: per-record progress for bulk operations (parse Bulk API 2.0 job progress), replace percentage placeholders with real data
 
 ### Small Project Optimizations (SIMPLE-01..04)
 
@@ -74,12 +74,12 @@
 
 ### Existing Feature Polish (POLISH-01..06)
 
-- [ ] **POLISH-01** — Error recovery UI: retry failed operations with exponential backoff, show retry count/next attempt, allow manual retry or abort
-- [ ] **POLISH-02** — Skeleton screens: replace all remaining spinner loading states with Skeleton components (shimmer animation)
-- [ ] **POLISH-03** — Keyboard shortcuts: module navigation (Ctrl+1..6), trigger actions (Ctrl+Enter to execute), Escape to cancel, Tab to navigate wizard steps
-- [ ] **POLISH-04** — Notification center: centralized panel showing all alerts, sync completions, schedule runs, errors — filterable by type and date
-- [ ] **POLISH-05** — Batch progress detail: per-object live progress bars during sync/seed execution (records processed / total), replace 50% placeholder
-- [ ] **POLISH-06** — Org switch cache invalidation: clear all module caches (schema, describe, limits) when user switches active org, show "Refreshing..." indicator
+- [x] **POLISH-01** — Error recovery UI: retry failed operations with exponential backoff, show retry count/next attempt, allow manual retry or abort
+- [x] **POLISH-02** — Skeleton screens: replace all remaining spinner loading states with Skeleton components (shimmer animation)
+- [x] **POLISH-03** — Keyboard shortcuts: module navigation (Ctrl+1..6), trigger actions (Ctrl+Enter to execute), Escape to cancel, Tab to navigate wizard steps
+- [x] **POLISH-04** — Notification center: centralized panel showing all alerts, sync completions, schedule runs, errors — filterable by type and date
+- [x] **POLISH-05** — Batch progress detail: per-object live progress bars during sync/seed execution (records processed / total), replace 50% placeholder
+- [x] **POLISH-06** — Org switch cache invalidation: clear all module caches (schema, describe, limits) when user switches active org, show "Refreshing..." indicator
 
 ## v2 — Next Milestone Candidates
 
