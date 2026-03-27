@@ -5,16 +5,10 @@
 **Plans:** 4 plans, 2 waves, 11 tasks, 32/32 must-haves verified
 **Key deliverables:** Pagination component + usePagination hook, @tanstack/react-virtual installed + DataTable/VirtualList/VirtualCombobox, CacheManager with org-switch invalidation, SkeletonTable/Card/Panel, Ctrl+1..6 keyboard shortcuts, NotificationCenter with filters, BulkJobProgressTracker + ObjectProgressPanel, ErrorRecoveryPanel with retry/backoff
 
-## Phase 02 — Sync History & Scheduling
+## Phase 02 — Sync History & Scheduling ✓ Complete (2026-03-27)
 **Requirements:** HIST-01, HIST-02, HIST-03, HIST-04, HIST-05, SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05
-**Why second:** Sync history is a prerequisite for meaningful scheduling (schedules need a history log). Both extend the existing Sync module with persistence and time-based features. Uses pagination/virtual scrolling from Phase 01.
-
-**Scope:**
-- Sync execution logger (persist to ConfigStore)
-- History list UI (paginated table) + detail view + re-run + export
-- Cron schedule UI (visual builder + raw input + timezone)
-- Schedule management panel (list, pause/resume, delete)
-- Wire OperationScheduler with cron-parser for execution
+**Plans:** 3 plans, 2 waves, 8 tasks, 30/30 must-haves verified
+**Key deliverables:** SyncHistoryStore (FIFO 500), SyncExecutionLogger, SyncScheduleExecutor (cron-parser, sleep-wake resilient), SyncScheduleStore, SyncHistoryPanel (DataTable + Pagination), SyncHistoryDetail (re-run), CronScheduleBuilder (visual + raw + timezone), SyncSchedulePanel (CRUD), SyncPage tabs
 - Schedule persistence + restart survival
 - Schedule notifications (VSCode + opt-in desktop)
 

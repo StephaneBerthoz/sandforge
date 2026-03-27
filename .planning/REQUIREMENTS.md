@@ -4,19 +4,19 @@
 
 ### Sync Scheduling (SCHED-01..05)
 
-- [ ] **SCHED-01** — Cron schedule UI: create/edit sync schedules with cron expression builder (visual picker + raw input), timezone selector
-- [ ] **SCHED-02** — Schedule management panel: list all schedules with next run time, status (active/paused), last result, edit/delete actions
-- [ ] **SCHED-03** — Schedule execution: wire OperationScheduler to trigger sync:execute on due schedules (use cron-parser for 5-field cron support)
-- [ ] **SCHED-04** — Schedule persistence: save schedules to ConfigStore with schedule:sync:{id} prefix, survive extension restart
-- [ ] **SCHED-05** — Schedule notifications: VSCode notification on schedule start/complete/fail, opt-in desktop notification
+- [x] **SCHED-01** — Cron schedule UI: create/edit sync schedules with cron expression builder (visual picker + raw input), timezone selector
+- [x] **SCHED-02** — Schedule management panel: list all schedules with next run time, status (active/paused), last result, edit/delete actions
+- [x] **SCHED-03** — Schedule execution: wire OperationScheduler to trigger sync:execute on due schedules (use cron-parser for 5-field cron support)
+- [x] **SCHED-04** — Schedule persistence: save schedules to ConfigStore with schedule:sync:{id} prefix, survive extension restart
+- [x] **SCHED-05** — Schedule notifications: VSCode notification on schedule start/complete/fail, opt-in desktop notification
 
 ### Sync History & Audit Log (HIST-01..05)
 
-- [ ] **HIST-01** — Sync execution logger: persist every sync execution (id, config, startTime, endTime, status, per-object results) to ConfigStore
-- [ ] **HIST-02** — History list UI: paginated table of past sync executions with date, objects, record count, status, duration
-- [ ] **HIST-03** — History detail view: click on a past execution to see per-object success/fail/skip counts, error messages, field mapping used
-- [ ] **HIST-04** — Re-run from history: "Run Again" button that pre-fills Quick Sync or wizard with the same config
-- [ ] **HIST-05** — History export: export filtered history as CSV or JSON
+- [x] **HIST-01** — Sync execution logger: persist every sync execution (id, config, startTime, endTime, status, per-object results) to ConfigStore
+- [x] **HIST-02** — History list UI: paginated table of past sync executions with date, objects, record count, status, duration
+- [x] **HIST-03** — History detail view: click on a past execution to see per-object success/fail/skip counts, error messages, field mapping used
+- [x] **HIST-04** — Re-run from history: "Run Again" button that pre-fills Quick Sync or wizard with the same config
+- [x] **HIST-05** — History export: export filtered history as CSV or JSON
 
 ### Seed from CSV (CSV-01..04)
 
