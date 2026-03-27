@@ -37,6 +37,7 @@ import { GovernanceOpsHandler } from './handlers/GovernanceOpsHandler.js';
 import { QuickSyncHandler } from './handlers/QuickSyncHandler.js';
 import { NoOpHandler } from './handlers/NoOpHandler.js';
 import { CacheHandler as CacheDomainHandler } from './handlers/CacheHandler.js';
+import { SmartActionHandler } from './handlers/SmartActionHandler.js';
 
 // Re-export interfaces for backward compatibility
 export type { InfraServices } from './handlers/HandlerTypes.js';
@@ -85,6 +86,7 @@ export class ExtensionHandlers {
   private readonly quickSyncHandler: QuickSyncHandler;
   private readonly noOpHandler: NoOpHandler;
   private readonly cacheHandler: CacheDomainHandler;
+  private readonly smartActionHandler: SmartActionHandler;
 
   constructor(deps: ExtensionHandlersDeps) {
     // Shared mutable deps object — infraServices is set later via setInfraServices
@@ -121,6 +123,7 @@ export class ExtensionHandlers {
     this.quickSyncHandler = new QuickSyncHandler(this.handlerDeps);
     this.noOpHandler = new NoOpHandler(this.handlerDeps);
     this.cacheHandler = new CacheDomainHandler(this.handlerDeps);
+    this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
   }
 
   /** Inject live operation tracker for monitor:live-operations messages. */
@@ -287,6 +290,9 @@ export class ExtensionHandlers {
 
     // Cache management
     route(['cache:invalidate-all', 'cache:get-stats'], this.cacheHandler);
+
+    // Smart Action
+    route(['smart-action:analyze'], this.smartActionHandler);
 
     // No-op handlers for ghost features (Scheduler v1.2, RealTime CDC v2.0)
     route([
