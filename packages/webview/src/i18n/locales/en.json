@@ -591,7 +591,23 @@
         "paused": "Paused",
         "error": "Error"
       },
-      "comingSoon": "Requires CDC \u2014 Coming in v2.0"
+      "comingSoon": "Requires CDC \u2014 Coming in v2.0",
+      "autoSync": "Auto-Sync",
+      "autoSyncDesc": "Automatically apply changes to target",
+      "conflictStrategy": "Conflict Strategy",
+      "objectPicker": "Select Objects",
+      "totalEvents": "Total Events",
+      "bufferFull": "Buffer full - oldest events dropped",
+      "noEvents": "No events yet. Start CDC stream to begin receiving changes.",
+      "changeTypes": {
+        "CREATE": "Create",
+        "UPDATE": "Update",
+        "DELETE": "Delete",
+        "UNDELETE": "Undelete"
+      },
+      "nMore": "+{{count}} more",
+      "agoSeconds": "{{count}}s ago",
+      "tab": "Real-Time"
     }
   },
   "dataops": {
