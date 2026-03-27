@@ -9,17 +9,17 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: Ready for Phase 03
-Plan: —
-Status: Phase 02 complete (3 plans, 10 requirements). Verified 30/30 automated must-haves.
-Last activity: 2026-03-27 — Phase 02 executed and verified
+Phase: 03 — CDC Real-Time Sync
+Plan: 03-01 complete
+Status: Plan 03-01 (CDC Backend Hardening) complete. 4 tasks, 4 commits. 15 must-haves verified.
+Last activity: 2026-03-27 — Plan 03-01 executed
 
-Progress: [###-------] 28% (2/7 phases)
+Progress: [###-------] 28% (2/7 phases, 03-01 done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 67 (v1.2.3: 7 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 68 (v1.2.3: 8 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -65,6 +65,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - NotificationCenter uses positional args `(level, title, message)` not object pattern
 - Fixed ExportFormat duplicate export between sync.types.ts and reporting.types.ts
 - Added getVscodeApi() non-hook export to useVSCodeApi.ts for Zustand store postMessage access
+- buildCdcChannel uses `__c` -> `__ChangeEvent` (not `slice(0,-1)+'e'`) to match actual Salesforce CDC naming
 
 ### Pending Todos
 
@@ -77,5 +78,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-27
-Stopped at: Phase 02 complete and verified. Ready for Phase 03 planning.
+Stopped at: Plan 03-01 complete. Ready for Plan 03-02.
 Resume file: .planning/ROADMAP.md
