@@ -24,17 +24,10 @@
 - Auto-sync toggle per-object with conflict strategy
 - CDC metrics dashboard (throughput, lag, counters)
 
-## Phase 04 — Conflict Resolution UI
+## Phase 04 — Conflict Resolution UI ✓ Complete (2026-03-27)
 **Requirements:** CONFLICT-01, CONFLICT-02, CONFLICT-03, CONFLICT-04, CONFLICT-05
-**Why fourth:** Depends on CDC (Phase 03) for real-time conflict generation and sync history (Phase 02) for logging resolutions. Needs microdiff library for structured diffing.
-
-**Scope:**
-- Install microdiff for structured record diffing
-- Conflict detection feed with count badge on sync results
-- Conflict list view (paginated, filterable by object/type)
-- Side-by-side diff viewer with per-field highlighting + base value
-- Per-field resolution (pick source/target/edit) + bulk actions
-- Apply resolutions to target org + log to sync history
+**Plans:** 2 plans, 2 waves, 6 tasks, 19/19 must-haves verified
+**Key deliverables:** microdiff installed, ConflictDiffService (2-way + 3-way), unified UIConflict type, conflict feed wiring, resolve-conflict handler, resolvePerField, useConflictStore, ConflictListPanel (DataTable + Pagination + filters), ConflictDiffViewer (side-by-side + base value), ConflictResolutionPanel (per-field + bulk), SyncPage conflicts tab with badge
 
 ## Phase 05 — Seed Extensions (CSV + Clone)
 **Requirements:** CSV-01, CSV-02, CSV-03, CSV-04, CLONE-01, CLONE-02, CLONE-03, CLONE-04

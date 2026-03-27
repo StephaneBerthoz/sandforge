@@ -41,11 +41,11 @@
 
 ### Sync Conflict Resolution UI (CONFLICT-01..05)
 
-- [ ] **CONFLICT-01** — Conflict detection feed: when sync runs in bidirectional mode, collect conflicts and display count badge on results
-- [ ] **CONFLICT-02** — Conflict list view: paginated list of conflicting records with object name, record ID, field count, conflict type (edit/edit, delete/edit)
-- [ ] **CONFLICT-03** — Conflict diff viewer: side-by-side source vs target record with per-field diff highlighting (use microdiff), base value shown for 3-way context
-- [ ] **CONFLICT-04** — Per-field resolution: for each conflicting field, pick source/target/manual-edit, with "Apply source to all" / "Apply target to all" bulk actions
-- [ ] **CONFLICT-05** — Conflict resolution execution: apply resolved values to target org, log resolution decisions in sync history
+- [x] **CONFLICT-01** — Conflict detection feed: when sync runs in bidirectional mode, collect conflicts and display count badge on results
+- [x] **CONFLICT-02** — Conflict list view: paginated list of conflicting records with object name, record ID, field count, conflict type (edit/edit, delete/edit)
+- [x] **CONFLICT-03** — Conflict diff viewer: side-by-side source vs target record with per-field diff highlighting (use microdiff), base value shown for 3-way context
+- [x] **CONFLICT-04** — Per-field resolution: for each conflicting field, pick source/target/manual-edit, with "Apply source to all" / "Apply target to all" bulk actions
+- [x] **CONFLICT-05** — Conflict resolution execution: apply resolved values to target org, log resolution decisions in sync history
 
 ### CDC Real-Time Sync (CDC-01..06)
 
