@@ -1,12 +1,12 @@
 # SandForge 🔥 — Salesforce DevOps Toolkit
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.2-blue)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Tests](https://img.shields.io/badge/tests-162%20E2E%20%2B%20unit-brightgreen)
+![Tests](https://img.shields.io/badge/tests-7623-brightgreen)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
-![VSIX](https://img.shields.io/badge/vsix-1.07%20MB-green)
+![VSIX](https://img.shields.io/badge/vsix-1.16%20MB-green)
 
 **Forge your Salesforce sandboxes.** A full-featured VSCode extension for ETL, data seeding, org monitoring, metadata comparison, compliance, and automation — all from a single WebView UI.
 
@@ -53,23 +53,29 @@
 
 ### Seed — AI-Powered Data Generation
 
+- **Quick Seed** — Select a template, pick your org, seed in 1 click (no field config needed)
+- **Template Gallery** — 3 pre-built templates (Sales Cloud, Service Cloud, Minimal Demo) + save your own
+- **Locale-Aware Generation** — Realistic data in 6 locales (en, fr, de, es, ja, pt-BR) with geo-coherent addresses
+- **VR-Aware Generation** — Auto-adjusts field rules to satisfy your org's validation rules
 - **8-Step Wizard** — Guided flow from object selection to execution with preview at every stage
 - **AI Generation** — LLM-backed realistic data (OpenAI, Anthropic, Ollama) with 10 business personas
-- **NL2SOQL** — Natural language to SOQL translation with schema validation and confidence scoring
 - **Faker Profiles** — 30+ locale-aware Faker generators for names, addresses, emails, phones, and more
 - **Template Engine** — Reusable JSON/CSV templates with variable interpolation and conditional logic
 - **Dependency Resolution** — Automatic topological sort of parent-child relationships before insert
-- **Dynamic Batch Optimizer** — Intelligent batch sizing based on object complexity and runtime performance
 
 ### Sync — Bidirectional Data Synchronization
 
+- **Quick Sync** — 3-click flow: pick orgs, select objects, go (auto-field mapping, smart defaults)
+- **Smart Object Suggestions** — Top 5 most-used objects suggested with one-click add
+- **Relationship Auto-Detection** — Adding "Opportunity" auto-suggests "Account" as parent dependency
+- **Pre-Built Sync Templates** — Full Account Hierarchy, Opportunities + Products, Cases + Attachments
 - **4 Sync Modes** — Upsert, Insert, Update, and Delete with per-object configuration
 - **7 Mapping Types** — Direct, Lookup, Formula, Constant, Concatenation, Conditional, and External ID
 - **Smart Field Mapping** — AI-powered mapping suggestions based on name similarity and sample data
 - **13 Transforms** — Uppercase, lowercase, trim, date format, number format, regex replace, and more
 - **Conflict Resolution** — Last-write-wins, source-wins, target-wins, or manual merge strategies
 - **Rollback** — Automatic savepoints with one-click rollback on partial failures
-- **Migration Import** — Import configs from SFDMU and Gearset, plus CSV/JSON universal import
+- **Config Persistence** — Save, load, and reuse sync configurations across sessions
 
 ### Monitor — Real-Time Org Health
 
@@ -294,17 +300,18 @@ All UI text uses `t('key')` via react-i18next. Locale-aware formatters handle nu
 
 ---
 
-## What's New in 1.0.0
+## What's New in 1.2.2
 
-First public release of SandForge on the VSCode Marketplace.
+**Adoption-First: Sync & Seed Polish** — Making it dead simple to populate any Salesforce sandbox.
 
-- 6 core modules: Seed, Sync, Monitor, Compare, DataOps, Automation
-- AI Assistant with NL2SOQL, Schema Advice, and Pipeline Generator
-- Grappe Engine for parallel processing of large datasets
-- Production Guard with 3 safety tiers
-- 162 Playwright E2E tests + comprehensive unit test suite
-- 3-OS CI matrix (Ubuntu, macOS, Windows)
-- VSIX optimized to 1.07 MB
+- **Quick Sync** — 3 clicks from empty sandbox to production data (auto-field mapping, smart defaults)
+- **Quick Seed** — 1-click seed from pre-built template gallery (Sales Cloud, Service Cloud, Minimal Demo)
+- **Locale-Aware Data** — Realistic names, addresses, and phone numbers in 6 locales
+- **VR-Aware Generation** — Auto-adjusts seed data to pass your org's validation rules
+- **Sandbox Onboarding** — Guided first-step cards and contextual banners for new users
+- **Sync Wizard Polish** — 3 pre-built sync templates, wizard reduced from 7 to 6 steps
+- **Config Persistence** — Save and reload sync configs and seed templates across sessions
+- **7623 tests** across 3 packages
 
 See the full [CHANGELOG](changelog.md) for details.
 
