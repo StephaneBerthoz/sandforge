@@ -203,4 +203,76 @@ describe('SchemaCache', () => {
     // Key should still be accessible
     expect(cache.get('key')).toBe('value');
   });
+
+  it('should track estimatedBytes', () => {
+    const cache = new SchemaCache<string>();
+    cache.set('key', 'hello');
+
+    expect(cache.estimatedBytes).toBeGreaterThan(0);
+
+    cache.clear();
+    expect(cache.estimatedBytes).toBe(0);
+  });
+
+  it('should evict LRU entries when maxSizeBytes is exceeded', () => {
+    // Create a cache with a very small byte limit
+    const cache = new SchemaCache<string>({
+      maxSize: 100,
+      maxSizeBytes: 100,
+    });
+
+    // "a".repeat(20) => JSON.stringify => ~44 chars => ~88 bytes
+    cache.set('first', 'a'.repeat(20));
+
+    vi.advanceTimersByTime(10);
+    cache.set('second', 'b'.repeat(20));
+
+    // At this point adding another should evict 'first' (LRU)
+    vi.advanceTimersByTime(10);
+
+    // Access 'second' to make it more recently used
+    cache.get('second');
+
+    vi.advanceTimersByTime(10);
+    cache.set('third', 'c'.repeat(20));
+
+    // 'first' should have been evicted as LRU
+    expect(cache.get('first')).toBeUndefined();
+    // 'second' was accessed more recently, should still be present
+    expect(cache.get('second')).toBe('b'.repeat(20));
+  });
+
+  it('should reduce estimatedBytes on invalidate', () => {
+    const cache = new SchemaCache<string>();
+    cache.set('a', 'value-a');
+    cache.set('b', 'value-b');
+
+    const bytesBefore = cache.estimatedBytes;
+    cache.invalidate('a');
+
+    expect(cache.estimatedBytes).toBeLessThan(bytesBefore);
+  });
+
+  it('should reduce estimatedBytes on invalidateByPrefix', () => {
+    const cache = new SchemaCache<string>();
+    cache.set('org1:Account', 'data-a');
+    cache.set('org1:Contact', 'data-b');
+    cache.set('org2:Account', 'data-c');
+
+    const bytesBefore = cache.estimatedBytes;
+    cache.invalidateByPrefix('org1:');
+
+    expect(cache.estimatedBytes).toBeLessThan(bytesBefore);
+    expect(cache.size).toBe(1);
+  });
+
+  it('should update size when overwriting an existing key', () => {
+    const cache = new SchemaCache<string>({ maxSizeBytes: 500 });
+    cache.set('key', 'short');
+    const bytesSmall = cache.estimatedBytes;
+
+    cache.set('key', 'a'.repeat(100));
+    expect(cache.estimatedBytes).toBeGreaterThan(bytesSmall);
+    expect(cache.size).toBe(1);
+  });
 });
