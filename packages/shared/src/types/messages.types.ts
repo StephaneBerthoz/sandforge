@@ -261,7 +261,14 @@ export type WebViewToExtensionMessage =
   | SyncScheduleListRequest
   | SyncScheduleUpsertRequest
   | SyncScheduleToggleRequest
-  | SyncScheduleDeleteRequest;
+  | SyncScheduleDeleteRequest
+  // CSV Import messages (05-01)
+  | SeedCsvExecuteRequest
+  | SeedCsvValidateRequest
+  // Clone messages (05-02)
+  | SeedCloneExecuteRequest
+  | SeedClonePreviewRequest
+  | SeedCloneDescribeSourceRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -358,7 +365,9 @@ export type ExtensionToWebViewMessage =
   | SyncScheduleListResponse
   | SyncScheduleUpsertResponse
   | SyncScheduleToggleResponse
-  | SyncScheduleDeleteResponse;
+  | SyncScheduleDeleteResponse
+  // CSV Import messages (05-01)
+  | SeedCsvValidateResponse;
 
 /** Org management messages */
 export interface OrgListRequest extends BaseMessage {
@@ -460,6 +469,32 @@ export interface SeedTemplateListResponse extends BaseMessage {
 export interface SeedTemplateDeleteResponse extends BaseMessage {
   type: 'seed:template:delete:response';
   payload: { success: boolean };
+}
+
+// ── CSV Import messages ─────────────────────────────────────────────────────
+
+/** Request to execute a CSV import into Salesforce. */
+export interface SeedCsvExecuteRequest extends BaseMessage {
+  type: 'seed:csv:execute';
+  payload: import('./seed.types.js').CsvImportConfig;
+}
+
+/** Request to validate CSV data against Salesforce metadata. */
+export interface SeedCsvValidateRequest extends BaseMessage {
+  type: 'seed:csv:validate';
+  payload: {
+    orgId: string;
+    objectApiName: string;
+    records: Record<string, string>[];
+    columnMappings: import('./seed.types.js').CsvColumnMapping[];
+    externalIdField?: string;
+  };
+}
+
+/** Response for CSV validation with typed errors. */
+export interface SeedCsvValidateResponse extends BaseMessage {
+  type: 'seed:csv:validate:response';
+  payload: import('./seed.types.js').CsvValidationResult;
 }
 
 /** Sync messages */
@@ -1835,5 +1870,37 @@ export interface SyncScheduleDeleteRequest extends BaseMessage {
 export interface SyncScheduleDeleteResponse extends BaseMessage {
   type: 'sync:schedule:delete:response';
   payload: { success: boolean };
+}
+
+// ─── Clone Messages ─────────────────────────────────────────────────────────
+
+/** Request to execute a clone operation from source to target org. */
+export interface SeedCloneExecuteRequest extends BaseMessage {
+  type: 'seed:clone:execute';
+  payload: import('./clone.types.js').CloneConfig;
+}
+
+/** Request to preview a clone operation (counts, sample data, insert order). */
+export interface SeedClonePreviewRequest extends BaseMessage {
+  type: 'seed:clone:preview';
+  payload: import('./clone.types.js').CloneConfig;
+}
+
+/** Response containing clone preview data. */
+export interface SeedClonePreviewResponse extends BaseMessage {
+  type: 'seed:clone:preview:response';
+  payload: import('./clone.types.js').ClonePreviewResult;
+}
+
+/** Request to describe objects available on a source org for cloning. */
+export interface SeedCloneDescribeSourceRequest extends BaseMessage {
+  type: 'seed:clone:describe-source';
+  payload: { sourceOrgId: string };
+}
+
+/** Response containing describable objects from the source org. */
+export interface SeedCloneDescribeSourceResponse extends BaseMessage {
+  type: 'seed:clone:describe-source:response';
+  payload: { objects: Array<{ apiName: string; label: string; recordCount: number }> };
 }
 
