@@ -91,6 +91,20 @@ describe('BulkApiManager', () => {
     });
   });
 
+  describe('updateTotalRecords', () => {
+    it('should update total records for an existing job', () => {
+      manager.registerJob(createJob('job-1'));
+      const result = manager.updateTotalRecords('job-1', 1000);
+
+      expect(result).toBe(true);
+      expect(manager.getJob('job-1')?.totalRecords).toBe(1000);
+    });
+
+    it('should return false for unknown job', () => {
+      expect(manager.updateTotalRecords('nope', 500)).toBe(false);
+    });
+  });
+
   describe('getActiveJobs', () => {
     it('should return jobs in UploadComplete or InProgress state', () => {
       manager.registerJob(createJob('job-1', { state: 'UploadComplete' }));

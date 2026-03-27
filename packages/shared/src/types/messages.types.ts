@@ -251,7 +251,9 @@ export type WebViewToExtensionMessage =
   | RealTimeMetricsRequest
   | RealTimeResolveConflictRequest
   | CacheInvalidateAllRequest
-  | CacheGetStatsRequest;
+  | CacheGetStatsRequest
+  | ExecutionManualRetryRequest
+  | ExecutionAbortRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -337,7 +339,9 @@ export type ExtensionToWebViewMessage =
   | RealTimeMetricsResponse
   | RealTimeConflictDetected
   | CacheInvalidateAllResponse
-  | CacheStatsResponse;
+  | CacheStatsResponse
+  | ExecutionProgressMessage
+  | ExecutionRetryStatusMessage;
 
 /** Org management messages */
 export interface OrgListRequest extends BaseMessage {
@@ -1634,6 +1638,32 @@ export interface RealTimeConflictDetected extends BaseMessage {
     targetValues: Record<string, unknown>;
     targetLastModified: string;
   };
+}
+
+// ─── Execution Progress Messages ─────────────────────────────────────────────
+
+/** Execution progress update with per-object Bulk API 2.0 job status. */
+export interface ExecutionProgressMessage extends BaseMessage {
+  type: 'execution:progress';
+  payload: import('./execution.types.js').BulkExecutionProgress;
+}
+
+/** Retry status update for a failed object operation. */
+export interface ExecutionRetryStatusMessage extends BaseMessage {
+  type: 'execution:retry-status';
+  payload: import('./execution.types.js').RetryStatus;
+}
+
+/** Request to manually retry a failed object operation (WebView -> Extension). */
+export interface ExecutionManualRetryRequest extends BaseMessage {
+  type: 'execution:manual-retry';
+  payload: { executionId: string; objectName: string };
+}
+
+/** Request to abort an execution or a single object (WebView -> Extension). */
+export interface ExecutionAbortRequest extends BaseMessage {
+  type: 'execution:abort';
+  payload: { executionId: string; objectName?: string };
 }
 
 // ─── Cache Messages ──────────────────────────────────────────────────────────
