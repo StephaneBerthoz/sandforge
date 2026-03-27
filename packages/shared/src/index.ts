@@ -77,6 +77,10 @@ export * from './utils/validation-utils.js';
 export * from './utils/execution-result.js';
 export * from './utils/cdcChannel.js';
 
+// Barrel exports — Services
+export { ConflictDiffService } from './services/ConflictDiffService.js';
+export type { FieldDiff, ThreeWayDiffResult } from './services/ConflictDiffService.js';
+
 // Barrel exports — I18n
 export * from './i18n/index.js';
 export { loadAllTranslations } from './i18n/locales/index.js';
