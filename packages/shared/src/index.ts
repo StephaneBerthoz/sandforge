@@ -43,6 +43,7 @@ export * from './types/settings.types.js';
 export * from './types/forge.types.js';
 export * from './types/quickSync.types.js';
 export * from './types/execution.types.js';
+export * from './types/smart-action.types.js';
 
 // Barrel exports — Schemas
 export * from './schemas/message.schema.js';
