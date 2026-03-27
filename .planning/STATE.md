@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: 05 — Seed Extensions (CSV + Clone)
-Plan: 05-04 complete (Clone UI)
-Status: All 4 plans complete (05-01 CSV types, 05-02 Clone types, 05-03 CSV UI, 05-04 Clone UI). Phase 05 fully delivered.
-Last activity: 2026-03-27 — Plan 05-04 executed (Clone UI)
+Phase: 06 — AI Personas & Smart Actions
+Plan: (none yet — context gathered, ready for planning)
+Status: Phase 06 context captured. Ready for plan-phase 06.
+Last activity: 2026-03-27 — Phase 06 context discussion
 
 Progress: [#######---] 71% (5/7 phases)
 
@@ -94,5 +94,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-27
-Stopped at: Phase 05 complete. All 4 plans delivered (CSV types, Clone types, CSV UI, Clone UI). Ready for Phase 06.
-Resume file: .planning/ROADMAP.md
+Stopped at: Phase 06 context gathered. Next: plan-phase 06.
+Resume file: .planning/phases/06-ai-personas-smart-actions/06-CONTEXT.md
