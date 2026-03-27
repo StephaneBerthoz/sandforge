@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import type {
   SyncConfig,
   SyncObjectConfig,
+  SyncObjectResult,
   SyncExecutionResult,
   DeltaResult,
   CDCEvent,
   RealTimeSyncConfig,
   RealTimeSyncMetrics,
   CDCConflict,
+  ConflictRecord,
+  UIConflict,
   SyncHistoryEntry,
   SyncScheduleEntry,
 } from './sync.types.js';
@@ -116,6 +119,7 @@ describe('sync.types', () => {
             success: 498,
             failed: 2,
             skipped: 0,
+            conflictCount: 0,
             errors: ['DUPLICATE_VALUE: duplicate found for field External_Id__c'],
           },
         ],
@@ -507,6 +511,95 @@ describe('sync.types', () => {
         };
         expect(schedule.lastResult).toBe(result);
       }
+    });
+  });
+
+  describe('UIConflict', () => {
+    it('should accept a valid UIConflict with all required fields', () => {
+      const conflict: UIConflict = {
+        id: 'Account:001xx:2026-03-27T10:00:00Z',
+        objectApiName: 'Account',
+        recordId: '001xx0000001234',
+        conflictType: 'edit/edit',
+        sourceValues: { Name: 'Source' },
+        targetValues: { Name: 'Target' },
+        conflictFields: ['Name'],
+        timestamp: '2026-03-27T10:00:00Z',
+        resolved: false,
+      };
+
+      expect(conflict.id).toBe('Account:001xx:2026-03-27T10:00:00Z');
+      expect(conflict.conflictType).toBe('edit/edit');
+      expect(conflict.resolved).toBe(false);
+      expect(conflict.resolution).toBeUndefined();
+      expect(conflict.baseValues).toBeUndefined();
+      expect(conflict.fieldResolutions).toBeUndefined();
+    });
+
+    it('should accept a resolved UIConflict with baseValues and fieldResolutions', () => {
+      const conflict: UIConflict = {
+        id: 'Contact:003xx:2026-03-27T10:00:00Z',
+        objectApiName: 'Contact',
+        recordId: '003xx0000001111',
+        conflictType: 'edit/edit',
+        sourceValues: { Email: 'src@example.com' },
+        targetValues: { Email: 'tgt@example.com' },
+        baseValues: { Email: 'base@example.com' },
+        conflictFields: ['Email'],
+        timestamp: '2026-03-27T10:00:00Z',
+        resolved: true,
+        resolution: 'manual',
+        fieldResolutions: {
+          Email: { value: 'chosen@example.com', source: 'manual' },
+        },
+      };
+
+      expect(conflict.baseValues).toBeDefined();
+      expect(conflict.fieldResolutions?.Email.source).toBe('manual');
+    });
+  });
+
+  describe('SyncObjectResult extended', () => {
+    it('should include conflictCount field', () => {
+      const result: SyncObjectResult = {
+        objectApiName: 'Account',
+        operation: 'upsert',
+        processed: 100,
+        success: 95,
+        failed: 5,
+        skipped: 0,
+        conflictCount: 3,
+        errors: [],
+      };
+
+      expect(result.conflictCount).toBe(3);
+    });
+  });
+
+  describe('ConflictRecord extended', () => {
+    it('should accept optional baseValues field', () => {
+      const record: ConflictRecord = {
+        objectApiName: 'Account',
+        recordId: '001xx',
+        sourceValues: { Name: 'Src' },
+        targetValues: { Name: 'Tgt' },
+        baseValues: { Name: 'Base' },
+        conflictFields: ['Name'],
+      };
+
+      expect(record.baseValues).toEqual({ Name: 'Base' });
+    });
+
+    it('should work without baseValues', () => {
+      const record: ConflictRecord = {
+        objectApiName: 'Account',
+        recordId: '001xx',
+        sourceValues: { Name: 'Src' },
+        targetValues: { Name: 'Tgt' },
+        conflictFields: ['Name'],
+      };
+
+      expect(record.baseValues).toBeUndefined();
     });
   });
 

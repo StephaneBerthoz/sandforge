@@ -99,6 +99,7 @@ export class DataSync {
           success: 0,
           failed: mappedRecords.length,
           skipped: 0,
+          conflictCount: 0,
           errors: errorMessages,
         };
       }
@@ -217,6 +218,7 @@ function buildResult(
     success,
     failed,
     skipped: 0,
+    conflictCount: 0,
     errors,
   };
 }

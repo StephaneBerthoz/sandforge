@@ -1578,8 +1578,14 @@ export interface RealTimeMetricsRequest extends BaseMessage {
 export interface RealTimeResolveConflictRequest extends BaseMessage {
   type: 'realtime:resolve-conflict';
   payload: {
-    eventReplayId: number;
+    /** Unique conflict ID (primary key for resolution) */
+    conflictId: string;
+    /** Legacy replay ID for backward compatibility */
+    eventReplayId?: number;
+    /** Bulk resolution strategy */
     resolution: string;
+    /** Per-field resolution choices for manual resolution */
+    fieldResolutions?: Record<string, { value: unknown; source: 'source' | 'target' | 'manual' }>;
   };
 }
 

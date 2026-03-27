@@ -46,6 +46,7 @@ function createSuccessResult(objectName = 'Account'): SyncObjectResult {
     success: 1,
     failed: 0,
     skipped: 0,
+    conflictCount: 0,
     errors: [],
   };
 }
@@ -209,6 +210,7 @@ describe('SyncOrchestrator', () => {
         success: 1,
         failed: 1,
         skipped: 0,
+        conflictCount: 0,
         errors: ['Error on record 2'],
       });
 
