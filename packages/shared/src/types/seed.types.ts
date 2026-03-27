@@ -212,6 +212,42 @@ export interface VRFieldConstraint {
   relatedField?: string;
 }
 
+// ── CSV Import ──────────────────────────────────────────────
+
+/** Mapping between a CSV column header and a Salesforce field. */
+export interface CsvColumnMapping {
+  csvHeader: string;
+  sfFieldApiName: string;
+  sfFieldType: string;
+  sfFieldLength: number | null;
+}
+
+/** Full payload for a CSV import execution request. */
+export interface CsvImportConfig {
+  orgId: string;
+  objectApiName: string;
+  records: Record<string, string>[];
+  columnMappings: CsvColumnMapping[];
+  externalIdField?: string;
+}
+
+/** Single validation error found in CSV data. */
+export interface CsvValidationError {
+  row: number;
+  column: string;
+  field: string;
+  errorType: 'type_mismatch' | 'missing_required' | 'length_exceeded' | 'duplicate_external_id' | 'invalid_picklist';
+  message: string;
+  value: string;
+}
+
+/** Result of validating CSV data against Salesforce metadata. */
+export interface CsvValidationResult {
+  valid: boolean;
+  errors: CsvValidationError[];
+  warningCount: number;
+}
+
 /** Validation rule analysis result */
 export interface VRCheckResult {
   ruleName: string;
