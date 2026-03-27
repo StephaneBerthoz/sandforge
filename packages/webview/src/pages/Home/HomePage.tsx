@@ -21,6 +21,8 @@ import { SandboxBanner } from '../../components/ui/SandboxBanner';
 import { useSandboxDetection } from '../../hooks/useSandboxDetection';
 import { moduleColors, cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
+import { useSmartAction } from './useSmartAction';
+import { SmartActionCard } from './SmartActionCard';
 
 /** Payload from org:list bridge query. */
 interface OrgListPayload {
@@ -68,6 +70,12 @@ export const HomePage: React.FC = () => {
     [recentOps],
   );
   const { hasSandbox } = useSandboxDetection();
+  const smartAction = useSmartAction();
+
+  const showSmartAction =
+    hasOrgs &&
+    smartAction.recommendation !== null &&
+    smartAction.recommendation.action !== 'none';
 
   const opsLast7dCount = useMemo(() => {
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -150,6 +158,28 @@ export const HomePage: React.FC = () => {
 
       {/* Sandbox Banner */}
       <SandboxBanner onNavigate={(page) => navigate(page)} />
+
+      {/* Smart Action Recommendation */}
+      <AnimatePresence mode="wait">
+        {(showSmartAction || smartAction.loading) && smartAction.recommendation && (
+          <m.div
+            key="smart-action"
+            variants={fadeIn}
+            initial="hidden"
+            animate="visible"
+            exit="hidden"
+          >
+            <SmartActionCard
+              recommendation={smartAction.recommendation}
+              onExecute={smartAction.requestConfirm}
+              showConfirmation={smartAction.showConfirmation}
+              onConfirm={smartAction.confirm}
+              onCancel={smartAction.cancelConfirm}
+              loading={smartAction.loading}
+            />
+          </m.div>
+        )}
+      </AnimatePresence>
 
       {/* Bento Grid */}
       <BentoGrid columns={3}>

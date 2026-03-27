@@ -1445,7 +1445,24 @@
     "forgeDescription": "Clone records with full dependency resolution",
     "recordIdPlaceholder": "Record ID (e.g. 001...)",
     "startForge": "Start Forge",
-    "sandboxHealth": "Sandbox Health"
+    "sandboxHealth": "Sandbox Health",
+    "smartAction": {
+      "title": "Recommended Action",
+      "execute": "Just Do It",
+      "confirm": "Execute",
+      "cancel": "Cancel",
+      "confirmMsg": "About to {{action}} on {{org}}. Continue?",
+      "reasonEmpty": "Your sandbox is empty — seed it with demo data",
+      "reasonClone": "Source org has data — clone it to your target",
+      "reasonSync": "Both orgs have data — sync to keep them aligned",
+      "whyTooltip": "Why this recommendation?",
+      "confidence": "{{value}}% confidence",
+      "action": {
+        "quick-seed": "Quick Seed",
+        "clone": "Clone",
+        "sync": "Sync"
+      }
+    }
   },
   "commandPalette": {
     "placeholder": "Search commands...",

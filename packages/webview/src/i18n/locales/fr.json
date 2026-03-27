@@ -1386,7 +1386,24 @@
     "forgeDescription": "Cloner des enregistrements avec resolution complete des dependances",
     "recordIdPlaceholder": "ID d'enregistrement (ex. 001...)",
     "startForge": "Lancer Forge",
-    "sandboxHealth": "Sante des Sandboxes"
+    "sandboxHealth": "Sante des Sandboxes",
+    "smartAction": {
+      "title": "Action recommandee",
+      "execute": "Lancer",
+      "confirm": "Executer",
+      "cancel": "Annuler",
+      "confirmMsg": "Sur le point de {{action}} sur {{org}}. Continuer ?",
+      "reasonEmpty": "Votre sandbox est vide — alimentez-la avec des donnees de demo",
+      "reasonClone": "L'org source contient des donnees — clonez-les vers votre cible",
+      "reasonSync": "Les deux orgs ont des donnees — synchronisez pour les aligner",
+      "whyTooltip": "Pourquoi cette recommandation ?",
+      "confidence": "{{value}}% de confiance",
+      "action": {
+        "quick-seed": "Quick Seed",
+        "clone": "Clone",
+        "sync": "Sync"
+      }
+    }
   },
   "commandPalette": {
     "placeholder": "Rechercher des commandes...",
