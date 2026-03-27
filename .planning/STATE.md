@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 03 — CDC Real-Time Sync
-Plan: 03-02 complete
-Status: Plan 03-02 (CDC Subscription UI & Live Event Feed) complete. 3 tasks, 3 commits. 12 must-haves verified.
-Last activity: 2026-03-27 — Plan 03-02 executed
+Plan: 03-03 complete
+Status: Plan 03-03 (CDC Metrics Dashboard) complete. 2 tasks, 2 commits. 26 tests passing.
+Last activity: 2026-03-27 — Plan 03-03 executed
 
-Progress: [###-------] 30% (2/7 phases, 03-02 done)
+Progress: [###-------] 30% (2/7 phases, 03-03 done)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 69 (v1.2.3: 9 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 70 (v1.2.3: 10 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -68,6 +68,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - buildCdcChannel uses `__c` -> `__ChangeEvent` (not `slice(0,-1)+'e'`) to match actual Salesforce CDC naming
 - Ring buffer for CDC events uses module-level state for perf, Zustand exposes ordered array view
 - CDCEventFeed tests mock VirtualList (jsdom has no layout engine for tanstack/react-virtual)
+- CDC metrics i18n keys placed under `sync.realtime.metricsPanel.*` to match existing namespace
+- Sparkline uses inline SVG polyline (no external lib), polling interval ID as module-level var
 
 ### Pending Todos
 
@@ -80,5 +82,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-27
-Stopped at: Plan 03-02 complete. Ready for Plan 03-03.
+Stopped at: Plan 03-03 complete. Ready for Plan 03-04.
 Resume file: .planning/ROADMAP.md
