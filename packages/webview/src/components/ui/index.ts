@@ -119,3 +119,9 @@ export type { WizardProps, WizardStep } from './Wizard';
 
 export { Pagination } from './Pagination';
 export type { PaginationProps } from './Pagination';
+
+export { VirtualList } from './VirtualList';
+export type { VirtualListProps } from './VirtualList';
+
+export { VirtualCombobox } from './VirtualCombobox';
+export type { VirtualComboboxProps, VirtualComboboxOption } from './VirtualCombobox';

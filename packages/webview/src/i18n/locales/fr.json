@@ -1800,5 +1800,35 @@
     "rowsPerPage": "Lignes par page",
     "previous": "Page precedente",
     "next": "Page suivante"
+  },
+  "combobox": {
+    "search": "Rechercher...",
+    "noResults": "Aucun resultat",
+    "selected": "{{count}} selectionnes"
+  },
+  "list": {
+    "empty": "Aucun element"
+  },
+  "execution": {
+    "overallProgress": "Progression globale",
+    "recordsOf": "{{processed}} / {{total}} enregistrements",
+    "elapsed": "Ecoul\u00e9 : {{time}}",
+    "queued": "En file d'attente",
+    "processing": "En cours",
+    "complete": "Termin\u00e9",
+    "failed": "Echou\u00e9",
+    "aborted": "Annul\u00e9",
+    "failedRecords": "{{count}} en \u00e9chec"
+  },
+  "retry": {
+    "title": "R\u00e9cup\u00e9ration d'erreurs",
+    "attemptOf": "Tentative {{current}} sur {{max}}",
+    "retryingIn": "Nouvelle tentative dans {{seconds}}s",
+    "exhausted": "Toutes les tentatives \u00e9puis\u00e9es",
+    "retryNow": "R\u00e9essayer",
+    "abort": "Abandonner",
+    "noFailures": "Aucune op\u00e9ration en \u00e9chec",
+    "errorDetails": "D\u00e9tails de l'erreur",
+    "manualRetryTriggered": "Nouvelle tentative manuelle lanc\u00e9e"
   }
 }

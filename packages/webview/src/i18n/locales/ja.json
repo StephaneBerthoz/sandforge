@@ -989,5 +989,35 @@
     "rowsPerPage": "表示件数",
     "previous": "前のページ",
     "next": "次のページ"
+  },
+  "combobox": {
+    "search": "検索...",
+    "noResults": "結果が見つかりません",
+    "selected": "{{count}}件選択中"
+  },
+  "list": {
+    "empty": "アイテムなし"
+  },
+  "execution": {
+    "overallProgress": "全体の進捗",
+    "recordsOf": "{{processed}} / {{total}} レコード",
+    "elapsed": "経過時間: {{time}}",
+    "queued": "待機中",
+    "processing": "処理中",
+    "complete": "完了",
+    "failed": "失敗",
+    "aborted": "中止",
+    "failedRecords": "{{count}}件失敗"
+  },
+  "retry": {
+    "title": "エラー回復",
+    "attemptOf": "試行 {{current}} / {{max}}",
+    "retryingIn": "{{seconds}}秒後に再試行",
+    "exhausted": "全ての再試行を使い果たしました",
+    "retryNow": "今すぐ再試行",
+    "abort": "中止",
+    "noFailures": "失敗した操作はありません",
+    "errorDetails": "エラー詳細",
+    "manualRetryTriggered": "手動再試行を開始しました"
   }
 }
