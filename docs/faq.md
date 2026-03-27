@@ -42,7 +42,19 @@ VSCode auto-updates extensions from the Marketplace. For manual updates, go to E
 
 ### What is the difference between Seed and Sync?
 
-**Seed** generates new data from scratch (using AI, Faker, or templates) and inserts it into a target org. **Sync** copies existing data between two orgs with field mapping, transforms, and conflict resolution. Use Seed to populate empty sandboxes; use Sync to keep sandboxes in sync with each other or with production.
+**Seed** generates or imports data into a target org using three modes: AI Generate (from scratch using AI/Faker/templates), CSV Upload (from a CSV file), or Clone from Org (copy records from another org). **Sync** copies existing data between two orgs with field mapping, transforms, and conflict resolution. Use Seed to populate empty sandboxes; use Sync to keep sandboxes in sync with each other or with production.
+
+### How do I import data from a CSV file?
+
+Navigate to **Seed**, select **CSV Upload** from the mode selector, choose your target org and object, then drag-and-drop your CSV file. SandForge auto-maps CSV column headers to Salesforce fields using case-insensitive, underscore-tolerant matching. You can override any mapping manually. The validator checks for type mismatches, missing required fields, length violations, invalid picklist values, and duplicate external IDs before execution. Supported format: UTF-8 CSV with headers (BOM is stripped automatically).
+
+### How do I clone records from another org?
+
+Navigate to **Seed**, select **Clone from Org** from the mode selector, choose the source org (where records come from) and verify the target org (where records will be inserted). Select the objects to clone and optionally add SOQL WHERE filters per object. SandForge fetches records using cursor-based pagination, resolves relationships in topological order, and remaps IDs during insert. The results include an ID mapping table (source ID to new ID) that you can export as CSV.
+
+### Can I clone self-referential objects (e.g., Account.ParentId)?
+
+Yes. SandForge detects self-referential relationships and uses a two-pass insert: the first pass inserts records without self-references, the second pass updates self-referential fields with the remapped IDs. Circular dependencies between different objects are detected and reported as errors.
 
 ### Can I automate recurring operations?
 

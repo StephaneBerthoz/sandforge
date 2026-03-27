@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge — Forgez vos Sandboxes Salesforce",
-  "description": "Toolkit ETL Salesforce tout-en-un. Generation de donnees par IA, synchronisation bidirectionnelle, comparaison de metadata, monitoring des limites, operations bulk et automatisation de pipelines — le tout dans une interface WebView unifiee.",
+  "description": "Toolkit ETL Salesforce tout-en-un. Generation de donnees par IA, import CSV ou clonage entre orgs. Synchronisation bidirectionnelle, comparaison de metadata, monitoring des limites, operations bulk et automatisation — le tout dans une interface WebView unifiee.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",
   "command.openMonitor": "SandForge : Ouvrir le moniteur",

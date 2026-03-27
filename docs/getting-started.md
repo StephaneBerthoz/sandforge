@@ -84,10 +84,11 @@ If you have no connected orgs, a **Getting Started** card will guide you through
 Let's walk through a simple **Seed** operation to generate test data:
 
 1. Navigate to **Seed** from the sidebar or Quick Actions
-2. **Step 1 -- Select:** Choose your connected org from the dropdown, then select one or more objects (e.g., Account, Contact). Set the record count for each object using the inline volume inputs.
-3. **Step 2 -- Configure:** Review and customize field generation rules. Expand "Advanced Settings" to adjust batch sizes and configure parent-child relationships. SandForge auto-detects PII fields and warns you with amber badges.
-4. **Step 3 -- Execute:** Click "Execute" to start the data generation. A progress bar shows real-time status per object.
-5. **Step 4 -- Results:** View a summary showing records created vs. failed, per-object breakdown, and execution time. From here you can save the configuration as a template, export results to CSV, or seed again.
+2. Choose a seed mode from the mode selector: **AI Generate**, **CSV Upload**, or **Clone from Org**
+3. For **AI Generate**: Select your org, pick objects, set record counts, configure field rules, then execute
+4. For **CSV Upload**: Select your org and object, drag-and-drop a CSV file, map columns, validate, then execute
+5. For **Clone from Org**: Select source and target orgs, pick objects to clone, preview the insertion order, then execute
+6. View results with per-object record counts, error details, and export options
 
 ![Seed Wizard](../assets/screenshots/getting-started-04.png)
 
@@ -99,7 +100,7 @@ The **NL2SOQL** helper in Step 1 lets you describe what you want in plain Englis
 
 Now that you are up and running, explore the full capabilities of each module:
 
-- [Seed](modules/seed.md) -- AI-powered data generation with templates and dependency resolution
+- [Seed](modules/seed.md) -- AI generation, CSV import, and org-to-org cloning with templates and dependency resolution
 - [Sync](modules/sync.md) -- Bidirectional data synchronization between orgs
 - [Monitor](modules/monitor.md) -- Real-time org health, API limits, and job tracking
 - [Compare](modules/compare.md) -- Metadata diff, permission matrix, and drift detection

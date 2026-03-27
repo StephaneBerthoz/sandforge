@@ -257,7 +257,114 @@
     "regexPlaceholder": "[A-Z]{3}-\\d{4}",
     "aiPromptPlaceholder": "Generieren...",
     "csvColumnPlaceholder": "spaltenname",
-    "suggested": "Vorgeschlagen"
+    "suggested": "Vorgeschlagen",
+    "csv": {
+      "dropzone": {
+        "title": "CSV-Datei hier ablegen",
+        "subtitle": "oder klicken Sie auf die Schaltflaeche zum Durchsuchen",
+        "browse": "Dateien durchsuchen",
+        "maxSize": "Datei ueberschreitet die maximale Groesse von {{max}} MB"
+      },
+      "mapper": {
+        "title": "CSV-Spalten zu Salesforce-Feldern zuordnen",
+        "mapped": "{{count}} von {{total}} Spalten zugeordnet",
+        "unmapped": "Nicht zugeordnet",
+        "incompatible": "Typ inkompatibel",
+        "selectField": "Salesforce-Feld auswaehlen",
+        "noMatch": "Keine Uebereinstimmung"
+      },
+      "preview": {
+        "title": "CSV-Datenvorschau",
+        "showing": "Zeige {{shown}} von {{total}} Zeilen",
+        "noData": "Keine Daten zur Vorschau"
+      },
+      "validation": {
+        "title": "Validierungsergebnisse",
+        "valid": "Alle {{count}} Zeilen sind gueltig",
+        "errors": "{{count}} Fehler gefunden",
+        "proceedAnyway": "Trotzdem fortfahren",
+        "fixAndRevalidate": "Korrigieren und erneut validieren",
+        "andMore": "und {{count}} weitere...",
+        "warningProceed": "Fehler betreffen weniger als 10% der Zeilen. Sie koennen mit teilweisem Import fortfahren.",
+        "row": "Zeile {{row}}",
+        "errorTypes": {
+          "type_mismatch": "Typenkonflikt",
+          "missing_required": "Pflichtfeld fehlt",
+          "length_exceeded": "Laenge ueberschritten",
+          "duplicate_external_id": "Doppelte externe ID",
+          "invalid_picklist": "Ungueltiger Auswahllistenwert"
+        }
+      },
+      "wizard": {
+        "stepUpload": "Hochladen",
+        "stepMap": "Spalten zuordnen",
+        "stepValidate": "Validieren",
+        "stepExecute": "Ausfuehren",
+        "selectOrg": "Ziel-Org auswaehlen",
+        "selectObject": "Ziel-Objekt auswaehlen",
+        "cancel": "Abbrechen",
+        "next": "Weiter",
+        "back": "Zurueck",
+        "execute": "Import ausfuehren",
+        "done": "Fertig",
+        "executing": "Datensaetze werden importiert...",
+        "inserted": "{{count}} Datensaetze eingefuegt",
+        "failed": "{{count}} Datensaetze fehlgeschlagen"
+      }
+    },
+    "modeSelect": {
+      "title": "Seed-Modus waehlen",
+      "ai": "KI-Generierung",
+      "aiDesc": "Realistische Testdaten mit KI generieren",
+      "csv": "CSV-Upload",
+      "csvDesc": "Daten aus einer CSV-Datei importieren",
+      "clone": "Von Org klonen",
+      "cloneDesc": "Datensaetze aus einer anderen Org klonen",
+      "backToModes": "Zurueck zur Modusauswahl",
+      "comingSoon": "Demnachst verfuegbar"
+    },
+    "clone": {
+      "sourcePicker": {
+        "title": "Quell- und Ziel-Org auswaehlen",
+        "sourceLabel": "Quell-Org",
+        "targetLabel": "Ziel-Org",
+        "targetHint": "Datensaetze werden IN diese Org geklont",
+        "direction": "Quelle zu Ziel",
+        "selectSource": "Quell-Org auswaehlen...",
+        "sameOrgWarning": "Quell- und Ziel-Org sind identisch"
+      },
+      "objectSelector": {
+        "title": "Objekte zum Klonen auswaehlen",
+        "search": "Objekte suchen...",
+        "selected": "{{count}} Objekte ausgewaehlt",
+        "whereHint": "Optionaler Filter zum Klonen nur uebereinstimmender Datensaetze",
+        "wherePlaceholder": "z.B. Industry = 'Technology'"
+      },
+      "preview": {
+        "title": "Klon-Vorschau",
+        "insertOrder": "Einfuegereihenfolge",
+        "recordCounts": "Datensatzanzahl",
+        "sampleRecords": "Beispieldatensaetze",
+        "largeWarning": "Dieser Klon umfasst ueber 10.000 Datensaetze. Es kann mehrere Minuten dauern.",
+        "execute": "Klonen ausfuehren"
+      },
+      "results": {
+        "title": "Klon-Ergebnisse",
+        "summary": "Quelldatensaetze",
+        "inserted": "Eingefuegt",
+        "failed": "Fehlgeschlagen",
+        "duration": "Dauer",
+        "idMapping": "ID-Zuordnung",
+        "exportMapping": "ID-Zuordnung exportieren",
+        "done": "Fertig"
+      },
+      "wizard": {
+        "stepSource": "Quell-Org",
+        "stepObjects": "Objekte waehlen",
+        "stepPreview": "Vorschau",
+        "stepExecute": "Ausfuehren"
+      }
+    }
   },
   "sync": {
     "title": "Daten synchronisieren",

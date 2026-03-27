@@ -1,8 +1,8 @@
 # SandForge 🔥 — Salesforce DevOps Toolkit
 
-![Version](https://img.shields.io/badge/version-1.2.2-blue)
+![Version](https://img.shields.io/badge/version-1.2.3-blue)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Tests](https://img.shields.io/badge/tests-7623-brightgreen)
+![Tests](https://img.shields.io/badge/tests-8156-brightgreen)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
@@ -39,7 +39,7 @@
 | Guide | Description |
 |---|---|
 | [Getting Started](docs/getting-started.md) | Install, connect your org, run your first operation |
-| [Seed](docs/modules/seed.md) | AI-powered data generation with templates and dependency resolution |
+| [Seed](docs/modules/seed.md) | AI generation, CSV import, and org-to-org cloning with templates and dependency resolution |
 | [Sync](docs/modules/sync.md) | Bidirectional data synchronization between orgs |
 | [Monitor](docs/modules/monitor.md) | Real-time org health, API limits, and job tracking |
 | [Compare](docs/modules/compare.md) | Metadata diff, permission matrix, and drift detection |
@@ -51,9 +51,12 @@
 
 ## Features
 
-### Seed — AI-Powered Data Generation
+### Seed — AI Generation, CSV Import & Org Cloning
 
+- **3 Seed Modes** — AI Generate, CSV Upload, or Clone from Org — choose from a card-based mode selector
 - **Quick Seed** — Select a template, pick your org, seed in 1 click (no field config needed)
+- **CSV Import** — Drag-and-drop CSV upload with auto column mapping, inline validation, and 4-step wizard (Upload, Map, Validate, Execute)
+- **Clone from Org** — Clone records between orgs with relationship-ordered insert, per-object SOQL filters, and ID mapping export
 - **Template Gallery** — 3 pre-built templates (Sales Cloud, Service Cloud, Minimal Demo) + save your own
 - **Locale-Aware Generation** — Realistic data in 6 locales (en, fr, de, es, ja, pt-BR) with geo-coherent addresses
 - **VR-Aware Generation** — Auto-adjusts field rules to satisfy your org's validation rules
@@ -300,18 +303,18 @@ All UI text uses `t('key')` via react-i18next. Locale-aware formatters handle nu
 
 ---
 
-## What's New in 1.2.2
+## What's New in 1.2.3
 
-**Adoption-First: Sync & Seed Polish** — Making it dead simple to populate any Salesforce sandbox.
+**Scale & Complete** — Enterprise features, real-time sync, and new seed modes.
 
-- **Quick Sync** — 3 clicks from empty sandbox to production data (auto-field mapping, smart defaults)
-- **Quick Seed** — 1-click seed from pre-built template gallery (Sales Cloud, Service Cloud, Minimal Demo)
-- **Locale-Aware Data** — Realistic names, addresses, and phone numbers in 6 locales
-- **VR-Aware Generation** — Auto-adjusts seed data to pass your org's validation rules
-- **Sandbox Onboarding** — Guided first-step cards and contextual banners for new users
-- **Sync Wizard Polish** — 3 pre-built sync templates, wizard reduced from 7 to 6 steps
-- **Config Persistence** — Save and reload sync configs and seed templates across sessions
-- **7623 tests** across 3 packages
+- **CSV Import** — Drag-and-drop CSV upload with auto column mapping, type validation, and 4-step wizard
+- **Clone from Org** — Clone records between orgs with dependency-ordered insert, SOQL filters, and ID mapping export
+- **Seed Mode Selector** — Choose between AI Generate, CSV Upload, or Clone from Org on the Seed page
+- **CDC Real-Time Sync** — Change Data Capture subscriptions with live event feed and auto-sync toggle
+- **Conflict Resolution** — Side-by-side diff viewer with per-field resolution for sync conflicts
+- **Sync History & Scheduling** — Full execution history, cron scheduling, and config persistence
+- **Enterprise Polish** — Virtual scrolling, pagination, skeleton loading, keyboard shortcuts, notification center
+- **8156 tests** across 3 packages
 
 See the full [CHANGELOG](changelog.md) for details.
 
