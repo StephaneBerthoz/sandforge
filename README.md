@@ -2,11 +2,11 @@
 
 ![Version](https://img.shields.io/badge/version-1.2.3-blue)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Tests](https://img.shields.io/badge/tests-8156-brightgreen)
+![Tests](https://img.shields.io/badge/tests-8320-brightgreen)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
-![VSIX](https://img.shields.io/badge/vsix-1.16%20MB-green)
+![VSIX](https://img.shields.io/badge/vsix-1.23%20MB-green)
 
 **Forge your Salesforce sandboxes.** A full-featured VSCode extension for ETL, data seeding, org monitoring, metadata comparison, compliance, and automation — all from a single WebView UI.
 
@@ -54,14 +54,16 @@
 ### Seed — AI Generation, CSV Import & Org Cloning
 
 - **3 Seed Modes** — AI Generate, CSV Upload, or Clone from Org — choose from a card-based mode selector
+- **AI Personas** — 10 industry-specific personas (Insurance FR, Hospital US, etc.) with locale badges and preview popover showing 5 sample records
+- **Smart Actions** — Home Dashboard analyzes your orgs and recommends the best action (clone, quick-seed, or sync) with a one-click "Just Do It" CTA
 - **Quick Seed** — Select a template, pick your org, seed in 1 click (no field config needed)
 - **CSV Import** — Drag-and-drop CSV upload with auto column mapping, inline validation, and 4-step wizard (Upload, Map, Validate, Execute)
 - **Clone from Org** — Clone records between orgs with relationship-ordered insert, per-object SOQL filters, and ID mapping export
 - **Template Gallery** — 3 pre-built templates (Sales Cloud, Service Cloud, Minimal Demo) + save your own
+- **Adaptive Wizard** — Auto-advance for small selections (<5 objects), grouped accordion for large ones (>20 objects)
 - **Locale-Aware Generation** — Realistic data in 6 locales (en, fr, de, es, ja, pt-BR) with geo-coherent addresses
 - **VR-Aware Generation** — Auto-adjusts field rules to satisfy your org's validation rules
-- **8-Step Wizard** — Guided flow from object selection to execution with preview at every stage
-- **AI Generation** — LLM-backed realistic data (OpenAI, Anthropic, Ollama) with 10 business personas
+- **AI Generation** — LLM-backed realistic data (OpenAI, Anthropic, Ollama) with customizable persona field patterns
 - **Faker Profiles** — 30+ locale-aware Faker generators for names, addresses, emails, phones, and more
 - **Template Engine** — Reusable JSON/CSV templates with variable interpolation and conditional logic
 - **Dependency Resolution** — Automatic topological sort of parent-child relationships before insert
@@ -69,6 +71,10 @@
 ### Sync — Bidirectional Data Synchronization
 
 - **Quick Sync** — 3-click flow: pick orgs, select objects, go (auto-field mapping, smart defaults)
+- **CDC Real-Time Sync** — Change Data Capture subscriptions with live event feed, auto-sync toggle, and watchdog reconnection
+- **Conflict Resolution UI** — Side-by-side diff viewer (2-way + 3-way) with per-field resolution and bulk actions
+- **Sync History** — Full execution history (500 entries) with detail view and one-click re-run
+- **Cron Scheduling** — Visual builder + raw expression with timezone support, sleep/wake resilient
 - **Smart Object Suggestions** — Top 5 most-used objects suggested with one-click add
 - **Relationship Auto-Detection** — Adding "Opportunity" auto-suggests "Account" as parent dependency
 - **Pre-Built Sync Templates** — Full Account Hierarchy, Opportunities + Products, Cases + Attachments
@@ -76,7 +82,7 @@
 - **7 Mapping Types** — Direct, Lookup, Formula, Constant, Concatenation, Conditional, and External ID
 - **Smart Field Mapping** — AI-powered mapping suggestions based on name similarity and sample data
 - **13 Transforms** — Uppercase, lowercase, trim, date format, number format, regex replace, and more
-- **Conflict Resolution** — Last-write-wins, source-wins, target-wins, or manual merge strategies
+- **5 Conflict Strategies** — Last-write-wins, source-wins, target-wins, manual merge, or auto-merge
 - **Rollback** — Automatic savepoints with one-click rollback on partial failures
 - **Config Persistence** — Save, load, and reuse sync configurations across sessions
 
@@ -116,13 +122,22 @@
 - **Dry Run Mode** — Simulated execution with impact preview before running for real
 - **Scheduling** — Cron expressions with timezone support and calendar-based exclusions
 
+### Streaming & Background Execution
+
+- **Streaming Pipeline** — Async generator-based chunk processing for datasets > 10,000 records
+- **Chunked Bulk API 2.0** — Multi-upload to a single Bulk API job (2000 records/chunk) for optimal throughput
+- **Background Operations** — Long-running operations detach from the UI and run in the background
+- **Abort Support** — Cancel any running background operation via AbortController
+- **Operation Dashboard** — Query status, list active operations, abort by ID from the WebView
+- **Native Notifications** — VSCode desktop notifications when background operations complete while panel is hidden
+
 ### AI Assistant
 
 - **NL2SOQL** — Query Salesforce in plain language (French and English)
 - **Error Resolver** — Contextual Salesforce error analysis with auto-fix and learning
 - **AI Code Reviewer** — Apex best practices, security, and performance suggestions
 - **Predictive Analytics** — Trend forecasting for API limits, storage, and record growth
-- **10 Business Personas** — Pre-configured data profiles (Startup, Enterprise, Healthcare, etc.)
+- **10 Industry Personas** — Pre-configured data profiles with locale-aware field patterns and sample preview
 
 ### Real-Time Operations Dashboard
 
@@ -305,18 +320,21 @@ All UI text uses `t('key')` via react-i18next. Locale-aware formatters handle nu
 
 ## What's New in 1.2.3
 
-**Scale & Complete** — Enterprise features, real-time sync, and new seed modes.
+**Scale & Complete** — 7 phases, 50 requirements: enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
 
 - **CSV Import** — Drag-and-drop CSV upload with auto column mapping, type validation, and 4-step wizard
 - **Clone from Org** — Clone records between orgs with dependency-ordered insert, SOQL filters, and ID mapping export
-- **Seed Mode Selector** — Choose between AI Generate, CSV Upload, or Clone from Org on the Seed page
-- **CDC Real-Time Sync** — Change Data Capture subscriptions with live event feed and auto-sync toggle
-- **Conflict Resolution** — Side-by-side diff viewer with per-field resolution for sync conflicts
-- **Sync History & Scheduling** — Full execution history, cron scheduling, and config persistence
+- **AI Personas** — 10 industry-specific personas with sample preview and customizable field patterns
+- **Smart Actions** — Contextual recommendations on Home Dashboard with one-click execution
+- **CDC Real-Time Sync** — Change Data Capture subscriptions with live event feed, metrics dashboard, and auto-sync toggle
+- **Conflict Resolution** — Side-by-side 2-way/3-way diff viewer with per-field and bulk resolution
+- **Sync History & Scheduling** — Full execution history, cron scheduling with visual builder, and config persistence
+- **Streaming Execution** — Async generator pipeline for large datasets (>10K records) with chunked Bulk API 2.0
+- **Background Operations** — Long-running ops detach from UI, run in background, with native notifications on completion
 - **Enterprise Polish** — Virtual scrolling, pagination, skeleton loading, keyboard shortcuts, notification center
-- **8156 tests** across 3 packages
+- **8320 tests** across 3 packages
 
-See the full [CHANGELOG](changelog.md) for details.
+See the full [CHANGELOG](CHANGELOG.md) for details.
 
 ## Known Issues
 

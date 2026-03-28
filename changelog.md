@@ -5,9 +5,9 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.3] - 2026-03-27
+## [1.2.3] - 2026-03-28
 
-**Scale & Complete** — Enterprise foundation, real-time sync, conflict resolution, and two new seed modes.
+**Scale & Complete** — Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
 
 ### Added
 
@@ -55,6 +55,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - VSCode notifications on schedule completion/failure
 - Sync Page tabs: Active Syncs, History, Schedules
 
+**AI Personas (Seed)**
+- Persona gallery with 10 industry-specific cards featuring icons and locale badges
+- Preview popover showing 5 AI-generated sample records per persona
+- Customization panel with editable field patterns per persona
+- Persona field patterns auto-applied to Seed wizard field rules
+- AI mode fork: choose between persona-guided or free-form generation
+
+**Smart Actions**
+- SmartActionAnalyzer: automatic record count analysis on 5 standard objects (Account, Contact, Opportunity, Case, Lead)
+- SmartActionCard on Home Dashboard: contextual recommendations with "Just Do It" one-click CTA
+- Decision priority: clone > quick-seed > sync > none (based on source data presence)
+
+**Adaptive Seed Wizard**
+- Auto-advance: skip Configure step when selecting fewer than 5 objects
+- Category grouping: accordion layout when selecting more than 20 objects (Standard, Custom, Managed Package)
+- InfoTooltip: dismissible contextual help persisted via localStorage
+
+**Streaming Execution**
+- StreamingPipeline: async generator-based chunk processing with abort support
+- ChunkedBulkExecutor: multi-upload Bulk API 2.0 with 2000 records/chunk
+- Automatic streaming for operations exceeding 10,000 records per object
+- Progress callbacks with per-chunk tracking (chunksProcessed / totalChunks)
+- Error cap at 100 entries to prevent memory growth during large operations
+
+**Background Operations**
+- BackgroundOperationRegistry: detached operation lifecycle with running/completed/failed/aborted states
+- Abort support via AbortController for any running background operation
+- Operation events: started, progress, completed, failed, aborted with subscriber pattern
+- WebView visibility tracking via onDidChangeViewState
+- VSCode native notifications when operations complete while panel is hidden
+- ExecutionHandler: query operation status, list active operations, abort by ID
+- Sync and Seed handlers automatically detach to background for streaming operations
+
 **Enterprise Foundation**
 - Pagination component with page size selector and keyboard navigation
 - Virtual scrolling via @tanstack/react-virtual for large lists and tables
@@ -67,16 +100,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- SeedPage restructured with mode selector (was wizard-only)
+- SeedPage restructured with mode selector and AI persona fork (was wizard-only)
 - Sync Page reorganized with tabbed layout (Active Syncs, History, Schedules, Conflicts, Real-Time)
+- Seed and Sync handlers refactored: streaming pipeline for large datasets, background detachment for long-running ops
+- Home Dashboard now shows SmartActionCard with contextual recommendations
 
 ### Performance
 
 - Virtual scrolling for all large data tables (10,000+ rows)
 - Ring buffer for CDC events (constant memory, no array growth)
 - Org-switch cache invalidation (no stale data between orgs)
+- Streaming execution for datasets > 10K records (async generator, 2000/chunk)
+- Background operation detachment: UI stays responsive during long-running ops
 - VSIX size: 1.23 MB
-- 8156 tests passing (shared: 904, extension: 4459, webview: 2793)
+- 8320 tests passing (shared: 912, extension: 4533, webview: 2875)
 - i18n: all new features translated in 6 languages (en, fr, de, es, ja, pt-BR)
 
 ## [1.2.2] - 2026-03-27

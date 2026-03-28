@@ -5,161 +5,272 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] — 2026-03-20
+## [1.2.3] - 2026-03-28
 
-### Stabilisation & Real-World Readiness
-
-This release focuses on making every module work end-to-end with real Salesforce orgs, cleaning up ghost features, and adding production-grade robustness.
+**Scale & Complete** — Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
 
 ### Added
 
-- **Competitor Benchmark** — Comparison matrix against SF Inspector, ORGanizer, Org Monitor across 14 features
-- **StorageBreakdownPanel** — Per-object record count donut chart via EntityDefinition SOQL
-- **DeploymentTimeline** — Recent deployments with status indicators via DeployRequest query
-- **ApiUsagePanel** — Per-category API usage with ProgressBars and warning/critical badges
-- **LimitExportButton** — CSV export of governor limits via Blob API
-- **Dashboard Refresh UX** — Panel-level loading overlays, stale data indicator, error retry banner, connection loss warning with auto-reconnect
-- **Empty States** — Tailored first-launch experience with guidance and CTA for all 5 modules (Forge, Monitor, DataOps, Automation, Autopilot)
-- **Bulk API 2.0** — Automatic switch for operations > 200 records (Seed, Sync) via BulkApiExecutor
-- **RetryableOperation** — Exponential backoff with smart record-level vs connection-level error classification
-- **TimeoutManager** — Configurable timeout with AbortController for long-running operations
-- **FieldTypeValidator** — Source-to-target field type compatibility checking before Sync upsert
-- **Robustness Config** — Zod-validated configuration for timeouts, retry, and bulk thresholds
+**CSV Import (Seed)**
+- Drag-and-drop CSV file upload with automatic BOM stripping and file size validation
+- Auto column mapping: case-insensitive, underscore-tolerant matching to Salesforce fields with manual override
+- Inline validation: type mismatches, missing required fields, length exceeded, invalid picklist values, duplicate external IDs
+- 4-step wizard: Upload → Map Columns → Validate → Execute
+- Preview of first 10 rows before execution
 
-### Fixed
+**Clone from Org (Seed)**
+- Clone records between Salesforce orgs with full relationship integrity
+- Source org picker with visual source → target direction indicator
+- Object selector with searchable list and per-object SOQL WHERE filters
+- Relationship-ordered insert via topological sort with cycle detection
+- Self-referential handling (e.g., Account.ParentId) via two-pass insert
+- Cursor-based pagination (2000/batch) for large datasets
+- ID mapping table (source ID → new ID) with CSV export
+- 4-step wizard: Source Org → Select Objects → Preview → Execute
 
-- **CorrelationId propagation** — All 16 handlers now use buildResponse with correlationId for reliable request/response matching (122 total calls)
-- **Response type mismatches** — Audit and fix of all useBridgeQuery/useBridgeMutation response types across 70+ message types
-- **Ghost features cleaned** — Removed dead message types (audit, governance, team, recovery), added "Coming Soon" overlays for Scheduler (v1.2) and RealTime Sync (v2.0) with NoOpHandler
-- **Notifications bell** — Bell button in TopBar now opens NotificationCenter with unread badge
-- **Version footer** — StatusFooter reads version from build-time env, no longer hardcoded
-- **Org auto-select** — First connected org automatically selected on mount
-- **Grappe sidebar** — Removed from sidebar navigation (kept as execution overlay)
-- **AI guidance** — Clear empty state with Settings link when AI API key not configured
-- **AI persistence** — Conversations persisted to ConfigStore, survive extension reloads
-- **Unhandled messages** — MessageBroker logs warnings for unhandled message types
+**Seed Mode Selector**
+- SeedPage now offers 3 modes via card-based selector: AI Generate, CSV Upload, Clone from Org
 
-### Stats
+**CDC Real-Time Sync**
+- Change Data Capture subscriptions with start/stop per object
+- Live event feed with virtual scrolling (ring buffer, 5000 events)
+- Event batching (150ms window) for high-throughput scenarios
+- Auto-sync toggle per object with configurable conflict strategy
+- Watchdog reconnection on sleep/wake with replay ID persistence
+- Metrics dashboard: throughput sparkline, event lag, counters, uptime
 
-- 7042 tests passing across 230+ test files
-- 27 requirements delivered across 6 phases
-- Zero TODO/FIXME/PLACEHOLDER in source code
+**Conflict Resolution**
+- Side-by-side diff viewer with 2-way and 3-way comparison (using base value)
+- Per-field conflict resolution with source/target/manual choice
+- Bulk resolution actions (accept all source, accept all target)
+- Conflict list with DataTable, pagination, and severity/object/status filters
+- Sync Page "Conflicts" tab with live badge count
 
-## [3.2.0] — 2026-03-13
+**Sync History & Scheduling**
+- Full execution history with FIFO retention (500 entries)
+- History detail view with re-run capability
+- Cron-based scheduling with visual builder, raw expression, and timezone support
+- Schedule persistence across VSCode restarts
+- Sleep/wake resilient execution (overdue jobs run once, not per missed interval)
+- VSCode notifications on schedule completion/failure
+- Sync Page tabs: Active Syncs, History, Schedules
 
-### Added
+**AI Personas (Seed)**
+- Persona gallery with 10 industry-specific cards featuring icons and locale badges
+- Preview popover showing 5 AI-generated sample records per persona
+- Customization panel with editable field patterns per persona
+- Persona field patterns auto-applied to Seed wizard field rules
+- AI mode fork: choose between persona-guided or free-form generation
 
-- **LiveOperationTracker** — Real-time DML operation dashboard with per-object throughput and live progress events
-- **MaskingTemplateService** — Pre-built anonymization templates (GDPR, HIPAA, PCI DSS) with custom field-level masking rules
-- **ConfigProfileManager** — Save, load, and share configuration profiles for repeatable sandbox provisioning
-- **CrudFlsGuard** — CRUD and FLS permission pre-checks before every Salesforce DML operation
-- **DmlOperationTracker** — Governor limit-aware DML operation counting across all modules
-- **sforceLimitParser** — Sforce-Limit-Info header parsing with threshold alerts and org tier awareness
-- **MessageBroker Zod validation** — All incoming WebView messages validated by Zod schemas before dispatch
-- **E2E testing** — Playwright setup with 47 tests across 6 spec files (home, navigation, a11y, i18n, theme, responsive)
+**Smart Actions**
+- SmartActionAnalyzer: automatic record count analysis on 5 standard objects (Account, Contact, Opportunity, Case, Lead)
+- SmartActionCard on Home Dashboard: contextual recommendations with "Just Do It" one-click CTA
+- Decision priority: clone > quick-seed > sync > none (based on source data presence)
 
-### Security
+**Adaptive Seed Wizard**
+- Auto-advance: skip Configure step when selecting fewer than 5 objects
+- Category grouping: accordion layout when selecting more than 20 objects (Standard, Custom, Managed Package)
+- InfoTooltip: dismissible contextual help persisted via localStorage
 
-- CRUD/FLS enforcement on all DML paths via CrudFlsGuard
-- Zod validation on all bridge message payloads
-- Sanitized stack traces (no secrets in error logs)
+**Streaming Execution**
+- StreamingPipeline: async generator-based chunk processing with abort support
+- ChunkedBulkExecutor: multi-upload Bulk API 2.0 with 2000 records/chunk
+- Automatic streaming for operations exceeding 10,000 records per object
+- Progress callbacks with per-chunk tracking (chunksProcessed / totalChunks)
+- Error cap at 100 entries to prevent memory growth during large operations
+
+**Background Operations**
+- BackgroundOperationRegistry: detached operation lifecycle with running/completed/failed/aborted states
+- Abort support via AbortController for any running background operation
+- Operation events: started, progress, completed, failed, aborted with subscriber pattern
+- WebView visibility tracking via onDidChangeViewState
+- VSCode native notifications when operations complete while panel is hidden
+- ExecutionHandler: query operation status, list active operations, abort by ID
+- Sync and Seed handlers automatically detach to background for streaming operations
+
+**Enterprise Foundation**
+- Pagination component with page size selector and keyboard navigation
+- Virtual scrolling via @tanstack/react-virtual for large lists and tables
+- Skeleton loading states for tables, cards, and panels
+- Keyboard shortcuts: Ctrl+1..6 for direct module navigation
+- Notification center with severity filters and mark-as-read
+- Bulk job progress tracker with per-object progress bars
+- Error recovery panel with retry, exponential backoff, and skip options
+- Cache manager with automatic org-switch invalidation
+
+### Changed
+
+- SeedPage restructured with mode selector and AI persona fork (was wizard-only)
+- Sync Page reorganized with tabbed layout (Active Syncs, History, Schedules, Conflicts, Real-Time)
+- Seed and Sync handlers refactored: streaming pipeline for large datasets, background detachment for long-running ops
+- Home Dashboard now shows SmartActionCard with contextual recommendations
 
 ### Performance
 
-- VSIX optimized to 1.07 MB via .vscodeignore tuning
-- Proactive API throttling via sforceLimitParser
-- Event-driven progress streaming in LiveOperationTracker
+- Virtual scrolling for all large data tables (10,000+ rows)
+- Ring buffer for CDC events (constant memory, no array growth)
+- Org-switch cache invalidation (no stale data between orgs)
+- Streaming execution for datasets > 10K records (async generator, 2000/chunk)
+- Background operation detachment: UI stays responsive during long-running ops
+- VSIX size: 1.23 MB
+- 8320 tests passing (shared: 912, extension: 4533, webview: 2875)
+- i18n: all new features translated in 6 languages (en, fr, de, es, ja, pt-BR)
 
-### Fixed
+## [1.2.2] - 2026-03-27
 
-- MessageBroker accepting malformed messages without validation
-- Missing CRUD/FLS checks in Seed, Sync, DataOps, and Compare handlers
-- API limit headers silently ignored on bulk operations
-
-## [3.1.0] — 2026-03-07
-
-### Added
-
-- **UI Redesign** — "Forge" Design System with VSCode theme integration, Framer Motion animations, glassmorphism
-- **New Components** — BentoGrid, KPICard, CommandPalette, LiveGraph, FieldMapper, HealthGauge, TrendChart, OrgSwitcher
-- **Page Redesigns** — HomePage, MonitorPage, SeedPage, SyncPage, ComparePage, DataOpsPage, AutomationPage
-- **Accessibility** — ARIA attributes, keyboard navigation, focus traps, skip links across all components
-- **i18n** — Full coverage for 6 languages (en, fr, de, es, ja, pt-BR)
-
-### Fixed
-
-- Framer Motion event-handler type conflicts
-- Tailwind colors now reference VSCode CSS variables
-- Skeleton loading states replace Spinner across all pages
-
-## [3.0.0] — 2026-03-07
+**Adoption-First: Sync & Seed Polish** — Making it dead simple to populate any Salesforce sandbox.
 
 ### Added
 
-- **Autopilot Module** — Full-auto sandbox provisioning with schema scan, dependency graph, compliance engine, smart anonymizer
-- **Grappe Engine** — Parallel processing for large datasets with 7 partitioning strategies
-- **TypedEventEmitter** — Generic typed event emitter with listener isolation
+**Quick Sync**
+- 3-click flow: pick source/target orgs → multi-select objects → preview & execute
+- Auto-field mapping: same-name fields matched automatically (no manual mapping step)
+- Smart defaults: source-to-target direction, full mode, source-wins conflict, 200 batch size, upsert operation
+- Pre-execution preview with estimated record counts and API call estimates
+- Smart object suggestions: top 5 most-used objects (Account, Contact, Opportunity, Case, Lead)
+- Relationship auto-detection: adding "Opportunity" auto-suggests "Account" as parent
 
-### Fixed
+**Quick Seed**
+- 1-click seed from pre-built template gallery (no field configuration step)
+- Template gallery UI with card grid showing name, description, object count, total records, and tags
+- Customize record counts per object before execution
 
-- 8 critical fixes (SecretVault, BatchProcessor, CircuitBreaker, OrgManager, RetryStrategy, RateLimiter, ExecutionPipeline, BulkApiManager)
-- 26 moderate fixes across Zod schemas, utilities, and React components
+**Pre-Built Templates**
+- 3 Seed templates: Sales Cloud Starter (7 objects, 7601 records), Service Cloud Starter (5 objects, 3800 records), Minimal Demo (3 objects, 350 records)
+- 3 Sync templates: Full Account Hierarchy, Opportunities + Products, Cases + Attachments
 
-## [2.0.0] — 2026-03-06
+**Seed Data Quality**
+- Locale-aware data generation in 6 locales (en, fr, de, es, ja, pt-BR) with geo-coherent addresses
+- Contextual ranges: object-specific amounts and dates (e.g., Opportunity.Amount: 5K-500K)
+- Validation Rule auto-adjuster: detects ISBLANK, ISPICKVAL, LEN, REGEX rules and adjusts field values
+- Picklist-aware generation: passes all active picklist values without truncation
 
-First public release on the VSCode Marketplace.
+**Onboarding**
+- Sandbox detection with contextual guidance for new users
+- Guided first-step cards on Sync and Seed empty states
+- "Populate Sandbox" quick action on Home dashboard
+- Welcome wizard updated for sandbox orgs
 
-### Modules
+**Persistence**
+- Save, load, and manage named sync configurations
+- Save, load, and manage custom seed templates
+- Wizard draft auto-save on every step change (survives page refresh)
 
-- **Seed** — AI-powered test data generation with 8-step wizard, Faker profiles, CSV import, record cloning, dependency resolution, and batch execution with rollback
-- **Sync** — Bidirectional org ETL with 4 sync modes, 7 mapping types, 13 transforms, 5 conflict strategies, dry-run preview, and cron scheduling
-- **Monitor** — Real-time API limits dashboard, Apex/Bulk job tracking, alert system, trend charts, and composite health score
-- **Compare** — Side-by-side metadata diff, permission matrix, drift detection, impact graph, and deployment builder
-- **DataOps** — Backup/restore, anonymization (GDPR/CCPA/HIPAA/PCI DSS), data cleaner, quality scanner, DSR workflows, and compliance checker
-- **Automation** — Visual pipeline builder with 15 step types, 6 trigger types, conditional routing, scheduler, retry policies, and execution history
-- **Autopilot** — Full-auto sandbox provisioning: schema scan, dependency graph, compliance engine, smart anonymizer, execution plan generator, and compliance reporting
-- **Reports** — 10 report types, analytics dashboard, audit trail, data lineage graph, and multi-format export (JSON, CSV, HTML, Markdown)
-- **AI Assistant** — Chat interface with Anthropic/OpenAI/Ollama providers, error resolution, and contextual suggestions
+### Changed
 
-### Grappe Engine (Cluster Mode)
+- Sync wizard reduced from 7 to 6 steps (merged org + object selection)
 
-- Parallel processing engine for large datasets (10K+ records)
-- 7 partitioning strategies: round-robin, by-record-type, by-parent, by-date-range, by-hash, by-volume, dependency-aware
-- Worker management with configurable concurrency and back-pressure (pause, throttle, drop-priority)
-- Full integration in Seed, Sync, and Autopilot orchestrators with progress events
-- Real-time GrappeProgressPanel in all execution views
-- Bridge message protocol: `grappe:started`, `grappe:partitionProgress`, `grappe:backPressure`, `grappe:completed`
-- Settings: enable/disable toggle and threshold configuration
+### Performance
 
-### UI & UX
+- VSIX size: 1.16 MB
+- 7623 tests passing (shared: 874, extension: 4310, webview: 2439)
 
-- 100% WebView React UI — zero Command Palette dependency
-- Sidebar launcher with org switcher, favorites, and quick navigation
-- Full i18n coverage (English + French) from day one
-- Dark theme optimized for VSCode with CSS custom properties
-- Keyboard shortcuts for all modules (Ctrl+Shift+M/D/Y/K/O/A/G)
-- Onboarding wizard, contextual help, and About dialog
-- Loading skeletons, error boundaries, breadcrumbs, and toast notifications
+## [1.2.1] - 2026-03-26
 
-### Architecture
-
-- Monorepo with pnpm workspaces: `shared`, `extension`, `webview`
-- TypeScript strict mode, Zod validation, JSDoc on all public APIs
-- Extension-WebView bridge with typed messages and MessageBroker
-- Zustand stores for all state management
-- 6000+ tests across 432 test files
-- esbuild for extension, Vite for webview, Tailwind + Shadcn/ui
-
----
-
-## [0.1.0] — 2026-02-20
+**Monitor Enrichment & Wiring** — Live backend services, alerting, and governance.
 
 ### Added
 
-- Initial development release
-- Project scaffolding and monorepo structure
-- Basic extension activation and WebView rendering
+**Service Wiring**
+- 5 previously dead backend services wired end-to-end with dedicated UI panels: Error Log Monitor, User Session Monitor, Apex Log Analyzer, Sandbox Refresh Tracker, Health Check
 
----
+**Alert System**
+- Default alert rules for API limits, storage, and error rates
+- Alert persistence with configurable thresholds and severity levels
+- VSCode native notifications (info/warning/error) on alert triggers
+- Alert history timeline in Monitor dashboard
 
-> *Some features are better discovered than documented. Try being persistent...*
+**Health Scoring**
+- Unified health score aggregating all metric calculators
+- Trend feedback with linear interpolation
+- Health score displayed in Monitor dashboard and Home KPI row
+
+**Limits & Trends**
+- Expanded limits coverage: email invocations, Platform Events, FileStorage, sandbox reset countdown
+- API response caching: /limits 30s TTL, OrgInfo 5min TTL
+- Real timestamps in trend data (replaces index-based)
+- CSV export for trend data
+
+**Governance**
+- Governance rule CRUD operations with custom rule definitions
+- Rule evaluation engine with AlertEngine pipeline integration
+
+## [1.2.0] - 2026-03-20
+
+**Forge UX & Reliability** — Bug fixes, UX polish, performance, accessibility.
+
+### Fixed
+
+- Abort/pause/resume wired end-to-end in Forge execution
+- DryRun flag properly honored during execution
+- Dynamic object resolution for Forge templates
+- Relationship field prefix map for correct reference handling
+- Dead checkbox states in Forge wizard
+- KPI calculation errors in Forge dashboard
+
+### Added
+
+**UX Improvements**
+- Auto-org detection on extension activation
+- Swap source/target orgs button
+- Table view for object lists
+- Log persistence across sessions
+- ETA calculation for long-running operations
+- Template CRUD management (create, edit, delete, duplicate)
+- Node search in Forge dependency graph
+- SidePanel redesign: compact mode, improved org switcher, collapsible metrics
+
+**Backend Hardening**
+- Structured error responses across all message handlers
+- Configurable timeouts for all API calls
+- Lifecycle events for operation tracking (started, progress, completed, failed)
+- Real Bulk API 2.0 job IDs in responses
+
+**Accessibility**
+- ARIA tablist on tabbed interfaces
+- aria-pressed on toggle buttons
+- role="log" on live output panels
+- Radiogroup patterns for exclusive selections
+- Contrast fixes for WCAG 2.1 AA compliance
+
+### Performance
+
+- Dagre layout calculation separated from render cycle
+- Memoized KPI computations
+- Adaptive row heights in data tables
+- 7149 tests passing
+
+## [1.1.0] - 2026-03-19
+
+**Stabilisation & Real-World Readiness** — Every module working end-to-end.
+
+### Fixed
+
+- CorrelationId bridge infrastructure: all message handlers use typed request/response with correlationId
+- Ghost features removed: Grappe sidebar, placeholder modules, dead routes
+- Bulk API 2.0 properly wired with retry and exponential backoff
+
+### Added
+
+- All 8 modules functional end-to-end: Seed, Sync, Monitor, Compare, DataOps, Automation, AI, Autopilot
+- AI conversation persistence across sessions
+- Dashboard refresh UX with error recovery
+- Competitor benchmark analysis and 5 Monitor feature gaps addressed
+- 7042 tests passing
+
+## [1.0.0] - 2026-03-17
+
+**Marketplace-Ready Release** — First public version.
+
+### Added
+
+- 6 core modules: Seed (AI-powered data generation), Sync (bidirectional ETL), Monitor (org health), Compare (metadata diff), DataOps (backup/compliance), Automation (visual pipelines)
+- AI Assistant: NL2SOQL, error resolver, schema advice, 10 business personas
+- Autopilot: auto-provisioning with compliance profiles, dependency graph, execution waves
+- Grappe Engine for parallel processing of large datasets
+- Production Guard with 3 safety tiers and CRUD/FLS enforcement
+- Full i18n support (en, fr, de, es, ja, pt-BR)
+- 162 Playwright E2E tests with WCAG 2.1 AA accessibility compliance
+- GitHub Actions CI on Windows, macOS, and Linux
+- VSIX optimized to 1.07 MB
+- Published on VS Code Marketplace
