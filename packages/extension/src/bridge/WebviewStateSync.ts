@@ -1,11 +1,11 @@
-import type { BaseMessage } from '@sandforge/shared';
+import type { ActiveOperation, BaseMessage } from '@sandforge/shared';
 import type { MessageBroker } from './MessageBroker';
 
 /** State snapshot that gets pushed to connected webviews. */
 export interface WebviewState {
   orgs: Record<string, unknown>[];
   settings: Record<string, unknown>;
-  activeOperations: string[];
+  activeOperations: ActiveOperation[];
   extensionReady: boolean;
 }
 
@@ -44,6 +44,16 @@ export class WebviewStateSync {
         this.pushState();
       }, 16);
     }
+  }
+
+  /**
+   * Replace the active operations list and push to webviews.
+   * Called by the BackgroundOperationRegistry event listener.
+   *
+   * @param ops - The current list of active operations
+   */
+  setActiveOperations(ops: ActiveOperation[]): void {
+    this.updateState({ activeOperations: ops });
   }
 
   /** Get a readonly copy of the current state. */
