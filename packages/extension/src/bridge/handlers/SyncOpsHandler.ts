@@ -19,8 +19,13 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
+import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
 import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
+
+/** Record count threshold above which streaming pipeline is used. */
+const STREAMING_THRESHOLD = 10_000;
 
 /** Message types handled by SyncOpsHandler. */
 const SYNC_TYPES = new Set([
@@ -61,9 +66,22 @@ export class SyncOpsHandler implements DomainHandler {
   /** Persistence facade for sync configurations. */
   private readonly syncConfigStore: SyncConfigStore;
 
+  /** Background operation registry for detached execution. */
+  private registry?: BackgroundOperationRegistry;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.syncConfigStore = new SyncConfigStore(deps.configStore);
+  }
+
+  /**
+   * Set the background operation registry for detached execution.
+   * Called from ExtensionHandlers after construction.
+   *
+   * @param registry - The shared BackgroundOperationRegistry instance.
+   */
+  setRegistry(registry: BackgroundOperationRegistry): void {
+    this.registry = registry;
   }
 
   /**
@@ -238,9 +256,6 @@ export class SyncOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { config: Record<string, unknown> } }).payload;
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
-    const robustnessConfig = this.getRobustnessConfig();
-    let progressTracker: BulkJobProgressTracker | undefined;
-    let unsubProgress: (() => void) | undefined;
 
     try {
       const config = payload.config as unknown as import('@sandforge/shared').SyncConfig;
@@ -273,7 +288,46 @@ export class SyncOpsHandler implements DomainHandler {
       this.activeOperationIds.add(operationId);
       this.deps.infraServices?.performanceTracker?.start(operationId, 'sync');
 
-      sendOperationStarted(this.deps, operationId, 'sync', `Sync ${config.objects?.length ?? 0} object(s)`);
+      const description = `Sync ${config.objects?.length ?? 0} object(s)`;
+      sendOperationStarted(this.deps, operationId, 'sync', description);
+
+      // Create AbortController for this operation
+      const abortController = new AbortController();
+
+      // Build the execution promise (runs detached in the background)
+      const executionPromise = this.executeSync(msg, config, operationId, abortController);
+
+      // Register with BackgroundOperationRegistry if available
+      if (this.registry) {
+        this.registry.register(operationId, 'sync', description, executionPromise, abortController);
+      } else {
+        // Fallback: await directly when no registry is available
+        await executionPromise;
+      }
+
+      // Return immediately -- execution continues in background
+    } catch (err: unknown) {
+      this.dmlTracker.markFailed(operationId);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
+    }
+  }
+
+  /**
+   * Execute sync operation in the background.
+   * Extracted from handleExecute to allow detached execution via BackgroundOperationRegistry.
+   */
+  private async executeSync(
+    msg: BaseMessage,
+    config: import('@sandforge/shared').SyncConfig,
+    operationId: string,
+    abortController: AbortController,
+  ): Promise<void> {
+    const robustnessConfig = this.getRobustnessConfig();
+    let progressTracker: BulkJobProgressTracker | undefined;
+    let unsubProgress: (() => void) | undefined;
+
+    try {
       const sourceConn = await getJsforceConnection(config.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager);
       const targetConn = await getJsforceConnection(config.targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
 
@@ -303,10 +357,32 @@ export class SyncOpsHandler implements DomainHandler {
       const handlerDeps = this.deps;
       const fieldValidator = new FieldTypeValidator();
 
-      // Build jsforce CRUD functions for target org with retry + bulk
+      // Build jsforce CRUD functions for target org with retry + bulk + streaming
       type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
 
       const insertFn = async (objectName: string, records: Record<string, unknown>[], batchSize: number) => {
+        // Streaming path for large record sets
+        if (records.length > STREAMING_THRESHOLD) {
+          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: targetConn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              sendOperationProgress(handlerDeps, operationId, Math.round((processed / total) * 100), processed, total, `Streaming insert ${objectName}`);
+            },
+          };
+          const streamResult = await chunkedExecutor.executeChunked(
+            bulkDeps, objectName, 'insert',
+            chunkedExecutor.createChunkGenerator(records),
+            records.length,
+          );
+          return Array.from({ length: records.length }, (_, i) => ({
+            id: i < streamResult.successCount ? (streamResult.successIds[i] ?? `stream-${i}`) : undefined,
+            success: i < streamResult.successCount,
+            errors: i >= streamResult.successCount ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error'] : [] as string[],
+          }));
+        }
+
         if (bulkExecutor.shouldUseBulkApi(records.length)) {
           const bulkDeps: BulkApiExecutorDeps = {
             connection: targetConn as unknown as BulkApiConnection,
@@ -341,6 +417,29 @@ export class SyncOpsHandler implements DomainHandler {
       };
 
       const upsertFn = async (objectName: string, externalIdField: string, records: Record<string, unknown>[], batchSize: number) => {
+        // Streaming path for large record sets
+        if (records.length > STREAMING_THRESHOLD) {
+          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: targetConn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              sendOperationProgress(handlerDeps, operationId, Math.round((processed / total) * 100), processed, total, `Streaming upsert ${objectName}`);
+            },
+          };
+          const streamResult = await chunkedExecutor.executeChunked(
+            bulkDeps, objectName, 'upsert',
+            chunkedExecutor.createChunkGenerator(records),
+            records.length,
+            externalIdField,
+          );
+          return Array.from({ length: records.length }, (_, i) => ({
+            id: i < streamResult.successCount ? (streamResult.successIds[i] ?? `stream-${i}`) : undefined,
+            success: i < streamResult.successCount,
+            errors: i >= streamResult.successCount ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error'] : [] as string[],
+          }));
+        }
+
         if (bulkExecutor.shouldUseBulkApi(records.length)) {
           const bulkDeps: BulkApiExecutorDeps = {
             connection: targetConn as unknown as BulkApiConnection,
@@ -396,6 +495,28 @@ export class SyncOpsHandler implements DomainHandler {
       };
 
       const updateFn = async (objectName: string, records: Record<string, unknown>[], batchSize: number) => {
+        // Streaming path for large record sets
+        if (records.length > STREAMING_THRESHOLD) {
+          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: targetConn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              sendOperationProgress(handlerDeps, operationId, Math.round((processed / total) * 100), processed, total, `Streaming update ${objectName}`);
+            },
+          };
+          const streamResult = await chunkedExecutor.executeChunked(
+            bulkDeps, objectName, 'update',
+            chunkedExecutor.createChunkGenerator(records),
+            records.length,
+          );
+          return Array.from({ length: records.length }, (_, i) => ({
+            id: i < streamResult.successCount ? (streamResult.successIds[i] ?? `stream-${i}`) : undefined,
+            success: i < streamResult.successCount,
+            errors: i >= streamResult.successCount ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error'] : [] as string[],
+          }));
+        }
+
         if (bulkExecutor.shouldUseBulkApi(records.length)) {
           const bulkDeps: BulkApiExecutorDeps = {
             connection: targetConn as unknown as BulkApiConnection,

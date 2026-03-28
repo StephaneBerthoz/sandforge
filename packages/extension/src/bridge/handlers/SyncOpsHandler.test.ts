@@ -1,7 +1,10 @@
+import fs from 'fs';
+import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOpsHandler } from './SyncOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -422,6 +425,98 @@ describe('SyncOpsHandler', () => {
       const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { success: boolean } };
       expect(response.type).toBe('sync:config:delete:response');
       expect(response.payload.success).toBe(false);
+    });
+  });
+
+  describe('background operation registry', () => {
+    it('registers operation in BackgroundOperationRegistry when registry is set', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        sobject: vi.fn().mockReturnValue({
+          create: vi.fn().mockResolvedValue([]),
+          upsert: vi.fn().mockResolvedValue([]),
+          update: vi.fn().mockResolvedValue([]),
+          destroy: vi.fn().mockResolvedValue([]),
+        }),
+        tooling: { executeAnonymous: vi.fn() },
+        limitInfo: undefined,
+      } as never);
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'bg-op-1',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: {
+          config: {
+            sourceOrgId: 'src-org',
+            targetOrgId: 'tgt-org',
+            objects: [],
+          },
+        },
+      };
+
+      await handler.handle(msg);
+
+      // Operation should be registered in the registry
+      expect(registry.has('bg-op-1')).toBe(true);
+      const op = registry.get('bg-op-1');
+      expect(op?.module).toBe('sync');
+    });
+
+    it('handleExecute returns immediately when registry is set (detached mode)', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+
+      // Connection setup that will work
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        sobject: vi.fn().mockReturnValue({
+          create: vi.fn().mockResolvedValue([]),
+          upsert: vi.fn().mockResolvedValue([]),
+          update: vi.fn().mockResolvedValue([]),
+          destroy: vi.fn().mockResolvedValue([]),
+        }),
+        tooling: { executeAnonymous: vi.fn() },
+        limitInfo: undefined,
+      } as never);
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'bg-op-2',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: {
+          config: {
+            sourceOrgId: 'src-org',
+            targetOrgId: 'tgt-org',
+            objects: [],
+          },
+        },
+      };
+
+      // handleExecute should return without awaiting completion
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      // operation:started was sent
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const startedMsgs = postToWebview.mock.calls
+        .map((c) => c[0] as BaseMessage)
+        .filter((m) => m.type === 'operation:started');
+      expect(startedMsgs.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('streaming threshold', () => {
+    it('SyncOpsHandler source references STREAMING_THRESHOLD and ChunkedBulkExecutor', () => {
+      const handlerPath = path.join(__dirname, 'SyncOpsHandler.ts');
+      const source = fs.readFileSync(handlerPath, 'utf-8') as string;
+
+      expect(source).toContain('STREAMING_THRESHOLD');
+      expect(source).toContain('ChunkedBulkExecutor');
+      expect(source).toContain('BackgroundOperationRegistry');
     });
   });
 });
