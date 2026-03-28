@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { BackupScheduler } from './BackupScheduler';
 import type { BackupConfig, BackupResult } from '@sandforge/shared';
 
@@ -185,27 +185,40 @@ describe('BackupScheduler', () => {
     expect(candidates).not.toContain('good-op');
   });
 
-  it('should compute next run for daily schedule', () => {
-    const next = scheduler.computeNextRun('0 2');
-    const nextDate = new Date(next);
-    expect(nextDate.getHours()).toBe(2);
-    expect(nextDate.getMinutes()).toBe(0);
-    expect(nextDate > new Date()).toBe(true);
-  });
+  describe('computeNextRun (frozen clock)', () => {
+    // Use a stable date far from DST transitions to avoid timezone flakes.
+    // 2026-06-15 10:00:00 UTC (a Monday, mid-summer, no DST edge)
+    const STABLE_DATE = new Date('2026-06-15T10:00:00.000Z');
 
-  it('should compute next run for weekly schedule', () => {
-    const next = scheduler.computeNextRun('0 3 1'); // Monday at 03:00
-    const nextDate = new Date(next);
-    expect(nextDate.getDay()).toBe(1); // Monday
-    expect(nextDate.getHours()).toBe(3);
-  });
+    beforeEach(() => {
+      vi.useFakeTimers({ now: STABLE_DATE });
+    });
 
-  it('should fallback to 24h for unrecognized cron', () => {
-    const next = scheduler.computeNextRun('*/5 * * * *');
-    const nextDate = new Date(next);
-    const now = new Date();
-    const diffHours = (nextDate.getTime() - now.getTime()) / (1000 * 60 * 60);
-    expect(diffHours).toBeGreaterThan(23);
-    expect(diffHours).toBeLessThan(25);
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('should compute next run for daily schedule', () => {
+      const next = scheduler.computeNextRun('0 2');
+      const nextDate = new Date(next);
+      expect(nextDate.getHours()).toBe(2);
+      expect(nextDate.getMinutes()).toBe(0);
+      expect(nextDate > STABLE_DATE).toBe(true);
+    });
+
+    it('should compute next run for weekly schedule', () => {
+      const next = scheduler.computeNextRun('0 3 1'); // Monday at 03:00
+      const nextDate = new Date(next);
+      expect(nextDate.getDay()).toBe(1); // Monday
+      expect(nextDate.getHours()).toBe(3);
+    });
+
+    it('should fallback to 24h for unrecognized cron', () => {
+      const next = scheduler.computeNextRun('*/5 * * * *');
+      const nextDate = new Date(next);
+      const diffHours = (nextDate.getTime() - STABLE_DATE.getTime()) / (1000 * 60 * 60);
+      expect(diffHours).toBeGreaterThan(23);
+      expect(diffHours).toBeLessThan(25);
+    });
   });
 });

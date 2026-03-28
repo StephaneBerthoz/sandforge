@@ -52,7 +52,7 @@ let mockHookReturn = {
   clearSelection: mockClearSelection,
   setCustomDescription: mockSetCustomDescription,
   createCustom: mockCreateCustom,
-  generateSampleRecords: (persona: PersonaMsg) =>
+  generateSampleRecords: (_persona: PersonaMsg) =>
     [{ Name: 'AXA' }, { Name: 'Mutuelle' }, { Name: 'Groupe' }, { Name: 'AXA' }, { Name: 'Mutuelle' }] as Record<string, string>[],
   refetch: mockRefetch,
 };
@@ -78,7 +78,7 @@ describe('PersonaGallery', () => {
       clearSelection: mockClearSelection,
       setCustomDescription: mockSetCustomDescription,
       createCustom: mockCreateCustom,
-      generateSampleRecords: (persona: PersonaMsg) =>
+      generateSampleRecords: (_persona: PersonaMsg) =>
         [{ Name: 'AXA' }, { Name: 'Mutuelle' }, { Name: 'Groupe' }, { Name: 'AXA' }, { Name: 'Mutuelle' }] as Record<string, string>[],
       refetch: mockRefetch,
     };
@@ -122,7 +122,7 @@ describe('PersonaGallery', () => {
     // Simulate the gallery being in customize view
     mockHookReturn.selectedPersona = testPersonas[0];
     const onPersonaSelected = vi.fn();
-    const { rerender } = render(<PersonaGallery onPersonaSelected={onPersonaSelected} />);
+    render(<PersonaGallery onPersonaSelected={onPersonaSelected} />);
 
     // Click select on first persona
     fireEvent.click(screen.getByTestId('persona-select-assureur-fr'));
