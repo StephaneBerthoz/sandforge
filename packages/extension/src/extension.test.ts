@@ -175,8 +175,8 @@ describe('extension', () => {
 
     activate(context);
 
-    // 9 module commands + 1 cheers + outputChannel + sidebarRegistration + statusBar + panelManager = 14
-    expect(context.subscriptions.length).toBe(14);
+    // 9 module commands + 1 cheers + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry = 15
+    expect(context.subscriptions.length).toBe(15);
   });
 
   it('should deactivate without error', () => {

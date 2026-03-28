@@ -2106,5 +2106,16 @@
     "noFailures": "No failed operations",
     "errorDetails": "Error Details",
     "manualRetryTriggered": "Manual retry triggered"
+  },
+  "execution": {
+    "background": {
+      "syncCompleted": "Sync completed — {{count}} records processed",
+      "syncFailed": "Sync failed — {{error}}",
+      "seedCompleted": "Seed completed — {{count}} records created",
+      "seedFailed": "Seed failed — {{error}}",
+      "showDetails": "Show Details",
+      "operationAborted": "Operation aborted",
+      "operationRunning": "{{module}} running — {{percent}}% complete"
+    }
   }
 }

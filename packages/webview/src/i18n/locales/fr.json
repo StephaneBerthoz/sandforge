@@ -2047,5 +2047,16 @@
     "noFailures": "Aucune op\u00e9ration en \u00e9chec",
     "errorDetails": "D\u00e9tails de l'erreur",
     "manualRetryTriggered": "Nouvelle tentative manuelle lanc\u00e9e"
+  },
+  "execution": {
+    "background": {
+      "syncCompleted": "Synchronisation terminee — {{count}} enregistrements traites",
+      "syncFailed": "Synchronisation echouee — {{error}}",
+      "seedCompleted": "Seed termine — {{count}} enregistrements crees",
+      "seedFailed": "Seed echoue — {{error}}",
+      "showDetails": "Voir les details",
+      "operationAborted": "Operation annulee",
+      "operationRunning": "{{module}} en cours — {{percent}}% termine"
+    }
   }
 }
