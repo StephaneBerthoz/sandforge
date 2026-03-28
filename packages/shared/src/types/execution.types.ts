@@ -26,6 +26,61 @@ export interface ObjectProgress {
   startedAt: number;
   /** Estimated time remaining in milliseconds, if computable. */
   estimatedCompletionMs?: number;
+  /** Number of chunks processed so far (streaming mode only). */
+  chunksProcessed?: number;
+  /** Total number of chunks to process (streaming mode only). */
+  totalChunks?: number;
+}
+
+/** Result of processing a single chunk within a streaming pipeline. */
+export interface StreamingChunkResult {
+  /** Number of records successfully processed in this chunk. */
+  successCount: number;
+  /** Number of records that failed in this chunk. */
+  failureCount: number;
+  /** Record IDs created by this chunk (for reference linking). */
+  successIds: string[];
+  /** Error messages from this chunk. */
+  errors: string[];
+}
+
+/** Aggregate result of a streaming execution across all chunks. */
+export interface StreamingExecutionResult {
+  /** Total records submitted. */
+  totalRecords: number;
+  /** Total successfully processed. */
+  successCount: number;
+  /** Total failed. */
+  failureCount: number;
+  /** All created record IDs (accumulated across chunks). */
+  successIds: string[];
+  /** All error messages. */
+  errors: string[];
+  /** Whether execution was aborted. */
+  aborted: boolean;
+}
+
+/** Status of a background operation. */
+export type BackgroundOperationStatus = 'running' | 'completed' | 'failed' | 'aborted';
+
+/** Metadata for an active or recently completed background operation. */
+export interface ActiveOperation {
+  /** Unique operation identifier. */
+  operationId: string;
+  /** Module that initiated the operation (sync, seed, clone). */
+  module: string;
+  /** Human-readable description. */
+  description: string;
+  /** Current status. */
+  status: BackgroundOperationStatus;
+  /** Overall progress percentage (0-100). */
+  progressPercent: number;
+  /** Timestamp (ms) when the operation started. */
+  startedAt: number;
+  /** Timestamp (ms) when the operation completed (if finished). */
+  completedAt?: number;
+  /** Summary of result (e.g., "45,230 records processed"). */
+  resultSummary?: string;
 }
 
 /** Aggregate execution progress across all objects. */
