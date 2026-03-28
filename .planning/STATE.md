@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 07 — Streaming Execution & Background Ops
-Plan: 07-02 complete. Next: 07-03.
+Plan: 07-03 complete. Next: 07-04.
 Status: executing phase 07.
-Last activity: 2026-03-28 — Plan 07-02 (Background Operation Registry & Notifications) complete
+Last activity: 2026-03-28 — Plan 07-03 (Handler Integration & Wiring) complete
 
 Progress: [########+-] 86% (6/7 phases)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 77 (v1.2.3: 17 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 78 (v1.2.3: 18 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -99,6 +99,11 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - BackgroundOperationRegistry uses mutable operations in Map (performance over immutability for progress updates)
 - markCompleted/markFailed are no-ops if operation is already terminal (prevents double-emit on abort+resolve)
 - WebviewPanelManager.onVisibilityChange is a public callback property (not constructor injection) for backward compat
+- SyncOpsHandler/SeedOpsHandler use setRegistry() setter pattern (not constructor injection) for backward compat
+- Dry-run path in SeedOpsHandler stays synchronous (no BackgroundOperationRegistry registration)
+- STREAMING_THRESHOLD (10,000) defined per-handler as module-level constant for independent tuning
+- Native VSCode notifications use plain English strings (not i18n) since they bypass the WebView system
+- ExecutionHandler created lazily in setBackgroundRegistry() after registry is available
 
 ### Pending Todos
 
@@ -111,5 +116,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-28
-Stopped at: Plan 07-02 complete. Next: 07-03 (Handler wiring & integration).
-Resume file: .planning/phases/07-streaming-background-ops/07-02-SUMMARY.md
+Stopped at: Plan 07-03 complete. Next: 07-04 (WebView Active Operations Panel).
+Resume file: .planning/phases/07-streaming-background-ops/07-03-SUMMARY.md
