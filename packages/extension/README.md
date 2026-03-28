@@ -8,50 +8,61 @@
 
 1. **Install** — Search for **SandForge** in the Extensions tab (`Ctrl+Shift+X`) and click Install
 2. **Connect** — Click the SandForge icon in the Activity Bar, then go to Organizations and import your Salesforce CLI-authenticated orgs
-3. **Explore** — The Home Dashboard shows your connected orgs, quick actions, and recent operations
-4. **Seed** — Navigate to Seed, select an object, set a record count, and generate test data in seconds
+3. **Explore** — The Home Dashboard shows your connected orgs, quick actions, and smart recommendations
+4. **Seed** — Navigate to Seed, pick a mode (AI, CSV, or Clone), and populate your sandbox in seconds
 
 ---
 
 ## Features
 
-### Seed — AI-Powered Data Generation
+### Seed — AI Generation, CSV Import & Org Cloning
 
-AI-powered and template-driven data generation with full dependency resolution.
+Three ways to populate your sandbox, from zero-config to fully customized.
 
-- **Guided Wizard** — 4-step flow: Select objects, configure fields, execute, view results
-- **AI Generation** — LLM-backed realistic data with context-aware field values (OpenAI, Anthropic, Ollama)
-- **NL2SOQL** — Describe what you need in plain English and get a validated SOQL query
-- **Faker Profiles** — 30+ locale-aware generators for names, addresses, emails, and more
-- **Forge Mode** — Graph-based discovery with source-to-target org cloning and PII anonymization
+- **3 Seed Modes** — AI Generate, CSV Upload, or Clone from Org via card-based mode selector
+- **AI Personas** — 10 industry-specific personas (Insurance FR, Hospital US, Startup, etc.) with locale badges and 5-record preview
+- **CSV Import** — Drag-and-drop upload with auto column mapping, inline validation, and 4-step wizard
+- **Clone from Org** — Clone records between orgs with relationship-ordered insert, SOQL filters, and ID mapping CSV export
+- **Smart Actions** — Home Dashboard analyzes your orgs and recommends the best action with a one-click "Just Do It" CTA
+- **Quick Seed** — 1-click seed from template gallery: Sales Cloud, Service Cloud, or Minimal Demo
+- **Adaptive Wizard** — Auto-advance for small selections, grouped accordion for large ones
+- **AI Generation** — LLM-backed realistic data (OpenAI, Anthropic, Ollama) with customizable field patterns
+- **Locale-Aware** — Realistic data in 6 locales (en, fr, de, es, ja, pt-BR) with geo-coherent addresses
+- **VR-Aware** — Auto-adjusts field rules to satisfy your org's validation rules
 - **Dependency Resolution** — Automatic topological sort of parent-child relationships before insert
 
 ### Sync — Bidirectional Data Synchronization
 
-Full-featured data sync with field mapping, transforms, and conflict resolution.
+Full-featured data sync with real-time CDC, conflict resolution, and scheduling.
 
-- **3 Sync Modes** — Full, Incremental, and Delta
-- **Visual Field Mapper** — Drag-and-drop mapping with auto-match and 7 mapping types
+- **Quick Sync** — 3-click flow: pick orgs, select objects, go (auto-field mapping, smart defaults)
+- **CDC Real-Time Sync** — Change Data Capture subscriptions with live event feed, metrics dashboard, and auto-sync toggle
+- **Conflict Resolution** — Side-by-side 2-way/3-way diff viewer with per-field resolution and bulk actions
+- **Sync History** — Full execution history (500 entries FIFO) with detail view and one-click re-run
+- **Cron Scheduling** — Visual builder + raw expression with timezone support, sleep/wake resilient
+- **Smart Object Suggestions** — Top 5 most-used objects with one-click add
+- **Relationship Auto-Detection** — Adding "Opportunity" auto-suggests "Account" as parent dependency
+- **Pre-Built Templates** — Full Account Hierarchy, Opportunities + Products, Cases + Attachments
+- **4 Sync Modes** — Upsert, Insert, Update, Delete with per-object configuration
+- **7 Mapping Types** — Direct, Lookup, Formula, Constant, Concatenation, Conditional, External ID
 - **13 Transforms** — String, date, number formatting, regex replace, and conditional logic
 - **5 Conflict Strategies** — Source wins, target wins, newest wins, manual, or auto-merge
-- **Field Type Validation** — Automatic source-to-target type compatibility check before upsert
-- **Sankey Flow Diagram** — Visualize data flow before execution
 - **Rollback** — Automatic savepoints with one-click rollback on partial failures
+- **Config Persistence** — Save, load, and reuse sync configurations across sessions
 
 ### Monitor — Real-Time Org Health
 
 Live dashboard for tracking API limits, jobs, storage, and org health.
 
 - **Health Score Gauge** — Composite metric aggregating limits, jobs, storage, and error rates
+- **Alert System** — Configurable thresholds with severity levels, VSCode notifications, and history timeline
 - **API Limits Tracking** — Live REST, Bulk, and Metadata API quota consumption with CSV export
-- **API Usage Breakdown** — Per-category usage with progress bars and warning/critical badges
 - **Storage Breakdown** — Per-object record count donut chart
 - **Deployment Timeline** — Recent deployments with status indicators
-- **Governor Limits** — Expandable list of all limits sorted by usage percentage
 - **Trend Charts** — Historical trends with predictive analytics
-- **Anomaly Detection** — AI-powered statistical outlier detection
-- **Live Operations** — Real-time progress for running SandForge operations
-- **Dashboard Refresh UX** — Panel-level loading, stale data indicator, error recovery, connection loss warning
+- **Anomaly Detection** — Statistical outlier detection with IQR and temporal patterns
+- **Governance** — Custom rule definitions with evaluation engine and alert pipeline
+- **Dashboard Refresh UX** — Panel-level loading, stale data indicator, error recovery
 
 ### Compare — Metadata Diff and Permissions
 
@@ -62,55 +73,43 @@ Side-by-side comparison with six analysis tabs.
 - **Drift Detection** — Flag configuration drift between orgs
 - **Impact Graph** — Interactive dependency visualization for change impact analysis
 - **Deploy from Diff** — Cherry-pick and deploy individual metadata changes
-- **Schema Advice** — AI-powered schema analysis with actionable recommendations
 
 ### DataOps — Backup, Compliance, and Quality
 
 Full data lifecycle management with compliance built in.
 
-- **Backup and Restore** — Full or incremental backups with point-in-time restore
-- **Anonymization** — PII detection and masking with pre-built GDPR/CCPA/HIPAA templates
-- **Compliance (GDPR)** — Data Subject Request workflows, audit reports
-- **Data Quality** — Rule-based validation for completeness, format, and consistency
-- **Cleanup** — AI-recommended removal of stale, orphaned, or duplicate records
+- **Backup and Restore** — Full or incremental backups with point-in-time restore and retention policies
+- **Anonymization** — PII detection and masking with pre-built GDPR/CCPA/HIPAA/PCI DSS templates
+- **Data Quality** — 7 rule types: completeness, format, consistency, uniqueness, range, pattern, custom
+- **Production Guard** — 3 safety tiers with double confirmation, DELETE blocking, and audit trail
+- **Encryption at Rest** — AES-256-GCM with PBKDF2 key derivation
 
 ### Automation — Visual Pipeline Builder
 
 Build and run multi-step workflows visually.
 
 - **Drag-and-Drop Canvas** — Compose pipelines from 15 step types
-- **AI Pipeline Generator** — Describe your workflow in natural language
-- **Triggers** — Manual, scheduled (cron), webhook, file watch, record change
-- **Pipeline Marketplace** — Pre-configured templates organized by category
+- **Pipeline Marketplace** — 15 pre-configured templates across 5 categories
+- **Scheduling** — Cron expressions with timezone support and calendar-based exclusions
 - **Execution History** — Searchable log with per-step timing and error details
+- **Dry Run Mode** — Simulated execution with impact preview before running for real
+
+### Streaming & Background Execution
+
+Enterprise-grade performance for large-scale operations.
+
+- **Streaming Pipeline** — Async generator-based chunk processing for datasets > 10,000 records
+- **Chunked Bulk API 2.0** — Multi-upload to a single Bulk API job (2000 records/chunk)
+- **Background Operations** — Long-running operations detach from UI, run in background with full lifecycle tracking
+- **Abort Support** — Cancel any running background operation
+- **Native Notifications** — VSCode desktop notifications when background operations complete while panel is hidden
 
 ### AI Assistant
 
-Intelligent assistance across every module.
-
-- **NL2SOQL** — Natural language to SOQL translation
-- **AI Data Generation** — Context-aware realistic data generation
-- **Schema Advice** — AI-powered schema analysis and recommendations
-- **Pipeline Generator** — Build automation pipelines from natural language
+- **NL2SOQL** — Natural language to SOQL translation (English + French)
+- **Error Resolver** — Contextual Salesforce error analysis with auto-fix
 - **Predictive Analytics** — Trend forecasting for API limits and storage
-
-### Robustness
-
-Production-grade reliability for real-world scale.
-
-- **Bulk API 2.0** — Automatic switch for operations above 200 records
-- **Retry with Backoff** — Exponential backoff with smart error classification (max 3 retries)
-- **Configurable Timeouts** — Per-operation timeout with AbortController for long-running queries
-- **Parallel Processing** — Grappe engine with 7 partitioning strategies for 10K+ records
-
-### Production Guard
-
-Safety first for production orgs.
-
-- **3 Safety Tiers** — Configurable protection levels per org
-- **Double Confirmation** — Required for any production operation
-- **DELETE Blocking** — Production DELETE operations blocked by default
-- **Audit Trail** — Immutable log of every operation
+- **10 Industry Personas** — Pre-configured data profiles with locale-aware field patterns
 
 ---
 
@@ -128,6 +127,7 @@ Safety first for production orgs.
 
 | Shortcut | Action |
 |---|---|
+| `Ctrl+1..6` | Navigate to module |
 | `Ctrl+Shift+M` | Open Monitor |
 | `Ctrl+Shift+D` | Open Seed |
 | `Ctrl+Shift+Y` | Open Sync |
