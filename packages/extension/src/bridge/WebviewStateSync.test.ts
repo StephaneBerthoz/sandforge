@@ -1,7 +1,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { ActiveOperation } from '@sandforge/shared';
 import { MessageBroker } from './MessageBroker';
 import { WebviewStateSync } from './WebviewStateSync';
 import type { WebviewState, StateSyncMessage } from './WebviewStateSync';
+
+/** Create a minimal ActiveOperation fixture. */
+function makeOp(id: string): ActiveOperation {
+  return {
+    operationId: id,
+    module: 'sync',
+    description: `Operation ${id}`,
+    status: 'running',
+    progressPercent: 0,
+    startedAt: Date.now(),
+  };
+}
 
 describe('WebviewStateSync', () => {
   let broker: MessageBroker;
@@ -49,10 +62,14 @@ describe('WebviewStateSync', () => {
     });
 
     it('should replace array values rather than merging them', () => {
-      stateSync.updateState({ activeOperations: ['op-1'] });
-      stateSync.updateState({ activeOperations: ['op-2', 'op-3'] });
+      const op1 = makeOp('op-1');
+      const op2 = makeOp('op-2');
+      const op3 = makeOp('op-3');
 
-      expect(stateSync.getState().activeOperations).toEqual(['op-2', 'op-3']);
+      stateSync.updateState({ activeOperations: [op1] });
+      stateSync.updateState({ activeOperations: [op2, op3] });
+
+      expect(stateSync.getState().activeOperations).toEqual([op2, op3]);
     });
 
     it('should push state to webviews after debounce', () => {
@@ -66,8 +83,10 @@ describe('WebviewStateSync', () => {
     });
 
     it('should batch rapid updates into a single push', () => {
+      const op1 = makeOp('op-1');
+
       stateSync.updateState({ extensionReady: true });
-      stateSync.updateState({ activeOperations: ['op-1'] });
+      stateSync.updateState({ activeOperations: [op1] });
       stateSync.updateState({ settings: { theme: 'dark' } });
 
       flushDebounce();
@@ -76,18 +95,20 @@ describe('WebviewStateSync', () => {
       expect(postToWebviewSpy).toHaveBeenCalledOnce();
       const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
       expect(sentMessage.payload.extensionReady).toBe(true);
-      expect(sentMessage.payload.activeOperations).toEqual(['op-1']);
+      expect(sentMessage.payload.activeOperations).toEqual([op1]);
       expect(sentMessage.payload.settings).toEqual({ theme: 'dark' });
     });
 
     it('should send the updated state in the pushed message', () => {
-      stateSync.updateState({ extensionReady: true, activeOperations: ['op-1'] });
+      const op1 = makeOp('op-1');
+
+      stateSync.updateState({ extensionReady: true, activeOperations: [op1] });
       flushDebounce();
 
       const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
       expect(sentMessage.type).toBe('state:sync');
       expect(sentMessage.payload.extensionReady).toBe(true);
-      expect(sentMessage.payload.activeOperations).toEqual(['op-1']);
+      expect(sentMessage.payload.activeOperations).toEqual([op1]);
     });
   });
 
@@ -119,16 +140,19 @@ describe('WebviewStateSync', () => {
     });
 
     it('should send a shallow copy of the state, not a reference', () => {
-      stateSync.updateState({ activeOperations: ['op-1'] });
+      const op1 = makeOp('op-1');
+      const op2 = makeOp('op-2');
+
+      stateSync.updateState({ activeOperations: [op1] });
       flushDebounce();
       postToWebviewSpy.mockClear();
 
       stateSync.pushState();
 
       const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
-      stateSync.updateState({ activeOperations: ['op-2'] });
+      stateSync.updateState({ activeOperations: [op2] });
 
-      expect(sentMessage.payload.activeOperations).toEqual(['op-1']);
+      expect(sentMessage.payload.activeOperations).toEqual([op1]);
     });
 
     it('should assign unique ids to successive messages', () => {
@@ -142,13 +166,62 @@ describe('WebviewStateSync', () => {
     });
   });
 
+  describe('setActiveOperations', () => {
+    it('should update state with ActiveOperation[] and trigger push', () => {
+      const op1 = makeOp('op-1');
+      const op2 = makeOp('op-2');
+
+      stateSync.setActiveOperations([op1, op2]);
+
+      expect(stateSync.getState().activeOperations).toEqual([op1, op2]);
+
+      flushDebounce();
+      expect(postToWebviewSpy).toHaveBeenCalledOnce();
+      const sentMessage = postToWebviewSpy.mock.calls[0][0] as StateSyncMessage;
+      expect(sentMessage.payload.activeOperations).toEqual([op1, op2]);
+    });
+
+    it('should support ActiveOperation[] shape with all fields', () => {
+      const op: ActiveOperation = {
+        operationId: 'op-full',
+        module: 'seed',
+        description: 'Seed Contact 10K records',
+        status: 'completed',
+        progressPercent: 100,
+        startedAt: 1711641600000,
+        completedAt: 1711641660000,
+        resultSummary: '10,000 records seeded',
+      };
+
+      stateSync.setActiveOperations([op]);
+
+      const state = stateSync.getState();
+      expect(state.activeOperations).toHaveLength(1);
+      expect(state.activeOperations[0].operationId).toBe('op-full');
+      expect(state.activeOperations[0].completedAt).toBe(1711641660000);
+      expect(state.activeOperations[0].resultSummary).toBe('10,000 records seeded');
+    });
+
+    it('should replace previous operations', () => {
+      const op1 = makeOp('op-1');
+      const op2 = makeOp('op-2');
+
+      stateSync.setActiveOperations([op1]);
+      stateSync.setActiveOperations([op2]);
+
+      expect(stateSync.getState().activeOperations).toEqual([op2]);
+    });
+  });
+
   describe('reset', () => {
     it('should restore state to initial defaults', () => {
+      const op1 = makeOp('op-1');
+
       stateSync.updateState({
         extensionReady: true,
         orgs: [{ id: 'org-1' }],
         settings: { theme: 'dark' },
-        activeOperations: ['op-1'],
+        activeOperations: [op1],
       });
       flushDebounce();
 

@@ -43,6 +43,10 @@ export type UriJoinPath = (base: unknown, ...segments: string[]) => unknown;
  */
 export class WebviewPanelManager {
   private panels = new Map<string, vscode.WebviewPanel>();
+  private visiblePanels = new Set<string>();
+
+  /** Optional callback invoked when any panel's visibility changes. */
+  onVisibilityChange?: (anyVisible: boolean) => void;
 
   /**
    * @param broker - MessageBroker for webview communication
@@ -88,8 +92,19 @@ export class WebviewPanelManager {
     this.panels.set(config.viewType, panel);
     this.broker.registerPanel(panel);
 
+    this.visiblePanels.add(config.viewType);
+    panel.onDidChangeViewState((e) => {
+      if (e.webviewPanel.visible) {
+        this.visiblePanels.add(config.viewType);
+      } else {
+        this.visiblePanels.delete(config.viewType);
+      }
+      this.onVisibilityChange?.(this.isAnyPanelVisible());
+    });
+
     panel.onDidDispose(() => {
       this.panels.delete(config.viewType);
+      this.visiblePanels.delete(config.viewType);
     });
 
     return panel;
@@ -101,6 +116,7 @@ export class WebviewPanelManager {
     if (panel) {
       panel.dispose();
       this.panels.delete(viewType);
+      this.visiblePanels.delete(viewType);
     }
   }
 
@@ -112,6 +128,11 @@ export class WebviewPanelManager {
   /** Get the viewTypes of all currently open panels. */
   getOpenPanels(): string[] {
     return [...this.panels.keys()];
+  }
+
+  /** Check whether any managed panel is currently visible in the editor. */
+  isAnyPanelVisible(): boolean {
+    return this.visiblePanels.size > 0;
   }
 
   /** Post a message to all currently open panels. */
@@ -127,6 +148,7 @@ export class WebviewPanelManager {
       panel.dispose();
     }
     this.panels.clear();
+    this.visiblePanels.clear();
   }
 
   /**

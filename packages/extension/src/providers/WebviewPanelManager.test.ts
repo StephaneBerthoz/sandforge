@@ -11,9 +11,11 @@ interface MockWebviewPanel {
     postMessage: ReturnType<typeof vi.fn>;
     asWebviewUri: ReturnType<typeof vi.fn>;
   };
+  visible: boolean;
   reveal: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
   onDidDispose: ReturnType<typeof vi.fn>;
+  onDidChangeViewState: ReturnType<typeof vi.fn>;
 }
 
 function createMockWebviewPanel(): MockWebviewPanel {
@@ -27,9 +29,11 @@ function createMockWebviewPanel(): MockWebviewPanel {
         toString: () => `vscode-webview://test/${String(uri)}`,
       })),
     },
+    visible: true,
     reveal: vi.fn(),
     dispose: vi.fn(),
     onDidDispose: vi.fn(),
+    onDidChangeViewState: vi.fn(),
   };
 }
 
@@ -287,6 +291,84 @@ describe('WebviewPanelManager', () => {
 
     it('should handle dispose when no panels are open', () => {
       expect(() => manager.dispose()).not.toThrow();
+    });
+
+    it('should clear visiblePanels on dispose', () => {
+      manager.openPanel({ viewType: 'panel-a', title: 'A' });
+      expect(manager.isAnyPanelVisible()).toBe(true);
+
+      manager.dispose();
+      expect(manager.isAnyPanelVisible()).toBe(false);
+    });
+  });
+
+  describe('isAnyPanelVisible', () => {
+    it('should return true when a panel is open and visible', () => {
+      manager.openPanel({ viewType: 'test', title: 'Test' });
+
+      expect(manager.isAnyPanelVisible()).toBe(true);
+    });
+
+    it('should return false when no panels are open', () => {
+      expect(manager.isAnyPanelVisible()).toBe(false);
+    });
+
+    it('should return false when panel is hidden via onDidChangeViewState', () => {
+      manager.openPanel({ viewType: 'test', title: 'Test' });
+      expect(manager.isAnyPanelVisible()).toBe(true);
+
+      // Simulate panel becoming hidden
+      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { visible: boolean } }) => void;
+      changeCallback({ webviewPanel: { visible: false } });
+
+      expect(manager.isAnyPanelVisible()).toBe(false);
+    });
+
+    it('should return true again when panel becomes visible', () => {
+      manager.openPanel({ viewType: 'test', title: 'Test' });
+
+      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { visible: boolean } }) => void;
+      changeCallback({ webviewPanel: { visible: false } });
+      expect(manager.isAnyPanelVisible()).toBe(false);
+
+      changeCallback({ webviewPanel: { visible: true } });
+      expect(manager.isAnyPanelVisible()).toBe(true);
+    });
+  });
+
+  describe('onVisibilityChange callback', () => {
+    it('should fire on visibility transitions', () => {
+      const callback = vi.fn();
+      manager.onVisibilityChange = callback;
+
+      manager.openPanel({ viewType: 'test', title: 'Test' });
+
+      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { visible: boolean } }) => void;
+
+      changeCallback({ webviewPanel: { visible: false } });
+      expect(callback).toHaveBeenCalledWith(false);
+
+      changeCallback({ webviewPanel: { visible: true } });
+      expect(callback).toHaveBeenCalledWith(true);
+
+      expect(callback).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not throw when no callback is set', () => {
+      manager.openPanel({ viewType: 'test', title: 'Test' });
+
+      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { visible: boolean } }) => void;
+      expect(() => changeCallback({ webviewPanel: { visible: false } })).not.toThrow();
+    });
+  });
+
+  describe('closePanel removes from visiblePanels', () => {
+    it('should remove from visible set on close', () => {
+      manager.openPanel({ viewType: 'test', title: 'Test' });
+      expect(manager.isAnyPanelVisible()).toBe(true);
+
+      manager.closePanel('test');
+      expect(manager.isAnyPanelVisible()).toBe(false);
     });
   });
 });
