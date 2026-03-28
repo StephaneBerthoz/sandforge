@@ -10,16 +10,16 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 07 — Streaming Execution & Background Ops
-Plan: 07-01 complete. Next: 07-02.
+Plan: 07-02 complete. Next: 07-03.
 Status: executing phase 07.
-Last activity: 2026-03-28 — Plan 07-01 (Streaming Execution Engine) complete
+Last activity: 2026-03-28 — Plan 07-02 (Background Operation Registry & Notifications) complete
 
 Progress: [########+-] 86% (6/7 phases)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 76 (v1.2.3: 16 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
+- Total plans completed: 77 (v1.2.3: 17 + v1.2.2: 10 + v1.2.1: 9 + v1.2.0: 13 + v1.1.0: 16 + v1.0.0: 5 + pre-v1: 7)
 - Average duration: ~15 min/plan
 - Total execution time: ~12h
 
@@ -96,6 +96,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - StreamingPipeline errors capped at 100 entries to prevent memory growth
 - ChunkedBulkExecutor.createChunkGenerator is instance method (not static) for default chunkSize access
 - ChunkedBulkExecutor.closeJobSafely swallows errors on abort (job may be in invalid state)
+- BackgroundOperationRegistry uses mutable operations in Map (performance over immutability for progress updates)
+- markCompleted/markFailed are no-ops if operation is already terminal (prevents double-emit on abort+resolve)
+- WebviewPanelManager.onVisibilityChange is a public callback property (not constructor injection) for backward compat
 
 ### Pending Todos
 
@@ -108,5 +111,5 @@ Decisions are logged in PROJECT.md Key Decisions table.
 ## Session Continuity
 
 Last session: 2026-03-28
-Stopped at: Plan 07-01 complete. Next: 07-02 (BackgroundOperationRegistry).
-Resume file: .planning/phases/07-streaming-background-ops/07-01-SUMMARY.md
+Stopped at: Plan 07-02 complete. Next: 07-03 (Handler wiring & integration).
+Resume file: .planning/phases/07-streaming-background-ops/07-02-SUMMARY.md
