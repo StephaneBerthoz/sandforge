@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -427,6 +428,67 @@ describe('SeedOpsHandler', () => {
       expect(source).toContain('bulkResult.successIds');
       // Should NOT contain the old synthetic pattern
       expect(source).not.toContain("Array.from({ length: bulkResult.successCount }");
+    });
+  });
+
+  describe('background operation registry', () => {
+    it('registers operation in BackgroundOperationRegistry when registry is set', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
+        id: 'bg-seed-1',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: false },
+      };
+
+      await handler.handle(msg);
+
+      // An operation should be registered in the registry
+      const ops = registry.getActiveOperations();
+      const seedOps = ops.filter((op) => op.module === 'seed');
+      expect(seedOps.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('dry-run does NOT register in BackgroundOperationRegistry', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
+        id: 'bg-seed-dry',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: true },
+      };
+
+      await handler.handle(msg);
+
+      // No operation should be registered for dry-run
+      const ops = registry.getActiveOperations();
+      expect(ops).toHaveLength(0);
+
+      // But a dry-run response should have been sent
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const dryRunMsgs = postToWebview.mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: { dryRun?: boolean } })
+        .filter((m) => m.type === 'seed:execute:response' && m.payload?.dryRun === true);
+      expect(dryRunMsgs).toHaveLength(1);
+    });
+  });
+
+  describe('streaming threshold', () => {
+    it('SeedOpsHandler source references STREAMING_THRESHOLD and ChunkedBulkExecutor', () => {
+      const handlerPath = path.join(__dirname, 'SeedOpsHandler.ts');
+      const source = fs.readFileSync(handlerPath, 'utf-8') as string;
+
+      expect(source).toContain('STREAMING_THRESHOLD');
+      expect(source).toContain('ChunkedBulkExecutor');
+      expect(source).toContain('BackgroundOperationRegistry');
     });
   });
 
