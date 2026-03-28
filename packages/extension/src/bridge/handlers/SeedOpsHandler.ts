@@ -17,6 +17,11 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
+import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
+import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+
+/** Record count threshold above which streaming pipeline is used per object. */
+const STREAMING_THRESHOLD = 10_000;
 
 /** Message types handled by SeedOpsHandler. */
 const SEED_TYPES = new Set([
@@ -48,6 +53,9 @@ export class SeedOpsHandler implements DomainHandler {
   /** AI persona manager for built-in and custom personas. */
   private readonly personaManager: AIPersonaManager;
 
+  /** Background operation registry for detached execution. */
+  private registry?: BackgroundOperationRegistry;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.seedTemplateStore = new SeedTemplateStore(deps.configStore);
@@ -57,6 +65,16 @@ export class SeedOpsHandler implements DomainHandler {
       this.seedTemplateStore,
     );
     this.personaManager = new AIPersonaManager();
+  }
+
+  /**
+   * Set the background operation registry for detached execution.
+   * Called from ExtensionHandlers after construction.
+   *
+   * @param registry - The shared BackgroundOperationRegistry instance.
+   */
+  setRegistry(registry: BackgroundOperationRegistry): void {
+    this.registry = registry;
   }
 
   /**
@@ -318,9 +336,6 @@ export class SeedOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const payload = (msg as BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean } }).payload;
     const operationId = crypto.randomUUID();
-    const robustnessConfig = this.getRobustnessConfig();
-    let progressTracker: BulkJobProgressTracker | undefined;
-    let unsubProgress: (() => void) | undefined;
 
     try {
       const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
@@ -341,7 +356,7 @@ export class SeedOpsHandler implements DomainHandler {
         }
       }
 
-      // Dry-run mode: skip real inserts, return synthetic result
+      // Dry-run mode: skip real inserts, return synthetic result (stays synchronous)
       if (payload.dryRun) {
         const response = buildResponse(this.deps, msg, 'seed:execute:response', {
           success: true,
@@ -356,8 +371,47 @@ export class SeedOpsHandler implements DomainHandler {
       // Start performance tracking
       this.deps.infraServices?.performanceTracker?.start(operationId, 'seed');
 
-      sendOperationStarted(this.deps, operationId, 'seed', 'Seed data generation');
+      const description = 'Seed data generation';
+      sendOperationStarted(this.deps, operationId, 'seed', description);
 
+      // Create AbortController for this operation
+      const abortController = new AbortController();
+
+      // Build the execution promise (runs detached in the background)
+      const executionPromise = this.executeSeed(msg, conn, payload, operationId, abortController);
+
+      // Register with BackgroundOperationRegistry if available
+      if (this.registry) {
+        this.registry.register(operationId, 'seed', description, executionPromise, abortController);
+      } else {
+        // Fallback: await directly when no registry is available
+        await executionPromise;
+      }
+
+      // Return immediately -- execution continues in background
+    } catch (err: unknown) {
+      this.deps.infraServices?.performanceTracker?.complete(operationId);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendHandlerError(this.deps, 'seed:execute', 'seed:error', err);
+    }
+  }
+
+  /**
+   * Execute seed operation in the background.
+   * Extracted from handleExecute to allow detached execution via BackgroundOperationRegistry.
+   */
+  private async executeSeed(
+    msg: BaseMessage,
+    conn: Awaited<ReturnType<typeof getJsforceConnection>>,
+    payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean },
+    operationId: string,
+    abortController: AbortController,
+  ): Promise<void> {
+    const robustnessConfig = this.getRobustnessConfig();
+    let progressTracker: BulkJobProgressTracker | undefined;
+    let unsubProgress: (() => void) | undefined;
+
+    try {
       // Build robustness-aware insert function
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
       const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
@@ -384,6 +438,28 @@ export class SeedOpsHandler implements DomainHandler {
         records: Record<string, unknown>[],
         batchSize: number,
       ): Promise<{ successIds: string[]; errors: string[] }> => {
+        // Streaming path for large record sets
+        if (records.length > STREAMING_THRESHOLD) {
+          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
+          const bulkDeps: BulkApiExecutorDeps = {
+            connection: conn as unknown as BulkApiConnection,
+            bulkManager,
+            onProgress: (processed, total) => {
+              const pct = Math.round((processed / total) * 100);
+              sendOperationProgress(handlerDeps, operationId, pct, processed, total, `Streaming insert ${objectApiName}`);
+            },
+          };
+          const streamResult = await chunkedExecutor.executeChunked(
+            bulkDeps, objectApiName, 'insert',
+            chunkedExecutor.createChunkGenerator(records),
+            records.length,
+          );
+          return {
+            successIds: streamResult.successIds,
+            errors: streamResult.errors,
+          };
+        }
+
         if (bulkExecutor.shouldUseBulkApi(records.length)) {
           // Bulk API 2.0 path
           const bulkDeps: BulkApiExecutorDeps = {
