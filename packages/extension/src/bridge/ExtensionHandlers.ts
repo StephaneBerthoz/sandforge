@@ -38,6 +38,8 @@ import { QuickSyncHandler } from './handlers/QuickSyncHandler.js';
 import { NoOpHandler } from './handlers/NoOpHandler.js';
 import { CacheHandler as CacheDomainHandler } from './handlers/CacheHandler.js';
 import { SmartActionHandler } from './handlers/SmartActionHandler.js';
+import { ExecutionHandler } from './handlers/ExecutionHandler.js';
+import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry.js';
 
 // Re-export interfaces for backward compatibility
 export type { InfraServices } from './handlers/HandlerTypes.js';
@@ -87,6 +89,7 @@ export class ExtensionHandlers {
   private readonly noOpHandler: NoOpHandler;
   private readonly cacheHandler: CacheDomainHandler;
   private readonly smartActionHandler: SmartActionHandler;
+  private executionHandler?: ExecutionHandler;
 
   constructor(deps: ExtensionHandlersDeps) {
     // Shared mutable deps object — infraServices is set later via setInfraServices
@@ -150,6 +153,17 @@ export class ExtensionHandlers {
   setInfraServices(services: InfraServices): void {
     // Mutate the shared deps object so all handlers see the update
     this.handlerDeps.infraServices = services;
+  }
+
+  /**
+   * Inject BackgroundOperationRegistry into handlers that support background execution.
+   *
+   * @param registry - The shared BackgroundOperationRegistry instance.
+   */
+  setBackgroundRegistry(registry: BackgroundOperationRegistry): void {
+    this.syncHandler.setRegistry(registry);
+    this.seedHandler.setRegistry(registry);
+    this.executionHandler = new ExecutionHandler(this.handlerDeps, registry);
   }
 
   /** Inject AI modules (Tier 2). */
@@ -293,6 +307,11 @@ export class ExtensionHandlers {
 
     // Smart Action
     route(['smart-action:analyze'], this.smartActionHandler);
+
+    // Execution lifecycle (abort/status/list)
+    if (this.executionHandler) {
+      route(['execution:abort', 'execution:status', 'execution:list'], this.executionHandler);
+    }
 
     // No-op handlers for ghost features (Scheduler v1.2, RealTime CDC v2.0)
     route([

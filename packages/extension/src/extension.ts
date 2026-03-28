@@ -19,6 +19,7 @@ import { OnboardingService } from './core/onboarding/OnboardingService';
 import { HintTracker } from './core/onboarding/HintTracker';
 import { OfflineManager } from './core/connection/OfflineManager';
 import { PerformanceTracker } from './core/engine/PerformanceTracker';
+import { BackgroundOperationRegistry } from './core/engine/BackgroundOperationRegistry';
 import { PIIDetector } from './core/precheck/PIIDetector';
 import { ProductionGuard } from './core/precheck/ProductionGuard';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
@@ -69,6 +70,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const offlineManager = new OfflineManager(configStore);
   const piiDetector = new PIIDetector();
 
+  // 5d. Background operation registry (Tier 1)
+  const backgroundRegistry = new BackgroundOperationRegistry();
+
   // 5d. Standalone services (Tier 3)
   const pipelineMarketplace = new PipelineMarketplace();
   const fsReader = { readFile: (filePath: string) => fs.readFile(filePath, 'utf-8') };
@@ -99,6 +103,9 @@ export function activate(context: vscode.ExtensionContext): void {
     offlineManager,
     piiDetector,
   });
+
+  // 7b-bis. Inject BackgroundOperationRegistry into handlers
+  handlers.setBackgroundRegistry(backgroundRegistry);
 
   // 7c. Inject standalone services (Tier 3)
   handlers.setMigrationServices(fsReader);
@@ -353,6 +360,29 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.Uri.joinPath as UriJoinPath,
   );
 
+  // 8b. Wire BackgroundOperationRegistry events to stateSync + native notifications
+  backgroundRegistry.onEvent((operationId, type, operation) => {
+    if (type === 'completed' || type === 'failed') {
+      stateSync.setActiveOperations(backgroundRegistry.getActiveOperations());
+
+      // Native VSCode notification if no SandForge panel is visible
+      if (!panelManager.isAnyPanelVisible() && !operation.notifiedNatively) {
+        backgroundRegistry.markNotifiedNatively(operationId);
+        const label = type === 'completed'
+          ? `SandForge: ${operation.module} completed${operation.resultSummary ? ' \u2014 ' + operation.resultSummary : ''}`
+          : `SandForge: ${operation.module} failed${operation.resultSummary ? ' \u2014 ' + operation.resultSummary : ''}`;
+        vscode.window.showInformationMessage(label, 'Show Details').then((action) => {
+          if (action === 'Show Details') {
+            panelManager.openPanel({ viewType: 'sandforge-main', title: 'SandForge', column: 1 });
+          }
+        });
+      }
+    }
+    if (type === 'started' || type === 'progress') {
+      stateSync.setActiveOperations(backgroundRegistry.getActiveOperations());
+    }
+  });
+
   // 9. SidebarViewProvider (WebView-based sidebar navigation)
   // Pre-load orgs so they're available when sidebar mounts
   orgRegistry.loadAll();
@@ -467,7 +497,13 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   });
 
-  context.subscriptions.push(outputChannel, sidebarRegistration, statusBar, panelManager);
+  context.subscriptions.push(
+    outputChannel,
+    sidebarRegistration,
+    statusBar,
+    panelManager,
+    { dispose: () => backgroundRegistry.dispose() },
+  );
 }
 
 /**
