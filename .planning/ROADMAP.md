@@ -1,17 +1,108 @@
-# Roadmap: SandForge
+# Roadmap: SandForge v1.3.0 — Hardening & Monitor v2
 
-## Current Milestone
+## Phase 01 — Hardening Foundations
+**Goal:** Invisible-but-compounding plumbing. Adapter layer, observability, dead-code cleanup, Zod guardrails, secret migration, leak audit — everything that makes later phases safer and easier.
 
-*No active milestone. Ready to plan the next.*
+**Requirements:** HARD-01, HARD-02, HARD-03, HARD-04, HARD-05, HARD-06, HARD-07
+
+**Success criteria:**
+- All jsforce calls route through `adapters/salesforce/`; zero direct `jsforce` imports outside that folder
+- `createServices(context)` returns fully wired `Services`; zero `new Orchestrator()` inside extension.ts business paths
+- Sentry + Pino active in prod build, opt-in respected, no secret leakage in test logs
+- `pnpm knip` runs in CI with published report
+- Every WebView message has a Zod schema; protocol version negotiated on bridge init
+- No secret in `globalState`; SecretStorage migration helper tested
+- 1h soak test heap diff < 50 MB growth
+
+**Depends on:** — (no dependencies)
+
+## Phase 02 — Test Hardening
+**Goal:** Raise confidence floor for every other phase. Mutation score and property-based coverage on pure modules; E2E smoke for critical user flows.
+
+**Requirements:** TEST-01, TEST-02, TEST-03
+
+**Success criteria:**
+- Stryker mutation score ≥ 60% on `packages/shared/` + Monitor core
+- fast-check invariants pass on ErrorClassifier, DiffEngine, GovernorLimitPredictor, DeltaDetector
+- 5 Playwright E2E specs green in CI
+
+**Depends on:** — (can run parallel with Phase 01)
+
+## Phase 03 — Monitor v2 Core
+**Goal:** Replace snapshot-only Monitor with time-series, drift-aware, event-driven substrate. Table-stake features (historical trending, drift, anomaly, export, multi-org overview) to reach competitive parity with Gearset/Copado/Elements for the in-editor audience.
+
+**Requirements:** MON-01, MON-02, MON-03, MON-04, MON-05, MON-06, MON-07
+
+**Success criteria:**
+- `MetricBus` with typed events replaces direct tracker-to-tracker calls
+- `TimeSeriesStore` persists 7 days, ring buffer caps memory
+- All existing trackers refactored into `MonitorProbe` implementations
+- Drift v2 captures field/object/permission deltas with UI visualization
+- Rolling-std-dev anomaly detection reduces false-positive rate vs static thresholds
+- PDF + CSV report export works for any dashboard view
+- Multi-org overview lists N orgs with health status + drill-down
+
+**Depends on:** 01 (adapters + DI, Zod schemas)
+
+## Phase 04 — AI Integration
+**Goal:** Defensible AI niche — in-editor EXPLAIN/DIAGNOSE with read-only tools, Zod-validated output, user-approved actions. Explicitly not a code generator (Copado owns that).
+
+**Requirements:** AI-01, AI-02, AI-03, AI-04
+
+**Success criteria:**
+- `AIAdapter` with Anthropic SDK, betaZodTool, circuit-breaker on 529, AbortController wired
+- Failed job → structured context → diagnosis flow works end-to-end with user-approve gate
+- SOQL code action returns analysis + optimizations without auto-applying
+- Token budget enforced per session; prompt-injection defense via context delimiters verified via adversarial test
+
+**Depends on:** 01 (adapters/ai, SecretStorage for key, Zod validation)
+
+## Phase 05 — CDC Real-Time Monitor
+**Goal:** Unique differentiator no other dev-facing SF tool ships — real-time record activity inside VSCode via Pub/Sub API, opt-in with clear event-allocation warnings.
+
+**Requirements:** CDC-01, CDC-02
+
+**Success criteria:**
+- Pub/Sub subscription via jsforce with replay-ID persistence per org
+- Event-allocation check on startup with >80% warning
+- Live event feed in WebView with 3-day retention banner and virtual scrolling
+- Reconnect-after-suspend reconciles gaps with UI warning
+
+**Depends on:** 03 (MetricBus, WebView event feed component reuse from v1.2.3 CDC)
+
+## Phase 06 — Best Practices & Polish
+**Goal:** Apply lessons from audits: slice the store, boundary errors, propagate aborts everywhere, kill backlog bugs. Ship-ready close-out phase.
+
+**Requirements:** BP-01, BP-02, BP-03, BP-04
+
+**Success criteria:**
+- Zustand split into 8 slices; no component uses raw `useStore`
+- Each major panel has its own error boundary with "Reload panel" action
+- AbortSignal propagated through every > 100ms async call; server-side Bulk abort verified
+- MUST-FIX bugs from bash all closed; NICE-TO-HAVE triaged into v1.4
+
+**Depends on:** 01 (leak audit context), runs in parallel with 03/04 for BP-01/BP-02, final pass for BP-03/BP-04
 
 ---
+
+## Summary
+
+| Phase | Name | Reqs | Depends On | Parallelism |
+|-------|------|------|------------|-------------|
+| 01 | Hardening Foundations | 7 | — | Can run parallel with 02 |
+| 02 | Test Hardening | 3 | — | Can run parallel with 01 |
+| 03 | Monitor v2 Core | 7 | 01 | After 01 |
+| 04 | AI Integration | 4 | 01 | Parallel with 03 |
+| 05 | CDC Real-Time Monitor | 2 | 03 | After 03 |
+| 06 | Best Practices & Polish | 4 | 01, 03, 04 | Final close-out |
+
+**Total:** 6 phases, 27 requirements
+**Parallelism:** Phase 01 + 02 can run concurrently. Phase 03 + 04 can run concurrently after Phase 01. Phase 05 after 03. Phase 06 is the final pass.
 
 ## Completed Milestones
 
 ### v1.2.3 — Scale & Complete
-Completed 2026-04-23. 7 phases, 18 plans, 50 requirements delivered. Shipped on VS Code Marketplace as v1.2.4.
-Key deliverables: CSV Import + Clone from Org + AI Personas (Seed), CDC Real-Time Sync + Conflict Resolution + History & Scheduling (Sync), Smart Actions + Adaptive Wizard + Contextual Help (Onboarding), Streaming Execution + Background Operations (Enterprise Scale), Enterprise Foundation (Pagination, Virtual Scroll, Cache Management, Notifications, Error Recovery).
-See `.planning/milestones/v1.2.3-ROADMAP.md` for full details.
+Completed 2026-04-23. 7 phases, 18 plans, 50 requirements delivered. Shipped on VS Code Marketplace as v1.2.4. See `.planning/milestones/v1.2.3-ROADMAP.md`.
 
 ### v1.2.2 — Adoption-First: Sync & Seed Polish
 Completed 2026-03-26. 6 phases, 10 plans, 30 requirements delivered. See `.planning/milestones/v1.2.2-ROADMAP.md`.
@@ -29,4 +120,4 @@ Completed 2026-03-19. 6 phases, 16 plans, 27 requirements delivered. See `.plann
 Completed 2026-03-17. 2 phases, 5 plans, 16 requirements delivered. See `.planning/milestones/v1.0.0-ROADMAP.md`.
 
 ---
-*Last updated: 2026-04-23 — v1.2.3 milestone archived, ready for next milestone planning.*
+*Last updated: 2026-04-23 — v1.3.0 milestone roadmap defined (6 phases, 27 requirements).*
