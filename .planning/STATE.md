@@ -2,19 +2,19 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-26)
+See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** v1.2.3 — Scale & Complete
+**Current focus:** *No active milestone — ready to plan the next.*
 
 ## Current Position
 
-Phase: 07 — Streaming Execution & Background Ops ✓ COMPLETE
-Plan: All 3 plans complete (07-01 Streaming Engine, 07-02 Background Registry, 07-03 Handler Wiring)
-Status: v1.2.3 milestone complete. All 7 phases delivered.
-Last activity: 2026-03-28 — Phase 07 execution complete
+Phase: — (milestone complete)
+Plan: —
+Status: v1.2.3 milestone shipped as v1.2.4 on VS Code Marketplace (2026-04-23). Audit PASSED (50/50 requirements satisfied, 0 stubs, 0 integration gaps). Archived.
+Last activity: 2026-04-23 — milestone v1.2.3 archived, tagged v1.2.4
 
-Progress: [##########] 100% (7/7 phases)
+Progress: [----------] 0% — awaiting next milestone
 
 ## Performance Metrics
 
@@ -25,6 +25,12 @@ Progress: [##########] 100% (7/7 phases)
 - Total execution time: ~12h
 
 ## Milestone History
+
+### v1.2.3 — Scale & Complete
+Completed: 2026-04-23 (shipped as v1.2.4 on Marketplace)
+Phases: 7
+Requirements delivered: SCHED-01..05, HIST-01..05, CSV-01..04, CLONE-01..04, PERSONA-01..04, CONFLICT-01..05, CDC-01..06, SCALE-01..06, SIMPLE-01..04, POLISH-01..06
+Key achievements: Three seed modes (AI personas, CSV import, clone from org). Full sync lifecycle: cron scheduling, execution history with re-run, CDC real-time with conflict resolution UI. Streaming execution for >10K records via async generator + chunked Bulk API 2.0. Background operations with native VSCode notifications. Enterprise UI: pagination, virtual scrolling, skeleton loading, keyboard shortcuts, notification center. Smart Actions on HomePage analyzes org state and recommends best next action. 8320 tests passing, 1.24 MB VSIX.
 
 ### v1.2.2 — Adoption-First: Sync & Seed Polish
 Completed: 2026-03-26
@@ -60,51 +66,7 @@ Key achievements: 162 E2E tests, WCAG 2.1 AA, GitHub Actions CI, published on Ma
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-
-- cron-parser v5 uses `CronExpressionParser.parse()` API (not v4's `parseExpression()`)
-- NotificationCenter uses positional args `(level, title, message)` not object pattern
-- Fixed ExportFormat duplicate export between sync.types.ts and reporting.types.ts
-- Added getVscodeApi() non-hook export to useVSCodeApi.ts for Zustand store postMessage access
-- buildCdcChannel uses `__c` -> `__ChangeEvent` (not `slice(0,-1)+'e'`) to match actual Salesforce CDC naming
-- Ring buffer for CDC events uses module-level state for perf, Zustand exposes ordered array view
-- CDCEventFeed tests mock VirtualList (jsdom has no layout engine for tanstack/react-virtual)
-- CDC metrics i18n keys placed under `sync.realtime.metricsPanel.*` to match existing namespace
-- Sparkline uses inline SVG polyline (no external lib), polling interval ID as module-level var
-- Renamed shared FieldDiff to ConflictFieldDiff to avoid collision with compare.types.ts FieldDiff
-- Added CDCReplicator.setOnConflict() for post-creation callback wiring by orchestrator
-- ConflictResolutionPanel tracks field resolutions in local React state (not Zustand) to avoid polluting global state
-- Added sync.tabs.* i18n keys that were missing from en.json/fr.json (SyncPage was using them via fallback)
-- CSV Import UI uses FileReader (not File.text()) for jsdom test compatibility
-- SeedPage mode selector uses local React state (not persisted); always starts at mode selection
-- useCsvImport auto-map uses case-insensitive, underscore-tolerant matching against apiName and label
-- CsvValidationPanel "Proceed Anyway" gated by <10% error rate threshold
-- CloneWizard uses clone-wizard-container testId to avoid collision with Wizard's auto-generated clone-wizard
-- useClone syncs bridge mutation results via render-time checks (not useEffect) to avoid stale closures
-- CloneResultsPanel uses fixed page size of 25 for ID mapping pagination
-- Large clone warning threshold is 10,000 records
-- SmartActionAnalyzer uses local Map cache (5min TTL) not CacheManager.register(), matching MonitorOpsHandler pattern
-- SmartAction decision priority: clone > quick-seed > sync > none (source data presence is strongest signal)
-- useSmartAction uses first connected org as target, second as source
-- PersonaMsg/PersonaFieldPatternMsg are separate message-layer types (decoupled from AIPersonaManager internals)
-- SeedPage AI mode uses fork pattern: ai -> ai-persona | ai-scratch (back button returns to fork, not mode selector)
-- PersonaPreviewPopover uses centered fixed overlay (not anchor-relative) for VSCode webview reliability
-- Selected persona stored in useSeedWizardState (moved from SeedPage local state by Plan 06-03)
-- mapGeneratorToRuleType maps weighted_pick/random_pick to picklist_random, range to random, relative_date to faker
-- Auto-advance threshold: 5 objects (skip Configure step); Grouping threshold: 20 objects (accordion categories)
-- Object categorization: no __ = standard, single __c = custom, multiple __ segments = managed package
-- InfoTooltip dismissed IDs stored in localStorage key sf-dismissed-tooltips as JSON string array
-- StreamingPipeline errors capped at 100 entries to prevent memory growth
-- ChunkedBulkExecutor.createChunkGenerator is instance method (not static) for default chunkSize access
-- ChunkedBulkExecutor.closeJobSafely swallows errors on abort (job may be in invalid state)
-- BackgroundOperationRegistry uses mutable operations in Map (performance over immutability for progress updates)
-- markCompleted/markFailed are no-ops if operation is already terminal (prevents double-emit on abort+resolve)
-- WebviewPanelManager.onVisibilityChange is a public callback property (not constructor injection) for backward compat
-- SyncOpsHandler/SeedOpsHandler use setRegistry() setter pattern (not constructor injection) for backward compat
-- Dry-run path in SeedOpsHandler stays synchronous (no BackgroundOperationRegistry registration)
-- STREAMING_THRESHOLD (10,000) defined per-handler as module-level constant for independent tuning
-- Native VSCode notifications use plain English strings (not i18n) since they bypass the WebView system
-- ExecutionHandler created lazily in setBackgroundRegistry() after registry is available
+Decisions are logged in PROJECT.md Key Decisions table. Full per-phase decision log preserved in `.planning/milestones/v1.2.3-ROADMAP.md` and phase SUMMARY files.
 
 ### Pending Todos
 
@@ -116,6 +78,6 @@ Decisions are logged in PROJECT.md Key Decisions table.
 
 ## Session Continuity
 
-Last session: 2026-03-28
-Stopped at: v1.2.3 milestone complete. All 7 phases (50 requirements) delivered.
+Last session: 2026-04-23
+Stopped at: v1.2.3 milestone archived, tagged v1.2.4, shipped on Marketplace. Ready for next milestone planning.
 Resume file: .planning/ROADMAP.md

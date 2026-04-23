@@ -42,19 +42,20 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 - ✓ API efficiency: /limits 30s cache, OrgInfo 5min cache — Milestone v1.2.1
 - ✓ Trend quality: real timestamps, CSV export, job trend accumulator fix — Milestone v1.2.1
 - ✓ Governance wiring: CRUD, evaluate, AlertEngine pipeline — Milestone v1.2.1
+- ✓ Sync scheduling with cron UI + schedule management — Milestone v1.2.3
+- ✓ Sync history & audit log (past executions, replay, export) — Milestone v1.2.3
+- ✓ Seed from CSV upload (column mapping, preview, validation) — Milestone v1.2.3
+- ✓ Seed clone mode (org-to-org record copy, relationship remapping) — Milestone v1.2.3
+- ✓ AI persona catalogue (10 pre-built personas, preview, customization) — Milestone v1.2.3
+- ✓ Sync conflict resolution UI (diff viewer, per-field merge, bulk resolution) — Milestone v1.2.3
+- ✓ CDC real-time sync (subscription UI, live stream, auto-sync, backend hardening) — Milestone v1.2.3
+- ✓ Enterprise scaling (pagination, virtual scrolling, streaming, background ops, cache management) — Milestone v1.2.3
+- ✓ Small project optimizations (smart actions, Just Do It mode, adaptive wizard, contextual help) — Milestone v1.2.3
+- ✓ Existing feature polish (error recovery, skeleton screens, keyboard shortcuts, notification center) — Milestone v1.2.3
 
 ### Active
 
-- [ ] Sync scheduling with cron UI + schedule management — v1.2.3
-- [ ] Sync history & audit log (past executions, replay, export) — v1.2.3
-- [ ] Seed from CSV upload (column mapping, preview, validation) — v1.2.3
-- [ ] Seed clone mode (org-to-org record copy, relationship remapping) — v1.2.3
-- [ ] AI persona catalogue (10 pre-built personas, preview, customization) — v1.2.3
-- [ ] Sync conflict resolution UI (diff viewer, per-field merge, bulk resolution) — v1.2.3
-- [ ] CDC real-time sync (subscription UI, live stream, auto-sync, backend hardening) — v1.2.3
-- [ ] Enterprise scaling (pagination, streaming 100K+, virtual scrolling, memory management) — v1.2.3
-- [ ] Small project optimizations (auto-detection, "Just Do It" mode, reduced steps) — v1.2.3
-- [ ] Existing feature polish (error recovery, caching, skeleton screens, keyboard shortcuts) — v1.2.3
+*No active milestone. Ready to plan the next.*
 
 ### Recently Validated (v1.2.2)
 
@@ -78,11 +79,10 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 ## Context
 
 - Monorepo pnpm with 3 packages: `shared` (types/schemas), `extension` (Node.js/esbuild), `webview` (React/Vite/Tailwind)
-- 558 source files, 487+ test files, 1045+ total files across packages
+- v1.2.3 shipped as v1.2.4 on Marketplace — Scale & Complete (50 items delivered, 8320 tests passing, 1.24 MB VSIX)
 - v1.2.2 shipped — Adoption-First: Sync & Seed Polish (30 items delivered, 7623 tests passing)
 - v1.2.1 shipped — Monitor Enrichment & Wiring (25 items delivered)
 - v1.2.0 shipped — Forge UX & Reliability (52 items delivered, 7149 tests passing)
-- VSIX package at 1.16 MB, well within marketplace limits
 - jsforce v3 for all Salesforce API interactions
 - Strict TypeScript (no `any`), Zod validation on all external data, Winston logging
 
@@ -108,4 +108,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-03-27 — Milestone v1.2.3 started (Scale & Complete)*
+*Last updated: 2026-04-23 — Milestone v1.2.3 complete (shipped as v1.2.4 on Marketplace).*
