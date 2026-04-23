@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-04-23)
 
 **Core value:** Sandbox provisioning and data management must be reliable, safe, and fast
-**Current focus:** *No active milestone — ready to plan the next.*
+**Current focus:** v1.3.0 — Hardening & Monitor v2
 
 ## Current Position
 
-Phase: — (milestone complete)
+Phase: Not started (competitive research + requirements definition in progress)
 Plan: —
-Status: v1.2.3 milestone shipped as v1.2.4 on VS Code Marketplace (2026-04-23). Audit PASSED (50/50 requirements satisfied, 0 stubs, 0 integration gaps). Archived.
-Last activity: 2026-04-23 — milestone v1.2.3 archived, tagged v1.2.4
+Status: Defining requirements
+Last activity: 2026-04-23 — Milestone v1.3.0 started; learnship-project-researcher dispatched for competitive scan (SF Inspector, ORGanizer, Gearset, Copado, Salto), AI integration libs, refactor patterns
 
-Progress: [----------] 0% — awaiting next milestone
+Progress: [----------] 0% — requirements + roadmap TBD
 
 ## Performance Metrics
 

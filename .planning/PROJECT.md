@@ -53,9 +53,25 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 - ✓ Small project optimizations (smart actions, Just Do It mode, adaptive wizard, contextual help) — Milestone v1.2.3
 - ✓ Existing feature polish (error recovery, skeleton screens, keyboard shortcuts, notification center) — Milestone v1.2.3
 
+## Current Milestone: v1.3.0 — Hardening & Monitor v2
+
+**Goal:** Stabilize v1.2.x features with bug bash + targeted refactoring, extend Monitor with competitive-parity features, integrate AI for bug diagnosis and anomaly detection, and apply best-practice patterns across the codebase.
+
+**Target themes:**
+- Bug bash & regressions across all v1.2.x modules
+- Targeted refactoring with context (SOLID, event-driven patterns, DI)
+- Monitor v2: features identified from competitive scan (SF Inspector, ORGanizer, Gearset, Copado, Salto)
+- AI integration: AI-assisted bug diagnosis, AI-powered anomaly narratives, AI code suggestions
+- Observability: telemetry opt-in, structured logging, Sentry error reporting
+- Best practices: mutation testing, property-based tests, dead code detection, perf pass
+
 ### Active
 
-*No active milestone. Ready to plan the next.*
+- [ ] Bug bash & hardening — v1.3.0
+- [ ] Targeted refactoring audit — v1.3.0
+- [ ] Monitor v2 competitive features — v1.3.0
+- [ ] AI-assisted diagnosis — v1.3.0
+- [ ] Observability opt-in — v1.3.0
 
 ### Recently Validated (v1.2.2)
 
@@ -108,4 +124,4 @@ Sandbox provisioning and data management must be reliable, safe (CRUD/FLS enforc
 | 6-language i18n from Phase 09 | Marketplace reach, global user base | ✓ Good |
 
 ---
-*Last updated: 2026-04-23 — Milestone v1.2.3 complete (shipped as v1.2.4 on Marketplace).*
+*Last updated: 2026-04-23 — Milestone v1.3.0 (Hardening & Monitor v2) started.*
