@@ -12,6 +12,7 @@ import { useKonamiCode } from './hooks/useKonamiCode';
 import { useAppStore } from './stores/useAppStore';
 import { useSendMessage } from './hooks/useMessageBus';
 import { buildMessage } from './bridge/messageHelpers';
+import { E2EHarness, getHarnessFlow } from './pages/E2EHarness/E2EHarness';
 
 /** Inner component that uses hooks (must be inside providers). */
 const AppInner: React.FC = () => {
@@ -115,6 +116,19 @@ const AppInner: React.FC = () => {
 
 /** Root application component for the SandForge WebView. */
 export const App: React.FC = () => {
+  // E2E harness short-circuit: when `?e2e-harness=<flow>` is present in the URL,
+  // render a lightweight placeholder surface instead of the full app. Keeps
+  // Plan 02-03 Playwright specs deterministic and decoupled from features that
+  // are delivered in Phase 04 (AI) and Phase 05 (CDC).
+  const harnessFlow = typeof window !== 'undefined' ? getHarnessFlow(window.location.search) : null;
+  if (harnessFlow) {
+    return (
+      <ErrorBoundary>
+        <E2EHarness flow={harnessFlow} />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <BridgeProvider>

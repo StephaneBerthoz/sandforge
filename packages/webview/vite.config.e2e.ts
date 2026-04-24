@@ -39,6 +39,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Map @sandforge/shared to its SOURCE (not its CommonJS dist) so Vite
+      // serves ESM modules end-to-end and named exports like PROTOCOL_VERSION
+      // resolve correctly at runtime. The dist/ build is CJS (tsc default +
+      // no "type": "module"), which Vite cannot reliably re-export via
+      // `export * from './bridge/protocolVersion.js'` at runtime.
+      '@sandforge/shared': path.resolve(__dirname, '../shared/src/index.ts'),
     },
   },
   define: {
