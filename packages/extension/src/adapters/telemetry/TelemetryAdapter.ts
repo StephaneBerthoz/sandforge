@@ -6,6 +6,18 @@ import type { Logger as PinoLogger, LoggerOptions } from 'pino';
 /** Public logger type — wraps Pino so callers don't need to import pino directly. */
 export type Logger = PinoLogger;
 
+/**
+ * Minimal shape we require from @sentry/node — lets tests inject a stub without
+ * importing the real Sentry module.
+ */
+export interface SentryModule {
+  init: (options: Record<string, unknown>) => void;
+  captureException: (err: unknown, context?: { extra?: Record<string, unknown> }) => void;
+  addBreadcrumb: (crumb: { message: string; category?: string; level?: string }) => void;
+  setUser: (user: { id: string }) => void;
+  flush: (timeout?: number) => Promise<boolean>;
+}
+
 /** Options for TelemetryAdapter construction. */
 export interface TelemetryAdapterOptions {
   /** Sentry DSN for the Node (extension-host) SDK. */
@@ -16,6 +28,8 @@ export interface TelemetryAdapterOptions {
   release?: string;
   /** Optional override for Pino destination (used by tests to capture output). */
   pinoDestination?: pino.DestinationStream;
+  /** Sentry module injection — defaults to dynamic require('@sentry/node'). */
+  sentryModule?: SentryModule;
 }
 
 /**
@@ -31,20 +45,35 @@ const SENSITIVE_FIELD_NAMES = new Set([
   'secret',
 ]);
 
-/** Pino `redact` paths — deep match (`**.xyz`) required for nested scrubbing. */
-const PINO_REDACT_PATHS = [
-  'req.headers.authorization',
-  '*.apiKey',
-  '*.accessToken',
-  '*.refreshToken',
-  '*.secret',
-  '**.apiKey',
-  '**.accessToken',
-  '**.refreshToken',
-  '**.secret',
-  '**.authorization',
-  '**.password',
+/**
+ * Sensitive field names redacted from every Pino payload. Pino's wildcard
+ * (`*`) matches a single level, so we enumerate depths 1..4 programmatically
+ * below to cover realistic nesting (token under `config`, `config.nested`,
+ * `req.body.config`, etc.) without blowing out the path list by hand.
+ */
+const SENSITIVE_LEAF_NAMES = [
+  'apiKey',
+  'accessToken',
+  'refreshToken',
+  'secret',
+  'password',
+  'authorization',
 ];
+
+/** Build Pino `redact.paths` that match sensitive leaves at depths 0..4. */
+function buildRedactPaths(): string[] {
+  const paths: string[] = ['req.headers.authorization'];
+  for (const leaf of SENSITIVE_LEAF_NAMES) {
+    paths.push(leaf);
+    paths.push(`*.${leaf}`);
+    paths.push(`*.*.${leaf}`);
+    paths.push(`*.*.*.${leaf}`);
+    paths.push(`*.*.*.*.${leaf}`);
+  }
+  return paths;
+}
+
+const PINO_REDACT_PATHS = buildRedactPaths();
 
 /**
  * TelemetryAdapter — opt-in observability facade wired on VSCode telemetry settings.
@@ -67,7 +96,7 @@ export class TelemetryAdapter {
   private readonly logger: Logger;
   private sentryInitialised = false;
   private sentryEnabled = false;
-  private sentryModule: typeof import('@sentry/node') | null = null;
+  private sentryModule: SentryModule | null = null;
 
   constructor(context: vscode.ExtensionContext, opts?: TelemetryAdapterOptions) {
     this.context = context;
@@ -145,16 +174,16 @@ export class TelemetryAdapter {
     if (this.sentryInitialised) {
       return;
     }
-    // Dynamic require to avoid pulling Sentry into the bundle when disabled.
-    // In Node the extension host can use a regular require.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Sentry = require('@sentry/node') as typeof import('@sentry/node');
+    const Sentry = this.opts.sentryModule ?? loadSentryNode();
+    if (!Sentry) {
+      return;
+    }
     Sentry.init({
       dsn: this.opts.dsnNode,
       release: this.opts.release,
       environment: 'extension-host',
       tracesSampleRate: 0,
-      beforeSend: (event) => stripSensitiveFields(event),
+      beforeSend: (event: unknown) => stripSensitiveFields(event as Parameters<typeof stripSensitiveFields>[0]),
     });
     this.sentryModule = Sentry;
     this.sentryEnabled = true;
@@ -171,6 +200,23 @@ export class TelemetryAdapter {
       },
     };
     return destination ? pino(options, destination) : pino(options);
+  }
+}
+
+/**
+ * Best-effort dynamic load of @sentry/node. Returns null if the module isn't
+ * available (e.g. in unit tests that don't install it or explicitly opt out).
+ */
+function loadSentryNode(): SentryModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const imported = require('@sentry/node') as Record<string, unknown>;
+    const candidate = (
+      typeof imported.init === 'function' ? imported : (imported.default ?? imported)
+    ) as SentryModule;
+    return typeof candidate.init === 'function' ? candidate : null;
+  } catch {
+    return null;
   }
 }
 
