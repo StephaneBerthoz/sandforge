@@ -46,7 +46,11 @@ export * from './types/execution.types.js';
 export * from './types/smart-action.types.js';
 
 // Barrel exports — Bridge
-export * from './bridge/protocolVersion.js';
+// NOTE: PROTOCOL_VERSION + isVersionCompatible are re-exported as named exports
+// (not via `export *`) so Vite's ESM interop can read them reliably when the
+// dist is compiled to CommonJS. See #vite-cjs-interop in the E2E setup notes.
+export { PROTOCOL_VERSION, isVersionCompatible } from './bridge/protocolVersion.js';
+export type { ProtocolVersion } from './bridge/protocolVersion.js';
 export * from './bridge/messageSchemas.js';
 
 // Barrel exports — Schemas
