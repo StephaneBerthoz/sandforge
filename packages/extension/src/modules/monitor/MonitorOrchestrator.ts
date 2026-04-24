@@ -6,6 +6,7 @@ import type { DeploymentTracker } from './DeploymentTracker';
 import type { UserSessionMonitor } from './UserSessionMonitor';
 import type { AlertEngine } from './AlertEngine';
 import type { HealthCheck } from './HealthCheck';
+import type { CoreServices } from '../../services.js';
 
 /** Events emitted by the MonitorOrchestrator */
 export type MonitorEvent =
@@ -29,6 +30,12 @@ export interface MonitorDependencies {
   userSessionMonitor: UserSessionMonitor;
   alertEngine: AlertEngine;
   healthCheck: HealthCheck;
+  /**
+   * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
+   * Provided by the composition root (`services.ts`). Optional to preserve
+   * backward compatibility with tests that pass a narrow deps shape.
+   */
+  services?: CoreServices;
 }
 
 /**
