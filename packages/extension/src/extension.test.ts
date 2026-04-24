@@ -56,12 +56,23 @@ vi.mock('vscode', () => ({
     createStatusBarItem: vi.fn(() => ({ ...mockStatusBarItem })),
     createWebviewPanel: vi.fn(() => ({ ...mockWebviewPanel, onDidDispose: vi.fn() })),
     createTreeView: vi.fn(() => ({ ...mockTreeView })),
+    showInformationMessage: vi.fn().mockResolvedValue(undefined),
   },
   commands: {
     registerCommand: vi.fn((command: string, callback: (...args: unknown[]) => unknown) => {
       registeredCommands.set(command, callback);
       return { dispose: vi.fn() };
     }),
+    executeCommand: vi.fn(),
+  },
+  env: {
+    isTelemetryEnabled: false,
+  },
+  workspace: {
+    getConfiguration: vi.fn(() => ({
+      get: vi.fn((_key: string, fallback: unknown) => fallback),
+    })),
+    workspaceFolders: undefined,
   },
   Uri: {
     joinPath: vi.fn().mockImplementation((base: { toString: () => string }, ...segments: string[]) => ({
