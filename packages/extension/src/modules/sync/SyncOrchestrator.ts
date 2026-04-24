@@ -13,6 +13,7 @@ import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
 import type { MigrationScript } from './MigrationScript';
 import type { IncrementalTracker } from './IncrementalTracker';
+import type { CoreServices } from '../../services.js';
 
 /** Function to query records from an org */
 export type OrchestratorQueryFn = (
@@ -40,6 +41,12 @@ export interface SyncOrchestratorDeps {
   queryTarget: OrchestratorQueryFn;
   grappeConfig?: GrappeConfig;
   onGrappeEvent?: (event: SyncGrappeEvent) => void;
+  /**
+   * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
+   * Provided by the composition root (`services.ts`). Optional to preserve
+   * backward compatibility with tests that pass a narrow deps shape.
+   */
+  services?: CoreServices;
 }
 
 /**
