@@ -1,0 +1,106 @@
+name: Knip
+
+# Non-blocking dead-code scan. Publishes findings as an artifact and optional
+# PR comment; NEVER fails the build (per Phase 01 HARD-04 decision — promote to
+# blocking in v1.4 after initial cleanup baseline stabilizes).
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  knip:
+    name: Dead-code scan (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Knip (markdown report)
+        id: knip
+        run: |
+          set +e
+          pnpm knip --reporter markdown > knip-report.md
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          # Always exit 0 — this job is informational, not blocking.
+          exit 0
+
+      - name: Upload Knip report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knip-report
+          path: knip-report.md
+          retention-days: 30
+
+      - name: Comment Knip report on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report = '';
+            try {
+              report = fs.readFileSync('knip-report.md', 'utf8');
+            } catch (e) {
+              report = '_Knip report not available._';
+            }
+            // GitHub comments are capped at 65536 chars; trim defensively.
+            const MAX = 60000;
+            if (report.length > MAX) {
+              report = report.slice(0, MAX) +
+                '\n\n_...report truncated; see artifact `knip-report` for full output._';
+            }
+            const body = [
+              '### Knip — Dead-code scan (non-blocking)',
+              '',
+              'This report lists unused files, exports, and dependencies detected by Knip.',
+              'Findings are informational only and do NOT fail CI.',
+              '',
+              '<details><summary>Click to expand full report</summary>',
+              '',
+              report,
+              '',
+              '</details>',
+            ].join('\n');
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            // Find any previous Knip comment authored by the bot and update it,
+            // otherwise create a new one.
+            const comments = await github.rest.issues.listComments({
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.data.find(c =>
+              c.user && c.user.type === 'Bot' &&
+              c.body && c.body.startsWith('### Knip — Dead-code scan')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number, body,
+              });
+            }
