@@ -8,6 +8,7 @@ import type { ConfigCompare } from './ConfigCompare';
 import type { PermissionCompare } from './PermissionCompare';
 import type { DataCompare } from './DataCompare';
 import type { DiffEngine } from './DiffEngine';
+import type { CoreServices } from '../../services.js';
 
 /** Dependencies required by the CompareOrchestrator */
 export interface CompareDependencies {
@@ -16,6 +17,12 @@ export interface CompareDependencies {
   permissionCompare: PermissionCompare;
   dataCompare: DataCompare;
   diffEngine: DiffEngine;
+  /**
+   * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
+   * Provided by the composition root (`services.ts`). Optional to preserve
+   * backward compatibility with tests that pass a narrow deps shape.
+   */
+  services?: CoreServices;
 }
 
 /**
