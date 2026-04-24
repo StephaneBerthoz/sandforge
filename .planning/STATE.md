@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 ## Current Position
 
 Phase: 01 — Hardening Foundations
-Plan: CONTEXT captured (autopilot mode), ready for plan-phase
-Status: Decisions locked in `01-CONTEXT.md` (adapters gradual migration, composition-root DI, Sentry+Pino via VSCode telemetry setting, Knip non-blocking, Zod+protocolVersion for all bridge messages, SecretStorage migration, 1h soak test).
-Last activity: 2026-04-23 — Phase 01 CONTEXT.md written autonomously from research synthesis.
+Plan: 01-01 Adapters Scaffolding COMPLETE. Next: Plan 01-02 (Knip CI + dead-code cleanup, Wave 1 parallel) or Plan 01-03 (DI wiring, Wave 2 depending on 01-01).
+Status: Adapters layer shipped (SalesforceAdapter, TelemetryAdapter, StorageAdapter, FsAdapter) as pure additive classes with co-located Vitest suites (47 new tests). Dependencies added: @sentry/node, @sentry/browser, pino, pino-pretty, p-limit (CJS), p-retry (CJS). Extension test count 4580 green. Repo total ~8367 tests.
+Last activity: 2026-04-24 — Plan 01-01 executed (10 atomic commits).
 
-Progress: [----------] 0% (0/6 phases, Phase 01 context locked)
+Progress: [#---------] 17% (0/6 phases complete, Phase 01 plan 01-01 done; 01-02, 01-03, 01-04 pending)
 
 ## Performance Metrics
 
@@ -78,6 +78,13 @@ Decisions are logged in PROJECT.md Key Decisions table. Full per-phase decision 
 
 ## Session Continuity
 
-Last session: 2026-04-23
-Stopped at: v1.2.3 milestone archived, tagged v1.2.4, shipped on Marketplace. Ready for next milestone planning.
-Resume file: .planning/ROADMAP.md
+Last session: 2026-04-24
+Stopped at: Phase 01 Plan 01-01 (Adapters Scaffolding) executed in autopilot mode. 10 atomic commits, 47 new tests, all green. Adapter layer ready for Plan 01-03 (DI wiring) and Plan 01-04 (Bridge hardening) in Wave 2. Plan 01-02 (Knip CI) still available for Wave 1 parallel execution.
+Resume file: .planning/phases/01-hardening-foundations/01-01-SUMMARY.md
+
+### Phase 01 Progress
+
+- [x] Plan 01-01 Adapters Scaffolding (Wave 1, autonomous) — SalesforceAdapter, TelemetryAdapter, StorageAdapter, FsAdapter + barrel. HARD-01/03/06 partial.
+- [ ] Plan 01-02 Knip CI + dead-code cleanup (Wave 1, can run now)
+- [ ] Plan 01-03 DI wiring + SecretStorage migration (Wave 2, depends on 01-01)
+- [ ] Plan 01-04 Bridge hardening + leak audit (Wave 2, depends on 01-01)
