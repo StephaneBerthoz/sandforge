@@ -12,6 +12,7 @@ import type { DataPlanBuilder } from './DataPlanBuilder';
 import type { FieldMapper } from './FieldMapper';
 import type { ReferenceLinker } from './ReferenceLinker';
 import type { SeedGrappeAdapter } from './SeedGrappeAdapter';
+import type { CoreServices } from '../../services.js';
 
 /** Function signature for inserting records into Salesforce */
 export type InsertFn = (
@@ -51,6 +52,12 @@ export interface SeedOrchestratorDependencies {
   grappeAdapter?: SeedGrappeAdapter;
   grappeConfig?: GrappeConfig;
   onGrappeEvent?: (event: GrappeEvent) => void;
+  /**
+   * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
+   * Provided by the composition root (`services.ts`). Optional to preserve
+   * backward compatibility with tests that pass a narrow deps shape.
+   */
+  services?: CoreServices;
 }
 
 /**
