@@ -1,0 +1,81 @@
+name: Stryker Mutation Testing
+
+# Runs nightly (06:00 UTC) and on manual dispatch. Not wired into per-PR CI
+# because wall-time is 10-30 min. Honors `skip-stryker` PR label if somebody
+# does trigger it on a PR via dispatch.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      mutate_glob:
+        description: 'Optional mutate glob override (e.g., packages/shared/src/utils/*.ts)'
+        required: false
+        default: ''
+
+jobs:
+  mutation:
+    name: Stryker mutation run
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: >-
+      github.event_name != 'pull_request' ||
+      !contains(github.event.pull_request.labels.*.name, 'skip-stryker')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package (Stryker sandboxes consume dist/)
+        run: pnpm build:shared
+
+      - name: Run Stryker
+        id: stryker
+        run: |
+          if [ -n "${{ github.event.inputs.mutate_glob }}" ]; then
+            pnpm stryker run --mutate "${{ github.event.inputs.mutate_glob }}"
+          else
+            pnpm stryker run
+          fi
+        env:
+          CI: true
+
+      - name: Extract mutation score
+        if: always()
+        run: |
+          if [ -f reports/mutation/mutation.json ]; then
+            SCORE=$(node -e "const r=require('./reports/mutation/mutation.json');const f=r.systemUnderTest||r;const t=Object.values(f.files||{}).flatMap(x=>x.mutants||[]);const killed=t.filter(m=>m.status==='Killed'||m.status==='Timeout').length;const total=t.filter(m=>m.status!=='NoCoverage').length;console.log(((killed/Math.max(total,1))*100).toFixed(2));")
+            echo "Mutation score: ${SCORE}%"
+            echo "MUTATION_SCORE=${SCORE}" >> $GITHUB_ENV
+          else
+            echo "Mutation report not found"
+            exit 1
+          fi
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-html-report
+          path: reports/mutation/
+          retention-days: 30
+
+      - name: Upload JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-json-report
+          path: reports/mutation/mutation.json
+          retention-days: 90
