@@ -317,6 +317,7 @@
     "esbuild": "^0.21",
     "eslint": "^8",
     "eslint-config-prettier": "^9",
+    "fast-check": "^3",
     "typescript": "~5.5",
     "vitest": "^1"
   }
