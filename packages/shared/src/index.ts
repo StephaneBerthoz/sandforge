@@ -45,6 +45,9 @@ export * from './types/quickSync.types.js';
 export * from './types/execution.types.js';
 export * from './types/smart-action.types.js';
 
+// Barrel exports — Bridge
+export * from './bridge/protocolVersion.js';
+
 // Barrel exports — Schemas
 export * from './schemas/message.schema.js';
 export * from './schemas/seed-config.schema.js';
