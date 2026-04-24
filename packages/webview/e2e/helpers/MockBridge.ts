@@ -127,4 +127,40 @@ export class MockBridge {
       ) as Record<string, unknown>[];
     }, type ?? null);
   }
+
+  /**
+   * Post a sequence of messages from the extension to the webview with an
+   * optional delay between them. Useful for simulating CDC event streams or
+   * multi-step extension responses.
+   *
+   * Each entry is dispatched as a `MessageEvent` with `data: { type, id, payload }`
+   * and `origin: ''`, matching the pattern used by `sendExtensionMessage`.
+   *
+   * @param messages Ordered list of `{ type, payload }` entries.
+   * @param options.delayMs Optional delay (milliseconds) inserted between messages.
+   */
+  async stream(
+    messages: Array<{ type: string; payload: Record<string, unknown> }>,
+    options?: { delayMs?: number },
+  ): Promise<void> {
+    const delayMs = options?.delayMs ?? 0;
+    for (let i = 0; i < messages.length; i++) {
+      const entry = messages[i];
+      const id = `resp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      await this.page.evaluate(
+        ({ type, payload, messageId }) => {
+          window.dispatchEvent(
+            new MessageEvent('message', {
+              data: { type, id: messageId, payload },
+              origin: '',
+            }),
+          );
+        },
+        { type: entry.type, payload: entry.payload, messageId: id },
+      );
+      if (delayMs > 0 && i < messages.length - 1) {
+        await this.page.waitForTimeout(delayMs);
+      }
+    }
+  }
 }
