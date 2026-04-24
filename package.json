@@ -17,6 +17,7 @@
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage",
     "validate": "pnpm build:shared && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "knip": "knip",
     "package": "pnpm build && cd packages/extension && npx @vscode/vsce package --no-dependencies -o ../../sandforge.vsix",
     "clean": "pnpm -r clean && rm -rf node_modules"
   },

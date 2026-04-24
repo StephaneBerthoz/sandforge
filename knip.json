@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    "packages/shared": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "packages/extension": {
+      "entry": [
+        "src/extension.ts",
+        "src/adapters/index.ts",
+        "src/adapters/**/*.ts!"
+      ],
+      "project": ["src/**/*.ts"],
+      "ignoreBinaries": ["esbuild", "vsce"],
+      "ignoreDependencies": ["@sentry/node", "@sentry/browser", "pino", "pino-pretty", "p-limit", "p-retry"]
+    },
+    "packages/webview": {
+      "entry": [
+        "src/main.tsx",
+        "src/PanelApp.tsx",
+        "vite.config.ts",
+        "vite.config.e2e.ts",
+        "playwright.config.ts",
+        "postcss.config.cjs",
+        "tailwind.config.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"]
+    }
+  },
+  "ignoreDependencies": ["@types/.*"]
+}
