@@ -2,6 +2,7 @@ import React from 'react';
 import './i18n';
 import { BridgeProvider } from './bridge/BridgeProvider';
 import { FloatingToasts } from './components/ui/FloatingToasts';
+import { ProtocolMismatchBanner } from './components/ProtocolMismatchBanner';
 import { PanelRouter } from './PanelRouter';
 
 /** Props for PanelApp. */
@@ -17,6 +18,7 @@ export interface PanelAppProps {
 export const PanelApp: React.FC<PanelAppProps> = ({ moduleId }) => {
   return (
     <BridgeProvider>
+      <ProtocolMismatchBanner />
       <div
         className="h-screen w-full overflow-auto bg-[var(--vscode-editor-background,#1e1e1e)] text-[var(--vscode-editor-foreground,#d4d4d4)]"
         data-testid="panel-app"
