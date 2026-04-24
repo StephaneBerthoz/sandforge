@@ -24,6 +24,7 @@ import { PIIDetector } from './core/precheck/PIIDetector';
 import { ProductionGuard } from './core/precheck/ProductionGuard';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { AI_CONFIG, AI_PROVIDER } from '@sandforge/shared';
+import { createServices } from './services.js';
 
 let router: MessageRouter | undefined;
 let broker: MessageBroker | undefined;
@@ -38,6 +39,11 @@ export function activate(context: vscode.ExtensionContext): void {
   const outputChannel = vscode.window.createOutputChannel('SandForge');
   const log = (msg: string): void => outputChannel.appendLine(msg);
   log('SandForge is now active.');
+
+  // 1b. Composition root — wires core adapters (telemetry, storage, salesforce, fs)
+  // and exposes orchestrator factories. Also kicks off SecretStorage migration.
+  const services = createServices(context);
+  log('Composition root wired.');
 
   // 2. ConfigStore (backed by VSCode globalState)
   const configBackend = new MementoConfigStoreBackend(context.globalState);
@@ -93,6 +99,7 @@ export function activate(context: vscode.ExtensionContext): void {
     secretVault,
     authProvider,
     sfdxBridge,
+    services,
   });
   handlers.setOnboardingServices(onboardingService, hintTracker);
 
