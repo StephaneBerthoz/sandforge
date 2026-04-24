@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "pnpm",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "vitest": {
+    "configFile": "packages/shared/vitest.config.ts",
+    "dir": "packages/shared"
+  },
+  "coverageAnalysis": "perTest",
+  "mutate": [
+    "packages/shared/src/**/*.ts",
+    "packages/extension/src/core/engine/**/*.ts",
+    "packages/extension/src/modules/compare/**/*.ts",
+    "packages/extension/src/modules/sync/**/*.ts",
+    "packages/extension/src/modules/monitor/**/*.ts",
+    "!**/*.test.ts",
+    "!**/index.ts",
+    "!**/types/**",
+    "!**/constants/**",
+    "!**/i18n/**",
+    "!packages/shared/src/schemas/**"
+  ],
+  "reporters": ["html", "clear-text", "progress", "json"],
+  "htmlReporter": { "fileName": "reports/mutation/mutation.html" },
+  "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
+  "thresholds": { "high": 80, "low": 60, "break": 60 },
+  "timeoutMS": 30000,
+  "timeoutFactor": 2,
+  "concurrency": 4,
+  "incremental": true,
+  "incrementalFile": ".stryker-tmp/incremental.json",
+  "tempDirName": ".stryker-tmp",
+  "cleanTempDir": true,
+  "logLevel": "info"
+}
