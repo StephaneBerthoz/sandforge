@@ -11,7 +11,7 @@ import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
 
 /** Message types handled by AIToolsHandler. */
-export const AI_TOOLS_TYPES = new Set([
+const AI_TOOLS_TYPES = new Set([
   'ai:nl2soql',
   'ai:resolve-error',
   'ai:personas',

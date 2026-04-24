@@ -11,7 +11,7 @@ import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.
 import { queryWithFieldsFallback } from '../../../core/common/soqlQueryHelper.js';
 
 /** Message types handled by AIAnalysisHandler. */
-export const AI_ANALYSIS_TYPES = new Set([
+const AI_ANALYSIS_TYPES = new Set([
   'ai:anomaly-scan',
   'ai:suggestions',
   'ai:schema-advice',

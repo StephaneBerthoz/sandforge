@@ -1,10 +1,2 @@
 export { AutopilotWizard } from './AutopilotWizard';
 export type { AutopilotObjectInfo } from './AutopilotWizard';
-export { Step1Connect } from './Step1_Connect';
-export type { Step1ConnectProps } from './Step1_Connect';
-export { Step2Objects } from './Step2_Objects';
-export type { Step2ObjectsProps } from './Step2_Objects';
-export { Step3Compliance } from './Step3_Compliance';
-export type { Step3ComplianceProps } from './Step3_Compliance';
-export { Step4Review } from './Step4_Review';
-export type { Step4ReviewProps } from './Step4_Review';
