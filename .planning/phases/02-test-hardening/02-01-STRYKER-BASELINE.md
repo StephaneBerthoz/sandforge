@@ -106,3 +106,22 @@ The current Stryker config runs Vitest via `packages/shared/vitest.config.ts`. T
 **To repair** (follow-up for Plan 02-02 or a v1.4 chore): either (a) add a second Vitest project pointing at `packages/extension/vitest.config.ts` via Stryker's `vitest.configFile` array semantics if supported, (b) run Stryker twice — once per package — with sharded configs, or (c) add a multi-package top-level Vitest config that imports both sub-configs. Option (c) mirrors the existing `pnpm -r test` flow most cleanly.
 
 Until that fix lands, CI must either honor the `BASELINE_ACCEPTED` verdict, loosen `break` temporarily, or pin the mutate globs to `packages/shared/**` only.
+
+## CI behavior
+
+- Nightly run at `06:00 UTC` + manual dispatch via `workflow_dispatch`.
+- `break: 60` — workflow fails if mutation score drops below 60 %.
+- Opt-out: add `skip-stryker` label to PR (guard already in `.github/workflows/stryker.yml`).
+- HTML report uploaded as `stryker-html-report` artifact (30-day retention).
+- JSON report uploaded as `stryker-json-report` artifact (90-day retention) for long-term trending.
+- Hard timeout `timeout-minutes: 45` on the GitHub runner (P-02.1 wall-time cap).
+
+## Follow-ups captured for v1.4 / Phase 06
+
+- [ ] **Fix Stryker Vitest scope** — point the runner at a multi-project Vitest config so extension-side tests execute during mutation runs (currently 7 457 of 8 005 mutants are NoCoverage because only `packages/shared` tests run). Highest-priority follow-up — gates any meaningful total-score measurement.
+- [ ] Promote Stryker to per-PR blocking once baseline stabilizes ≥ 70 on covered mutants across **both** shared and extension scopes.
+- [ ] Consider making `ignoreStatic: true` permanent in `stryker.conf.json` — 290 static mutants represented 99 % of run time; they rarely yield useful signal.
+- [ ] Shard mutate globs if single-runner wall-time exceeds 45 min once the extension scope is wired in.
+- [ ] Revisit exclusions (schemas, constants, i18n) — may yield additional mutation opportunities once the runner scope is broadened.
+- [ ] Kill the top survivors list (sf-utils / validation-utils / string-utils / ConflictDiffService / hash-utils) in Phase 06 "bug bash" or carry to v1.4.
+
