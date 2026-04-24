@@ -188,3 +188,165 @@ export function createAutopilotCompletedResponse(
     totalApiCalls: Math.floor(totalRecords / 200) + 1,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 02 / Plan 02-03 — 5 critical flow fixtures
+// ---------------------------------------------------------------------------
+
+/** Mock AI-generated Forge persona payload. */
+export function mockAIPersona(): {
+  id: string;
+  name: string;
+  description: string;
+  recordCount: number;
+  objects: string[];
+} {
+  return {
+    id: 'persona-mid-b2b-saas',
+    name: 'Mid-market B2B SaaS customer',
+    description: 'Realistic mid-market B2B SaaS customer persona with 50 records across Account, Contact and Opportunity.',
+    recordCount: 50,
+    objects: ['Account', 'Contact', 'Opportunity'],
+  };
+}
+
+/** Mock sync conflict notification payload with 2 conflicting fields. */
+export function mockSyncConflict(): {
+  conflictId: string;
+  objectApiName: 'Contact';
+  recordId: string;
+  fieldConflicts: Array<{ field: string; source: string; target: string }>;
+} {
+  return {
+    conflictId: 'conflict-1',
+    objectApiName: 'Contact',
+    recordId: '003000000000001AAA',
+    fieldConflicts: [
+      { field: 'Email', source: 'alice@new.example.com', target: 'alice@old.example.com' },
+      { field: 'Phone', source: '+33100000001', target: '+33100000000' },
+    ],
+  };
+}
+
+/** Mock monitor metrics snapshot payload. */
+export function mockMonitorMetrics(): {
+  limits: { apiRequests: { used: number; max: number; percent: number } };
+  jobs: { running: number; completed: number; failed: number };
+  lastUpdated: string;
+} {
+  return {
+    limits: {
+      apiRequests: { used: 45000, max: 100000, percent: 45 },
+    },
+    jobs: { running: 2, completed: 17, failed: 1 },
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
+/** Mock export-URL payload returned after a CSV export. */
+export function mockExportUrl(): {
+  format: 'csv';
+  blobUrl: string;
+  fileName: string;
+} {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    format: 'csv',
+    blobUrl: 'data:text/csv;base64,bmFtZSx2YWx1ZQpmb28sMQ==',
+    fileName: `monitor-export-${today}.csv`,
+  };
+}
+
+/** Mock CDC subscription response payload. */
+export function mockCdcSubscription(): {
+  subscriptionId: string;
+  objectApiName: 'Account';
+  replayId: number;
+  allocationUsed: number;
+  allocationMax: number;
+} {
+  return {
+    subscriptionId: 'sub-1',
+    objectApiName: 'Account',
+    replayId: -1,
+    allocationUsed: 5200,
+    allocationMax: 100000,
+  };
+}
+
+/** Mock CDC event payload indexed by sequence. */
+export function mockCdcEvent(seq: number): {
+  eventId: string;
+  objectApiName: string;
+  changeType: 'UPDATE';
+  recordIds: string[];
+  occurredAt: string;
+} {
+  return {
+    eventId: `evt-${seq}`,
+    objectApiName: 'Account',
+    changeType: 'UPDATE',
+    recordIds: [`001000000000${String(seq).padStart(3, '0')}AAA`],
+    occurredAt: new Date(Date.now() + seq * 1000).toISOString(),
+  };
+}
+
+/** Mock failed job payload used by the AI diagnose flow. */
+export function mockFailedJob(): {
+  jobId: string;
+  objectApiName: string;
+  status: 'Failed';
+  errorMessage: string;
+  failedRecords: number;
+  totalRecords: number;
+} {
+  return {
+    jobId: 'job-failed-1',
+    objectApiName: 'Account',
+    status: 'Failed',
+    errorMessage: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Invalid region code',
+    failedRecords: 12,
+    totalRecords: 100,
+  };
+}
+
+/** Mock AI diagnosis payload for a failed job. */
+export function mockAIDiagnosis(): {
+  diagnosisId: string;
+  summary: string;
+  proposedFix: {
+    action: 'update-records';
+    field: string;
+    fromValue: string;
+    toValue: string;
+    affectedCount: number;
+  };
+  confidence: number;
+} {
+  return {
+    diagnosisId: 'diag-1',
+    summary:
+      'The Region picklist rejected "EMEA-OLD" values; 12 Accounts need to be rewritten to "EMEA" to satisfy the custom validation rule.',
+    proposedFix: {
+      action: 'update-records',
+      field: 'Region',
+      fromValue: 'EMEA-OLD',
+      toValue: 'EMEA',
+      affectedCount: 12,
+    },
+    confidence: 0.88,
+  };
+}
+
+/** Mock "fix applied" confirmation payload. */
+export function mockFixApplied(): {
+  diagnosisId: string;
+  applied: true;
+  updatedRecords: number;
+} {
+  return {
+    diagnosisId: 'diag-1',
+    applied: true,
+    updatedRecords: 12,
+  };
+}

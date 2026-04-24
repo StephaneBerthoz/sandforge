@@ -20,4 +20,14 @@ export {
   createAutopilotCompletedResponse,
   ACCOUNT_DESCRIBE_FIELDS,
   CONTACT_DESCRIBE_FIELDS,
+  // Plan 02-03 — 5 critical flow fixtures
+  mockAIPersona,
+  mockSyncConflict,
+  mockMonitorMetrics,
+  mockExportUrl,
+  mockCdcSubscription,
+  mockCdcEvent,
+  mockFailedJob,
+  mockAIDiagnosis,
+  mockFixApplied,
 } from './mock-responses';
