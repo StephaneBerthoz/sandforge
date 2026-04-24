@@ -62,9 +62,11 @@ describe('useBridgeMutation', () => {
     expect(result.current.loading).toBe(true);
     expect(mockPostMessage).toHaveBeenCalledOnce();
 
-    const sentMsg = mockPostMessage.mock.calls[0][0] as BaseMessage & {
+    // Outbound messages are wrapped in an envelope — unwrap payload.
+    const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage & {
       payload: { orgId: string; authMethod: string };
-    };
+    } };
+    const sentMsg = envelope.payload;
     expect(sentMsg.type).toBe('org:connect');
     expect(sentMsg.payload).toEqual({ orgId: '', authMethod: 'sfdx_import' });
   });
@@ -140,7 +142,8 @@ describe('useBridgeMutation', () => {
     });
 
     expect(mockPostMessage).toHaveBeenCalledOnce();
-    const sentMsg = mockPostMessage.mock.calls[0][0] as BaseMessage;
+    const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage };
+    const sentMsg = envelope.payload;
     expect(sentMsg.type).toBe('org:list');
   });
 
