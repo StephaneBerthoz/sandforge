@@ -297,9 +297,15 @@
   },
   "dependencies": {
     "@sandforge/shared": "workspace:*",
+    "@sentry/browser": "^8",
+    "@sentry/node": "^8",
     "cron-parser": "^5.5.0",
     "glob": "^10",
     "jsforce": "^3",
+    "p-limit": "^6",
+    "p-retry": "^6",
+    "pino": "^9",
+    "pino-pretty": "^11",
     "winston": "^3",
     "zod": "^3.23"
   },
