@@ -75,7 +75,6 @@ export class CompareHandler implements DomainHandler {
       const { ConfigCompare } = await import('../../modules/compare/ConfigCompare.js');
       const { PermissionCompare } = await import('../../modules/compare/PermissionCompare.js');
       const { DataCompare } = await import('../../modules/compare/DataCompare.js');
-      const { CompareOrchestrator } = await import('../../modules/compare/CompareOrchestrator.js');
 
       const diffEngine = new DiffEngine();
 
@@ -128,12 +127,16 @@ export class CompareHandler implements DomainHandler {
         },
       );
 
-      const orchestrator = new CompareOrchestrator({
+      if (!this.deps.services) {
+        throw new Error('CompareHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.');
+      }
+      const orchestrator = this.deps.services.compareOrchestrator({
         metadataCompare,
         configCompare,
         permissionCompare,
         dataCompare,
         diffEngine,
+        services: this.deps.services,
       });
 
       const config: import('@sandforge/shared').CompareConfig = {

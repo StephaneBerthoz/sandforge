@@ -619,7 +619,6 @@ export class SyncOpsHandler implements DomainHandler {
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
       const { MigrationScript } = await import('../../modules/sync/MigrationScript.js');
       const { IncrementalTracker } = await import('../../modules/sync/IncrementalTracker.js');
-      const { SyncOrchestrator } = await import('../../modules/sync/SyncOrchestrator.js');
 
       const dataSync = new DataSync({ upsert: upsertFn, insert: insertFn, update: updateFn, delete: deleteFn });
       const metadataSync = new MetadataSync({
@@ -646,7 +645,7 @@ export class SyncOpsHandler implements DomainHandler {
       });
       const incrementalTracker = new IncrementalTracker();
 
-      const orchestrator = new SyncOrchestrator({
+      const syncDeps = {
         dataSync,
         metadataSync,
         deltaDetector,
@@ -657,7 +656,12 @@ export class SyncOpsHandler implements DomainHandler {
         incrementalTracker,
         querySource: buildQueryFn(sourceConn),
         queryTarget: buildQueryFn(targetConn),
-      });
+        services: this.deps.services,
+      };
+      if (!this.deps.services) {
+        throw new Error('SyncOpsHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.');
+      }
+      const orchestrator = this.deps.services.syncOrchestrator(syncDeps);
 
       sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Initializing sync');
       const result = await orchestrator.execute(config);

@@ -13,6 +13,7 @@ import type { AIAssistant } from '../modules/ai/AIAssistant.js';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace.js';
 import type { AutopilotOrchestrator } from '../modules/autopilot/AutopilotOrchestrator.js';
 import type { ForgeOrchestrator } from '../modules/forge/ForgeOrchestrator.js';
+import type { Services } from '../services.js';
 
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker.js';
 import type { MaskingTemplateService } from '../modules/dataops/templates/MaskingTemplateService.js';
@@ -57,6 +58,12 @@ export interface ExtensionHandlersDeps {
   secretVault: SecretVault;
   authProvider: AuthProvider;
   sfdxBridge: SfdxBridge;
+  /**
+   * Composition-root Services bundle (4 core adapters + orchestrator factories).
+   * Optional so tests that construct ExtensionHandlers with the legacy shape
+   * continue to compile; production extension.ts wires it eagerly.
+   */
+  services?: Services;
 }
 
 /**
@@ -103,6 +110,7 @@ export class ExtensionHandlers {
       secretVault: deps.secretVault,
       authProvider: deps.authProvider,
       sfdxBridge: deps.sfdxBridge,
+      services: deps.services,
       nextId: () => this.nextId(),
     };
 

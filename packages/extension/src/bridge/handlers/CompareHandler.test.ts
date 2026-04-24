@@ -49,6 +49,11 @@ function createMockDeps(): HandlerDeps {
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
+    services: {
+      compareOrchestrator: vi.fn().mockReturnValue({
+        execute: vi.fn().mockResolvedValue({ diffs: [], summary: {} }),
+      }),
+    } as unknown as HandlerDeps['services'],
     nextId: () => String(++idCounter),
   };
 }
