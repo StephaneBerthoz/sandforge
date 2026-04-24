@@ -22,3 +22,9 @@ prompts/
 # Generated
 playwright-report/
 test-results/
+
+# Stryker mutation testing
+.stryker-tmp/*
+!.stryker-tmp/.gitignore
+reports/mutation/
+stryker.log
