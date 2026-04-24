@@ -518,8 +518,7 @@ export class SeedOpsHandler implements DomainHandler {
       const validator = new SeedValidator();
       const planBuilder = new DataPlanBuilder();
 
-      const { SeedOrchestrator } = await import('../../modules/seed/SeedOrchestrator.js');
-      const orchestrator = new SeedOrchestrator({
+      const seedDeps = {
         validator,
         planBuilder,
         fieldMapper,
@@ -527,7 +526,12 @@ export class SeedOpsHandler implements DomainHandler {
         insert: insertFn,
         generateId: () => crypto.randomUUID(),
         now: () => new Date().toISOString(),
-      });
+        services: this.deps.services,
+      };
+      if (!this.deps.services) {
+        throw new Error('SeedOpsHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.');
+      }
+      const orchestrator = this.deps.services.seedOrchestrator(seedDeps);
 
       const template = payload.template as unknown as import('@sandforge/shared').SeedTemplate;
       sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Validating template and building plan');

@@ -104,7 +104,6 @@ export class AutomationHandler implements DomainHandler {
       const { StepExecutor } = await import('../../modules/automation/StepExecutor.js');
       const { ConditionalRouter } = await import('../../modules/automation/ConditionalRouter.js');
       const { PipelineHistory } = await import('../../modules/automation/PipelineHistory.js');
-      const { PipelineOrchestrator: PipelineOrchestratorClass } = await import('../../modules/automation/PipelineOrchestrator.js');
 
       const builder = new PipelineBuilder();
       const triggerEngine = new TriggerEngine();
@@ -114,7 +113,10 @@ export class AutomationHandler implements DomainHandler {
       const conditionalRouter = new ConditionalRouter();
       const history = new PipelineHistory();
 
-      const orchestrator = new PipelineOrchestratorClass({
+      if (!this.deps.services) {
+        throw new Error('AutomationHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.');
+      }
+      const orchestrator = this.deps.services.automationOrchestrator({
         builder,
         triggerEngine,
         scheduler,
@@ -122,6 +124,7 @@ export class AutomationHandler implements DomainHandler {
         stepExecutor,
         conditionalRouter,
         history,
+        services: this.deps.services,
       });
 
       const pipeline = payload.pipeline as unknown as import('@sandforge/shared').PipelineDefinition;

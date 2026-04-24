@@ -12,6 +12,7 @@ import type { PerformanceTracker } from '../../core/engine/PerformanceTracker.js
 import type { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import type { OfflineManager } from '../../core/connection/OfflineManager.js';
 import type { PIIDetector } from '../../core/precheck/PIIDetector.js';
+import type { Services } from '../../services.js';
 
 /** Infrastructure services bundle shared across handlers. */
 export interface InfraServices {
@@ -43,6 +44,13 @@ export interface HandlerDeps {
   sfdxBridge: SfdxBridge;
   /** Optional infrastructure services (Tier 1). */
   infraServices?: InfraServices;
+  /**
+   * Optional composition-root Services bundle (adapters + orchestrator factories).
+   * When present, handlers should use the factory functions exposed here
+   * (e.g. services.seedOrchestrator(deps)) rather than constructing
+   * orchestrators inline — see services.ts for the single source of truth.
+   */
+  services?: Services;
   /** Generates sequential message IDs. */
   nextId: () => string;
 }
