@@ -11,8 +11,8 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 
 Phase: 02 — Test Hardening (in progress)
 Previous phase: 01 — Hardening Foundations ✓ complete (verifying — human UAT pending)
-Status: Plan 02-01 (Stryker setup + baseline) complete in autopilot (7 atomic commits). `stryker.conf.json` + nightly CI workflow + baseline score **91.24 %** on `packages/shared` covered mutants (3m 12s wall-time). Verdict `BASELINE_ACCEPTED` per CONTEXT open question 1 — extension-side mutants report NoCoverage due to Vitest-runner scope pointing at `packages/shared/vitest.config.ts` only; scope fix is top v1.4 follow-up. See `.planning/phases/02-test-hardening/02-01-STRYKER-BASELINE.md` and `02-01-SUMMARY.md`. Plans 02-02 (fast-check) + 02-03 (Playwright) next.
-Last activity: 2026-04-24 — Plan 02-01 landed, ready for Plan 02-02.
+Status: Plans 02-01 (Stryker) + 02-02 (fast-check) both complete in autopilot (Wave 1 done). Plan 02-02 landed **5 property-test files** (4 extension + 1 shared bonus) with **20 properties × 100 runs** each, test count **8412 → 8432** (+20, 5 beyond the +15 floor). Typecheck green across all 3 packages, `pnpm test` green (632 files / 8432 tests). Reusable `arbitraries.ts` in `packages/extension/src/test/` covers all domain types for the 4 target modules. See `.planning/phases/02-test-hardening/02-02-SUMMARY.md` and `02-02-TEST-DELTA.md`. Plan 02-03 (Playwright 5 specs, Wave 2) next.
+Last activity: 2026-04-24 — Plans 02-01 + 02-02 landed, ready for Plan 02-03.
 
 Progress: [##--------] 17% (1 of 6 phases complete)
 
@@ -85,7 +85,7 @@ Resume file: .planning/phases/01-hardening-foundations/01-04-SUMMARY.md
 ### Phase 02 Progress
 
 - [x] Plan 02-01 Stryker Mutation Testing Setup + Baseline (Wave 1, autonomous) — Stryker 8.7.1 + Vitest runner, stryker.conf.json, nightly + manual workflow with 45m cap + skip-stryker opt-out, baseline 91.24% covered / 6.25% total (BASELINE_ACCEPTED), 3m12s wall-time with --ignoreStatic. TEST-01.
-- [ ] Plan 02-02 fast-check properties (Wave 1, autonomous) — 4 modules × ≥ 3 properties. TEST-02.
+- [x] Plan 02-02 fast-check properties (Wave 1, autonomous) — fast-check v3 devDep in shared + extension, reusable arbitraries.ts (10 exports), 5 property-test files (ErrorClassifier, DiffEngine, GovernorLimitPredictor, DeltaDetector, hash-utils) with 20 properties × 100 runs each. Tests 8412 → 8432 (+20, +5 beyond floor). TEST-02.
 - [ ] Plan 02-03 Playwright 5 specs (Wave 2, autonomous) — depends on Wave 1. TEST-03.
 
 ### Phase 01 Progress
