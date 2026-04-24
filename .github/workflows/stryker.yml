@@ -43,11 +43,13 @@ jobs:
 
       - name: Run Stryker
         id: stryker
+        # `pnpm stryker` script expands to `stryker run`; use `pnpm exec stryker`
+        # when passing CLI args to avoid double-`run` concatenation.
         run: |
           if [ -n "${{ github.event.inputs.mutate_glob }}" ]; then
-            pnpm stryker run --mutate "${{ github.event.inputs.mutate_glob }}"
+            pnpm exec stryker run --mutate "${{ github.event.inputs.mutate_glob }}"
           else
-            pnpm stryker run
+            pnpm stryker
           fi
         env:
           CI: true
