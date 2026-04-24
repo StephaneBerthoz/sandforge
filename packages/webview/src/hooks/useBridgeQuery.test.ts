@@ -53,8 +53,9 @@ describe('useBridgeQuery', () => {
     expect(result.current.error).toBeNull();
     expect(mockPostMessage).toHaveBeenCalledOnce();
 
-    const sentMsg = mockPostMessage.mock.calls[0][0] as BaseMessage;
-    expect(sentMsg.type).toBe('org:list');
+    // Outbound messages are wrapped in an envelope — unwrap payload.
+    const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage };
+    expect(envelope.payload.type).toBe('org:list');
   });
 
   it('should populate data when a matching response arrives', () => {
@@ -187,9 +188,10 @@ describe('useBridgeQuery', () => {
       useBridgeQuery<{ orgs: string[] }>('org:list', { filter: 'sandbox' }),
     );
 
-    const sentMsg = mockPostMessage.mock.calls[0][0] as BaseMessage & {
+    const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage & {
       payload: { filter: string };
-    };
+    } };
+    const sentMsg = envelope.payload;
     expect(sentMsg.type).toBe('org:list');
     expect(sentMsg.payload).toEqual({ filter: 'sandbox' });
   });

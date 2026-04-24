@@ -104,7 +104,8 @@ describe('useRetryManager', () => {
     });
 
     expect(mockPostMessage).toHaveBeenCalledOnce();
-    const msg = mockPostMessage.mock.calls[0][0];
+    const envelope = mockPostMessage.mock.calls[0][0];
+    const msg = envelope.payload;
     expect(msg.type).toBe('execution:manual-retry');
     expect(msg.payload.executionId).toBe('exec-1');
     expect(msg.payload.objectName).toBe('Account');
@@ -118,7 +119,8 @@ describe('useRetryManager', () => {
     });
 
     expect(mockPostMessage).toHaveBeenCalledOnce();
-    const msg = mockPostMessage.mock.calls[0][0];
+    const envelope = mockPostMessage.mock.calls[0][0];
+    const msg = envelope.payload;
     expect(msg.type).toBe('execution:abort');
     expect(msg.payload.executionId).toBe('exec-1');
     expect(msg.payload.objectName).toBe('Account');
@@ -131,7 +133,8 @@ describe('useRetryManager', () => {
       result.current.abort('exec-1');
     });
 
-    const msg = mockPostMessage.mock.calls[0][0];
+    const envelope = mockPostMessage.mock.calls[0][0];
+    const msg = envelope.payload;
     expect(msg.type).toBe('execution:abort');
     expect(msg.payload.objectName).toBeUndefined();
   });

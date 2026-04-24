@@ -62,7 +62,10 @@ describe('BridgeProvider', () => {
     );
 
     expect(mockPostMessage).toHaveBeenCalledTimes(4);
-    const calls = mockPostMessage.mock.calls.map((c: unknown[]) => (c[0] as { type: string }).type);
+    // Outbound messages are enveloped — inspect envelope.payload.type.
+    const calls = mockPostMessage.mock.calls.map(
+      (c: unknown[]) => (c[0] as { payload: { type: string } }).payload.type,
+    );
     expect(calls).toContain('org:list');
     expect(calls).toContain('settings:get');
     expect(calls).toContain('ai:status');

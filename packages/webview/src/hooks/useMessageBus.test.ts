@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 import type { BaseMessage } from '@sandforge/shared';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 
 /**
  * Mock the useVSCodeApi hook so tests do not depend on acquireVsCodeApi.
@@ -28,7 +29,7 @@ describe('useSendMessage', () => {
     expect(typeof result.current).toBe('function');
   });
 
-  it('should call postMessage with the provided message', () => {
+  it('should wrap outbound messages in a protocol envelope', () => {
     const { result } = renderHook(() => useSendMessage());
 
     const message: BaseMessage = {
@@ -40,7 +41,30 @@ describe('useSendMessage', () => {
     result.current(message);
 
     expect(mockPostMessage).toHaveBeenCalledOnce();
-    expect(mockPostMessage).toHaveBeenCalledWith(message);
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: undefined,
+      payload: message,
+    });
+  });
+
+  it('should propagate correlationId to the envelope when present on the message', () => {
+    const { result } = renderHook(() => useSendMessage());
+
+    const message: BaseMessage = {
+      id: 'msg-2',
+      type: 'org:list',
+      timestamp: Date.now(),
+      correlationId: 'req-42',
+    };
+
+    result.current(message);
+
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: 'req-42',
+      payload: message,
+    });
   });
 });
 

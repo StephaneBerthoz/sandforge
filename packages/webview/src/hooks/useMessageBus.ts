@@ -1,19 +1,33 @@
 import { useEffect, useCallback, useRef } from 'react';
 
 import type { BaseMessage } from '@sandforge/shared';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 
 import { useVSCodeApi } from './useVSCodeApi';
 
 /**
  * Hook that returns a stable callback for sending typed messages
  * to the extension host via the VSCode webview API.
+ *
+ * Plan 01-04: every outbound message is wrapped in a protocol envelope:
+ *
+ *   { protocolVersion, correlationId?, payload: message }
+ *
+ * The extension-host {@link MessageBroker} validates the envelope, strips it,
+ * and dispatches `payload` to registered handlers. On version mismatch the
+ * broker emits `bridge:protocol-mismatch` / `bridge:reload-banner` messages
+ * that the webview reacts to via {@link ProtocolMismatchBanner}.
  */
 export function useSendMessage(): (message: BaseMessage) => void {
   const api = useVSCodeApi();
 
   return useCallback(
     (message: BaseMessage) => {
-      api.postMessage(message);
+      api.postMessage({
+        protocolVersion: PROTOCOL_VERSION,
+        correlationId: message.correlationId,
+        payload: message,
+      });
     },
     [api],
   );

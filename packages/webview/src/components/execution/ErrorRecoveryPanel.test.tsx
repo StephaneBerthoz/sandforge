@@ -142,7 +142,8 @@ describe('ErrorRecoveryPanel', () => {
     fireEvent.click(screen.getByTestId('retry-button'));
 
     expect(mockPostMessage).toHaveBeenCalledOnce();
-    const msg = mockPostMessage.mock.calls[0][0];
+    const envelope = mockPostMessage.mock.calls[0][0];
+    const msg = envelope.payload;
     expect(msg.type).toBe('execution:manual-retry');
     expect(msg.payload.objectName).toBe('Account');
   });
@@ -169,7 +170,8 @@ describe('ErrorRecoveryPanel', () => {
     fireEvent.click(screen.getByTestId('abort-button'));
 
     expect(mockPostMessage).toHaveBeenCalledOnce();
-    const msg = mockPostMessage.mock.calls[0][0];
+    const envelope = mockPostMessage.mock.calls[0][0];
+    const msg = envelope.payload;
     expect(msg.type).toBe('execution:abort');
     expect(msg.payload.objectName).toBe('Account');
   });
