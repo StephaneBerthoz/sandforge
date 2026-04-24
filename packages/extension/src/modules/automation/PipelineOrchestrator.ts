@@ -11,6 +11,7 @@ import type { StepLibrary } from './StepLibrary';
 import type { StepExecutor } from './StepExecutor';
 import type { ConditionalRouter } from './ConditionalRouter';
 import type { PipelineHistory } from './PipelineHistory';
+import type { CoreServices } from '../../services.js';
 
 /** Events emitted by the PipelineOrchestrator */
 export type PipelineEvent =
@@ -34,6 +35,12 @@ export interface PipelineOrchestratorDependencies {
   stepExecutor: StepExecutor;
   conditionalRouter: ConditionalRouter;
   history: PipelineHistory;
+  /**
+   * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
+   * Provided by the composition root (`services.ts`). Optional to preserve
+   * backward compatibility with tests that pass a narrow deps shape.
+   */
+  services?: CoreServices;
 }
 
 /**
