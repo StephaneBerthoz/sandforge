@@ -22,7 +22,9 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^1",
+    "knip": "^5",
     "prettier": "^3.2",
+    "ts-morph": "^23",
     "typescript": "~5.5"
   },
   "engines": {
