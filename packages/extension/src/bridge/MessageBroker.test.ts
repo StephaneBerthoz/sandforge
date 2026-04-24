@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type * as vscode from 'vscode';
 import type { BaseMessage } from '@sandforge/shared';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { MessageBroker } from './MessageBroker';
-import type { MessageHandler } from './MessageBroker';
+import type { MessageHandler, BrokerTelemetry } from './MessageBroker';
 
 interface MockWebview {
   onDidReceiveMessage: ReturnType<typeof vi.fn>;
@@ -360,6 +361,128 @@ describe('MessageBroker', () => {
       messageCallback(createMessage('org:list'));
 
       expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('envelope + protocol version handling', () => {
+    function createTelemetry(): BrokerTelemetry & {
+      addBreadcrumb: ReturnType<typeof vi.fn>;
+      getLogger: ReturnType<typeof vi.fn>;
+      warn: ReturnType<typeof vi.fn>;
+    } {
+      const warn = vi.fn();
+      return {
+        addBreadcrumb: vi.fn(),
+        getLogger: vi.fn(() => ({ warn })),
+        warn,
+      };
+    }
+
+    it('dispatches payload only (envelope stripped) when envelope is valid and version matches', () => {
+      const telemetry = createTelemetry();
+      broker = new MessageBroker({ telemetry });
+
+      const handler = vi.fn<MessageHandler>();
+      broker.on('org:list', handler);
+
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const innerMsg = createMessage('org:list');
+      const envelope = {
+        protocolVersion: PROTOCOL_VERSION,
+        correlationId: 'req-1',
+        payload: innerMsg,
+      };
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      messageCallback(envelope);
+
+      expect(handler).toHaveBeenCalledOnce();
+      // Handler receives ONLY the inner payload — envelope stripped.
+      expect(handler).toHaveBeenCalledWith(innerMsg);
+      // No bridge:* error/mismatch posted
+      const postedTypes = panel.webview.postMessage.mock.calls.map(
+        (args) => (args[0] as BaseMessage).type,
+      );
+      expect(postedTypes).not.toContain('bridge:error');
+      expect(postedTypes).not.toContain('bridge:protocol-mismatch');
+      expect(postedTypes).not.toContain('bridge:reload-banner');
+    });
+
+    it('posts bridge:error back to webview when envelope payload is malformed', () => {
+      const telemetry = createTelemetry();
+      broker = new MessageBroker({ telemetry });
+
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      messageCallback({
+        protocolVersion: PROTOCOL_VERSION,
+        payload: { id: 'x', type: 'totally:unknown', timestamp: 1 },
+      });
+
+      const postedTypes = panel.webview.postMessage.mock.calls.map(
+        (args) => (args[0] as BaseMessage).type,
+      );
+      expect(postedTypes).toContain('bridge:error');
+      expect(telemetry.addBreadcrumb).toHaveBeenCalledWith(
+        expect.stringContaining('invalid payload'),
+        'bridge',
+        'warning',
+      );
+    });
+
+    it('posts bridge:protocol-mismatch when envelope protocolVersion differs', () => {
+      const telemetry = createTelemetry();
+      broker = new MessageBroker({ telemetry });
+
+      const handler = vi.fn<MessageHandler>();
+      broker.on('org:list', handler);
+
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      messageCallback({
+        protocolVersion: PROTOCOL_VERSION + 999,
+        payload: createMessage('org:list'),
+      });
+
+      const postedTypes = panel.webview.postMessage.mock.calls.map(
+        (args) => (args[0] as BaseMessage).type,
+      );
+      expect(postedTypes).toContain('bridge:protocol-mismatch');
+      // Banner NOT posted after just 1 mismatch
+      expect(postedTypes).not.toContain('bridge:reload-banner');
+      // Best-effort dispatch still happened
+      expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it('posts bridge:reload-banner after 3 consecutive protocol mismatches', () => {
+      const telemetry = createTelemetry();
+      broker = new MessageBroker({ telemetry });
+
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+      broker.on('org:list', vi.fn());
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      for (let i = 0; i < 3; i++) {
+        messageCallback({
+          protocolVersion: PROTOCOL_VERSION + 999,
+          payload: createMessage('org:list'),
+        });
+      }
+
+      const postedTypes = panel.webview.postMessage.mock.calls.map(
+        (args) => (args[0] as BaseMessage).type,
+      );
+      const mismatchCount = postedTypes.filter((t) => t === 'bridge:protocol-mismatch').length;
+      const bannerCount = postedTypes.filter((t) => t === 'bridge:reload-banner').length;
+      expect(mismatchCount).toBe(3);
+      expect(bannerCount).toBeGreaterThanOrEqual(1);
     });
   });
 
