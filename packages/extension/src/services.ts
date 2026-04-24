@@ -164,6 +164,14 @@ export async function runSecretMigration(
     success ? 'info' : 'error',
   );
 
+  // Also log to Pino so operators see migration stats in Output → SandForge
+  // regardless of whether Sentry is enabled. Safe: no key material logged.
+  try {
+    telemetry.getLogger().info({ event: 'secret_migration', count, success }, 'secret migration complete');
+  } catch {
+    // logger unavailable in degraded test envs — swallow.
+  }
+
   return { count, success };
 }
 
