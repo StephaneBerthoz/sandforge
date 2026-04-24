@@ -300,17 +300,14 @@
     "@sentry/browser": "^8",
     "@sentry/node": "^8",
     "cron-parser": "^5.5.0",
-    "glob": "^10",
     "jsforce": "^3",
     "p-limit": "^3.1.0",
     "p-retry": "^4.6.2",
     "pino": "^9",
     "pino-pretty": "^11",
-    "winston": "^3",
     "zod": "^3.23"
   },
   "devDependencies": {
-    "@types/glob": "^8",
     "@types/node": "^20",
     "@types/vscode": "^1.95",
     "@typescript-eslint/eslint-plugin": "^7",
