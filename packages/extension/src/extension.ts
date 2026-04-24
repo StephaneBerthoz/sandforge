@@ -84,7 +84,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const fsReader = { readFile: (filePath: string) => fs.readFile(filePath, 'utf-8') };
 
   // 6. MessageBroker + MessageRouter + WebviewStateSync
-  broker = new MessageBroker();
+  // Telemetry adapter is injected so Plan 01-04 envelope validation failures
+  // emit bridge breadcrumbs + Pino warn entries for observability.
+  broker = new MessageBroker({ telemetry: services.telemetry });
   router = new MessageRouter(broker);
   const stateSync = new WebviewStateSync(broker);
 
@@ -100,6 +102,8 @@ export function activate(context: vscode.ExtensionContext): void {
     authProvider,
     sfdxBridge,
     services,
+    // Plan 01-04-11: workbench:reload handler needs the commands API.
+    executeCommand: (cmd, ...args) => vscode.commands.executeCommand(cmd, ...args),
   });
   handlers.setOnboardingServices(onboardingService, hintTracker);
 

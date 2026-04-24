@@ -42,6 +42,12 @@ import { SmartActionHandler } from './handlers/SmartActionHandler.js';
 import { ExecutionHandler } from './handlers/ExecutionHandler.js';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry.js';
 
+/**
+ * Thenable-returning command executor — mirrors `vscode.commands.executeCommand`
+ * without importing vscode directly (keeps this module testable in mocked envs).
+ */
+export type CommandExecutor = (command: string, ...args: unknown[]) => PromiseLike<unknown>;
+
 // Re-export interfaces for backward compatibility
 export type { InfraServices } from './handlers/HandlerTypes.js';
 export type { AIModules } from './handlers/AIHandler.js';
@@ -64,6 +70,13 @@ export interface ExtensionHandlersDeps {
    * continue to compile; production extension.ts wires it eagerly.
    */
   services?: Services;
+  /**
+   * Injected executor for VSCode commands. Used by the `workbench:reload`
+   * handler (Plan 01-04-11) to trigger `workbench.action.reloadWindow` when
+   * the protocol-mismatch banner's Reload button is clicked. Defaults to a
+   * no-op in tests that don't provide one.
+   */
+  executeCommand?: CommandExecutor;
 }
 
 /**
@@ -75,6 +88,7 @@ export interface ExtensionHandlersDeps {
  */
 export class ExtensionHandlers {
   private readonly handlerDeps: HandlerDeps;
+  private readonly executeCommand: CommandExecutor;
   private idCounter = 0;
 
   // Domain handlers
@@ -99,6 +113,9 @@ export class ExtensionHandlers {
   private executionHandler?: ExecutionHandler;
 
   constructor(deps: ExtensionHandlersDeps) {
+    // Default to a no-op executor so tests that don't care about the reload
+    // command can still construct ExtensionHandlers without wiring vscode.
+    this.executeCommand = deps.executeCommand ?? (() => Promise.resolve());
     // Shared mutable deps object — infraServices is set later via setInfraServices
     this.handlerDeps = {
       log: deps.log,
@@ -326,6 +343,12 @@ export class ExtensionHandlers {
       'scheduler:list', 'scheduler:upsert', 'scheduler:delete', 'scheduler:toggle',
       'realtime:start', 'realtime:stop', 'realtime:status', 'realtime:metrics', 'realtime:resolve-conflict',
     ], this.noOpHandler);
+
+    // Bridge protocol-mismatch reload (Plan 01-04-11). Triggered by the
+    // ProtocolMismatchBanner in the webview when the user clicks "Reload".
+    router.route('workbench:reload', () => {
+      void this.executeCommand('workbench.action.reloadWindow');
+    });
   }
 
   private nextId(): string {
