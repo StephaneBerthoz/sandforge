@@ -8,7 +8,7 @@ export type ComplianceStatus = 'pass' | 'warning' | 'fail';
 /**
  * Zod schema for a governance rule condition.
  */
-export const GovernanceRuleConditionSchema = z.object({
+const GovernanceRuleConditionSchema = z.object({
   metric: z.string(),
   operator: z.enum(['gt', 'gte', 'lt', 'lte', 'eq', 'neq']),
   threshold: z.number(),

@@ -28,7 +28,7 @@ export type AuditStatus = 'success' | 'failure' | 'partial';
 /**
  * Zod schema for an audit trail entry.
  */
-export const AuditEntrySchema = z.object({
+const AuditEntrySchema = z.object({
   id: z.string(),
   operationType: z.enum([
     'seed', 'sync', 'backup', 'compare', 'dataops',

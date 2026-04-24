@@ -19,7 +19,7 @@ const DIAMOND_MARKER_ID = 'sf-diamond-marker';
  * SVG diamond marker definition for polymorphic relationships.
  * Rendered once as a <defs> element and referenced via marker-end.
  */
-export const DiamondMarkerDef: React.FC = () => (
+const DiamondMarkerDef: React.FC = () => (
   <defs>
     <marker
       id={DIAMOND_MARKER_ID}

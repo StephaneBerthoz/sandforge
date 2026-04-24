@@ -4,7 +4,7 @@ import type { ConfigStore } from '../storage/ConfigStore.js';
 /**
  * Zod schema for a team configuration bundle.
  */
-export const TeamConfigBundleSchema = z.object({
+const TeamConfigBundleSchema = z.object({
   version: z.string(),
   createdAt: z.string(),
   createdBy: z.string().optional(),

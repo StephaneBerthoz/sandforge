@@ -39,7 +39,7 @@ interface PersistedConversation {
 }
 
 /** Message types handled by AIChatHandler. */
-export const AI_CHAT_TYPES = new Set([
+const AI_CHAT_TYPES = new Set([
   'ai:chat',
   'ai:conversation:create',
   'ai:conversation:load',

@@ -69,9 +69,6 @@ export const useOrgStore = create<OrgState>((set, get) => ({
 }));
 
 /** External selectors for reactive subscriptions */
-export const selectConnectedOrgs = (state: OrgState): SalesforceOrg[] =>
-  state.orgs.filter((org) => org.status === 'connected');
-
 export const selectSelectedOrg = (state: OrgState): SalesforceOrg | undefined =>
   state.orgs.find((org) => org.id === state.selectedOrgId);
 
