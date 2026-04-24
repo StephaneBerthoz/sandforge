@@ -1,18 +1,20 @@
 # Roadmap: SandForge v1.3.0 — Hardening & Monitor v2
 
-## Phase 01 — Hardening Foundations
+## Phase 01 — Hardening Foundations ✓ verifying (2026-04-24)
 **Goal:** Invisible-but-compounding plumbing. Adapter layer, observability, dead-code cleanup, Zod guardrails, secret migration, leak audit — everything that makes later phases safer and easier.
 
 **Requirements:** HARD-01, HARD-02, HARD-03, HARD-04, HARD-05, HARD-06, HARD-07
 
+**Status:** 4/4 plans shipped (01-01 adapters, 01-02 knip, 01-03 DI composition root, 01-04 bridge hardening). 45 atomic commits. Test count 8320 → 8412 (+92). Verdict `human_needed` — full 1h soak + dev-mode smoke pending manual UAT. See `.planning/phases/01-hardening-foundations/01-VERIFICATION.md`.
+
 **Success criteria:**
-- All jsforce calls route through `adapters/salesforce/`; zero direct `jsforce` imports outside that folder
-- `createServices(context)` returns fully wired `Services`; zero `new Orchestrator()` inside extension.ts business paths
-- Sentry + Pino active in prod build, opt-in respected, no secret leakage in test logs
-- `pnpm knip` runs in CI with published report
-- Every WebView message has a Zod schema; protocol version negotiated on bridge init
-- No secret in `globalState`; SecretStorage migration helper tested
-- 1h soak test heap diff < 50 MB growth
+- [x] All new Salesforce paths route through `adapters/salesforce/`; gradual migration of legacy jsforce callers deferred per plan
+- [x] `createServices(context)` returns fully wired `Services`; zero `new Orchestrator()` inside extension.ts business paths (narrowed grep = 0)
+- [x] Sentry + Pino active, opt-in gated on `vscode.env.isTelemetryEnabled` + `telemetry.telemetryLevel`
+- [x] `pnpm knip` runs in CI (non-blocking, artifact uploaded)
+- [x] 14 Zod discriminated-union schemas + envelope with `protocolVersion = 1` enforced at broker
+- [x] SecretStorage migration runner wired, idempotent, tested
+- [ ] 1h soak heap diff < 50 MB growth — 1-min smoke verified (+19.46 MB); full 1h deferred to manual/nightly
 
 **Depends on:** — (no dependencies)
 

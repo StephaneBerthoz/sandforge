@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 
 ## Current Position
 
-Phase: 01 — Hardening Foundations
-Plan: **Wave 2 COMPLETE**. All four plans of Phase 01 shipped (01-01, 01-02, 01-03, 01-04). Phase 01 is now ready for phase-level verification.
-Status: Plan 01-04 (Bridge hardening + leak audit) executed in autopilot mode — 11 atomic commits (01-04-01..11). Shipped: PROTOCOL_VERSION=1 + 14 Zod discriminated-union message schemas + EnvelopedMessageSchema (shared/bridge/), envelope-aware MessageBroker with bridge:error / bridge:protocol-mismatch / bridge:reload-banner paths + telemetry breadcrumb emission, useSendMessage wrapping every outbound message in envelope, ProtocolMismatchBanner in PanelApp, ts-morph disposable audit script (22 → 2 orphans, 91% reduction), WebviewPanelManager / SidebarViewProvider / AutomationHandler leak fixes, 1h soak harness with adjustable duration + 1-min smoke baseline (+19.46 MB RSS, PASS), workbench:reload handler registered in ExtensionHandlers wired to vscode.commands.executeCommand. Test count: **8412** (935 shared + 4596 extension + 2881 webview) — +36 from baseline.
-Last activity: 2026-04-24 — Plan 01-04 executed (11 atomic commits 01-04-01..11).
+Phase: 01 — Hardening Foundations ✓ complete (verifying — human UAT pending)
+Next phase: 02 — Test Hardening (no deps, can start anytime)
+Status: All 4 plans shipped in autopilot (45 atomic commits). 8320 → 8412 tests (+92). Verifier verdict `human_needed` for 2 items: (1) full 1h `SOAK_MINUTES=60 pnpm soak:test` baseline, (2) dev-extension-mode activation smoke (`code --extensionDevelopmentPath=.`). All 52 automated must-haves verified — see `.planning/phases/01-hardening-foundations/01-VERIFICATION.md`.
+Last activity: 2026-04-24 — Phase 01 verified, ready for Phase 02.
 
-Progress: [####------] 40% (Phase 01 complete; Phase 02 next)
+Progress: [##--------] 17% (1 of 6 phases complete)
 
 ## Performance Metrics
 
