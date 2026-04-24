@@ -32,8 +32,8 @@ function createMockWebviewPanel(): MockWebviewPanel {
     visible: true,
     reveal: vi.fn(),
     dispose: vi.fn(),
-    onDidDispose: vi.fn(),
-    onDidChangeViewState: vi.fn(),
+    onDidDispose: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+    onDidChangeViewState: vi.fn().mockReturnValue({ dispose: vi.fn() }),
   };
 }
 

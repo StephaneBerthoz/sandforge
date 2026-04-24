@@ -16,6 +16,12 @@ export class SidebarViewProvider {
   static readonly viewType = 'sandforge.sidebarView';
 
   private view?: vscode.WebviewView;
+  /**
+   * Disposable for the `onDidReceiveMessage` subscription registered the last
+   * time the view was resolved. Kept so we can release the previous listener
+   * if the view is re-resolved (VSCode resolves views on reveal, not once).
+   */
+  private messageSubscription?: vscode.Disposable;
 
   constructor(
     private extensionUri: vscode.Uri,
@@ -24,6 +30,16 @@ export class SidebarViewProvider {
     private orgGetter?: () => Record<string, unknown>[],
     private onOrgSelected?: (orgId: string) => void,
   ) {}
+
+  /**
+   * Release the message listener (test hook + manual tear-down for hosts that
+   * dispose providers outside VSCode's normal lifecycle).
+   */
+  dispose(): void {
+    this.messageSubscription?.dispose();
+    this.messageSubscription = undefined;
+    this.view = undefined;
+  }
 
   /** Called by VSCode when the sidebar view becomes visible. */
   resolveWebviewView(
@@ -41,8 +57,11 @@ export class SidebarViewProvider {
 
     webview.html = this.buildHtml(webview);
 
+    // Release any prior subscription in case the view is re-resolved.
+    this.messageSubscription?.dispose();
+
     // Handle navigation messages from the sidebar React component
-    webview.onDidReceiveMessage((message: Record<string, unknown>) => {
+    this.messageSubscription = webview.onDidReceiveMessage((message: Record<string, unknown>) => {
       const type = message.type as string | undefined;
       const payload = message.payload as Record<string, unknown> | undefined;
 

@@ -44,6 +44,12 @@ export type UriJoinPath = (base: unknown, ...segments: string[]) => unknown;
 export class WebviewPanelManager {
   private panels = new Map<string, vscode.WebviewPanel>();
   private visiblePanels = new Set<string>();
+  /**
+   * Per-panel disposables (view-state + dispose listeners registered when the
+   * panel was opened). Cleared when the panel is disposed or the manager is
+   * disposed — prevents VSCode event-listener leaks across panel lifecycles.
+   */
+  private panelSubscriptions = new Map<string, vscode.Disposable[]>();
 
   /** Optional callback invoked when any panel's visibility changes. */
   onVisibilityChange?: (anyVisible: boolean) => void;
@@ -93,7 +99,7 @@ export class WebviewPanelManager {
     this.broker.registerPanel(panel);
 
     this.visiblePanels.add(config.viewType);
-    panel.onDidChangeViewState((e) => {
+    const viewStateSub = panel.onDidChangeViewState((e) => {
       if (e.webviewPanel.visible) {
         this.visiblePanels.add(config.viewType);
       } else {
@@ -102,10 +108,17 @@ export class WebviewPanelManager {
       this.onVisibilityChange?.(this.isAnyPanelVisible());
     });
 
-    panel.onDidDispose(() => {
+    const disposeSub = panel.onDidDispose(() => {
       this.panels.delete(config.viewType);
       this.visiblePanels.delete(config.viewType);
+      // Release the paired view-state listener along with the panel itself.
+      for (const sub of this.panelSubscriptions.get(config.viewType) ?? []) {
+        sub.dispose();
+      }
+      this.panelSubscriptions.delete(config.viewType);
     });
+
+    this.panelSubscriptions.set(config.viewType, [viewStateSub, disposeSub]);
 
     return panel;
   }
@@ -147,6 +160,14 @@ export class WebviewPanelManager {
     for (const panel of this.panels.values()) {
       panel.dispose();
     }
+    // Safety net: ensure per-panel listener disposables are released even if
+    // a panel's onDidDispose callback didn't fire (e.g. forced manager dispose).
+    for (const subs of this.panelSubscriptions.values()) {
+      for (const sub of subs) {
+        sub.dispose();
+      }
+    }
+    this.panelSubscriptions.clear();
     this.panels.clear();
     this.visiblePanels.clear();
   }

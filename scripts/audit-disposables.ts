@@ -91,6 +91,7 @@ function hasDisposableSink(call: CallExpression, source: SourceFile, category: s
   );
 
   let varName: string | null = null;
+  let memberAccess: string | null = null;
   if (parent) {
     const varDecl = parent.asKind(SyntaxKind.VariableDeclaration);
     if (varDecl) {
@@ -105,7 +106,23 @@ function hasDisposableSink(call: CallExpression, source: SourceFile, category: s
       if (left.getKind() === SyntaxKind.Identifier) {
         varName = left.getText();
       }
+      // `this.foo = call()` — capture the `foo` segment for dispose lookup.
+      const propAccess = left.asKind(SyntaxKind.PropertyAccessExpression);
+      if (propAccess) {
+        memberAccess = propAccess.getName();
+      }
     }
+  }
+  if (memberAccess) {
+    // Covers: this.foo.dispose(), this.foo?.dispose(), foo.dispose(),
+    // this.foo.unsubscribe(), foo?.()
+    const memberDispose = new RegExp(
+      `\\b${memberAccess}(\\?\\.|\\.)(dispose|unsubscribe)\\s*\\(`,
+    );
+    if (memberDispose.test(sourceText)) return true;
+    // Callable-unsubscribe member pattern: `this.foo?.()` or `this.foo()`
+    const memberInvoke = new RegExp(`\\b${memberAccess}(\\?\\.)?\\s*\\(\\s*\\)`);
+    if (memberInvoke.test(sourceText)) return true;
   }
   if (varName) {
     const pushPattern = new RegExp(`subscriptions\\.push\\s*\\([^)]*\\b${varName}\\b`);
@@ -114,6 +131,51 @@ function hasDisposableSink(call: CallExpression, source: SourceFile, category: s
       `(clearInterval|clearTimeout|off|removeListener|removeEventListener)\\s*\\(\\s*${varName}\\b`,
     );
     if (clearPattern.test(sourceText)) return true;
+    // Unsubscribe callback pattern: `const unsub = ...; unsub();`
+    const invokePattern = new RegExp(`\\b${varName}\\s*\\(\\s*\\)`);
+    if (invokePattern.test(sourceText)) return true;
+    // VSCode Disposable pattern: `varName.dispose()` explicitly called.
+    const disposeCall = new RegExp(`\\b${varName}\\.dispose\\s*\\(`);
+    if (disposeCall.test(sourceText)) return true;
+    // Collection storage: `anyCollection.set(.., varName)` / `.push(.., varName)`
+    // — file is responsible for iterating + disposing later.
+    const stored = new RegExp(
+      `\\.(set|push|add)\\s*\\(\\s*(?:[^,)]+,\\s*)*(?:\\[[^\\]]*${varName}[^\\]]*\\]|${varName})\\b`,
+    );
+    if (stored.test(sourceText)) return true;
+  }
+
+  // Heuristic A2: call appears inside a `.push(...)` arg list (spread broker
+  // subscriptions idiom — `this.unsubscribers.push(broker.on(...), broker.on(...))`).
+  let ancestor: Node | undefined = call.getParent();
+  for (let i = 0; i < 10 && ancestor; i++) {
+    const callAncestor = ancestor.asKind(SyntaxKind.CallExpression);
+    if (callAncestor) {
+      const expr = callAncestor.getExpression();
+      if (expr.getKind() === SyntaxKind.PropertyAccessExpression) {
+        const name = expr.asKind(SyntaxKind.PropertyAccessExpression)?.getName();
+        if (name === 'push') return true;
+      }
+    }
+    ancestor = ancestor.getParent();
+  }
+
+  // Heuristic A3: for .on(event, handlerVar) — look for a matching
+  // .off(event, handlerVar) call in the same file where handlerVar is an
+  // identifier passed as the 2nd argument. Accepts `.off(...)` and
+  // `.off?.(...)` (optional chaining).
+  if (category === 'event-emitter') {
+    const args = call.getArguments();
+    if (args.length >= 2) {
+      const handler = args[1];
+      if (handler.getKind() === SyntaxKind.Identifier) {
+        const handlerName = handler.getText();
+        const offPattern = new RegExp(
+          `\\.(off|removeListener)(\\?\\.)?\\s*\\(\\s*[^,)]+,\\s*${handlerName}\\b`,
+        );
+        if (offPattern.test(sourceText)) return true;
+      }
+    }
   }
 
   // Heuristic B: call is directly wrapped: `subscriptions.push({ dispose: () => clearInterval(...) })`
@@ -137,6 +199,17 @@ function hasDisposableSink(call: CallExpression, source: SourceFile, category: s
   // on well-cared-for modules.)
   if (category === 'timer') {
     if (/clear(Interval|Timeout)\s*\(/.test(sourceText)) return true;
+    // `new Promise(r => setTimeout(r, ms))` — the Promise resolves when the
+    // timer fires so nothing needs to be disposed. Inspect ancestors up to 8
+    // levels for a `new Promise(...)` callsite.
+    let promiseAncestor: Node | undefined = call.getParent();
+    for (let i = 0; i < 8 && promiseAncestor; i++) {
+      const newExpr = promiseAncestor.asKind(SyntaxKind.NewExpression);
+      if (newExpr && newExpr.getExpression().getText() === 'Promise') {
+        return true;
+      }
+      promiseAncestor = promiseAncestor.getParent();
+    }
   }
   if (category === 'event-emitter') {
     if (/\.(off|removeListener)\s*\(/.test(sourceText)) return true;

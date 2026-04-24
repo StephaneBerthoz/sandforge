@@ -134,7 +134,7 @@ export class AutomationHandler implements DomainHandler {
       this.deps.infraServices?.performanceTracker?.start(operationId, 'automation');
       sendOperationStarted(this.deps, operationId, 'automation', `Pipeline: ${pipeline.name}`);
 
-      orchestrator.on('stepCompleted', (_event, data) => {
+      const stepCompletedListener = (_event: unknown, data: unknown): void => {
         const stepData = data as { runId: string; stepResult: { stepName: string; status: string } };
         const activeRuns = orchestrator.getActiveRuns();
         const totalSteps = pipeline.steps.length;
@@ -147,9 +147,17 @@ export class AutomationHandler implements DomainHandler {
           totalSteps,
           `Step: ${stepData.stepResult.stepName} (${stepData.stepResult.status})`,
         );
-      });
+      };
+      orchestrator.on('stepCompleted', stepCompletedListener);
 
-      const result = await orchestrator.execute(pipeline, variables, 'manual');
+      let result;
+      try {
+        result = await orchestrator.execute(pipeline, variables, 'manual');
+      } finally {
+        // Release the event-emitter listener so the closure doesn't pin the
+        // orchestrator + pipeline graph in memory after execution.
+        orchestrator.off?.('stepCompleted', stepCompletedListener);
+      }
 
       this.activeOperationIds.set(operationId, result.id);
       this.activeOrchestrators.delete(operationId);
