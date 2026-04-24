@@ -47,6 +47,7 @@ export * from './types/smart-action.types.js';
 
 // Barrel exports — Bridge
 export * from './bridge/protocolVersion.js';
+export * from './bridge/messageSchemas.js';
 
 // Barrel exports — Schemas
 export * from './schemas/message.schema.js';
