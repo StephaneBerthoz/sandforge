@@ -10,11 +10,11 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 ## Current Position
 
 Phase: 01 — Hardening Foundations
-Plan: Wave 2 IN PROGRESS (01-03 DI composition root + SecretStorage migration DONE). Next: Plan 01-04 (Bridge hardening + leak audit), depends on 01-01 adapters and now benefits from the 01-03 Services wiring.
-Status: Wave 2 partial. Plan 01-03 shipped services.ts (CoreServices + OrchestratorFactories + createServices), wired ExtensionHandlers + 4 handlers (Seed/Sync/Compare/Automation) through the composition root, added optional `services?: CoreServices` on 5 orchestrator deps interfaces, and stood up runSecretMigration (idempotent, breadcrumb + Pino log, tested against legacy ai.apiKey + per-org OAuth tokens). DataOps has no single orchestrator — Services.dataopsOrchestrator = null documented for Phase 03+. Test count: 8376 (912 shared + 4589 extension + 2875 webview) — +9 from services.test.ts, baseline preserved.
-Last activity: 2026-04-24 — Plan 01-03 executed (10 atomic commits 01-03-01..10).
+Plan: **Wave 2 COMPLETE**. All four plans of Phase 01 shipped (01-01, 01-02, 01-03, 01-04). Phase 01 is now ready for phase-level verification.
+Status: Plan 01-04 (Bridge hardening + leak audit) executed in autopilot mode — 11 atomic commits (01-04-01..11). Shipped: PROTOCOL_VERSION=1 + 14 Zod discriminated-union message schemas + EnvelopedMessageSchema (shared/bridge/), envelope-aware MessageBroker with bridge:error / bridge:protocol-mismatch / bridge:reload-banner paths + telemetry breadcrumb emission, useSendMessage wrapping every outbound message in envelope, ProtocolMismatchBanner in PanelApp, ts-morph disposable audit script (22 → 2 orphans, 91% reduction), WebviewPanelManager / SidebarViewProvider / AutomationHandler leak fixes, 1h soak harness with adjustable duration + 1-min smoke baseline (+19.46 MB RSS, PASS), workbench:reload handler registered in ExtensionHandlers wired to vscode.commands.executeCommand. Test count: **8412** (935 shared + 4596 extension + 2881 webview) — +36 from baseline.
+Last activity: 2026-04-24 — Plan 01-04 executed (11 atomic commits 01-04-01..11).
 
-Progress: [###-------] 33% (Phase 01: Wave 1 complete + Plan 01-03 of Wave 2 complete; Plan 01-04 pending)
+Progress: [####------] 40% (Phase 01 complete; Phase 02 next)
 
 ## Performance Metrics
 
@@ -79,12 +79,12 @@ Decisions are logged in PROJECT.md Key Decisions table. Full per-phase decision 
 ## Session Continuity
 
 Last session: 2026-04-24
-Stopped at: Phase 01 Wave 2 IN PROGRESS. Plan 01-03 (DI composition root + SecretStorage migration) executed in autopilot mode — 10 atomic commits (01-03-01..10). Shipped services.ts (CoreServices/OrchestratorFactories/Services/createServices), services.test.ts (9 tests), refactored 5 orchestrators to accept optional services? field, wired activate()→createServices, ExtensionHandlers→services, 4 handlers now use services.xxxOrchestrator() factories, runSecretMigration covers ai.apiKey + per-org OAuth tokens (idempotent, breadcrumb + Pino log). DataOps has no single orchestrator — Services.dataopsOrchestrator=null. Test count: 8376 (+9). Ready for Plan 01-04 (Bridge hardening + leak audit).
-Resume file: .planning/phases/01-hardening-foundations/01-03-SUMMARY.md
+Stopped at: **Phase 01 COMPLETE**. Plan 01-04 (Bridge hardening + leak audit) executed in autopilot mode — 11 atomic commits (01-04-01..11). Shipped PROTOCOL_VERSION=1, 14 Zod discriminated-union domain schemas + EnvelopedMessageSchema covering every message type in messages.types.ts, envelope-aware MessageBroker with bridge:error / bridge:protocol-mismatch / bridge:reload-banner paths wired to telemetry breadcrumbs, useSendMessage wrapping outbound messages, ProtocolMismatchBanner in PanelApp, ts-morph disposable audit (22 → 2 orphans, 91% reduction), leak fixes in WebviewPanelManager/SidebarViewProvider/AutomationHandler, 1h soak harness + 1-min smoke baseline (+19.46 MB RSS, PASS), workbench:reload handler registered. Test count: **8412** (+36). Ready for Phase 01 verification + Phase 02.
+Resume file: .planning/phases/01-hardening-foundations/01-04-SUMMARY.md
 
 ### Phase 01 Progress
 
 - [x] Plan 01-01 Adapters Scaffolding (Wave 1, autonomous) — SalesforceAdapter, TelemetryAdapter, StorageAdapter, FsAdapter + barrel. HARD-01/03/06 partial.
 - [x] Plan 01-02 Knip CI + dead-code cleanup (Wave 1, autonomous) — knip.json, knip.yml workflow, 16 exports + 2 files + 16 deps removed, KNIP-BASELINE.md frozen. HARD-04.
 - [x] Plan 01-03 DI wiring + SecretStorage migration (Wave 2, autonomous) — services.ts composition root, 5 orchestrators accept services?, ExtensionHandlers+4 handlers use factories, runSecretMigration on activate. HARD-02 + HARD-06.
-- [ ] Plan 01-04 Bridge hardening + leak audit (Wave 2, depends on 01-01)
+- [x] Plan 01-04 Bridge hardening + leak audit (Wave 2, autonomous) — Zod discriminated-union schemas + envelope, ProtocolMismatchBanner, disposable audit + leak fixes, soak harness. HARD-05 + HARD-07.
