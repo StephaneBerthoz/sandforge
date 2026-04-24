@@ -9,10 +9,10 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 
 ## Current Position
 
-Phase: 01 — Hardening Foundations ✓ complete (verifying — human UAT pending)
-Next phase: 02 — Test Hardening (no deps, can start anytime)
-Status: All 4 plans shipped in autopilot (45 atomic commits). 8320 → 8412 tests (+92). Verifier verdict `human_needed` for 2 items: (1) full 1h `SOAK_MINUTES=60 pnpm soak:test` baseline, (2) dev-extension-mode activation smoke (`code --extensionDevelopmentPath=.`). All 52 automated must-haves verified — see `.planning/phases/01-hardening-foundations/01-VERIFICATION.md`.
-Last activity: 2026-04-24 — Phase 01 verified, ready for Phase 02.
+Phase: 02 — Test Hardening (in progress)
+Previous phase: 01 — Hardening Foundations ✓ complete (verifying — human UAT pending)
+Status: Plan 02-01 (Stryker setup + baseline) complete in autopilot (7 atomic commits). `stryker.conf.json` + nightly CI workflow + baseline score **91.24 %** on `packages/shared` covered mutants (3m 12s wall-time). Verdict `BASELINE_ACCEPTED` per CONTEXT open question 1 — extension-side mutants report NoCoverage due to Vitest-runner scope pointing at `packages/shared/vitest.config.ts` only; scope fix is top v1.4 follow-up. See `.planning/phases/02-test-hardening/02-01-STRYKER-BASELINE.md` and `02-01-SUMMARY.md`. Plans 02-02 (fast-check) + 02-03 (Playwright) next.
+Last activity: 2026-04-24 — Plan 02-01 landed, ready for Plan 02-02.
 
 Progress: [##--------] 17% (1 of 6 phases complete)
 
@@ -81,6 +81,12 @@ Decisions are logged in PROJECT.md Key Decisions table. Full per-phase decision 
 Last session: 2026-04-24
 Stopped at: **Phase 01 COMPLETE**. Plan 01-04 (Bridge hardening + leak audit) executed in autopilot mode — 11 atomic commits (01-04-01..11). Shipped PROTOCOL_VERSION=1, 14 Zod discriminated-union domain schemas + EnvelopedMessageSchema covering every message type in messages.types.ts, envelope-aware MessageBroker with bridge:error / bridge:protocol-mismatch / bridge:reload-banner paths wired to telemetry breadcrumbs, useSendMessage wrapping outbound messages, ProtocolMismatchBanner in PanelApp, ts-morph disposable audit (22 → 2 orphans, 91% reduction), leak fixes in WebviewPanelManager/SidebarViewProvider/AutomationHandler, 1h soak harness + 1-min smoke baseline (+19.46 MB RSS, PASS), workbench:reload handler registered. Test count: **8412** (+36). Ready for Phase 01 verification + Phase 02.
 Resume file: .planning/phases/01-hardening-foundations/01-04-SUMMARY.md
+
+### Phase 02 Progress
+
+- [x] Plan 02-01 Stryker Mutation Testing Setup + Baseline (Wave 1, autonomous) — Stryker 8.7.1 + Vitest runner, stryker.conf.json, nightly + manual workflow with 45m cap + skip-stryker opt-out, baseline 91.24% covered / 6.25% total (BASELINE_ACCEPTED), 3m12s wall-time with --ignoreStatic. TEST-01.
+- [ ] Plan 02-02 fast-check properties (Wave 1, autonomous) — 4 modules × ≥ 3 properties. TEST-02.
+- [ ] Plan 02-03 Playwright 5 specs (Wave 2, autonomous) — depends on Wave 1. TEST-03.
 
 ### Phase 01 Progress
 
