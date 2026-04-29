@@ -527,7 +527,7 @@ describe('ForgeExecutor', () => {
   describe('orphan FK handling (referenceFallback)', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
 
-    it('nullifies reference fields whose value is not in the remapper (default in scoped mode)', async () => {
+    it('omits reference fields whose value is not in the remapper (default in scoped mode)', async () => {
       const graph = makeGraph([makeNode('Case')]);
       vi.mocked(deps.queryRecords).mockResolvedValue([
         { Id: ROOT_ID, OwnerId: '005USER1', AccountId: '001UNCLONED' },
@@ -546,8 +546,11 @@ describe('ForgeExecutor', () => {
       const insertCall = vi.mocked(deps.insertRecords).mock.calls[0];
       expect(insertCall).toBeDefined();
       const inserted = insertCall![2][0];
-      expect(inserted.OwnerId).toBeNull();
-      expect(inserted.AccountId).toBeNull();
+      // Orphaned FKs are OMITTED from the payload entirely so Salesforce can
+      // auto-fill required fields like OwnerId. Sending an explicit `null`
+      // would make the platform reject the insert with INVALID_CROSS_REFERENCE_KEY.
+      expect('OwnerId' in inserted).toBe(false);
+      expect('AccountId' in inserted).toBe(false);
     });
 
     it('preserves RecordTypeId even when no remap entry exists', async () => {

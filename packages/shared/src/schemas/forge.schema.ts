@@ -86,6 +86,21 @@ export const forgeGraphSchema = z.object({
 
 // ─── Execution Result Schema ────────────────────────────────────────────────
 
+/** Zod schema for ForgeExecutionErrorSample */
+export const forgeExecutionErrorSampleSchema = z.object({
+  recordSummary: z.string(),
+  messages: z.array(z.string()),
+});
+
+/** Zod schema for ForgeExecutionError */
+export const forgeExecutionErrorSchema = z.object({
+  objectApiName: z.string().min(1),
+  stage: z.enum(['query', 'insert', 'scope']),
+  failedCount: z.number().int().nonnegative(),
+  attemptedCount: z.number().int().nonnegative(),
+  samples: z.array(forgeExecutionErrorSampleSchema),
+});
+
 /** Zod schema for ForgeExecutionResult */
 export const forgeExecutionResultSchema = z.object({
   forgeId: z.string().min(1),
@@ -94,6 +109,7 @@ export const forgeExecutionResultSchema = z.object({
   duration: z.number().nonnegative(),
   timestamp: z.string().min(1),
   idRemapCount: z.number().int().nonnegative(),
+  errors: z.array(forgeExecutionErrorSchema).optional(),
 });
 
 // ─── Template Schema ────────────────────────────────────────────────────────

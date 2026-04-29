@@ -27,6 +27,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (typically `InsurancePolicyCoverage` / activity history on Mutuaide).
   Default: no cap.
 
+### Added (Forge module — Wave 3 fixes from real-org learnings)
+
+- **Schema-drift defence** — the executor now also `describeFields` on the
+  *target* org and intersects with the source createable set before
+  building the insert payload. Previously a custom field present on UAT2
+  but missing on SBER (e.g. `TriggeringEvent2__c`) would surface as
+  `INVALID_FIELD: No such column …` and fail the entire object's batch.
+- **Omit nullified FKs** — orphaned reference fields (no remap entry,
+  e.g. `OwnerId` pointing at a User that was never cloned) are now
+  *omitted* from the payload instead of being sent as explicit `null`.
+  Salesforce was rejecting `OwnerId: null` with
+  `INVALID_CROSS_REFERENCE_KEY: Owner ID: owner cannot be blank`; omitting
+  the key lets the platform auto-assign the running user.
+- **`ExecutionSummary.errors`** + **`ForgeExecutionResult.errors`** —
+  per-object error reports `{ stage, failedCount, attemptedCount, samples }`
+  surfaced from the executor up through the orchestrator and exposed in
+  the `forge:execute:response` payload so the wizard can render an error
+  panel grouped by object/stage.
+
+#### Wave 3 first real-org run on Mutuaide UAT2 → MUT-SBER (Case 500AP00000fXeQsYAK)
+
+- 1st attempt: 0/52 ✓ — 3 systemic bugs found (above two + ref data).
+- 2nd attempt after fixes: **52/58 ✓ inserted on SBER** — Case (1/1),
+  Contact (50/50), GlobalContext__c (1/1). 6 remaining failures fall into
+  3 known categories that map to upcoming Wave 2 hardening: Reference
+  data (BusinessHours already exists → needs ReferenceDataMapper), FLS
+  schema drift on Person Account `__pc` fields, and read-only system
+  objects (`CaseHistory2`).
+
 ### Added (Forge module — record-scoped clone, Wave 1 POC)
 
 - **`RecordScopeCache`** — per-execution cache (`Map<objectApiName, Set<recordId>>`) that records IDs collected from each wave so downstream nodes can scope their queries to the transitive closure of the root record.
