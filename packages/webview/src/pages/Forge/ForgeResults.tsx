@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Copy, Save, RotateCcw, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, FileText, AlertTriangle } from 'lucide-react';
+import { Copy, Save, RotateCcw, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, FileText, AlertTriangle, Lightbulb } from 'lucide-react';
 import type { ForgeExecutionError } from '@sandforge/shared';
+import { translateForgeError } from './forgeErrorTranslator';
 import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
 import { LogStream } from '../../components/ui/LogStream';
@@ -492,12 +493,34 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                       <div className="font-mono text-text-secondary mb-1 break-all">
                         {sample.recordSummary}
                       </div>
-                      <ul className="space-y-1">
-                        {sample.messages.map((msg, mi) => (
-                          <li key={mi} className="text-red-300 break-words">
-                            └ {msg}
-                          </li>
-                        ))}
+                      <ul className="space-y-2">
+                        {sample.messages.map((msg, mi) => {
+                          const translated = translateForgeError(msg);
+                          return (
+                            <li key={mi} className="space-y-1">
+                              <div className="text-red-300 break-words font-mono">└ {msg}</div>
+                              {translated && (
+                                <div
+                                  data-testid="forge-error-translation"
+                                  className={cn(
+                                    'ml-4 px-2 py-1 rounded border text-text-primary',
+                                    translated.severity === 'error' && 'border-red-500/30 bg-red-500/5',
+                                    translated.severity === 'warning' && 'border-yellow-500/30 bg-yellow-500/5',
+                                    translated.severity === 'info' && 'border-blue-500/30 bg-blue-500/5',
+                                  )}
+                                >
+                                  <div className="flex items-start gap-1.5">
+                                    <Lightbulb size={12} className="mt-0.5 shrink-0 text-yellow-400" />
+                                    <div>
+                                      <div className="text-text-primary">{translated.explanation}</div>
+                                      <div className="text-text-secondary mt-1 italic">→ {translated.action}</div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                   ))}
