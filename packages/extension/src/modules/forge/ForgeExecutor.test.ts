@@ -597,6 +597,64 @@ describe('ForgeExecutor', () => {
       expect(updateRecords).not.toHaveBeenCalled();
     });
 
+    it('coalesces multiple nullified FKs on the same record into a single UPDATE call', async () => {
+      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([
+        { id: '001NEW1', success: true, errors: [] },
+      ]);
+      const cycleExecutor = new ForgeExecutor({ ...deps, updateRecords });
+
+      // Account has two FKs both pointing at Contact: PrimaryContactId AND
+      // Backup_Contact__c. Both get nullified at insert (Contact not yet
+      // cloned), then both must be patched in pass 2 — but in a single
+      // UPDATE call to the same Account record.
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact')],
+        [
+          { sourceObject: 'Contact', targetObject: 'Account', relationshipName: 'PrimaryContact', type: 'lookup' },
+          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+        ],
+      );
+
+      vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+        if (name === 'Account') {
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'PrimaryContactId', queryable: true, createable: true, isReference: true, referenceTo: ['Contact'] },
+            { name: 'Backup_Contact__c', queryable: true, createable: true, isReference: true, referenceTo: ['Contact'] },
+          ];
+        }
+        return [
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+        ];
+      });
+      vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+        if (soql.includes('FROM Account')) {
+          return [{ Id: '001OLD1', PrimaryContactId: '003OLD1', Backup_Contact__c: '003OLD1' }];
+        }
+        if (soql.includes('FROM Contact')) return [{ Id: '003OLD1', AccountId: '001OLD1' }];
+        return [];
+      });
+      vi.mocked(deps.insertRecords).mockImplementation(async (_o, name) => {
+        if (name === 'Account') return [{ id: '001NEW1', success: true, errors: [] }];
+        if (name === 'Contact') return [{ id: '003NEW1', success: true, errors: [] }];
+        return [];
+      });
+
+      await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: '500AP00000fXeQsYAK',
+        rootObjectApiName: 'Account',
+      });
+
+      expect(updateRecords).toHaveBeenCalledTimes(1);
+      const [, , payload] = updateRecords.mock.calls[0];
+      expect(payload).toHaveLength(1);
+      const merged = payload[0];
+      expect(merged.Id).toBe('001NEW1');
+      expect(merged.PrimaryContactId).toBe('003NEW1');
+      expect(merged.Backup_Contact__c).toBe('003NEW1');
+    });
+
     it('reports unresolved cycle FKs in errors when target parent was never cloned', async () => {
       const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([]);
       const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };

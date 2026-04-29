@@ -1,30 +1,35 @@
 /**
  * Translates raw Salesforce API error messages from ForgeExecutionError
- * samples into user-friendly explanations + an actionable hint.
+ * samples into a structured pair of i18n keys plus optional interpolation
+ * variables. The wizard component is responsible for resolving the keys
+ * via `t()` so locale changes don't require touching the translator.
  *
- * Each translator entry takes the raw error string (typically
- * `STATUS_CODE: details`) and returns a structured summary the wizard
- * displays inline next to the technical message. When no rule matches
- * the original message is shown as-is.
+ * Returns `null` when no rule matches — the caller falls back to the raw
+ * message in that case.
  */
 
-/** Translated form of a Salesforce error message. */
+/** Structured translation result, ready to feed into i18next `t()`. */
 export interface TranslatedError {
-  /** STATUS_CODE detected (or `'UNKNOWN'`). */
+  /** STATUS_CODE detected (or a SandForge-specific synthetic code). */
   code: string;
-  /** Human-readable explanation. */
-  explanation: string;
-  /** Suggested next step for the user — short imperative sentence. */
-  action: string;
+  /** i18n key for the human-readable explanation. */
+  explanationKey: string;
+  /** i18n key for the suggested next step. */
+  actionKey: string;
+  /** Optional interpolation variables for the explanation key. */
+  vars?: Record<string, string | number>;
   /** Severity hint for the UI badge. */
   severity: 'info' | 'warning' | 'error';
 }
 
 interface Rule {
-  /** Salesforce status code or substring matched against the raw message. */
+  /** Pattern matched against the raw message. */
   match: RegExp;
   build: (raw: string, captures: RegExpMatchArray) => TranslatedError;
 }
+
+const KEY = (code: string, leaf: 'explanation' | 'action'): string =>
+  `forge.error.${code}.${leaf}`;
 
 const RULES: Rule[] = [
   {
@@ -34,112 +39,58 @@ const RULES: Rule[] = [
       const detail = m[2];
       switch (code) {
         case 'DUPLICATE_VALUE':
-          return {
-            code,
-            explanation:
-              "Un record avec la même clé d'unicité existe déjà sur la sandbox cible (probablement cloné lors d'un run précédent).",
-            action: 'Supprime le record existant ou change le mode en upsert (à venir).',
-            severity: 'warning',
-          };
+          return mapping('duplicateValue', code, 'warning');
         case 'INVALID_CROSS_REFERENCE_KEY':
-          return {
-            code,
-            explanation:
-              "Une référence (Owner, Manager, …) pointe vers un User qui n'existe pas sur la sandbox cible. Le champ a été mis à null automatiquement.",
-            action: "Salesforce assignera le User courant. Pas d'action requise sauf si le record nécessite un Owner spécifique.",
-            severity: 'info',
-          };
+          return mapping('invalidCrossReferenceKey', code, 'info');
         case 'REQUIRED_FIELD_MISSING':
-          return {
-            code,
-            explanation: `Un champ requis est manquant : ${detail}.`,
-            action: 'Augmente la profondeur (depth) ou ajoute manuellement le parent référencé au scope.',
-            severity: 'error',
-          };
+          return mapping('requiredFieldMissing', code, 'error', { detail });
         case 'INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST':
-          return {
-            code,
-            explanation:
-              "La valeur source d'un picklist n'existe pas sur la sandbox cible (config divergente).",
-            action: 'Aligne les picklists via Salesforce Setup ou laisse le strip automatique faire son travail (silent skip).',
-            severity: 'warning',
-          };
+          return mapping('invalidPicklist', code, 'warning');
         case 'INVALID_FIELD_FOR_INSERT_UPDATE':
-          return {
-            code,
-            explanation:
-              'Un champ ne peut pas être set à la création (auto-computed, FLS, ou inexistant côté target).',
-            action: 'Vérifie la sécurité de champs (FLS) sur ton profile cible, ou aligne le schéma source/target.',
-            severity: 'error',
-          };
+          return mapping('invalidFieldForInsert', code, 'error');
         case 'FIELD_INTEGRITY_EXCEPTION':
-          return {
-            code,
-            explanation: `Contrainte d'intégrité Salesforce non respectée : ${detail}.`,
-            action: 'Lis le détail — Salesforce indique souvent le champ ou la règle métier en cause.',
-            severity: 'error',
-          };
+          return mapping('fieldIntegrity', code, 'error', { detail });
         case 'CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY':
-          return {
-            code,
-            explanation:
-              "Cette table est en lecture seule (audit/history/system). Salesforce n'accepte pas l'insertion.",
-            action: 'Cet objet est désormais skipped automatiquement par le scope (isObjectCreatable).',
-            severity: 'info',
-          };
+          return mapping('cannotInsertEntity', code, 'info');
         case 'INSUFFICIENT_ACCESS_OR_READONLY':
         case 'INSUFFICIENT_ACCESS':
-          return {
-            code,
-            explanation:
-              "Ton profile sur la sandbox cible n'a pas les droits suffisants.",
-            action: 'Demande à un admin de te donner les droits ou switche vers un User admin.',
-            severity: 'error',
-          };
+          return mapping('insufficientAccess', code, 'error');
         case 'STORAGE_LIMIT_EXCEEDED':
-          return {
-            code,
-            explanation: "La sandbox cible n'a plus de stockage disponible.",
-            action: 'Nettoie des données obsolètes ou demande une augmentation de quota Salesforce.',
-            severity: 'error',
-          };
+          return mapping('storageLimit', code, 'error');
         case 'INVALID_TYPE':
-          return {
-            code,
-            explanation: "Le type d'objet n'existe pas (probablement supprimé du target).",
-            action: 'Aligne les schémas source/target, ou exclus cet objet du scope.',
-            severity: 'error',
-          };
+          return mapping('invalidType', code, 'error');
         case 'NOT_FOUND':
-          return {
-            code,
-            explanation: "Le record source n'a pas été trouvé.",
-            action: "Vérifie le record ID et l'org source.",
-            severity: 'warning',
-          };
+          return mapping('notFound', code, 'warning');
         case 'STRING_TOO_LONG':
-          return {
-            code,
-            explanation: `Une valeur dépasse la longueur max du champ : ${detail}.`,
-            action: 'Tronque la valeur source ou aligne la longueur des champs entre orgs.',
-            severity: 'warning',
-          };
+          return mapping('stringTooLong', code, 'warning', { detail });
         default:
           return {
             code,
-            explanation: detail || 'Erreur Salesforce non catégorisée.',
-            action: "Consulte la doc Salesforce sur ce code d'erreur ou copie le message au support.",
+            explanationKey: 'forge.error.unknown.explanation',
+            actionKey: 'forge.error.unknown.action',
+            vars: { detail: detail || code },
             severity: 'error',
           };
       }
     },
   },
   {
+    match: /Cycle FK '([^']+)'.*?source ([0-9A-Za-z]+)/,
+    build: (_raw, m) => ({
+      code: 'CYCLE_FK_UNRESOLVED',
+      explanationKey: 'forge.error.cycleFkUnresolved.explanation',
+      actionKey: 'forge.error.cycleFkUnresolved.action',
+      vars: { fieldName: m[1], sourceRefId: m[2] },
+      severity: 'warning',
+    }),
+  },
+  {
     match: /Cycle FK '([^']+)' could not be resolved/,
     build: (_raw, m) => ({
       code: 'CYCLE_FK_UNRESOLVED',
-      explanation: `Le champ '${m[1]}' référence un parent qui n'a jamais été cloué. Le record a été inséré sans ce lien.`,
-      action: 'Augmente la profondeur (depth) pour inclure le parent, ou accepte le record disconnecté.',
+      explanationKey: 'forge.error.cycleFkUnresolved.explanation',
+      actionKey: 'forge.error.cycleFkUnresolved.action',
+      vars: { fieldName: m[1], sourceRefId: '' },
       severity: 'warning',
     }),
   },
@@ -147,17 +98,31 @@ const RULES: Rule[] = [
     match: /no parent in cache and not the root/,
     build: () => ({
       code: 'OUT_OF_SCOPE',
-      explanation: "Cet objet n'a aucun chemin vers le record racine — pas de parent dans le scope.",
-      action: 'Ajoute manuellement cet objet en mode SOQL custom, ou ignore (probablement reference data isolée).',
+      explanationKey: 'forge.error.outOfScope.explanation',
+      actionKey: 'forge.error.outOfScope.action',
       severity: 'info',
     }),
   },
 ];
 
+function mapping(
+  slug: string,
+  code: string,
+  severity: 'info' | 'warning' | 'error',
+  vars?: Record<string, string | number>,
+): TranslatedError {
+  return {
+    code,
+    explanationKey: KEY(slug, 'explanation'),
+    actionKey: KEY(slug, 'action'),
+    vars,
+    severity,
+  };
+}
+
 /**
- * Translate a raw error message into a structured user-friendly form.
- * Returns `null` when no rule matches — the caller falls back to the
- * raw message in that case.
+ * Translate a raw error message into structured i18n keys. Returns `null`
+ * when no rule matches.
  */
 export function translateForgeError(raw: string): TranslatedError | null {
   const trimmed = raw.trim();

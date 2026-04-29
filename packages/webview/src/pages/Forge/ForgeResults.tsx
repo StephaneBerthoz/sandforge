@@ -512,8 +512,12 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                                   <div className="flex items-start gap-1.5">
                                     <Lightbulb size={12} className="mt-0.5 shrink-0 text-yellow-400" />
                                     <div>
-                                      <div className="text-text-primary">{translated.explanation}</div>
-                                      <div className="text-text-secondary mt-1 italic">→ {translated.action}</div>
+                                      <div className="text-text-primary">
+                                        {t(translated.explanationKey, translated.vars ?? {})}
+                                      </div>
+                                      <div className="text-text-secondary mt-1 italic">
+                                        → {t(translated.actionKey, translated.vars ?? {})}
+                                      </div>
                                     </div>
                                   </div>
                                 </div>
