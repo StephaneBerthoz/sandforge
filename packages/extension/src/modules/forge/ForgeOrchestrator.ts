@@ -110,6 +110,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         duration: Date.now() - startTime,
         timestamp: new Date().toISOString(),
         idRemapCount: summary.remapCount,
+        errors: summary.errors,
       };
 
       this.emit('forge:complete', result);

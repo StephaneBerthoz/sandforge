@@ -45,6 +45,12 @@ const SCENARIO = {
   anonymizePII: true,
   skipEmpty: true,
   apiVersion: '66.0',
+  /** When true, the recipe runs read-only (Phase B preview). When false, the
+   *  executor performs real inserts on the target org (Wave 3). */
+  dryRun: false,
+  /** Per-object hard cap for Wave 3. Keeps the blast radius bounded for
+   *  the first real exec while we learn what breaks. */
+  maxRecordsPerObject: 50,
 };
 
 function loadSfOrgs(): Map<string, SfOrg> {
@@ -308,6 +314,7 @@ async function main(): Promise<void> {
   if (!rootObjectApiName) {
     console.log('  (no root node in graph — skipping Phase B)');
   } else {
+    const insertLog: InsertLogEntry[] = [];
     const executorDeps: ForgeExecutorDeps = {
       queryRecords: async (orgId, soql) => {
         const conn = connections.get(orgId);
@@ -333,8 +340,61 @@ async function main(): Promise<void> {
           return [];
         }
       },
-      insertRecords: async () => {
-        throw new Error('insertRecords called in dry-run mode — should not happen');
+      insertRecords: async (orgId, objectName, records) => {
+        if (SCENARIO.dryRun) {
+          throw new Error('insertRecords called in dry-run mode — should not happen');
+        }
+        const conn = connections.get(orgId);
+        if (!conn) throw new Error(`No connection for ${orgId}`);
+        const t = Date.now();
+        try {
+          const results = await conn.sobject(objectName).create(records);
+          const arr = Array.isArray(results) ? results : [results];
+          let succ = 0;
+          let fail = 0;
+          const errorSamples: InsertErrorSample[] = [];
+          const mapped = arr.map((r, idx) => {
+            const messages = (r.errors ?? []).map((e: { message?: string; statusCode?: string }) =>
+              e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
+            );
+            if (r.success) {
+              succ++;
+            } else {
+              fail++;
+              if (errorSamples.length < 3) {
+                errorSamples.push({
+                  recordSample: summarizeRecord(records[idx]),
+                  messages,
+                });
+              }
+            }
+            return { id: r.id ?? '', success: r.success, errors: messages };
+          });
+          insertLog.push({
+            object: objectName,
+            attempted: records.length,
+            succeeded: succ,
+            failed: fail,
+            durationMs: Date.now() - t,
+            errorSamples,
+          });
+          return mapped;
+        } catch (err) {
+          insertLog.push({
+            object: objectName,
+            attempted: records.length,
+            succeeded: 0,
+            failed: records.length,
+            durationMs: Date.now() - t,
+            errorSamples: [
+              {
+                recordSample: summarizeRecord(records[0] ?? {}),
+                messages: [err instanceof Error ? err.message : String(err)],
+              },
+            ],
+          });
+          throw err;
+        }
       },
       describeFields: async (orgId, objectName) => {
         const conn = connections.get(orgId);
@@ -360,16 +420,23 @@ async function main(): Promise<void> {
         if (event.status === 'skipped' && event.message.includes('out of scope')) {
           skipLog.push(`  ${event.objectName.padEnd(45)} ${event.message}`);
         }
+        if (event.status === 'error') {
+          skipLog.push(`  ${event.objectName.padEnd(45)} ERROR: ${event.message}`);
+        }
       },
       {
         rootRecordId: SCENARIO.recordId,
         rootObjectApiName,
-        dryRun: true,
+        dryRun: SCENARIO.dryRun,
         recordTypeMappings,
+        maxRecordsPerObject: SCENARIO.maxRecordsPerObject,
       },
     );
 
     printPhaseB(queryLog, skipLog, Date.now() - phaseBStart, recordTypeMappings);
+    if (!SCENARIO.dryRun) {
+      printInsertLog(insertLog);
+    }
   }
 
   console.log(`\n══════════ SUMMARY ══════════`);
@@ -384,6 +451,61 @@ interface QueryLogEntry {
   count: number;
   durationMs: number;
   error?: string;
+}
+
+interface InsertErrorSample {
+  recordSample: string;
+  messages: string[];
+}
+
+interface InsertLogEntry {
+  object: string;
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  durationMs: number;
+  errorSamples: InsertErrorSample[];
+}
+
+function summarizeRecord(record: Record<string, unknown>): string {
+  const keys = Object.keys(record).slice(0, 4);
+  const parts = keys.map((k) => {
+    const v = record[k];
+    const s = typeof v === 'string' ? v : v === null ? 'null' : JSON.stringify(v);
+    return `${k}=${truncate(String(s), 30)}`;
+  });
+  return parts.join(' ');
+}
+
+function printInsertLog(log: InsertLogEntry[]): void {
+  if (log.length === 0) return;
+  const totalAttempted = log.reduce((s, e) => s + e.attempted, 0);
+  const totalSucceeded = log.reduce((s, e) => s + e.succeeded, 0);
+  const totalFailed = log.reduce((s, e) => s + e.failed, 0);
+
+  console.log(`\n══════════ WAVE 3 — REAL EXECUTION ══════════`);
+  console.log(`Inserts attempted: ${totalAttempted}  |  Succeeded: ${totalSucceeded}  |  Failed: ${totalFailed}`);
+  console.log(`\n${'object'.padEnd(45)} ${'attempt'.padStart(7)} ${'ok'.padStart(5)} ${'fail'.padStart(5)} ${'ms'.padStart(6)}`);
+  console.log('-'.repeat(80));
+  for (const entry of log) {
+    const failStr = entry.failed > 0 ? `\x1b[31m${String(entry.failed).padStart(4)}!\x1b[0m` : `${String(entry.failed).padStart(5)}`;
+    console.log(
+      `${entry.object.padEnd(45)} ${String(entry.attempted).padStart(7)} ${String(entry.succeeded).padStart(5)} ${failStr} ${String(entry.durationMs).padStart(6)}`,
+    );
+  }
+
+  const withErrors = log.filter((e) => e.errorSamples.length > 0);
+  if (withErrors.length === 0) return;
+  console.log(`\n══════════ INSERT ERRORS (${withErrors.length} object(s)) ══════════`);
+  for (const entry of withErrors) {
+    console.log(`\n  \x1b[31m✗ ${entry.object}\x1b[0m — ${entry.failed}/${entry.attempted} failed`);
+    for (const sample of entry.errorSamples) {
+      console.log(`    sample: ${sample.recordSample}`);
+      for (const msg of sample.messages) {
+        console.log(`    \x1b[33m└── ${truncate(msg, 200)}\x1b[0m`);
+      }
+    }
+  }
 }
 
 function extractObjectFromSoql(soql: string): string | null {

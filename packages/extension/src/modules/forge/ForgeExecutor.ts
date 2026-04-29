@@ -123,6 +123,28 @@ export interface ForgeProgressEvent {
   message: string;
 }
 
+/** Sample of a record that failed insertion, with the platform errors. */
+export interface ExecutionErrorSample {
+  /** Compact key=value summary of up to 4 fields (for UI display). */
+  recordSummary: string;
+  /** Error messages returned by Salesforce, one per error on the record. */
+  messages: string[];
+}
+
+/** Aggregated error report for a single object that failed during execution. */
+export interface ExecutionObjectError {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Stage where the failure happened — 'query' (read source), 'insert', 'scope'. */
+  stage: 'query' | 'insert' | 'scope';
+  /** Number of records that failed at this stage. */
+  failedCount: number;
+  /** Total records attempted at this stage (0 for 'scope' stage). */
+  attemptedCount: number;
+  /** Up to 3 sample failures (truncated to keep payloads UI-friendly). */
+  samples: ExecutionErrorSample[];
+}
+
 /** Summary returned after execution completes. */
 export interface ExecutionSummary {
   /** Number of successfully inserted records. */
@@ -133,6 +155,8 @@ export interface ExecutionSummary {
   skippedCount: number;
   /** Total remapped IDs. */
   remapCount: number;
+  /** Per-object error reports — populated whenever any record or object fails. */
+  errors: ExecutionObjectError[];
 }
 
 /**
@@ -229,6 +253,7 @@ export class ForgeExecutor {
 
     const remapper = new IdRemapper();
     const failedObjects = new Set<string>();
+    const errors: ExecutionObjectError[] = [];
 
     let successCount = 0;
     let failedCount = 0;
@@ -299,6 +324,13 @@ export class ForgeExecutor {
           });
           if (!scopeResult.scoped) {
             skippedCount++;
+            errors.push({
+              objectApiName: node.objectApiName,
+              stage: 'scope',
+              failedCount: 0,
+              attemptedCount: 0,
+              samples: [{ recordSummary: '(no record queried)', messages: [scopeResult.reason] }],
+            });
             onProgress({
               objectName: node.objectApiName,
               status: 'skipped',
@@ -355,7 +387,24 @@ export class ForgeExecutor {
         }
 
         // Step 2: Remap lookup IDs, translate RecordTypeId, nullify orphans,
-        //         strip non-createable fields.
+        //         strip non-createable fields. `null` values produced by
+        //         `nullifyOrphanedFks` are omitted from the payload entirely
+        //         — Salesforce treats explicit `null` on required fields as
+        //         "set to null" (rejected) rather than "use default", so
+        //         omitting lets the platform auto-fill OwnerId etc.
+        let targetCreatableSet: Set<string> | null = null;
+        if (!dryRun) {
+          try {
+            const targetFields = await this.deps.describeFields(targetOrgId, node.objectApiName);
+            targetCreatableSet = new Set(targetFields.filter((f) => f.createable).map((f) => f.name));
+          } catch {
+            // describe failed on target — fall back to source schema. Will
+            // surface as INVALID_FIELD errors on insert which the caller can act on.
+          }
+        }
+        const effectiveCreatableSet = targetCreatableSet
+          ? intersect(createableSet, targetCreatableSet)
+          : createableSet;
         let remappedRecords = records.map((r) => {
           let remapped = remapper.remapRecord(r, lookupFields);
           if (referenceFallback === 'nullify') {
@@ -363,9 +412,10 @@ export class ForgeExecutor {
           }
           const cleaned: Record<string, unknown> = {};
           for (const key of Object.keys(remapped)) {
-            if (createableSet.has(key)) {
-              cleaned[key] = remapped[key];
-            }
+            if (!effectiveCreatableSet.has(key)) continue;
+            const value = remapped[key];
+            if (value === null) continue;
+            cleaned[key] = value;
           }
           return cleaned;
         });
@@ -395,6 +445,7 @@ export class ForgeExecutor {
         let nodeSuccess = 0;
         let nodeFailure = 0;
         let recordOffset = 0;
+        const nodeErrorSamples: ExecutionErrorSample[] = [];
 
         for (let b = 0; b < batchCount; b++) {
           await this.waitIfPaused();
@@ -406,7 +457,7 @@ export class ForgeExecutor {
             batch,
           );
 
-          // Step 4: Register new IDs for this batch
+          // Step 4: Register new IDs for this batch + capture failure samples.
           for (let i = 0; i < results.length; i++) {
             const result = results[i];
             if (result.success) {
@@ -417,6 +468,12 @@ export class ForgeExecutor {
               }
             } else {
               nodeFailure++;
+              if (nodeErrorSamples.length < 3) {
+                nodeErrorSamples.push({
+                  recordSummary: summarizeRecordForError(batch[i]),
+                  messages: result.errors,
+                });
+              }
             }
           }
 
@@ -432,6 +489,16 @@ export class ForgeExecutor {
 
         successCount += nodeSuccess;
         failedCount += nodeFailure;
+
+        if (nodeFailure > 0) {
+          errors.push({
+            objectApiName: node.objectApiName,
+            stage: 'insert',
+            failedCount: nodeFailure,
+            attemptedCount: nodeSuccess + nodeFailure,
+            samples: nodeErrorSamples,
+          });
+        }
 
         if (nodeFailure > 0 && nodeSuccess === 0) {
           failedObjects.add(node.objectApiName);
@@ -452,6 +519,13 @@ export class ForgeExecutor {
       } catch (err) {
         failedObjects.add(node.objectApiName);
         failedCount += node.recordCount;
+        errors.push({
+          objectApiName: node.objectApiName,
+          stage: 'query',
+          failedCount: node.recordCount,
+          attemptedCount: node.recordCount,
+          samples: [{ recordSummary: '(stage failed before insert)', messages: [extractErrorMessage(err)] }],
+        });
         onProgress({
           objectName: node.objectApiName,
           status: 'error',
@@ -466,8 +540,45 @@ export class ForgeExecutor {
       failedCount,
       skippedCount,
       remapCount: remapper.count,
+      errors,
     };
   }
+}
+
+/**
+ * Compact key=value summary of a record (first ~4 fields, values truncated)
+ * used for error reporting in {@link ExecutionObjectError.samples}. Keeps
+ * payloads small enough to render in the wizard error panel.
+ */
+function summarizeRecordForError(record: Record<string, unknown>): string {
+  const keys = Object.keys(record).slice(0, 4);
+  const parts: string[] = [];
+  for (const k of keys) {
+    const v = record[k];
+    const str =
+      v === null
+        ? 'null'
+        : typeof v === 'string'
+          ? v.length > 30
+            ? v.slice(0, 30) + '…'
+            : v
+          : String(v);
+    parts.push(`${k}=${str}`);
+  }
+  return parts.join(' ') || '(empty)';
+}
+
+/**
+ * Intersection of two sets — used to take the safe subset of fields that
+ * exist as createable on BOTH the source and target orgs (defends against
+ * schema drift between sandboxes).
+ */
+function intersect(a: Set<string>, b: Set<string>): Set<string> {
+  const result = new Set<string>();
+  for (const v of a) {
+    if (b.has(v)) result.add(v);
+  }
+  return result;
 }
 
 /**
