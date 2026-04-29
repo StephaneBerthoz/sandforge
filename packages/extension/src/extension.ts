@@ -215,7 +215,16 @@ export function activate(context: vscode.ExtensionContext): void {
           queryable: true,
           createable: f.createable ?? false,
           isReference: f.type === 'reference',
+          referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
+          nillable: f.nillable ?? true,
         }));
+      },
+      isObjectCreatable: async (orgId, objectName) => {
+        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+        const meta = await conn.describe(objectName);
+        // Default to true when jsforce omits the flag — only opt out when
+        // the org explicitly says false (read-only system entities).
+        return meta.createable !== false;
       },
       batchStrategy: batchStrategyService,
       anonymize: (records, objectApiName) => {

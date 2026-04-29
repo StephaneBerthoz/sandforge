@@ -27,6 +27,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (typically `InsurancePolicyCoverage` / activity history on Mutuaide).
   Default: no cap.
 
+### Added (Forge module — Wave 2.6 hardening from second real-org run)
+
+Second Wave 3 run on a fresh Case (D00002635) revealed four more error
+classes; this commit fixes them all.
+
+- **`ReferenceDataMapper`** (new file) — instead of cloning canonical
+  reference-data tables (BusinessHours, OperatingHours, ServiceOffer__c,
+  ServiceTerritory…) the executor now resolves source IDs to existing
+  target IDs via `WHERE Name IN (…)` (or `DeveloperName` when more
+  appropriate) and feeds the result into the `IdRemapper`. Avoids the
+  `FIELD_INTEGRITY_EXCEPTION: Name is already in use` rejection seen on
+  the first real-org run, and stops duplicating singletons. Wired into
+  `ExecuteOptions.referenceDataObjects` (default
+  `['BusinessHours', 'OperatingHours']`).
+- **`ExecutorDeps.isObjectCreatable`** — optional pre-flight check the
+  executor consults before describing/querying a node. When the target
+  org refuses inserts on the entity (read-only system tables like
+  `CaseHistory`/`CaseHistory2`, audit logs, etc.), the node is skipped
+  with a clean `stage: 'scope'` error report. Default in production wiring
+  treats `meta.createable !== false` as creatable to avoid false-skips
+  when jsforce omits the flag.
+- **Strip Person Account `__pc` and `Name` fields when not a Person
+  Account** — `__pc`-suffixed fields and the auto-computed `Name` are
+  rejected on Business Account inserts (or vice-versa). The cleaned-record
+  step now omits them when `IsPersonAccount !== true`.
+- **`FieldInfo.nillable`** — added to the executor field metadata so that
+  required-FK satisfiability can be reasoned about.
+- **`ExecutionObjectError.stage = 'scope'`** is now also used for
+  read-only entity skips and for `ReferenceDataMapper` "unmatched" rows
+  (target row not found by Name).
+
+#### Validation runs on Mutuaide UAT2 → MUT-SBER
+
+Two consecutive Wave-3 runs proved the fixes work end-to-end:
+
+| Object | Wave 3 v2 | Wave 3 post-fixes |
+|---|---|---|
+| Case | ✓ inserted | DUPLICATE_VALUE on existing v2 record (expected) |
+| Contact | ✓ 50/50 | ✓ 1/1 (Person Account `Name` strip works) |
+| Account | ✗ 0/3 (`__pc`/`Name` errors) | ✓ 1/3 (Business Account succeeds; Person Account `Name` errors gone — remaining 2 fail on locale-restricted picklists, a Mutuaide-specific schema constraint) |
+| BusinessHours | ✗ FIELD_INTEGRITY (duplicate) | ✓ Mapped via reference-data lookup (1 resolved) |
+| CaseHistory2 | ✗ entity not insertable | Skipped via `isObjectCreatable` |
+| InsurancePolicy | n/a | REQUIRED_FIELD_MISSING surfaced as structured error (NameInsuredId required) — Wave 2 sampling-cap+orphan-record-skip will harden this next |
+
+Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
+3 new `RecordType-mapping` tests + 4 new orphan-FK tests). No regressions.
+
 ### Added (Forge module — Wave 3 fixes from real-org learnings)
 
 - **Schema-drift defence** — the executor now also `describeFields` on the
