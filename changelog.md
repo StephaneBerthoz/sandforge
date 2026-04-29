@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Forge module — record-scoped clone, Wave 1 POC)
+
+- **`RecordScopeCache`** — per-execution cache (`Map<objectApiName, Set<recordId>>`) that records IDs collected from each wave so downstream nodes can scope their queries to the transitive closure of the root record.
+- **`ScopedSoqlBuilder`** — emits SOQL with `WHERE Id = '<rootId>'` for the root, `WHERE Id IN (...)` for objects already cached (including parent FK values seeded from earlier records), `WHERE FK IN (...)` for children of cached parents, or a zero-result query when no scoping path exists. Excluded targets (User, RecordType, ChangeEvent…) are filtered out so they never participate in scope SOQL.
+- **`ForgeExecutor` scoped + dry-run modes** — new `ExecuteOptions { rootRecordId, rootObjectApiName, dryRun }` parameter. When `rootRecordId` is set the executor switches to scoped mode: seeds the cache with the root, brings the root to the front of the topo order (so cycle waves don't starve the cache), uses `ScopedSoqlBuilder` per node, and propagates FK values from each query into the cache for multi-hop downstream scoping. `dryRun: true` runs every query but skips inserts — used by the recipe to preview cloning before any write.
+- **`FieldInfo.referenceTo`** — optional field on the executor describe contract so scope reasoning knows which parent each lookup points at (polymorphic-aware).
+- **`tools/recipe-forge-grappe.ts` Phase B** — read-only scoped dry-run report. Replaying the production executor against MUT-UAT2 → MUT-SBER for Case `500AP00000fXeQsYAK`: **261 858 records → 358** (−99.86%), 19 scoped queries, 0 write, 2 out-of-scope nodes correctly skipped.
+- **`.planning/improvements/forge-record-scoped/PLAN.md`** — roadmap for Wave 2 hardening (IN chunking, reverse-lookup propagation, cycle handling, orphan strategies, sampling cap) and Wave 3 real execution.
+
 ### Fixed (Forge module)
 
 - **Phantom 49-node SCC** in `GraphDiscoveryService` — `field.referenceTo` and `child.childRelationships` were emitting two edges per relationship in opposing directions, fooling Tarjan SCC into treating most of the graph as a single cycle. Edges are now unified as `parent→child` and deduped by `(source, target)`, with master-detail preferred over lookup on conflict.

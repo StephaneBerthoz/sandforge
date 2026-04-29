@@ -3,6 +3,8 @@ import { IdRemapper } from './IdRemapper.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from './ForgeBatchStrategy.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { RecordScopeCache } from './RecordScopeCache.js';
+import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
 
 /** Result of a single record insert operation. */
 export interface InsertResult {
@@ -24,6 +26,32 @@ export interface FieldInfo {
   createable: boolean;
   /** Whether the field is a reference (lookup/master-detail). */
   isReference: boolean;
+  /**
+   * Objects this reference field can point to (one entry for monomorphic,
+   * many for polymorphic fields like Task.WhatId). Only meaningful when
+   * `isReference === true`. Required for scope-aware execution; optional
+   * for legacy (full-table) execution.
+   */
+  referenceTo?: string[];
+}
+
+/** Optional execution mode parameters. */
+export interface ExecuteOptions {
+  /**
+   * The root record ID supplied by the user (`ForgeConfig.recordId`). When
+   * provided alongside `rootObjectApiName`, the executor enters
+   * **record-scoped mode**: queries are restricted to the transitive closure
+   * of this record instead of cloning every row of every table.
+   */
+  rootRecordId?: string;
+  /** API name of the root object (resolved from the record ID prefix). */
+  rootObjectApiName?: string;
+  /**
+   * When true, the executor still queries source records and populates the
+   * scope cache, but skips all writes to the target org. Used by the recipe
+   * to preview what *would* happen before committing real writes.
+   */
+  dryRun?: boolean;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -137,12 +165,26 @@ export class ForgeExecutor {
     sourceOrgId: string,
     targetOrgId: string,
     onProgress: (event: ForgeProgressEvent) => void,
+    options?: ExecuteOptions,
   ): Promise<ExecutionSummary> {
     this.isAborted = false;
     this.isPaused = false;
     this.pauseResolve = null;
 
-    const sortedNodes = topologicalSort(graph);
+    const isScoped = !!(options?.rootRecordId && options.rootObjectApiName);
+    const dryRun = options?.dryRun ?? false;
+    const scopeCache = isScoped ? new RecordScopeCache() : null;
+    const scopedBuilder = isScoped ? new ScopedSoqlBuilder() : null;
+
+    if (scopeCache && options?.rootRecordId && options.rootObjectApiName) {
+      scopeCache.add(options.rootObjectApiName, [options.rootRecordId]);
+    }
+
+    let sortedNodes = topologicalSort(graph);
+    if (isScoped && options?.rootObjectApiName) {
+      sortedNodes = bringRootToFront(sortedNodes, options.rootObjectApiName);
+    }
+
     const remapper = new IdRemapper();
     const failedObjects = new Set<string>();
 
@@ -195,8 +237,76 @@ export class ForgeExecutor {
           queryFields.push('Id');
         }
 
-        const soql = `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(node.objectApiName)}`;
+        let soql: string;
+        if (scopedBuilder && scopeCache && options?.rootObjectApiName && options.rootRecordId) {
+          const scopeFields = fieldInfos
+            .filter((f) => f.isReference)
+            .map((f) => ({
+              name: f.name,
+              type: 'reference',
+              referenceTo: f.referenceTo ?? [],
+            }));
+          const scopeResult = scopedBuilder.build({
+            node,
+            fields: scopeFields,
+            selectFields: queryFields,
+            edges: graph.edges,
+            cache: scopeCache,
+            rootObjectApiName: options.rootObjectApiName,
+            rootRecordId: options.rootRecordId,
+          });
+          if (!scopeResult.scoped) {
+            skippedCount++;
+            onProgress({
+              objectName: node.objectApiName,
+              status: 'skipped',
+              progress: 100,
+              message: `Skipped ${node.objectApiName} (out of scope: ${scopeResult.reason})`,
+            });
+            continue;
+          }
+          soql = scopeResult.soql;
+        } else {
+          soql = `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(node.objectApiName)}`;
+        }
+
         const records = await this.deps.queryRecords(sourceOrgId, soql);
+
+        // Seed cache with this node's IDs and extract FK values for downstream
+        // multi-hop scoping (e.g. Case.AccountId → Account, then Account.OwnerId → User).
+        if (scopeCache) {
+          const ownIds: string[] = [];
+          for (const rec of records) {
+            const id = rec['Id'];
+            if (typeof id === 'string' && id) ownIds.push(id);
+          }
+          scopeCache.add(node.objectApiName, ownIds);
+
+          const refFieldsWithTargets = fieldInfos.filter(
+            (f) => f.isReference && f.referenceTo && f.referenceTo.length > 0,
+          );
+          for (const field of refFieldsWithTargets) {
+            const targets = field.referenceTo ?? [];
+            for (const rec of records) {
+              const value = rec[field.name];
+              if (typeof value !== 'string' || !value) continue;
+              for (const target of targets) {
+                scopeCache.add(target, [value]);
+              }
+            }
+          }
+        }
+
+        if (dryRun) {
+          onProgress({
+            objectName: node.objectApiName,
+            status: 'done',
+            progress: 100,
+            message: `[dry-run] ${node.objectApiName}: ${records.length} record(s) would be inserted`,
+          });
+          successCount += records.length;
+          continue;
+        }
 
         // Step 2: Remap lookup IDs and strip non-createable fields
         let remappedRecords = records.map((r) => {
@@ -305,6 +415,24 @@ export class ForgeExecutor {
       remapCount: remapper.count,
     };
   }
+}
+
+/**
+ * Reorder a topologically sorted list so the root object comes first while
+ * preserving the relative order of all other nodes. Used in record-scoped
+ * mode to guarantee the root record (and the FK values it carries) populate
+ * the scope cache before any sibling node from the same cycle wave runs.
+ */
+function bringRootToFront(
+  nodes: ForgeGraphNode[],
+  rootObjectApiName: string,
+): ForgeGraphNode[] {
+  const rootIndex = nodes.findIndex((n) => n.objectApiName === rootObjectApiName);
+  if (rootIndex <= 0) return nodes;
+  const reordered = [...nodes];
+  const [root] = reordered.splice(rootIndex, 1);
+  reordered.unshift(root);
+  return reordered;
 }
 
 /**

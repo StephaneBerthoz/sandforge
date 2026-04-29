@@ -23,6 +23,8 @@ import type {
   FieldDescribe as GraphFieldDescribe,
 } from '../src/modules/forge/GraphDiscoveryService.js';
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
+import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
+import type { ForgeExecutorDeps, FieldInfo } from '../src/modules/forge/ForgeExecutor.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 
 interface SfOrg {
@@ -288,10 +290,132 @@ async function main(): Promise<void> {
 
   printAnomalies(graph);
 
+  console.log(`\n[${new Date().toISOString()}] Phase B — scoped dry-run starting…`);
+  const phaseBStart = Date.now();
+  const queryLog: QueryLogEntry[] = [];
+  const skipLog: string[] = [];
+
+  const rootObjectApiName = graph.nodes[0]?.objectApiName;
+  if (!rootObjectApiName) {
+    console.log('  (no root node in graph — skipping Phase B)');
+  } else {
+    const executorDeps: ForgeExecutorDeps = {
+      queryRecords: async (orgId, soql) => {
+        const conn = connections.get(orgId);
+        if (!conn) throw new Error(`No connection for ${orgId}`);
+        const t = Date.now();
+        try {
+          const result = await conn.query<Record<string, unknown>>(soql);
+          queryLog.push({
+            object: extractObjectFromSoql(soql) ?? 'UNKNOWN',
+            soql,
+            count: result.totalSize,
+            durationMs: Date.now() - t,
+          });
+          return result.records;
+        } catch (err) {
+          queryLog.push({
+            object: extractObjectFromSoql(soql) ?? 'UNKNOWN',
+            soql,
+            count: -1,
+            durationMs: Date.now() - t,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return [];
+        }
+      },
+      insertRecords: async () => {
+        throw new Error('insertRecords called in dry-run mode — should not happen');
+      },
+      describeFields: async (orgId, objectName) => {
+        const conn = connections.get(orgId);
+        if (!conn) throw new Error(`No connection for ${orgId}`);
+        const meta = await conn.sobject(objectName).describe();
+        return meta.fields.map<FieldInfo>((f) => ({
+          name: f.name,
+          queryable: true,
+          createable: f.createable ?? false,
+          isReference: f.type === 'reference',
+          referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
+        }));
+      },
+    };
+
+    const executor = new ForgeExecutor(executorDeps);
+
+    await executor.execute(
+      graph,
+      source.alias,
+      target.alias,
+      (event) => {
+        if (event.status === 'skipped' && event.message.includes('out of scope')) {
+          skipLog.push(`  ${event.objectName.padEnd(45)} ${event.message}`);
+        }
+      },
+      {
+        rootRecordId: SCENARIO.recordId,
+        rootObjectApiName,
+        dryRun: true,
+      },
+    );
+
+    printPhaseB(queryLog, skipLog, Date.now() - phaseBStart);
+  }
+
   console.log(`\n══════════ SUMMARY ══════════`);
   console.log(`Total wallclock: ${Date.now() - t0}ms`);
-  console.log(`Discovery: ${tDiscovery}ms  |  Plan: ${Date.now() - t0 - tDiscovery}ms`);
+  console.log(`Discovery: ${tDiscovery}ms  |  Plan + Phase B: ${Date.now() - t0 - tDiscovery}ms`);
   console.log(`READ-ONLY recipe — no records were written to ${target.alias}.`);
+}
+
+interface QueryLogEntry {
+  object: string;
+  soql: string;
+  count: number;
+  durationMs: number;
+  error?: string;
+}
+
+function extractObjectFromSoql(soql: string): string | null {
+  const m = /FROM\s+([A-Za-z_][A-Za-z0-9_]*)/i.exec(soql);
+  return m ? m[1] : null;
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + '…';
+}
+
+function printPhaseB(log: QueryLogEntry[], skipped: string[], totalMs: number): void {
+  const totalRecords = log.reduce((sum, e) => sum + (e.count > 0 ? e.count : 0), 0);
+  const errorCount = log.filter((e) => e.error).length;
+
+  console.log(`\n══════════ PHASE B — SCOPED DRY-RUN (${totalMs}ms) ══════════`);
+  console.log(`Queries executed: ${log.length}  |  Records would be cloned: ${totalRecords}  |  Errors: ${errorCount}`);
+  console.log(`Skipped out-of-scope nodes: ${skipped.length}`);
+  console.log(`\n${'object'.padEnd(45)} ${'count'.padStart(7)} ${'ms'.padStart(6)}  soql (truncated)`);
+  console.log('-'.repeat(140));
+  const sorted = [...log].sort((a, b) => (b.count > 0 ? b.count : 0) - (a.count > 0 ? a.count : 0));
+  for (const entry of sorted) {
+    const countStr = entry.error
+      ? '\x1b[31mERR\x1b[0m'.padStart(7)
+      : entry.count === 0
+        ? '\x1b[2m  0\x1b[0m'.padStart(7)
+        : String(entry.count).padStart(7);
+    const soql = truncate(entry.soql.replace(/\s+/g, ' '), 80);
+    console.log(`${entry.object.padEnd(45)} ${countStr} ${String(entry.durationMs).padStart(6)}  ${soql}`);
+    if (entry.error) {
+      console.log(`  \x1b[31m└── ${truncate(entry.error, 130)}\x1b[0m`);
+    }
+  }
+
+  if (skipped.length > 0 && skipped.length <= 30) {
+    console.log(`\n── Skipped (out of scope) ──`);
+    for (const s of skipped) console.log(s);
+  } else if (skipped.length > 30) {
+    console.log(`\n── ${skipped.length} skipped (truncated, first 10) ──`);
+    for (const s of skipped.slice(0, 10)) console.log(s);
+  }
 }
 
 main().catch((err) => {
