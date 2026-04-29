@@ -46,10 +46,12 @@ const SCENARIO = {
   skipEmpty: true,
   apiVersion: '66.0',
   /** When true, the recipe runs read-only (Phase B preview). When false, the
-   *  executor performs real inserts on the target org (Wave 3). */
-  dryRun: false,
-  /** Per-object hard cap for Wave 3. Keeps the blast radius bounded for
-   *  the first real exec while we learn what breaks. */
+   *  executor performs real inserts on the target org (Wave 3). Default
+   *  back to true after a successful Wave 3 run so a re-run never
+   *  accidentally re-clones records into SBER. */
+  dryRun: true,
+  /** Per-object hard cap. Keeps the blast radius bounded when Wave 3 is
+   *  enabled. Tune up once orphan / ref-data / FLS edge cases are hardened. */
   maxRecordsPerObject: 50,
 };
 
