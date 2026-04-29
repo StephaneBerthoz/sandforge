@@ -81,6 +81,16 @@ export interface ExecuteOptions {
    * happen to share that ID).
    */
   recordTypeMappings?: RecordTypeMapping[];
+  /**
+   * Optional per-object hard cap on the number of records to clone. When
+   * set (and > 0), the executor appends `LIMIT N` to every scoped query.
+   * Useful for keeping dev-sized clones bounded even when a node's scope
+   * naturally pulls thousands of rows (e.g. `InsurancePolicyCoverage`).
+   *
+   * Records are picked by Salesforce's natural row order — caller can
+   * influence this via SOQL hints in a future iteration.
+   */
+  maxRecordsPerObject?: number;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -300,6 +310,10 @@ export class ForgeExecutor {
           soql = scopeResult.soql;
         } else {
           soql = `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(node.objectApiName)}`;
+        }
+
+        if (options?.maxRecordsPerObject && options.maxRecordsPerObject > 0) {
+          soql += ` LIMIT ${Math.floor(options.maxRecordsPerObject)}`;
         }
 
         const records = await this.deps.queryRecords(sourceOrgId, soql);

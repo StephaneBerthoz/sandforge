@@ -607,6 +607,44 @@ describe('ForgeExecutor', () => {
     });
   });
 
+  describe('maxRecordsPerObject (sampling cap)', () => {
+    const ROOT_ID = '500AP00000fXeQsYAK';
+
+    it('appends LIMIT N to scoped SOQL when maxRecordsPerObject is set', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        maxRecordsPerObject: 50,
+      });
+
+      const queryCalls = vi.mocked(deps.queryRecords).mock.calls;
+      expect(queryCalls[0][1]).toContain('LIMIT 50');
+    });
+
+    it('does not append LIMIT when maxRecordsPerObject is undefined or 0', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+      const noLimitCalls = vi.mocked(deps.queryRecords).mock.calls;
+      expect(noLimitCalls[0][1]).not.toContain('LIMIT');
+
+      vi.mocked(deps.queryRecords).mockClear();
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        maxRecordsPerObject: 0,
+      });
+      const zeroLimitCalls = vi.mocked(deps.queryRecords).mock.calls;
+      expect(zeroLimitCalls[0][1]).not.toContain('LIMIT');
+    });
+  });
+
   describe('RecordType mapping', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
     const SOURCE_RT = '012SOURCE000001';

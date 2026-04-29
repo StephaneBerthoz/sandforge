@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keep the source value (Salesforce will reject if not shared). The recipe
   pre-loads RecordTypes from both orgs and surfaces the mapping count in
   Phase B (e.g. `268 RecordType mapping(s) resolved` for MUT-UAT2 ↔ MUT-SBER).
+- **`ExecuteOptions.maxRecordsPerObject`** — optional per-object hard cap
+  appended as `LIMIT N` to every scoped query. Keeps dev-sized clones
+  bounded even when a node's natural scope pulls thousands of rows
+  (typically `InsurancePolicyCoverage` / activity history on Mutuaide).
+  Default: no cap.
 
 ### Added (Forge module — record-scoped clone, Wave 1 POC)
 
