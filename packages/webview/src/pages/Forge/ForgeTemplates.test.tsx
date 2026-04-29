@@ -65,10 +65,12 @@ describe('ForgeTemplates', () => {
     mockTemplates = [];
   });
 
-  it('should render empty state when no templates', () => {
+  it('should render builtin starter templates even when no user templates exist', () => {
     render(<ForgeTemplates />);
     expect(screen.getByTestId('forge-templates')).toBeDefined();
-    expect(screen.getByText('No saved templates yet')).toBeDefined();
+    // Builtins always render — Account 360 / Case Workflow / Lead → Opportunity
+    const builtins = screen.getAllByTestId('forge-template-builtin');
+    expect(builtins.length).toBeGreaterThanOrEqual(3);
   });
 
   it('should render template list when templates exist', () => {
@@ -79,17 +81,22 @@ describe('ForgeTemplates', () => {
     expect(screen.getByText('Clones accounts with contacts')).toBeDefined();
   });
 
-  it('should render use and delete buttons per template', () => {
+  it('should render use button on every template and delete only on user-saved ones', () => {
     mockTemplates = [sampleTemplate];
     render(<ForgeTemplates />);
-    expect(screen.getByTestId('forge-use-template')).toBeDefined();
-    expect(screen.getByTestId('forge-delete-template')).toBeDefined();
+    // 3 builtins + 1 user-saved = at least 4 use buttons
+    expect(screen.getAllByTestId('forge-use-template').length).toBeGreaterThanOrEqual(4);
+    // Only the user-saved one shows a delete button
+    const deletes = screen.getAllByTestId('forge-delete-template');
+    expect(deletes.length).toBe(1);
   });
 
-  it('should set config and navigate to discovery when use template is clicked', () => {
+  it('should set config and navigate to discovery when a user use template is clicked', () => {
     mockTemplates = [sampleTemplate];
     render(<ForgeTemplates />);
-    fireEvent.click(screen.getByTestId('forge-use-template'));
+    // Builtins come first; the user template is last in the list
+    const useButtons = screen.getAllByTestId('forge-use-template');
+    fireEvent.click(useButtons[useButtons.length - 1]);
     expect(mockSetConfig).toHaveBeenCalledWith({
       ...sampleTemplate.config,
       sourceOrgId: '',
