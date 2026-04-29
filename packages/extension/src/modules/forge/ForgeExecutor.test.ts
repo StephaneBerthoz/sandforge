@@ -413,4 +413,185 @@ describe('ForgeExecutor', () => {
       expect(errorEvents[0].message).toContain('aborted');
     });
   });
+
+  describe('record-scoped mode', () => {
+    const ROOT_ID = '500AP00000fXeQsYAK';
+
+    it('should query the root with WHERE Id = ? when rootRecordId is provided', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, Subject: 'Test', AccountId: '001AAA' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Subject', queryable: true, createable: true, isReference: false },
+        { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      expect(deps.queryRecords).toHaveBeenCalledWith(
+        'src',
+        `SELECT Id, Subject, AccountId FROM Case WHERE Id = '${ROOT_ID}'`,
+      );
+    });
+
+    it('should skip nodes that are out of scope', async () => {
+      const graph = makeGraph(
+        [makeNode('Case'), makeNode('Product2')],
+        [],
+      );
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID }]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      // Product2 has no path to Case via cache → should be skipped, not queried.
+      expect(summary.skippedCount).toBeGreaterThanOrEqual(1);
+      const product2Skipped = progressEvents.find(
+        (e) => e.objectName === 'Product2' && e.status === 'skipped',
+      );
+      expect(product2Skipped?.message).toContain('out of scope');
+    });
+
+    it('should propagate FK values from root to seed parent cache for multi-hop scope', async () => {
+      const graph = makeGraph(
+        [makeNode('Case'), makeNode('Account')],
+        [
+          { sourceObject: 'Account', targetObject: 'Case', relationshipName: 'Account', type: 'lookup' },
+        ],
+      );
+      vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+        if (name === 'Case') {
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+          ];
+        }
+        return [
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'Name', queryable: true, createable: true, isReference: false },
+        ];
+      });
+      vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+        if (soql.includes('FROM Case')) {
+          return [{ Id: ROOT_ID, AccountId: '001AAA' }];
+        }
+        if (soql.includes('FROM Account')) {
+          return [{ Id: '001AAA', Name: 'Acme' }];
+        }
+        return [];
+      });
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      const accountCall = vi
+        .mocked(deps.queryRecords)
+        .mock.calls.find((c) => c[1].includes('FROM Account'));
+      expect(accountCall).toBeDefined();
+      expect(accountCall![1]).toContain("Id IN ('001AAA')");
+    });
+
+    it('should bring the root to the front of topo order regardless of cycle bucketing', async () => {
+      const graph = makeGraph(
+        [makeNode('Case'), makeNode('Account')],
+        // cycle: each references the other
+        [
+          { sourceObject: 'Account', targetObject: 'Case', relationshipName: 'Account', type: 'lookup' },
+          { sourceObject: 'Case', targetObject: 'Account', relationshipName: 'Cases', type: 'lookup' },
+        ],
+      );
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID }]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      const queryCalls = vi.mocked(deps.queryRecords).mock.calls.map((c) => c[1]);
+      const caseIndex = queryCalls.findIndex((s) => s.includes('FROM Case'));
+      const accountIndex = queryCalls.findIndex((s) => s.includes('FROM Account'));
+      expect(caseIndex).toBeGreaterThanOrEqual(0);
+      expect(caseIndex).toBeLessThan(accountIndex >= 0 ? accountIndex : Infinity);
+    });
+  });
+
+  describe('dryRun mode', () => {
+    const ROOT_ID = '500AP00000fXeQsYAK';
+
+    it('should query source records but never call insertRecords', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID, Name: 'Test' }]);
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        dryRun: true,
+      });
+
+      expect(deps.queryRecords).toHaveBeenCalled();
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+      expect(summary.successCount).toBe(1);
+    });
+
+    it('should emit a [dry-run] message in progress events', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID }]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        dryRun: true,
+      });
+
+      const dryRunEvent = progressEvents.find((e) => e.message.includes('[dry-run]'));
+      expect(dryRunEvent).toBeDefined();
+      expect(dryRunEvent?.status).toBe('done');
+    });
+
+    it('should still populate scope cache so downstream nodes can scope', async () => {
+      const graph = makeGraph(
+        [makeNode('Case'), makeNode('CaseHistory')],
+        [
+          { sourceObject: 'Case', targetObject: 'CaseHistory', relationshipName: 'Histories', type: 'lookup' },
+        ],
+      );
+      vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+        if (name === 'Case') {
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+          ];
+        }
+        return [
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'CaseId', queryable: true, createable: true, isReference: true, referenceTo: ['Case'] },
+        ];
+      });
+      vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+        if (soql.includes('FROM Case ')) return [{ Id: ROOT_ID }];
+        if (soql.includes('FROM CaseHistory')) return [];
+        return [];
+      });
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        dryRun: true,
+      });
+
+      const historyCall = vi
+        .mocked(deps.queryRecords)
+        .mock.calls.find((c) => c[1].includes('FROM CaseHistory'));
+      expect(historyCall).toBeDefined();
+      expect(historyCall![1]).toContain(`CaseId IN ('${ROOT_ID}')`);
+    });
+  });
 });
