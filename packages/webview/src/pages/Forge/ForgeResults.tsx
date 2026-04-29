@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Copy, Save, RotateCcw, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { Copy, Save, RotateCcw, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, FileText, AlertTriangle } from 'lucide-react';
+import type { ForgeExecutionError } from '@sandforge/shared';
 import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
 import { LogStream } from '../../components/ui/LogStream';
@@ -324,6 +325,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         </div>
       </motion.div>
 
+      {/* Structured execution errors (Wave 2.6 — grouped by object/stage) */}
+      {result?.errors && result.errors.length > 0 && (
+        <ForgeErrorsPanel errors={result.errors} />
+      )}
+
       {/* Collapsible execution logs */}
       {logs.length > 0 && (
         <motion.div variants={slideUp} initial="hidden" animate="visible">
@@ -399,5 +405,108 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         </Button>
       </motion.div>
     </div>
+  );
+};
+
+/** Stage label colour and human-readable text. */
+const stageStyles: Record<ForgeExecutionError['stage'], { label: string; cls: string }> = {
+  insert: { label: 'Insert', cls: 'bg-red-500/20 text-red-400' },
+  query: { label: 'Query', cls: 'bg-orange-500/20 text-orange-400' },
+  scope: { label: 'Scope', cls: 'bg-yellow-500/20 text-yellow-400' },
+};
+
+/**
+ * Structured errors panel — surfaces `ForgeExecutionResult.errors` from the
+ * executor (Wave 2.6) grouped by object and stage, with up to three sample
+ * failures and the raw Salesforce status codes. Lets the user see exactly
+ * which fields/records broke without re-running the operation.
+ */
+const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors }) => {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const toggleExpand = useCallback((key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const totals = useMemo(() => {
+    let totalFailed = 0;
+    for (const e of errors) totalFailed += e.failedCount;
+    return totalFailed;
+  }, [errors]);
+
+  return (
+    <motion.div
+      variants={slideUp}
+      initial="hidden"
+      animate="visible"
+      data-testid="forge-errors-panel"
+      className="rounded-lg border border-red-500/30 bg-red-500/5"
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-red-500/20">
+        <AlertTriangle size={16} className="text-red-400" />
+        <h3 className="text-sm font-semibold text-text-primary">
+          {t('forge.errorsPanel.title', { defaultValue: 'Execution errors' })}
+        </h3>
+        <span className="text-xs text-text-muted ml-auto tabular-nums">
+          {errors.length} {t('forge.object', { defaultValue: 'objects' })} · {totals} {t('forge.records', { defaultValue: 'records' })}
+        </span>
+      </div>
+      <ul className="divide-y divide-red-500/10">
+        {errors.map((err) => {
+          const key = `${err.objectApiName}__${err.stage}`;
+          const isOpen = expanded.has(key);
+          const stage = stageStyles[err.stage];
+          return (
+            <li key={key} data-testid="forge-errors-row" className="px-4 py-2">
+              <button
+                type="button"
+                onClick={() => toggleExpand(key)}
+                className="w-full flex items-center gap-2 text-left text-sm hover:text-text-primary transition-colors"
+                aria-expanded={isOpen}
+              >
+                <ChevronRight
+                  size={14}
+                  className={cn('transition-transform shrink-0', isOpen && 'rotate-90')}
+                />
+                <span className="font-mono text-text-primary truncate">{err.objectApiName}</span>
+                <span className={cn('inline-block rounded-full px-2 py-0.5 text-xs font-medium', stage.cls)}>
+                  {stage.label}
+                </span>
+                <span className="ml-auto text-xs text-text-secondary tabular-nums">
+                  {err.failedCount}{err.attemptedCount > 0 ? `/${err.attemptedCount}` : ''}
+                </span>
+              </button>
+              {isOpen && err.samples.length > 0 && (
+                <div className="mt-2 ml-6 space-y-2 text-xs" data-testid="forge-errors-samples">
+                  {err.samples.map((sample, idx) => (
+                    <div
+                      key={idx}
+                      className="rounded border border-red-500/20 bg-surface-1 px-3 py-2"
+                    >
+                      <div className="font-mono text-text-secondary mb-1 break-all">
+                        {sample.recordSummary}
+                      </div>
+                      <ul className="space-y-1">
+                        {sample.messages.map((msg, mi) => (
+                          <li key={mi} className="text-red-300 break-words">
+                            └ {msg}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </motion.div>
   );
 };
