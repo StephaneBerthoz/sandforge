@@ -19,6 +19,16 @@ export interface InsertResult {
   errors: string[];
 }
 
+/** Result of a single record update operation. */
+export interface UpdateResult {
+  /** Salesforce record ID that was updated. */
+  id: string;
+  /** Whether the update succeeded. */
+  success: boolean;
+  /** Error messages if the update failed. */
+  errors: string[];
+}
+
 /** Field metadata returned by describeFields. */
 export interface FieldInfo {
   /** Field API name. */
@@ -128,6 +138,18 @@ export interface ForgeExecutorDeps {
     objectName: string,
     records: Record<string, unknown>[],
   ) => Promise<InsertResult[]>;
+  /**
+   * Update existing records on a Salesforce org. Used by Wave 2 v3 cycle
+   * handling: when a record was inserted with a nullified cycle FK, the
+   * second pass patches the FK to the now-cloned parent's target ID via
+   * this method. Optional — when omitted, the executor skips the
+   * second-pass UPDATE and surfaces the missing FKs in the error report.
+   */
+  updateRecords?: (
+    orgId: string,
+    objectName: string,
+    records: Record<string, unknown>[],
+  ) => Promise<UpdateResult[]>;
   /** Get field metadata for an object (queryable, createable, reference flags). */
   describeFields: (orgId: string, objectName: string) => Promise<FieldInfo[]>;
   /**
@@ -293,6 +315,15 @@ export class ForgeExecutor {
     const remapper = new IdRemapper();
     const failedObjects = new Set<string>();
     const errors: ExecutionObjectError[] = [];
+
+    /** Records inserted with nullified cycle FKs — patched in pass 2. */
+    interface PendingFkUpdate {
+      objectApiName: string;
+      newId: string;
+      fieldName: string;
+      sourceRefId: string;
+    }
+    const pendingFkUpdates: PendingFkUpdate[] = [];
 
     let successCount = 0;
     let failedCount = 0;
@@ -528,11 +559,19 @@ export class ForgeExecutor {
         // Build cleaned records for insert. Strip non-createable fields,
         // omit nullified orphan FKs, and remove Person Account __pc fields
         // when the record itself isn't a Person Account.
-        type Built = { source: Record<string, unknown>; cleaned: Record<string, unknown> };
+        type Built = {
+          source: Record<string, unknown>;
+          cleaned: Record<string, unknown>;
+          /** FKs that were nullified — used by 2-pass cycle UPDATE. */
+          nullifiedFks: NullifiedFk[];
+        };
         const built: Built[] = records.map((r) => {
           let remapped = remapper.remapRecord(r, lookupFields);
+          let nullifiedFks: NullifiedFk[] = [];
           if (referenceFallback === 'nullify') {
-            remapped = nullifyOrphanedFks(remapped, fieldInfos, remapper);
+            const result = nullifyOrphanedFks(remapped, fieldInfos, remapper);
+            remapped = result.record;
+            nullifiedFks = result.nullified;
           }
           const isPersonAccount = remapped['IsPersonAccount'] === true;
           const cleaned: Record<string, unknown> = {};
@@ -559,7 +598,7 @@ export class ForgeExecutor {
             }
             cleaned[key] = value;
           }
-          return { source: r, cleaned };
+          return { source: r, cleaned, nullifiedFks };
         });
         const filteredRecords = built;
         let remappedRecords = filteredRecords.map((b) => b.cleaned);
@@ -608,9 +647,22 @@ export class ForgeExecutor {
             const result = results[i];
             if (result.success) {
               nodeSuccess++;
-              const oldId = filteredRecords[recordOffset + i]?.source['Id'];
+              const built = filteredRecords[recordOffset + i];
+              const oldId = built?.source['Id'];
               if (typeof oldId === 'string') {
                 remapper.add(oldId, result.id);
+              }
+              // Wave 2 v3 — record nullified FKs so pass 2 can patch them
+              // once the parent target is in the IdRemapper.
+              if (built && built.nullifiedFks.length > 0) {
+                for (const nf of built.nullifiedFks) {
+                  pendingFkUpdates.push({
+                    objectApiName: node.objectApiName,
+                    newId: result.id,
+                    fieldName: nf.field,
+                    sourceRefId: nf.sourceRefId,
+                  });
+                }
               }
             } else {
               nodeFailure++;
@@ -681,6 +733,87 @@ export class ForgeExecutor {
       }
     }
 
+    // Pass 2 — patch nullified cycle FKs whose targets are now cloned.
+    // Without this, records inserted with `Foo.BarId = null` (because Bar
+    // had not been cloned yet at insert time) would stay disconnected. We
+    // group pending updates by (objectApiName, newId) so multiple FK fields
+    // on the same record collapse to a single UPDATE call, then dispatch
+    // through `deps.updateRecords` in a per-object batch.
+    if (!dryRun && this.deps.updateRecords && pendingFkUpdates.length > 0) {
+      const updatesByObject = new Map<string, Map<string, Record<string, unknown>>>();
+      let resolvedCount = 0;
+      const unresolved: ExecutionErrorSample[] = [];
+      for (const upd of pendingFkUpdates) {
+        const newRefId = remapper.get(upd.sourceRefId);
+        if (!newRefId) {
+          if (unresolved.length < 3) {
+            unresolved.push({
+              recordSummary: `Id=${upd.newId} ${upd.fieldName}=<source ${upd.sourceRefId}>`,
+              messages: [`Cycle FK '${upd.fieldName}' could not be resolved — referenced parent (source ${upd.sourceRefId}) was not cloned`],
+            });
+          }
+          continue;
+        }
+        let perObj = updatesByObject.get(upd.objectApiName);
+        if (!perObj) {
+          perObj = new Map();
+          updatesByObject.set(upd.objectApiName, perObj);
+        }
+        const existing = perObj.get(upd.newId) ?? { Id: upd.newId };
+        existing[upd.fieldName] = newRefId;
+        perObj.set(upd.newId, existing);
+        resolvedCount++;
+      }
+      let pass2Failed = 0;
+      const pass2Samples: ExecutionErrorSample[] = [];
+      for (const [objectApiName, perObj] of updatesByObject) {
+        const recordsToUpdate = [...perObj.values()];
+        try {
+          const updateResults = await this.deps.updateRecords(
+            targetOrgId,
+            objectApiName,
+            recordsToUpdate,
+          );
+          for (let i = 0; i < updateResults.length; i++) {
+            const r = updateResults[i];
+            if (!r.success) {
+              pass2Failed++;
+              if (pass2Samples.length < 3) {
+                pass2Samples.push({
+                  recordSummary: summarizeRecordForError(recordsToUpdate[i]),
+                  messages: r.errors,
+                });
+              }
+            }
+          }
+        } catch (err) {
+          pass2Failed += recordsToUpdate.length;
+          if (pass2Samples.length < 3) {
+            pass2Samples.push({
+              recordSummary: `${objectApiName} batch failed`,
+              messages: [extractErrorMessage(err)],
+            });
+          }
+        }
+      }
+      const totalAttempted = resolvedCount + unresolved.length;
+      onProgress({
+        objectName: '__pass2__',
+        status: pass2Failed + unresolved.length > 0 ? 'error' : 'done',
+        progress: 100,
+        message: `Pass 2 (cycle FK update): ${resolvedCount - pass2Failed}/${totalAttempted} resolved`,
+      });
+      if (pass2Failed > 0 || unresolved.length > 0) {
+        errors.push({
+          objectApiName: '__pass2__',
+          stage: 'insert',
+          failedCount: pass2Failed + unresolved.length,
+          attemptedCount: totalAttempted,
+          samples: [...pass2Samples, ...unresolved].slice(0, 3),
+        });
+      }
+    }
+
     return {
       successCount,
       failedCount,
@@ -727,12 +860,26 @@ function intersect(a: Set<string>, b: Set<string>): Set<string> {
   return result;
 }
 
+/** Sample of a field that was nullified during clean (used by 2-pass cycle UPDATE). */
+interface NullifiedFk {
+  /** Field API name on the cloned record (e.g. `AccountId`). */
+  field: string;
+  /** Source-org ID that the FK pointed to before nullification. */
+  sourceRefId: string;
+  /** Target objects this FK can reference (for polymorphic awareness). */
+  targetObjects: string[];
+}
+
 /**
  * Replace any reference field whose value points to a record that was never
  * cloned (no entry in the IdRemapper) with `null`. This prevents bulk inserts
  * from being rejected for `INVALID_FIELD_FOR_INSERT_OPERATION` /
  * `ID_NOT_FOUND` when the parent lives in an excluded namespace (User,
  * RecordType, an explicitly skipped object, …).
+ *
+ * Returns both the patched record AND the list of FKs that were nullified
+ * along with their original source values, so the executor can run a
+ * second-pass UPDATE once the parent is cloned (Wave 2 v3 cycle handling).
  *
  * `RecordTypeId` is intentionally preserved — Salesforce validates it
  * against the developer name on the target org schema, and a dedicated
@@ -743,8 +890,9 @@ function nullifyOrphanedFks(
   record: Record<string, unknown>,
   fieldInfos: FieldInfo[],
   remapper: IdRemapper,
-): Record<string, unknown> {
+): { record: Record<string, unknown>; nullified: NullifiedFk[] } {
   const result: Record<string, unknown> = { ...record };
+  const nullified: NullifiedFk[] = [];
   for (const field of fieldInfos) {
     if (!field.isReference) continue;
     if (field.name === 'RecordTypeId') continue;
@@ -752,8 +900,13 @@ function nullifyOrphanedFks(
     if (typeof value !== 'string' || !value) continue;
     if (remapper.get(value)) continue;
     result[field.name] = null;
+    nullified.push({
+      field: field.name,
+      sourceRefId: value,
+      targetObjects: field.referenceTo ?? [],
+    });
   }
-  return result;
+  return { record: result, nullified };
 }
 
 /**

@@ -27,6 +27,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (typically `InsurancePolicyCoverage` / activity history on REDACTED-CLIENT).
   Default: no cap.
 
+### Added (Forge module — Wave 2 v3: 2-pass cycle FK update)
+
+The previous waves nullified orphan FKs at insert time so cycle members
+(`Account ↔ Contact`, `Asset → Account` when Account hasn't been cloned
+yet, …) wouldn't trip `INVALID_CROSS_REFERENCE_KEY`. That left the
+records correctly inserted but disconnected. Wave 2 v3 closes the
+loop with a second pass.
+
+- **`ExecutorDeps.updateRecords`** — optional dep mirroring `insertRecords`
+  but for bulk UPDATE. Production wiring uses `conn.sobject(name).update(...)`.
+- **`nullifyOrphanedFks` returns the list of nullified FKs** (field name
+  + source-side ID + target object set) so the executor can replay them
+  in pass 2.
+- **`pendingFkUpdates` queue** — per insert success, every nullified FK
+  is queued with its target-org record ID. After the main loop completes,
+  the executor groups updates by `(objectApiName, newId)`, looks up each
+  source ref in the IdRemapper, and dispatches one batched UPDATE per
+  object via `deps.updateRecords`.
+- **Pass-2 errors are surfaced via `ExecutionObjectError` with
+  `objectApiName: '__pass2__'`** so the wizard panel groups them
+  separately from regular insert failures. Unresolved FKs (parent never
+  cloned at all) are reported with a clear "could not be resolved"
+  message instead of silently disappearing.
+- **3 new ForgeExecutor tests** cover the round-trip (Account ↔ Contact
+  cycle), the no-op case (no nullified FKs), and the unresolved-FK error
+  reporting.
+
 ### Added (Forge module — Cross-org picklist value strip)
 
 - **`FieldInfo.picklistValues`** — for picklist / multipicklist fields the
