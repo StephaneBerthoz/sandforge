@@ -47,7 +47,7 @@ const SCENARIO = {
   apiVersion: '66.0',
   /** When true, the recipe runs read-only (Phase B preview). When false, the
    *  executor performs real inserts on the target org (Wave 3). Default to
-   *  true for safety — flip explicitly when you want to write to SBER. */
+   *  true for safety — flip explicitly to write. */
   dryRun: true,
   /** Per-object hard cap. Conservative when iterating fixes; raise once
    *  the cycle of "run, observe error, fix, re-run" stabilises. */
