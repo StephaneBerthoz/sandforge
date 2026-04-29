@@ -89,6 +89,7 @@ export * from './utils/cdcChannel.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';
+export * from './templates/forge-anonymization-presets.js';
 
 // Barrel exports — Services
 export { ConflictDiffService } from './services/ConflictDiffService.js';
