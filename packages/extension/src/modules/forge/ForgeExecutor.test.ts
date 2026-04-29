@@ -681,6 +681,119 @@ describe('ForgeExecutor', () => {
     });
   });
 
+  describe('Wave 2 v4 — single-hop orphan parent expansion', () => {
+    const ROOT_ID = '500AP00000fXeQsYAK';
+
+    it('fetches+inserts the missing parent when expandOrphanParents=true and patches the child FK', async () => {
+      // Asset has Account as a *required* FK pointing at an Account that
+      // wasn't in the discovery graph. With expandOrphanParents=true the
+      // executor pulls that Account from source, inserts it on target,
+      // and the Asset insert then includes the new mapped AccountId.
+      const graph = makeGraph([makeNode('Asset')]);
+      vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+        if (name === 'Asset') {
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'Name', queryable: true, createable: true, isReference: false },
+            { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'], nillable: false },
+          ];
+        }
+        return [
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'Name', queryable: true, createable: true, isReference: false },
+        ];
+      });
+      vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+        if (soql.includes('FROM Asset')) return [{ Id: '02iOLD1', Name: 'BMW X6', AccountId: '001OLD_ORPHAN' }];
+        if (soql.includes('FROM Account')) return [{ Id: '001OLD_ORPHAN', Name: 'GAN ASSURANCES' }];
+        return [];
+      });
+      vi.mocked(deps.insertRecords).mockImplementation(async (_o, name) => {
+        if (name === 'Asset') return [{ id: '02iNEW1', success: true, errors: [] }];
+        if (name === 'Account') return [{ id: '001NEW_EXPANDED', success: true, errors: [] }];
+        return [];
+      });
+
+      const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Asset',
+        expandOrphanParents: true,
+      });
+
+      const accountInsert = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.find((c) => c[1] === 'Account');
+      expect(accountInsert).toBeDefined();
+      const assetInsert = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.find((c) => c[1] === 'Asset');
+      expect(assetInsert).toBeDefined();
+      expect(assetInsert![2][0].AccountId).toBe('001NEW_EXPANDED');
+      expect(summary.errors.find((e) => e.objectApiName === '__expandOrphanParents__')).toBeUndefined();
+    });
+
+    it('respects maxOrphanParentExpansions cap', async () => {
+      const graph = makeGraph([makeNode('Asset', { recordCount: 3 })]);
+      vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+        if (name === 'Asset') {
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'], nillable: false },
+          ];
+        }
+        return [{ name: 'Id', queryable: true, createable: false, isReference: false }];
+      });
+      vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+        if (soql.includes('FROM Asset'))
+          return [
+            { Id: '02iA', AccountId: '001A' },
+            { Id: '02iB', AccountId: '001B' },
+            { Id: '02iC', AccountId: '001C' },
+          ];
+        if (soql.includes('FROM Account')) {
+          // each parent fetch returns one row
+          return [{ Id: 'matched', Name: 'X' }];
+        }
+        return [];
+      });
+      vi.mocked(deps.insertRecords).mockImplementation(async (_o, name) => {
+        if (name === 'Account') return [{ id: 'newAcc', success: true, errors: [] }];
+        return [];
+      });
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Asset',
+        expandOrphanParents: true,
+        maxOrphanParentExpansions: 2, // only 2 of the 3 orphans get expanded
+      });
+
+      const accountInserts = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.filter((c) => c[1] === 'Account');
+      expect(accountInserts.length).toBeLessThanOrEqual(2);
+    });
+
+    it('does nothing when expandOrphanParents is false (back-compat)', async () => {
+      const graph = makeGraph([makeNode('Asset')]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'], nillable: false },
+      ]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: '02iA', AccountId: '001ORPHAN' }]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Asset',
+      });
+
+      const accountInsert = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.find((c) => c[1] === 'Account');
+      expect(accountInsert).toBeUndefined();
+    });
+  });
+
   describe('orphan FK handling (referenceFallback)', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
 
