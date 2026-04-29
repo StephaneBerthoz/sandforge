@@ -5,6 +5,7 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
 import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
+import { ReferenceDataMapper } from './ReferenceDataMapper.js';
 import { RecordTypeMapper } from '../sync/RecordTypeMapper.js';
 import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 
@@ -35,6 +36,13 @@ export interface FieldInfo {
    * for legacy (full-table) execution.
    */
   referenceTo?: string[];
+  /**
+   * Whether the field accepts `null` on create. When `false` AND the
+   * field is a required reference, an orphan FK (no remap entry) makes
+   * the whole record unsavable — the executor will skip that record
+   * rather than send a payload Salesforce will reject.
+   */
+  nillable?: boolean;
 }
 
 /** Optional execution mode parameters. */
@@ -91,6 +99,14 @@ export interface ExecuteOptions {
    * influence this via SOQL hints in a future iteration.
    */
   maxRecordsPerObject?: number;
+  /**
+   * Object API names whose rows should be *mapped* to existing target
+   * records (matched on `Name` / `DeveloperName`) instead of inserted.
+   * Defaults to a small set of canonical reference-data tables that are
+   * expected to be metadata-deployed: `BusinessHours`, `OperatingHours`.
+   * Override or extend per environment as needed.
+   */
+  referenceDataObjects?: string[];
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -105,6 +121,14 @@ export interface ForgeExecutorDeps {
   ) => Promise<InsertResult[]>;
   /** Get field metadata for an object (queryable, createable, reference flags). */
   describeFields: (orgId: string, objectName: string) => Promise<FieldInfo[]>;
+  /**
+   * Whether the SObject as a whole accepts inserts on this org. False for
+   * read-only system entities like CaseHistory, ContentDocumentLink,
+   * AuditTrail variants, etc. When provided, the executor consults this
+   * before scheduling inserts so unsupported nodes are skipped cleanly
+   * with a helpful error rather than failing record-by-record at runtime.
+   */
+  isObjectCreatable?: (orgId: string, objectName: string) => Promise<boolean>;
   /** Optional batch strategy for splitting inserts into batches. */
   batchStrategy?: ForgeBatchStrategyService;
   /** Optional anonymization function applied before insert. */
@@ -241,6 +265,12 @@ export class ForgeExecutor {
     const scopedBuilder = isScoped ? new ScopedSoqlBuilder() : null;
     const recordTypeMappings = options?.recordTypeMappings;
     const recordTypeMapper = recordTypeMappings && recordTypeMappings.length > 0 ? new RecordTypeMapper() : null;
+    const referenceDataObjects = new Set(
+      options?.referenceDataObjects ?? ['BusinessHours', 'OperatingHours'],
+    );
+    const referenceDataMapper = new ReferenceDataMapper((orgId, soql) =>
+      this.deps.queryRecords(orgId, soql),
+    );
 
     if (scopeCache && options?.rootRecordId && options.rootObjectApiName) {
       scopeCache.add(options.rootObjectApiName, [options.rootRecordId]);
@@ -284,6 +314,35 @@ export class ForgeExecutor {
           message: `Skipped ${node.objectApiName} (parent failed)`,
         });
         continue;
+      }
+
+      // Pre-flight: skip nodes the target org refuses to accept inserts on
+      // (read-only system entities like Case History or audit-log variants).
+      // The check is best-effort — when the dep is not provided we fall back
+      // to the legacy behaviour of letting the runtime reject batch-by-batch.
+      if (!dryRun && this.deps.isObjectCreatable) {
+        try {
+          const creatable = await this.deps.isObjectCreatable(targetOrgId, node.objectApiName);
+          if (!creatable) {
+            skippedCount++;
+            errors.push({
+              objectApiName: node.objectApiName,
+              stage: 'scope',
+              failedCount: 0,
+              attemptedCount: 0,
+              samples: [{ recordSummary: '(node-level skip)', messages: [`Object is not createable on target org`] }],
+            });
+            onProgress({
+              objectName: node.objectApiName,
+              status: 'skipped',
+              progress: 100,
+              message: `Skipped ${node.objectApiName} (target org rejects inserts on this entity)`,
+            });
+            continue;
+          }
+        } catch {
+          // describe failed — proceed and let the insert path surface the error.
+        }
       }
 
       try {
@@ -350,6 +409,49 @@ export class ForgeExecutor {
 
         const records = await this.deps.queryRecords(sourceOrgId, soql);
 
+        // Reference-data branch: resolve source IDs against target rows by
+        // Name/DeveloperName instead of cloning. Adds entries to the IdRemapper
+        // so downstream FKs pick up the correct target IDs naturally.
+        if (referenceDataObjects.has(node.objectApiName) && !dryRun) {
+          const refResolve = await referenceDataMapper.resolve(
+            node.objectApiName,
+            records,
+            targetOrgId,
+          );
+          for (const m of refResolve.mappings) {
+            remapper.add(m.sourceId, m.targetId);
+          }
+          if (refResolve.unmatched.length > 0) {
+            errors.push({
+              objectApiName: node.objectApiName,
+              stage: 'scope',
+              failedCount: refResolve.unmatched.length,
+              attemptedCount: records.length,
+              samples: refResolve.unmatched.slice(0, 3).map((u) => ({
+                recordSummary: `Id=${u.sourceId} matchValue=${u.matchValue ?? 'null'}`,
+                messages: [`Reference-data row not found on target org`],
+              })),
+            });
+          }
+          // Still seed the scope cache so FK propagation works.
+          if (scopeCache) {
+            const ownIds: string[] = [];
+            for (const rec of records) {
+              const id = rec['Id'];
+              if (typeof id === 'string' && id) ownIds.push(id);
+            }
+            scopeCache.add(node.objectApiName, ownIds);
+          }
+          successCount += refResolve.mappings.length;
+          onProgress({
+            objectName: node.objectApiName,
+            status: 'done',
+            progress: 100,
+            message: `Mapped ${node.objectApiName} via reference-data lookup: ${refResolve.mappings.length} resolved, ${refResolve.unmatched.length} unmatched`,
+          });
+          continue;
+        }
+
         // Seed cache with this node's IDs and extract FK values for downstream
         // multi-hop scoping (e.g. Case.AccountId → Account, then Account.OwnerId → User).
         if (scopeCache) {
@@ -405,20 +507,33 @@ export class ForgeExecutor {
         const effectiveCreatableSet = targetCreatableSet
           ? intersect(createableSet, targetCreatableSet)
           : createableSet;
-        let remappedRecords = records.map((r) => {
+        // Build cleaned records for insert. Strip non-createable fields,
+        // omit nullified orphan FKs, and remove Person Account __pc fields
+        // when the record itself isn't a Person Account.
+        type Built = { source: Record<string, unknown>; cleaned: Record<string, unknown> };
+        const built: Built[] = records.map((r) => {
           let remapped = remapper.remapRecord(r, lookupFields);
           if (referenceFallback === 'nullify') {
             remapped = nullifyOrphanedFks(remapped, fieldInfos, remapper);
           }
+          const isPersonAccount = remapped['IsPersonAccount'] === true;
           const cleaned: Record<string, unknown> = {};
           for (const key of Object.keys(remapped)) {
             if (!effectiveCreatableSet.has(key)) continue;
+            // Person Account `__pc` fields are not valid on Business Accounts.
+            if (key.endsWith('__pc') && !isPersonAccount) continue;
+            // Person Account `Name` is auto-computed from FirstName/LastName.
+            // Salesforce rejects an explicit `Name` value with
+            // INVALID_FIELD_FOR_INSERT_UPDATE: Unable to create/update fields: Name.
+            if (key === 'Name' && isPersonAccount) continue;
             const value = remapped[key];
             if (value === null) continue;
             cleaned[key] = value;
           }
-          return cleaned;
+          return { source: r, cleaned };
         });
+        const filteredRecords = built;
+        let remappedRecords = filteredRecords.map((b) => b.cleaned);
         if (recordTypeMapper && recordTypeMappings) {
           remappedRecords = recordTypeMapper.apply(remappedRecords, recordTypeMappings);
         }
@@ -458,11 +573,13 @@ export class ForgeExecutor {
           );
 
           // Step 4: Register new IDs for this batch + capture failure samples.
+          // Use filteredRecords (post required-FK skip) for the source-ID
+          // lookup so remapper entries point at the correct origin record.
           for (let i = 0; i < results.length; i++) {
             const result = results[i];
             if (result.success) {
               nodeSuccess++;
-              const oldId = records[recordOffset + i]?.['Id'];
+              const oldId = filteredRecords[recordOffset + i]?.source['Id'];
               if (typeof oldId === 'string') {
                 remapper.add(oldId, result.id);
               }
