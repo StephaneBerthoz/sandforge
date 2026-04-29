@@ -7,15 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (Forge module — Wave 2 mini: orphan FK handling)
+### Added (Forge module — Wave 2 mini: orphan FK handling + RecordType mapping)
 
 - **`ExecuteOptions.referenceFallback: 'nullify' | 'keep'`** — controls what
   happens when a reference field on a cloned record points to a record that
   was never cloned (User, Owner, an excluded parent, …). Defaults to
   `'nullify'` in scoped mode (so the insert is accepted with the FK left
-  empty), `'keep'` outside scoped mode for legacy back-compat. `RecordTypeId`
-  is always preserved — a dedicated mapper (T2.6) handles cross-org
-  RecordType translation.
+  empty), `'keep'` outside scoped mode for legacy back-compat.
+- **`ExecuteOptions.recordTypeMappings`** — accepts a list of
+  `RecordTypeMapping` (built from the existing Sync `RecordTypeMapper`
+  matched by `DeveloperName`) and applies it to every cloned record's
+  `RecordTypeId` before insert. Records whose RecordTypeId has no mapping
+  keep the source value (Salesforce will reject if not shared). The recipe
+  pre-loads RecordTypes from both orgs and surfaces the mapping count in
+  Phase B (e.g. `268 RecordType mapping(s) resolved` for MUT-UAT2 ↔ MUT-SBER).
 
 ### Added (Forge module — record-scoped clone, Wave 1 POC)
 
