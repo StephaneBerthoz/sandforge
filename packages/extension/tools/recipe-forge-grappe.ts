@@ -337,6 +337,22 @@ async function main(): Promise<void> {
           return [];
         }
       },
+      updateRecords: async (orgId, objectName, records) => {
+        if (SCENARIO.dryRun) return [];
+        const conn = connections.get(orgId);
+        if (!conn) throw new Error(`No connection for ${orgId}`);
+        const results = await conn
+          .sobject(objectName)
+          .update(records as unknown as { Id: string }[]);
+        const arr = Array.isArray(results) ? results : [results];
+        return arr.map((r, i) => ({
+          id: r.id ?? (records[i]['Id'] as string) ?? '',
+          success: r.success,
+          errors: r.errors?.map((e: { message?: string; statusCode?: string }) =>
+            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
+          ) ?? [],
+        }));
+      },
       insertRecords: async (orgId, objectName, records) => {
         if (SCENARIO.dryRun) {
           throw new Error('insertRecords called in dry-run mode — should not happen');

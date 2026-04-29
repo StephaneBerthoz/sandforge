@@ -524,6 +524,105 @@ describe('ForgeExecutor', () => {
     });
   });
 
+  describe('Wave 2 v3 — 2-pass cycle FK update', () => {
+    const ROOT_ID = '500AP00000fXeQsYAK';
+
+    it('issues a pass-2 UPDATE for FKs nullified during pass-1 insert', async () => {
+      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([
+        { id: '001NEW1', success: true, errors: [] },
+      ]);
+      const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
+      const cycleExecutor = new ForgeExecutor(depsCycle);
+
+      // 2-cycle: Account.PrimaryContactId references Contact, Contact.AccountId
+      // references Account. Process root (Case) → seed Account in cache via FK
+      // value extraction → process Account: AccountId NOT in remapper yet for
+      // PrimaryContactId, so it gets nullified. After Contact is cloned, pass 2
+      // patches PrimaryContactId on Account.
+      const graph = makeGraph(
+        [makeNode('Account'), makeNode('Contact')],
+        [
+          { sourceObject: 'Contact', targetObject: 'Account', relationshipName: 'PrimaryContact', type: 'lookup' },
+          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+        ],
+      );
+
+      vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
+        if (name === 'Account') {
+          return [
+            { name: 'Id', queryable: true, createable: false, isReference: false },
+            { name: 'PrimaryContactId', queryable: true, createable: true, isReference: true, referenceTo: ['Contact'] },
+          ];
+        }
+        return [
+          { name: 'Id', queryable: true, createable: false, isReference: false },
+          { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+        ];
+      });
+      vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
+        if (soql.includes('FROM Account')) return [{ Id: '001OLD1', PrimaryContactId: '003OLD1' }];
+        if (soql.includes('FROM Contact')) return [{ Id: '003OLD1', AccountId: '001OLD1' }];
+        return [];
+      });
+      vi.mocked(deps.insertRecords).mockImplementation(async (_o, name) => {
+        if (name === 'Account') return [{ id: '001NEW1', success: true, errors: [] }];
+        if (name === 'Contact') return [{ id: '003NEW1', success: true, errors: [] }];
+        return [];
+      });
+
+      await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Account',
+      });
+
+      expect(updateRecords).toHaveBeenCalledTimes(1);
+      const [, updateObject, updatePayload] = updateRecords.mock.calls[0];
+      expect(updateObject).toBe('Account');
+      expect(updatePayload[0]).toEqual({ Id: '001NEW1', PrimaryContactId: '003NEW1' });
+    });
+
+    it('does not call updateRecords when no FKs need patching', async () => {
+      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([]);
+      const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
+      const cycleExecutor = new ForgeExecutor(depsCycle);
+
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID }]);
+
+      await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      expect(updateRecords).not.toHaveBeenCalled();
+    });
+
+    it('reports unresolved cycle FKs in errors when target parent was never cloned', async () => {
+      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([]);
+      const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
+      const cycleExecutor = new ForgeExecutor(depsCycle);
+
+      const graph = makeGraph([makeNode('Account')]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'PrimaryContactId', queryable: true, createable: true, isReference: true, referenceTo: ['Contact'] },
+      ]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: '001OLD1', PrimaryContactId: '003ORPHAN' },
+      ]);
+
+      const summary = await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Account',
+      });
+
+      // Pass 2 ran but the orphan FK was never resolved — should appear in errors
+      const pass2Error = summary.errors.find((e) => e.objectApiName === '__pass2__');
+      expect(pass2Error).toBeDefined();
+      expect(pass2Error?.samples[0].messages[0]).toContain('could not be resolved');
+    });
+  });
+
   describe('orphan FK handling (referenceFallback)', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
 
