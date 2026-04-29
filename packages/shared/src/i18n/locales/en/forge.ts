@@ -111,4 +111,75 @@ export const forge: TranslationRecord = {
   logFilterAll: 'All',
   logFilterErrors: 'Errors',
   logFilterWarnings: 'Warnings',
+
+  // Smart error translator (Pilier 3) — surfaced inline in the errors panel.
+  error: {
+    duplicateValue: {
+      explanation:
+        'A record with the same uniqueness key already exists in the target sandbox (likely cloned in a previous run).',
+      action: 'Delete the existing record or switch to upsert mode (coming soon).',
+    },
+    invalidCrossReferenceKey: {
+      explanation:
+        "A reference field (Owner, Manager, ...) points to a User that doesn't exist in the target sandbox. The field was nullified automatically.",
+      action:
+        'Salesforce will assign the running User. No action required unless the record needs a specific Owner.',
+    },
+    requiredFieldMissing: {
+      explanation: 'A required field is missing: {{detail}}.',
+      action: 'Increase the depth or add the referenced parent manually to the scope.',
+    },
+    invalidPicklist: {
+      explanation:
+        "The source picklist value doesn't exist in the target sandbox (config drift).",
+      action:
+        'Align the picklists via Salesforce Setup or let the auto-strip handle it (silent skip).',
+    },
+    invalidFieldForInsert: {
+      explanation:
+        'A field cannot be set on insert (auto-computed, FLS, or missing from the target schema).',
+      action: 'Check field-level security (FLS) on your target profile, or align the source/target schemas.',
+    },
+    fieldIntegrity: {
+      explanation: 'Salesforce integrity constraint violated: {{detail}}.',
+      action: 'Read the detail — Salesforce usually names the offending field or business rule.',
+    },
+    cannotInsertEntity: {
+      explanation: "This table is read-only (audit/history/system). Salesforce won't accept the insert.",
+      action: 'This object is now skipped automatically by scope (isObjectCreatable).',
+    },
+    insufficientAccess: {
+      explanation: "Your profile on the target sandbox doesn't have sufficient access.",
+      action: 'Ask an admin to grant the required permissions or switch to an admin User.',
+    },
+    storageLimit: {
+      explanation: 'The target sandbox has no storage left.',
+      action: 'Clean up obsolete data or request a Salesforce quota increase.',
+    },
+    invalidType: {
+      explanation: "The object type doesn't exist (likely deleted from the target).",
+      action: 'Align the source/target schemas, or exclude this object from the scope.',
+    },
+    notFound: {
+      explanation: 'The source record was not found.',
+      action: 'Check the record ID and the source org.',
+    },
+    stringTooLong: {
+      explanation: 'A value exceeds the field maximum length: {{detail}}.',
+      action: 'Truncate the source value or align the field length across orgs.',
+    },
+    cycleFkUnresolved: {
+      explanation:
+        "Field '{{fieldName}}' references a parent that was never cloned (source ID {{sourceRefId}}). The record was inserted without the link.",
+      action: 'Increase the depth to include the parent, or accept the disconnected record.',
+    },
+    outOfScope: {
+      explanation: 'This object has no path to the root record — no parent in scope.',
+      action: 'Add this object manually via custom SOQL, or ignore (likely isolated reference data).',
+    },
+    unknown: {
+      explanation: '{{detail}}',
+      action: 'Consult the Salesforce docs on this error code or report the raw message to support.',
+    },
+  },
 };
