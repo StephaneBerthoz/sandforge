@@ -116,6 +116,28 @@ export interface ForgeGraph {
   truncated?: boolean;
 }
 
+/** Sample of a record that failed insertion, with the platform errors. */
+export interface ForgeExecutionErrorSample {
+  /** Compact key=value summary of up to 4 fields, used for UI display. */
+  recordSummary: string;
+  /** Error messages returned by Salesforce — `STATUS_CODE: message` form. */
+  messages: string[];
+}
+
+/** Aggregated error report for a single object during execution. */
+export interface ForgeExecutionError {
+  /** API name of the object. */
+  objectApiName: string;
+  /** Stage where the failure happened. */
+  stage: 'query' | 'insert' | 'scope';
+  /** Number of records that failed at this stage. */
+  failedCount: number;
+  /** Total records attempted at this stage (0 for `'scope'` stage skips). */
+  attemptedCount: number;
+  /** Up to 3 sample failures, kept small enough to render in the wizard. */
+  samples: ForgeExecutionErrorSample[];
+}
+
 /**
  * Result returned after a Forge operation completes.
  *
@@ -135,6 +157,9 @@ export interface ForgeExecutionResult {
   timestamp: string;
   /** Number of Salesforce IDs remapped from source to target */
   idRemapCount: number;
+  /** Per-object error reports — populated when at least one record or
+   *  object failed. Empty when the run was fully successful. */
+  errors?: ForgeExecutionError[];
 }
 
 /**
