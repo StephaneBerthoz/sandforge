@@ -87,6 +87,9 @@ export * from './utils/validation-utils.js';
 export * from './utils/execution-result.js';
 export * from './utils/cdcChannel.js';
 
+// Barrel exports — Templates
+export * from './templates/forge-builtin-templates.js';
+
 // Barrel exports — Services
 export { ConflictDiffService } from './services/ConflictDiffService.js';
 export type { ConflictFieldDiff, ThreeWayDiffResult } from './services/ConflictDiffService.js';
