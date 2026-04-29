@@ -46,37 +46,32 @@ const SCENARIO = {
   skipEmpty: true,
   apiVersion: '66.0',
   /** When true, the recipe runs read-only (Phase B preview). When false, the
-   *  executor performs real inserts on the target org (Wave 3). Default
-   *  back to true after a successful Wave 3 run so a re-run never
-   *  accidentally re-clones records into SBER. */
+   *  executor performs real inserts on the target org (Wave 3). Default to
+   *  true for safety — flip explicitly when you want to write to SBER. */
   dryRun: true,
-  /** Per-object hard cap. Keeps the blast radius bounded when Wave 3 is
-   *  enabled. Tune up once orphan / ref-data / FLS edge cases are hardened. */
-  maxRecordsPerObject: 50,
+  /** Per-object hard cap. Conservative when iterating fixes; raise once
+   *  the cycle of "run, observe error, fix, re-run" stabilises. */
+  maxRecordsPerObject: 5,
 };
 
-function loadSfOrgs(): Map<string, SfOrg> {
-  const json = execFileSync('sf', ['org', 'list', '--json'], {
-    encoding: 'utf8',
-    maxBuffer: 50 * 1024 * 1024,
-    shell: process.platform === 'win32',
-  });
-  const parsed = JSON.parse(json) as {
-    result?: { sandboxes?: unknown[]; nonScratchOrgs?: unknown[]; other?: unknown[] };
-  };
-  const buckets = [
-    ...(parsed.result?.sandboxes ?? []),
-    ...(parsed.result?.nonScratchOrgs ?? []),
-    ...(parsed.result?.other ?? []),
-  ];
+function loadSfOrgs(aliases: string[]): Map<string, SfOrg> {
+  // `sf org display --target-org X` forces a fresh access token via the
+  // sfdx auth refresh path, so jsforce sessions never start out stale
+  // (which is what `sf org list --json` cached tokens regularly become).
   const map = new Map<string, SfOrg>();
-  for (const raw of buckets) {
-    const o = raw as Record<string, unknown>;
-    const alias = typeof o.alias === 'string' ? o.alias : undefined;
-    const accessToken = typeof o.accessToken === 'string' ? o.accessToken : undefined;
-    const instanceUrl = typeof o.instanceUrl === 'string' ? o.instanceUrl : undefined;
-    const username = typeof o.username === 'string' ? o.username : '';
-    if (alias && accessToken && instanceUrl) {
+  for (const alias of aliases) {
+    const json = execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
+      encoding: 'utf8',
+      maxBuffer: 50 * 1024 * 1024,
+      shell: process.platform === 'win32',
+    });
+    const parsed = JSON.parse(json) as {
+      result?: { accessToken?: string; instanceUrl?: string; username?: string; alias?: string };
+    };
+    const accessToken = parsed.result?.accessToken;
+    const instanceUrl = parsed.result?.instanceUrl;
+    const username = parsed.result?.username ?? '';
+    if (accessToken && instanceUrl) {
       map.set(alias, { alias, username, instanceUrl, accessToken });
     }
   }
@@ -243,8 +238,8 @@ function printAnomalies(graph: ForgeGraph): void {
 
 async function main(): Promise<void> {
   const t0 = Date.now();
-  console.log(`Loading sf orgs…`);
-  const orgs = loadSfOrgs();
+  console.log(`Loading sf orgs (forcing token refresh via 'sf org display')…`);
+  const orgs = loadSfOrgs([SCENARIO.sourceAlias, SCENARIO.targetAlias]);
   const source = orgs.get(SCENARIO.sourceAlias);
   const target = orgs.get(SCENARIO.targetAlias);
   if (!source) throw new Error(`Source alias '${SCENARIO.sourceAlias}' not found in sf orgs`);
@@ -408,7 +403,16 @@ async function main(): Promise<void> {
           createable: f.createable ?? false,
           isReference: f.type === 'reference',
           referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
+          nillable: f.nillable ?? true,
         }));
+      },
+      isObjectCreatable: async (orgId, objectName) => {
+        const conn = connections.get(orgId);
+        if (!conn) throw new Error(`No connection for ${orgId}`);
+        const meta = await conn.sobject(objectName).describe();
+        // Default to true when jsforce omits the flag — only opt out when
+        // the org explicitly says false (read-only system entities).
+        return meta.createable !== false;
       },
     };
 
@@ -419,11 +423,12 @@ async function main(): Promise<void> {
       source.alias,
       target.alias,
       (event) => {
-        if (event.status === 'skipped' && event.message.includes('out of scope')) {
+        if (event.status === 'skipped') {
           skipLog.push(`  ${event.objectName.padEnd(45)} ${event.message}`);
-        }
-        if (event.status === 'error') {
+        } else if (event.status === 'error') {
           skipLog.push(`  ${event.objectName.padEnd(45)} ERROR: ${event.message}`);
+        } else if (event.status === 'done' && event.progress === 100) {
+          skipLog.push(`  ${event.objectName.padEnd(45)} OK: ${event.message}`);
         }
       },
       {
@@ -568,12 +573,9 @@ function printPhaseB(
     }
   }
 
-  if (skipped.length > 0 && skipped.length <= 30) {
-    console.log(`\n── Skipped (out of scope) ──`);
+  if (skipped.length > 0) {
+    console.log(`\n── Per-node events (${skipped.length}) ──`);
     for (const s of skipped) console.log(s);
-  } else if (skipped.length > 30) {
-    console.log(`\n── ${skipped.length} skipped (truncated, first 10) ──`);
-    for (const s of skipped.slice(0, 10)) console.log(s);
   }
 }
 
