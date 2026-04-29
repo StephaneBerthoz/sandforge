@@ -126,6 +126,29 @@ export interface ExecuteOptions {
    * Override or extend per environment as needed.
    */
   referenceDataObjects?: string[];
+  /**
+   * Wave 2 v4 — single-hop orphan parent expansion. When a record has a
+   * required reference field whose target was *never* in the discovery
+   * graph (e.g. `Asset.AccountId` pointing at an Account outside the
+   * scoped clone), the executor on-demand:
+   *
+   *   1. Fetches the missing parent by Id from the source org.
+   *   2. Inserts a minimal copy into the target org.
+   *   3. Records the source→target mapping in the IdRemapper.
+   *
+   * Single-hop only — the fetched parent's *own* required FKs are
+   * orphan-nullified normally (no recursion). Capped at
+   * `maxOrphanParentExpansions` to bound API usage.
+   *
+   * Default: `false` (back-compat — required orphans surface as
+   * REQUIRED_FIELD_MISSING errors).
+   */
+  expandOrphanParents?: boolean;
+  /**
+   * Maximum number of orphan parents the executor will fetch+insert per
+   * `execute()` call when `expandOrphanParents` is true. Default 20.
+   */
+  maxOrphanParentExpansions?: number;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -324,6 +347,12 @@ export class ForgeExecutor {
       sourceRefId: string;
     }
     const pendingFkUpdates: PendingFkUpdate[] = [];
+
+    /** Counter for the single-hop orphan parent expansion (Wave 2 v4). */
+    const expandOrphanParents = options?.expandOrphanParents ?? false;
+    const maxOrphanExpansions = options?.maxOrphanParentExpansions ?? 20;
+    let orphanExpansionsUsed = 0;
+    const orphanExpansionErrors: ExecutionErrorSample[] = [];
 
     let successCount = 0;
     let failedCount = 0;
@@ -556,6 +585,62 @@ export class ForgeExecutor {
         const effectiveCreatableSet = targetCreatableSet
           ? intersect(createableSet, targetCreatableSet)
           : createableSet;
+        // Wave 2 v4 — single-hop orphan parent expansion.
+        // Identify required reference fields whose value isn't in the remapper
+        // and points outside the discovery graph; fetch+insert each parent
+        // on-demand so the child record can pick up the new target ID
+        // instead of failing with REQUIRED_FIELD_MISSING.
+        if (expandOrphanParents && !dryRun && orphanExpansionsUsed < maxOrphanExpansions) {
+          const requiredOrphans = new Map<string, { object: string; sourceId: string }>();
+          const requiredRefFields = fieldInfos.filter(
+            (f) => f.isReference && f.nillable === false && f.name !== 'RecordTypeId',
+          );
+          for (const r of records) {
+            for (const field of requiredRefFields) {
+              const value = r[field.name];
+              if (typeof value !== 'string' || !value) continue;
+              if (remapper.get(value)) continue;
+              for (const target of field.referenceTo ?? []) {
+                if (target === node.objectApiName) continue;
+                const key = `${target}::${value}`;
+                if (!requiredOrphans.has(key)) {
+                  requiredOrphans.set(key, { object: target, sourceId: value });
+                }
+                break;
+              }
+            }
+          }
+          for (const [, entry] of requiredOrphans) {
+            if (orphanExpansionsUsed >= maxOrphanExpansions) break;
+            orphanExpansionsUsed++;
+            try {
+              const newId = await this.expandSingleOrphanParent(
+                sourceOrgId,
+                targetOrgId,
+                entry.object,
+                entry.sourceId,
+                recordTypeMappings,
+                recordTypeMapper,
+              );
+              if (newId) {
+                remapper.add(entry.sourceId, newId);
+              } else if (orphanExpansionErrors.length < 3) {
+                orphanExpansionErrors.push({
+                  recordSummary: `${entry.object}/${entry.sourceId}`,
+                  messages: [`Orphan parent expansion produced no new id`],
+                });
+              }
+            } catch (err) {
+              if (orphanExpansionErrors.length < 3) {
+                orphanExpansionErrors.push({
+                  recordSummary: `${entry.object}/${entry.sourceId}`,
+                  messages: [extractErrorMessage(err)],
+                });
+              }
+            }
+          }
+        }
+
         // Build cleaned records for insert. Strip non-createable fields,
         // omit nullified orphan FKs, and remove Person Account __pc fields
         // when the record itself isn't a Person Account.
@@ -566,12 +651,26 @@ export class ForgeExecutor {
           nullifiedFks: NullifiedFk[];
         };
         const built: Built[] = records.map((r) => {
-          let remapped = remapper.remapRecord(r, lookupFields);
-          let nullifiedFks: NullifiedFk[] = [];
+          // Identify orphan FKs from the ORIGINAL record (pre-remap) so we
+          // don't confuse already-remapped target IDs with unmapped sources.
+          const nullifiedFks: NullifiedFk[] = [];
           if (referenceFallback === 'nullify') {
-            const result = nullifyOrphanedFks(remapped, fieldInfos, remapper);
-            remapped = result.record;
-            nullifiedFks = result.nullified;
+            for (const field of fieldInfos) {
+              if (!field.isReference) continue;
+              if (field.name === 'RecordTypeId') continue;
+              const value = r[field.name];
+              if (typeof value !== 'string' || !value) continue;
+              if (remapper.get(value)) continue;
+              nullifiedFks.push({
+                field: field.name,
+                sourceRefId: value,
+                targetObjects: field.referenceTo ?? [],
+              });
+            }
+          }
+          let remapped = remapper.remapRecord(r, lookupFields);
+          for (const nf of nullifiedFks) {
+            remapped[nf.field] = null;
           }
           const isPersonAccount = remapped['IsPersonAccount'] === true;
           const cleaned: Record<string, unknown> = {};
@@ -814,6 +913,16 @@ export class ForgeExecutor {
       }
     }
 
+    if (orphanExpansionErrors.length > 0) {
+      errors.push({
+        objectApiName: '__expandOrphanParents__',
+        stage: 'insert',
+        failedCount: orphanExpansionErrors.length,
+        attemptedCount: orphanExpansionsUsed,
+        samples: orphanExpansionErrors,
+      });
+    }
+
     return {
       successCount,
       failedCount,
@@ -821,6 +930,68 @@ export class ForgeExecutor {
       remapCount: remapper.count,
       errors,
     };
+  }
+
+  /**
+   * Single-hop orphan parent expansion (Wave 2 v4).
+   *
+   * Fetches a missing parent record from the source org by Id, copies it
+   * to the target org with a minimal payload (createable target fields
+   * only, RecordType remapped if applicable, orphan FKs nullified), and
+   * returns the new target ID. Returns `null` when the parent can't be
+   * fetched or the insert fails.
+   *
+   * Intentionally non-recursive — the fetched parent's *own* required FKs
+   * are nullified rather than expanded further. Callers must respect the
+   * `maxOrphanParentExpansions` cap to bound API usage.
+   */
+  private async expandSingleOrphanParent(
+    sourceOrgId: string,
+    targetOrgId: string,
+    parentObject: string,
+    sourceRecordId: string,
+    recordTypeMappings: RecordTypeMapping[] | undefined,
+    recordTypeMapper: RecordTypeMapper | null,
+  ): Promise<string | null> {
+    const fields = await this.deps.describeFields(sourceOrgId, parentObject);
+    const queryFields = fields.filter((f) => f.queryable).map((f) => f.name);
+    if (queryFields.length === 0) queryFields.push('Id');
+    const soql = `SELECT ${queryFields.join(', ')} FROM ${assertSoqlIdentifier(parentObject)} WHERE Id = '${sourceRecordId}'`;
+    const records = await this.deps.queryRecords(sourceOrgId, soql);
+    if (records.length === 0) return null;
+
+    let targetCreatable: Set<string> | null = null;
+    try {
+      const targetFields = await this.deps.describeFields(targetOrgId, parentObject);
+      targetCreatable = new Set(targetFields.filter((f) => f.createable).map((f) => f.name));
+    } catch {
+      // fall back to source createable
+    }
+    const sourceCreatable = new Set(fields.filter((f) => f.createable).map((f) => f.name));
+    const effectiveCreatable = targetCreatable ? intersect(sourceCreatable, targetCreatable) : sourceCreatable;
+
+    const r = records[0];
+    const cleaned: Record<string, unknown> = {};
+    const isPerson = r['IsPersonAccount'] === true;
+    for (const field of fields) {
+      const key = field.name;
+      if (!effectiveCreatable.has(key)) continue;
+      if (key.endsWith('__pc') && !isPerson) continue;
+      if (key === 'Name' && isPerson) continue;
+      const value = r[key];
+      if (value === null || value === undefined) continue;
+      if (field.isReference && typeof value === 'string' && key !== 'RecordTypeId') {
+        // FKs on the parent itself: orphan-nullify (no recursion).
+        continue;
+      }
+      cleaned[key] = value;
+    }
+    const payload = recordTypeMapper && recordTypeMappings
+      ? recordTypeMapper.apply([cleaned], recordTypeMappings)[0]
+      : cleaned;
+    const result = await this.deps.insertRecords(targetOrgId, parentObject, [payload]);
+    if (!result[0] || !result[0].success) return null;
+    return result[0].id;
   }
 }
 
@@ -868,45 +1039,6 @@ interface NullifiedFk {
   sourceRefId: string;
   /** Target objects this FK can reference (for polymorphic awareness). */
   targetObjects: string[];
-}
-
-/**
- * Replace any reference field whose value points to a record that was never
- * cloned (no entry in the IdRemapper) with `null`. This prevents bulk inserts
- * from being rejected for `INVALID_FIELD_FOR_INSERT_OPERATION` /
- * `ID_NOT_FOUND` when the parent lives in an excluded namespace (User,
- * RecordType, an explicitly skipped object, …).
- *
- * Returns both the patched record AND the list of FKs that were nullified
- * along with their original source values, so the executor can run a
- * second-pass UPDATE once the parent is cloned (Wave 2 v3 cycle handling).
- *
- * `RecordTypeId` is intentionally preserved — Salesforce validates it
- * against the developer name on the target org schema, and a dedicated
- * RecordType mapper handles cross-org translation. Nullifying it would
- * break records that require a record type.
- */
-function nullifyOrphanedFks(
-  record: Record<string, unknown>,
-  fieldInfos: FieldInfo[],
-  remapper: IdRemapper,
-): { record: Record<string, unknown>; nullified: NullifiedFk[] } {
-  const result: Record<string, unknown> = { ...record };
-  const nullified: NullifiedFk[] = [];
-  for (const field of fieldInfos) {
-    if (!field.isReference) continue;
-    if (field.name === 'RecordTypeId') continue;
-    const value = result[field.name];
-    if (typeof value !== 'string' || !value) continue;
-    if (remapper.get(value)) continue;
-    result[field.name] = null;
-    nullified.push({
-      field: field.name,
-      sourceRefId: value,
-      targetObjects: field.referenceTo ?? [],
-    });
-  }
-  return { record: result, nullified };
 }
 
 /**
