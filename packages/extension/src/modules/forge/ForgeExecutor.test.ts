@@ -524,6 +524,89 @@ describe('ForgeExecutor', () => {
     });
   });
 
+  describe('orphan FK handling (referenceFallback)', () => {
+    const ROOT_ID = '500AP00000fXeQsYAK';
+
+    it('nullifies reference fields whose value is not in the remapper (default in scoped mode)', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, OwnerId: '005USER1', AccountId: '001UNCLONED' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'OwnerId', queryable: true, createable: true, isReference: true, referenceTo: ['User'] },
+        { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      const insertCall = vi.mocked(deps.insertRecords).mock.calls[0];
+      expect(insertCall).toBeDefined();
+      const inserted = insertCall![2][0];
+      expect(inserted.OwnerId).toBeNull();
+      expect(inserted.AccountId).toBeNull();
+    });
+
+    it('preserves RecordTypeId even when no remap entry exists', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, RecordTypeId: '012XXXXXXXXXXXX' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'RecordTypeId', queryable: true, createable: true, isReference: true, referenceTo: ['RecordType'] },
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      const inserted = vi.mocked(deps.insertRecords).mock.calls[0]![2][0];
+      expect(inserted.RecordTypeId).toBe('012XXXXXXXXXXXX');
+    });
+
+    it('keeps original FK values when referenceFallback="keep"', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, OwnerId: '005USER1' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'OwnerId', queryable: true, createable: true, isReference: true, referenceTo: ['User'] },
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        referenceFallback: 'keep',
+      });
+
+      const inserted = vi.mocked(deps.insertRecords).mock.calls[0]![2][0];
+      expect(inserted.OwnerId).toBe('005USER1');
+    });
+
+    it('legacy non-scoped mode defaults to "keep" — back-compat', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, OwnerId: '005USER1' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'OwnerId', queryable: true, createable: true, isReference: true, referenceTo: ['User'] },
+      ]);
+
+      // No options → legacy mode
+      await executor.execute(graph, 'src', 'tgt', onProgress);
+
+      const inserted = vi.mocked(deps.insertRecords).mock.calls[0]![2][0];
+      expect(inserted.OwnerId).toBe('005USER1');
+    });
+  });
+
   describe('dryRun mode', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
 

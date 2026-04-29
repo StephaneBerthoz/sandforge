@@ -52,6 +52,22 @@ export interface ExecuteOptions {
    * to preview what *would* happen before committing real writes.
    */
   dryRun?: boolean;
+  /**
+   * How to handle reference fields whose value points to a record that was
+   * never cloned (User, Owner, an excluded parent, etc.) — i.e. the
+   * `IdRemapper` has no entry for it.
+   *
+   * - `'nullify'`: replace the orphaned reference with `null`. Salesforce
+   *   then either leaves the field empty or assigns the running user
+   *   (for OwnerId). Default in scoped mode.
+   * - `'keep'`: preserve the original source-org ID. Almost always rejected
+   *   by Salesforce for FKs; left as escape hatch and for legacy
+   *   compatibility (default outside scoped mode).
+   *
+   * `RecordTypeId` is always preserved — it should be remapped via a
+   * RecordType mapper at a different layer (T2.6).
+   */
+  referenceFallback?: 'nullify' | 'keep';
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -173,6 +189,7 @@ export class ForgeExecutor {
 
     const isScoped = !!(options?.rootRecordId && options.rootObjectApiName);
     const dryRun = options?.dryRun ?? false;
+    const referenceFallback = options?.referenceFallback ?? (isScoped ? 'nullify' : 'keep');
     const scopeCache = isScoped ? new RecordScopeCache() : null;
     const scopedBuilder = isScoped ? new ScopedSoqlBuilder() : null;
 
@@ -308,9 +325,12 @@ export class ForgeExecutor {
           continue;
         }
 
-        // Step 2: Remap lookup IDs and strip non-createable fields
+        // Step 2: Remap lookup IDs, nullify orphan FKs, strip non-createable fields
         let remappedRecords = records.map((r) => {
-          const remapped = remapper.remapRecord(r, lookupFields);
+          let remapped = remapper.remapRecord(r, lookupFields);
+          if (referenceFallback === 'nullify') {
+            remapped = nullifyOrphanedFks(remapped, fieldInfos, remapper);
+          }
           const cleaned: Record<string, unknown> = {};
           for (const key of Object.keys(remapped)) {
             if (createableSet.has(key)) {
@@ -415,6 +435,35 @@ export class ForgeExecutor {
       remapCount: remapper.count,
     };
   }
+}
+
+/**
+ * Replace any reference field whose value points to a record that was never
+ * cloned (no entry in the IdRemapper) with `null`. This prevents bulk inserts
+ * from being rejected for `INVALID_FIELD_FOR_INSERT_OPERATION` /
+ * `ID_NOT_FOUND` when the parent lives in an excluded namespace (User,
+ * RecordType, an explicitly skipped object, …).
+ *
+ * `RecordTypeId` is intentionally preserved — Salesforce validates it
+ * against the developer name on the target org schema, and a dedicated
+ * RecordType mapper handles cross-org translation. Nullifying it would
+ * break records that require a record type.
+ */
+function nullifyOrphanedFks(
+  record: Record<string, unknown>,
+  fieldInfos: FieldInfo[],
+  remapper: IdRemapper,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...record };
+  for (const field of fieldInfos) {
+    if (!field.isReference) continue;
+    if (field.name === 'RecordTypeId') continue;
+    const value = result[field.name];
+    if (typeof value !== 'string' || !value) continue;
+    if (remapper.get(value)) continue;
+    result[field.name] = null;
+  }
+  return result;
 }
 
 /**
