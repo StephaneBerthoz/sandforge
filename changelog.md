@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (typically `InsurancePolicyCoverage` / activity history on Mutuaide).
   Default: no cap.
 
+### Added (Forge module — Cross-org picklist value strip)
+
+- **`FieldInfo.picklistValues`** — for picklist / multipicklist fields the
+  describe wiring now collects the *active* set of values on the target
+  org. The cleaned-record step drops any source-side value that doesn't
+  appear in the target's whitelist before insert, replacing the runtime
+  `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` rejection seen on Mutuaide
+  Case clones (`UncertainContract`, `Contrat non certain`, etc.) with a
+  silent strip. Empty / missing whitelist = no validation, so non-restricted
+  picklists are unaffected.
+
 ### Added (Forge module — Wave 2.6 hardening from second real-org run)
 
 Second Wave 3 run on a fresh Case (D00002635) revealed four more error

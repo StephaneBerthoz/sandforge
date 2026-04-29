@@ -43,6 +43,15 @@ export interface FieldInfo {
    * rather than send a payload Salesforce will reject.
    */
   nillable?: boolean;
+  /**
+   * For picklist / multipicklist fields, the list of *active* values the
+   * field accepts. When this dep is populated for the *target* org, the
+   * executor strips values that don't appear in the list before insert,
+   * avoiding `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` rejections caused
+   * by source-org picklist entries that don't exist on the target.
+   * Empty / missing list = no validation.
+   */
+  picklistValues?: string[];
 }
 
 /** Optional execution mode parameters. */
@@ -495,10 +504,19 @@ export class ForgeExecutor {
         //         "set to null" (rejected) rather than "use default", so
         //         omitting lets the platform auto-fill OwnerId etc.
         let targetCreatableSet: Set<string> | null = null;
+        let targetPicklistValuesByField: Map<string, Set<string>> | null = null;
         if (!dryRun) {
           try {
             const targetFields = await this.deps.describeFields(targetOrgId, node.objectApiName);
             targetCreatableSet = new Set(targetFields.filter((f) => f.createable).map((f) => f.name));
+            // Collect picklist value whitelists for cross-org strip.
+            const pmap = new Map<string, Set<string>>();
+            for (const f of targetFields) {
+              if (f.picklistValues && f.picklistValues.length > 0) {
+                pmap.set(f.name, new Set(f.picklistValues));
+              }
+            }
+            if (pmap.size > 0) targetPicklistValuesByField = pmap;
           } catch {
             // describe failed on target — fall back to source schema. Will
             // surface as INVALID_FIELD errors on insert which the caller can act on.
@@ -528,6 +546,17 @@ export class ForgeExecutor {
             if (key === 'Name' && isPersonAccount) continue;
             const value = remapped[key];
             if (value === null) continue;
+            // Cross-org picklist value validation — drop values the target
+            // org's restricted picklist doesn't accept (avoids
+            // INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST on insert).
+            if (
+              targetPicklistValuesByField &&
+              typeof value === 'string' &&
+              targetPicklistValuesByField.has(key) &&
+              !targetPicklistValuesByField.get(key)!.has(value)
+            ) {
+              continue;
+            }
             cleaned[key] = value;
           }
           return { source: r, cleaned };

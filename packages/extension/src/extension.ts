@@ -217,6 +217,9 @@ export function activate(context: vscode.ExtensionContext): void {
           isReference: f.type === 'reference',
           referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
           nillable: f.nillable ?? true,
+          picklistValues: (f.picklistValues ?? [])
+            .filter((p) => p?.active !== false && typeof p?.value === 'string')
+            .map((p) => p.value as string),
         }));
       },
       isObjectCreatable: async (orgId, objectName) => {
