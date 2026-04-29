@@ -81,6 +81,7 @@ export const forgeGraphSchema = z.object({
   totalRecords: z.number().int().nonnegative(),
   estimatedSizeMB: z.number().nonnegative(),
   estimatedDurationSeconds: z.number().nonnegative(),
+  truncated: z.boolean().optional(),
 });
 
 // ─── Execution Result Schema ────────────────────────────────────────────────

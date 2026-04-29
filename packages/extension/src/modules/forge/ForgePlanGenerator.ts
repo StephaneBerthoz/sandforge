@@ -6,6 +6,7 @@
 
 import type {
   ForgeGraph,
+  ForgeGraphNode,
   ForgePlan,
   ForgeWave,
   ForgeCycleResolution,
@@ -43,14 +44,21 @@ export class ForgePlanGenerator {
       };
     }
 
-    // Group by level
+    // Compute topological level via Kahn's algorithm.
+    // Edges are parent→child (source must be inserted before target),
+    // so a node's wave is its longest path from any root in the included subgraph.
+    // Falls back to node.level (BFS depth) when the topo grouping is unusable
+    // (e.g. the included subgraph is fully cyclic).
+    const topoLevel = this.computeTopoLevels(graph, includedNodes);
+
     const levelMap = new Map<number, string[]>();
     for (const node of includedNodes) {
-      const existing = levelMap.get(node.level);
+      const lvl = topoLevel.get(node.objectApiName) ?? node.level;
+      const existing = levelMap.get(lvl);
       if (existing) {
         existing.push(node.objectApiName);
       } else {
-        levelMap.set(node.level, [node.objectApiName]);
+        levelMap.set(lvl, [node.objectApiName]);
       }
     }
 
@@ -107,6 +115,76 @@ export class ForgePlanGenerator {
       estimatedDurationSeconds,
       cycleResolutions,
     };
+  }
+
+  /**
+   * Compute the topological level of each included node using Kahn's
+   * algorithm restricted to the included subgraph. Nodes participating in
+   * a cycle never reach in-degree zero and are bucketed at maxLevel + 1
+   * so they execute last (after all acyclic dependencies are satisfied).
+   *
+   * @param graph - The full dependency graph.
+   * @param includedNodes - Nodes that survived `n.included === true` filtering.
+   * @returns Map of objectApiName → topological level (0 = no in-degree).
+   */
+  private computeTopoLevels(
+    graph: ForgeGraph,
+    includedNodes: ForgeGraphNode[],
+  ): Map<string, number> {
+    const includedSet = new Set(includedNodes.map((n) => n.objectApiName));
+    const inDegree = new Map<string, number>();
+    for (const node of includedNodes) {
+      inDegree.set(node.objectApiName, 0);
+    }
+    for (const edge of graph.edges) {
+      if (edge.sourceObject === edge.targetObject) continue;
+      if (!includedSet.has(edge.sourceObject)) continue;
+      if (!includedSet.has(edge.targetObject)) continue;
+      inDegree.set(
+        edge.targetObject,
+        (inDegree.get(edge.targetObject) ?? 0) + 1,
+      );
+    }
+
+    const level = new Map<string, number>();
+    const queue: string[] = [];
+    for (const [name, deg] of inDegree) {
+      if (deg === 0) {
+        level.set(name, 0);
+        queue.push(name);
+      }
+    }
+
+    while (queue.length > 0) {
+      const name = queue.shift()!;
+      const myLevel = level.get(name) ?? 0;
+      for (const edge of graph.edges) {
+        if (edge.sourceObject !== name) continue;
+        if (edge.sourceObject === edge.targetObject) continue;
+        if (!includedSet.has(edge.targetObject)) continue;
+        const newDeg = (inDegree.get(edge.targetObject) ?? 1) - 1;
+        inDegree.set(edge.targetObject, newDeg);
+        const candidateLevel = myLevel + 1;
+        const existing = level.get(edge.targetObject);
+        if (existing === undefined || candidateLevel > existing) {
+          level.set(edge.targetObject, candidateLevel);
+        }
+        if (newDeg === 0) {
+          queue.push(edge.targetObject);
+        }
+      }
+    }
+
+    let maxLevel = 0;
+    for (const v of level.values()) {
+      if (v > maxLevel) maxLevel = v;
+    }
+    for (const node of includedNodes) {
+      if (!level.has(node.objectApiName)) {
+        level.set(node.objectApiName, maxLevel + 1);
+      }
+    }
+    return level;
   }
 
   /**

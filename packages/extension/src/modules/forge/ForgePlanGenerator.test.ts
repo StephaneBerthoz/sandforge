@@ -200,10 +200,15 @@ describe('ForgePlanGenerator', () => {
 
     it('should sum duration across waves', () => {
       const gen = new ForgePlanGenerator({ avgSecondsPerApiCall: 1 });
-      const graph = makeGraph([
-        makeNode({ objectApiName: 'Account', level: 0, recordCount: 100, batchStrategy: 'rest' }),
-        makeNode({ objectApiName: 'Contact', level: 1, recordCount: 100, batchStrategy: 'rest' }),
-      ]);
+      const graph = makeGraph(
+        [
+          makeNode({ objectApiName: 'Account', level: 0, recordCount: 100, batchStrategy: 'rest' }),
+          makeNode({ objectApiName: 'Contact', level: 1, recordCount: 100, batchStrategy: 'rest' }),
+        ],
+        [
+          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+        ],
+      );
       const plan = gen.generate(graph);
 
       // Wave 0: 1 batch * 1s = 1s, Wave 1: 1 batch * 1s = 1s

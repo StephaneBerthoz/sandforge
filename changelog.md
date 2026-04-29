@@ -5,6 +5,19 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed (Forge module)
+
+- **Phantom 49-node SCC** in `GraphDiscoveryService` — `field.referenceTo` and `child.childRelationships` were emitting two edges per relationship in opposing directions, fooling Tarjan SCC into treating most of the graph as a single cycle. Edges are now unified as `parent→child` and deduped by `(source, target)`, with master-detail preferred over lookup on conflict.
+- **Wave plan ordered backwards** — `ForgePlanGenerator` was grouping by BFS depth (`node.level`), which placed Account/Contact in the *same* wave as Case (their child). Plan now groups by topological level computed via Kahn's algorithm on the included subgraph; nodes participating in a cycle are bucketed at `maxLevel + 1` so they execute after acyclic dependencies.
+- **Edges to excluded objects polluting cycle analysis** — `User`, `RecordType`, `ChangeEvent`, `History`, `Feed`, `Share` etc. were skipped from BFS traversal but still emitted as edge targets, inflating the edge count and confusing SCC. `addEdge` now filters excluded sources/targets at emission time.
+
+### Added (Forge module)
+
+- **`ForgeGraph.truncated` flag** — set to `true` when the BFS hit `DEFAULT_MAX_NODES` cap and the graph is incomplete; surfaced in the discovery result so callers can warn the user that some objects were skipped.
+- **`tools/recipe-forge-grappe.ts`** — read-only Phase A recipe script that replays the production discovery + plan pipeline against real orgs (sf CLI tokens), used to validate Forge behaviour against partial-copy sandboxes without writing to the target.
+
 ## [1.2.3] - 2026-03-28
 
 **Scale & Complete** — Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.

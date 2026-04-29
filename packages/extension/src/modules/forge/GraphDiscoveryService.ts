@@ -154,7 +154,20 @@ export class GraphDiscoveryService {
 
     const visitedObjects = new Set<string>();
     const nodes: ForgeGraphNode[] = [];
-    const edges: ForgeGraphEdge[] = [];
+    const edgeMap = new Map<string, ForgeGraphEdge>();
+    let skippedDueToCap = 0;
+
+    const addEdge = (e: ForgeGraphEdge): void => {
+      if (isExcludedObject(e.sourceObject) || isExcludedObject(e.targetObject)) return;
+      if (e.sourceObject === e.targetObject) return;
+      const key = `${e.sourceObject}|${e.targetObject}`;
+      const existing = edgeMap.get(key);
+      if (!existing) {
+        edgeMap.set(key, e);
+      } else if (e.type === 'master-detail' && existing.type === 'lookup') {
+        edgeMap.set(key, e);
+      }
+    };
 
     // BFS queue: [objectApiName, currentDepth]
     const queue: Array<[string, number]> = [[rootObject, 0]];
@@ -202,32 +215,38 @@ export class GraphDiscoveryService {
       nodes.push(node);
 
       if (depth < maxDepth) {
-        // Parent relationships (lookups/master-detail from fields)
+        // Field references (lookup/master-detail) — emitted as parent→child
+        // edges so insertion topology stays correct (parent must exist before
+        // the child that points to it). Excluded targets (User, RecordType, …)
+        // are filtered by addEdge so they do not pollute Tarjan SCC.
         for (const field of describe.fields) {
-          if (field.referenceTo.length > 0) {
-            for (const targetObject of field.referenceTo) {
-              edges.push({
-                sourceObject: objectName,
-                targetObject,
-                relationshipName: field.relationshipName ?? field.name,
-                type: field.isMasterDetail ? 'master-detail' : 'lookup',
-              });
+          if (field.referenceTo.length === 0) continue;
+          for (const targetObject of field.referenceTo) {
+            addEdge({
+              sourceObject: targetObject, // parent
+              targetObject: objectName,   // child
+              relationshipName: field.relationshipName ?? field.name,
+              type: field.isMasterDetail ? 'master-detail' : 'lookup',
+            });
 
-              if (!visitedObjects.has(targetObject) && !isExcludedObject(targetObject)) {
-                visitedObjects.add(targetObject);
-                if (nodes.length + queue.length < maxNodes) {
-                  queue.push([targetObject, depth + 1]);
-                }
+            if (!visitedObjects.has(targetObject) && !isExcludedObject(targetObject)) {
+              visitedObjects.add(targetObject);
+              if (nodes.length + queue.length < maxNodes) {
+                queue.push([targetObject, depth + 1]);
+              } else {
+                skippedDueToCap++;
               }
             }
           }
         }
 
-        // Child relationships
+        // Child relationships also emit a parent→child edge — addEdge dedupes
+        // against the field.referenceTo edge above so Tarjan no longer sees
+        // both directions of the same relationship.
         for (const child of describe.childRelationships) {
-          edges.push({
-            sourceObject: objectName,
-            targetObject: child.childSObject,
+          addEdge({
+            sourceObject: objectName,            // parent
+            targetObject: child.childSObject,    // child
             relationshipName: child.relationshipName,
             type: child.isCascadeDelete ? 'master-detail' : 'lookup',
           });
@@ -236,6 +255,8 @@ export class GraphDiscoveryService {
             visitedObjects.add(child.childSObject);
             if (nodes.length + queue.length < maxNodes) {
               queue.push([child.childSObject, depth + 1]);
+            } else {
+              skippedDueToCap++;
             }
           }
         }
@@ -249,6 +270,7 @@ export class GraphDiscoveryService {
     }
 
     const totalRecords = nodes.reduce((sum, n) => sum + n.recordCount, 0);
+    const edges = [...edgeMap.values()];
 
     return {
       nodes,
@@ -256,6 +278,7 @@ export class GraphDiscoveryService {
       totalRecords,
       estimatedSizeMB: totalRecords * MB_PER_RECORD,
       estimatedDurationSeconds: totalRecords * SECONDS_PER_RECORD,
+      truncated: skippedDueToCap > 0,
     };
   }
 
