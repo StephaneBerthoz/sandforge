@@ -207,6 +207,18 @@ export function activate(context: vscode.ExtensionContext): void {
           errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
         }));
       },
+      updateRecords: async (orgId, objectName, records) => {
+        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+        const results = await conn
+          .sobject(objectName)
+          .update(records as unknown as { Id: string }[]);
+        const arr = Array.isArray(results) ? results : [results];
+        return arr.map((r, i) => ({
+          id: r.id ?? (records[i]['Id'] as string) ?? '',
+          success: r.success,
+          errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
+        }));
+      },
       describeFields: async (orgId, objectName) => {
         const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
         const meta = await conn.describe(objectName);
