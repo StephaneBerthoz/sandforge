@@ -6,6 +6,7 @@ import { ReviewPlanTab } from './ReviewPlanTab';
 import { ReviewAnonymizationTab } from './ReviewAnonymizationTab';
 import { ReviewComplianceTab } from './ReviewComplianceTab';
 import { ReviewMetadataTab } from './ReviewMetadataTab';
+import { ForgePreviewCard } from './ForgePreviewCard';
 
 /** Tabs available in the Review phase right panel. */
 type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata';
@@ -22,6 +23,7 @@ export const ForgeReview: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ReviewTab>('plan');
   const graph = useForgeStore((s) => s.graph);
   const config = useForgeStore((s) => s.config);
+  const plan = useForgeStore((s) => s.plan);
   const setPhase = useForgeStore((s) => s.setPhase);
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
   const metadataDiffs = useForgeStore((s) => s.metadataDiffs);
@@ -53,6 +55,14 @@ export const ForgeReview: React.FC = () => {
 
   return (
     <div data-testid="forge-review" className="flex flex-col gap-4">
+      {graph && (
+        <ForgePreviewCard
+          graph={graph}
+          plan={plan}
+          cycleCount={plan?.cycleResolutions.length ?? 0}
+          truncated={graph.truncated === true}
+        />
+      )}
       <div className="flex gap-4 min-h-[500px]">
         {/* Graph panel (60%) */}
         <div className="w-3/5 rounded-lg border border-subtle bg-surface-1 overflow-hidden">
