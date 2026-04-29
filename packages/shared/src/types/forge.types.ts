@@ -112,6 +112,8 @@ export interface ForgeGraph {
   estimatedSizeMB: number;
   /** Estimated total duration of the operation in seconds */
   estimatedDurationSeconds: number;
+  /** True when BFS hit the node cap and the graph is incomplete. */
+  truncated?: boolean;
 }
 
 /**

@@ -438,7 +438,7 @@ describe('GraphDiscoveryService', () => {
       expect(objectNames).not.toContain('RecordType');
     });
 
-    it('should still create edges to excluded objects without visiting them', async () => {
+    it('should NOT create edges to excluded objects (prevents Tarjan SCC pollution)', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
           return {
@@ -456,8 +456,8 @@ describe('GraphDiscoveryService', () => {
       const config = createConfig({ depth: 'direct' });
       const graph = await service.discover(config);
 
-      const userEdge = graph.edges.find((e) => e.targetObject === 'User');
-      expect(userEdge).toBeDefined();
+      const userEdge = graph.edges.find((e) => e.sourceObject === 'User' || e.targetObject === 'User');
+      expect(userEdge).toBeUndefined();
       expect(graph.nodes.find((n) => n.objectApiName === 'User')).toBeUndefined();
     });
 
