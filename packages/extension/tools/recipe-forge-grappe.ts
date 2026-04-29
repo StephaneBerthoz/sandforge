@@ -25,6 +25,8 @@ import type {
 import { ForgePlanGenerator } from '../src/modules/forge/ForgePlanGenerator.js';
 import { ForgeExecutor } from '../src/modules/forge/ForgeExecutor.js';
 import type { ForgeExecutorDeps, FieldInfo } from '../src/modules/forge/ForgeExecutor.js';
+import { RecordTypeMapper } from '../src/modules/sync/RecordTypeMapper.js';
+import type { RecordTypeInfo, RecordTypeMapping } from '../src/modules/sync/RecordTypeMapper.js';
 import { PIIDetector } from '../src/core/precheck/PIIDetector.js';
 
 interface SfOrg {
@@ -295,6 +297,13 @@ async function main(): Promise<void> {
   const queryLog: QueryLogEntry[] = [];
   const skipLog: string[] = [];
 
+  console.log(`  Loading RecordType mappings (${source.alias} ↔ ${target.alias})…`);
+  const recordTypeMappings = await loadRecordTypeMappings(
+    connections.get(source.alias)!,
+    connections.get(target.alias)!,
+  );
+  console.log(`  ✓ ${recordTypeMappings.length} RecordType mapping(s) resolved.`);
+
   const rootObjectApiName = graph.nodes[0]?.objectApiName;
   if (!rootObjectApiName) {
     console.log('  (no root node in graph — skipping Phase B)');
@@ -356,10 +365,11 @@ async function main(): Promise<void> {
         rootRecordId: SCENARIO.recordId,
         rootObjectApiName,
         dryRun: true,
+        recordTypeMappings,
       },
     );
 
-    printPhaseB(queryLog, skipLog, Date.now() - phaseBStart);
+    printPhaseB(queryLog, skipLog, Date.now() - phaseBStart, recordTypeMappings);
   }
 
   console.log(`\n══════════ SUMMARY ══════════`);
@@ -386,13 +396,38 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max - 1) + '…';
 }
 
-function printPhaseB(log: QueryLogEntry[], skipped: string[], totalMs: number): void {
+async function loadRecordTypeMappings(
+  sourceConn: jsforce.Connection,
+  targetConn: jsforce.Connection,
+): Promise<RecordTypeMapping[]> {
+  const soql = 'SELECT Id, Name, DeveloperName FROM RecordType WHERE IsActive = true';
+  const [sourceRes, targetRes] = await Promise.all([
+    sourceConn.query<{ Id: string; Name: string; DeveloperName: string }>(soql),
+    targetConn.query<{ Id: string; Name: string; DeveloperName: string }>(soql),
+  ]);
+  const toInfo = (r: { Id: string; Name: string; DeveloperName: string }): RecordTypeInfo => ({
+    id: r.Id,
+    name: r.Name,
+    developerName: r.DeveloperName,
+  });
+  return new RecordTypeMapper().buildMapping(
+    sourceRes.records.map(toInfo),
+    targetRes.records.map(toInfo),
+  );
+}
+
+function printPhaseB(
+  log: QueryLogEntry[],
+  skipped: string[],
+  totalMs: number,
+  recordTypeMappings: RecordTypeMapping[],
+): void {
   const totalRecords = log.reduce((sum, e) => sum + (e.count > 0 ? e.count : 0), 0);
   const errorCount = log.filter((e) => e.error).length;
 
   console.log(`\n══════════ PHASE B — SCOPED DRY-RUN (${totalMs}ms) ══════════`);
   console.log(`Queries executed: ${log.length}  |  Records would be cloned: ${totalRecords}  |  Errors: ${errorCount}`);
-  console.log(`Skipped out-of-scope nodes: ${skipped.length}`);
+  console.log(`RecordType mappings ready: ${recordTypeMappings.length}  |  Skipped out-of-scope nodes: ${skipped.length}`);
   console.log(`\n${'object'.padEnd(45)} ${'count'.padStart(7)} ${'ms'.padStart(6)}  soql (truncated)`);
   console.log('-'.repeat(140));
   const sorted = [...log].sort((a, b) => (b.count > 0 ? b.count : 0) - (a.count > 0 ? a.count : 0));

@@ -607,6 +607,76 @@ describe('ForgeExecutor', () => {
     });
   });
 
+  describe('RecordType mapping', () => {
+    const ROOT_ID = '500AP00000fXeQsYAK';
+    const SOURCE_RT = '012SOURCE000001';
+    const TARGET_RT = '012TARGET000001';
+
+    it('translates RecordTypeId from source to target via mapping', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, RecordTypeId: SOURCE_RT, Name: 'X' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Name', queryable: true, createable: true, isReference: false },
+        { name: 'RecordTypeId', queryable: true, createable: true, isReference: true, referenceTo: ['RecordType'] },
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        recordTypeMappings: [
+          { sourceId: SOURCE_RT, targetId: TARGET_RT, developerName: 'CaseStandard' },
+        ],
+      });
+
+      const inserted = vi.mocked(deps.insertRecords).mock.calls[0]![2][0];
+      expect(inserted.RecordTypeId).toBe(TARGET_RT);
+    });
+
+    it('leaves RecordTypeId unchanged when no mapping is provided', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, RecordTypeId: SOURCE_RT },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'RecordTypeId', queryable: true, createable: true, isReference: true, referenceTo: ['RecordType'] },
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+      });
+
+      const inserted = vi.mocked(deps.insertRecords).mock.calls[0]![2][0];
+      expect(inserted.RecordTypeId).toBe(SOURCE_RT);
+    });
+
+    it('leaves unmatched RecordTypeId untouched (developerName not in mapping)', async () => {
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, RecordTypeId: '012UNKNOWN0000' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'RecordTypeId', queryable: true, createable: true, isReference: true, referenceTo: ['RecordType'] },
+      ]);
+
+      await executor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        recordTypeMappings: [
+          { sourceId: SOURCE_RT, targetId: TARGET_RT, developerName: 'CaseStandard' },
+        ],
+      });
+
+      const inserted = vi.mocked(deps.insertRecords).mock.calls[0]![2][0];
+      expect(inserted.RecordTypeId).toBe('012UNKNOWN0000');
+    });
+  });
+
   describe('dryRun mode', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
 

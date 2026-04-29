@@ -5,6 +5,8 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 import { RecordScopeCache } from './RecordScopeCache.js';
 import { ScopedSoqlBuilder } from './ScopedSoqlBuilder.js';
+import { RecordTypeMapper } from '../sync/RecordTypeMapper.js';
+import type { RecordTypeMapping } from '../sync/RecordTypeMapper.js';
 
 /** Result of a single record insert operation. */
 export interface InsertResult {
@@ -64,10 +66,21 @@ export interface ExecuteOptions {
    *   by Salesforce for FKs; left as escape hatch and for legacy
    *   compatibility (default outside scoped mode).
    *
-   * `RecordTypeId` is always preserved — it should be remapped via a
-   * RecordType mapper at a different layer (T2.6).
+   * `RecordTypeId` is preserved unless a `recordTypeMappings` entry exists
+   * for the source value, in which case it is translated to the target ID.
    */
   referenceFallback?: 'nullify' | 'keep';
+  /**
+   * Cross-org RecordType ID translations (matched by `developerName`).
+   * Built up-front by the caller — typically by querying `RecordType` on
+   * both orgs and passing the result through {@link RecordTypeMapper}.
+   *
+   * When supplied, every cloned record's `RecordTypeId` is rewritten to the
+   * target-org ID. Records whose `RecordTypeId` has no mapping keep the
+   * source value (which Salesforce will reject if the target org does not
+   * happen to share that ID).
+   */
+  recordTypeMappings?: RecordTypeMapping[];
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -192,6 +205,8 @@ export class ForgeExecutor {
     const referenceFallback = options?.referenceFallback ?? (isScoped ? 'nullify' : 'keep');
     const scopeCache = isScoped ? new RecordScopeCache() : null;
     const scopedBuilder = isScoped ? new ScopedSoqlBuilder() : null;
+    const recordTypeMappings = options?.recordTypeMappings;
+    const recordTypeMapper = recordTypeMappings && recordTypeMappings.length > 0 ? new RecordTypeMapper() : null;
 
     if (scopeCache && options?.rootRecordId && options.rootObjectApiName) {
       scopeCache.add(options.rootObjectApiName, [options.rootRecordId]);
@@ -325,7 +340,8 @@ export class ForgeExecutor {
           continue;
         }
 
-        // Step 2: Remap lookup IDs, nullify orphan FKs, strip non-createable fields
+        // Step 2: Remap lookup IDs, translate RecordTypeId, nullify orphans,
+        //         strip non-createable fields.
         let remappedRecords = records.map((r) => {
           let remapped = remapper.remapRecord(r, lookupFields);
           if (referenceFallback === 'nullify') {
@@ -339,6 +355,9 @@ export class ForgeExecutor {
           }
           return cleaned;
         });
+        if (recordTypeMapper && recordTypeMappings) {
+          remappedRecords = recordTypeMapper.apply(remappedRecords, recordTypeMappings);
+        }
 
         // Step 2b: Apply anonymization if configured
         if (this.deps.anonymize) {
