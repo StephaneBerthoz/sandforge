@@ -126,6 +126,8 @@ describe('ForgeOrchestrator', () => {
         'src-org',
         'tgt-org',
         expect.any(Function),
+        // 5th arg: scoped ExecuteOptions when inputMode='record', else undefined
+        expect.anything(),
       );
     });
 

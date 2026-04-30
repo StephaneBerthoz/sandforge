@@ -128,6 +128,10 @@ export interface ForgeState {
   setAllNodesIncluded: (included: boolean) => void;
   /** Toggle a field in a node's anonymizeFields list. */
   toggleAnonymizeField: (objectName: string, fieldName: string) => void;
+  /** Apply a curated anonymization preset (replaces anonymizeFields per object). */
+  applyAnonymizationPreset: (
+    rules: ReadonlyArray<{ objectApiName: string; fieldNames: readonly string[] }>,
+  ) => void;
   /** Set the execution result and append to history. */
   setResult: (result: ForgeExecutionResult) => void;
   /** Remove a template by name. */
@@ -224,6 +228,28 @@ export const useForgeStore = create<ForgeState>((set) => ({
               ? n.anonymizeFields.filter((f: string) => f !== fieldName)
               : [...n.anonymizeFields, fieldName];
             return { ...n, anonymizeFields };
+          }),
+        },
+      };
+    });
+  },
+
+  applyAnonymizationPreset(rules: ReadonlyArray<{ objectApiName: string; fieldNames: readonly string[] }>): void {
+    set((state) => {
+      if (!state.graph) return state;
+      const ruleByObject = new Map<string, readonly string[]>();
+      for (const r of rules) ruleByObject.set(r.objectApiName, r.fieldNames);
+      return {
+        graph: {
+          ...state.graph,
+          nodes: state.graph.nodes.map((n: ForgeGraphNode) => {
+            const fields = ruleByObject.get(n.objectApiName);
+            if (!fields) return n;
+            // Intersect preset rules with the PII fields actually detected
+            // on this node — never add a field the source schema doesn't expose.
+            const detected = new Set(n.piiFields);
+            const next = fields.filter((f) => detected.has(f));
+            return { ...n, anonymizeFields: next };
           }),
         },
       };
