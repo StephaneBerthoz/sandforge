@@ -86,13 +86,18 @@ describe('ForgeTemplateStore', () => {
     mockReadFile.mockResolvedValue('[]');
     const store = createStore();
     await store.list();
-    expect(mockReadFile).toHaveBeenCalledWith('/workspace/.sandforge/forge-templates.json');
+    // path.join uses platform separator — test resilient to win32 vs posix.
+    const expected = ['workspace', '.sandforge', 'forge-templates.json'];
+    const actual = (mockReadFile.mock.calls[0]?.[0] as string).replace(/^[/\\]/, '').split(/[/\\]/);
+    expect(actual).toEqual(expected);
   });
 
   it('should create directory before writing', async () => {
     mockReadFile.mockResolvedValue('[]');
     const store = createStore();
     await store.save(sampleTemplate);
-    expect(mockMkdir).toHaveBeenCalledWith('/workspace/.sandforge');
+    const expected = ['workspace', '.sandforge'];
+    const actual = (mockMkdir.mock.calls[0]?.[0] as string).replace(/^[/\\]/, '').split(/[/\\]/);
+    expect(actual).toEqual(expected);
   });
 });

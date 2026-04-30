@@ -14,7 +14,7 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
     id: 'builtin:account-360',
     name: 'Account 360',
     description:
-      'Clone an Account with its Contacts, Opportunities, and Cases. Best for CRM developers exploring a full customer view.',
+      'Clone an Account with its Contacts, Opportunities, and Cases (up to 100/object). Best for CRM developers exploring a full customer view.',
     config: {
       inputMode: 'record',
       depth: 'custom',
@@ -22,6 +22,7 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
       anonymizePII: true,
       skipEmpty: true,
       batchSize: 'auto',
+      maxRecordsPerObject: 100,
     },
     objectCount: 0,
     recordCount: 0,
@@ -32,7 +33,7 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
     id: 'builtin:case-workflow',
     name: 'Case Workflow',
     description:
-      'Clone a Case with its Account, Contact, EmailMessages, CaseHistory, and CaseComments. Best for Service Cloud developers debugging support flows.',
+      'Clone a Case with its Account, Contact, EmailMessages, CaseHistory, and CaseComments (up to 50/object). Best for Service Cloud developers debugging support flows.',
     config: {
       inputMode: 'record',
       depth: 'custom',
@@ -40,6 +41,7 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
       anonymizePII: true,
       skipEmpty: true,
       batchSize: 'auto',
+      maxRecordsPerObject: 50,
     },
     objectCount: 0,
     recordCount: 0,
@@ -50,7 +52,7 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
     id: 'builtin:lead-to-opp',
     name: 'Lead → Opportunity',
     description:
-      'Clone a Lead with its Campaign, converted Account/Contact, and resulting Opportunity. Best for Sales Cloud developers testing lead-to-opp transitions.',
+      'Clone a Lead with its Campaign, converted Account/Contact, and resulting Opportunity (up to 100/object). Best for Sales Cloud developers testing lead-to-opp transitions.',
     config: {
       inputMode: 'record',
       depth: 'custom',
@@ -58,6 +60,7 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
       anonymizePII: true,
       skipEmpty: true,
       batchSize: 'auto',
+      maxRecordsPerObject: 100,
     },
     objectCount: 0,
     recordCount: 0,

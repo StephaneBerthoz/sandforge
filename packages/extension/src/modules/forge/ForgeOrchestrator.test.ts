@@ -37,7 +37,7 @@ function createMockGraph(): ForgeGraph {
 function createMockConfig(overrides?: Partial<ForgeConfig>): ForgeConfig {
   return {
     inputMode: 'record',
-    recordId: '001XXXXXXXXXX',
+    recordId: '001XXXXXXXXXXXX',
     depth: 'direct',
     sourceOrgId: 'src-org',
     targetOrgId: 'tgt-org',

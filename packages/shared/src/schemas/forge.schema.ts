@@ -28,39 +28,75 @@ export const forgeCycleStrategySchema = z.enum(['two_pass', 'upsert_external_id'
 
 // ─── Config Schema ──────────────────────────────────────────────────────────
 
-/** Zod schema for ForgeConfig */
+/** Strict Salesforce record/object ID — 15 or 18 alphanum chars. */
+const SF_RECORD_ID_REGEX = /^[a-zA-Z0-9]{15,18}$/;
+/**
+ * Salesforce SObject API name — letter-prefixed, alphanumeric + underscore,
+ * length ≤ 80 (Salesforce hard cap is 40 for standard / 254 with namespace,
+ * 80 is a safe practical ceiling). Anchored to block injection via the
+ * graph payload (defense-in-depth — assertSoqlIdentifier still runs).
+ */
+const SF_OBJECT_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+
+/**
+ * Base ForgeConfig schema (no cross-field refine). Kept as a plain ZodObject
+ * so consumers like `forgeTemplateSchema` can still call `.omit()` on it.
+ * For handler validation that requires the `inputMode → matching field`
+ * contract, prefer `forgeConfigSchemaStrict` below (CR-017).
+ */
 export const forgeConfigSchema = z.object({
   inputMode: forgeInputModeSchema,
-  recordId: z.string().min(1).optional(),
-  soqlQuery: z.string().min(1).optional(),
-  templateId: z.string().min(1).optional(),
-  aiPrompt: z.string().min(1).optional(),
+  recordId: z.string().regex(SF_RECORD_ID_REGEX, 'Invalid Salesforce record ID').optional(),
+  soqlQuery: z.string().min(1).max(20_000).optional(),
+  templateId: z.string().min(1).max(200).optional(),
+  aiPrompt: z.string().min(1).max(4_000).optional(),
   depth: forgeDepthSchema,
-  customDepth: z.number().int().positive().optional(),
-  sourceOrgId: z.string().min(1),
-  targetOrgId: z.string().min(1),
+  customDepth: z.number().int().positive().max(10).optional(),
+  sourceOrgId: z.string().min(1).max(128),
+  targetOrgId: z.string().min(1).max(128),
   anonymizePII: z.boolean(),
   skipEmpty: z.boolean(),
-  batchSize: z.union([z.literal('auto'), z.number().int().positive()]),
+  batchSize: z.union([z.literal('auto'), z.number().int().positive().max(10_000)]),
   expandOrphanParents: z.boolean().optional(),
+  maxRecordsPerObject: z.number().int().positive().max(1_000_000).optional(),
 });
+
+/**
+ * Strict ForgeConfig validation: enforces the inputMode→required-field
+ * contract via `.refine`. CR-017 — without this, a payload like
+ * `{inputMode:'soql', recordId:'…'}` passes validation, then crashes
+ * downstream in `resolveRootObject` with a generic message.
+ */
+export const forgeConfigSchemaStrict = forgeConfigSchema.refine(
+  (c) => {
+    if (c.inputMode === 'record') return c.recordId !== undefined;
+    if (c.inputMode === 'soql') return c.soqlQuery !== undefined;
+    if (c.inputMode === 'template') return c.templateId !== undefined;
+    if (c.inputMode === 'ai') return c.aiPrompt !== undefined;
+    return false;
+  },
+  {
+    message: 'inputMode requires the matching field (record→recordId, soql→soqlQuery, template→templateId, ai→aiPrompt)',
+    path: ['inputMode'],
+  },
+);
 
 // ─── Graph Schemas ──────────────────────────────────────────────────────────
 
 /** Zod schema for ForgeGraphNode */
 export const forgeGraphNodeSchema = z.object({
-  objectApiName: z.string().min(1),
+  objectApiName: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
   recordCount: z.number().int().nonnegative(),
   fieldCount: z.number().int().nonnegative(),
   status: forgeNodeStatusSchema,
   progress: z.number().min(0).max(100),
   included: z.boolean(),
-  piiFields: z.array(z.string()),
-  anonymizeFields: z.array(z.string()),
-  level: z.number().int().nonnegative(),
+  piiFields: z.array(z.string().max(80)).max(500),
+  anonymizeFields: z.array(z.string().max(80)).max(500),
+  level: z.number().int().nonnegative().max(20),
   successCount: z.number().int().nonnegative(),
   failureCount: z.number().int().nonnegative(),
-  errors: z.array(z.string()),
+  errors: z.array(z.string().max(2_000)).max(50),
   createableFieldCount: z.number().int().nonnegative(),
   estimatedSizeMB: z.number().nonnegative(),
   estimatedApiCalls: z.number().int().nonnegative(),
@@ -69,16 +105,20 @@ export const forgeGraphNodeSchema = z.object({
 
 /** Zod schema for ForgeGraphEdge */
 export const forgeGraphEdgeSchema = z.object({
-  sourceObject: z.string().min(1),
-  targetObject: z.string().min(1),
-  relationshipName: z.string().min(1),
+  sourceObject: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+  targetObject: z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+  relationshipName: z.string().min(1).max(80),
   type: forgeEdgeTypeSchema,
 });
 
-/** Zod schema for ForgeGraph */
+/**
+ * Zod schema for ForgeGraph — bounded by .max() on nodes/edges to block
+ * a forged payload from triggering O(n²) or recursive algorithms (Tarjan
+ * SCC, in-degree map, etc.) into stack overflow / DoS.
+ */
 export const forgeGraphSchema = z.object({
-  nodes: z.array(forgeGraphNodeSchema),
-  edges: z.array(forgeGraphEdgeSchema),
+  nodes: z.array(forgeGraphNodeSchema).max(2_000),
+  edges: z.array(forgeGraphEdgeSchema).max(20_000),
   totalRecords: z.number().int().nonnegative(),
   estimatedSizeMB: z.number().nonnegative(),
   estimatedDurationSeconds: z.number().nonnegative(),

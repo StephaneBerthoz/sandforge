@@ -4,6 +4,7 @@ import type { GraphDiscoveryService, DiscoveryOptions } from './GraphDiscoverySe
 import type { ForgeExecutor, ForgeProgressEvent } from './ForgeExecutor.js';
 import type { ForgePlanGenerator } from './ForgePlanGenerator.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 
 /** Events emitted by ForgeOrchestrator during operation. */
 type ForgeEvents = {
@@ -39,9 +40,14 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    * Session-scoped discovery cache. Keyed by
    * `${sourceOrgId}::${inputMode}::${recordId|soql}::${depth}::${customDepth}`.
    * Avoids re-running the 30s+ BFS when the user re-discovers the same root
-   * within the same VSCode session. Cleared on extension reload.
+   * within the same VSCode session. TTL 10min, LRU 16 entries (~5MB max)
+   * so stale graphs after schema changes age out without manual reset.
    */
-  private discoveryCache = new Map<string, ForgeGraph>();
+  private discoveryCache = new SchemaCache<ForgeGraph>({
+    defaultTtl: 10 * 60_000,
+    maxSize: 16,
+    maxSizeBytes: 5 * 1024 * 1024,
+  });
 
   /** @param deps - Injected dependencies for discovery and execution. */
   constructor(deps: ForgeOrchestratorDeps) {
@@ -53,6 +59,10 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    * Compute a stable cache key for a discovery request. Identical configs
    * resolve to the same key — different sources/depths/inputs collide
    * intentionally to share the same cached graph.
+   *
+   * Includes every config field that materially affects the resulting graph
+   * (target org, anonymize, expandOrphanParents, maxRecordsPerObject) so
+   * cache hits never silently swap one configuration for another. RT-004.
    */
   private cacheKeyFor(config: ForgeConfig): string {
     const root =
@@ -65,17 +75,32 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
             : config.aiPrompt ?? '';
     return [
       config.sourceOrgId,
+      config.targetOrgId,
       config.inputMode,
       root,
       config.depth,
       config.customDepth ?? '',
       config.skipEmpty ? 'skipEmpty' : '',
+      config.anonymizePII ? 'anonPII' : '',
+      config.expandOrphanParents ? 'orphan' : '',
+      config.maxRecordsPerObject ?? '',
     ].join('::');
   }
 
   /** Drop the discovery cache — called when the user explicitly re-discovers. */
   clearDiscoveryCache(): void {
     this.discoveryCache.clear();
+  }
+
+  /**
+   * Free resources held by the orchestrator. Called when the extension
+   * deactivates or the user disconnects an org. CR-008 — without this,
+   * the discoveryCache (16 entries × ~5 MB) stays in heap until VSCode
+   * restarts, and stale graphs survive schema changes on the source org.
+   */
+  dispose(): void {
+    this.discoveryCache.clear();
+    this.removeAllListeners?.();
   }
 
   /**
@@ -89,17 +114,14 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
     const key = this.cacheKeyFor(config);
     const cached = this.discoveryCache.get(key);
     if (cached) {
-      // Replay the progress callback so the UI animation completes even on
-      // a cache hit — otherwise the wizard sits at "discovering...".
-      if (options?.onProgress) {
-        for (const node of cached.nodes) {
-          options.onProgress({
-            objectApiName: node.objectApiName,
-            discoveredCount: cached.nodes.length,
-            queueRemaining: 0,
-          });
-        }
-      }
+      // Emit a single synthetic event on cache hit instead of replaying N
+      // events (was a perf cliff on big graphs: 350 sequential postMessages
+      // blocked the event loop for ~200ms for no useful UI feedback).
+      options?.onProgress?.({
+        objectApiName: '__cache_replay__',
+        discoveredCount: cached.nodes.length,
+        queueRemaining: 0,
+      });
       return cached;
     }
     const graph = await this.deps.discoveryService.discover(config, options);
@@ -154,14 +176,19 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
       // When inputMode === 'record', activate scoped execution so the
       // executor only clones the transitive closure of the root record
       // instead of the whole graph. Wave 2 v4 features (orphan parent
-      // expansion) flow through ForgeConfig.
-      const scoped = config.inputMode === 'record' && typeof config.recordId === 'string'
-        ? {
-            rootRecordId: config.recordId,
-            rootObjectApiName: graph.nodes[0]?.objectApiName,
-            expandOrphanParents: config.expandOrphanParents,
-          }
-        : undefined;
+      // expansion) flow through ForgeConfig. The maxRecordsPerObject cap
+      // applies to all input modes — it's a safety knob, not scope-only.
+      const scoped =
+        config.inputMode === 'record' && typeof config.recordId === 'string'
+          ? {
+              rootRecordId: config.recordId,
+              rootObjectApiName: graph.nodes[0]?.objectApiName,
+              expandOrphanParents: config.expandOrphanParents,
+              maxRecordsPerObject: config.maxRecordsPerObject,
+            }
+          : config.maxRecordsPerObject != null
+            ? { maxRecordsPerObject: config.maxRecordsPerObject }
+            : undefined;
 
       const summary = await this.deps.executor.execute(
         graph,

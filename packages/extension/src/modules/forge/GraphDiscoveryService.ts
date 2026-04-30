@@ -77,6 +77,16 @@ const SECONDS_PER_RECORD = 0.01;
 /** Default maximum number of nodes to discover. */
 const DEFAULT_MAX_NODES = 50;
 
+/**
+ * Yield to the event loop. `setImmediate` is Node-only — fall back to
+ * `setTimeout(0)` so the suite stays portable across jsdom / browser-like
+ * environments that the webview tests may run in.
+ */
+const yieldToEventLoop: () => Promise<void> =
+  typeof setImmediate === 'function'
+    ? () => new Promise<void>((resolve) => setImmediate(resolve))
+    : () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
 /** Hub/system objects excluded from BFS traversal (still referenced in edges). */
 const EXCLUDED_OBJECTS = new Set([
   'User',
@@ -91,6 +101,22 @@ const EXCLUDED_OBJECTS = new Set([
   'DuplicateRecordItem',
   'DuplicateRecordSet',
   'ProcessInstance',
+  // Big-org perf killers: SELECT COUNT() on these takes 30s+ each on big
+  // sandboxes. They never carry user data worth cloning anyway.
+  'LoginHistory',
+  'LoginEvent',
+  'LoginIp',
+  'LoginGeo',
+  'AsyncApexJob',
+  'ApexLog',
+  'ApexTestResult',
+  'ApexTestQueueItem',
+  'LightningUsageByPageMetrics',
+  'LightningExitByPageMetrics',
+  'EventBusSubscriber',
+  'PlatformEventUsageMetric',
+  'CronTrigger',
+  'CronJobDetail',
   // Non-queryable virtual objects exposed in describe but unsupported by SOQL
   'AttachedContentDocument',
   'AttachedContentNote',
@@ -148,7 +174,25 @@ export class GraphDiscoveryService {
    * @returns The complete ForgeGraph with nodes, edges, and estimates.
    */
   async discover(config: ForgeConfig, options?: DiscoveryOptions): Promise<ForgeGraph> {
+    // Emit a synthetic "resolving" event so the wizard never sits silent
+    // during the initial describeGlobal round-trip (5-50 MB on big orgs,
+    // can take 30-90s on Mutuaide UAT2).
+    options?.onProgress?.({
+      objectApiName: '__resolving_root__',
+      discoveredCount: 0,
+      queueRemaining: 1,
+    });
+    // PERF-001: breadcrumb the cold path. The audit doc identified
+    // resolveRootObject (which calls describeGlobal) as the source of
+    // 30-90s freezes on big orgs. Logging Date.now() at entry/exit lets
+    // us measure empirically whether the cache + timeout fix is effective
+    // for the next user session.
+    const t0 = Date.now();
     const rootObject = await this.resolveRootObject(config);
+    const t1 = Date.now();
+    if (t1 - t0 > 2_000) {
+      console.warn(`[forge-discover] resolveRootObject took ${t1 - t0}ms (cold path, consider verifying describeGlobal cache state)`);
+    }
     const maxDepth = this.resolveMaxDepth(config);
     const maxNodes = options?.maxNodes ?? DEFAULT_MAX_NODES;
 
@@ -173,66 +217,134 @@ export class GraphDiscoveryService {
     const queue: Array<[string, number]> = [[rootObject, 0]];
     visitedObjects.add(rootObject);
 
-    while (queue.length > 0) {
+    // Drain the queue in waves of WAVE_SIZE entries fetched in parallel.
+    // Sequential await per node was the root cause of the 2:30 freeze on
+    // Mutuaide UAT2 (50 nodes × ~1.5s/node ≈ 75s). With 6 concurrent
+    // describe+queryCount calls we stay under jsforce's default 5-conn pool
+    // + Salesforce per-IP cap while shaving ~6× off the wall-clock time.
+    const WAVE_SIZE = 6;
+    let aborted = false;
+
+    while (queue.length > 0 && !aborted) {
       if (options?.signal?.aborted) {
         break;
       }
 
-      const [objectName, depth] = queue.shift()!;
+      // Yield to the event loop so VSCode's UI thread gets a chance to
+      // paint between waves. Without this, even with parallel I/O, the
+      // synchronous post-processing (build node, walk relations, push
+      // queue, etc.) can starve the renderer for seconds → "window not
+      // responding" dialog. Polyfill: setImmediate is Node-only;
+      // tests under jsdom or browser-like environments fall back to
+      // setTimeout(0) so the suite stays portable.
+      await yieldToEventLoop();
 
-      const describe = await this.deps.describeObject(config.sourceOrgId, objectName);
-      let recordCount = 0;
-      try {
-        recordCount = await this.deps.queryCount(
-          config.sourceOrgId,
-          `SELECT COUNT() FROM ${assertSoqlIdentifier(objectName)}`,
-        );
-      } catch {
-        // Some objects (e.g. virtual entities) are non-queryable — skip gracefully
-      }
-      const piiFields = this.deps.detectPII(describe.fields);
+      // Cap wave at the smaller of WAVE_SIZE, remaining headroom under
+      // maxNodes, and queue length. Without this, we over-process and
+      // overshoot the user-supplied node cap.
+      const remaining = maxNodes - nodes.length;
+      if (remaining <= 0) break;
+      const waveLimit = Math.min(WAVE_SIZE, remaining, queue.length);
+      const wave = queue.splice(0, waveLimit);
 
-      const createableFieldCount = describe.fields.filter((f) => f.type !== 'id').length;
+      // Fetch describe + record count in parallel for every entry in the
+      // wave. Per-call timeouts in the deps wrapper guarantee that one bad
+      // jsforce call does not block the whole wave forever.
+      type WaveResult = {
+        objectName: string;
+        depth: number;
+        describe: ObjectDescribe;
+        recordCount: number;
+      } | null;
+      // PERF-001: wave is processed cooperatively — Promise.all gathers
+      // all describes/queryCounts (bounded by per-call timeouts in the
+      // adapter layer) and the abort latch in the result-processing loop
+      // below halts the BFS at the next wave boundary. The previous attempt
+      // at racing the wave against signal abortion broke partial-graph
+      // semantics (callers expect already-completed describes to be
+      // surfaced even when abort fires mid-wave).
+      const waveResults: WaveResult[] = await Promise.all(
+        wave.map(async ([objectName, depth]): Promise<WaveResult> => {
+          try {
+            const [describe, recordCount] = await Promise.all([
+              this.deps.describeObject(config.sourceOrgId, objectName),
+              this.deps
+                .queryCount(
+                  config.sourceOrgId,
+                  `SELECT COUNT() FROM ${assertSoqlIdentifier(objectName)}`,
+                )
+                .catch(() => 0),
+            ]);
+            return { objectName, depth, describe, recordCount };
+          } catch {
+            // Hard failure (timeout, FLS-blocked, non-queryable) —
+            // emit empty node so the user sees we tried, then skip.
+            return null;
+          }
+        }),
+      );
 
-      const node: ForgeGraphNode = {
-        objectApiName: objectName,
-        recordCount,
-        fieldCount: describe.fields.length,
-        status: 'idle',
-        progress: 0,
-        included: !config.skipEmpty || recordCount > 0,
-        piiFields,
-        anonymizeFields: config.anonymizePII ? piiFields : [],
-        level: depth,
-        successCount: 0,
-        failureCount: 0,
-        errors: [],
-        createableFieldCount,
-        estimatedSizeMB: recordCount * MB_PER_RECORD,
-        estimatedApiCalls: Math.ceil(recordCount / 200),
-        batchStrategy: 'auto' as const,
-      };
-      nodes.push(node);
+      // Sequentially process the results: build the node, walk relations,
+      // enqueue children. The abort check happens AFTER each result is
+      // processed so the in-flight describe that triggered the abort is
+      // still added (consistent with sequential semantics).
+      for (const r of waveResults) {
+        if (aborted) break;
+        if (!r) continue;
+        const { objectName, depth, describe, recordCount } = r;
+        const piiFields = this.deps.detectPII(describe.fields);
+        const createableFieldCount = describe.fields.filter((f) => f.type !== 'id').length;
+        const node: ForgeGraphNode = {
+          objectApiName: objectName,
+          recordCount,
+          fieldCount: describe.fields.length,
+          status: 'idle',
+          progress: 0,
+          included: !config.skipEmpty || recordCount > 0,
+          piiFields,
+          anonymizeFields: config.anonymizePII ? piiFields : [],
+          level: depth,
+          successCount: 0,
+          failureCount: 0,
+          errors: [],
+          createableFieldCount,
+          estimatedSizeMB: recordCount * MB_PER_RECORD,
+          estimatedApiCalls: Math.ceil(recordCount / 200),
+          batchStrategy: 'auto' as const,
+        };
+        nodes.push(node);
 
-      if (depth < maxDepth) {
-        // Field references (lookup/master-detail) — emitted as parent→child
-        // edges so insertion topology stays correct (parent must exist before
-        // the child that points to it). Excluded targets (User, RecordType, …)
-        // are filtered by addEdge so they do not pollute Tarjan SCC.
-        for (const field of describe.fields) {
-          if (field.referenceTo.length === 0) continue;
-          for (const targetObject of field.referenceTo) {
+        if (depth < maxDepth) {
+          for (const field of describe.fields) {
+            if (field.referenceTo.length === 0) continue;
+            for (const targetObject of field.referenceTo) {
+              addEdge({
+                sourceObject: targetObject,
+                targetObject: objectName,
+                relationshipName: field.relationshipName ?? field.name,
+                type: field.isMasterDetail ? 'master-detail' : 'lookup',
+              });
+              if (!visitedObjects.has(targetObject) && !isExcludedObject(targetObject)) {
+                visitedObjects.add(targetObject);
+                if (nodes.length + queue.length < maxNodes) {
+                  queue.push([targetObject, depth + 1]);
+                } else {
+                  skippedDueToCap++;
+                }
+              }
+            }
+          }
+          for (const child of describe.childRelationships) {
             addEdge({
-              sourceObject: targetObject, // parent
-              targetObject: objectName,   // child
-              relationshipName: field.relationshipName ?? field.name,
-              type: field.isMasterDetail ? 'master-detail' : 'lookup',
+              sourceObject: objectName,
+              targetObject: child.childSObject,
+              relationshipName: child.relationshipName,
+              type: child.isCascadeDelete ? 'master-detail' : 'lookup',
             });
-
-            if (!visitedObjects.has(targetObject) && !isExcludedObject(targetObject)) {
-              visitedObjects.add(targetObject);
+            if (!visitedObjects.has(child.childSObject) && !isExcludedObject(child.childSObject)) {
+              visitedObjects.add(child.childSObject);
               if (nodes.length + queue.length < maxNodes) {
-                queue.push([targetObject, depth + 1]);
+                queue.push([child.childSObject, depth + 1]);
               } else {
                 skippedDueToCap++;
               }
@@ -240,33 +352,18 @@ export class GraphDiscoveryService {
           }
         }
 
-        // Child relationships also emit a parent→child edge — addEdge dedupes
-        // against the field.referenceTo edge above so Tarjan no longer sees
-        // both directions of the same relationship.
-        for (const child of describe.childRelationships) {
-          addEdge({
-            sourceObject: objectName,            // parent
-            targetObject: child.childSObject,    // child
-            relationshipName: child.relationshipName,
-            type: child.isCascadeDelete ? 'master-detail' : 'lookup',
-          });
+        options?.onProgress?.({
+          objectApiName: objectName,
+          discoveredCount: nodes.length,
+          queueRemaining: queue.length,
+        });
 
-          if (!visitedObjects.has(child.childSObject) && !isExcludedObject(child.childSObject)) {
-            visitedObjects.add(child.childSObject);
-            if (nodes.length + queue.length < maxNodes) {
-              queue.push([child.childSObject, depth + 1]);
-            } else {
-              skippedDueToCap++;
-            }
-          }
+        // Latch abort AFTER processing the in-flight result. Any other
+        // already-completed results in the wave are dropped on next iter.
+        if (options?.signal?.aborted) {
+          aborted = true;
         }
       }
-
-      options?.onProgress?.({
-        objectApiName: objectName,
-        discoveredCount: nodes.length,
-        queueRemaining: queue.length,
-      });
     }
 
     const totalRecords = nodes.reduce((sum, n) => sum + n.recordCount, 0);
@@ -311,19 +408,38 @@ export class GraphDiscoveryService {
       case 'full':
         return 5;
       case 'custom':
-        return config.customDepth ?? 3;
+        // Hard upper bound 10 — beyond this BFS hammers the org's API
+        // governor limits without producing a usable graph (depth 10 of
+        // a CRM org explodes into thousands of describes).
+        return Math.max(1, Math.min(10, config.customDepth ?? 3));
     }
   }
 }
 
 /**
- * Parse the object name from a SOQL query's FROM clause.
- * Supports simple queries: SELECT ... FROM ObjectName ...
+ * Parse the object name from a SOQL query's FROM clause. Strips comments
+ * and subqueries first so nested SELECTs and block comments don't trick
+ * the parser into picking the wrong root. Validates via assertSoqlIdentifier
+ * to block crafted SOQL injection from user-supplied queries.
+ *
+ * Subquery stripping iterates to a fixed point so deeply nested parens
+ * (`SELECT … FROM (SELECT … FROM (SELECT … FROM Inner))`) are fully removed.
+ * A single-pass `.replace(/\([^()]*\)/g, '')` only strips one nesting level
+ * and leaves a stale `FROM Inner` that the parser would mistake for the root.
+ * Bounded to 32 iterations (deeper than any realistic SOQL) to keep this O(L).
  */
 function parseObjectFromSOQL(soql: string): string {
-  const match = /FROM\s+(\w+)/i.exec(soql);
-  if (!match) {
+  let cleaned = soql
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/--[^\n]*/g, '');
+  for (let i = 0; i < 32; i++) {
+    const next = cleaned.replace(/\([^()]*\)/g, '');
+    if (next === cleaned) break;
+    cleaned = next;
+  }
+  const matched = /\bFROM\s+(\w+)/i.exec(cleaned);
+  if (!matched) {
     throw new Error('Could not parse object name from SOQL query. Ensure the query uses standard "SELECT ... FROM ObjectName" syntax.');
   }
-  return match[1];
+  return assertSoqlIdentifier(matched[1]);
 }

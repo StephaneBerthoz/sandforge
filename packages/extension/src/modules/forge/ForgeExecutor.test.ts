@@ -781,8 +781,8 @@ describe('ForgeExecutor', () => {
         ];
       });
       vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
-        if (soql.includes('FROM Asset')) return [{ Id: '02iOLD1', Name: 'BMW X6', AccountId: '001OLD_ORPHAN' }];
-        if (soql.includes('FROM Account')) return [{ Id: '001OLD_ORPHAN', Name: 'GAN ASSURANCES' }];
+        if (soql.includes('FROM Asset')) return [{ Id: '02iOLD1', Name: 'BMW X6', AccountId: '001AP00ORPHAN12' }];
+        if (soql.includes('FROM Account')) return [{ Id: '001AP00ORPHAN12', Name: 'GAN ASSURANCES' }];
         return [];
       });
       vi.mocked(deps.insertRecords).mockImplementation(async (_o, name) => {

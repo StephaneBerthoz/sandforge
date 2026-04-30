@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import type { ForgeTemplate } from '@sandforge/shared';
 
 /** Dependencies for ForgeTemplateStore, injected at construction time. */
@@ -23,7 +24,9 @@ export class ForgeTemplateStore {
   /** @param deps - Injected file system dependencies. */
   constructor(deps: ForgeTemplateStoreDeps) {
     this.deps = deps;
-    this.filePath = `${deps.workspacePath}/.sandforge/forge-templates.json`;
+    // Use path.join for cross-platform safety + defense against quirky
+    // workspace paths (trailing slashes, mixed separators on Windows).
+    this.filePath = path.join(deps.workspacePath, '.sandforge', 'forge-templates.json');
   }
 
   /** List all saved templates. Returns empty array if file doesn't exist. */
@@ -56,7 +59,7 @@ export class ForgeTemplateStore {
   }
 
   private async write(templates: ForgeTemplate[]): Promise<void> {
-    const dirPath = `${this.deps.workspacePath}/.sandforge`;
+    const dirPath = path.join(this.deps.workspacePath, '.sandforge');
     await this.deps.mkdir(dirPath).catch(() => undefined);
     await this.deps.writeFile(this.filePath, JSON.stringify(templates, null, 2));
   }
