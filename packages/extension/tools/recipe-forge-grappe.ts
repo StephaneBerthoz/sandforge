@@ -49,9 +49,10 @@ const SCENARIO = {
    *  executor performs real inserts on the target org (Wave 3). Default to
    *  true for safety — flip explicitly to write. */
   dryRun: true,
-  /** Per-object hard cap. Conservative when iterating fixes; raise once
-   *  the cycle of "run, observe error, fix, re-run" stabilises. */
+  /** Per-object hard cap. */
   maxRecordsPerObject: 5,
+  /** Wave 2 v4 — auto-fetch missing required parents (single-hop). */
+  expandOrphanParents: true,
 };
 
 function loadSfOrgs(aliases: string[]): Map<string, SfOrg> {
@@ -456,6 +457,8 @@ async function main(): Promise<void> {
         dryRun: SCENARIO.dryRun,
         recordTypeMappings,
         maxRecordsPerObject: SCENARIO.maxRecordsPerObject,
+        expandOrphanParents: SCENARIO.expandOrphanParents,
+        maxOrphanParentExpansions: 20,
       },
     );
 
