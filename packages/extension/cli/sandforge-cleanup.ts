@@ -23,6 +23,14 @@
  */
 import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';
+import { assertSoqlIdentifier, sanitizeSoqlValue } from '../src/core/common/soqlValidator.js';
+
+/** SF org alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
+const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
+/** SF user/record ID. */
+const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
+/** Validated `--since` literal. */
+const SINCE_LITERAL_RE = /^(TODAY|YESTERDAY|LAST_WEEK|THIS_WEEK|LAST_N_DAYS:\d+|\d{4}-\d{2}-\d{2})$/i;
 
 const DEFAULT_OBJECTS = [
   'CaseContact__c',
@@ -108,6 +116,12 @@ interface SfOrg {
 }
 
 function loadOrg(alias: string): SfOrg {
+  // Defense-in-depth: re-validate alias here even though main() also checks.
+  // shell:true on Windows lets cmd.exe interpret metacharacters — alias must
+  // be alphanumeric+underscore+dash+dot only.
+  if (!SF_ALIAS_RE.test(alias)) {
+    throw new Error(`Invalid SF org alias: "${alias}"`);
+  }
   const json = execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
     encoding: 'utf8',
     maxBuffer: 50 * 1024 * 1024,
@@ -136,7 +150,7 @@ function makeConn(org: SfOrg): jsforce.Connection {
   });
 }
 
-/** Translate `--since` into a SOQL date literal. */
+/** Translate `--since` into a strictly-validated SOQL date literal. */
 function sinceClause(since: string): string {
   const lc = since.toLowerCase();
   if (lc === 'today') return 'TODAY';
@@ -147,7 +161,10 @@ function sinceClause(since: string): string {
     if (!Number.isFinite(n) || n <= 0) throw new Error(`Invalid --since: ${since}`);
     return `LAST_N_DAYS:${n}`;
   }
-  // Fallback: treat as ISO date, surfaced verbatim — caller is responsible.
+  // ISO date fallback — strictly matched, no verbatim passthrough.
+  if (!SINCE_LITERAL_RE.test(since)) {
+    throw new Error(`Invalid --since: ${since}. Allowed: today, yesterday, last_week, last_n_days:N, YYYY-MM-DD.`);
+  }
   return since;
 }
 
@@ -156,6 +173,19 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   console.log(`sandforge-cleanup  target=${args.target}  since=${args.since}  ${args.dryRun ? 'DRY-RUN' : 'REAL'}`);
 
+  // Validate ALL CLI inputs that flow into SOQL or shell execution.
+  if (!SF_ALIAS_RE.test(args.target)) {
+    console.error(`Invalid --target alias: ${args.target}. Letters/digits/_/-/. only.`);
+    process.exit(1);
+  }
+  for (const obj of args.objects) {
+    try {
+      assertSoqlIdentifier(obj);
+    } catch {
+      console.error(`Invalid object name in --objects: ${obj}`);
+      process.exit(1);
+    }
+  }
   const org = loadOrg(args.target);
   const conn = makeConn(org);
   // sf CLI doesn't surface User.Id directly — query it via SOQL using the
@@ -163,7 +193,7 @@ async function main(): Promise<void> {
   let userId = org.userId;
   if (!userId) {
     const userQuery = await conn.query<{ Id: string }>(
-      `SELECT Id FROM User WHERE Username = '${org.username.replace(/'/g, "\\'")}' LIMIT 1`,
+      `SELECT Id FROM User WHERE Username = '${sanitizeSoqlValue(org.username)}' LIMIT 1`,
     );
     userId = userQuery.records[0]?.Id ?? '';
   }
@@ -171,15 +201,24 @@ async function main(): Promise<void> {
     console.error(`Could not resolve userId for ${org.username} on ${org.alias}.`);
     process.exit(1);
   }
+  if (!SF_ID_RE.test(userId)) {
+    console.error(`Invalid userId returned by org: ${userId}`);
+    process.exit(1);
+  }
   console.log(`user: ${org.username} (${userId})\n`);
 
   const since = sinceClause(args.since);
+  const cap = Math.floor(args.max);
+  if (!Number.isFinite(cap) || cap <= 0) {
+    console.error(`Invalid --max: ${args.max}`);
+    process.exit(1);
+  }
   let totalDeleted = 0;
   let totalSkipped = 0;
 
   for (const objectName of args.objects) {
     try {
-      const soql = `SELECT Id FROM ${objectName} WHERE CreatedDate = ${since} AND CreatedById = '${userId}' LIMIT ${Math.floor(args.max)}`;
+      const soql = `SELECT Id FROM ${assertSoqlIdentifier(objectName)} WHERE CreatedDate = ${since} AND CreatedById = '${sanitizeSoqlValue(userId)}' LIMIT ${cap}`;
       const result = await conn.query<{ Id: string }>(soql);
       const ids = result.records.map((r) => r.Id);
       if (ids.length === 0) {

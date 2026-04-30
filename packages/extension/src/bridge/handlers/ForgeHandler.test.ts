@@ -67,7 +67,8 @@ function createMockGraph(): ForgeGraph {
 function createMockConfig(overrides?: Partial<ForgeConfig>): ForgeConfig {
   return {
     inputMode: 'record',
-    recordId: '001XXXXXXXXXX',
+    // 15-char strict Salesforce ID (audit RT-001 hardened forgeConfigSchema)
+    recordId: '001AP00000j2CEg',
     depth: 'direct',
     sourceOrgId: 'src-org',
     targetOrgId: 'tgt-org',

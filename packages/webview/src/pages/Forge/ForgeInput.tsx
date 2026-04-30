@@ -65,6 +65,21 @@ function isPiiField(fieldName: string): boolean {
   return PII_FIELD_PATTERNS.some((p) => p.test(fieldName));
 }
 
+/**
+ * Pick a per-object record cap proportional to the org's volumetry. The
+ * input is the root object's `estimatedRecordCount` from the preview;
+ * larger orgs get a tighter cap so big-org clones stay bounded.
+ *
+ * Returns `0` to mean "no cap" (translates to undefined downstream).
+ */
+function smartLimitForCount(count: number): number {
+  if (count > 50_000) return 50;
+  if (count > 5_000) return 100;
+  if (count > 500) return 500;
+  if (count > 50) return 1000;
+  return 0;
+}
+
 /** Extract a Salesforce Record ID from a plain ID or Salesforce URL. */
 function extractRecordId(input: string): string | null {
   const trimmed = input.trim();
@@ -136,6 +151,13 @@ export const ForgeInput: React.FC = () => {
   const [anonymize, setAnonymize] = useState(false);
   const [skipEmpty, setSkipEmpty] = useState(false);
   const [expandOrphanParents, setExpandOrphanParents] = useState(false);
+  /**
+   * Per-object record cap, expressed as a string in the dropdown:
+   * 'smart' (auto from preview metrics) | 'all' | '10'..'1000'.
+   * Translated into a number (or undefined) before being sent to the
+   * executor as `maxRecordsPerObject`.
+   */
+  const [recordLimit, setRecordLimit] = useState<string>('smart');
 
   /** Arrow-key navigation handler for depth radio chips. */
   const handleDepthKeyDown = useCallback((e: React.KeyboardEvent, currentDepth: ForgeDepth) => {
@@ -202,6 +224,23 @@ export const ForgeInput: React.FC = () => {
     [preview],
   );
 
+  /**
+   * Numeric limit applied to executor (undefined = no cap). When the
+   * dropdown is on `smart`, scales with `preview.estimatedRecordCount`;
+   * before the preview lands, defaults to 100 as a safe-large-org fallback.
+   */
+  const recordLimitValue = useMemo<number | undefined>(() => {
+    if (recordLimit === 'smart') {
+      const count = preview?.estimatedRecordCount;
+      if (count == null) return 100;
+      const auto = smartLimitForCount(count);
+      return auto === 0 ? undefined : auto;
+    }
+    if (recordLimit === 'all') return undefined;
+    const n = Number(recordLimit);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }, [recordLimit, preview]);
+
   /** Whether the current input has enough data to proceed. */
   const hasInput = useCallback((): boolean => {
     switch (inputMode) {
@@ -258,6 +297,7 @@ export const ForgeInput: React.FC = () => {
         skipEmpty,
         expandOrphanParents,
         batchSize: 'auto',
+        maxRecordsPerObject: recordLimitValue,
         ...(inputMode === 'record' && recordId ? { recordId: extractRecordId(recordId) ?? undefined } : {}),
         ...(inputMode === 'soql' && soqlQuery ? { soqlQuery } : {}),
         ...(inputMode === 'ai' && aiPrompt ? { aiPrompt } : {}),
@@ -272,7 +312,7 @@ export const ForgeInput: React.FC = () => {
     setNewTemplateDescription('');
     setShowCreateForm(false);
     addNotification({ level: 'success', title: t('forge.templateCreated'), message: template.name, autoDismissMs: 3000 });
-  }, [newTemplateName, newTemplateDescription, inputMode, depth, customDepth, anonymize, skipEmpty, recordId, soqlQuery, aiPrompt, addTemplate, addNotification, t]);
+  }, [newTemplateName, newTemplateDescription, inputMode, depth, customDepth, anonymize, skipEmpty, expandOrphanParents, recordLimitValue, recordId, soqlQuery, aiPrompt, addTemplate, addNotification, t]);
 
   /** Start editing a template. */
   const handleStartEdit = useCallback((tpl: ForgeTemplate) => {
@@ -296,7 +336,7 @@ export const ForgeInput: React.FC = () => {
       const tpl = templates.find((t2) => t2.id === deleteConfirmId);
       removeTemplate(tpl?.name ?? '');
       setDeleteConfirmId(null);
-      if (selectedTemplate === tpl?.name) {
+      if (selectedTemplate === tpl?.id) {
         setSelectedTemplate('');
       }
       addNotification({ level: 'info', title: t('forge.templateDeleted'), message: tpl?.name ?? '', autoDismissMs: 3000 });
@@ -318,6 +358,7 @@ export const ForgeInput: React.FC = () => {
       anonymizePII: anonymize,
       skipEmpty,
       expandOrphanParents,
+      maxRecordsPerObject: recordLimitValue,
       sourceOrgId,
       targetOrgId,
       batchSize: 'auto',
@@ -329,7 +370,7 @@ export const ForgeInput: React.FC = () => {
   }, [
     canDiscover, inputMode, depth, recordId, soqlQuery, selectedTemplate,
     aiPrompt, customDepth, anonymize, skipEmpty, expandOrphanParents,
-    sourceOrgId, targetOrgId, setConfig, setPhase, sendMessage,
+    recordLimitValue, sourceOrgId, targetOrgId, setConfig, setPhase, sendMessage,
   ]);
 
   /** Quick-start path: starter template selected → synthetic graph, no BFS. */
@@ -342,6 +383,10 @@ export const ForgeInput: React.FC = () => {
     if (!canQuickStartTemplate || !builtinTplCandidate) return;
     const objects = getBuiltinTemplateObjects(builtinTplCandidate.id);
     if (objects.length === 0) return;
+    // The user's UI choices override the builtin defaults — they may want
+    // to widen the builtin's record cap, toggle anonymize, etc.
+    const tplCap = builtinTplCandidate.config.maxRecordsPerObject;
+    const effectiveCap = recordLimit === '100' && tplCap != null ? tplCap : recordLimitValue;
     const config: ForgeConfig = {
       ...builtinTplCandidate.config,
       sourceOrgId,
@@ -349,6 +394,7 @@ export const ForgeInput: React.FC = () => {
       anonymizePII: anonymize,
       skipEmpty,
       expandOrphanParents,
+      maxRecordsPerObject: effectiveCap,
       batchSize: 'auto',
     };
     setConfig(config);
@@ -362,7 +408,7 @@ export const ForgeInput: React.FC = () => {
     setPhase('review');
   }, [
     canQuickStartTemplate, builtinTplCandidate, sourceOrgId, targetOrgId,
-    anonymize, skipEmpty, expandOrphanParents,
+    anonymize, skipEmpty, expandOrphanParents, recordLimit, recordLimitValue,
     setConfig, setGraph, setPhase, sendMessage,
   ]);
 
@@ -382,6 +428,7 @@ export const ForgeInput: React.FC = () => {
       anonymizePII: anonymize,
       skipEmpty,
       expandOrphanParents,
+      maxRecordsPerObject: recordLimitValue,
       sourceOrgId,
       targetOrgId,
       batchSize: 'auto',
@@ -400,7 +447,7 @@ export const ForgeInput: React.FC = () => {
     setPhase('review');
   }, [
     canReuseLastGraph, lastGraph, inputMode, depth, recordId, soqlQuery, selectedTemplate,
-    aiPrompt, customDepth, anonymize, skipEmpty, expandOrphanParents,
+    aiPrompt, customDepth, anonymize, skipEmpty, expandOrphanParents, recordLimitValue,
     sourceOrgId, targetOrgId, setConfig, setGraph, setPhase, sendMessage,
   ]);
 
@@ -637,7 +684,52 @@ export const ForgeInput: React.FC = () => {
                       </button>
                     )}
 
-                    {/* Template list */}
+                    {/* Starter (builtin) templates section header */}
+                    {BUILTIN_FORGE_TEMPLATES.length > 0 && (
+                      <div className="text-[10px] text-text-muted uppercase tracking-widest mt-1">
+                        {t('forge.starterTemplates')}
+                      </div>
+                    )}
+                    {/* Builtin templates — read-only, no edit/delete */}
+                    {BUILTIN_FORGE_TEMPLATES.map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        data-testid={`forge-template-builtin-${tpl.id}`}
+                        onClick={() => setSelectedTemplate(tpl.id)}
+                        className={cn(
+                          'flex items-start gap-2 px-3 py-2 rounded-md text-sm border transition-colors text-left',
+                          selectedTemplate === tpl.id
+                            ? 'border-forge bg-forge/10 text-text-primary'
+                            : 'border-subtle bg-surface-2 text-text-secondary hover:border-forge/30',
+                        )}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{tpl.name}</span>
+                            <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-forge/20 text-forge font-semibold uppercase tracking-wider">
+                              {t('forge.starterBadge')}
+                            </span>
+                            {tpl.config.maxRecordsPerObject != null && (
+                              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-400 font-mono">
+                                ≤ {tpl.config.maxRecordsPerObject}/obj
+                              </span>
+                            )}
+                          </div>
+                          {tpl.description && (
+                            <span className="block text-xs text-text-muted mt-0.5">{tpl.description}</span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+
+                    {/* User templates section header (only if there are any) */}
+                    {templates.length > 0 && (
+                      <div className="text-[10px] text-text-muted uppercase tracking-widest mt-2">
+                        {t('forge.yourTemplates')}
+                      </div>
+                    )}
+                    {/* User-created templates with full edit/delete affordance */}
                     {templates.length === 0 && !showCreateForm ? (
                       <p className="text-sm text-text-muted italic">{t('forge.noTemplates')}</p>
                     ) : (
@@ -646,7 +738,7 @@ export const ForgeInput: React.FC = () => {
                           key={tpl.id}
                           className={cn(
                             'flex items-start gap-2 px-3 py-2 rounded-md text-sm border transition-colors',
-                            selectedTemplate === tpl.name
+                            selectedTemplate === tpl.id
                               ? 'border-forge bg-forge/10 text-text-primary'
                               : 'border-subtle bg-surface-2 text-text-secondary hover:border-forge/30',
                           )}
@@ -690,7 +782,7 @@ export const ForgeInput: React.FC = () => {
                             <>
                               <button
                                 type="button"
-                                onClick={() => setSelectedTemplate(tpl.name)}
+                                onClick={() => setSelectedTemplate(tpl.id)}
                                 className="flex-1 text-left"
                               >
                                 <span className="font-medium">{tpl.name}</span>
@@ -797,6 +889,50 @@ export const ForgeInput: React.FC = () => {
                 />
               )}
             </div>
+          </div>
+
+          {/* Records-per-object cap — keeps big-org clones bounded */}
+          <div>
+            <div className="text-[10px] text-text-muted uppercase tracking-widest mb-2 flex items-center gap-2">
+              {t('forge.recordLimit')}
+              <span className="text-text-muted/60 normal-case tracking-normal text-[10px]">
+                — {t('forge.recordLimitHint')}
+              </span>
+            </div>
+            <select
+              data-testid="forge-record-limit"
+              value={recordLimit}
+              onChange={(e) => setRecordLimit(e.target.value)}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-xs',
+                'bg-[var(--vscode-input-background,#1e1e3a)]',
+                'text-[var(--vscode-input-foreground,#d4d4d4)]',
+                'border border-[var(--vscode-input-border,#3a3a5c)]',
+                'focus:outline-none focus:border-forge/50',
+              )}
+            >
+              <option value="smart">{t('forge.recordLimitSmart')}</option>
+              <option value="10">{t('forge.recordLimitOpt10')}</option>
+              <option value="50">{t('forge.recordLimitOpt50')}</option>
+              <option value="100">{t('forge.recordLimitOpt100')}</option>
+              <option value="500">{t('forge.recordLimitOpt500')}</option>
+              <option value="1000">{t('forge.recordLimitOpt1000')}</option>
+              <option value="all">{t('forge.recordLimitAll')}</option>
+            </select>
+            {/* Smart-mode hint — surfaces what the auto cap will be */}
+            {recordLimit === 'smart' && preview?.estimatedRecordCount != null && (
+              <div
+                className="mt-1.5 text-[10px] text-text-muted flex items-center gap-1.5"
+                data-testid="forge-record-limit-smart-hint"
+              >
+                <span>
+                  {t('forge.smartLimitSuggested', {
+                    count: preview.estimatedRecordCount,
+                    limit: recordLimitValue ?? t('forge.recordLimitAll'),
+                  })}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Option toggles */}
