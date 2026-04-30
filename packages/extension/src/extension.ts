@@ -37,7 +37,10 @@ let broker: MessageBroker | undefined;
 export function activate(context: vscode.ExtensionContext): void {
   // 1. Output channel
   const outputChannel = vscode.window.createOutputChannel('SandForge');
-  const log = (msg: string): void => outputChannel.appendLine(msg);
+  const startTs = Date.now();
+  const log = (msg: string): void => {
+    outputChannel.appendLine(`[+${Date.now() - startTs}ms] ${msg}`);
+  };
   log('SandForge is now active.');
 
   // 1b. Composition root — wires core adapters (telemetry, storage, salesforce, fs)
@@ -49,6 +52,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const configBackend = new MementoConfigStoreBackend(context.globalState);
   const configStore = new ConfigStore(configBackend);
   configStore.initialize();
+  log('ConfigStore initialized.');
 
   // 3. SecretVault (wrapping VSCode SecretStorage)
   const secretVault = new SecretVault({
@@ -89,6 +93,7 @@ export function activate(context: vscode.ExtensionContext): void {
   broker = new MessageBroker({ telemetry: services.telemetry });
   router = new MessageRouter(broker);
   const stateSync = new WebviewStateSync(broker);
+  log('MessageBroker + Router + StateSync wired.');
 
   // 7. ExtensionHandlers -- register all message routes
   const handlers = new ExtensionHandlers({
