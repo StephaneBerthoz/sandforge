@@ -602,6 +602,10 @@ export class ForgeExecutor {
               if (remapper.get(value)) continue;
               for (const target of field.referenceTo ?? []) {
                 if (target === node.objectApiName) continue;
+                // Excluded objects (User, RecordType, Group, history/feed/share/
+                // changeevent suffixes) can't be cloned in a meaningful way and
+                // would just burn API calls + add noise to the error report.
+                if (isExpansionExcludedObject(target)) continue;
                 const key = `${target}::${value}`;
                 if (!requiredOrphans.has(key)) {
                   requiredOrphans.set(key, { object: target, sourceId: value });
@@ -1016,6 +1020,32 @@ function summarizeRecordForError(record: Record<string, unknown>): string {
     parts.push(`${k}=${str}`);
   }
   return parts.join(' ') || '(empty)';
+}
+
+/**
+ * Object names that the orphan-parent expansion path refuses to fetch
+ * even when a child node references them as a required FK. These are
+ * either system-managed (User, Group, RecordType) or audit-trail
+ * style entities Salesforce won't let us insert anyway. Skipping them
+ * here avoids burning API calls + spamming the error panel with
+ * predictable REQUIRED_FIELD_MISSING / CANNOT_INSERT failures.
+ */
+const EXPANSION_EXCLUDED_OBJECTS = new Set([
+  'User',
+  'Group',
+  'Profile',
+  'UserRole',
+  'RecordType',
+  'Organization',
+  'Queue',
+  'PermissionSet',
+]);
+
+const EXPANSION_EXCLUDED_SUFFIXES = ['History', 'Feed', 'Share', 'ChangeEvent', '__hd', '__Tag'];
+
+function isExpansionExcludedObject(name: string): boolean {
+  if (EXPANSION_EXCLUDED_OBJECTS.has(name)) return true;
+  return EXPANSION_EXCLUDED_SUFFIXES.some((s) => name.endsWith(s));
 }
 
 /**
