@@ -681,6 +681,83 @@ describe('ForgeExecutor', () => {
     });
   });
 
+  describe('upsert mode (auto via externalId)', () => {
+    const ROOT_ID = '500AP00000fXeQsYAK';
+
+    it('uses upsertRecords when upsertMode=auto and an externalId field exists', async () => {
+      const upsertRecords = vi.fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>().mockResolvedValue([
+        { id: '500NEW1', success: true, errors: [] },
+      ]);
+      const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
+
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, ExternalKey__c: 'KEY-001', Subject: 'Test' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Subject', queryable: true, createable: true, isReference: false },
+        { name: 'ExternalKey__c', queryable: true, createable: true, isReference: false, externalId: true },
+      ]);
+
+      await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        upsertMode: 'auto',
+      });
+
+      expect(upsertRecords).toHaveBeenCalledTimes(1);
+      const [, , externalIdField, payload] = upsertRecords.mock.calls[0];
+      expect(externalIdField).toBe('ExternalKey__c');
+      expect(payload[0].ExternalKey__c).toBe('KEY-001');
+      expect(deps.insertRecords).not.toHaveBeenCalled();
+    });
+
+    it('falls back to insert when no externalId field is present', async () => {
+      const upsertRecords = vi.fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>().mockResolvedValue([]);
+      const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
+
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID, Subject: 'Test' }]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'Subject', queryable: true, createable: true, isReference: false },
+      ]);
+
+      await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        upsertMode: 'auto',
+      });
+
+      expect(upsertRecords).not.toHaveBeenCalled();
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+    });
+
+    it('always inserts when upsertMode is undefined (back-compat)', async () => {
+      const upsertRecords = vi.fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>().mockResolvedValue([]);
+      const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
+
+      const graph = makeGraph([makeNode('Case')]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([
+        { Id: ROOT_ID, ExternalKey__c: 'KEY-001' },
+      ]);
+      vi.mocked(deps.describeFields).mockResolvedValue([
+        { name: 'Id', queryable: true, createable: false, isReference: false },
+        { name: 'ExternalKey__c', queryable: true, createable: true, isReference: false, externalId: true },
+      ]);
+
+      await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
+        rootRecordId: ROOT_ID,
+        rootObjectApiName: 'Case',
+        // no upsertMode — defaults to insert
+      });
+
+      expect(upsertRecords).not.toHaveBeenCalled();
+      expect(deps.insertRecords).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('Wave 2 v4 — single-hop orphan parent expansion', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
 

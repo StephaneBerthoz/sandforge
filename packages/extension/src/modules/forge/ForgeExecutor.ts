@@ -62,6 +62,13 @@ export interface FieldInfo {
    * Empty / missing list = no validation.
    */
   picklistValues?: string[];
+  /**
+   * Whether this field is an `externalId` on the SObject — i.e. uniquely
+   * identifies a record across orgs. Used by the upsert path so devs can
+   * re-run the recipe against the same source record without hitting
+   * `DUPLICATE_VALUE` on a previously cloned target row.
+   */
+  externalId?: boolean;
 }
 
 /** Optional execution mode parameters. */
@@ -149,6 +156,16 @@ export interface ExecuteOptions {
    * `execute()` call when `expandOrphanParents` is true. Default 20.
    */
   maxOrphanParentExpansions?: number;
+  /**
+   * Insert vs upsert behaviour:
+   *   - `'auto'` — for objects whose describe surfaces an `externalId`
+   *     field, use `sobject.upsert(records, externalIdField)` so re-runs
+   *     against an already-cloned source record patch the existing
+   *     target row instead of failing with DUPLICATE_VALUE. Falls back
+   *     to insert when no external Id is found.
+   *   - `undefined` (default) — always insert.
+   */
+  upsertMode?: 'auto';
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -173,6 +190,18 @@ export interface ForgeExecutorDeps {
     objectName: string,
     records: Record<string, unknown>[],
   ) => Promise<UpdateResult[]>;
+  /**
+   * Upsert records on a Salesforce org via an external Id field. Used by
+   * the upsert path (`ExecuteOptions.upsertMode = 'auto'`) so re-runs
+   * patch existing target rows instead of failing on DUPLICATE_VALUE.
+   * Optional — when omitted, the executor falls back to insert.
+   */
+  upsertRecords?: (
+    orgId: string,
+    objectName: string,
+    externalIdField: string,
+    records: Record<string, unknown>[],
+  ) => Promise<InsertResult[]>;
   /** Get field metadata for an object (queryable, createable, reference flags). */
   describeFields: (orgId: string, objectName: string) => Promise<FieldInfo[]>;
   /**
@@ -733,15 +762,29 @@ export class ForgeExecutor {
         let recordOffset = 0;
         const nodeErrorSamples: ExecutionErrorSample[] = [];
 
+        // Upsert via external Id when available — re-runs patch existing
+        // target rows instead of failing on DUPLICATE_VALUE.
+        const upsertField =
+          options?.upsertMode === 'auto' && this.deps.upsertRecords
+            ? fieldInfos.find((f) => f.externalId && effectiveCreatableSet.has(f.name))?.name
+            : undefined;
+
         for (let b = 0; b < batchCount; b++) {
           await this.waitIfPaused();
 
           const batch = remappedRecords.slice(b * batchSize, (b + 1) * batchSize);
-          const results = await this.deps.insertRecords(
-            targetOrgId,
-            node.objectApiName,
-            batch,
-          );
+          const results = upsertField && this.deps.upsertRecords
+            ? await this.deps.upsertRecords(
+                targetOrgId,
+                node.objectApiName,
+                upsertField,
+                batch,
+              )
+            : await this.deps.insertRecords(
+                targetOrgId,
+                node.objectApiName,
+                batch,
+              );
 
           // Step 4: Register new IDs for this batch + capture failure samples.
           // Use filteredRecords (post required-FK skip) for the source-ID

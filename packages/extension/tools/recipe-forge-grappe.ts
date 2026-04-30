@@ -338,6 +338,22 @@ async function main(): Promise<void> {
           return [];
         }
       },
+      upsertRecords: async (orgId, objectName, externalIdField, records) => {
+        if (SCENARIO.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
+        const conn = connections.get(orgId);
+        if (!conn) throw new Error(`No connection for ${orgId}`);
+        const results = await conn
+          .sobject(objectName)
+          .upsert(records as unknown as Record<string, unknown>[], externalIdField);
+        const arr = Array.isArray(results) ? results : [results];
+        return arr.map((r) => ({
+          id: r.id ?? '',
+          success: r.success,
+          errors: r.errors?.map((e: { message?: string; statusCode?: string }) =>
+            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
+          ) ?? [],
+        }));
+      },
       updateRecords: async (orgId, objectName, records) => {
         if (SCENARIO.dryRun) return [];
         const conn = connections.get(orgId);
@@ -424,6 +440,7 @@ async function main(): Promise<void> {
           picklistValues: (f.picklistValues ?? [])
             .filter((p) => p?.active !== false && typeof p?.value === 'string')
             .map((p) => p.value as string),
+          externalId: f.externalId === true,
         }));
       },
       isObjectCreatable: async (orgId, objectName) => {

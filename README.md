@@ -39,6 +39,8 @@
 | Guide | Description |
 |---|---|
 | [Getting Started](docs/getting-started.md) | Install, connect your org, run your first operation |
+| **[Forge — Dev Sandbox Quickstart](docs/forge-quickstart.md)** | **Clone a record graph from a partial-copy sandbox into your dev sandbox in 60s — wizard + CLI** |
+| [Forge — Record-Scoped Architecture](docs/forge-record-scoped.md) | Internals of the scoped clone pipeline (BFS discovery, RecordType mapping, cycle 2-pass, orphan parent expansion, picklist strip) |
 | [Seed](docs/modules/seed.md) | AI generation, CSV import, and org-to-org cloning with templates and dependency resolution |
 | [Sync](docs/modules/sync.md) | Bidirectional data synchronization between orgs |
 | [Monitor](docs/modules/monitor.md) | Real-time org health, API limits, and job tracking |
