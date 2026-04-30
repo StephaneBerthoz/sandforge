@@ -219,6 +219,18 @@ export function activate(context: vscode.ExtensionContext): void {
           errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
         }));
       },
+      upsertRecords: async (orgId, objectName, externalIdField, records) => {
+        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+        const results = await conn
+          .sobject(objectName)
+          .upsert(records as unknown as Record<string, unknown>[], externalIdField);
+        const arr = Array.isArray(results) ? results : [results];
+        return arr.map((r) => ({
+          id: r.id ?? '',
+          success: r.success,
+          errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
+        }));
+      },
       describeFields: async (orgId, objectName) => {
         const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
         const meta = await conn.describe(objectName);
@@ -232,6 +244,7 @@ export function activate(context: vscode.ExtensionContext): void {
           picklistValues: (f.picklistValues ?? [])
             .filter((p) => p?.active !== false && typeof p?.value === 'string')
             .map((p) => p.value as string),
+          externalId: f.externalId === true,
         }));
       },
       isObjectCreatable: async (orgId, objectName) => {
