@@ -133,6 +133,11 @@ export class ForgePlanGenerator {
   ): Map<string, number> {
     const includedSet = new Set(includedNodes.map((n) => n.objectApiName));
     const inDegree = new Map<string, number>();
+    // Adjacency map (source -> [targets]). Built once in O(E); turns the
+    // hot inner loop from O(E) per dequeue into O(out-degree). Without
+    // this, big graphs (350 nodes × 3000 edges) blocked the event loop
+    // ~80-150ms per plan generation.
+    const outgoing = new Map<string, string[]>();
     for (const node of includedNodes) {
       inDegree.set(node.objectApiName, 0);
     }
@@ -144,6 +149,9 @@ export class ForgePlanGenerator {
         edge.targetObject,
         (inDegree.get(edge.targetObject) ?? 0) + 1,
       );
+      const list = outgoing.get(edge.sourceObject);
+      if (list) list.push(edge.targetObject);
+      else outgoing.set(edge.sourceObject, [edge.targetObject]);
     }
 
     const level = new Map<string, number>();
@@ -158,19 +166,18 @@ export class ForgePlanGenerator {
     while (queue.length > 0) {
       const name = queue.shift()!;
       const myLevel = level.get(name) ?? 0;
-      for (const edge of graph.edges) {
-        if (edge.sourceObject !== name) continue;
-        if (edge.sourceObject === edge.targetObject) continue;
-        if (!includedSet.has(edge.targetObject)) continue;
-        const newDeg = (inDegree.get(edge.targetObject) ?? 1) - 1;
-        inDegree.set(edge.targetObject, newDeg);
+      const targets = outgoing.get(name);
+      if (!targets) continue;
+      for (const target of targets) {
+        const newDeg = (inDegree.get(target) ?? 1) - 1;
+        inDegree.set(target, newDeg);
         const candidateLevel = myLevel + 1;
-        const existing = level.get(edge.targetObject);
+        const existing = level.get(target);
         if (existing === undefined || candidateLevel > existing) {
-          level.set(edge.targetObject, candidateLevel);
+          level.set(target, candidateLevel);
         }
         if (newDeg === 0) {
-          queue.push(edge.targetObject);
+          queue.push(target);
         }
       }
     }
@@ -205,7 +212,17 @@ export class ForgePlanGenerator {
       if (list) list.push(edge.targetObject);
     }
 
-    // Tarjan's SCC
+    // Tarjan's SCC — iterative implementation.
+    //
+    // RT-003: Recursive Tarjan blew the call stack at >10K-node depth on
+    // forged graphs (nodes are bounded server-side now, but this is
+    // defense-in-depth — 50 is the realistic cap, but the algorithm
+    // shouldn't be one-edge-away from RangeError on any input).
+    //
+    // The iterative form simulates the recursion stack with an explicit
+    // "frame" array. Each frame remembers (node v, edge iterator index i).
+    // On the way down we push child frames; on the way up we propagate
+    // lowLink and emit SCCs. Equivalent to the recursive form, O(V+E).
     let index = 0;
     const nodeIndex = new Map<string, number>();
     const lowLink = new Map<string, number>();
@@ -213,38 +230,65 @@ export class ForgePlanGenerator {
     const stack: string[] = [];
     const sccs: string[][] = [];
 
-    const strongConnect = (v: string): void => {
-      nodeIndex.set(v, index);
-      lowLink.set(v, index);
-      index++;
-      stack.push(v);
-      onStack.add(v);
+    interface Frame {
+      v: string;
+      neighbors: string[];
+      i: number;
+    }
 
-      for (const w of adj.get(v) ?? []) {
-        if (!nodeIndex.has(w)) {
-          strongConnect(w);
+    const strongConnect = (root: string): void => {
+      const callStack: Frame[] = [];
+      nodeIndex.set(root, index);
+      lowLink.set(root, index);
+      index++;
+      stack.push(root);
+      onStack.add(root);
+      callStack.push({ v: root, neighbors: adj.get(root) ?? [], i: 0 });
+
+      while (callStack.length > 0) {
+        const frame = callStack[callStack.length - 1];
+        if (frame.i < frame.neighbors.length) {
+          const w = frame.neighbors[frame.i++];
+          if (!nodeIndex.has(w)) {
+            // Recurse: push child frame, continue loop.
+            nodeIndex.set(w, index);
+            lowLink.set(w, index);
+            index++;
+            stack.push(w);
+            onStack.add(w);
+            callStack.push({ v: w, neighbors: adj.get(w) ?? [], i: 0 });
+          } else if (onStack.has(w)) {
+            lowLink.set(
+              frame.v,
+              Math.min(lowLink.get(frame.v)!, nodeIndex.get(w)!),
+            );
+          }
+          continue;
+        }
+        // All neighbors visited — pop this frame.
+        const v = frame.v;
+        callStack.pop();
+        // Propagate lowLink to parent frame (matches the recursive
+        // `lowLink[v] = min(lowLink[v], lowLink[w])` after recursion).
+        const parent = callStack[callStack.length - 1];
+        if (parent) {
           lowLink.set(
-            v,
-            Math.min(lowLink.get(v)!, lowLink.get(w)!),
-          );
-        } else if (onStack.has(w)) {
-          lowLink.set(
-            v,
-            Math.min(lowLink.get(v)!, nodeIndex.get(w)!),
+            parent.v,
+            Math.min(lowLink.get(parent.v)!, lowLink.get(v)!),
           );
         }
-      }
-
-      if (lowLink.get(v) === nodeIndex.get(v)) {
-        const scc: string[] = [];
-        let w: string;
-        do {
-          w = stack.pop()!;
-          onStack.delete(w);
-          scc.push(w);
-        } while (w !== v);
-        if (scc.length > 1) {
-          sccs.push(scc);
+        // Emit SCC root.
+        if (lowLink.get(v) === nodeIndex.get(v)) {
+          const scc: string[] = [];
+          let w: string;
+          do {
+            w = stack.pop()!;
+            onStack.delete(w);
+            scc.push(w);
+          } while (w !== v);
+          if (scc.length > 1) {
+            sccs.push(scc);
+          }
         }
       }
     };

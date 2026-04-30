@@ -20,6 +20,9 @@ import { HintTracker } from './core/onboarding/HintTracker';
 import { OfflineManager } from './core/connection/OfflineManager';
 import { PerformanceTracker } from './core/engine/PerformanceTracker';
 import { BackgroundOperationRegistry } from './core/engine/BackgroundOperationRegistry';
+import { TimeoutManager } from './core/engine/TimeoutManager';
+import { SchemaCache } from './core/metadata/SchemaCache';
+import type { ObjectDescribe } from './modules/forge/GraphDiscoveryService';
 import { PIIDetector } from './core/precheck/PIIDetector';
 import { ProductionGuard } from './core/precheck/ProductionGuard';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
@@ -153,31 +156,69 @@ export function activate(context: vscode.ExtensionContext): void {
     { ForgeHistoryStore },
     { getJsforceConnection },
   ]) => {
+    // Shared schema cache + timeout manager. Eliminates the 600+ describe
+    // round-trips per forge run on big orgs (REDACTED-CLIENT UAT2 = 350+ SObjects).
+    // Per-call timeouts: describe 30s, describeGlobal 60s, queryCount 15s.
+    // Without timeouts, jsforce calls hang indefinitely on rate-limited orgs.
+    //
+    // PERF-002: byte cap restored. SchemaCache now uses an O(1) structural
+    // estimator (describe payloads sized by fields/childRel array length,
+    // not JSON.stringify) so eviction triggers cheaply. 200 entries × 1 MB
+    // each ≈ 200 MB cap matches the typical extension-host heap budget.
+    const describeCache = new SchemaCache<ObjectDescribe>({
+      defaultTtl: 5 * 60_000,
+      maxSize: 200,
+      maxSizeBytes: 200 * 1024 * 1024,
+    });
+    const describeGlobalCache = new SchemaCache<Array<{ name: string; keyPrefix: string | null }>>({
+      defaultTtl: 5 * 60_000,
+      maxSize: 16,
+      maxSizeBytes: 50 * 1024 * 1024,
+    });
+    const sfTimeouts = new TimeoutManager(30_000);
+
     const discoveryService = new GraphDiscoveryService({
       describeObject: async (orgId, objectApiName) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const meta = await conn.describe(objectApiName);
-        return {
-          name: meta.name,
-          fields: meta.fields.map((f) => ({
-            name: f.name,
-            type: f.type,
-            referenceTo: f.referenceTo ?? [],
-            relationshipName: f.relationshipName ?? null,
-            isMasterDetail: f.cascadeDelete === true,
-          })),
-          childRelationships: (meta.childRelationships ?? []).map((cr) => ({
-            childSObject: cr.childSObject,
-            field: cr.field,
-            relationshipName: cr.relationshipName ?? cr.field,
-            isCascadeDelete: cr.cascadeDelete === true,
-          })),
-        };
+        const cacheKey = `${orgId}::${objectApiName}`;
+        const cached = describeCache.get(cacheKey);
+        if (cached) return cached;
+        const formatted = await sfTimeouts.withTimeout(
+          `describe:${objectApiName}`,
+          async () => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const meta = await conn.describe(objectApiName);
+            return {
+              name: meta.name,
+              fields: meta.fields.map((f) => ({
+                name: f.name,
+                type: f.type,
+                referenceTo: f.referenceTo ?? [],
+                relationshipName: f.relationshipName ?? null,
+                isMasterDetail: f.cascadeDelete === true,
+              })),
+              childRelationships: (meta.childRelationships ?? []).map((cr) => ({
+                childSObject: cr.childSObject,
+                field: cr.field,
+                relationshipName: cr.relationshipName ?? cr.field,
+                isCascadeDelete: cr.cascadeDelete === true,
+              })),
+            };
+          },
+          30_000,
+        );
+        describeCache.set(cacheKey, formatted);
+        return formatted;
       },
       queryCount: async (orgId, soql) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const result = await conn.query<{ expr0: number }>(soql);
-        return result.totalSize;
+        return sfTimeouts.withTimeout(
+          `queryCount`,
+          async () => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const result = await conn.query<{ expr0: number }>(soql);
+            return result.totalSize;
+          },
+          15_000,
+        );
       },
       detectPII: (fields) => {
         const result = piiDetector.detectPII(
@@ -187,9 +228,19 @@ export function activate(context: vscode.ExtensionContext): void {
         return result.piiFields.map((p) => p.fieldApiName);
       },
       describeGlobal: async (orgId) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const result = await conn.describeGlobal();
-        return result.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+        const cached = describeGlobalCache.get(orgId);
+        if (cached) return cached;
+        const result = await sfTimeouts.withTimeout(
+          'describeGlobal',
+          async () => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const r = await conn.describeGlobal();
+            return r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+          },
+          60_000,
+        );
+        describeGlobalCache.set(orgId, result);
+        return result;
       },
     });
 

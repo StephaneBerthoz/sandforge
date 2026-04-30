@@ -45,6 +45,12 @@ export interface ForgeConfig {
    * for the cap and the underlying mechanism.
    */
   expandOrphanParents?: boolean;
+  /**
+   * Per-object record cap applied during execution. Translates into a
+   * `LIMIT N` on each scoped SOQL query. `undefined` = no cap (full clone).
+   * Used as a safety knob for big orgs / sample-only runs.
+   */
+  maxRecordsPerObject?: number;
 }
 
 /**

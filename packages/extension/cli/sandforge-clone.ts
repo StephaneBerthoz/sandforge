@@ -107,7 +107,16 @@ function parseArgs(argv: string[]): CliArgs {
   };
 }
 
+/** SF alias = letters/digits/underscore/dash/dot. Defends against shell metachars. */
+const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
+
 function loadOrg(alias: string): SfOrg {
+  // shell:true on Windows is required to resolve `.cmd` files but lets cmd.exe
+  // interpret metacharacters (`&`, `|`, `>`, `^`, `"`). Validate alias before
+  // passing — block any shell-injection vector via crafted CLI args.
+  if (!SF_ALIAS_RE.test(alias)) {
+    throw new Error(`Invalid SF org alias: "${alias}" (allowed: letters, digits, underscore, dash, dot)`);
+  }
   const json = execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
     encoding: 'utf8',
     maxBuffer: 50 * 1024 * 1024,
@@ -305,6 +314,11 @@ async function main(): Promise<void> {
       dryRun: args.dryRun,
       recordTypeMappings,
       maxRecordsPerObject: args.maxRecordsPerObject,
+      // CR-014: Force 'nullify' for cross-org CLI clones. The default
+      // ('keep' for non-scoped) preserves source IDs which would be
+      // invalid on the target unless source and target share state, which
+      // is never the case for a real cross-org clone via this CLI.
+      referenceFallback: 'nullify',
     },
   );
 

@@ -29,7 +29,7 @@ function createMockDeps(): GraphDiscoveryDeps {
 function createConfig(overrides?: Partial<ForgeConfig>): ForgeConfig {
   return {
     inputMode: 'record',
-    recordId: '001XXXXXXXXXX',
+    recordId: '001XXXXXXXXXXXX',
     depth: 'direct',
     sourceOrgId: 'src-org',
     targetOrgId: 'tgt-org',
@@ -74,7 +74,7 @@ describe('GraphDiscoveryService', () => {
 
   describe('discover from record ID', () => {
     it('should resolve root object from record ID prefix via describeGlobal', async () => {
-      const config = createConfig({ recordId: '001XXXXXXXXXX' });
+      const config = createConfig({ recordId: '001XXXXXXXXXXXX' });
       const graph = await service.discover(config);
       expect(graph.nodes).toHaveLength(1);
       expect(graph.nodes[0].objectApiName).toBe('Account');
@@ -569,7 +569,13 @@ describe('GraphDiscoveryService', () => {
       const config = createConfig({ depth: 'direct' });
       await service.discover(config, { onProgress });
 
-      expect(onProgress).toHaveBeenCalledTimes(2);
+      // 1 synthetic "resolving root" event + 1 per discovered node
+      expect(onProgress).toHaveBeenCalledTimes(3);
+      expect(onProgress).toHaveBeenCalledWith({
+        objectApiName: '__resolving_root__',
+        discoveredCount: 0,
+        queueRemaining: 1,
+      });
       expect(onProgress).toHaveBeenCalledWith({
         objectApiName: 'Account',
         discoveredCount: 1,

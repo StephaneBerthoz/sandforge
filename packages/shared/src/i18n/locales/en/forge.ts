@@ -103,6 +103,21 @@ export const forge: TranslationRecord = {
   templateTab: 'Template',
   aiTab: 'AI',
 
+  // Record-volume cap (records per object during execution)
+  recordLimit: 'Records per object',
+  recordLimitHint: 'Cap how many rows are cloned per object. Lower = faster, safer on big orgs.',
+  recordLimitAll: 'All',
+  recordLimitOpt10: '10 / object (sample)',
+  recordLimitOpt50: '50 / object',
+  recordLimitOpt100: '100 / object',
+  recordLimitOpt500: '500 / object',
+  recordLimitOpt1000: '1000 / object',
+
+  // Builtin starter templates
+  starterBadge: 'Starter',
+  starterTemplates: 'Starter templates',
+  yourTemplates: 'Your templates',
+
   // Results enhancements
   exportJson: 'Export JSON',
   retryFailed: 'Retry Failed',

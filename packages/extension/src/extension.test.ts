@@ -129,7 +129,9 @@ describe('extension', () => {
 
     activate(context);
 
-    expect(mockOutputChannel.appendLine).toHaveBeenCalledWith('SandForge is now active.');
+    expect(mockOutputChannel.appendLine).toHaveBeenCalledWith(
+      expect.stringContaining('SandForge is now active.'),
+    );
   });
 
   it('should register sidebar webview view provider', async () => {

@@ -60,7 +60,14 @@ export class SchemaCache<T = unknown> {
       this.removeSize(key);
     }
 
-    const entrySize = this.estimateSize(value);
+    // Skip JSON.stringify when byte-tracking is effectively disabled.
+    // estimateSize on a 1-5 MB describe response blocks the event loop
+    // for 50-200ms; with 50+ cache writes during BFS the freeze adds up
+    // to several seconds of unresponsive UI ("window is not responding"
+    // dialog). When the caller doesn't enforce a byte cap, we trust the
+    // entry-count cap (`maxSize`) alone.
+    const trackBytes = this.maxSizeBytes < Number.POSITIVE_INFINITY;
+    const entrySize = trackBytes ? this.estimateSize(value) : 0;
 
     // Evict LRU entries if count limit exceeded
     if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
@@ -68,11 +75,13 @@ export class SchemaCache<T = unknown> {
     }
 
     // Evict LRU entries until under memory limit
-    while (
-      this.cache.size > 0 &&
-      this.currentBytes + entrySize > this.maxSizeBytes
-    ) {
-      this.evictLRU();
+    if (trackBytes) {
+      while (
+        this.cache.size > 0 &&
+        this.currentBytes + entrySize > this.maxSizeBytes
+      ) {
+        this.evictLRU();
+      }
     }
 
     this.cache.set(key, {
@@ -82,8 +91,10 @@ export class SchemaCache<T = unknown> {
       accessCount: 1,
       lastAccessedAt: Date.now(),
     });
-    this.sizeMap.set(key, entrySize);
-    this.currentBytes += entrySize;
+    if (trackBytes) {
+      this.sizeMap.set(key, entrySize);
+      this.currentBytes += entrySize;
+    }
   }
 
   /** Check if a key exists and is not expired */
@@ -203,14 +214,36 @@ export class SchemaCache<T = unknown> {
   }
 
   /**
-   * Estimate the byte size of a value using JSON serialization length.
-   * This is a rough heuristic -- actual memory usage may differ.
+   * Estimate the byte size of a value using O(1) structural heuristics.
+   *
+   * Calling `JSON.stringify` on a 1-5 MB describe payload blocks the event
+   * loop for 50-200ms; doing it on every BFS write produces seconds of
+   * unresponsive UI. The describe-shaped fast path measures `fields` and
+   * `childRelationships` array lengths instead — biased high (~250 B/field,
+   * ~150 B/childRel) so the eviction kicks in before real heap pressure.
+   * Non-describe values fall back to a constant 1 KB; arrays use a per-
+   * element heuristic; primitives are cheap. Never throws.
    */
   private estimateSize(value: T): number {
-    try {
-      return JSON.stringify(value).length * 2; // Rough UTF-16 estimate
-    } catch {
-      return 1024; // Fallback for non-serializable values
+    if (value == null) return 16;
+    if (typeof value === 'string') return value.length * 2;
+    if (typeof value === 'number' || typeof value === 'boolean') return 8;
+    if (typeof value !== 'object') return 64;
+    // Describe-shaped: count fields + child relationships (the dominant
+    // memory contributors on Salesforce describe responses).
+    const v = value as { fields?: unknown[]; childRelationships?: unknown[] };
+    if (Array.isArray(v.fields) || Array.isArray(v.childRelationships)) {
+      return (
+        (Array.isArray(v.fields) ? v.fields.length * 250 : 0) +
+        (Array.isArray(v.childRelationships) ? v.childRelationships.length * 150 : 0) +
+        512
+      );
     }
+    if (Array.isArray(value)) {
+      // Heuristic: 64 B per entry on average (assumes records or DTOs).
+      return value.length * 64 + 64;
+    }
+    // Plain object — count keys, charge ~64 B per entry.
+    return Object.keys(value).length * 64 + 128;
   }
 }

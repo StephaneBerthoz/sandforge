@@ -1,4 +1,6 @@
-import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeExecutionResult, ForgeTemplate, ComplianceFrameworkType } from '@sandforge/shared';
+import type { BaseMessage, ForgeExecutionResult, ForgeTemplate, ComplianceFrameworkType } from '@sandforge/shared';
+import { forgeConfigSchema, forgeGraphSchema, forgeTemplateSchema } from '@sandforge/shared';
+import { z } from 'zod';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendOperationStarted, sendOperationCompleted, sendOperationFailed } from './HandlerTypes.js';
 import { logger } from '../../logger.js';
@@ -14,6 +16,103 @@ import type { ForgeComplianceService } from '../../modules/forge/ForgeCompliance
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
 import type { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
 import type { ForgeHistoryStore } from '../../modules/forge/ForgeHistoryStore.js';
+
+/** Strict Salesforce record/org ID format. */
+const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
+/** Permissive org-id schema (accepts UUIDs as well as 18-char SF IDs). */
+const orgIdSchema = z.string().min(1).max(128);
+
+/** Zod payload schemas for every webview→extension forge:* message. */
+const previewPayloadSchema = z.object({
+  recordId: z.string().regex(SF_ID_RE, 'Invalid Salesforce record ID'),
+  orgId: orgIdSchema,
+});
+const discoverPayloadSchema = z.object({ config: forgeConfigSchema });
+const executePayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
+const saveTemplatePayloadSchema = z.object({ template: forgeTemplateSchema });
+const deleteTemplatePayloadSchema = z.object({ templateId: z.string().min(1).max(200) });
+const planRequestPayloadSchema = z.object({ graph: forgeGraphSchema, config: forgeConfigSchema });
+const complianceRequestPayloadSchema = z.object({
+  framework: z.string().min(1).max(50),
+  graph: forgeGraphSchema,
+  config: forgeConfigSchema,
+});
+const metadataDiffRequestPayloadSchema = z.object({
+  sourceOrgId: orgIdSchema,
+  targetOrgId: orgIdSchema,
+  // RT-005: tightened from .max(500) to .max(100). 100 SObjects per diff
+  // is already past any realistic UI use case; 500 enabled API-limit DoS
+  // (500 source describes + 500 target describes = 1000 calls per request).
+  objectApiNames: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).max(80)).max(100),
+});
+
+/**
+ * Throttle a function to at most one call per `delayMs`. Subsequent calls
+ * coalesce — only the *latest* arguments are forwarded on the next tick.
+ * Returned function exposes `.flush()` to emit the pending event immediately
+ * (for terminal events that must not be dropped).
+ */
+function throttle<T extends (...args: never[]) => void>(
+  fn: T,
+  delayMs: number,
+): T & { flush: () => void } {
+  let lastEmit = 0;
+  let pending: Parameters<T> | null = null;
+  let timer: NodeJS.Timeout | null = null;
+  const emit = (args: Parameters<T>): void => {
+    fn(...args);
+    lastEmit = Date.now();
+    pending = null;
+  };
+  const wrapped = ((...args: Parameters<T>): void => {
+    pending = args;
+    const wait = delayMs - (Date.now() - lastEmit);
+    if (wait <= 0) {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      emit(args);
+    } else if (!timer) {
+      timer = setTimeout(() => {
+        timer = null;
+        if (pending) emit(pending);
+      }, wait);
+    }
+  }) as T & { flush: () => void };
+  wrapped.flush = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (pending) emit(pending);
+  };
+  return wrapped;
+}
+
+/**
+ * Validate a webview message payload against a zod schema. Returns parsed
+ * data on success; on failure, posts a handler error and returns null so
+ * the caller can early-return. Defense-in-depth against compromised webview.
+ */
+function parsePayload<T>(
+  schema: z.ZodSchema<T>,
+  msg: BaseMessage,
+  responseType: string,
+  deps: HandlerDeps,
+): T | null {
+  const payload = (msg as { payload?: unknown }).payload;
+  const result = schema.safeParse(payload);
+  if (!result.success) {
+    const summary = result.error.issues
+      .slice(0, 3)
+      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+      .join('; ');
+    sendHandlerError(deps, msg.type, responseType, new Error(`Invalid payload — ${summary}`), 'INVALID_PAYLOAD');
+    return null;
+  }
+  return result.data;
+}
 
 /** Optional v2 services injected alongside the ForgeOrchestrator. */
 export interface ForgeServices {
@@ -45,53 +144,6 @@ const FORGE_TYPES = new Set([
   'forge:compliance:request',
   'forge:metadata-diff:request',
 ]);
-
-/** Payload shape for forge:preview messages. */
-interface PreviewPayload {
-  recordId: string;
-  orgId: string;
-}
-
-/** Payload shape for forge:discover messages. */
-interface DiscoverPayload {
-  config: ForgeConfig;
-}
-
-/** Payload shape for forge:execute messages. */
-interface ExecutePayload {
-  graph: ForgeGraph;
-  config: ForgeConfig;
-}
-
-/** Payload shape for forge:templates:save messages. */
-interface SaveTemplatePayload {
-  template: ForgeTemplate;
-}
-
-/** Payload shape for forge:templates:delete messages. */
-interface DeleteTemplatePayload {
-  templateId: string;
-}
-
-/** Payload shape for forge:plan:request messages. */
-interface PlanRequestPayload {
-  graph: ForgeGraph;
-  config: ForgeConfig;
-}
-
-/** Payload shape for forge:compliance:request messages. */
-interface ComplianceRequestPayload {
-  framework: string;
-  graph: ForgeGraph;
-  config: ForgeConfig;
-}
-
-/** Payload shape for forge:metadata-diff:request messages. */
-interface MetadataDiffRequestPayload {
-  sourceOrgId: string;
-  targetOrgId: string;
-  objectApiNames: string[];
-}
 
 /** Timeout for plan generation in milliseconds. */
 const PLAN_TIMEOUT_MS = 30_000;
@@ -231,14 +283,11 @@ export class ForgeHandler implements DomainHandler {
 
   /** Preview a single record by ID (resolve object type, fetch standard fields). */
   private async handleForgePreview(msg: BaseMessage): Promise<void> {
-    const { recordId, orgId } = (msg as BaseMessage & { payload: PreviewPayload }).payload;
+    const parsed = parsePayload(previewPayloadSchema, msg, 'forge:preview:error', this.deps);
+    if (!parsed) return;
+    const { recordId, orgId } = parsed;
 
     try {
-      if (!/^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/.test(recordId)) {
-        const errResponse = buildResponse(this.deps, msg, 'forge:preview:error', { message: 'Invalid Record ID format' });
-        this.deps.broker.postToWebview(errResponse);
-        return;
-      }
 
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
 
@@ -319,28 +368,45 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
 
-    const { config } = (msg as BaseMessage & { payload: DiscoverPayload }).payload;
+    const parsed = parsePayload(discoverPayloadSchema, msg, 'forge:discover:error', this.deps);
+    if (!parsed) return;
+    const { config } = parsed;
     this.discoverAbortController = new AbortController();
     const operationId = `forge-discover-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Discovering object graph');
+
+    // Throttle progress events to ~10/s. Without this, big graphs flood
+    // the webview with hundreds of postMessages, each carrying a JSON
+    // payload that vscode has to serialize. Terminal events are emitted
+    // immediately; mid-stream events are coalesced. Hoisted out of try
+    // so the catch path can flush pending events too (PERF-004).
+    const throttledProgress = throttle((event: Record<string, unknown>) => {
+      const progressMsg = buildResponse(this.deps, msg, 'forge:discover:progress', event);
+      this.deps.broker.postToWebview(progressMsg);
+    }, 100);
 
     try {
       logger.info('Forge discover started');
       const graph = await this.orchestrator.discover(config, {
         signal: this.discoverAbortController.signal,
         onProgress: (event) => {
-          const progressMsg = buildResponse(this.deps, msg, 'forge:discover:progress', event as unknown as Record<string, unknown>);
-          this.deps.broker.postToWebview(progressMsg);
+          throttledProgress(event as unknown as Record<string, unknown>);
         },
       });
+      throttledProgress.flush();
       const response = buildResponse(this.deps, msg, 'forge:discover:response', { graph });
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { nodeCount: graph.nodes?.length ?? 0 });
     } catch (error: unknown) {
+      // PERF-004: flush any pending throttled progress event so the UI gets
+      // the latest queue state before the error response arrives. Without
+      // this, an abort mid-BFS leaves the wizard frozen on stale counts.
+      throttledProgress.flush();
       sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', error, 'DISCOVER_ERROR', true);
       sendOperationFailed(this.deps, operationId, String(error), true);
+    } finally {
+      this.discoverAbortController = null;
     }
-    this.discoverAbortController = null;
   }
 
   private async handleExecute(msg: BaseMessage): Promise<void> {
@@ -349,7 +415,9 @@ export class ForgeHandler implements DomainHandler {
       return;
     }
 
-    const { graph, config } = (msg as BaseMessage & { payload: ExecutePayload }).payload;
+    const parsed = parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
+    if (!parsed) return;
+    const { graph, config } = parsed;
 
     // Build a deterministic ID from payload content to detect genuine duplicates
     const configKey = `${config.sourceOrgId}:${config.targetOrgId}:${config.recordId ?? ''}`;
@@ -369,9 +437,23 @@ export class ForgeHandler implements DomainHandler {
     const operationId = `forge-execute-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Executing forge operation');
 
-    const unsubProgress = this.orchestrator.on('forge:progress', (event) => {
-      const progressMsg = buildResponse(this.deps, msg, 'forge:progress', event as unknown as Record<string, unknown>);
+    // Throttle execute progress events to ~10/s. With Bulk API 2.0 batches
+    // of 200 records, a 50K-record clone fires ~250 events; spamming each
+    // through postMessage adds tens of MB of redundant traffic.
+    const throttledExecProgress = throttle((event: Record<string, unknown>) => {
+      const progressMsg = buildResponse(this.deps, msg, 'forge:progress', event);
       this.deps.broker.postToWebview(progressMsg);
+    }, 100);
+    const unsubProgress = this.orchestrator.on('forge:progress', (event) => {
+      // Always pass through terminal/error states so the UI can finalize.
+      const status = (event as { status?: string }).status;
+      if (status === 'done' || status === 'error') {
+        throttledExecProgress.flush();
+        const progressMsg = buildResponse(this.deps, msg, 'forge:progress', event as unknown as Record<string, unknown>);
+        this.deps.broker.postToWebview(progressMsg);
+        return;
+      }
+      throttledExecProgress(event as unknown as Record<string, unknown>);
     });
 
     try {
@@ -391,7 +473,12 @@ export class ForgeHandler implements DomainHandler {
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', error, 'EXECUTE_ERROR', true);
       sendOperationFailed(this.deps, operationId, String(error), true);
     } finally {
+      // CR-012: unsubscribe BEFORE flushing so the flush's terminal event
+      // doesn't trigger any progress listeners that we're about to remove.
+      // Then flush so the last queued progress event reaches the webview
+      // before this handler returns.
       unsubProgress();
+      throttledExecProgress.flush();
       this.abortController = null;
     }
   }
@@ -407,8 +494,14 @@ export class ForgeHandler implements DomainHandler {
   }
 
   private handleAbort(_msg: BaseMessage): void {
+    // CR-010: signal abort, then null the refs so a stale post-abort signal
+    // can't leak between sequential operations (e.g. abort during discover
+    // followed by an immediate execute). The handler functions reset the
+    // refs on entry, but defensive nulling here closes the race window.
     this.discoverAbortController?.abort();
+    this.discoverAbortController = null;
     this.abortController?.abort();
+    this.abortController = null;
     this.orchestrator?.abort();
     logger.info('Forge aborted');
   }
@@ -420,7 +513,9 @@ export class ForgeHandler implements DomainHandler {
   }
 
   private handleSaveTemplate(msg: BaseMessage): void {
-    const { template } = (msg as BaseMessage & { payload: SaveTemplatePayload }).payload;
+    const parsed = parsePayload(saveTemplatePayloadSchema, msg, 'forge:templates:save:error', this.deps);
+    if (!parsed) return;
+    const { template } = parsed;
     const templates = [template, ...this.loadTemplates().filter((t) => t.id !== template.id)];
     this.saveTemplates(templates);
     const response = buildResponse(this.deps, msg, 'forge:templates:save:response', { success: true });
@@ -428,7 +523,9 @@ export class ForgeHandler implements DomainHandler {
   }
 
   private handleDeleteTemplate(msg: BaseMessage): void {
-    const { templateId } = (msg as BaseMessage & { payload: DeleteTemplatePayload }).payload;
+    const parsed = parsePayload(deleteTemplatePayloadSchema, msg, 'forge:templates:delete:error', this.deps);
+    if (!parsed) return;
+    const { templateId } = parsed;
     const templates = this.loadTemplates().filter((t) => t.id !== templateId);
     this.saveTemplates(templates);
     const response = buildResponse(this.deps, msg, 'forge:templates:delete:response', { success: true });
@@ -447,7 +544,9 @@ export class ForgeHandler implements DomainHandler {
       sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', new Error('Plan generator not configured'), 'NOT_INITIALIZED');
       return;
     }
-    const { graph } = (msg as BaseMessage & { payload: PlanRequestPayload }).payload;
+    const parsed = parsePayload(planRequestPayloadSchema, msg, 'forge:plan:error', this.deps);
+    if (!parsed) return;
+    const { graph } = parsed;
     const operationId = `forge-plan-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Generating execution plan');
     try {
@@ -476,7 +575,9 @@ export class ForgeHandler implements DomainHandler {
       sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', new Error('Compliance service not configured'), 'NOT_INITIALIZED');
       return;
     }
-    const { framework, graph, config } = (msg as BaseMessage & { payload: ComplianceRequestPayload }).payload;
+    const parsed = parsePayload(complianceRequestPayloadSchema, msg, 'forge:compliance:error', this.deps);
+    if (!parsed) return;
+    const { framework, graph, config } = parsed;
     const operationId = `forge-compliance-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Generating compliance report');
     try {
@@ -510,7 +611,9 @@ export class ForgeHandler implements DomainHandler {
       sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', new Error('Metadata diff service not configured'), 'NOT_INITIALIZED');
       return;
     }
-    const { sourceOrgId, targetOrgId, objectApiNames } = (msg as BaseMessage & { payload: MetadataDiffRequestPayload }).payload;
+    const parsed = parsePayload(metadataDiffRequestPayloadSchema, msg, 'forge:metadata-diff:error', this.deps);
+    if (!parsed) return;
+    const { sourceOrgId, targetOrgId, objectApiNames } = parsed;
     const operationId = `forge-metadata-diff-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Comparing metadata schemas');
     try {
