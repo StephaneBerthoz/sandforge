@@ -35,10 +35,47 @@ export interface ForgeOrchestratorDeps {
 export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
   private readonly deps: ForgeOrchestratorDeps;
 
+  /**
+   * Session-scoped discovery cache. Keyed by
+   * `${sourceOrgId}::${inputMode}::${recordId|soql}::${depth}::${customDepth}`.
+   * Avoids re-running the 30s+ BFS when the user re-discovers the same root
+   * within the same VSCode session. Cleared on extension reload.
+   */
+  private discoveryCache = new Map<string, ForgeGraph>();
+
   /** @param deps - Injected dependencies for discovery and execution. */
   constructor(deps: ForgeOrchestratorDeps) {
     super();
     this.deps = deps;
+  }
+
+  /**
+   * Compute a stable cache key for a discovery request. Identical configs
+   * resolve to the same key — different sources/depths/inputs collide
+   * intentionally to share the same cached graph.
+   */
+  private cacheKeyFor(config: ForgeConfig): string {
+    const root =
+      config.inputMode === 'record'
+        ? config.recordId ?? ''
+        : config.inputMode === 'soql'
+          ? config.soqlQuery ?? ''
+          : config.inputMode === 'template'
+            ? config.templateId ?? ''
+            : config.aiPrompt ?? '';
+    return [
+      config.sourceOrgId,
+      config.inputMode,
+      root,
+      config.depth,
+      config.customDepth ?? '',
+      config.skipEmpty ? 'skipEmpty' : '',
+    ].join('::');
+  }
+
+  /** Drop the discovery cache — called when the user explicitly re-discovers. */
+  clearDiscoveryCache(): void {
+    this.discoveryCache.clear();
   }
 
   /**
@@ -49,7 +86,25 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    * @returns The discovered ForgeGraph with nodes, edges, and estimates.
    */
   async discover(config: ForgeConfig, options?: DiscoveryOptions): Promise<ForgeGraph> {
-    return this.deps.discoveryService.discover(config, options);
+    const key = this.cacheKeyFor(config);
+    const cached = this.discoveryCache.get(key);
+    if (cached) {
+      // Replay the progress callback so the UI animation completes even on
+      // a cache hit — otherwise the wizard sits at "discovering...".
+      if (options?.onProgress) {
+        for (const node of cached.nodes) {
+          options.onProgress({
+            objectApiName: node.objectApiName,
+            discoveredCount: cached.nodes.length,
+            queueRemaining: 0,
+          });
+        }
+      }
+      return cached;
+    }
+    const graph = await this.deps.discoveryService.discover(config, options);
+    this.discoveryCache.set(key, graph);
+    return graph;
   }
 
   /**
