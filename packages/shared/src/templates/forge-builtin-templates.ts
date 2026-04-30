@@ -1,4 +1,4 @@
-import type { ForgeTemplate } from '../types/forge.types.js';
+import type { ForgeGraph, ForgeTemplate } from '../types/forge.types.js';
 
 /**
  * Pre-configured starter templates surfaced in the Forge wizard's template
@@ -69,4 +69,66 @@ export const BUILTIN_FORGE_TEMPLATES: readonly ForgeTemplate[] = Object.freeze([
 /** Quick lookup helper used by the wizard to identify builtin IDs. */
 export function isBuiltinForgeTemplate(id: string): boolean {
   return id.startsWith('builtin:');
+}
+
+/**
+ * Object lists per builtin template — used by the wizard to build a
+ * synthetic ForgeGraph and skip the BFS discovery (~30s on big orgs)
+ * when the user picks a starter template. Order matters: parents first
+ * so the topo wave plan is roughly correct without recomputing edges.
+ */
+export const BUILTIN_TEMPLATE_OBJECTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  'builtin:account-360': ['Account', 'Contact', 'Opportunity', 'Case'],
+  'builtin:case-workflow': [
+    'Account',
+    'Contact',
+    'Case',
+    'EmailMessage',
+    'CaseComment',
+    'Attachment',
+  ],
+  'builtin:lead-to-opp': ['Campaign', 'Lead', 'Account', 'Contact', 'Opportunity'],
+});
+
+/** Object list for a builtin template, or empty array if unknown. */
+export function getBuiltinTemplateObjects(id: string): readonly string[] {
+  return BUILTIN_TEMPLATE_OBJECTS[id] ?? [];
+}
+
+/**
+ * Build a synthetic ForgeGraph from a list of object API names. Used by
+ * the wizard's "Quick start" path to bypass BFS discovery when a starter
+ * template is selected — the user can review/execute immediately and the
+ * (real) record counts arrive later via the executor's per-node query.
+ *
+ * Nodes are created in input order, with `level = index`. Edges are left
+ * empty — ForgePlanGenerator's Kahn's-algorithm fallback handles cycle-
+ * less graphs correctly. `included = true` everywhere so the user can
+ * untoggle in the Review tab.
+ */
+export function buildSyntheticForgeGraph(objects: readonly string[]): ForgeGraph {
+  return {
+    nodes: objects.map((name, idx) => ({
+      objectApiName: name,
+      recordCount: 0,
+      fieldCount: 0,
+      status: 'idle',
+      progress: 0,
+      included: true,
+      piiFields: [],
+      anonymizeFields: [],
+      level: idx,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: 0,
+      estimatedSizeMB: 0,
+      estimatedApiCalls: 0,
+      batchStrategy: 'auto',
+    })),
+    edges: [],
+    totalRecords: 0,
+    estimatedSizeMB: 0,
+    estimatedDurationSeconds: 0,
+  };
 }
