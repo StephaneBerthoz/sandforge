@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge/shared';
+import {
+  FORGE_ANONYMIZATION_PRESETS,
+  findForgeAnonymizationPreset,
+} from '@sandforge/shared';
 
 /** All anonymization categories in display order. */
 const CATEGORIES: ForgeAnonymizationCategory[] = [
@@ -50,8 +54,20 @@ export const ReviewAnonymizationTab: React.FC = () => {
   const rules = useForgeStore((s) => s.anonymizationRules);
   const setRule = useForgeStore((s) => s.setAnonymizationRule);
   const graph = useForgeStore((s) => s.graph);
+  const applyPreset = useForgeStore((s) => s.applyAnonymizationPreset);
   const piiFieldCount =
     graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
+
+  const [presetId, setPresetId] = useState<string>('');
+  const handlePresetChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const id = e.target.value;
+      setPresetId(id);
+      const preset = findForgeAnonymizationPreset(id);
+      if (preset) applyPreset(preset.rules);
+    },
+    [applyPreset],
+  );
 
   return (
     <div data-testid="review-anonymization-tab" className="flex flex-col gap-3">
@@ -61,6 +77,41 @@ export const ReviewAnonymizationTab: React.FC = () => {
           '{{count}} PII fields detected. Configure anonymization method per category.',
         ).replace('{{count}}', String(piiFieldCount))}
       </p>
+
+      <div
+        data-testid="anonymization-preset-selector"
+        className="rounded-lg border border-subtle bg-surface-1 p-3 flex items-center gap-2"
+      >
+        <label
+          htmlFor="anonymization-preset"
+          className="text-xs font-medium text-text-primary shrink-0"
+        >
+          {t('forge.review.preset', 'Preset')}
+        </label>
+        <select
+          id="anonymization-preset"
+          data-testid="anonymization-preset-select"
+          value={presetId}
+          onChange={handlePresetChange}
+          className="flex-1 bg-surface-3 text-text-primary text-xs rounded px-2 py-1 border border-subtle"
+        >
+          <option value="">{t('forge.review.presetCustom', 'Custom (no preset)')}</option>
+          {FORGE_ANONYMIZATION_PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        {presetId && (
+          <span
+            data-testid="anonymization-preset-description"
+            className="text-[10px] text-text-muted max-w-[40%] truncate"
+            title={findForgeAnonymizationPreset(presetId)?.description ?? ''}
+          >
+            {findForgeAnonymizationPreset(presetId)?.description}
+          </span>
+        )}
+      </div>
 
       <div className="rounded-lg border border-subtle overflow-hidden">
         <table className="w-full text-xs">

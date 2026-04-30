@@ -128,6 +128,7 @@ export const ForgeInput: React.FC = () => {
   const [targetOrgId, setTargetOrgId] = useState('');
   const [anonymize, setAnonymize] = useState(false);
   const [skipEmpty, setSkipEmpty] = useState(false);
+  const [expandOrphanParents, setExpandOrphanParents] = useState(false);
 
   /** Arrow-key navigation handler for depth radio chips. */
   const handleDepthKeyDown = useCallback((e: React.KeyboardEvent, currentDepth: ForgeDepth) => {
@@ -248,6 +249,7 @@ export const ForgeInput: React.FC = () => {
         customDepth: depth === 'custom' ? customDepth : undefined,
         anonymizePII: anonymize,
         skipEmpty,
+        expandOrphanParents,
         batchSize: 'auto',
         ...(inputMode === 'record' && recordId ? { recordId: extractRecordId(recordId) ?? undefined } : {}),
         ...(inputMode === 'soql' && soqlQuery ? { soqlQuery } : {}),
@@ -308,6 +310,7 @@ export const ForgeInput: React.FC = () => {
       customDepth: depth === 'custom' ? customDepth : undefined,
       anonymizePII: anonymize,
       skipEmpty,
+      expandOrphanParents,
       sourceOrgId,
       targetOrgId,
       batchSize: 'auto',
@@ -754,6 +757,28 @@ export const ForgeInput: React.FC = () => {
               />
               <Ban size={14} />
               {t('forge.skipEmpty')}
+            </label>
+            <label
+              className={cn(
+                'flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-all text-xs',
+                expandOrphanParents
+                  ? 'border-forge bg-forge/10 text-forge'
+                  : 'border-subtle bg-surface-1 text-text-muted hover:border-forge/30',
+              )}
+              title={t(
+                'forge.expandOrphanParentsHint',
+                'Auto-fetch missing required parents (single-hop) so Asset/InsurancePolicy etc. land with their FKs intact.',
+              )}
+            >
+              <input
+                type="checkbox"
+                checked={expandOrphanParents}
+                onChange={(e) => setExpandOrphanParents(e.target.checked)}
+                data-testid="forge-expand-orphan-parents-toggle"
+                className="sr-only"
+              />
+              <Sparkles size={14} />
+              {t('forge.expandOrphanParents', 'Auto-fetch parents')}
             </label>
           </div>
 

@@ -42,6 +42,7 @@ export const forgeConfigSchema = z.object({
   anonymizePII: z.boolean(),
   skipEmpty: z.boolean(),
   batchSize: z.union([z.literal('auto'), z.number().int().positive()]),
+  expandOrphanParents: z.boolean().optional(),
 });
 
 // ─── Graph Schemas ──────────────────────────────────────────────────────────

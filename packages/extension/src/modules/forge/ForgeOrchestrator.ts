@@ -96,11 +96,24 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
     const startTime = Date.now();
 
     try {
+      // When inputMode === 'record', activate scoped execution so the
+      // executor only clones the transitive closure of the root record
+      // instead of the whole graph. Wave 2 v4 features (orphan parent
+      // expansion) flow through ForgeConfig.
+      const scoped = config.inputMode === 'record' && typeof config.recordId === 'string'
+        ? {
+            rootRecordId: config.recordId,
+            rootObjectApiName: graph.nodes[0]?.objectApiName,
+            expandOrphanParents: config.expandOrphanParents,
+          }
+        : undefined;
+
       const summary = await this.deps.executor.execute(
         graph,
         config.sourceOrgId,
         config.targetOrgId,
         (event) => this.emit('forge:progress', event),
+        scoped,
       );
 
       const result: ForgeExecutionResult = {
