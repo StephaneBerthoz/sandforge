@@ -10,6 +10,11 @@ import { cn } from '../../theme';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { useForgeStore } from '../../stores/useForgeStore';
+import {
+  BUILTIN_FORGE_TEMPLATES,
+  buildSyntheticForgeGraph,
+  getBuiltinTemplateObjects,
+} from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import type { ForgeConfig, ForgeDepth, ForgeInputMode, ForgeTemplate } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -107,6 +112,8 @@ export const ForgeInput: React.FC = () => {
   const { t } = useTranslation();
   const setConfig = useForgeStore((s) => s.setConfig);
   const setPhase = useForgeStore((s) => s.setPhase);
+  const setGraph = useForgeStore((s) => s.setGraph);
+  const history = useForgeStore((s) => s.history);
   const templates = useForgeStore((s) => s.templates);
   const addTemplate = useForgeStore((s) => s.addTemplate);
   const updateTemplate = useForgeStore((s) => s.updateTemplate);
@@ -321,8 +328,80 @@ export const ForgeInput: React.FC = () => {
     setPhase('discovery');
   }, [
     canDiscover, inputMode, depth, recordId, soqlQuery, selectedTemplate,
-    aiPrompt, customDepth, anonymize, skipEmpty, sourceOrgId, targetOrgId,
-    setConfig, setPhase, sendMessage,
+    aiPrompt, customDepth, anonymize, skipEmpty, expandOrphanParents,
+    sourceOrgId, targetOrgId, setConfig, setPhase, sendMessage,
+  ]);
+
+  /** Quick-start path: starter template selected → synthetic graph, no BFS. */
+  const builtinTplCandidate = useMemo(() => {
+    if (inputMode !== 'template') return null;
+    return BUILTIN_FORGE_TEMPLATES.find((p) => p.id === selectedTemplate) ?? null;
+  }, [inputMode, selectedTemplate]);
+  const canQuickStartTemplate = !!builtinTplCandidate && !!sourceOrgId && !!targetOrgId;
+  const handleQuickStartTemplate = useCallback(() => {
+    if (!canQuickStartTemplate || !builtinTplCandidate) return;
+    const objects = getBuiltinTemplateObjects(builtinTplCandidate.id);
+    if (objects.length === 0) return;
+    const config: ForgeConfig = {
+      ...builtinTplCandidate.config,
+      sourceOrgId,
+      targetOrgId,
+      anonymizePII: anonymize,
+      skipEmpty,
+      expandOrphanParents,
+      batchSize: 'auto',
+    };
+    setConfig(config);
+    setGraph(buildSyntheticForgeGraph(objects));
+    sendMessage(
+      buildMessage<{ graph: ReturnType<typeof buildSyntheticForgeGraph>; config: ForgeConfig }>(
+        'forge:plan:request',
+        { graph: buildSyntheticForgeGraph(objects), config },
+      ),
+    );
+    setPhase('review');
+  }, [
+    canQuickStartTemplate, builtinTplCandidate, sourceOrgId, targetOrgId,
+    anonymize, skipEmpty, expandOrphanParents,
+    setConfig, setGraph, setPhase, sendMessage,
+  ]);
+
+  /** Reuse the most recent execution's graph to skip discovery. */
+  const lastGraph = history[0]?.graph;
+  const canReuseLastGraph = !!lastGraph && !!sourceOrgId && !!targetOrgId;
+  const handleReuseLastGraph = useCallback(() => {
+    if (!canReuseLastGraph || !lastGraph) return;
+    const config: ForgeConfig = {
+      inputMode,
+      depth,
+      recordId: inputMode === 'record' ? (extractRecordId(recordId) ?? undefined) : undefined,
+      soqlQuery: inputMode === 'soql' ? soqlQuery.trim() : undefined,
+      templateId: inputMode === 'template' ? selectedTemplate : undefined,
+      aiPrompt: inputMode === 'ai' ? aiPrompt.trim() : undefined,
+      customDepth: depth === 'custom' ? customDepth : undefined,
+      anonymizePII: anonymize,
+      skipEmpty,
+      expandOrphanParents,
+      sourceOrgId,
+      targetOrgId,
+      batchSize: 'auto',
+    };
+    setConfig(config);
+    setGraph(lastGraph);
+    // Re-generate the plan from the cached graph; the wizard's Review tab
+    // listens for forge:plan:response and updates the store. Skips the
+    // 30s+ BFS rediscovery entirely.
+    sendMessage(
+      buildMessage<{ graph: typeof lastGraph; config: ForgeConfig }>('forge:plan:request', {
+        graph: lastGraph,
+        config,
+      }),
+    );
+    setPhase('review');
+  }, [
+    canReuseLastGraph, lastGraph, inputMode, depth, recordId, soqlQuery, selectedTemplate,
+    aiPrompt, customDepth, anonymize, skipEmpty, expandOrphanParents,
+    sourceOrgId, targetOrgId, setConfig, setGraph, setPhase, sendMessage,
   ]);
 
   return (
@@ -810,6 +889,53 @@ export const ForgeInput: React.FC = () => {
                     ? t('forge.hintSameOrg')
                     : t('forge.hintNoInput')}
             </p>
+          )}
+
+          {/* Reuse last graph — skip BFS rediscovery (~30s on REDACTED-CLIENT) */}
+          {canReuseLastGraph && (
+            <button
+              type="button"
+              data-testid="forge-reuse-last-graph-btn"
+              onClick={handleReuseLastGraph}
+              className={cn(
+                'w-full py-2 mt-2 rounded-lg text-xs font-medium',
+                'border border-forge/30 bg-forge/5 text-forge',
+                'hover:bg-forge/10 hover:border-forge/50',
+                'transition-all flex items-center justify-center gap-2',
+              )}
+              title={t(
+                'forge.reuseLastGraphHint',
+                'Skip the 30s+ discovery and reuse the graph from your last execution.',
+              )}
+            >
+              <RefreshCw size={12} />
+              {t('forge.reuseLastGraph', 'Reuse last graph (skip discovery)')}
+            </button>
+          )}
+
+          {/* Quick start (skip-when-template) — synthetic graph, instant Review */}
+          {canQuickStartTemplate && builtinTplCandidate && (
+            <button
+              type="button"
+              data-testid="forge-quick-start-template-btn"
+              onClick={handleQuickStartTemplate}
+              className={cn(
+                'w-full py-2 mt-2 rounded-lg text-xs font-medium',
+                'border border-forge/30 bg-forge/5 text-forge',
+                'hover:bg-forge/10 hover:border-forge/50',
+                'transition-all flex items-center justify-center gap-2',
+              )}
+              title={t(
+                'forge.quickStartTemplateHint',
+                'Skip discovery and use the starter template\'s known object set. Record counts will be queried during execution.',
+              )}
+            >
+              <Sparkles size={12} />
+              {t('forge.quickStartTemplate', 'Quick start ({{name}})').replace(
+                '{{name}}',
+                builtinTplCandidate.name,
+              )}
+            </button>
           )}
         </div>
 
