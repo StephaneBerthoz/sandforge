@@ -296,4 +296,42 @@ describe('MonitorOrchestrator', () => {
       expect(orchestrator.isActive('org-1')).toBe(false);
     });
   });
+
+  describe('metricBus singleton (Phase 03 Plan 03-01)', () => {
+    it('exposes a public readonly MetricBus instance', () => {
+      expect(orchestrator.metricBus).toBeDefined();
+      // emit/subscribe surface present
+      expect(typeof orchestrator.metricBus.emit).toBe('function');
+      expect(typeof orchestrator.metricBus.subscribe).toBe('function');
+      expect(typeof orchestrator.metricBus.dispose).toBe('function');
+    });
+
+    it('lets a probe emit through the bus and a subscriber receive it', () => {
+      const handler = vi.fn();
+      const unsubscribe = orchestrator.metricBus.subscribe('monitor:metric', handler);
+      const ok = orchestrator.metricBus.emit('monitor:metric', {
+        ts: '2026-05-02T10:00:00.000Z',
+        seriesId: 'limits.api',
+        orgId: 'org-1',
+        value: 42,
+      });
+      expect(ok).toBe(true);
+      expect(handler).toHaveBeenCalledTimes(1);
+      unsubscribe();
+    });
+
+    it('dispose() releases the bus (subsequent subscribers still work — fresh bus is owned by next instance)', () => {
+      const handler = vi.fn();
+      orchestrator.metricBus.subscribe('monitor:metric', handler);
+      orchestrator.dispose();
+      // Post-dispose: previously-registered handler is detached.
+      orchestrator.metricBus.emit('monitor:metric', {
+        ts: '2026-05-02T10:00:00.000Z',
+        seriesId: 'limits.api',
+        orgId: 'org-1',
+        value: 42,
+      });
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
 });
