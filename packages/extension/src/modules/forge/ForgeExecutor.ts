@@ -201,6 +201,18 @@ export interface ExecuteOptions {
    * Validated upstream — see `forgeConfigSchema.objectSoqlFilters`.
    */
   objectSoqlFilters?: Record<string, string>;
+  /**
+   * Per-object source→target field rename. When the target sandbox has
+   * the same logical field under a different API name (schema drift,
+   * managed-package re-key, namespace change), this map rewrites the
+   * keys in every cleaned record before insert.
+   *
+   * Example: `{ Account: { 'Region__c': 'Region__pc' } }` — sources every
+   * `Region__c` value into `Region__pc` on the target Account. The
+   * original key is dropped from the cleaned record so the target
+   * describe doesn't reject the unknown field.
+   */
+  fieldMappings?: Record<string, Record<string, string>>;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -394,6 +406,7 @@ export class ForgeExecutor {
     // API name. Lookups happen at most once per node (case-sensitive).
     const fieldExclusions = options?.fieldExclusions ?? {};
     const ownerMappings = options?.ownerMappings ?? {};
+    const fieldMappings = options?.fieldMappings ?? {};
     const referenceDataObjects = new Set(
       options?.referenceDataObjects ?? ['BusinessHours', 'OperatingHours'],
     );
@@ -844,9 +857,26 @@ export class ForgeExecutor {
           // change scoped — perf cost is one Set construction per record,
           // negligible vs the existing remapper/anonymizer work.
           const excludedFields = new Set(fieldExclusions[node.objectApiName] ?? []);
+          // Per-node source→target field rename map (BA opt-in for schema
+          // drift). When a key is in this map, the cleaned record uses the
+          // mapped target name instead and the source name is dropped.
+          // Source name still has to pass the createable check below since
+          // we read from `remapped[key]` first — the rename is applied on
+          // the *write* side of the cleaned record.
+          const fieldRename = fieldMappings[node.objectApiName] ?? {};
           const cleaned: Record<string, unknown> = {};
           for (const key of Object.keys(remapped)) {
             if (excludedFields.has(key)) continue;
+            // Field-mapping path: if the source field is renamed on target,
+            // bypass the createable check on the source name and write under
+            // the mapped name (which also has to be a real createable target
+            // field — the executor doesn't validate the target side; that's
+            // the user's responsibility per the field-map contract).
+            const renamedTo = fieldRename[key];
+            if (renamedTo) {
+              cleaned[renamedTo] = remapped[key];
+              continue;
+            }
             if (!effectiveCreatableSet.has(key)) continue;
             // Person Account `__pc` fields are not valid on Business Accounts.
             if (key.endsWith('__pc') && !isPersonAccount) continue;

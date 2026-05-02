@@ -400,6 +400,56 @@ describe('v1.2.5 — forgeConfigSchema accepts objectSoqlFilters', () => {
   });
 });
 
+// ─── v1.2.5 features: fieldMappings ────────────────────────────────────
+
+describe('v1.2.5 — forgeConfigSchema accepts fieldMappings', () => {
+  const baseConfig = {
+    inputMode: 'record' as const,
+    recordId: '001AP00000j2CEg',
+    depth: 'direct' as const,
+    sourceOrgId: 'src',
+    targetOrgId: 'tgt',
+    anonymizePII: false,
+    skipEmpty: false,
+    batchSize: 'auto' as const,
+  };
+
+  it('accepts a valid fieldMappings tree', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      fieldMappings: {
+        Account: { Region__c: 'Region__pc', Description: 'Notes__c' },
+        Contact: { Title: 'JobTitle__c' },
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects fieldMappings with malformed object name', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      fieldMappings: { 'Account; DROP': { Region__c: 'Region__pc' } },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects fieldMappings with malformed source field', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      fieldMappings: { Account: { 'Region; DROP': 'Region__pc' } },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects fieldMappings with malformed target field', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      fieldMappings: { Account: { Region__c: 'Region; DROP' } },
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
 // ─── PERF-002: SchemaCache uses O(1) heuristic, never JSON.stringify ────
 
 describe('Audit PERF-002 — SchemaCache estimateSize is O(1)', () => {

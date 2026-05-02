@@ -58,6 +58,8 @@ interface CliArgs {
   ownerMappings: Record<string, string>;
   /** Per-object SOQL WHERE filter: { Case: "Status = 'Open' AND CreatedDate > LAST_N_DAYS:30" }. */
   objectSoqlFilters: Record<string, string>;
+  /** Per-object source→target field rename: { Account: { 'Region__c': 'Region__pc' } }. */
+  fieldMappings: Record<string, Record<string, string>>;
 }
 
 interface SfOrg {
@@ -103,6 +105,12 @@ Options:
                          graph topology. Filter is appended via AND (...) to
                          the scope-derived clause. Max 512 chars per filter,
                          max 50 filters total.
+  --map <obj.src=tgt>    per-object source→target field rename (repeatable)
+                         e.g. --map Account.Region__c=Region__pc
+                         Handles schema drift between source and target
+                         (managed-package re-key, namespace change). The
+                         source field is dropped and the value written to
+                         the target field name on insert.
   -h, --help             show this help and exit
 `;
 
@@ -182,6 +190,24 @@ function parseArgs(argv: string[]): CliArgs {
     }
     objectSoqlFilters[obj] = where;
   }
+  const fieldMappings: Record<string, Record<string, string>> = {};
+  for (const raw of collectRepeated('--map')) {
+    const dotIdx = raw.indexOf('.');
+    const eqIdx = raw.indexOf('=');
+    if (dotIdx <= 0 || eqIdx <= dotIdx + 1 || eqIdx === raw.length - 1) {
+      process.stderr.write(`Invalid --map value "${raw}" (expected Object.sourceField=targetField)\n`);
+      process.exit(2);
+    }
+    const obj = raw.slice(0, dotIdx);
+    const src = raw.slice(dotIdx + 1, eqIdx);
+    const tgt = raw.slice(eqIdx + 1);
+    const fieldRe = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
+    if (!fieldRe.test(src) || !fieldRe.test(tgt)) {
+      process.stderr.write(`Invalid --map field name in "${raw}" (must match SObject API name pattern)\n`);
+      process.exit(2);
+    }
+    (fieldMappings[obj] ??= {})[src] = tgt;
+  }
   return {
     record,
     source,
@@ -198,6 +224,7 @@ function parseArgs(argv: string[]): CliArgs {
     fieldExclusions,
     ownerMappings,
     objectSoqlFilters,
+    fieldMappings,
   };
 }
 
@@ -468,6 +495,7 @@ async function main(): Promise<void> {
       fieldExclusions: Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
       ownerMappings: Object.keys(args.ownerMappings).length > 0 ? args.ownerMappings : undefined,
       objectSoqlFilters: Object.keys(args.objectSoqlFilters).length > 0 ? args.objectSoqlFilters : undefined,
+      fieldMappings: Object.keys(args.fieldMappings).length > 0 ? args.fieldMappings : undefined,
     },
   );
 

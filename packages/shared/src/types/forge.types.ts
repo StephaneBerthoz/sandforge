@@ -71,6 +71,17 @@ export interface ForgeConfig {
    * before being AND-joined to the scope clause.
    */
   objectSoqlFilters?: Record<string, string>;
+  /**
+   * Per-object source→target field rename. Handles schema drift when the
+   * target sandbox uses different API names for the same logical field
+   * (managed-package re-key, namespace change, Person Account `__c`/`__pc`
+   * variant, etc.).
+   *
+   * Example: `{ Account: { 'Region__c': 'Region__pc' } }` writes the
+   * source `Region__c` value into `Region__pc` on the target Account.
+   * The source key is dropped from the cleaned record.
+   */
+  fieldMappings?: Record<string, Record<string, string>>;
 }
 
 /**

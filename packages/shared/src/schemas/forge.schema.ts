@@ -103,6 +103,26 @@ export const forgeConfigSchema = z.object({
       message: 'Too many SOQL filters (max 50)',
     })
     .optional(),
+  // Per-object field rename map for schema drift between source and target.
+  // Outer key = SObject API name; inner record keys/values = field API names.
+  // All three regexes match the SF field-name pattern. Bounded to 200 fields
+  // per object × 50 objects × 80 chars per field name.
+  fieldMappings: z
+    .record(
+      z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+      z
+        .record(
+          z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/, 'Invalid source field name'),
+          z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/, 'Invalid target field name'),
+        )
+        .refine((m) => Object.keys(m).length <= 200, {
+          message: 'Too many field mappings (max 200 per object)',
+        }),
+    )
+    .refine((m) => Object.keys(m).length <= 50, {
+      message: 'Too many objects with field mappings (max 50)',
+    })
+    .optional(),
 });
 
 /**
