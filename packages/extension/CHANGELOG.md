@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `fieldExclusions: Record<string, string[]>` — per-object field skip list (Zod-validated, max 200 fields per object). Exposed via wizard config and CLI `--exclude`
 - `ownerMappings: Record<string, string>` — per-record OwnerId remap (Zod-validated, both sides must be 15/18-char Salesforce IDs, max 200 entries). Exposed via wizard config and CLI `--owner-map`
 - `objectSoqlFilters: Record<string, string>` — per-object SOQL WHERE filter appended via `AND (...)` to the scope clause. Lets BAs narrow a clone to a subset (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without changing graph topology. Zod-validated: max 512 chars per filter, max 50 filters, comment markers (`--`, `/*`, `*/`) and trailing semicolons rejected to block statement chaining. Exposed via wizard config and CLI `--filter`
+- `fieldMappings: Record<string, Record<string, string>>` — per-object source→target field rename for schema drift (managed-package re-key, namespace change, `__c`/`__pc` variant). Source key is dropped, value written under target name. Zod-validated: SF field-name regex on both sides, max 200 fields per object, max 50 objects. Exposed via wizard config and CLI `--map`
 
 **ForgeOrchestrator**
 - `dispose()` method — clears the discovery cache and listeners on extension shutdown / org disconnect
