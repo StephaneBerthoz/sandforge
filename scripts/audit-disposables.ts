@@ -346,6 +346,11 @@ function main(): void {
   console.log(
     `[audit-disposables] ${orphans.length} orphan(s) across ${byCategory.size} categories. Report: ${outPath}`,
   );
+
+  // Exit non-zero on orphan(s) so CI / `pnpm validate` can gate listener leaks.
+  if (orphans.length > 0) {
+    process.exit(1);
+  }
 }
 
 main();
