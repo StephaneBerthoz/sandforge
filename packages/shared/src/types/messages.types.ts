@@ -184,6 +184,7 @@ export type WebViewToExtensionMessage =
   | MonitorStartRequest
   | MonitorTrendsRequest
   | MonitorAbortJobRequest
+  | MonitorMetricSubscribeMessage
   | CompareExecuteRequest
   | BackupExecuteRequest
   | PipelineRunRequest
@@ -296,6 +297,8 @@ export type ExtensionToWebViewMessage =
   | AIStatusResponse
   | AISaveKeyResponse
   | MonitorAbortJobResponse
+  | MonitorMetricMessage
+  | MonitorMetricsBatchMessage
   | SeedTemplateSaveResponse
   | SeedTemplateLoadResponse
   | SeedTemplateListResponse
@@ -750,6 +753,42 @@ export interface MonitorAbortJobRequest extends BaseMessage {
 export interface MonitorAbortJobResponse extends BaseMessage {
   type: 'monitor:abort-job:response';
   payload: { jobId: string; success: boolean; message: string };
+}
+
+/**
+ * Single-sample metric event forwarded from MetricBus across the WebView
+ * bridge (Phase 03 Plan 03-01). The payload is a `MetricSample` validated
+ * by `MetricSampleSchema` in `monitor/MetricEvent.ts`.
+ *
+ * In practice the MetricBus coalesces these into
+ * {@link MonitorMetricsBatchMessage} over a 250 ms window before forwarding
+ * (P-03.9 mitigation). This single-sample variant is reserved for very low
+ * frequency / high-priority metrics that must not wait for the batch window.
+ */
+export interface MonitorMetricMessage extends BaseMessage {
+  type: 'monitor:metric';
+  payload: import('../monitor/MetricEvent.js').MetricSample;
+}
+
+/**
+ * Batched metric samples produced by the MetricBus coalescing window
+ * (default 250 ms). The `samples` array is non-empty and capped at 1000
+ * by `MetricBatchEventSchema` (Phase 03 Plan 03-01). Webview subscribers
+ * iterate samples and route by `seriesId` prefix.
+ */
+export interface MonitorMetricsBatchMessage extends BaseMessage {
+  type: 'monitor:metrics:batch';
+  payload: { samples: import('../monitor/MetricEvent.js').MetricSample[] };
+}
+
+/**
+ * Subscription request from WebView panels — narrows the firehose to a
+ * single `seriesId` prefix so the bridge does not waste throughput on
+ * series the panel is not rendering (P-03.9 mitigation #2).
+ */
+export interface MonitorMetricSubscribeMessage extends BaseMessage {
+  type: 'monitor:metric:subscribe';
+  payload: { seriesPrefix: string };
 }
 
 /** AI messages (WebView → Extension) */
