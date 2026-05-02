@@ -256,4 +256,48 @@ describe('MetricBus', () => {
       bus.dispose();
     });
   });
+
+  describe('Plan 03-01 vertical slice', () => {
+    /**
+     * The demoable proof that Plan 03-01 ships an end-to-end vertical slice:
+     * a probe (here: the test) emits typed samples, in-process subscribers
+     * receive them synchronously, the bridge sees a coalesced batch after
+     * the 250 ms window — exactly the substrate Wave 2 plans (Drift v2,
+     * Anomaly, Overview) will hang their features off.
+     */
+    it('emit -> bridge -> subscribe round-trip with coalesced batch flush', () => {
+      vi.useFakeTimers();
+      const bridgeSendSpy = vi.fn();
+      const bus = new MetricBus({ bridge: { send: bridgeSendSpy }, coalesceWindowMs: 250 });
+      const samples: MetricSample[] = [];
+      const unsubscribe = bus.subscribe('monitor:metric', (s) => samples.push(s));
+
+      // Probe emits two samples within the coalesce window.
+      bus.emit('monitor:metric', buildSample({ value: 42 }));
+      bus.emit('monitor:metric', buildSample({ value: 43 }));
+
+      // Subscribers receive them synchronously.
+      expect(samples).toHaveLength(2);
+      expect(samples.map((s) => s.value)).toEqual([42, 43]);
+
+      // Bridge has not yet seen anything — still inside the coalesce window.
+      expect(bridgeSendSpy).not.toHaveBeenCalled();
+
+      // Window elapses — the batch flushes as ONE envelope.
+      vi.advanceTimersByTime(250);
+      expect(bridgeSendSpy).toHaveBeenCalledOnce();
+      expect(bridgeSendSpy.mock.calls[0]![0]).toMatchObject({
+        type: 'monitor:metrics:batch',
+        payload: {
+          samples: expect.arrayContaining([
+            expect.objectContaining({ value: 42 }),
+            expect.objectContaining({ value: 43 }),
+          ]),
+        },
+      });
+
+      unsubscribe();
+      bus.dispose();
+    });
+  });
 });
