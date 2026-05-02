@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security (autonomous-improvement Round 1 — 2026-05-02)
+
+- **UUID hardening sweep across 11 modules**: extends the audit C3/L1 fix
+  beyond the 3 originally-touched files. Replaces the hand-rolled
+  `'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, …Math.random…)`
+  pattern (and the segments-loop variant) with `globalThis.crypto.randomUUID()`
+  in `PipelineVersioning`, `PipelineOrchestrator`, `PipelineMarketplace`,
+  `PipelineBuilder`, `ApprovalGate`, `core/grappe/GrappePartitioner`,
+  `migration/UniversalImporter`, `migration/SfdmuImporter`,
+  `migration/GearsetImporter`, `core/telemetry/TelemetryService.generateBatchId`,
+  and `core/audit/AuditTrailService.generateId`. Removes birthday-paradox
+  collision risk on long-running pipelines / approval flows / partition
+  graphs / import batches.
+- **`packages/shared/src/utils/string-utils.generateId`** uses the first 8
+  hex chars of `crypto.randomUUID()` instead of `Math.random().toString(36)`.
+  Public format `{base36-ts}-{8hex}` preserved.
+- **`MessageBroker.nextControlId`** drops the unreachable Math.random
+  fallback. Engines block already pins `node>=20` and the VS Code webview
+  exposes `globalThis.crypto.randomUUID` — the runtime feature-detect was
+  dead code.
+
+### Fixed (test regressions surfaced post-audit)
+
+- **`extension.test.ts`** mock context now exposes
+  `extension.packageJSON = { version: '1.2.5' }`. The audit Sprint 1 C4
+  fix added a `context.extension.packageJSON.version` read in `activate()`
+  but did not update the test mock, leaving 6 `extension.test.ts` cases
+  failing with `TypeError: Cannot read properties of undefined`.
+- **`providers/WebviewPanelManager.test.ts`** nonce regex broadened from
+  `[A-Za-z0-9]{32}` to `[A-Za-z0-9_-]{32}`. The audit C3 fix moved nonces
+  to base64url which uses `-` and `_`, but the test assertion was not
+  updated.
+- **`pages/Monitor/MonitorPage.test.tsx`**: 2 NARROW NO-BREAK SPACE
+  (U+202F) characters at lines 342, 343 inside a regex character class
+  were tripping eslint `no-irregular-whitespace`. Replaced with U+0020.
+
+### Chore
+
+- **Workspace versions synced to 1.2.5**: root `package.json` was at 1.2.4
+  while the marketplace artifact (`packages/extension/package.json`) was
+  at 1.2.5. `packages/shared` and `packages/webview` also bumped for
+  consistency.
+- **`packages/webview` drops unused `zod` dependency** (knip + grep
+  confirm zero `from 'zod'` imports webview-side; schema validation
+  happens extension-side via the bridge).
+- **`.gitignore`** now excludes `.omc/` (transient session state from the
+  oh-my-claudecode tooling, was generating untracked-file noise at every
+  status check).
+
 ### Security (post-audit hardening — 2026-05-02)
 
 - **CSP nonce now uses `crypto.randomBytes(24).toString('base64url')`** instead of
