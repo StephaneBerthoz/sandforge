@@ -45,6 +45,12 @@ const metadataDiffRequestPayloadSchema = z.object({
   // (500 source describes + 500 target describes = 1000 calls per request).
   objectApiNames: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).max(80)).max(100),
 });
+const targetPreflightPayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  // Reuse SObject regex; cap matches metadataDiff bound (100 objects per
+  // request → 100 SELECT COUNT() round-trips, manageable in <30 s).
+  objectApiNames: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).max(80)).max(100),
+});
 
 /**
  * Throttle a function to at most one call per `delayMs`. Subsequent calls
@@ -143,6 +149,7 @@ const FORGE_TYPES = new Set([
   'forge:plan:request',
   'forge:compliance:request',
   'forge:metadata-diff:request',
+  'forge:target-preflight:request',
 ]);
 
 /** Timeout for plan generation in milliseconds. */
@@ -153,6 +160,9 @@ const COMPLIANCE_TIMEOUT_MS = 30_000;
 
 /** Timeout for metadata diff comparison in milliseconds. */
 const METADATA_DIFF_TIMEOUT_MS = 60_000;
+
+/** Timeout for the target preflight (per-object COUNT) in milliseconds. */
+const TARGET_PREFLIGHT_TIMEOUT_MS = 30_000;
 
 /** ConfigStore key for persisted forge templates. */
 const TEMPLATES_KEY = 'forge:templates';
@@ -255,6 +265,9 @@ export class ForgeHandler implements DomainHandler {
         return true;
       case 'forge:metadata-diff:request':
         await this.handleMetadataDiffRequest(msg);
+        return true;
+      case 'forge:target-preflight:request':
+        await this.handleTargetPreflightRequest(msg);
         return true;
       default:
         return false;
@@ -599,6 +612,58 @@ export class ForgeHandler implements DomainHandler {
       sendHandlerError(
         this.deps, 'forge:compliance', 'forge:compliance:error', error,
         isTimeout ? 'TIMEOUT' : 'COMPLIANCE_ERROR',
+        isTimeout,
+      );
+      sendOperationFailed(this.deps, operationId, String(error), isTimeout);
+    }
+  }
+
+  /**
+   * Pre-execute target preflight: count existing rows in the target org
+   * for each of the supplied object API names. Lets the wizard surface
+   * "X records already in target" before the user pulls the trigger.
+   *
+   * Bounded: max 100 objects per request (Zod), 30 s timeout. Failed
+   * counts (FLS, non-queryable, etc.) come back as `existing: -1` rather
+   * than failing the whole batch.
+   */
+  private async handleTargetPreflightRequest(msg: BaseMessage): Promise<void> {
+    const parsed = parsePayload(targetPreflightPayloadSchema, msg, 'forge:target-preflight:error', this.deps);
+    if (!parsed) return;
+    const { targetOrgId, objectApiNames } = parsed;
+    const operationId = `forge-target-preflight-${this.deps.nextId()}`;
+    sendOperationStarted(this.deps, operationId, 'forge', 'Counting existing rows on target');
+    try {
+      logger.info('Forge target preflight started', { count: objectApiNames.length });
+      const conn = await getJsforceConnection(targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
+      const counts = await new TimeoutManager(TARGET_PREFLIGHT_TIMEOUT_MS).withTimeout(
+        'forge:target-preflight',
+        async () => {
+          const out: Array<{ objectApiName: string; existing: number }> = [];
+          // Run sequentially — parallel COUNT() bursts trip rate limits on
+          // big orgs and the 30 s timeout already bounds wall-time.
+          for (const name of objectApiNames) {
+            try {
+              const r = await conn.query(`SELECT COUNT() FROM ${name}`);
+              checkApiLimits(conn.limitInfo, `forge:target-preflight ${name}`);
+              out.push({ objectApiName: name, existing: r.totalSize });
+            } catch {
+              // Sentinel -1 keeps the per-object failure visible in the UI
+              // without aborting the whole preflight.
+              out.push({ objectApiName: name, existing: -1 });
+            }
+          }
+          return out;
+        },
+      );
+      const response = buildResponse(this.deps, msg, 'forge:target-preflight:response', { counts });
+      this.deps.broker.postToWebview(response);
+      sendOperationCompleted(this.deps, operationId, { objectCount: counts.length });
+    } catch (error: unknown) {
+      const isTimeout = error instanceof TimeoutError;
+      sendHandlerError(
+        this.deps, 'forge:target-preflight', 'forge:target-preflight:error', error,
+        isTimeout ? 'TIMEOUT' : 'PREFLIGHT_ERROR',
         isTimeout,
       );
       sendOperationFailed(this.deps, operationId, String(error), isTimeout);

@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **ForgeOrchestrator**
 - `dispose()` method — clears the discovery cache and listeners on extension shutdown / org disconnect
 
+**ForgeHandler**
+- New `forge:target-preflight:request` message type — webview can request per-object existing-row counts on the target before execute. Backend uses sequential SELECT COUNT() (parallel bursts trip rate limits on big orgs), 30 s timeout, max 100 objects per request, sentinel `existing: -1` for per-object failures so the whole batch isn't aborted by FLS issues. Powers the same preflight surface as the CLI
+
 **Tests**
 - 22 regression tests pinning the audit-fix invariants (`audit-fixes.regression.test.ts`)
 - 5 Playwright E2E specs (Plan 02-03) covering: AI persona seed → execute, sync conflict resolve, monitor refresh + CSV export, CDC subscribe + event stream, AI diagnose + apply fix
