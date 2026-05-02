@@ -139,8 +139,10 @@ function hasDisposableSink(call: CallExpression, source: SourceFile, category: s
     if (disposeCall.test(sourceText)) return true;
     // Collection storage: `anyCollection.set(.., varName)` / `.push(.., varName)`
     // — file is responsible for iterating + disposing later.
+    // The trailing boundary accepts a word-boundary OR the array-literal
+    // closer `]` (e.g. `set(key, [varA, varB])`) followed by `)` or `,`.
     const stored = new RegExp(
-      `\\.(set|push|add)\\s*\\(\\s*(?:[^,)]+,\\s*)*(?:\\[[^\\]]*${varName}[^\\]]*\\]|${varName})\\b`,
+      `\\.(set|push|add)\\s*\\(\\s*(?:[^,)]+,\\s*)*(?:\\[[^\\]]*${varName}[^\\]]*\\]|${varName}(?=\\b|\\s|,|\\)))`,
     );
     if (stored.test(sourceText)) return true;
   }
