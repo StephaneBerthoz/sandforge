@@ -43,6 +43,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (U+202F) characters at lines 342, 343 inside a regex character class
   were tripping eslint `no-irregular-whitespace`. Replaced with U+0020.
 
+### Fixed (resource hygiene)
+
+- **`SalesforceAdapter.sleep` AbortSignal listener leak**: the abort
+  callback was registered with `{ once: true }` so it self-removed on
+  abort, but stayed bound to the signal forever on the resolve path.
+  Long-lived shared signals (e.g. one per pipeline run) accumulated one
+  bound listener per `sleep()` call. Now removes the listener explicitly
+  from inside the timer callback before resolving. Surfaced by
+  `pnpm audit:disposables`.
+
 ### Chore
 
 - **Workspace versions synced to 1.2.5**: root `package.json` was at 1.2.4
@@ -54,7 +64,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   happens extension-side via the bridge).
 - **`.gitignore`** now excludes `.omc/` (transient session state from the
   oh-my-claudecode tooling, was generating untracked-file noise at every
-  status check).
+  status check) and `*.bak` / `*.bak.*` (prevents recurrence of the
+  stale `CLAUDE.md.bak.<unix-ts>` files the cross-cutting audit had to
+  remove manually).
+- **`AUDIT.md`** prepended a deprecation banner — the v2.0.0 / 4 600-test
+  numbers in the body are from 2026-02-26 and predate the public v1.2.5
+  baseline. New audits live in `.planning/audit-YYYY-MM-DD-*.md`.
+- **`SECURITY.md`** (new): responsible disclosure flow for the
+  marketplace extension, in-scope/out-of-scope surfaces, SLA expectations.
+- **`scripts/audit-disposables.ts`**: `stored` heuristic regex now
+  recognizes the `Map.set(key, [dispA, dispB])` sink pattern. Closes a
+  false positive on `WebviewPanelManager.openPanel` (disposables ARE
+  tracked via `panelSubscriptions` and disposed in `onDidDispose`).
+  Audit now reports 0 orphans.
 
 ### Security (post-audit hardening — 2026-05-02)
 
