@@ -1,5 +1,16 @@
 # AUDIT.md — SandForge Comprehensive Audit Report v2
 
+> **⚠ HISTORICAL — superseded.**
+> This document predates the version-strategy reset (internal v3.x → public
+> v1.0.0 baseline). The "v2.0.0" referenced below is the **internal** lineage,
+> not the marketplace artifact, and the test counts (4 600+) are from
+> 2026-02-26 — the project is now at v1.2.5 with 8 500+ tests.
+> For the current audit findings see
+> [`.planning/audit-2026-05-02-cross-cutting.md`](.planning/audit-2026-05-02-cross-cutting.md)
+> (50 findings across reviewer / red-team / perf-critic / fast-scout, sprint-1
+> hardening already merged into `master`).
+> Kept for historical reference only.
+
 **Date** : 2026-02-26
 **Version auditee** : 2.0.0
 **Tests** : 4 600+ tests | 327+ test files (shared + extension + webview)
