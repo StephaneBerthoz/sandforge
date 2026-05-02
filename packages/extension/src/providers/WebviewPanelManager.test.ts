@@ -190,7 +190,8 @@ describe('WebviewPanelManager', () => {
 
       const html = lastCreatedPanel.webview.html;
       expect(html).toContain('Content-Security-Policy');
-      expect(html).toMatch(/nonce-[A-Za-z0-9]{32}/);
+      // base64url alphabet: A-Z, a-z, 0-9, `-`, `_` (24 random bytes → 32 chars)
+      expect(html).toMatch(/nonce-[A-Za-z0-9_-]{32}/);
     });
 
     it('should call uriJoinPath to resolve script and style URIs', () => {
