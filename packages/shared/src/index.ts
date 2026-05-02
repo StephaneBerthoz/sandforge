@@ -53,6 +53,9 @@ export { PROTOCOL_VERSION, isVersionCompatible } from './bridge/protocolVersion.
 export type { ProtocolVersion } from './bridge/protocolVersion.js';
 export * from './bridge/messageSchemas.js';
 
+// Barrel exports — Monitor (Phase 03 — MetricEvent + Zod schemas)
+export * from './monitor/index.js';
+
 // Barrel exports — Schemas
 export * from './schemas/message.schema.js';
 export * from './schemas/seed-config.schema.js';
