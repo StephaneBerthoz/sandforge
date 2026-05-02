@@ -330,6 +330,76 @@ describe('v1.2.5 — forgeConfigSchema accepts fieldExclusions + ownerMappings',
   });
 });
 
+// ─── v1.2.5 features: objectSoqlFilters ────────────────────────────────
+
+describe('v1.2.5 — forgeConfigSchema accepts objectSoqlFilters', () => {
+  const baseConfig = {
+    inputMode: 'record' as const,
+    recordId: '001AP00000j2CEg',
+    depth: 'direct' as const,
+    sourceOrgId: 'src',
+    targetOrgId: 'tgt',
+    anonymizePII: false,
+    skipEmpty: false,
+    batchSize: 'auto' as const,
+  };
+
+  it('accepts a valid objectSoqlFilters map', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      objectSoqlFilters: {
+        Case: "Status = 'Open' AND CreatedDate > LAST_N_DAYS:30",
+        Account: "Industry = 'Technology'",
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects objectSoqlFilters with malformed object name', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      objectSoqlFilters: { 'Case; DROP': "Status = 'Open'" },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects objectSoqlFilters with comment markers', () => {
+    expect(forgeConfigSchema.safeParse({
+      ...baseConfig,
+      objectSoqlFilters: { Case: "Status = 'Open' -- malicious" },
+    }).success).toBe(false);
+    expect(forgeConfigSchema.safeParse({
+      ...baseConfig,
+      objectSoqlFilters: { Case: "Status = 'Open' /* bad */" },
+    }).success).toBe(false);
+  });
+
+  it('rejects objectSoqlFilters with trailing semicolon (statement chain)', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      objectSoqlFilters: { Case: "Status = 'Open';" },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects objectSoqlFilters > 512 chars per filter', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      objectSoqlFilters: { Case: "Status = '" + 'X'.repeat(520) + "'" },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects > 50 objectSoqlFilters entries', () => {
+    const filters: Record<string, string> = {};
+    for (let i = 0; i < 51; i++) {
+      filters[`Obj${i}__c`] = "Status = 'Open'";
+    }
+    const r = forgeConfigSchema.safeParse({ ...baseConfig, objectSoqlFilters: filters });
+    expect(r.success).toBe(false);
+  });
+});
+
 // ─── PERF-002: SchemaCache uses O(1) heuristic, never JSON.stringify ────
 
 describe('Audit PERF-002 — SchemaCache estimateSize is O(1)', () => {

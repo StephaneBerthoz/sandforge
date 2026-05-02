@@ -58,6 +58,14 @@ export interface ScopedSoqlBuildOpts {
   rootObjectApiName: string;
   /** The original record ID supplied by the user. */
   rootRecordId: string;
+  /**
+   * Optional extra WHERE-clause fragment appended via `AND (...)` after the
+   * scope-derived clause. Used by per-object filters from `ForgeConfig`
+   * (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`). The fragment
+   * is wrapped in parens so a top-level `OR` doesn't escape the AND scope.
+   * Caller is responsible for length-bounding via Zod (see schema).
+   */
+  extraWhere?: string;
 }
 
 /**
@@ -90,14 +98,16 @@ export class ScopedSoqlBuilder {
   build(opts: ScopedSoqlBuildOpts): ScopedSoqlResult {
     const objectName = assertSoqlIdentifier(opts.node.objectApiName);
     const select = this.formatSelect(opts.selectFields);
+    const extraSuffix = opts.extraWhere ? ` AND (${opts.extraWhere})` : '';
+    const reasonSuffix = opts.extraWhere ? ' + extra filter' : '';
 
     if (opts.node.objectApiName === opts.rootObjectApiName) {
       const escapedId = sanitizeSoqlValue(opts.rootRecordId);
       return {
-        soql: `SELECT ${select} FROM ${objectName} WHERE Id = '${escapedId}'`,
+        soql: `SELECT ${select} FROM ${objectName} WHERE Id = '${escapedId}'${extraSuffix}`,
         scoped: true,
         scope: 'root',
-        reason: 'root record',
+        reason: `root record${reasonSuffix}`,
         parentObjectsUsed: [opts.rootObjectApiName],
         scopeIdCount: 1,
       };
@@ -107,10 +117,10 @@ export class ScopedSoqlBuilder {
     if (ownIds && ownIds.size > 0) {
       const idList = formatIdList(ownIds);
       return {
-        soql: `SELECT ${select} FROM ${objectName} WHERE Id IN (${idList})`,
+        soql: `SELECT ${select} FROM ${objectName} WHERE Id IN (${idList})${extraSuffix}`,
         scoped: true,
         scope: 'self-cached',
-        reason: `${ownIds.size} ID(s) cached from earlier wave`,
+        reason: `${ownIds.size} ID(s) cached from earlier wave${reasonSuffix}`,
         parentObjectsUsed: [],
         scopeIdCount: ownIds.size,
       };
@@ -151,11 +161,16 @@ export class ScopedSoqlBuilder {
       };
     }
 
+    // Wrap fk clauses in parens only when an extraWhere is appended, so
+    // existing callers / snapshot tests aren't broken by gratuitous
+    // parens. The extraWhere itself is always wrapped on its own.
+    const fkJoined = fkClauses.join(' OR ');
+    const fkWrapped = extraSuffix ? `(${fkJoined})` : fkJoined;
     return {
-      soql: `SELECT ${select} FROM ${objectName} WHERE ${fkClauses.join(' OR ')}`,
+      soql: `SELECT ${select} FROM ${objectName} WHERE ${fkWrapped}${extraSuffix}`,
       scoped: true,
       scope: 'parent-fk',
-      reason: `via ${parentObjectsUsed.join(', ')}`,
+      reason: `via ${parentObjectsUsed.join(', ')}${reasonSuffix}`,
       parentObjectsUsed,
       scopeIdCount: totalScopeIds,
     };

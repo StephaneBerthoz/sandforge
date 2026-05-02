@@ -56,6 +56,8 @@ interface CliArgs {
   fieldExclusions: Record<string, string[]>;
   /** Source User Id → target User Id remap for OwnerId. */
   ownerMappings: Record<string, string>;
+  /** Per-object SOQL WHERE filter: { Case: "Status = 'Open' AND CreatedDate > LAST_N_DAYS:30" }. */
+  objectSoqlFilters: Record<string, string>;
 }
 
 interface SfOrg {
@@ -95,6 +97,12 @@ Options:
                          e.g. --owner-map 005AB...=005XY...
                          Useful when source records were authored by users
                          that don't exist on the target sandbox (ex-employees).
+  --filter <obj=where>   per-object SOQL WHERE filter (repeatable)
+                         e.g. --filter "Case=Status = 'Open' AND CreatedDate > LAST_N_DAYS:30"
+                         Lets BAs narrow a clone to a subset without changing
+                         graph topology. Filter is appended via AND (...) to
+                         the scope-derived clause. Max 512 chars per filter,
+                         max 50 filters total.
   -h, --help             show this help and exit
 `;
 
@@ -155,6 +163,25 @@ function parseArgs(argv: string[]): CliArgs {
     }
     ownerMappings[src] = tgt;
   }
+  const objectSoqlFilters: Record<string, string> = {};
+  for (const raw of collectRepeated('--filter')) {
+    const eqIdx = raw.indexOf('=');
+    if (eqIdx <= 0 || eqIdx === raw.length - 1) {
+      process.stderr.write(`Invalid --filter value "${raw}" (expected Object=where-clause)\n`);
+      process.exit(2);
+    }
+    const obj = raw.slice(0, eqIdx);
+    const where = raw.slice(eqIdx + 1);
+    if (where.length > 512) {
+      process.stderr.write(`--filter where-clause for "${obj}" exceeds 512 chars\n`);
+      process.exit(2);
+    }
+    if (/--|\/\*|\*\/|;\s*$/.test(where)) {
+      process.stderr.write(`--filter where-clause for "${obj}" contains forbidden tokens (--, /*, */, trailing ;)\n`);
+      process.exit(2);
+    }
+    objectSoqlFilters[obj] = where;
+  }
   return {
     record,
     source,
@@ -170,6 +197,7 @@ function parseArgs(argv: string[]): CliArgs {
     json: has('--json'),
     fieldExclusions,
     ownerMappings,
+    objectSoqlFilters,
   };
 }
 
@@ -439,6 +467,7 @@ async function main(): Promise<void> {
       expandOrphanParents: args.expandOrphans,
       fieldExclusions: Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
       ownerMappings: Object.keys(args.ownerMappings).length > 0 ? args.ownerMappings : undefined,
+      objectSoqlFilters: Object.keys(args.objectSoqlFilters).length > 0 ? args.objectSoqlFilters : undefined,
     },
   );
 

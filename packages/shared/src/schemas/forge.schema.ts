@@ -81,6 +81,28 @@ export const forgeConfigSchema = z.object({
       message: 'Too many owner mappings (max 200)',
     })
     .optional(),
+  // Per-object SOQL WHERE filter. Outer key = SObject API name (regex'd),
+  // value = arbitrary SOQL fragment (length-bounded to 512 chars). Two
+  // defenses: object-name regex blocks injection via the key, length cap
+  // blocks DoS via huge filters. Newlines and the SOQL comment markers
+  // (-- and /* */) are rejected so the filter can't append a second
+  // statement. Trust boundary at the schema — the filter itself is
+  // intentionally arbitrary (BA writes their own WHERE clause).
+  objectSoqlFilters: z
+    .record(
+      z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+      z
+        .string()
+        .min(1)
+        .max(512)
+        .refine((s) => !/--|\/\*|\*\/|;\s*$/.test(s), {
+          message: 'SOQL filter must not contain comment markers (--, /*, */) or trailing semicolon',
+        }),
+    )
+    .refine((m) => Object.keys(m).length <= 50, {
+      message: 'Too many SOQL filters (max 50)',
+    })
+    .optional(),
 });
 
 /**

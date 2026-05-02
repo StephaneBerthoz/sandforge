@@ -64,6 +64,13 @@ export interface ForgeConfig {
    * target sandbox (e.g. ex-employees) reject with INVALID_OWNER.
    */
   ownerMappings?: Record<string, string>;
+  /**
+   * Per-object SOQL WHERE filter appended to scoped queries.
+   * Example: `{ Case: "Status = 'Open' AND CreatedDate > LAST_N_DAYS:30" }`.
+   * Only applied in record-scoped mode. The fragment is wrapped in parens
+   * before being AND-joined to the scope clause.
+   */
+  objectSoqlFilters?: Record<string, string>;
 }
 
 /**
