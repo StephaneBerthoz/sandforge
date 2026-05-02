@@ -539,14 +539,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * @returns Generated ID string
  */
 function generateId(): string {
-  const segments = [8, 4, 4, 4, 12];
-  return segments
-    .map((len) => {
-      let segment = '';
-      for (let i = 0; i < len; i++) {
-        segment += Math.floor(Math.random() * 16).toString(16);
-      }
-      return segment;
-    })
-    .join('-');
+  return globalThis.crypto.randomUUID();
 }
