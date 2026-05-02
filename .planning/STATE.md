@@ -9,10 +9,11 @@ See: .planning/PROJECT.md (updated 2026-04-23)
 
 ## Current Position
 
-Phase: 02 — Test Hardening ✓ complete (2026-05-02)
+Phase: 02 — Test Hardening ✓ complete + verified (2026-05-02)
 Previous phase: 01 — Hardening Foundations ✓ complete (verifying — human UAT pending)
-Status: Phase 02 closed in autopilot — all 3 plans shipped. Plan 02-03 added 5 Playwright E2E specs (`seed-ai-persona`, `quick-sync-conflict-resolve`, `monitor-dashboard-refresh-export`, `cdc-subscription-event`, `ai-diagnose-apply-fix`) with 7 tests passing in 32.6 s wall-time. `MockBridge.stream()` helper + 9 fixture factories shipped. Two placeholder components (`CdcPanelPlaceholder.tsx`, `AIDiagnosePlaceholder.tsx`) seed the testid contract for Phase 04/05. Results documented in `.planning/phases/02-test-hardening/02-03-E2E-RESULTS.md`. **Side-quest:** Forge audit (parallel red-team / perf-critic / reviewer / test-coverage), 23 findings resolved across 2 sprints, +22 regression tests, commit `ee9ac02`. Released as v1.2.5 with full CHANGELOG. Ready for `verify-work 02` → `discuss-phase 03`.
-Last activity: 2026-05-02 — Plan 02-03 shipped + Forge audit + v1.2.5 packaged.
+Next phase: 03 — Monitor v2 Core (CONTEXT drafted, plans pending)
+Status: Phase 02 closed in autopilot — all 3 plans shipped. Plan 02-03 added 5 Playwright E2E specs (`seed-ai-persona`, `quick-sync-conflict-resolve`, `monitor-dashboard-refresh-export`, `cdc-subscription-event`, `ai-diagnose-apply-fix`) with 7 tests passing in 32.6 s wall-time. `MockBridge.stream()` helper + 9 fixture factories shipped. Two placeholder components (`CdcPanelPlaceholder.tsx`, `AIDiagnosePlaceholder.tsx`) seed the testid contract for Phase 04/05. **verify-work 02 closed** with `02-VERIFICATION.md` + retroactive `02-03-SUMMARY.md` (artifact-set normalized). Verdict: PASS-AUTO. **Cross-cutting audit (4 parallel agents)** during verify-work surfaced ~50 findings; Sprint 1 quick wins applied (11 items: nonce crypto, version-from-packageJSON, randomUUID, structuredClone, HMR-safe CDC listener, log cap, SOQL identifier validation in CloneRecordFetcher, path-traversal guard on `--remap-csv`, test regex narrowing, lint sweep, .bak / duplicate-doc cleanup). Remaining findings slotted into Phase 03 / 04 / 06 backlogs (see `.planning/audit-2026-05-02-cross-cutting.md`). **Side-quest:** Forge audit (parallel red-team / perf-critic / reviewer / test-coverage), 23 findings resolved across 2 sprints, +22 regression tests, commit `ee9ac02`. Released as v1.2.5 with full CHANGELOG. Phase 03 CONTEXT.md drafted — ready for `plan-phase 03`.
+Last activity: 2026-05-02 — Phase 02 verified, post-audit Sprint 1 hardening landed, Phase 03 CONTEXT drafted.
 
 Progress: [###-------] 33% (2 of 6 phases complete)
 
