@@ -339,8 +339,8 @@ describe('MonitorPage', () => {
     // API Calls: used = 15000 - 2550 = 12,450
     // The KPI row renders the value and subtitle in the KPIStat component
     expect(screen.getByText('API Calls Today')).toBeDefined();
-    expect(screen.getByText(/12[,\s ]?450/)).toBeDefined();
-    expect(screen.getByText(/\/\s?15[,\s ]?000/)).toBeDefined();
+    expect(screen.getByText(/12[,\s ]?450/)).toBeDefined();
+    expect(screen.getByText(/\/\s?15[,\s ]?000/)).toBeDefined();
   });
 
   it('should still render dashboard with spinner when refreshing with existing data', () => {
