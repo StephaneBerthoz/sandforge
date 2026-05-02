@@ -60,6 +60,8 @@ interface CliArgs {
   objectSoqlFilters: Record<string, string>;
   /** Per-object source→target field rename: { Account: { 'Region__c': 'Region__pc' } }. */
   fieldMappings: Record<string, Record<string, string>>;
+  /** Output path for the remap-table CSV (sourceId,targetId). undefined = no export. */
+  remapCsv: string | undefined;
 }
 
 interface SfOrg {
@@ -111,6 +113,9 @@ Options:
                          (managed-package re-key, namespace change). The
                          source field is dropped and the value written to
                          the target field name on insert.
+  --remap-csv <file>     write the source→target ID remap table to a CSV
+                         file (header: sourceId,targetId). BA reconciliation:
+                         "where did source X go on the target sandbox?"
   -h, --help             show this help and exit
 `;
 
@@ -225,6 +230,7 @@ function parseArgs(argv: string[]): CliArgs {
     ownerMappings,
     objectSoqlFilters,
     fieldMappings,
+    remapCsv: get('--remap-csv'),
   };
 }
 
@@ -500,6 +506,24 @@ async function main(): Promise<void> {
   );
 
   const elapsed = Date.now() - t0;
+
+  // BA reconciliation export. Written before the JSON/text summary so a
+  // post-execute script can pick it up by tailing the file.
+  if (args.remapCsv) {
+    const fs = await import('node:fs/promises');
+    const lines = ['sourceId,targetId'];
+    for (const [src, tgt] of Object.entries(summary.remapTable)) {
+      // Both IDs are validated SF IDs (15/18 alphanum) — safe to embed
+      // without quoting. Defense: in case a future source returns
+      // something odd, double-quote both columns to neutralize commas.
+      lines.push(`"${src.replace(/"/g, '""')}","${tgt.replace(/"/g, '""')}"`);
+    }
+    await fs.writeFile(args.remapCsv, lines.join('\n') + '\n', 'utf8');
+    if (!args.json) {
+      console.log(`remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${args.remapCsv}`);
+    }
+  }
+
   if (args.json) {
     // Machine-readable summary for CI/automation. Stable schema.
     process.stdout.write(JSON.stringify({
@@ -524,6 +548,9 @@ async function main(): Promise<void> {
           attemptedCount: e.attemptedCount,
           samples: e.samples,
         })),
+        // remapTable only included in JSON output for CI consumers; the
+        // text output stays terse (use --remap-csv for the file dump).
+        remapTable: summary.remapTable,
       },
       elapsedMs: elapsed,
     }, null, 2) + '\n');
