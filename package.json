@@ -16,7 +16,7 @@
     "format:check": "prettier --check \"packages/*/src/**/*.{ts,tsx,json,css}\"",
     "test": "pnpm -r test",
     "test:coverage": "pnpm -r test:coverage",
-    "validate": "pnpm build:shared && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "validate": "pnpm build:shared && pnpm typecheck && pnpm lint && pnpm test && pnpm audit:disposables && pnpm build",
     "knip": "knip",
     "stryker": "stryker run",
     "stryker:incremental": "stryker run --incremental",
