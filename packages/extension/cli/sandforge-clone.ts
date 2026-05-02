@@ -44,6 +44,14 @@ interface CliArgs {
   maxRecordsPerObject: number | undefined;
   anonymize: boolean;
   dryRun: boolean;
+  /** Enable upsert path on objects with externalId fields (skips DUPLICATE_VALUE on re-runs). */
+  upsert: boolean;
+  /** Single-hop orphan parent expansion when a required FK is out-of-graph. */
+  expandOrphans: boolean;
+  /** Skip the pre-execute target preflight (counts existing rows on target). */
+  skipPreflight: boolean;
+  /** Emit JSON summary on stdout (machine-readable for CI integration). */
+  json: boolean;
 }
 
 interface SfOrg {
@@ -69,6 +77,14 @@ Options:
   --max <n>              max records cloned per object          (default: unlimited)
   --anonymize            anonymize PII fields                   (default: off)
   --dry-run              skip writes, surface scoped queries    (default: off)
+  --upsert               use external Id upsert when available  (default: insert)
+                         Skips DUPLICATE_VALUE on re-runs of the same source records.
+  --expand-orphans       single-hop expand orphan parent FKs    (default: off)
+                         Clones missing parents (out-of-graph) so child FKs resolve.
+  --skip-preflight       skip pre-execute target row count      (default: off)
+                         The preflight queries each object on target so the user
+                         can see existing volume before pressing through.
+  --json                 emit JSON summary on stdout (CI mode)  (default: off)
   -h, --help             show this help and exit
 `;
 
@@ -104,6 +120,10 @@ function parseArgs(argv: string[]): CliArgs {
     maxRecordsPerObject: maxRaw ? Number(maxRaw) : undefined,
     anonymize: has('--anonymize'),
     dryRun: has('--dry-run'),
+    upsert: has('--upsert'),
+    expandOrphans: has('--expand-orphans'),
+    skipPreflight: has('--skip-preflight'),
+    json: has('--json'),
   };
 }
 
@@ -300,9 +320,59 @@ async function main(): Promise<void> {
       const meta = await c.sobject(name).describe();
       return meta.createable !== false;
     },
+    // CR-016: surface upsert path so re-runs against the same source records
+    // don't pile DUPLICATE_VALUE errors on objects with external Id fields.
+    upsertRecords: async (orgId, name, externalIdField, records) => {
+      if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
+      const c = conns.get(orgId);
+      if (!c) throw new Error(`No connection for ${orgId}`);
+      const r = await c.sobject(name).upsert(records, externalIdField);
+      const arr = Array.isArray(r) ? r : [r];
+      return arr.map((x) => ({
+        id: x.id ?? '',
+        success: x.success,
+        errors: x.errors?.map((e: { statusCode?: string; message?: string }) =>
+          e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
+        ) ?? [],
+      }));
+    },
   };
 
-  console.log(`executing… (${args.dryRun ? 'DRY-RUN' : 'REAL'})`);
+  // Preflight: pre-count rows on the target for every node in the graph so
+  // the user sees how much data already exists before pulling the trigger.
+  // Skip with --skip-preflight if it's slow on big graphs (10s+ on 100 nodes).
+  if (!args.skipPreflight) {
+    console.log('\npreflight (target row counts)…');
+    const targetConn = conns.get(args.target)!;
+    const sample = graph.nodes.slice(0, 30); // cap to first 30 to keep it snappy
+    const preflight: Array<{ name: string; existing: number }> = [];
+    for (const n of sample) {
+      try {
+        const r = await targetConn.query(`SELECT COUNT() FROM ${n.objectApiName}`);
+        preflight.push({ name: n.objectApiName, existing: r.totalSize });
+      } catch {
+        preflight.push({ name: n.objectApiName, existing: -1 });
+      }
+    }
+    const nonZero = preflight.filter((p) => p.existing > 0);
+    if (nonZero.length === 0) {
+      console.log('  target is empty for all sampled objects.');
+    } else {
+      const top = nonZero
+        .sort((a, b) => b.existing - a.existing)
+        .slice(0, 10);
+      console.log(`  ${nonZero.length}/${preflight.length} sampled objects have existing rows. Top 10:`);
+      for (const p of top) {
+        const flag = p.existing > 1000 ? '  ⚠' : '';
+        console.log(`    ${p.name.padEnd(40)} ${String(p.existing).padStart(8)}${flag}`);
+      }
+      if (graph.nodes.length > sample.length) {
+        console.log(`  (sampled first ${sample.length}/${graph.nodes.length} nodes; --skip-preflight to bypass)`);
+      }
+    }
+  }
+
+  console.log(`\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''})`);
   const summary = await new ForgeExecutor(executorDeps).execute(
     graph,
     args.source,
@@ -319,25 +389,57 @@ async function main(): Promise<void> {
       // invalid on the target unless source and target share state, which
       // is never the case for a real cross-org clone via this CLI.
       referenceFallback: 'nullify',
+      upsertMode: args.upsert ? 'auto' : undefined,
+      expandOrphanParents: args.expandOrphans,
     },
   );
 
-  console.log('');
-  console.log(`success: ${summary.successCount}`);
-  console.log(`failed:  ${summary.failedCount}`);
-  console.log(`skipped: ${summary.skippedCount}`);
-  console.log(`remaps:  ${summary.remapCount}`);
-  if (summary.errors.length > 0) {
-    console.log(`\nerrors (${summary.errors.length} object(s)):`);
-    for (const e of summary.errors) {
-      console.log(`  [${e.stage}] ${e.objectApiName}  ${e.failedCount}/${e.attemptedCount}`);
-      for (const s of e.samples.slice(0, 2)) {
-        console.log(`    ${s.recordSummary}`);
-        for (const m of s.messages) console.log(`      └ ${m}`);
+  const elapsed = Date.now() - t0;
+  if (args.json) {
+    // Machine-readable summary for CI/automation. Stable schema.
+    process.stdout.write(JSON.stringify({
+      tool: 'sandforge-clone',
+      version: 1,
+      source: args.source,
+      target: args.target,
+      record: args.record,
+      dryRun: args.dryRun,
+      upsert: args.upsert,
+      expandOrphans: args.expandOrphans,
+      graph: { nodes: graph.nodes.length, edges: graph.edges.length, waves: plan.waves.length, cycles: plan.cycleResolutions.length, truncated: graph.truncated ?? false },
+      result: {
+        successCount: summary.successCount,
+        failedCount: summary.failedCount,
+        skippedCount: summary.skippedCount,
+        remapCount: summary.remapCount,
+        errors: summary.errors.map((e) => ({
+          objectApiName: e.objectApiName,
+          stage: e.stage,
+          failedCount: e.failedCount,
+          attemptedCount: e.attemptedCount,
+          samples: e.samples,
+        })),
+      },
+      elapsedMs: elapsed,
+    }, null, 2) + '\n');
+  } else {
+    console.log('');
+    console.log(`success: ${summary.successCount}`);
+    console.log(`failed:  ${summary.failedCount}`);
+    console.log(`skipped: ${summary.skippedCount}`);
+    console.log(`remaps:  ${summary.remapCount}`);
+    if (summary.errors.length > 0) {
+      console.log(`\nerrors (${summary.errors.length} object(s)):`);
+      for (const e of summary.errors) {
+        console.log(`  [${e.stage}] ${e.objectApiName}  ${e.failedCount}/${e.attemptedCount}`);
+        for (const s of e.samples.slice(0, 2)) {
+          console.log(`    ${s.recordSummary}`);
+          for (const m of s.messages) console.log(`      └ ${m}`);
+        }
       }
     }
+    console.log(`\ndone in ${elapsed}ms`);
   }
-  console.log(`\ndone in ${Date.now() - t0}ms`);
   if (summary.failedCount > 0 && summary.successCount === 0) process.exit(1);
 }
 
