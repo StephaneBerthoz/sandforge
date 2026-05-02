@@ -52,6 +52,10 @@ interface CliArgs {
   skipPreflight: boolean;
   /** Emit JSON summary on stdout (machine-readable for CI integration). */
   json: boolean;
+  /** Per-object field exclusions: { Account: ['Description', 'NumberOfEmployees'] }. */
+  fieldExclusions: Record<string, string[]>;
+  /** Source User Id → target User Id remap for OwnerId. */
+  ownerMappings: Record<string, string>;
 }
 
 interface SfOrg {
@@ -85,6 +89,12 @@ Options:
                          The preflight queries each object on target so the user
                          can see existing volume before pressing through.
   --json                 emit JSON summary on stdout (CI mode)  (default: off)
+  --exclude <obj.field>  skip a field on an object during clone (repeatable)
+                         e.g. --exclude Account.Description --exclude Account.NumberOfEmployees
+  --owner-map <src=tgt>  remap OwnerId from source User Id to target User Id (repeatable)
+                         e.g. --owner-map 005AB...=005XY...
+                         Useful when source records were authored by users
+                         that don't exist on the target sandbox (ex-employees).
   -h, --help             show this help and exit
 `;
 
@@ -111,6 +121,40 @@ function parseArgs(argv: string[]): CliArgs {
   const depthRaw = (get('--depth', 'custom') ?? 'custom') as 'direct' | 'full' | 'custom';
   const customDepthRaw = get('--custom-depth', '5');
   const maxRaw = get('--max');
+  // Repeatable flags: scan all positions for matches.
+  const collectRepeated = (flag: string): string[] => {
+    const out: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === flag && i + 1 < args.length) out.push(args[i + 1]);
+    }
+    return out;
+  };
+  const fieldExclusions: Record<string, string[]> = {};
+  for (const raw of collectRepeated('--exclude')) {
+    const dotIdx = raw.indexOf('.');
+    if (dotIdx <= 0 || dotIdx === raw.length - 1) {
+      process.stderr.write(`Invalid --exclude value "${raw}" (expected Object.field)\n`);
+      process.exit(2);
+    }
+    const obj = raw.slice(0, dotIdx);
+    const field = raw.slice(dotIdx + 1);
+    (fieldExclusions[obj] ??= []).push(field);
+  }
+  const ownerMappings: Record<string, string> = {};
+  for (const raw of collectRepeated('--owner-map')) {
+    const eqIdx = raw.indexOf('=');
+    if (eqIdx <= 0 || eqIdx === raw.length - 1) {
+      process.stderr.write(`Invalid --owner-map value "${raw}" (expected sourceId=targetId)\n`);
+      process.exit(2);
+    }
+    const src = raw.slice(0, eqIdx);
+    const tgt = raw.slice(eqIdx + 1);
+    if (!SF_ID_RE.test(src) || !SF_ID_RE.test(tgt)) {
+      process.stderr.write(`Invalid --owner-map IDs in "${raw}" (must be 15 or 18 char Salesforce IDs)\n`);
+      process.exit(2);
+    }
+    ownerMappings[src] = tgt;
+  }
   return {
     record,
     source,
@@ -124,6 +168,8 @@ function parseArgs(argv: string[]): CliArgs {
     expandOrphans: has('--expand-orphans'),
     skipPreflight: has('--skip-preflight'),
     json: has('--json'),
+    fieldExclusions,
+    ownerMappings,
   };
 }
 
@@ -391,6 +437,8 @@ async function main(): Promise<void> {
       referenceFallback: 'nullify',
       upsertMode: args.upsert ? 'auto' : undefined,
       expandOrphanParents: args.expandOrphans,
+      fieldExclusions: Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
+      ownerMappings: Object.keys(args.ownerMappings).length > 0 ? args.ownerMappings : undefined,
     },
   );
 

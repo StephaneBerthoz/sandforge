@@ -59,6 +59,28 @@ export const forgeConfigSchema = z.object({
   batchSize: z.union([z.literal('auto'), z.number().int().positive().max(10_000)]),
   expandOrphanParents: z.boolean().optional(),
   maxRecordsPerObject: z.number().int().positive().max(1_000_000).optional(),
+  // Per-object field exclusions. Outer key = SObject API name (regex'd),
+  // inner array = field API names to skip (each ≤ 80 chars, ≤ 200 per
+  // object). Defense-in-depth: bounded to keep payloads sane.
+  fieldExclusions: z
+    .record(
+      z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
+      z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/).max(80)).max(200),
+    )
+    .optional(),
+  // Source-org → target-org User Id remap for OwnerId. Both sides are
+  // Salesforce IDs; arbitrary keys would let a webview-compromised
+  // payload swap arbitrary FK values, hence the strict ID regex on
+  // both ends. Bounded to 200 entries (very large by realistic use).
+  ownerMappings: z
+    .record(
+      z.string().regex(SF_RECORD_ID_REGEX, 'Invalid Salesforce record ID'),
+      z.string().regex(SF_RECORD_ID_REGEX, 'Invalid Salesforce record ID'),
+    )
+    .refine((m) => Object.keys(m).length <= 200, {
+      message: 'Too many owner mappings (max 200)',
+    })
+    .optional(),
 });
 
 /**

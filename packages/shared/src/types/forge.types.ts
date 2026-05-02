@@ -51,6 +51,19 @@ export interface ForgeConfig {
    * Used as a safety knob for big orgs / sample-only runs.
    */
   maxRecordsPerObject?: number;
+  /**
+   * Per-object field exclusions. Field names listed are stripped from
+   * every record before insert. Common BA use case: clone Accounts but
+   * skip `Description` (long-text PII) or `NumberOfEmployees`
+   * (org-specific calculated value).
+   */
+  fieldExclusions?: Record<string, string[]>;
+  /**
+   * Map source-org user IDs to target-org user IDs for OwnerId remap.
+   * Without this, records authored by users that don't exist on the
+   * target sandbox (e.g. ex-employees) reject with INVALID_OWNER.
+   */
+  ownerMappings?: Record<string, string>;
 }
 
 /**
