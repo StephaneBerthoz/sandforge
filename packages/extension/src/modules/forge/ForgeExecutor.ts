@@ -311,6 +311,15 @@ export interface ExecutionSummary {
   remapCount: number;
   /** Per-object error reports — populated whenever any record or object fails. */
   errors: ExecutionObjectError[];
+  /**
+   * Full source→target ID mapping table produced during execution. Lets
+   * the caller audit which source-org record became which target-org
+   * record (BA need: post-clone reconciliation, CSV export, or a "where
+   * did this Account go on the new sandbox?" lookup). Always populated
+   * — empty Record when no inserts succeeded. Persisted as part of the
+   * checkpoint state for resume.
+   */
+  remapTable: Record<string, string>;
 }
 
 /**
@@ -1201,6 +1210,11 @@ export class ForgeExecutor {
       skippedCount,
       remapCount: remapper.count,
       errors,
+      // BA reconciliation: dump the full source→target ID map so callers
+      // can audit, export to CSV, or persist as part of a checkpoint.
+      // toJSON returns a plain object (Record) so it serializes cleanly
+      // through the bridge envelope.
+      remapTable: remapper.toJSON(),
     };
   }
 
