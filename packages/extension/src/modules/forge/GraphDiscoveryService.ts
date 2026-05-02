@@ -191,6 +191,7 @@ export class GraphDiscoveryService {
     const rootObject = await this.resolveRootObject(config);
     const t1 = Date.now();
     if (t1 - t0 > 2_000) {
+      // eslint-disable-next-line no-console
       console.warn(`[forge-discover] resolveRootObject took ${t1 - t0}ms (cold path, consider verifying describeGlobal cache state)`);
     }
     const maxDepth = this.resolveMaxDepth(config);
