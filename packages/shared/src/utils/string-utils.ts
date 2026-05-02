@@ -62,9 +62,9 @@ export function maskString(str: string, visibleChars: number = 4): string {
   return str.slice(0, visibleChars) + '*'.repeat(str.length - visibleChars);
 }
 
-/** Generates a simple unique ID based on timestamp and random data (not cryptographically secure). */
+/** Generates a unique ID combining a base36 timestamp and 8 hex chars from crypto.randomUUID. */
 export function generateId(): string {
   const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).slice(2, 10);
+  const random = globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 8);
   return `${timestamp}-${random}`;
 }
