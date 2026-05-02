@@ -16,7 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--expand-orphans` flag — single-hop expand orphan parent FKs (clones missing parents so child FKs resolve)
 - `--skip-preflight` flag — bypass the new pre-execute target row count
 - `--json` flag — machine-readable JSON summary on stdout for CI integration
+- `--exclude <obj.field>` (repeatable) — strip a specific field on a specific object before insert. BA opt-out for noisy long-text fields, calculated fields, or fields the target org doesn't have
+- `--owner-map <src=tgt>` (repeatable) — remap OwnerId from a source User Id to a target User Id. Use case: clone records authored by ex-employees onto a sandbox where their User no longer exists (otherwise INVALID_OWNER)
 - Pre-execute preflight showing existing rows in the target org for the first 30 nodes (with ⚠ flag for >1000 rows) so users know the blast radius before pulling the trigger
+
+**ForgeConfig (cross-sandbox dev/BA flow)**
+- `fieldExclusions: Record<string, string[]>` — per-object field skip list (Zod-validated, max 200 fields per object). Exposed via wizard config and CLI `--exclude`
+- `ownerMappings: Record<string, string>` — per-record OwnerId remap (Zod-validated, both sides must be 15/18-char Salesforce IDs, max 200 entries). Exposed via wizard config and CLI `--owner-map`
 
 **ForgeOrchestrator**
 - `dispose()` method — clears the discovery cache and listeners on extension shutdown / org disconnect
