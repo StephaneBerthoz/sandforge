@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type * as vscode from 'vscode';
 import type { MessageBroker } from '../bridge/MessageBroker';
 
@@ -208,12 +209,11 @@ export class WebviewPanelManager {
   }
 }
 
-/** Generate a random 32-character nonce for CSP script tags. */
+/**
+ * Generate a cryptographically-random ~32-character nonce for CSP script tags.
+ * Uses node:crypto so the nonce is unguessable — Math.random is a PRNG and
+ * predictable enough that an adversary who derives the seed could bypass CSP.
+ */
 function generateNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let nonce = '';
-  for (let i = 0; i < 32; i++) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
+  return randomBytes(24).toString('base64url');
 }

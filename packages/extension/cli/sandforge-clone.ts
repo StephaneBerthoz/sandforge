@@ -511,6 +511,28 @@ async function main(): Promise<void> {
   // post-execute script can pick it up by tailing the file.
   if (args.remapCsv) {
     const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+    // Containment check: resolve against cwd and refuse anything that
+    // escapes (path traversal). Force `.csv` extension and refuse to
+    // overwrite an existing file so a misuse can't clobber sensitive
+    // files (e.g. authorized_keys, profile.ps1, scheduled-task XML).
+    const resolved = path.resolve(process.cwd(), args.remapCsv);
+    const cwdResolved = path.resolve(process.cwd());
+    const inside = resolved === cwdResolved
+      || resolved.startsWith(cwdResolved + path.sep);
+    if (!inside) {
+      throw new Error(`--remap-csv must stay inside cwd: "${args.remapCsv}" resolves outside ${cwdResolved}`);
+    }
+    if (!resolved.toLowerCase().endsWith('.csv')) {
+      throw new Error(`--remap-csv must use a .csv extension: "${args.remapCsv}"`);
+    }
+    try {
+      await fs.access(resolved);
+      throw new Error(`--remap-csv refuses to overwrite existing file: "${resolved}"`);
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== 'ENOENT') throw err;
+    }
     const lines = ['sourceId,targetId'];
     for (const [src, tgt] of Object.entries(summary.remapTable)) {
       // Both IDs are validated SF IDs (15/18 alphanum) — safe to embed
@@ -518,9 +540,9 @@ async function main(): Promise<void> {
       // something odd, double-quote both columns to neutralize commas.
       lines.push(`"${src.replace(/"/g, '""')}","${tgt.replace(/"/g, '""')}"`);
     }
-    await fs.writeFile(args.remapCsv, lines.join('\n') + '\n', 'utf8');
+    await fs.writeFile(resolved, lines.join('\n') + '\n', 'utf8');
     if (!args.json) {
-      console.log(`remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${args.remapCsv}`);
+      console.log(`remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${resolved}`);
     }
   }
 

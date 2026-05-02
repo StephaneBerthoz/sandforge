@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type * as vscode from 'vscode';
 
 /** Factory for URI path joining — uses vscode.Uri for type safety. */
@@ -138,13 +139,11 @@ export class SidebarViewProvider {
 </html>`;
   }
 
-  /** Generate a random 32-character nonce for CSP script tags. */
+  /**
+   * Generate a cryptographically-random ~32-character nonce for CSP script tags.
+   * Uses node:crypto so the nonce is unguessable — Math.random is a PRNG.
+   */
   private generateNonce(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let nonce = '';
-    for (let i = 0; i < 32; i++) {
-      nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return nonce;
+    return randomBytes(24).toString('base64url');
   }
 }

@@ -4,6 +4,22 @@
  */
 
 import type { Connection } from 'jsforce';
+import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+
+/**
+ * Reject SOQL WHERE-clause inputs that contain comment markers, statement
+ * separators, or are unreasonably long. Mirrors the Forge schema defense
+ * (forge.schema.ts) so all SOQL builders share the same minimum baseline.
+ */
+function assertSafeWhereClause(where: string): string {
+  if (where.length > 512) {
+    throw new Error(`SOQL WHERE clause too long (${where.length} > 512 chars)`);
+  }
+  if (/--|\/\*|\*\/|;\s*$/.test(where)) {
+    throw new Error('SOQL WHERE clause contains forbidden comment marker or trailing semicolon');
+  }
+  return where;
+}
 
 /** Logger function type for CloneRecordFetcher. */
 export type CloneLogFn = (msg: string) => void;
@@ -70,9 +86,9 @@ export class CloneRecordFetcher {
     objectApiName: string,
     whereClause?: string,
   ): Promise<number> {
-    let soql = `SELECT COUNT() FROM ${objectApiName}`;
+    let soql = `SELECT COUNT() FROM ${assertSoqlIdentifier(objectApiName)}`;
     if (whereClause) {
-      soql += ` WHERE ${whereClause}`;
+      soql += ` WHERE ${assertSafeWhereClause(whereClause)}`;
     }
     const result = await conn.query<Record<string, unknown>>(soql);
     return result.totalSize;
@@ -121,9 +137,11 @@ export class CloneRecordFetcher {
 
   /** Build SOQL query string. */
   private buildSoql(fields: string[], objectApiName: string, whereClause?: string): string {
-    let soql = `SELECT ${fields.join(', ')} FROM ${objectApiName}`;
+    // Validate object name and where clause before interpolation to block
+    // SOQL injection through caller-controlled inputs (Clone wizard / CLI).
+    let soql = `SELECT ${fields.join(', ')} FROM ${assertSoqlIdentifier(objectApiName)}`;
     if (whereClause) {
-      soql += ` WHERE ${whereClause}`;
+      soql += ` WHERE ${assertSafeWhereClause(whereClause)}`;
     }
     return soql;
   }
