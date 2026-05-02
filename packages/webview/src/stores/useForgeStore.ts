@@ -319,9 +319,16 @@ export const useForgeStore = create<ForgeState>((set) => ({
   },
 
   addLog(entry: ForgeLogEntry): void {
-    set((state) => ({
-      logs: [...state.logs, entry],
-    }));
+    // Cap log buffer to avoid O(N²) memory churn on long-running Forge runs.
+    // Forge can emit hundreds of log entries; without a cap the array clones
+    // grow unbounded and the panel re-render cost dominates.
+    const MAX_LOGS = 500;
+    set((state) => {
+      const next = state.logs.length >= MAX_LOGS
+        ? [...state.logs.slice(state.logs.length - MAX_LOGS + 1), entry]
+        : [...state.logs, entry];
+      return { logs: next };
+    });
   },
 
   clearLogs(): void {

@@ -43,7 +43,9 @@ export class SyncExecutionLogger {
 
     const entry: SyncHistoryEntry = {
       id: this.generateId(),
-      configSnapshot: JSON.parse(JSON.stringify(config)) as SyncConfig,
+      // structuredClone preserves Date / Map / undefined properly, unlike
+      // JSON round-trip which silently drops them.
+      configSnapshot: structuredClone(config),
       result,
       startTime: new Date(startTimeMs).toISOString(),
       endTime: result.timestamp,

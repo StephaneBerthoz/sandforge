@@ -36,12 +36,13 @@ function generateId(): string {
 }
 
 /**
- * Deep-clone a value using structured clone via JSON round-trip.
+ * Deep-clone a value using the platform structured-clone algorithm.
+ * Preserves Date / Map / Set / undefined where JSON round-trip would lose them.
  * @param value - The value to clone
  * @returns A deep copy of the value
  */
 function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return structuredClone(value);
 }
 
 /**
