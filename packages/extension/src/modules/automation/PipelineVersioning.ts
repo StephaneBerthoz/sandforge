@@ -25,14 +25,11 @@ export interface VersionMetadata {
 }
 
 /**
- * Generates a RFC4122 v4-compliant UUID.
+ * Generates a RFC4122 v4 UUID via the platform crypto primitive.
  * Used internally to assign unique identifiers to pipeline versions.
  */
 function generateId(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+  return globalThis.crypto.randomUUID();
 }
 
 /**
