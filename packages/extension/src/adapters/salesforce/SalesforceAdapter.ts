@@ -197,14 +197,14 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       reject(signal.reason ?? new Error('aborted'));
       return;
     }
-    const handle = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(handle);
-        reject(signal.reason ?? new Error('aborted'));
-      },
-      { once: true }
-    );
+    const onAbort = (): void => {
+      clearTimeout(handle);
+      reject(signal!.reason ?? new Error('aborted'));
+    };
+    const handle = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
