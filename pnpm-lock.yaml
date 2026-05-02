@@ -193,9 +193,6 @@ importers:
       tailwind-merge:
         specifier: ^2
         version: 2.6.1
-      zod:
-        specifier: ^3.23
-        version: 3.25.76
       zustand:
         specifier: ^4
         version: 4.5.7(@types/react@18.3.28)(react@18.3.1)
