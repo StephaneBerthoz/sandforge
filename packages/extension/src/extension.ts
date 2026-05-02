@@ -523,7 +523,7 @@ export function activate(context: vscode.ExtensionContext): void {
     { command: 'sandforge.openHelp', moduleId: 'help', title: 'Help' },
   ];
 
-  const currentVersion = '1.0.0';
+  const currentVersion = (context.extension.packageJSON as { version?: string }).version ?? '0.0.0';
   let onboardingTriggered = false;
 
   for (const { command, moduleId, title } of moduleCommands) {

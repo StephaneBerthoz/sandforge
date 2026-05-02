@@ -120,7 +120,19 @@ function handleMetricsMessage(event: MessageEvent): void {
   }
 }
 
-// Register message listener
-if (typeof window !== 'undefined') {
+// HMR-safe listener registration — without the guard, Vite's hot-module
+// replace re-imports this module and stacks N copies of the listener,
+// duplicating every metric N times and growing memory in O(N²).
+let cdcMetricsListenerRegistered = false;
+function registerCdcMetricsListener(): void {
+  if (cdcMetricsListenerRegistered || typeof window === 'undefined') return;
+  cdcMetricsListenerRegistered = true;
   window.addEventListener('message', handleMetricsMessage);
+  if (typeof import.meta !== 'undefined' && import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      window.removeEventListener('message', handleMetricsMessage);
+      cdcMetricsListenerRegistered = false;
+    });
+  }
 }
+registerCdcMetricsListener();

@@ -843,7 +843,7 @@ export class ForgeExecutor {
           // to *some other* unrelated target ID accidentally cached in the
           // remapper from prior inserts.
           const remapLookupFields = lookupFields.filter((n) => n !== 'RecordTypeId');
-          let remapped = remapper.remapRecord(r, remapLookupFields);
+          const remapped = remapper.remapRecord(r, remapLookupFields);
           for (const nf of nullifiedFks) {
             remapped[nf.field] = null;
           }
@@ -1270,6 +1270,7 @@ export class ForgeExecutor {
         // CR-004: log the chosen field so the user can attribute
         // upsert-related errors to the picked external Id without
         // having to re-derive it from describe metadata.
+        // eslint-disable-next-line no-console
         console.info(
           `[forge] upsert: using "${c.name}" as external Id (unique across ${records.length} records)`,
         );
@@ -1282,6 +1283,7 @@ export class ForgeExecutor {
     // wasn't actually unique; falling back to a plain insert lets the
     // user see DUPLICATE_VALUE per-record (more actionable) and avoids
     // truncated batches in jsforce's bulk upsert path.
+    // eslint-disable-next-line no-console
     console.warn(
       `[forge] upsert: no externalId candidate is non-null+unique across batch ` +
         `(${candidates.map((c) => c.name).join(', ')}) — falling back to insert`,
@@ -1318,6 +1320,7 @@ export class ForgeExecutor {
     } catch (err: unknown) {
       // Don't bury the error — the orphan path is high-blast-radius
       // (creates new rows on target). Log so the user sees it in output.
+      // eslint-disable-next-line no-console
       console.warn(
         `[forge] orphan-parent target describe failed for ${parentObject}: ${err instanceof Error ? err.message : String(err)}. Falling back to source createable.`,
       );
