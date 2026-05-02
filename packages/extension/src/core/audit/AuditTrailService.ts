@@ -243,9 +243,7 @@ export class AuditTrailService {
    * @returns A unique identifier string.
    */
   static generateId(): string {
-    const ts = Date.now().toString(36);
-    const rand = Math.random().toString(36).slice(2, 8);
-    return `audit-${ts}-${rand}`;
+    return `audit-${globalThis.crypto.randomUUID()}`;
   }
 
   /** Load entries from the config store. */
