@@ -188,16 +188,19 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               fieldExclusions: config.fieldExclusions,
               ownerMappings: config.ownerMappings,
               objectSoqlFilters: config.objectSoqlFilters,
+              fieldMappings: config.fieldMappings,
             }
           : (config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
               config.ownerMappings ||
-              config.objectSoqlFilters)
+              config.objectSoqlFilters ||
+              config.fieldMappings)
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,
                 ownerMappings: config.ownerMappings,
                 objectSoqlFilters: config.objectSoqlFilters,
+                fieldMappings: config.fieldMappings,
               }
             : undefined;
 
