@@ -67,7 +67,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
     'quicksync:detect-relationships',
   );
 
-  const suggestions = suggestionsQuery.data ?? [];
+  const suggestions = useMemo(() => suggestionsQuery.data ?? [], [suggestionsQuery.data]);
 
   // Available objects from suggestions for the search dropdown
   const availableForSearch = useMemo(() => {
