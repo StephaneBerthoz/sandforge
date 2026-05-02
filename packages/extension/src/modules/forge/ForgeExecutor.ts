@@ -193,6 +193,14 @@ export interface ExecuteOptions {
    * applies — typically nullify in scoped mode).
    */
   ownerMappings?: Record<string, string>;
+  /**
+   * Per-object SOQL WHERE-clause fragment appended via `AND (...)` to the
+   * scope-derived clause. Lets BAs narrow a clone to a subset
+   * (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without
+   * changing graph topology. Only applied in scoped mode (record root).
+   * Validated upstream — see `forgeConfigSchema.objectSoqlFilters`.
+   */
+  objectSoqlFilters?: Record<string, string>;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -537,6 +545,7 @@ export class ForgeExecutor {
             cache: scopeCache,
             rootObjectApiName: options.rootObjectApiName,
             rootRecordId: options.rootRecordId,
+            extraWhere: options?.objectSoqlFilters?.[node.objectApiName],
           });
           if (!scopeResult.scoped) {
             skippedCount++;
