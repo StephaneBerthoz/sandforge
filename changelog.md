@@ -53,6 +53,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from inside the timer callback before resolving. Surfaced by
   `pnpm audit:disposables`.
 
+### Performance
+
+- **`QuickSyncObjectStep`**: the `suggestions` array fallback
+  `suggestionsQuery.data ?? []` was creating a fresh `[]` reference on
+  every render, propagating into the downstream `availableForSearch`
+  `useMemo` and re-running it each render. Wrapped in `useMemo` so the
+  fallback is stable. Closes one of the 7 `react-hooks/exhaustive-deps`
+  warnings flagged by `pnpm -r lint`.
+
+### Security (devDep CVE chain — Round 2)
+
+- **`pnpm.overrides`**: forces `picomatch ≥ 4.0.4` (closes ReDoS
+  GHSA-c2c7-rcm5-vvqj, transitive via `knip` → `fast-glob` →
+  `micromatch` → `picomatch`) and `lodash ≥ 4.18.0` (closes code
+  injection GHSA-r5fr-rjxr-66jc, transitive via `@vscode/vsce` →
+  `@secretlint`). Both are devDep-only — they don't ship in the
+  marketplace VSIX — but `pnpm audit --audit-level high` flagged them
+  on every CI run. Resolves 6 of 17 high-severity findings (34 → 28
+  total).
+
+### CI / Tooling
+
+- **`scripts/audit-disposables.ts`** now `process.exit(1)` when
+  orphans > 0 and is wired into `pnpm validate`. CI (`.github/workflows/ci.yml`
+  runs `pnpm validate`) will now fail PRs that introduce a listener /
+  timer leak without a disposable sink.
+- **`test/FIXTURES-README.md`** removed (Phase 2 planning artifact —
+  described `test/helpers/sf-mock.ts` and other paths that never got
+  created; actual mocks live colocated with their consumers).
+
 ### Chore
 
 - **Workspace versions synced to 1.2.5**: root `package.json` was at 1.2.4
