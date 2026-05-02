@@ -110,7 +110,7 @@ function createMockMemento(): import('vscode').Memento {
 function createContext(): import('vscode').ExtensionContext {
   return {
     extensionUri: { fsPath: '/test', toString: () => 'file:///test' },
-    extension: { id: 'sandforge.sandforge' },
+    extension: { id: 'sandforge.sandforge', packageJSON: { version: '1.2.5' } },
     subscriptions: [] as unknown[],
     secrets: mockSecrets,
     globalState: createMockMemento(),
