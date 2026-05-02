@@ -130,6 +130,12 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   msg('monitor:apex-insights:response'),
   msg('monitor:sandbox-refresh'),
   msg('monitor:sandbox-refresh:response'),
+  // Phase 03 Plan 03-01 — MetricBus envelope variants. Payload validation is
+  // delegated to the inner `MetricEvent`/`MetricSample` Zod schemas at the
+  // MetricBus boundary; the bridge schema only enforces envelope + discriminant.
+  msg('monitor:metric'),
+  msg('monitor:metrics:batch'),
+  msg('monitor:metric:subscribe'),
 ]);
 
 // ─── Domain: Compare ─────────────────────────────────────────────────────────
