@@ -7,6 +7,7 @@ import type { UserSessionMonitor } from './UserSessionMonitor';
 import type { AlertEngine } from './AlertEngine';
 import type { HealthCheck } from './HealthCheck';
 import type { CoreServices } from '../../services.js';
+import { MetricBus, type MetricBusBridge } from './MetricBus.js';
 
 /** Events emitted by the MonitorOrchestrator */
 export type MonitorEvent =
@@ -36,6 +37,19 @@ export interface MonitorDependencies {
    * backward compatibility with tests that pass a narrow deps shape.
    */
   services?: CoreServices;
+  /**
+   * Optional bridge facade for the {@link MetricBus} (Phase 03 Plan 03-01).
+   *
+   * When provided, MetricBus forwards `monitor:metric*` envelopes to the
+   * webview through this bridge. When absent (extension-only / test
+   * environments), MetricBus runs in process-local mode: subscribers still
+   * receive events but nothing crosses the WebView boundary.
+   *
+   * Per RESEARCH §2 ("CoreServices DI contract") MetricBus itself is NOT
+   * added to `Services` — it is owned by MonitorOrchestrator and exposed as
+   * a public readonly singleton field.
+   */
+  bridge?: MetricBusBridge;
 }
 
 /**
@@ -49,8 +63,27 @@ export class MonitorOrchestrator {
   private readonly handlers: Map<MonitorEvent, Set<MonitorEventHandler>> = new Map();
   private readonly healthCache: Map<string, OrgHealthStatus> = new Map();
 
+  /**
+   * MetricBus singleton — Phase 03 Plan 03-01 substrate.
+   *
+   * Trackers (Plan 03-03) and downstream Wave 2 modules
+   * (Drift v2 / AnomalyEngine / fleet overview) publish typed events
+   * through `monitorOrchestrator.metricBus.emit(...)`. Panels subscribe via
+   * `monitorOrchestrator.metricBus.subscribe(...)`. The bus is NOT in the
+   * global `Services` object per RESEARCH §2 — Wave 2 plans access it
+   * through this orchestrator field.
+   */
+  public readonly metricBus: MetricBus;
+
   constructor(deps: MonitorDependencies) {
     this.deps = deps;
+    this.metricBus = new MetricBus({
+      bridge: deps.bridge,
+      // services?.telemetry exposes a logger-shaped surface; fall back to
+      // undefined when running in tests with a narrow deps shape — the bus
+      // tolerates a missing logger and silently swallows validation errors.
+      logger: undefined,
+    });
   }
 
   /** Start monitoring all services for the given org */
@@ -84,6 +117,18 @@ export class MonitorOrchestrator {
     this.activeOrgs.delete(orgId);
     this.healthCache.delete(orgId);
     this.emit('stopped', { orgId });
+  }
+
+  /**
+   * Tear down the orchestrator — releases the {@link MetricBus} (clears
+   * pending coalesce timer + every subscriber). Intentionally idempotent:
+   * calling twice is safe.
+   */
+  dispose(): void {
+    this.metricBus.dispose();
+    this.activeOrgs.clear();
+    this.healthCache.clear();
+    this.handlers.clear();
   }
 
   /** Get aggregated health status for an org */
