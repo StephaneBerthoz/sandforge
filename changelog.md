@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security (post-audit hardening — 2026-05-02)
+
+- **CSP nonce now uses `crypto.randomBytes(24).toString('base64url')`** instead of
+  `Math.random()` in `WebviewPanelManager` and `SidebarViewProvider`. The previous
+  PRNG was predictable enough that an adversary deriving the seed could bypass CSP.
+- **Bridge control IDs use `crypto.randomUUID()`** in `MessageBroker.nextControlId`
+  to eliminate birthday-paradox collisions at ~4 K IDs that the prior 6-hex-char
+  Math.random scheme allowed under load.
+- **`CloneRecordFetcher` now validates the SOQL identifier and WHERE clause** in
+  every interpolation site (`buildSoql`, `countRecords`, `fetchSample`). The new
+  `assertSafeWhereClause` mirrors the Forge schema defense (rejects `--`, `/*`,
+  `*/`, trailing `;`, length cap 512). Closes a SOQL injection vector that the
+  Clone wizard / CLI bypassed because validation only existed on the Forge side.
+- **`sandforge-clone --remap-csv` now resolves the path against `cwd` and refuses
+  anything that escapes**, plus enforces a `.csv` extension and refuses to
+  overwrite an existing file. Closes a path-traversal that allowed arbitrary
+  file write (e.g. `..\..\Users\victim\.ssh\authorized_keys`) when the CLI was
+  invoked from CI with attacker-controlled args.
+
+### Fixed (post-audit hardening)
+
+- **`MonitorPage.test.tsx` API Calls KPI test** narrowed `getByText(/12/)` →
+  `/12[,\s ]?450/` (and `/15/` → `/\/\s?15[,\s ]?000/`) so the assertion
+  matches the formatted KPI value uniquely instead of any rendered "12" /
+  "15" substring (was matching multiple elements and flaking the suite).
+- **`extension.ts` `currentVersion`** now reads from
+  `context.extension.packageJSON.version` instead of being hardcoded to
+  `'1.0.0'`. The What's New onboarding modal will fire correctly across
+  version bumps; previously every user was permanently marked "v1.0.0 seen".
+- **`SyncExecutionLogger` and `PipelineVersioning`** use `structuredClone(...)`
+  instead of `JSON.parse(JSON.stringify(...))`. Preserves `Date` / `Map` /
+  `undefined` properly in config snapshots.
+- **`useCDCMetricsStore` listener registration** is now HMR-safe (idempotent
+  registration + Vite hot-dispose). Previously a hot reload stacked N copies
+  of the listener, duplicating every metric N times.
+- **`useForgeStore.addLog` caps the log buffer at 500 entries**. Long Forge
+  runs no longer cause O(N²) memory churn from unbounded array spread.
+
+### Chore (post-audit cleanup)
+
+- Removed two stale `CLAUDE.md.bak.*` files at the repo root (untracked
+  noise from a prior `/save-memory` operation).
+- Removed `phases/phase-00-bootstrap.md` at repo root (duplicate of the
+  canonical `docs/phases/phase-00-bootstrap.md`).
+- Lint sweep: `TelemetryAdapter` Sentry require eslint-disable widened to
+  cover both `no-require-imports` and `no-var-requires`; `ForgeExecutor`
+  `let remapped` → `const remapped`; intentional diagnostic `console.*`
+  calls in `ForgeExecutor` + `GraphDiscoveryService` carry inline
+  `eslint-disable-next-line no-console` (matches existing rationale comments).
+
 ### Added (Forge module — Wave 2 mini: orphan FK handling + RecordType mapping)
 
 - **`ExecuteOptions.referenceFallback: 'nullify' | 'keep'`** — controls what
