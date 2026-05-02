@@ -172,6 +172,27 @@ export interface ExecuteOptions {
    *   - `undefined` (default) — always insert.
    */
   upsertMode?: 'auto';
+  /**
+   * Per-object field exclusions. Field names listed here are stripped
+   * from every record before insert/upsert, even if the source describe
+   * marks them as createable. Common BA use case: clone Accounts but
+   * skip `Description` (long-text PII) or `NumberOfEmployees`
+   * (org-specific calc).
+   *
+   * Lookup is keyed by SObject API name; the inner array is a list of
+   * field API names. Case-sensitive (matches Salesforce API name casing).
+   */
+  fieldExclusions?: Record<string, string[]>;
+  /**
+   * Per-object owner remap. When the source-org `OwnerId` of a record
+   * matches a key, the cleaned record gets the mapped target Id instead.
+   * Useful when cloning records authored by users that don't exist on
+   * the target sandbox (e.g. ex-employees) — without this, Salesforce
+   * rejects the insert with INVALID_OWNER. Pass-through when no mapping
+   * exists for the source Id (the executor's reference fallback then
+   * applies — typically nullify in scoped mode).
+   */
+  ownerMappings?: Record<string, string>;
 }
 
 /** Dependencies for ForgeExecutor, injected at construction time. */
@@ -361,6 +382,10 @@ export class ForgeExecutor {
     const scopedBuilder = isScoped ? new ScopedSoqlBuilder() : null;
     const recordTypeMappings = options?.recordTypeMappings;
     const recordTypeMapper = recordTypeMappings && recordTypeMappings.length > 0 ? new RecordTypeMapper() : null;
+    // Per-object opt-in field exclusions and owner mapping. Keyed by SObject
+    // API name. Lookups happen at most once per node (case-sensitive).
+    const fieldExclusions = options?.fieldExclusions ?? {};
+    const ownerMappings = options?.ownerMappings ?? {};
     const referenceDataObjects = new Set(
       options?.referenceDataObjects ?? ['BusinessHours', 'OperatingHours'],
     );
@@ -791,14 +816,28 @@ export class ForgeExecutor {
           for (const nf of nullifiedFks) {
             remapped[nf.field] = null;
           }
+          // Apply per-object owner remap (BA need: clone records authored by
+          // ex-employees onto a sandbox where their User no longer exists).
+          // Only applies to OwnerId — the generic remapper doesn't see User
+          // FKs because Users aren't in the cloned graph.
+          const sourceOwner = remapped['OwnerId'];
+          if (typeof sourceOwner === 'string' && ownerMappings[sourceOwner]) {
+            remapped['OwnerId'] = ownerMappings[sourceOwner];
+          }
           // Coerce IsPersonAccount: jsforce sometimes returns boolean,
           // sometimes the SOAP-normalized string 'true'. Strict === true
           // missed the string case → __pc fields stripped from real
           // person accounts, breaking the insert.
           const ipa = remapped['IsPersonAccount'];
           const isPersonAccount = ipa === true || ipa === 'true' || ipa === 1;
+          // Per-node field exclusions (BA opt-in). Computed once per node
+          // outside the loop would be cleaner, but doing it here keeps the
+          // change scoped — perf cost is one Set construction per record,
+          // negligible vs the existing remapper/anonymizer work.
+          const excludedFields = new Set(fieldExclusions[node.objectApiName] ?? []);
           const cleaned: Record<string, unknown> = {};
           for (const key of Object.keys(remapped)) {
+            if (excludedFields.has(key)) continue;
             if (!effectiveCreatableSet.has(key)) continue;
             // Person Account `__pc` fields are not valid on Business Accounts.
             if (key.endsWith('__pc') && !isPersonAccount) continue;

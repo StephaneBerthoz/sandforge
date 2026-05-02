@@ -257,6 +257,79 @@ describe('Audit RT-004 — discoveryCache key separates by all material params',
   });
 });
 
+// ─── v1.2.5 features: fieldExclusions + ownerMappings ──────────────────
+
+describe('v1.2.5 — forgeConfigSchema accepts fieldExclusions + ownerMappings', () => {
+  const baseConfig = {
+    inputMode: 'record' as const,
+    recordId: '001AP00000j2CEg',
+    depth: 'direct' as const,
+    sourceOrgId: 'src',
+    targetOrgId: 'tgt',
+    anonymizePII: false,
+    skipEmpty: false,
+    batchSize: 'auto' as const,
+  };
+
+  it('accepts a valid fieldExclusions map', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      fieldExclusions: { Account: ['Description', 'NumberOfEmployees'], Contact: ['Email'] },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects fieldExclusions with malformed object name', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      fieldExclusions: { 'Account; DROP': ['Description'] },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects fieldExclusions with malformed field name', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      fieldExclusions: { Account: ['Description WHERE 1=1'] },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('accepts a valid ownerMappings record', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      ownerMappings: { '005AP00000abcDEF': '005XY00000abcDEF' },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it('rejects ownerMappings with malformed source Id', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      ownerMappings: { 'not-an-id': '005XY00000abcDEF' },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects ownerMappings with malformed target Id', () => {
+    const r = forgeConfigSchema.safeParse({
+      ...baseConfig,
+      ownerMappings: { '005AP00000abcDEF': 'not-an-id' },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('rejects > 200 ownerMappings entries (DoS bound)', () => {
+    const ownerMappings: Record<string, string> = {};
+    for (let i = 0; i < 201; i++) {
+      const id = `005AP00000${String(i).padStart(5, '0')}`;
+      ownerMappings[id] = id;
+    }
+    const r = forgeConfigSchema.safeParse({ ...baseConfig, ownerMappings });
+    expect(r.success).toBe(false);
+  });
+});
+
 // ─── PERF-002: SchemaCache uses O(1) heuristic, never JSON.stringify ────
 
 describe('Audit PERF-002 — SchemaCache estimateSize is O(1)', () => {

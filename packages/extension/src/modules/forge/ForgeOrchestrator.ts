@@ -185,9 +185,17 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               rootObjectApiName: graph.nodes[0]?.objectApiName,
               expandOrphanParents: config.expandOrphanParents,
               maxRecordsPerObject: config.maxRecordsPerObject,
+              fieldExclusions: config.fieldExclusions,
+              ownerMappings: config.ownerMappings,
             }
-          : config.maxRecordsPerObject != null
-            ? { maxRecordsPerObject: config.maxRecordsPerObject }
+          : (config.maxRecordsPerObject != null ||
+              config.fieldExclusions ||
+              config.ownerMappings)
+            ? {
+                maxRecordsPerObject: config.maxRecordsPerObject,
+                fieldExclusions: config.fieldExclusions,
+                ownerMappings: config.ownerMappings,
+              }
             : undefined;
 
       const summary = await this.deps.executor.execute(
