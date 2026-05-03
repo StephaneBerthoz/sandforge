@@ -1,0 +1,95 @@
+name: Format Check (informational)
+
+# Non-blocking Prettier drift scan. Surfaces formatting drift on PRs
+# without failing the build — `pnpm validate` does NOT include
+# format:check today because the legacy baseline has ~950 files of
+# drift that need a single dedicated `pnpm format --write` PR. Until
+# that lands, this workflow keeps drift visible without blocking.
+# Promote to required check after the global format pass merges.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  format-check:
+    name: Prettier drift scan (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Prettier drift scan (changed files only on PR)
+        id: format
+        run: |
+          set +e
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
+              | grep -E '^packages/[^/]+/src/.+\.(ts|tsx|json|css)$' || true)
+            if [ -z "$CHANGED" ]; then
+              echo "No matching changed files — skipping."
+              exit 0
+            fi
+            echo "Checking changed files:"
+            echo "$CHANGED"
+            echo "$CHANGED" | xargs pnpm exec prettier --check
+            CODE=$?
+          else
+            pnpm format:check
+            CODE=$?
+          fi
+          echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+          set -e
+          # Always exit 0 — informational only.
+          exit 0
+
+      - name: Comment on PR if drift detected in changed files
+        if: github.event_name == 'pull_request' && steps.format.outputs.exit_code != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const body = [
+              '### Prettier — Drift detected in changed files',
+              '',
+              'One or more files in this PR have Prettier formatting drift.',
+              'Run locally: `pnpm format` (writes) or `pnpm format:check` (verify).',
+              '',
+              '_This check is informational and does not block merge — for now._',
+            ].join('\n');
+            const comments = await github.rest.issues.listComments({
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.data.find(c =>
+              c.user && c.user.type === 'Bot' &&
+              c.body && c.body.startsWith('### Prettier — Drift detected')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number, body,
+              });
+            }
