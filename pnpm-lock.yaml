@@ -59,6 +59,9 @@ importers:
       jsforce:
         specifier: ^3
         version: 3.10.14(@types/node@20.19.33)
+      microdiff:
+        specifier: ^1.5.0
+        version: 1.5.0
       p-limit:
         specifier: ^3.1.0
         version: 3.1.0
