@@ -6,9 +6,24 @@ import type { DeploymentTracker } from './DeploymentTracker';
 import type { UserSessionMonitor } from './UserSessionMonitor';
 import type { AlertEngine } from './AlertEngine';
 import type { HealthCheck } from './HealthCheck';
+import type { ApexLogAnalyzer } from './ApexLogAnalyzer.js';
+import type { SandboxRefreshTracker } from './SandboxRefreshTracker.js';
+import type { GovernanceEngine } from './GovernanceEngine.js';
 import type { CoreServices } from '../../services.js';
 import { MetricBus, type MetricBusBridge } from './MetricBus.js';
 import { TimeSeriesStore } from './TimeSeriesStore.js';
+import { MonitorRegistry } from './MonitorRegistry.js';
+import { LimitsProbe } from './probes/LimitsProbe.js';
+import { JobProbe } from './probes/JobProbe.js';
+import { ApexLogProbe } from './probes/ApexLogProbe.js';
+import { SandboxRefreshProbe } from './probes/SandboxRefreshProbe.js';
+import { ErrorLogProbe } from './probes/ErrorLogProbe.js';
+import { UserSessionProbe } from './probes/UserSessionProbe.js';
+import { HealthProbe } from './probes/HealthProbe.js';
+import {
+  GovernanceProbe,
+  type GovernanceProbeContext,
+} from './probes/GovernanceProbe.js';
 
 /** Events emitted by the MonitorOrchestrator */
 export type MonitorEvent = 'started' | 'stopped' | 'healthUpdated' | 'error';
@@ -25,6 +40,21 @@ export interface MonitorDependencies {
   userSessionMonitor: UserSessionMonitor;
   alertEngine: AlertEngine;
   healthCheck: HealthCheck;
+  /**
+   * Phase 03 Plan 03-03 — optional trackers wrapped as probes by the
+   * {@link MonitorRegistry}. Optional to preserve backward compatibility
+   * with existing tests that supply a minimal deps shape; when omitted, the
+   * matching probe is simply not registered.
+   */
+  apexLogAnalyzer?: ApexLogAnalyzer;
+  sandboxRefreshTracker?: SandboxRefreshTracker;
+  governanceEngine?: GovernanceEngine;
+  /**
+   * Source of governance inputs (active policy + live metrics) — required
+   * for the {@link GovernanceProbe} to emit samples. When absent, the probe
+   * still registers but each `run()` returns an empty array (no-op).
+   */
+  governanceContext?: GovernanceProbeContext;
   /**
    * Injected cross-cutting adapters (telemetry, storage, salesforce, fs).
    * Provided by the composition root (`services.ts`). Optional to preserve
@@ -77,14 +107,22 @@ export class MonitorOrchestrator {
 
   /**
    * Per-(orgId, seriesId) ring-buffered MetricSample store — Phase 03 Plan
-   * 03-02 substrate. Plan 03-03 will subscribe it to the MetricBus so probes
-   * funnel directly into time-series storage.
+   * 03-02 substrate. Plan 03-03 subscribes it to the MetricBus through the
+   * {@link MonitorRegistry} so probes funnel directly into time-series storage.
    *
    * Persistence is opt-in via the `sandforge.monitor.persistTimeSeries`
    * setting (default off). When on AND `services.configStore` is present,
    * the store flushes every 5 min and rehydrates on `start()`.
    */
   public readonly timeSeriesStore: TimeSeriesStore;
+
+  /**
+   * Phase 03 Plan 03-03 — single-tick scheduler driving every registered
+   * {@link MonitorProbe} across every active org. The registry subscribes
+   * the {@link timeSeriesStore} to the {@link metricBus} so probe samples
+   * land in the per-series ring buffer automatically.
+   */
+  public readonly registry: MonitorRegistry;
 
   constructor(deps: MonitorDependencies) {
     this.deps = deps;
@@ -100,6 +138,40 @@ export class MonitorOrchestrator {
       logger: deps.services?.telemetry?.getLogger?.(),
       persist: deps.persistTimeSeries ?? false,
     });
+    this.registry = new MonitorRegistry({
+      metricBus: this.metricBus,
+      timeSeriesStore: this.timeSeriesStore,
+      logger: deps.services?.telemetry?.getLogger?.(),
+    });
+    this.registerProbes();
+  }
+
+  /**
+   * Register every available probe on the {@link MonitorRegistry}. Probes
+   * whose tracker dependency is absent (optional fields on
+   * {@link MonitorDependencies}) are silently skipped — the registry tolerates
+   * a partial probe set and Wave 2 plans add the remaining wiring.
+   */
+  private registerProbes(): void {
+    this.registry.register(new LimitsProbe(this.deps.limitsTracker));
+    this.registry.register(new JobProbe(this.deps.jobMonitor));
+    this.registry.register(new ErrorLogProbe(this.deps.errorLogMonitor));
+    this.registry.register(new UserSessionProbe(this.deps.userSessionMonitor));
+    this.registry.register(new HealthProbe(this.deps.healthCheck));
+    if (this.deps.apexLogAnalyzer) {
+      this.registry.register(new ApexLogProbe(this.deps.apexLogAnalyzer));
+    }
+    if (this.deps.sandboxRefreshTracker) {
+      this.registry.register(new SandboxRefreshProbe(this.deps.sandboxRefreshTracker));
+    }
+    if (this.deps.governanceEngine) {
+      const ctx: GovernanceProbeContext =
+        this.deps.governanceContext ?? {
+          getPolicy: () => undefined,
+          getMetrics: () => ({}),
+        };
+      this.registry.register(new GovernanceProbe(this.deps.governanceEngine, ctx));
+    }
   }
 
   /** Start monitoring all services for the given org */
@@ -125,6 +197,10 @@ export class MonitorOrchestrator {
     const health = await this.deps.healthCheck.computeHealth(orgId);
     this.healthCache.set(orgId, health);
 
+    // Hand off to the registry for periodic ticks. The registry honors the
+    // single-tick scheduler + per-probe in-flight gate (P-03.6).
+    this.registry.startOrg(orgId);
+
     this.emit('started', { orgId });
   }
 
@@ -136,15 +212,29 @@ export class MonitorOrchestrator {
 
     this.activeOrgs.delete(orgId);
     this.healthCache.delete(orgId);
+    this.registry.stopOrg(orgId);
     this.emit('stopped', { orgId });
   }
 
   /**
-   * Tear down the orchestrator — releases the {@link MetricBus} (clears
-   * pending coalesce timer + every subscriber). Intentionally idempotent:
-   * calling twice is safe.
+   * Forward a webview-side `document.visibilitychange` event into the
+   * {@link MonitorRegistry} so low-priority probes pause and the tick rate
+   * falls to 30 s while the panel is hidden (audit M1, P-03.7).
+   *
+   * Plan 03-07 owns the bridge handler that calls this. For Plan 03-03 the
+   * method is exposed so unit tests can drive it directly.
+   */
+  setVisibility(hidden: boolean): void {
+    this.registry.setVisibility(hidden);
+  }
+
+  /**
+   * Tear down the orchestrator — disposes the {@link MonitorRegistry} BEFORE
+   * the {@link MetricBus} (registry depends on the bus subscription) and the
+   * {@link TimeSeriesStore}. Idempotent.
    */
   dispose(): void {
+    this.registry.dispose();
     this.metricBus.dispose();
     // Best-effort final flush before tearing down. Errors are swallowed by
     // TimeSeriesStore.flush itself (P-03.10) so we don't need a try/catch.
