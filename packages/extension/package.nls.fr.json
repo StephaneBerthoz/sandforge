@@ -17,6 +17,7 @@
   "config.language.description": "Langue d'affichage",
   "config.telemetry.description": "Activer la telemetrie d'utilisation anonyme",
   "config.monitor.autoRefreshInterval.description": "Intervalle de rafraichissement automatique en secondes pour le tableau de bord Monitor",
+  "config.monitor.persistTimeSeries.description": "Persiste les series temporelles Monitor sur disque (flush ~5 min, retention 7 jours, ~500 Ko/org). Desactive par defaut.",
   "config.seed.defaultBatchSize.description": "Taille de lot par defaut pour les operations Seed",
   "config.sync.defaultBatchSize.description": "Taille de lot par defaut pour les operations Sync",
   "config.sync.maxConcurrentOps.description": "Nombre maximum d'operations de synchronisation simultanees",
