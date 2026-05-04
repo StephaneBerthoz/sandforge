@@ -89,7 +89,7 @@ const OrgFleetCard: React.FC<OrgFleetCardProps> = ({ org, onDrilldown }) => {
     >
       <div className="flex items-center justify-between">
         <div data-testid="monitor-overview-org-name" className="font-medium truncate">
-          {org.alias ?? org.orgId}
+          {org.name || org.orgId}
         </div>
         {org.stale ? (
           <span
@@ -112,9 +112,8 @@ const OrgFleetCard: React.FC<OrgFleetCardProps> = ({ org, onDrilldown }) => {
       </div>
       <div className="flex items-center justify-between text-xs opacity-80">
         <div data-testid="monitor-overview-org-alerts">
-          {org.activeAlerts} alert{org.activeAlerts === 1 ? '' : 's'}
+          {org.alertCount} alert{org.alertCount === 1 ? '' : 's'}
         </div>
-        <div className="opacity-60">api {org.apiUsedPercent}%</div>
       </div>
       <button
         type="button"

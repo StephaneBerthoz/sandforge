@@ -42,15 +42,6 @@ function pushBaseline(
   return out;
 }
 
-/** Push a baseline of `count` samples with mean=50 stdDev≈5 (sin wave) over `spanMs`. */
-function pushSinBaseline(
-  store: TimeSeriesStore,
-  count: number,
-  spanMs: number,
-  startMs: number,
-): MetricSample[] {
-  return pushBaseline(store, count, spanMs, startMs, (i) => 50 + Math.sin(i / 7) * 5);
-}
 
 /** Push a baseline with controlled mean/stdDev using a deterministic linear oscillation. */
 function pushControlledBaseline(
