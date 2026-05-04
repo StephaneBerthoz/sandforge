@@ -14,6 +14,7 @@ import type {
   MetadataComponentType,
   LimitsSnapshot,
   ApiLimit,
+  MetricSample,
 } from '@sandforge/shared';
 import type { QueryRecord } from '../modules/sync/DeltaDetector';
 
@@ -167,3 +168,37 @@ export const errorCategoryArb: fc.Arbitrary<ErrorCategory> = fc.constantFrom(
   'reference',
   'unknown',
 );
+
+/** A single MetricSample (Phase 03 — drives TimeSeriesStore property tests). */
+export const metricSampleArb: fc.Arbitrary<MetricSample> = fc.record({
+  ts: fc
+    .date({ min: new Date('2020-01-01'), max: new Date('2030-01-01') })
+    .map((d) => d.toISOString()),
+  seriesId: fc.string({ minLength: 1, maxLength: 60 }),
+  orgId: fc.string({ minLength: 1, maxLength: 20 }),
+  value: fc.float({ min: -1e6, max: 1e6, noNaN: true, noDefaultInfinity: true }),
+  unit: fc.option(fc.constantFrom('count', 'percent', 'bytes', 'ms'), { nil: undefined }),
+  tags: fc.option(
+    fc.dictionary(
+      fc.string({ minLength: 1, maxLength: 20 }),
+      fc.string({ maxLength: 50 }),
+      { maxKeys: 5 },
+    ),
+    { nil: undefined },
+  ),
+});
+
+/**
+ * Chronologically ordered samples for a single (orgId, seriesId) — drives
+ * TimeSeriesStore range queries. Forces all samples to share the same
+ * orgId/seriesId so the property tests target a single ring buffer.
+ */
+export const orderedSamplesForOneSeriesArb: fc.Arbitrary<MetricSample[]> = fc
+  .array(metricSampleArb, { minLength: 1, maxLength: 200 })
+  .map((arr) => {
+    const orgId = arr[0].orgId;
+    const seriesId = arr[0].seriesId;
+    return [...arr]
+      .map((s) => ({ ...s, orgId, seriesId }))
+      .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+  });
