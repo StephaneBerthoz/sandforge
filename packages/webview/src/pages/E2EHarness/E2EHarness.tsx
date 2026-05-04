@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { DriftFeed } from '../../components/monitor/DriftFeed';
+
 /**
  * E2E Harness — placeholder surfaces for Plan 02-03 Playwright specs.
  *
@@ -24,7 +26,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
  * MockBridge.respond() / MockBridge.stream() drive the experience.
  */
 
-type Flow = 'seed-ai' | 'sync-conflict' | 'monitor' | 'cdc' | 'ai-diagnose';
+type Flow = 'seed-ai' | 'sync-conflict' | 'monitor' | 'cdc' | 'ai-diagnose' | 'drift-feed';
 
 /** Read the ?e2e-harness=<flow> query param. Returns null when absent. */
 export function getHarnessFlow(search: string): Flow | null {
@@ -36,7 +38,8 @@ export function getHarnessFlow(search: string): Flow | null {
       raw === 'sync-conflict' ||
       raw === 'monitor' ||
       raw === 'cdc' ||
-      raw === 'ai-diagnose'
+      raw === 'ai-diagnose' ||
+      raw === 'drift-feed'
     ) {
       return raw;
     }
@@ -526,6 +529,51 @@ const AIDiagnoseHarness: React.FC = () => {
   );
 };
 
+// --- Plan 03-04 — Drift Feed harness -----------------------------------
+
+/**
+ * Plan 03-04 — drift-feed harness.
+ *
+ * Mounts the production `DriftFeed.tsx` component behind a tab-switch so the
+ * Playwright spec `monitor-drift-feed.spec.ts` can target real testids. The
+ * tab click is the seam — clicking `monitor-tab-drift` toggles the visibility
+ * of the DriftFeed surface.
+ *
+ * The harness uses a fixed `orgId="org-1"` because the spec's
+ * `mockDriftEvent(seq, severity)` factory targets that id. The tab switch
+ * deliberately does NOT teardown / remount the DriftFeed so the bridge
+ * subscription stays alive across the click — exercises the same React tree
+ * the production page will render.
+ */
+const DriftFeedHarness: React.FC = () => {
+  const [showDrift, setShowDrift] = useState(false);
+
+  return (
+    <div data-testid="monitor-page" className="p-6 space-y-3">
+      <h1 className="text-lg">Monitor / Drift (E2E harness)</h1>
+      <div role="tablist" className="flex gap-2">
+        <button
+          data-testid="sidebar-monitor-hero"
+          role="tab"
+          aria-selected="true"
+          onClick={() => setShowDrift(true)}
+        >
+          Monitor
+        </button>
+        <button
+          data-testid="monitor-tab-drift"
+          role="tab"
+          aria-selected={showDrift}
+          onClick={() => setShowDrift(true)}
+        >
+          Drift
+        </button>
+      </div>
+      {showDrift && <DriftFeed orgId="org-1" />}
+    </div>
+  );
+};
+
 /** E2E harness root — dispatches to the right flow. */
 export const E2EHarness: React.FC<{ flow: Flow }> = ({ flow }) => {
   const content = useMemo(() => {
@@ -540,6 +588,8 @@ export const E2EHarness: React.FC<{ flow: Flow }> = ({ flow }) => {
         return <CdcHarness />;
       case 'ai-diagnose':
         return <AIDiagnoseHarness />;
+      case 'drift-feed':
+        return <DriftFeedHarness />;
       default:
         return null;
     }
