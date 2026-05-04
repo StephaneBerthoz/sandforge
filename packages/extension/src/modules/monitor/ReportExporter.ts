@@ -181,8 +181,11 @@ export class ReportExporter {
 
     doc.end();
     await new Promise<void>((resolve, reject) => {
-      stream.on('finish', () => resolve());
-      stream.on('error', reject);
+      // `once` auto-removes the listener after firing — pdfkit's stream
+      // is one-shot per writePdfPart call so this is the right primitive
+      // and the audit-disposables script accepts it as a sink.
+      stream.once('finish', () => resolve());
+      stream.once('error', reject);
     });
     const stat = await fs.promises.stat(filePath);
     return stat.size;
