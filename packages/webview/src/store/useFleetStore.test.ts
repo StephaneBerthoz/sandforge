@@ -5,11 +5,11 @@ import { useFleetStore } from './useFleetStore';
 function makeSummary(orgId: string): OrgFleetSummary {
   return {
     orgId,
-    alias: orgId,
+    name: orgId,
     healthScore: 85,
-    apiUsedPercent: 12,
-    activeAlerts: 0,
-    lastUpdatedMs: Date.now(),
+    lastUpdated: new Date().toISOString(),
+    alertCount: 0,
+    recentAlerts: [],
   };
 }
 
