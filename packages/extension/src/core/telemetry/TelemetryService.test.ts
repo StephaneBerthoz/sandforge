@@ -1,13 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  TelemetryService,
-  telemetryEventSchema,
-} from './TelemetryService';
-import type {
-  TelemetryStorage,
-  TelemetrySender,
-  TelemetryEvent,
-} from './TelemetryService';
+import { TelemetryService, telemetryEventSchema } from './TelemetryService';
+import type { TelemetryStorage, TelemetrySender, TelemetryEvent } from './TelemetryService';
 
 function createEvent(overrides?: Partial<TelemetryEvent>): TelemetryEvent {
   return {
@@ -25,7 +18,7 @@ function createEvent(overrides?: Partial<TelemetryEvent>): TelemetryEvent {
 
 function createMockStorage(
   initialEnabled: boolean = false,
-  initialEvents: TelemetryEvent[] = []
+  initialEvents: TelemetryEvent[] = [],
 ): TelemetryStorage {
   let enabled = initialEnabled;
   let events = [...initialEvents];
@@ -119,7 +112,7 @@ describe('TelemetryService', () => {
           success: true,
           timestamp: '2026-01-01',
           properties: {},
-        })
+        }),
       ).rejects.toThrow();
     });
 
@@ -127,9 +120,7 @@ describe('TelemetryService', () => {
       await service.setEnabled(true);
 
       for (let i = 0; i < 5; i++) {
-        await service.trackEvent(
-          createEvent({ timestamp: `2026-02-20T10:0${i}:00Z` })
-        );
+        await service.trackEvent(createEvent({ timestamp: `2026-02-20T10:0${i}:00Z` }));
       }
 
       expect(sender.send).toHaveBeenCalledTimes(1);
@@ -139,9 +130,7 @@ describe('TelemetryService', () => {
       await service.setEnabled(true);
 
       for (let i = 0; i < 4; i++) {
-        await service.trackEvent(
-          createEvent({ timestamp: `2026-02-20T10:0${i}:00Z` })
-        );
+        await service.trackEvent(createEvent({ timestamp: `2026-02-20T10:0${i}:00Z` }));
       }
 
       expect(sender.send).not.toHaveBeenCalled();
@@ -250,15 +239,9 @@ describe('TelemetryService', () => {
 
     it('should count errors and group by type', async () => {
       await service.setEnabled(true);
-      await service.trackEvent(
-        createEvent({ success: false, errorType: 'auth' })
-      );
-      await service.trackEvent(
-        createEvent({ success: false, errorType: 'limit' })
-      );
-      await service.trackEvent(
-        createEvent({ success: false, errorType: 'auth' })
-      );
+      await service.trackEvent(createEvent({ success: false, errorType: 'auth' }));
+      await service.trackEvent(createEvent({ success: false, errorType: 'limit' }));
+      await service.trackEvent(createEvent({ success: false, errorType: 'auth' }));
       await service.trackEvent(createEvent({ success: true }));
 
       const summary = service.getSummary();
@@ -319,9 +302,7 @@ describe('TelemetryService', () => {
     });
 
     it('should reject empty eventName', () => {
-      const result = telemetryEventSchema.safeParse(
-        createEvent({ eventName: '' })
-      );
+      const result = telemetryEventSchema.safeParse(createEvent({ eventName: '' }));
       expect(result.success).toBe(false);
     });
 
@@ -334,9 +315,7 @@ describe('TelemetryService', () => {
     });
 
     it('should reject negative duration', () => {
-      const result = telemetryEventSchema.safeParse(
-        createEvent({ duration: -1 })
-      );
+      const result = telemetryEventSchema.safeParse(createEvent({ duration: -1 }));
       expect(result.success).toBe(false);
     });
 
@@ -353,11 +332,18 @@ describe('TelemetryService', () => {
     });
 
     it('should allow all valid modules', () => {
-      const modules = ['seed', 'sync', 'monitor', 'compare', 'dataops', 'automation', 'migration', 'plugins'] as const;
+      const modules = [
+        'seed',
+        'sync',
+        'monitor',
+        'compare',
+        'dataops',
+        'automation',
+        'migration',
+        'plugins',
+      ] as const;
       for (const mod of modules) {
-        const result = telemetryEventSchema.safeParse(
-          createEvent({ module: mod })
-        );
+        const result = telemetryEventSchema.safeParse(createEvent({ module: mod }));
         expect(result.success).toBe(true);
       }
     });

@@ -5,8 +5,28 @@ import { Step1SelectOrg } from './Step1_SelectOrg';
 import type { SalesforceOrg } from '@sandforge/shared';
 
 const mockOrgs: SalesforceOrg[] = [
-  { id: 'org-1', alias: 'dev1', username: 'user@dev1.com', instanceUrl: 'https://dev1.salesforce.com', orgType: 'sandbox', status: 'connected', safetyTier: 'low', apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
-  { id: 'org-2', alias: 'prod', username: 'user@prod.com', instanceUrl: 'https://prod.salesforce.com', orgType: 'production', status: 'connected', safetyTier: 'critical', apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
+  {
+    id: 'org-1',
+    alias: 'dev1',
+    username: 'user@dev1.com',
+    instanceUrl: 'https://dev1.salesforce.com',
+    orgType: 'sandbox',
+    status: 'connected',
+    safetyTier: 'low',
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'org-2',
+    alias: 'prod',
+    username: 'user@prod.com',
+    instanceUrl: 'https://prod.salesforce.com',
+    orgType: 'production',
+    status: 'connected',
+    safetyTier: 'critical',
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
 ];
 
 describe('Step1SelectOrg', () => {

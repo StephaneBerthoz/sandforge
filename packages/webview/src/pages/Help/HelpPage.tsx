@@ -20,24 +20,68 @@ interface SfDocLink {
 }
 
 const HELP_SECTIONS: HelpSection[] = [
-  { id: 'getting-started', titleKey: 'help.gettingStarted', contentKey: 'help.gettingStartedContent', icon: '\uD83D\uDE80' },
-  { id: 'monitor', titleKey: 'nav.monitor', contentKey: 'help.monitorContent', icon: '\uD83D\uDCCA' },
+  {
+    id: 'getting-started',
+    titleKey: 'help.gettingStarted',
+    contentKey: 'help.gettingStartedContent',
+    icon: '\uD83D\uDE80',
+  },
+  {
+    id: 'monitor',
+    titleKey: 'nav.monitor',
+    contentKey: 'help.monitorContent',
+    icon: '\uD83D\uDCCA',
+  },
   { id: 'seed', titleKey: 'nav.seed', contentKey: 'help.seedContent', icon: '\uD83C\uDF31' },
   { id: 'sync', titleKey: 'nav.sync', contentKey: 'help.syncContent', icon: '\uD83D\uDD04' },
-  { id: 'compare', titleKey: 'nav.compare', contentKey: 'help.compareContent', icon: '\uD83D\uDD0D' },
-  { id: 'dataops', titleKey: 'nav.dataops', contentKey: 'help.dataopsContent', icon: '\uD83D\uDEE1' },
-  { id: 'automation', titleKey: 'nav.automation', contentKey: 'help.automationContent', icon: '\u26A1' },
+  {
+    id: 'compare',
+    titleKey: 'nav.compare',
+    contentKey: 'help.compareContent',
+    icon: '\uD83D\uDD0D',
+  },
+  {
+    id: 'dataops',
+    titleKey: 'nav.dataops',
+    contentKey: 'help.dataopsContent',
+    icon: '\uD83D\uDEE1',
+  },
+  {
+    id: 'automation',
+    titleKey: 'nav.automation',
+    contentKey: 'help.automationContent',
+    icon: '\u26A1',
+  },
   { id: 'ai', titleKey: 'nav.ai', contentKey: 'help.aiContent', icon: '\uD83E\uDD16' },
-  { id: 'shortcuts', titleKey: 'help.shortcuts', contentKey: 'help.shortcutsContent', icon: '\u2328\uFE0F' },
+  {
+    id: 'shortcuts',
+    titleKey: 'help.shortcuts',
+    contentKey: 'help.shortcutsContent',
+    icon: '\u2328\uFE0F',
+  },
   { id: 'faq', titleKey: 'help.faq', contentKey: 'help.faqContent', icon: '\u2753' },
-  { id: 'troubleshooting', titleKey: 'help.troubleshooting', contentKey: 'help.troubleshootingContent', icon: '\uD83D\uDD27' },
-  { id: 'release-notes', titleKey: 'help.releaseNotes', contentKey: 'help.releaseNotesContent', icon: '\uD83D\uDCDD' },
+  {
+    id: 'troubleshooting',
+    titleKey: 'help.troubleshooting',
+    contentKey: 'help.troubleshootingContent',
+    icon: '\uD83D\uDD27',
+  },
+  {
+    id: 'release-notes',
+    titleKey: 'help.releaseNotes',
+    contentKey: 'help.releaseNotesContent',
+    icon: '\uD83D\uDCDD',
+  },
 ];
 
 const SF_DOC_LINKS: SfDocLink[] = [
   { titleKey: 'help.sfDocs', descKey: 'help.sfDocsDesc', urlKey: 'help.sfDocsUrl' },
   { titleKey: 'help.sfTrailhead', descKey: 'help.sfTrailheadDesc', urlKey: 'help.sfTrailheadUrl' },
-  { titleKey: 'help.sfStackExchange', descKey: 'help.sfStackExchangeDesc', urlKey: 'help.sfStackExchangeUrl' },
+  {
+    titleKey: 'help.sfStackExchange',
+    descKey: 'help.sfStackExchangeDesc',
+    urlKey: 'help.sfStackExchangeUrl',
+  },
 ];
 
 /**
@@ -70,20 +114,14 @@ export const HelpPage: React.FC = () => {
   const hasSearchResults = filteredSections.length > 0;
 
   return (
-    <div
-      className="flex flex-col p-6 max-w-3xl mx-auto"
-      data-testid="help-page"
-    >
+    <div className="flex flex-col p-6 max-w-3xl mx-auto" data-testid="help-page">
       <h1
         className="text-2xl font-bold mb-1"
         style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
       >
         {t('help.title')}
       </h1>
-      <p
-        className="text-sm mb-4"
-        style={{ color: 'var(--sf-text-secondary, #868686)' }}
-      >
+      <p className="text-sm mb-4" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
         {t('help.gettingStartedDesc')}
       </p>
 

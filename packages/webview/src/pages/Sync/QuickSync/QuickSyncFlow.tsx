@@ -55,9 +55,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
                 aria-hidden="true"
               />
             )}
-            <Badge
-              variant={i === activeIndex ? 'info' : i < activeIndex ? 'success' : 'default'}
-            >
+            <Badge variant={i === activeIndex ? 'info' : i < activeIndex ? 'success' : 'default'}>
               {s.label}
             </Badge>
           </React.Fragment>

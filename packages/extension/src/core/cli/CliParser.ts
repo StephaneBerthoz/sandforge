@@ -42,10 +42,7 @@ const VALID_COMMANDS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /** Commands that accept sub-commands */
-const SUBCOMMAND_COMMANDS: ReadonlySet<string> = new Set<string>([
-  'pipeline',
-  'grappe',
-]);
+const SUBCOMMAND_COMMANDS: ReadonlySet<string> = new Set<string>(['pipeline', 'grappe']);
 
 /** Known boolean flags that never take a value */
 const KNOWN_FLAGS: ReadonlySet<string> = new Set<string>([
@@ -59,9 +56,7 @@ const KNOWN_FLAGS: ReadonlySet<string> = new Set<string>([
 ]);
 
 /** Required options per command, validated by `validate()` */
-const REQUIRED_OPTIONS: Readonly<
-  Record<string, { options: string[]; subCommand?: string }>
-> = {
+const REQUIRED_OPTIONS: Readonly<Record<string, { options: string[]; subCommand?: string }>> = {
   seed: { options: ['template', 'org'] },
   sync: { options: ['config'] },
   compare: { options: ['source', 'target'] },
@@ -73,12 +68,7 @@ const REQUIRED_OPTIONS: Readonly<
 };
 
 /** Valid output format values */
-const VALID_FORMATS: ReadonlySet<string> = new Set<string>([
-  'json',
-  'table',
-  'csv',
-  'html',
-]);
+const VALID_FORMATS: ReadonlySet<string> = new Set<string>(['json', 'table', 'csv', 'html']);
 
 /**
  * Parses raw CLI argument arrays into structured {@link CliCommand} objects
@@ -94,7 +84,9 @@ export class CliParser {
    */
   parse(args: string[]): CliCommand {
     if (args.length === 0) {
-      throw new Error('No arguments provided. Usage: sandforge <command> [options]. Run "sandforge --help" for available commands.');
+      throw new Error(
+        'No arguments provided. Usage: sandforge <command> [options]. Run "sandforge --help" for available commands.',
+      );
     }
 
     const command = args[0];
@@ -184,11 +176,11 @@ export class CliParser {
     if (requirements.subCommand) {
       if (!command.subCommand) {
         errors.push(
-          `Command '${command.command}' requires sub-command '${requirements.subCommand}'`
+          `Command '${command.command}' requires sub-command '${requirements.subCommand}'`,
         );
       } else if (command.subCommand !== requirements.subCommand) {
         errors.push(
-          `Unknown sub-command '${command.subCommand}' for '${command.command}'. Expected '${requirements.subCommand}'`
+          `Unknown sub-command '${command.subCommand}' for '${command.command}'. Expected '${requirements.subCommand}'`,
         );
       }
     }
@@ -196,9 +188,7 @@ export class CliParser {
     // Check required options
     for (const opt of requirements.options) {
       if (!(opt in command.options)) {
-        errors.push(
-          `Missing required option '--${opt}' for command '${command.command}'`
-        );
+        errors.push(`Missing required option '--${opt}' for command '${command.command}'`);
       }
     }
 
@@ -206,7 +196,7 @@ export class CliParser {
     if ('format' in command.options) {
       if (!VALID_FORMATS.has(command.options['format'])) {
         errors.push(
-          `Invalid format '${command.options['format']}'. Valid formats: ${[...VALID_FORMATS].join(', ')}`
+          `Invalid format '${command.options['format']}'. Valid formats: ${[...VALID_FORMATS].join(', ')}`,
         );
       }
     }

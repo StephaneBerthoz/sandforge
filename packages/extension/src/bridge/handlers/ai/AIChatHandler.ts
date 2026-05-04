@@ -191,7 +191,8 @@ export class AIChatHandler implements DomainHandler {
 
   private async handleChat(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { conversationId: string; message: string } }).payload;
+    const payload = (msg as BaseMessage & { payload: { conversationId: string; message: string } })
+      .payload;
 
     if (!this.aiAssistant) {
       const errResponse = buildResponse(this.deps, msg, 'ai:error', {

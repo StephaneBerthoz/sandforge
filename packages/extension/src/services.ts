@@ -51,9 +51,7 @@ export interface OrchestratorFactories {
   compareOrchestrator: (deps: CompareDependencies) => CompareOrchestrator;
   /** DataOps currently has no single orchestrator — reserved for Phase 03+. */
   dataopsOrchestrator: null;
-  automationOrchestrator: (
-    deps: PipelineOrchestratorDependencies,
-  ) => PipelineOrchestrator;
+  automationOrchestrator: (deps: PipelineOrchestratorDependencies) => PipelineOrchestrator;
 }
 
 /**
@@ -167,7 +165,9 @@ export async function runSecretMigration(
   // Also log to Pino so operators see migration stats in Output → SandForge
   // regardless of whether Sentry is enabled. Safe: no key material logged.
   try {
-    telemetry.getLogger().info({ event: 'secret_migration', count, success }, 'secret migration complete');
+    telemetry
+      .getLogger()
+      .info({ event: 'secret_migration', count, success }, 'secret migration complete');
   } catch {
     // logger unavailable in degraded test envs — swallow.
   }

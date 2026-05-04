@@ -9,7 +9,13 @@ function createMockDeps(): GraphDiscoveryDeps {
       name: 'Account',
       fields: [
         { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
-        { name: 'Name', type: 'string', referenceTo: [], relationshipName: null, isMasterDetail: false },
+        {
+          name: 'Name',
+          type: 'string',
+          referenceTo: [],
+          relationshipName: null,
+          isMasterDetail: false,
+        },
       ],
       childRelationships: [],
     }),
@@ -45,7 +51,13 @@ function makeAccountDescribe(children: ObjectDescribe['childRelationships'] = []
     name: 'Account',
     fields: [
       { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
-      { name: 'Name', type: 'string', referenceTo: [], relationshipName: null, isMasterDetail: false },
+      {
+        name: 'Name',
+        type: 'string',
+        referenceTo: [],
+        relationshipName: null,
+        isMasterDetail: false,
+      },
     ],
     childRelationships: children,
   };
@@ -56,8 +68,20 @@ function makeContactDescribe(): ObjectDescribe {
     name: 'Contact',
     fields: [
       { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
-      { name: 'AccountId', type: 'reference', referenceTo: ['Account'], relationshipName: 'Account', isMasterDetail: false },
-      { name: 'Email', type: 'email', referenceTo: [], relationshipName: null, isMasterDetail: false },
+      {
+        name: 'AccountId',
+        type: 'reference',
+        referenceTo: ['Account'],
+        relationshipName: 'Account',
+        isMasterDetail: false,
+      },
+      {
+        name: 'Email',
+        type: 'email',
+        referenceTo: [],
+        relationshipName: null,
+        isMasterDetail: false,
+      },
     ],
     childRelationships: [],
   };
@@ -85,7 +109,15 @@ describe('GraphDiscoveryService', () => {
       const config = createConfig({ recordId: 'a0BXXXXXXXXXX' });
       vi.mocked(deps.describeObject).mockResolvedValue({
         name: 'CustomObj__c',
-        fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
+        fields: [
+          {
+            name: 'Id',
+            type: 'id',
+            referenceTo: [],
+            relationshipName: null,
+            isMasterDetail: false,
+          },
+        ],
         childRelationships: [],
       });
 
@@ -104,7 +136,15 @@ describe('GraphDiscoveryService', () => {
       const config = createConfig({ recordId: '003XXXXXXXXXX' });
       vi.mocked(deps.describeObject).mockResolvedValue({
         name: 'Contact',
-        fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
+        fields: [
+          {
+            name: 'Id',
+            type: 'id',
+            referenceTo: [],
+            relationshipName: null,
+            isMasterDetail: false,
+          },
+        ],
         childRelationships: [],
       });
       vi.mocked(deps.queryCount).mockResolvedValue(42);
@@ -124,7 +164,15 @@ describe('GraphDiscoveryService', () => {
       });
       vi.mocked(deps.describeObject).mockResolvedValue({
         name: 'Opportunity',
-        fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
+        fields: [
+          {
+            name: 'Id',
+            type: 'id',
+            referenceTo: [],
+            relationshipName: null,
+            isMasterDetail: false,
+          },
+        ],
         childRelationships: [],
       });
 
@@ -140,7 +188,15 @@ describe('GraphDiscoveryService', () => {
       });
       vi.mocked(deps.describeObject).mockResolvedValue({
         name: 'Lead',
-        fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
+        fields: [
+          {
+            name: 'Id',
+            type: 'id',
+            referenceTo: [],
+            relationshipName: null,
+            isMasterDetail: false,
+          },
+        ],
         childRelationships: [],
       });
 
@@ -153,12 +209,14 @@ describe('GraphDiscoveryService', () => {
     it('should traverse child relationships with depth=direct (1 level)', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
-          return makeAccountDescribe([{
-            childSObject: 'Contact',
-            field: 'AccountId',
-            relationshipName: 'Contacts',
-            isCascadeDelete: false,
-          }]);
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+          ]);
         }
         return makeContactDescribe();
       });
@@ -174,25 +232,35 @@ describe('GraphDiscoveryService', () => {
     it('should not traverse beyond depth limit with depth=direct', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
-          return makeAccountDescribe([{
-            childSObject: 'Contact',
-            field: 'AccountId',
-            relationshipName: 'Contacts',
-            isCascadeDelete: false,
-          }]);
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+          ]);
         }
         // Contact has a child Task, but we are at depth 1 — should not go deeper
         return {
           name: 'Contact',
           fields: [
-            { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
+            {
+              name: 'Id',
+              type: 'id',
+              referenceTo: [],
+              relationshipName: null,
+              isMasterDetail: false,
+            },
           ],
-          childRelationships: [{
-            childSObject: 'Task',
-            field: 'WhoId',
-            relationshipName: 'Tasks',
-            isCascadeDelete: false,
-          }],
+          childRelationships: [
+            {
+              childSObject: 'Task',
+              field: 'WhoId',
+              relationshipName: 'Tasks',
+              isCascadeDelete: false,
+            },
+          ],
         };
       });
 
@@ -208,30 +276,48 @@ describe('GraphDiscoveryService', () => {
     it('should traverse deeper with depth=full (max 5)', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
-          return makeAccountDescribe([{
-            childSObject: 'Contact',
-            field: 'AccountId',
-            relationshipName: 'Contacts',
-            isCascadeDelete: false,
-          }]);
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+          ]);
         }
         if (objectName === 'Contact') {
           return {
             name: 'Contact',
             fields: [
-              { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
+              {
+                name: 'Id',
+                type: 'id',
+                referenceTo: [],
+                relationshipName: null,
+                isMasterDetail: false,
+              },
             ],
-            childRelationships: [{
-              childSObject: 'Task',
-              field: 'WhoId',
-              relationshipName: 'Tasks',
-              isCascadeDelete: false,
-            }],
+            childRelationships: [
+              {
+                childSObject: 'Task',
+                field: 'WhoId',
+                relationshipName: 'Tasks',
+                isCascadeDelete: false,
+              },
+            ],
           };
         }
         return {
           name: objectName,
-          fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
+          fields: [
+            {
+              name: 'Id',
+              type: 'id',
+              referenceTo: [],
+              relationshipName: null,
+              isMasterDetail: false,
+            },
+          ],
           childRelationships: [],
         };
       });
@@ -294,12 +380,14 @@ describe('GraphDiscoveryService', () => {
     it('should create edges for lookup fields', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
-          return makeAccountDescribe([{
-            childSObject: 'Contact',
-            field: 'AccountId',
-            relationshipName: 'Contacts',
-            isCascadeDelete: false,
-          }]);
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+          ]);
         }
         return makeContactDescribe();
       });
@@ -319,12 +407,14 @@ describe('GraphDiscoveryService', () => {
     it('should mark master-detail edges from child relationships', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
-          return makeAccountDescribe([{
-            childSObject: 'Contact',
-            field: 'AccountId',
-            relationshipName: 'Contacts',
-            isCascadeDelete: true,
-          }]);
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: true,
+            },
+          ]);
         }
         return makeContactDescribe();
       });
@@ -333,7 +423,10 @@ describe('GraphDiscoveryService', () => {
       const graph = await service.discover(config);
 
       const mdEdge = graph.edges.find(
-        (e) => e.sourceObject === 'Account' && e.targetObject === 'Contact' && e.relationshipName === 'Contacts',
+        (e) =>
+          e.sourceObject === 'Account' &&
+          e.targetObject === 'Contact' &&
+          e.relationshipName === 'Contacts',
       );
       expect(mdEdge?.type).toBe('master-detail');
     });
@@ -393,10 +486,30 @@ describe('GraphDiscoveryService', () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
           return makeAccountDescribe([
-            { childSObject: 'Contact', field: 'AccountId', relationshipName: 'Contacts', isCascadeDelete: false },
-            { childSObject: 'AccountHistory', field: 'AccountId', relationshipName: 'Histories', isCascadeDelete: false },
-            { childSObject: 'AccountFeed', field: 'ParentId', relationshipName: 'Feeds', isCascadeDelete: false },
-            { childSObject: 'AccountShare', field: 'AccountId', relationshipName: 'Shares', isCascadeDelete: false },
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+            {
+              childSObject: 'AccountHistory',
+              field: 'AccountId',
+              relationshipName: 'Histories',
+              isCascadeDelete: false,
+            },
+            {
+              childSObject: 'AccountFeed',
+              field: 'ParentId',
+              relationshipName: 'Feeds',
+              isCascadeDelete: false,
+            },
+            {
+              childSObject: 'AccountShare',
+              field: 'AccountId',
+              relationshipName: 'Shares',
+              isCascadeDelete: false,
+            },
           ]);
         }
         return makeContactDescribe();
@@ -419,9 +532,27 @@ describe('GraphDiscoveryService', () => {
           return {
             name: 'Account',
             fields: [
-              { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
-              { name: 'OwnerId', type: 'reference', referenceTo: ['User'], relationshipName: 'Owner', isMasterDetail: false },
-              { name: 'RecordTypeId', type: 'reference', referenceTo: ['RecordType'], relationshipName: 'RecordType', isMasterDetail: false },
+              {
+                name: 'Id',
+                type: 'id',
+                referenceTo: [],
+                relationshipName: null,
+                isMasterDetail: false,
+              },
+              {
+                name: 'OwnerId',
+                type: 'reference',
+                referenceTo: ['User'],
+                relationshipName: 'Owner',
+                isMasterDetail: false,
+              },
+              {
+                name: 'RecordTypeId',
+                type: 'reference',
+                referenceTo: ['RecordType'],
+                relationshipName: 'RecordType',
+                isMasterDetail: false,
+              },
             ],
             childRelationships: [],
           };
@@ -444,8 +575,20 @@ describe('GraphDiscoveryService', () => {
           return {
             name: 'Account',
             fields: [
-              { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
-              { name: 'OwnerId', type: 'reference', referenceTo: ['User'], relationshipName: 'Owner', isMasterDetail: false },
+              {
+                name: 'Id',
+                type: 'id',
+                referenceTo: [],
+                relationshipName: null,
+                isMasterDetail: false,
+              },
+              {
+                name: 'OwnerId',
+                type: 'reference',
+                referenceTo: ['User'],
+                relationshipName: 'Owner',
+                isMasterDetail: false,
+              },
             ],
             childRelationships: [],
           };
@@ -456,7 +599,9 @@ describe('GraphDiscoveryService', () => {
       const config = createConfig({ depth: 'direct' });
       const graph = await service.discover(config);
 
-      const userEdge = graph.edges.find((e) => e.sourceObject === 'User' || e.targetObject === 'User');
+      const userEdge = graph.edges.find(
+        (e) => e.sourceObject === 'User' || e.targetObject === 'User',
+      );
       expect(userEdge).toBeUndefined();
       expect(graph.nodes.find((n) => n.objectApiName === 'User')).toBeUndefined();
     });
@@ -478,7 +623,13 @@ describe('GraphDiscoveryService', () => {
         return {
           name: objectName,
           fields: [
-            { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
+            {
+              name: 'Id',
+              type: 'id',
+              referenceTo: [],
+              relationshipName: null,
+              isMasterDetail: false,
+            },
           ],
           childRelationships: children,
         };
@@ -504,13 +655,23 @@ describe('GraphDiscoveryService', () => {
         }
         return {
           name: objectName,
-          fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
-          childRelationships: [{
-            childSObject: `Child${describeCallCount}`,
-            field: 'ParentId',
-            relationshipName: 'Children',
-            isCascadeDelete: false,
-          }],
+          fields: [
+            {
+              name: 'Id',
+              type: 'id',
+              referenceTo: [],
+              relationshipName: null,
+              isMasterDetail: false,
+            },
+          ],
+          childRelationships: [
+            {
+              childSObject: `Child${describeCallCount}`,
+              field: 'ParentId',
+              relationshipName: 'Children',
+              isCascadeDelete: false,
+            },
+          ],
         };
       });
 
@@ -531,13 +692,31 @@ describe('GraphDiscoveryService', () => {
         }
         if (objectName === 'Account') {
           return makeAccountDescribe([
-            { childSObject: 'Contact', field: 'AccountId', relationshipName: 'Contacts', isCascadeDelete: false },
-            { childSObject: 'Opportunity', field: 'AccountId', relationshipName: 'Opportunities', isCascadeDelete: false },
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+            {
+              childSObject: 'Opportunity',
+              field: 'AccountId',
+              relationshipName: 'Opportunities',
+              isCascadeDelete: false,
+            },
           ]);
         }
         return {
           name: objectName,
-          fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
+          fields: [
+            {
+              name: 'Id',
+              type: 'id',
+              referenceTo: [],
+              relationshipName: null,
+              isMasterDetail: false,
+            },
+          ],
           childRelationships: [],
         };
       });
@@ -555,12 +734,14 @@ describe('GraphDiscoveryService', () => {
     it('should call onProgress for each discovered node', async () => {
       vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
         if (objectName === 'Account') {
-          return makeAccountDescribe([{
-            childSObject: 'Contact',
-            field: 'AccountId',
-            relationshipName: 'Contacts',
-            isCascadeDelete: false,
-          }]);
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+          ]);
         }
         return makeContactDescribe();
       });
@@ -611,7 +792,15 @@ describe('GraphDiscoveryService', () => {
         }
         return {
           name: objectName,
-          fields: [{ name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false }],
+          fields: [
+            {
+              name: 'Id',
+              type: 'id',
+              referenceTo: [],
+              relationshipName: null,
+              isMasterDetail: false,
+            },
+          ],
           childRelationships: children,
         };
       });

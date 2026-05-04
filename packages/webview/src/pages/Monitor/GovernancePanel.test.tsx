@@ -21,8 +21,27 @@ const mockSaveMutate = vi.fn();
 const mockSaveReset = vi.fn();
 
 let mockPoliciesData: { policies: GovernancePolicySummary[] } | null = null;
-let mockTemplatesData: { templates: Array<{ id: string; name: string; description: string; rules: Array<Record<string, unknown>>; createdAt: string; updatedAt: string }> } | null = null;
-let mockEvaluateData: { success: boolean; result: { policyId: string; policyName: string; evaluatedAt: string; complianceScore: number; ruleResults: GovernanceRuleDisplay[]; remediations: string[] } } | null = null;
+let mockTemplatesData: {
+  templates: Array<{
+    id: string;
+    name: string;
+    description: string;
+    rules: Array<Record<string, unknown>>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+} | null = null;
+let mockEvaluateData: {
+  success: boolean;
+  result: {
+    policyId: string;
+    policyName: string;
+    evaluatedAt: string;
+    complianceScore: number;
+    ruleResults: GovernanceRuleDisplay[];
+    remediations: string[];
+  };
+} | null = null;
 let mockDeleteData: { success: boolean } | null = null;
 let mockSaveData: { success: boolean } | null = null;
 let mockEvaluateLoading = false;
@@ -42,20 +61,39 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
     if (type === 'governance:evaluate') {
-      return { mutate: mockEvaluateMutate, data: mockEvaluateData, loading: mockEvaluateLoading, error: null, reset: mockEvaluateReset };
+      return {
+        mutate: mockEvaluateMutate,
+        data: mockEvaluateData,
+        loading: mockEvaluateLoading,
+        error: null,
+        reset: mockEvaluateReset,
+      };
     }
     if (type === 'governance:policy:delete') {
-      return { mutate: mockDeleteMutate, data: mockDeleteData, loading: false, error: null, reset: mockDeleteReset };
+      return {
+        mutate: mockDeleteMutate,
+        data: mockDeleteData,
+        loading: false,
+        error: null,
+        reset: mockDeleteReset,
+      };
     }
     if (type === 'governance:policy:save') {
-      return { mutate: mockSaveMutate, data: mockSaveData, loading: false, error: null, reset: mockSaveReset };
+      return {
+        mutate: mockSaveMutate,
+        data: mockSaveData,
+        loading: false,
+        error: null,
+        reset: mockSaveReset,
+      };
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
 }));
 
 vi.mock('../../stores/useOrgStore', () => ({
-  useOrgStore: (selector: (s: { selectedOrgId: string | null }) => unknown) => selector({ selectedOrgId: 'org-test-1' }),
+  useOrgStore: (selector: (s: { selectedOrgId: string | null }) => unknown) =>
+    selector({ selectedOrgId: 'org-test-1' }),
 }));
 
 function makePolicy(overrides: Partial<GovernancePolicySummary> = {}): GovernancePolicySummary {
@@ -202,9 +240,7 @@ describe('GovernancePanelConnected', () => {
 
   it('displays policies from bridge query', () => {
     mockPoliciesData = {
-      policies: [
-        makePolicy({ id: 'bp-1', name: 'Bridge Policy' }),
-      ],
+      policies: [makePolicy({ id: 'bp-1', name: 'Bridge Policy' })],
     };
     render(<GovernancePanelConnected />);
     expect(screen.getByTestId('policy-bp-1')).toBeTruthy();
@@ -236,9 +272,7 @@ describe('GovernancePanelConnected', () => {
         policyName: 'Security Policy',
         evaluatedAt: '2026-03-20T12:00:00Z',
         complianceScore: 72,
-        ruleResults: [
-          makeRuleResult({ ruleId: 'r1', status: 'pass' }),
-        ],
+        ruleResults: [makeRuleResult({ ruleId: 'r1', status: 'pass' })],
         remediations: ['Fix something'],
       },
     };

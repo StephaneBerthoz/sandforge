@@ -24,7 +24,7 @@ export interface RollbackResult {
 /** Function that performs the actual rollback of records */
 export type RollbackExecutor = (
   objectName: string,
-  recordIds: string[]
+  recordIds: string[],
 ) => Promise<{ success: string[]; failed: Array<{ id: string; error: string }> }>;
 
 /**
@@ -37,11 +37,7 @@ export class RollbackManager {
   private nextId = 0;
 
   /** Create a savepoint for an operation */
-  createSavepoint(
-    operationId: string,
-    objectName: string,
-    recordIds: string[]
-  ): Savepoint {
+  createSavepoint(operationId: string, objectName: string, recordIds: string[]): Savepoint {
     const id = `sp-${this.nextId++}`;
     const savepoint: Savepoint = {
       id,
@@ -65,10 +61,7 @@ export class RollbackManager {
   }
 
   /** Rollback to a savepoint using the provided executor */
-  async rollback(
-    savepoint: Savepoint,
-    executor: RollbackExecutor
-  ): Promise<RollbackResult> {
+  async rollback(savepoint: Savepoint, executor: RollbackExecutor): Promise<RollbackResult> {
     const tracked = this.savepoints.get(savepoint.id);
     if (!tracked) {
       return {

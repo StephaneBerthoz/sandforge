@@ -63,7 +63,9 @@ export const Tooltip: React.FC<TooltipProps> = ({
             'bg-[var(--vscode-editorHoverWidget-background,#2d2d30)]',
             'text-[var(--vscode-editorHoverWidget-foreground,#d4d4d4)]',
             'border border-[var(--vscode-editorHoverWidget-border,#454545)]',
-            side === 'top' ? 'bottom-full left-1/2 -translate-x-1/2 mb-1' : 'top-full left-1/2 -translate-x-1/2 mt-1',
+            side === 'top'
+              ? 'bottom-full left-1/2 -translate-x-1/2 mb-1'
+              : 'top-full left-1/2 -translate-x-1/2 mt-1',
             className,
           )}
         >

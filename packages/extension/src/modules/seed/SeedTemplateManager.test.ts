@@ -195,7 +195,12 @@ describe('SeedTemplateManager', () => {
   });
 
   describe('with SeedTemplateStore (persistence)', () => {
-    let mockStore: { save: ReturnType<typeof vi.fn>; load: ReturnType<typeof vi.fn>; list: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn> };
+    let mockStore: {
+      save: ReturnType<typeof vi.fn>;
+      load: ReturnType<typeof vi.fn>;
+      list: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
+    };
     let persistedManager: SeedTemplateManager;
 
     beforeEach(() => {
@@ -205,7 +210,11 @@ describe('SeedTemplateManager', () => {
         list: vi.fn().mockReturnValue([]),
         delete: vi.fn().mockReturnValue(true),
       };
-      persistedManager = new SeedTemplateManager(generateId, now, mockStore as unknown as SeedTemplateStore);
+      persistedManager = new SeedTemplateManager(
+        generateId,
+        now,
+        mockStore as unknown as SeedTemplateStore,
+      );
     });
 
     it('should persist on create', () => {

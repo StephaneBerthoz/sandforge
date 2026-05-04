@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { TFunction } from 'i18next';
-import type { SalesforceOrg, SeedExecutionResult, FieldRuleType, PersonaMsg } from '@sandforge/shared';
+import type {
+  SalesforceOrg,
+  SeedExecutionResult,
+  FieldRuleType,
+  PersonaMsg,
+} from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
@@ -56,8 +61,17 @@ export interface SeedWizardState {
 
   /* Fields */
   fieldConfigs: ObjectFieldConfig[];
-  handleChangeFieldRule: (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => void;
-  handleChangeFieldConfig: (objectApiName: string, fieldApiName: string, key: string, value: string) => void;
+  handleChangeFieldRule: (
+    objectApiName: string,
+    fieldApiName: string,
+    ruleType: FieldRuleType,
+  ) => void;
+  handleChangeFieldConfig: (
+    objectApiName: string,
+    fieldApiName: string,
+    key: string,
+    value: string,
+  ) => void;
 
   /* Relations */
   relations: SeedRelation[];
@@ -170,7 +184,14 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
       volumes: fieldConfig.volumes,
       nl2soqlQuery: nl2soqlState.nl2soqlQuery,
     });
-  }, [currentStep, orgSelection.selectedOrgId, objectSelection.selectedObjects, fieldConfig.volumes, nl2soqlState.nl2soqlQuery, setDraft]);
+  }, [
+    currentStep,
+    orgSelection.selectedOrgId,
+    objectSelection.selectedObjects,
+    fieldConfig.volumes,
+    nl2soqlState.nl2soqlQuery,
+    setDraft,
+  ]);
 
   /* ------------------------------------------------------------------ */
   /* Error aggregation                                                   */
@@ -179,7 +200,12 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     const bridgeError = objectSelection.describeError ?? execution.executionError;
     if (bridgeError) {
       setError(bridgeError);
-      addNotification({ level: 'error', title: t('seed.title'), message: bridgeError, autoDismissMs: 5000 });
+      addNotification({
+        level: 'error',
+        title: t('seed.title'),
+        message: bridgeError,
+        autoDismissMs: 5000,
+      });
     }
   }, [objectSelection.describeError, execution.executionError, addNotification, t]);
 
@@ -219,11 +245,19 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   /* ------------------------------------------------------------------ */
   const canGoNext = useMemo((): boolean => {
     switch (currentStep) {
-      case 0: return !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0;
-      case 2: return !execution.isRunning;
-      default: return true;
+      case 0:
+        return !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0;
+      case 2:
+        return !execution.isRunning;
+      default:
+        return true;
     }
-  }, [currentStep, orgSelection.selectedOrgId, objectSelection.selectedObjects.length, execution.isRunning]);
+  }, [
+    currentStep,
+    orgSelection.selectedOrgId,
+    objectSelection.selectedObjects.length,
+    execution.isRunning,
+  ]);
 
   const isFinished = currentStep === 3 && !!execution.executionResult;
 

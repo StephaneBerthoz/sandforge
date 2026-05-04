@@ -47,9 +47,7 @@ export const HomePage: React.FC = () => {
   const navigate = useAppStore((s) => s.navigate);
   const recentOps = useRecentOpsStore((s) => s.ops);
 
-  const { data: orgListData, loading: orgsLoading } = useBridgeQuery<OrgListPayload>(
-    'org:list',
-  );
+  const { data: orgListData, loading: orgsLoading } = useBridgeQuery<OrgListPayload>('org:list');
 
   /** Merge store orgs with bridge data, preferring store. */
   const connectedOrgs = useMemo(() => {
@@ -73,15 +71,12 @@ export const HomePage: React.FC = () => {
   const smartAction = useSmartAction();
 
   const showSmartAction =
-    hasOrgs &&
-    smartAction.recommendation !== null &&
-    smartAction.recommendation.action !== 'none';
+    hasOrgs && smartAction.recommendation !== null && smartAction.recommendation.action !== 'none';
 
   const opsLast7dCount = useMemo(() => {
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     return recentOps.filter((op) => op.timestamp >= sevenDaysAgo).length;
   }, [recentOps]);
-
 
   return (
     <m.div
@@ -184,27 +179,13 @@ export const HomePage: React.FC = () => {
       {/* Bento Grid */}
       <BentoGrid columns={3}>
         {/* Forge Hero Tile */}
-        <BentoTile
-          colSpan={2}
-          rowSpan={2}
-          className="border-forge/30"
-        >
-          <div
-            className="flex flex-col h-full"
-            data-testid="forge-hero-card"
-          >
+        <BentoTile colSpan={2} rowSpan={2} className="border-forge/30">
+          <div className="flex flex-col h-full" data-testid="forge-hero-card">
             <div className="flex items-center gap-2 mb-3">
-              <Flame
-                className="w-6 h-6"
-                style={{ color: moduleColors.forge }}
-              />
-              <h2 className="text-lg font-semibold text-text-primary">
-                {t('home.forgeASandbox')}
-              </h2>
+              <Flame className="w-6 h-6" style={{ color: moduleColors.forge }} />
+              <h2 className="text-lg font-semibold text-text-primary">{t('home.forgeASandbox')}</h2>
             </div>
-            <p className="text-sm text-text-secondary mb-6">
-              {t('home.forgeDescription')}
-            </p>
+            <p className="text-sm text-text-secondary mb-6">{t('home.forgeDescription')}</p>
             <div className="flex items-center gap-2 mt-auto">
               <input
                 type="text"
@@ -234,10 +215,7 @@ export const HomePage: React.FC = () => {
               {t('home.sandboxHealth')}
             </h3>
             {hasOrgs ? (
-              <div
-                className="flex flex-col gap-2"
-                data-testid="connected-orgs-card"
-              >
+              <div className="flex flex-col gap-2" data-testid="connected-orgs-card">
                 {connectedOrgs.slice(0, 4).map((org) => (
                   <OrgBadge
                     key={org.id}
@@ -248,20 +226,13 @@ export const HomePage: React.FC = () => {
                   />
                 ))}
                 {connectedOrgs.length > 4 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate('orgs')}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => navigate('orgs')}>
                     {t('home.viewAll')}
                   </Button>
                 )}
               </div>
             ) : (
-              <EmptyState
-                icon={<Icon name="plug" />}
-                title={t('home.noOrgsConnected')}
-              />
+              <EmptyState icon={<Icon name="plug" />} title={t('home.noOrgsConnected')} />
             )}
           </div>
         </BentoTile>
@@ -274,10 +245,7 @@ export const HomePage: React.FC = () => {
             </h3>
             <div data-testid="recent-ops-card">
               {recentOpsSlice.length === 0 ? (
-                <EmptyState
-                  icon={<Icon name="history" />}
-                  title={t('home.noRecentOps')}
-                />
+                <EmptyState icon={<Icon name="history" />} title={t('home.noRecentOps')} />
               ) : (
                 <div className="space-y-1.5">
                   {recentOpsSlice.map((op) => (
@@ -286,12 +254,8 @@ export const HomePage: React.FC = () => {
                       className="flex items-center gap-2 py-1 px-2 rounded text-xs bg-surface-2"
                       data-testid="recent-op-item"
                     >
-                      <Badge variant={statusBadgeMap[op.status] ?? 'default'}>
-                        {op.status}
-                      </Badge>
-                      <span className="flex-1 truncate text-text-primary">
-                        {op.label}
-                      </span>
+                      <Badge variant={statusBadgeMap[op.status] ?? 'default'}>{op.status}</Badge>
+                      <span className="flex-1 truncate text-text-primary">{op.label}</span>
                       <span className="text-text-muted shrink-0">
                         {formatRelativeTimeI18n(op.timestamp, t, 'home')}
                       </span>
@@ -309,10 +273,7 @@ export const HomePage: React.FC = () => {
             <h3 className="text-sm font-semibold text-text-primary mb-3">
               {t('home.quickActions')}
             </h3>
-            <div
-              className="grid grid-cols-2 gap-2"
-              data-testid="quick-actions-card"
-            >
+            <div className="grid grid-cols-2 gap-2" data-testid="quick-actions-card">
               <Button
                 variant="secondary"
                 size="sm"
@@ -367,7 +328,10 @@ export const HomePage: React.FC = () => {
 
       {/* Health Summary — shown when orgs are connected */}
       {hasOrgs && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="health-summary">
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+          data-testid="health-summary"
+        >
           <KPICard
             icon="pulse"
             label={t('home.healthScore')}
@@ -381,12 +345,7 @@ export const HomePage: React.FC = () => {
             value={connectedOrgs.length}
             variant="success"
           />
-          <KPICard
-            icon="database"
-            label={t('status.apiUsage')}
-            value={0}
-            variant="default"
-          />
+          <KPICard icon="database" label={t('status.apiUsage')} value={0} variant="default" />
           <KPICard
             icon="tasklist"
             label={t('status.activeJobs')}

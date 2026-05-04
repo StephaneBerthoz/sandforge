@@ -32,9 +32,7 @@ describe('DataCleaner', () => {
         { Name: '', Email: '' },
         { Name: 'Charlie', Email: '' },
       ];
-      const rules: CleanRule[] = [
-        { type: 'remove_empty', fields: ['Name', 'Email'] },
-      ];
+      const rules: CleanRule[] = [{ type: 'remove_empty', fields: ['Name', 'Email'] }];
 
       const result = cleaner.clean(records, rules);
 
@@ -82,10 +80,7 @@ describe('DataCleaner', () => {
     });
 
     it('should keep all records when no duplicates exist', () => {
-      const records = [
-        { Email: 'a@b.com' },
-        { Email: 'c@d.com' },
-      ];
+      const records = [{ Email: 'a@b.com' }, { Email: 'c@d.com' }];
       const result = cleaner.removeDuplicates(records, ['Email']);
 
       expect(result).toHaveLength(2);

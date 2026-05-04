@@ -41,8 +41,9 @@ function createMockDeps(): PipelineOrchestratorDependencies {
       getStepCategories: vi.fn().mockReturnValue([]),
     } as unknown as PipelineOrchestratorDependencies['stepLibrary'],
     stepExecutor: {
-      execute: vi.fn<(step: unknown, ctx: unknown) => Promise<PipelineStepResult>>().mockImplementation(
-        async (step: unknown): Promise<PipelineStepResult> => {
+      execute: vi
+        .fn<(step: unknown, ctx: unknown) => Promise<PipelineStepResult>>()
+        .mockImplementation(async (step: unknown): Promise<PipelineStepResult> => {
           const s = step as { id: string; name: string; type: string };
           return {
             stepId: s.id,
@@ -53,8 +54,7 @@ function createMockDeps(): PipelineOrchestratorDependencies {
             endTime: new Date().toISOString(),
             duration: 10,
           };
-        }
-      ),
+        }),
       getExecutor: vi.fn(),
       registerHandler: vi.fn(),
     } as unknown as PipelineOrchestratorDependencies['stepExecutor'],
@@ -144,7 +144,7 @@ describe('PipelineOrchestrator', () => {
 
       expect(deps.stepExecutor.execute).toHaveBeenCalledWith(
         pipeline.steps[0],
-        expect.objectContaining({ variables: vars })
+        expect.objectContaining({ variables: vars }),
       );
     });
 
@@ -297,7 +297,10 @@ describe('PipelineOrchestrator', () => {
 
       await orchestrator.execute(createPipeline(), {}, 'manual');
 
-      expect(handler).toHaveBeenCalledWith('started', expect.objectContaining({ pipelineId: 'pipeline-1' }));
+      expect(handler).toHaveBeenCalledWith(
+        'started',
+        expect.objectContaining({ pipelineId: 'pipeline-1' }),
+      );
     });
 
     it('should emit completed event when execution finishes', async () => {
@@ -306,7 +309,10 @@ describe('PipelineOrchestrator', () => {
 
       await orchestrator.execute(createPipeline(), {}, 'manual');
 
-      expect(handler).toHaveBeenCalledWith('completed', expect.objectContaining({ status: 'completed' }));
+      expect(handler).toHaveBeenCalledWith(
+        'completed',
+        expect.objectContaining({ status: 'completed' }),
+      );
     });
 
     it('should emit stepCompleted for each executed step', async () => {

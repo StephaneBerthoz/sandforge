@@ -101,7 +101,10 @@ describe('ConflictResolutionPanel', () => {
     fireEvent.click(applyBtn);
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as { type: string; payload: Record<string, unknown> };
+    const msg = mockPostMessage.mock.calls[0][0] as {
+      type: string;
+      payload: Record<string, unknown>;
+    };
     expect(msg.type).toBe('realtime:resolve-conflict');
     expect(msg.payload.conflictId).toBe('Account:001:1');
   });

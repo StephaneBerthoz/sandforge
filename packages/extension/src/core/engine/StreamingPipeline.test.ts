@@ -32,10 +32,7 @@ describe('StreamingPipeline', () => {
       [{ Name: 'B1' }, { Name: 'B2' }, { Name: 'B3' }],
     ];
     const pipeline = new StreamingPipeline();
-    const result = await pipeline.execute(
-      toAsyncIterable(chunks),
-      makeSuccessProcessor(),
-    );
+    const result = await pipeline.execute(toAsyncIterable(chunks), makeSuccessProcessor());
 
     expect(result.totalRecords).toBe(5);
     expect(result.successCount).toBe(5);
@@ -67,21 +64,13 @@ describe('StreamingPipeline', () => {
   });
 
   it('should call onChunkProgress after each chunk with correct counts', async () => {
-    const chunks = [
-      [{ Name: 'A1' }],
-      [{ Name: 'B1' }],
-      [{ Name: 'C1' }],
-    ];
+    const chunks = [[{ Name: 'A1' }], [{ Name: 'B1' }], [{ Name: 'C1' }]];
     const progressCalls: Array<{
       chunksProcessed: number;
       totalChunks: number;
       result: StreamingChunkResult;
     }> = [];
-    const onChunkProgress: OnChunkProgress = (
-      chunksProcessed,
-      totalChunks,
-      result,
-    ) => {
+    const onChunkProgress: OnChunkProgress = (chunksProcessed, totalChunks, result) => {
       progressCalls.push({ chunksProcessed, totalChunks, result });
     };
 
@@ -133,11 +122,7 @@ describe('StreamingPipeline', () => {
       };
     };
 
-    const chunks = [
-      [{ Name: 'A1' }],
-      [{ Name: 'B1' }],
-      [{ Name: 'C1' }],
-    ];
+    const chunks = [[{ Name: 'A1' }], [{ Name: 'B1' }], [{ Name: 'C1' }]];
 
     const pipeline = new StreamingPipeline({ signal: controller.signal });
     const result = await pipeline.execute(toAsyncIterable(chunks), processFn);
@@ -163,13 +148,7 @@ describe('StreamingPipeline', () => {
   });
 
   it('should handle empty chunks gracefully by skipping them', async () => {
-    const chunks = [
-      [],
-      [{ Name: 'A1' }],
-      [],
-      [{ Name: 'B1' }],
-      [],
-    ];
+    const chunks = [[], [{ Name: 'A1' }], [], [{ Name: 'B1' }], []];
 
     const progressCalls: number[] = [];
     const pipeline = new StreamingPipeline({
@@ -177,10 +156,7 @@ describe('StreamingPipeline', () => {
         progressCalls.push(chunksProcessed);
       },
     });
-    const result = await pipeline.execute(
-      toAsyncIterable(chunks),
-      makeSuccessProcessor(),
-    );
+    const result = await pipeline.execute(toAsyncIterable(chunks), makeSuccessProcessor());
 
     expect(result.totalRecords).toBe(2);
     expect(result.successCount).toBe(2);
@@ -189,10 +165,9 @@ describe('StreamingPipeline', () => {
 
   it('should cap errors at 100 entries', async () => {
     const chunkCount = 120;
-    const batches: Record<string, unknown>[][] = Array.from(
-      { length: chunkCount },
-      () => [{ Name: 'X' }],
-    );
+    const batches: Record<string, unknown>[][] = Array.from({ length: chunkCount }, () => [
+      { Name: 'X' },
+    ]);
 
     const processFn: ChunkProcessFn = async (records) => ({
       successCount: 0,
@@ -202,10 +177,7 @@ describe('StreamingPipeline', () => {
     });
 
     const pipeline = new StreamingPipeline();
-    const result = await pipeline.execute(
-      toAsyncIterable(batches),
-      processFn,
-    );
+    const result = await pipeline.execute(toAsyncIterable(batches), processFn);
 
     expect(result.failureCount).toBe(120);
     expect(result.errors.length).toBe(100);
@@ -213,10 +185,7 @@ describe('StreamingPipeline', () => {
 
   it('should handle zero chunks without error', async () => {
     const pipeline = new StreamingPipeline();
-    const result = await pipeline.execute(
-      toAsyncIterable([]),
-      makeSuccessProcessor(),
-    );
+    const result = await pipeline.execute(toAsyncIterable([]), makeSuccessProcessor());
 
     expect(result.totalRecords).toBe(0);
     expect(result.successCount).toBe(0);

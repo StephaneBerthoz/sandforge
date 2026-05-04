@@ -52,9 +52,7 @@ export class LimitsTracker {
     if (!snapshot) {
       return [];
     }
-    return snapshot.limits.filter(
-      (limit) => limit.usedPercent >= thresholdPercent
-    );
+    return snapshot.limits.filter((limit) => limit.usedPercent >= thresholdPercent);
   }
 
   /** Return the full history of snapshots for an org */

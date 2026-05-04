@@ -78,16 +78,17 @@ export function generateSampleRecords(persona: PersonaMsg): Record<string, strin
  */
 export function usePersonas(): UsePersonasReturn {
   const query = useBridgeQuery<{ personas: PersonaMsg[] }>('seed:list-personas');
-  const createMutation = useBridgeMutation<{ persona: PersonaMsg; success: boolean; error?: string }>('seed:create-persona');
+  const createMutation = useBridgeMutation<{
+    persona: PersonaMsg;
+    success: boolean;
+    error?: string;
+  }>('seed:create-persona');
 
   const [selectedPersona, setSelectedPersona] = useState<PersonaMsg | null>(null);
   const [previewedPersona, setPreviewedPersona] = useState<PersonaMsg | null>(null);
   const [customDescription, setCustomDescription] = useState('');
 
-  const personas = useMemo(
-    () => query.data?.personas ?? [],
-    [query.data],
-  );
+  const personas = useMemo(() => query.data?.personas ?? [], [query.data]);
 
   const selectPersona = useCallback(
     (id: string) => {

@@ -77,7 +77,10 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
     return [...filtered].sort((a, b) => {
       const aVal = a[sortField];
       const bVal = b[sortField];
-      const cmp = typeof aVal === 'string' ? aVal.localeCompare(bVal as string) : (aVal as number) - (bVal as number);
+      const cmp =
+        typeof aVal === 'string'
+          ? aVal.localeCompare(bVal as string)
+          : (aVal as number) - (bVal as number);
       return sortDirection === 'asc' ? cmp : -cmp;
     });
   }, [graph.nodes, searchQuery, sortField, sortDirection]);
@@ -106,7 +109,13 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
 
   if (sortedNodes.length === 0 && searchQuery) {
     return (
-      <div data-testid="forge-table-view" className={cn('flex items-center justify-center p-8 text-sm text-text-secondary', className)}>
+      <div
+        data-testid="forge-table-view"
+        className={cn(
+          'flex items-center justify-center p-8 text-sm text-text-secondary',
+          className,
+        )}
+      >
         {t('forge.noMatchingNodes')}
       </div>
     );

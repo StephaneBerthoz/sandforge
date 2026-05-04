@@ -36,9 +36,11 @@ describe('StorageCheck', () => {
     it('should pass data storage check when sufficient', async () => {
       const fetchFn: FetchStorageFn = vi.fn().mockResolvedValue(createStorageData());
       const checker = new StorageCheck(fetchFn);
-      const items = await checker.check(createConfig({
-        operationConfig: { recordCount: 100, avgRecordSizeKb: 2 },
-      }));
+      const items = await checker.check(
+        createConfig({
+          operationConfig: { recordCount: 100, avgRecordSizeKb: 2 },
+        }),
+      );
 
       const dataItem = items.find((i) => i.name === 'Data Storage');
       expect(dataItem?.passed).toBe(true);
@@ -46,14 +48,16 @@ describe('StorageCheck', () => {
     });
 
     it('should fail data storage check when insufficient', async () => {
-      const fetchFn: FetchStorageFn = vi.fn().mockResolvedValue(
-        createStorageData({ dataStorage: { used: 4999, limit: 5000 } })
-      );
+      const fetchFn: FetchStorageFn = vi
+        .fn()
+        .mockResolvedValue(createStorageData({ dataStorage: { used: 4999, limit: 5000 } }));
 
       const checker = new StorageCheck(fetchFn);
-      const items = await checker.check(createConfig({
-        operationConfig: { recordCount: 10_000, avgRecordSizeKb: 2 },
-      }));
+      const items = await checker.check(
+        createConfig({
+          operationConfig: { recordCount: 10_000, avgRecordSizeKb: 2 },
+        }),
+      );
 
       const dataItem = items.find((i) => i.name === 'Data Storage');
       expect(dataItem?.passed).toBe(false);
@@ -70,14 +74,16 @@ describe('StorageCheck', () => {
     });
 
     it('should fail file storage check when insufficient', async () => {
-      const fetchFn: FetchStorageFn = vi.fn().mockResolvedValue(
-        createStorageData({ fileStorage: { used: 1990, limit: 2000 } })
-      );
+      const fetchFn: FetchStorageFn = vi
+        .fn()
+        .mockResolvedValue(createStorageData({ fileStorage: { used: 1990, limit: 2000 } }));
 
       const checker = new StorageCheck(fetchFn);
-      const items = await checker.check(createConfig({
-        operationConfig: { fileStorageImpactMb: 50 },
-      }));
+      const items = await checker.check(
+        createConfig({
+          operationConfig: { fileStorageImpactMb: 50 },
+        }),
+      );
 
       const fileItem = items.find((i) => i.name === 'File Storage');
       expect(fileItem?.passed).toBe(false);
@@ -85,14 +91,16 @@ describe('StorageCheck', () => {
     });
 
     it('should warn when data storage usage will exceed 80%', async () => {
-      const fetchFn: FetchStorageFn = vi.fn().mockResolvedValue(
-        createStorageData({ dataStorage: { used: 3900, limit: 5000 } })
-      );
+      const fetchFn: FetchStorageFn = vi
+        .fn()
+        .mockResolvedValue(createStorageData({ dataStorage: { used: 3900, limit: 5000 } }));
 
       const checker = new StorageCheck(fetchFn);
-      const items = await checker.check(createConfig({
-        operationConfig: { recordCount: 100_000, avgRecordSizeKb: 2 },
-      }));
+      const items = await checker.check(
+        createConfig({
+          operationConfig: { recordCount: 100_000, avgRecordSizeKb: 2 },
+        }),
+      );
 
       const dataItem = items.find((i) => i.name === 'Data Storage');
       expect(dataItem?.passed).toBe(true);
@@ -100,14 +108,16 @@ describe('StorageCheck', () => {
     });
 
     it('should error when data storage usage will exceed 95%', async () => {
-      const fetchFn: FetchStorageFn = vi.fn().mockResolvedValue(
-        createStorageData({ dataStorage: { used: 4700, limit: 5000 } })
-      );
+      const fetchFn: FetchStorageFn = vi
+        .fn()
+        .mockResolvedValue(createStorageData({ dataStorage: { used: 4700, limit: 5000 } }));
 
       const checker = new StorageCheck(fetchFn);
-      const items = await checker.check(createConfig({
-        operationConfig: { recordCount: 100_000, avgRecordSizeKb: 2 },
-      }));
+      const items = await checker.check(
+        createConfig({
+          operationConfig: { recordCount: 100_000, avgRecordSizeKb: 2 },
+        }),
+      );
 
       const dataItem = items.find((i) => i.name === 'Data Storage');
       expect(dataItem?.severity).toBe('error');
@@ -145,14 +155,16 @@ describe('StorageCheck', () => {
     });
 
     it('should use default avgRecordSizeKb of 2 when not specified', async () => {
-      const fetchFn: FetchStorageFn = vi.fn().mockResolvedValue(
-        createStorageData({ dataStorage: { used: 0, limit: 5000 } })
-      );
+      const fetchFn: FetchStorageFn = vi
+        .fn()
+        .mockResolvedValue(createStorageData({ dataStorage: { used: 0, limit: 5000 } }));
 
       const checker = new StorageCheck(fetchFn);
-      const items = await checker.check(createConfig({
-        operationConfig: { recordCount: 1024 },
-      }));
+      const items = await checker.check(
+        createConfig({
+          operationConfig: { recordCount: 1024 },
+        }),
+      );
 
       const dataItem = items.find((i) => i.name === 'Data Storage');
       expect(dataItem?.message).toContain('2.0 MB');
@@ -173,7 +185,7 @@ describe('StorageCheck', () => {
         createStorageData({
           dataStorage: { used: 0, limit: 0 },
           fileStorage: { used: 0, limit: 0 },
-        })
+        }),
       );
 
       const checker = new StorageCheck(fetchFn);

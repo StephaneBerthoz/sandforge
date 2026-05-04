@@ -189,7 +189,12 @@ export const AutomationPage: React.FC = () => {
       )}
 
       {/* KPI overview row */}
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" data-testid="automation-kpi-row">
+      <motion.div
+        variants={staggerContainer}
+        initial="hidden"
+        animate="visible"
+        data-testid="automation-kpi-row"
+      >
         <BentoGrid columns={3} gap="md">
           <motion.div variants={slideUp}>
             <KPICard
@@ -271,16 +276,15 @@ export const AutomationPage: React.FC = () => {
             />
           )}
 
-          {activeTab === 'scheduler' && (
-            <SchedulerCalendar scheduled={scheduledPipelines} />
-          )}
+          {activeTab === 'scheduler' && <SchedulerCalendar scheduled={scheduledPipelines} />}
 
-          {activeTab === 'history' && (
-            <PipelineHistoryView entries={historyEntries} />
-          )}
+          {activeTab === 'history' && <PipelineHistoryView entries={historyEntries} />}
 
           {activeTab === 'marketplace' && (
-            <div data-testid="marketplace-content" className="flex flex-col gap-[var(--sf-space-3)]">
+            <div
+              data-testid="marketplace-content"
+              className="flex flex-col gap-[var(--sf-space-3)]"
+            >
               <h2 className="text-sm font-semibold text-text-primary">
                 {t('automation.marketplace')}
               </h2>
@@ -305,14 +309,10 @@ export const AutomationPage: React.FC = () => {
                       data-testid={`marketplace-template-${tpl.id}`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-text-primary">
-                          {tpl.name}
-                        </span>
+                        <span className="text-sm font-medium text-text-primary">{tpl.name}</span>
                         <Badge variant="default">{tpl.category}</Badge>
                       </div>
-                      <p className="text-xs text-text-secondary mt-1">
-                        {tpl.description}
-                      </p>
+                      <p className="text-xs text-text-secondary mt-1">{tpl.description}</p>
                       <div className="flex items-center justify-between mt-2">
                         <span className="text-xs text-text-muted">
                           {t('automation.marketplaceAuthor')}: {tpl.author}
@@ -363,14 +363,21 @@ export const AutomationPage: React.FC = () => {
               placeholder={t('automation.generatePipelinePrompt')}
               value={genDescription}
               onChange={(e) => setGenDescription(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleGenSubmit(); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleGenSubmit();
+              }}
               autoFocus
             />
             <div className="flex justify-end gap-2 mt-3">
               <Button variant="secondary" size="sm" onClick={() => setShowGenPrompt(false)}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="primary" size="sm" onClick={handleGenSubmit} disabled={!genDescription.trim()}>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleGenSubmit}
+                disabled={!genDescription.trim()}
+              >
                 {t('automation.generatePipeline')}
               </Button>
             </div>

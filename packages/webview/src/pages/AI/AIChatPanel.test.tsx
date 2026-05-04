@@ -10,8 +10,18 @@ const conversations: ConversationSummary[] = [
 ];
 
 const messages: ChatMessageDisplay[] = [
-  { id: 'msg-1', role: 'user', content: 'How do I seed Account?', timestamp: '2025-01-01T00:00:00Z' },
-  { id: 'msg-2', role: 'assistant', content: 'You can use the Seed wizard.', timestamp: '2025-01-01T00:00:01Z' },
+  {
+    id: 'msg-1',
+    role: 'user',
+    content: 'How do I seed Account?',
+    timestamp: '2025-01-01T00:00:00Z',
+  },
+  {
+    id: 'msg-2',
+    role: 'assistant',
+    content: 'You can use the Seed wizard.',
+    timestamp: '2025-01-01T00:00:01Z',
+  },
 ];
 
 describe('AIChatPanel', () => {

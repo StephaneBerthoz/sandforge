@@ -478,7 +478,17 @@ export interface SeedTemplateLoadResponse extends BaseMessage {
 /** Response for seed template list. */
 export interface SeedTemplateListResponse extends BaseMessage {
   type: 'seed:template:list:response';
-  payload: { templates: Array<{ id: string; name: string; description: string; tags: string[]; updatedAt: string; objectCount: number; totalRecords: number }> };
+  payload: {
+    templates: Array<{
+      id: string;
+      name: string;
+      description: string;
+      tags: string[];
+      updatedAt: string;
+      objectCount: number;
+      totalRecords: number;
+    }>;
+  };
 }
 
 /** Response for seed template delete. */
@@ -964,13 +974,22 @@ export interface AINL2SOQLResponse extends BaseMessage {
 /** AI error resolution */
 export interface AIResolveErrorRequest extends BaseMessage {
   type: 'ai:resolve-error';
-  payload: { errorMessage: string; errorCode?: string; module: string; context?: Record<string, unknown> };
+  payload: {
+    errorMessage: string;
+    errorCode?: string;
+    module: string;
+    context?: Record<string, unknown>;
+  };
 }
 
 /** Response from AI error resolution with suggested fix */
 export interface AIResolveErrorResponse extends BaseMessage {
   type: 'ai:resolve-error:response';
-  payload: { success: boolean; resolution?: { explanation: string; suggestedFix: string; confidence: number }; error?: string };
+  payload: {
+    success: boolean;
+    resolution?: { explanation: string; suggestedFix: string; confidence: number };
+    error?: string;
+  };
 }
 
 /** AI personas */
@@ -982,7 +1001,11 @@ export interface AIPersonasRequest extends BaseMessage {
 /** Response containing AI persona list or creation result */
 export interface AIPersonasResponse extends BaseMessage {
   type: 'ai:personas:response';
-  payload: { success: boolean; personas?: Array<{ id: string; name: string; description: string }>; error?: string };
+  payload: {
+    success: boolean;
+    personas?: Array<{ id: string; name: string; description: string }>;
+    error?: string;
+  };
 }
 
 /** AI anomaly detection */
@@ -994,7 +1017,11 @@ export interface AIAnomalyScanRequest extends BaseMessage {
 /** Response from AI anomaly scan with detected data anomalies */
 export interface AIAnomalyScanResponse extends BaseMessage {
   type: 'ai:anomaly-scan:response';
-  payload: { success: boolean; anomalies?: Array<{ field: string; type: string; description: string; severity: string }>; error?: string };
+  payload: {
+    success: boolean;
+    anomalies?: Array<{ field: string; type: string; description: string; severity: string }>;
+    error?: string;
+  };
 }
 
 /** AI smart suggestions */
@@ -1006,7 +1033,11 @@ export interface AISuggestionsRequest extends BaseMessage {
 /** Response containing AI-generated smart suggestions for a module */
 export interface AISuggestionsResponse extends BaseMessage {
   type: 'ai:suggestions:response';
-  payload: { success: boolean; suggestions?: Array<{ title: string; description: string; action?: string }>; error?: string };
+  payload: {
+    success: boolean;
+    suggestions?: Array<{ title: string; description: string; action?: string }>;
+    error?: string;
+  };
 }
 
 /** AI pipeline generation */
@@ -1132,7 +1163,12 @@ export interface MigrationImportRequest extends BaseMessage {
 /** Response after importing a migration file with detected format */
 export interface MigrationImportResponse extends BaseMessage {
   type: 'migration:import:response';
-  payload: { success: boolean; config?: Record<string, unknown>; detectedFormat?: string; error?: string };
+  payload: {
+    success: boolean;
+    config?: Record<string, unknown>;
+    detectedFormat?: string;
+    error?: string;
+  };
 }
 
 /** Migration import (SFDMU) */
@@ -1144,7 +1180,12 @@ export interface MigrationImportSfdmuRequest extends BaseMessage {
 /** Response after importing an SFDMU export.json with detected dependencies */
 export interface MigrationImportSfdmuResponse extends BaseMessage {
   type: 'migration:import-sfdmu:response';
-  payload: { success: boolean; config?: Record<string, unknown>; dependencies?: Array<{ from: string; to: string }>; error?: string };
+  payload: {
+    success: boolean;
+    config?: Record<string, unknown>;
+    dependencies?: Array<{ from: string; to: string }>;
+    error?: string;
+  };
 }
 
 /** Pipeline marketplace */
@@ -1158,7 +1199,13 @@ export interface MarketplaceListResponse extends BaseMessage {
   type: 'marketplace:list:response';
   payload: {
     success: boolean;
-    templates?: Array<{ id: string; name: string; description: string; category: string; author: string }>;
+    templates?: Array<{
+      id: string;
+      name: string;
+      description: string;
+      category: string;
+      author: string;
+    }>;
     error?: string;
   };
 }
@@ -1227,7 +1274,9 @@ export interface LiveOperationsUpdated extends BaseMessage {
 export interface ConfigExportRequest extends BaseMessage {
   type: 'config:export';
   payload: {
-    categories: Array<'syncMappings' | 'forgePlans' | 'pipelines' | 'anonymizationTemplates' | 'settings'>;
+    categories: Array<
+      'syncMappings' | 'forgePlans' | 'pipelines' | 'anonymizationTemplates' | 'settings'
+    >;
   };
 }
 
@@ -1317,7 +1366,6 @@ export interface MaskingTemplatesByObjectResponse extends BaseMessage {
     }>;
   };
 }
-
 
 // ─── Monitor Storage / Deployments / API Usage Messages ──────────────────────
 
@@ -1891,7 +1939,12 @@ export interface SyncScheduleListResponse extends BaseMessage {
 /** Request to create or update a sync schedule. */
 export interface SyncScheduleUpsertRequest extends BaseMessage {
   type: 'sync:schedule:upsert';
-  payload: { schedule: Omit<import('./sync.types.js').SyncScheduleEntry, 'nextRunAt' | 'lastRunAt' | 'lastResult'> };
+  payload: {
+    schedule: Omit<
+      import('./sync.types.js').SyncScheduleEntry,
+      'nextRunAt' | 'lastRunAt' | 'lastResult'
+    >;
+  };
 }
 
 /** Response after creating or updating a sync schedule. */
@@ -2012,4 +2065,3 @@ export interface SmartActionAnalyzeResponse extends BaseMessage {
   type: 'smart-action:analyze:response';
   payload: { recommendation: import('./smart-action.types.js').SmartActionRecommendation };
 }
-

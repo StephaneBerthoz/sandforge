@@ -159,9 +159,7 @@ describe('BulkApiExecutor', () => {
 
     it('should return correct success and failure counts', async () => {
       const job = createMockJob({
-        checkResults: [
-          { state: 'JobComplete', numberRecordsProcessed: 3 },
-        ],
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 3 }],
         allResults: [
           { success: true },
           { success: false, errors: ['REQUIRED_FIELD_MISSING'] },
@@ -181,9 +179,7 @@ describe('BulkApiExecutor', () => {
       expect(result.totalRecords).toBe(3);
       expect(result.successCount).toBe(2);
       expect(result.failureCount).toBe(1);
-      expect(result.failures).toEqual([
-        { recordIndex: 1, error: 'REQUIRED_FIELD_MISSING' },
-      ]);
+      expect(result.failures).toEqual([{ recordIndex: 1, error: 'REQUIRED_FIELD_MISSING' }]);
       expect(result.usedBulkApi).toBe(true);
       expect(result.jobId).toBe('test-job-123');
     });
@@ -233,9 +229,7 @@ describe('BulkApiExecutor', () => {
 
     it('should pass externalIdField for upsert operations', async () => {
       const job = createMockJob({
-        checkResults: [
-          { state: 'JobComplete', numberRecordsProcessed: 1 },
-        ],
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 1 }],
       });
       const connection = createMockConnection(job);
       const deps = createDeps(connection);
@@ -260,13 +254,8 @@ describe('BulkApiExecutor', () => {
 
     it('should update BulkApiManager with final state', async () => {
       const job = createMockJob({
-        checkResults: [
-          { state: 'JobComplete', numberRecordsProcessed: 2 },
-        ],
-        allResults: [
-          { success: true },
-          { success: false, errors: ['ERROR'] },
-        ],
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 2 }],
+        allResults: [{ success: true }, { success: false, errors: ['ERROR'] }],
       });
       const connection = createMockConnection(job);
       const manager = new BulkApiManager(5);
@@ -288,9 +277,7 @@ describe('BulkApiExecutor', () => {
 
     it('should return real IDs from getAllResults when records have id field', async () => {
       const job = createMockJob({
-        checkResults: [
-          { state: 'JobComplete', numberRecordsProcessed: 3 },
-        ],
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 3 }],
         allResults: [
           { success: true, id: '001xx000001AAA' },
           { success: true, id: '001xx000001BBB' },
@@ -306,23 +293,14 @@ describe('BulkApiExecutor', () => {
       await vi.runAllTimersAsync();
       const result = await promise;
 
-      expect(result.successIds).toEqual([
-        '001xx000001AAA',
-        '001xx000001BBB',
-        '001xx000001CCC',
-      ]);
+      expect(result.successIds).toEqual(['001xx000001AAA', '001xx000001BBB', '001xx000001CCC']);
       expect(result.successIds).toHaveLength(result.successCount);
     });
 
     it('should fall back to bulk-{jobId}-{i} when id is undefined in results', async () => {
       const job = createMockJob({
-        checkResults: [
-          { state: 'JobComplete', numberRecordsProcessed: 2 },
-        ],
-        allResults: [
-          { success: true },
-          { success: true },
-        ],
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 2 }],
+        allResults: [{ success: true }, { success: true }],
       });
       const connection = createMockConnection(job);
       const deps = createDeps(connection);
@@ -333,18 +311,13 @@ describe('BulkApiExecutor', () => {
       await vi.runAllTimersAsync();
       const result = await promise;
 
-      expect(result.successIds).toEqual([
-        'bulk-test-job-123-0',
-        'bulk-test-job-123-1',
-      ]);
+      expect(result.successIds).toEqual(['bulk-test-job-123-0', 'bulk-test-job-123-1']);
       expect(result.successIds).toHaveLength(result.successCount);
     });
 
     it('should have successIds length matching successCount', async () => {
       const job = createMockJob({
-        checkResults: [
-          { state: 'JobComplete', numberRecordsProcessed: 3 },
-        ],
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 3 }],
         allResults: [
           { success: true, id: '001xx000001AAA' },
           { success: false, errors: ['ERR'] },

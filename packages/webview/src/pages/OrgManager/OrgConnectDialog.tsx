@@ -57,10 +57,11 @@ export const OrgConnectDialog: React.FC<OrgConnectDialogProps> = ({
   const isOAuthWeb = authMethod === 'oauth_web';
   const isNotSupported = authMethod === 'oauth_device' || authMethod === 'jwt';
 
-  const canConnect = isSfdxImport
-    || (isUsernamePassword && alias.trim() && username.trim() && password.trim())
-    || (isOAuthWeb && alias.trim())
-    || isNotSupported;
+  const canConnect =
+    isSfdxImport ||
+    (isUsernamePassword && alias.trim() && username.trim() && password.trim()) ||
+    (isOAuthWeb && alias.trim()) ||
+    isNotSupported;
 
   const handleConnect = useCallback(() => {
     if (!canConnect) return;
@@ -68,9 +69,21 @@ export const OrgConnectDialog: React.FC<OrgConnectDialogProps> = ({
       alias: alias.trim(),
       authMethod,
       loginUrl,
-      ...(isUsernamePassword ? { username: username.trim(), password, securityToken: securityToken.trim() } : {}),
+      ...(isUsernamePassword
+        ? { username: username.trim(), password, securityToken: securityToken.trim() }
+        : {}),
     });
-  }, [alias, authMethod, loginUrl, username, password, securityToken, isUsernamePassword, canConnect, onConnect]);
+  }, [
+    alias,
+    authMethod,
+    loginUrl,
+    username,
+    password,
+    securityToken,
+    isUsernamePassword,
+    canConnect,
+    onConnect,
+  ]);
 
   const handleClose = useCallback(() => {
     setAlias('');
@@ -99,11 +112,7 @@ export const OrgConnectDialog: React.FC<OrgConnectDialogProps> = ({
           <Button variant="secondary" onClick={handleClose}>
             {t('common.cancel')}
           </Button>
-          <Button
-            onClick={handleConnect}
-            loading={isConnecting}
-            disabled={!canConnect}
-          >
+          <Button onClick={handleConnect} loading={isConnecting} disabled={!canConnect}>
             {connectButtonLabel}
           </Button>
         </>

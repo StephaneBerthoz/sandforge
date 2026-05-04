@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 
-import { syncConfigSchema, syncObjectConfigSchema, fieldMappingSchema, transformRuleSchema } from './sync-config.schema.js';
+import {
+  syncConfigSchema,
+  syncObjectConfigSchema,
+  fieldMappingSchema,
+  transformRuleSchema,
+} from './sync-config.schema.js';
 
 const VALID_UUID_A = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const VALID_UUID_B = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
@@ -17,9 +22,7 @@ describe('syncConfigSchema', () => {
         {
           objectApiName: 'Account',
           operation: 'upsert',
-          fieldMappings: [
-            { sourceField: 'Name', targetField: 'Name', type: 'direct' },
-          ],
+          fieldMappings: [{ sourceField: 'Name', targetField: 'Name', type: 'direct' }],
           transformRules: [],
           excludedFields: [],
         },
@@ -109,15 +112,11 @@ describe('syncConfigSchema', () => {
   });
 
   it('should reject empty name', () => {
-    expect(() =>
-      syncConfigSchema.parse({ ...createValidSyncConfig(), name: '' }),
-    ).toThrow();
+    expect(() => syncConfigSchema.parse({ ...createValidSyncConfig(), name: '' })).toThrow();
   });
 
   it('should reject empty objects array', () => {
-    expect(() =>
-      syncConfigSchema.parse({ ...createValidSyncConfig(), objects: [] }),
-    ).toThrow();
+    expect(() => syncConfigSchema.parse({ ...createValidSyncConfig(), objects: [] })).toThrow();
   });
 
   it('should reject missing required fields', () => {

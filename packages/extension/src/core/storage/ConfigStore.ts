@@ -69,7 +69,9 @@ export class ConfigStore {
           result[key] = JSON.parse(entry.value);
         } catch (err: unknown) {
           const msg = extractErrorMessage(err);
-          this.logWarning?.(`[ConfigStore] Corrupted entry in category "${category}", key "${key}": ${msg}`);
+          this.logWarning?.(
+            `[ConfigStore] Corrupted entry in category "${category}", key "${key}": ${msg}`,
+          );
         }
       }
     }

@@ -16,10 +16,7 @@ export interface DescribedField {
 /** Dependencies for ForgeMetadataDiff. */
 export interface MetadataDiffDeps {
   /** Describe an object's fields in a given org. */
-  describeObject: (
-    orgId: string,
-    objectApiName: string,
-  ) => Promise<{ fields: DescribedField[] }>;
+  describeObject: (orgId: string, objectApiName: string) => Promise<{ fields: DescribedField[] }>;
 }
 
 /** A single metadata diff entry. */

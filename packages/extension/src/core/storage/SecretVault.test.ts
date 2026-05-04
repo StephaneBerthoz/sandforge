@@ -176,7 +176,7 @@ describe('SecretVault', () => {
       expect(result).toBeUndefined();
       expect(warn).toHaveBeenCalledOnce();
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('[SecretVault] Failed to parse JSON for key "bad"')
+        expect.stringContaining('[SecretVault] Failed to parse JSON for key "bad"'),
       );
     });
 

@@ -6,10 +6,7 @@ export interface SalesforceRecord {
 }
 
 /** Function signature for fetching records from a Salesforce org */
-export type FetchRecordsFn = (
-  orgId: string,
-  objectName: string
-) => Promise<SalesforceRecord[]>;
+export type FetchRecordsFn = (orgId: string, objectName: string) => Promise<SalesforceRecord[]>;
 
 /**
  * Compares record-level data between two Salesforce orgs.
@@ -31,7 +28,7 @@ export class DataCompare {
     sourceOrgId: string,
     targetOrgId: string,
     objectName: string,
-    matchField: string
+    matchField: string,
   ): Promise<CompareItem[]> {
     const [sourceRecords, targetRecords] = await Promise.all([
       this.fetchRecords(sourceOrgId, objectName),
@@ -49,13 +46,9 @@ export class DataCompare {
       const targetRecord = targetMap.get(key);
 
       if (sourceRecord && !targetRecord) {
-        items.push(
-          createDataItem(objectName, key, 'removed', sourceRecord, undefined)
-        );
+        items.push(createDataItem(objectName, key, 'removed', sourceRecord, undefined));
       } else if (!sourceRecord && targetRecord) {
-        items.push(
-          createDataItem(objectName, key, 'added', undefined, targetRecord)
-        );
+        items.push(createDataItem(objectName, key, 'added', undefined, targetRecord));
       } else if (sourceRecord && targetRecord) {
         const fieldDiffs = computeFieldDiffs(sourceRecord, targetRecord, matchField);
         const status: DiffStatus = fieldDiffs.length > 0 ? 'modified' : 'unchanged';
@@ -74,7 +67,7 @@ export class DataCompare {
 /** Index records by a match field value */
 function indexByField(
   records: SalesforceRecord[],
-  matchField: string
+  matchField: string,
 ): Map<string, SalesforceRecord> {
   const map = new Map<string, SalesforceRecord>();
   for (const record of records) {
@@ -90,7 +83,7 @@ function indexByField(
 function computeFieldDiffs(
   source: SalesforceRecord,
   target: SalesforceRecord,
-  matchField: string
+  matchField: string,
 ): CompareItem['fieldDiffs'] & object {
   const diffs: NonNullable<CompareItem['fieldDiffs']> = [];
   const allFields = new Set([...Object.keys(source), ...Object.keys(target)]);
@@ -108,7 +101,12 @@ function computeFieldDiffs(
     } else if (!(field in target)) {
       diffs.push({ fieldPath: field, sourceValue: sourceVal, targetValue: '', status: 'removed' });
     } else if (sourceVal !== targetVal) {
-      diffs.push({ fieldPath: field, sourceValue: sourceVal, targetValue: targetVal, status: 'modified' });
+      diffs.push({
+        fieldPath: field,
+        sourceValue: sourceVal,
+        targetValue: targetVal,
+        status: 'modified',
+      });
     }
   }
 
@@ -129,7 +127,7 @@ function createDataItem(
   matchKey: string,
   status: DiffStatus,
   source: SalesforceRecord | undefined,
-  target: SalesforceRecord | undefined
+  target: SalesforceRecord | undefined,
 ): CompareItem {
   return {
     componentType: 'CustomObject',

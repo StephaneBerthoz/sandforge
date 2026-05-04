@@ -36,7 +36,7 @@ export class PolymorphicHandler {
   resolve(
     fieldName: string,
     objectType: string,
-    records: Record<string, unknown>[]
+    records: Record<string, unknown>[],
   ): Record<string, unknown>[] {
     const typeFieldName = `${fieldName}Type`;
 

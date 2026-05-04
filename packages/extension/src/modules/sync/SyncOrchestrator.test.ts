@@ -3,9 +3,7 @@ import { SyncOrchestrator } from './SyncOrchestrator';
 import type { SyncOrchestratorDeps } from './SyncOrchestrator';
 import type { SyncConfig, SyncObjectConfig, SyncObjectResult } from '@sandforge/shared';
 
-function createObjectConfig(
-  overrides?: Partial<SyncObjectConfig>
-): SyncObjectConfig {
+function createObjectConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
   return {
     objectApiName: 'Account',
     operation: 'upsert',
@@ -77,7 +75,9 @@ function createMockDeps(): SyncOrchestratorDeps {
       applyAddOns: vi.fn().mockImplementation((record: Record<string, unknown>) => ({ ...record })),
     } as unknown as SyncOrchestratorDeps['fieldMapping'],
     transformPipeline: {
-      transformRecord: vi.fn().mockImplementation((record: Record<string, unknown>) => ({ ...record })),
+      transformRecord: vi
+        .fn()
+        .mockImplementation((record: Record<string, unknown>) => ({ ...record })),
     } as unknown as SyncOrchestratorDeps['transformPipeline'],
     migrationScript: {
       execute: vi.fn().mockResolvedValue({ success: true, output: '', errors: [] }),
@@ -105,9 +105,12 @@ describe('SyncOrchestrator', () => {
     it('should query source records for each object', async () => {
       await orchestrator.execute(createConfig());
 
-      expect(deps.querySource).toHaveBeenCalledWith('src-org', expect.objectContaining({
-        objectApiName: 'Account',
-      }));
+      expect(deps.querySource).toHaveBeenCalledWith(
+        'src-org',
+        expect.objectContaining({
+          objectApiName: 'Account',
+        }),
+      );
     });
 
     it('should apply field mappings to source records', async () => {
@@ -139,10 +142,7 @@ describe('SyncOrchestrator', () => {
 
       await orchestrator.execute(config);
 
-      expect(deps.migrationScript.execute).toHaveBeenCalledWith(
-        'System.debug("pre");',
-        'src-org'
-      );
+      expect(deps.migrationScript.execute).toHaveBeenCalledWith('System.debug("pre");', 'src-org');
     });
 
     it('should execute postScript after syncing objects', async () => {
@@ -150,10 +150,7 @@ describe('SyncOrchestrator', () => {
 
       await orchestrator.execute(config);
 
-      expect(deps.migrationScript.execute).toHaveBeenCalledWith(
-        'System.debug("post");',
-        'tgt-org'
-      );
+      expect(deps.migrationScript.execute).toHaveBeenCalledWith('System.debug("post");', 'tgt-org');
     });
 
     it('should return failure status when preScript fails', async () => {
@@ -163,9 +160,7 @@ describe('SyncOrchestrator', () => {
         errors: ['Compilation error'],
       });
 
-      const result = await orchestrator.execute(
-        createConfig({ preScript: 'bad code;' })
-      );
+      const result = await orchestrator.execute(createConfig({ preScript: 'bad code;' }));
 
       expect(result.status).toBe('failure');
     });
@@ -191,7 +186,7 @@ describe('SyncOrchestrator', () => {
       expect(deps.incrementalTracker.recordSync).toHaveBeenCalledWith(
         'config-1',
         'Account',
-        expect.any(String)
+        expect.any(String),
       );
     });
 

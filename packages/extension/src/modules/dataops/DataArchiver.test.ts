@@ -48,13 +48,7 @@ describe('DataArchiver', () => {
       const queryFn = vi.fn().mockRejectedValue(new Error('Query error'));
       const deleteFn = vi.fn();
 
-      const result = await archiver.archive(
-        'org-1',
-        'Account',
-        'bad query',
-        queryFn,
-        deleteFn,
-      );
+      const result = await archiver.archive('org-1', 'Account', 'bad query', queryFn, deleteFn);
 
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('ARCHIVE_QUERY_FAILED');

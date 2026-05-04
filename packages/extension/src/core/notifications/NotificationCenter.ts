@@ -57,7 +57,7 @@ export class NotificationCenter {
     options?: {
       actions?: NotificationAction[];
       autoDismissMs?: number;
-    }
+    },
   ): Notification {
     const notification: Notification = {
       id: `notif-${++NotificationCenter.idCounter}`,

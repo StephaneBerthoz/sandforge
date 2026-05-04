@@ -22,10 +22,7 @@ export class ConfigCompare {
    * Compare configuration between source and target orgs.
    * Returns a list of diff items representing configuration differences.
    */
-  async compare(
-    sourceOrgId: string,
-    targetOrgId: string
-  ): Promise<CompareItem[]> {
+  async compare(sourceOrgId: string, targetOrgId: string): Promise<CompareItem[]> {
     const [sourceConfig, targetConfig] = await Promise.all([
       this.fetchConfig(sourceOrgId),
       this.fetchConfig(targetOrgId),

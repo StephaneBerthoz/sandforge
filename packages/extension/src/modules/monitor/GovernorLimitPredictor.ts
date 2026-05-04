@@ -34,9 +34,7 @@ export class GovernorLimitPredictor {
     }
 
     const limitNames = getLimitNames(snapshots);
-    return limitNames.map((name) =>
-      this.predictLimit(snapshots, name)
-    );
+    return limitNames.map((name) => this.predictLimit(snapshots, name));
   }
 
   /** Generate a prediction for a single named limit */
@@ -44,9 +42,7 @@ export class GovernorLimitPredictor {
     const dataPoints = extractDataPoints(snapshots, limitName);
 
     if (dataPoints.length < MIN_DATA_POINTS) {
-      const currentPercent = dataPoints.length > 0
-        ? dataPoints[dataPoints.length - 1].value
-        : 0;
+      const currentPercent = dataPoints.length > 0 ? dataPoints[dataPoints.length - 1].value : 0;
       return {
         limitName,
         currentPercent,
@@ -58,10 +54,7 @@ export class GovernorLimitPredictor {
 
     const regression = linearRegression(dataPoints);
     const currentPercent = dataPoints[dataPoints.length - 1].value;
-    const predictedPercent = Math.max(
-      0,
-      Math.min(100, currentPercent + regression.slope * 10)
-    );
+    const predictedPercent = Math.max(0, Math.min(100, currentPercent + regression.slope * 10));
 
     const trend = classifyTrend(regression.slope);
     const confidence = computeConfidence(dataPoints, regression);
@@ -89,10 +82,7 @@ interface DataPoint {
 }
 
 /** Extract time-indexed data points for a specific limit */
-function extractDataPoints(
-  snapshots: LimitsSnapshot[],
-  limitName: string
-): DataPoint[] {
+function extractDataPoints(snapshots: LimitsSnapshot[], limitName: string): DataPoint[] {
   const points: DataPoint[] = [];
 
   for (let i = 0; i < snapshots.length; i++) {
@@ -159,10 +149,7 @@ function classifyTrend(slope: number): 'increasing' | 'stable' | 'decreasing' {
 }
 
 /** Compute R-squared confidence value (0-1) */
-function computeConfidence(
-  points: DataPoint[],
-  regression: RegressionResult
-): number {
+function computeConfidence(points: DataPoint[], regression: RegressionResult): number {
   if (points.length < MIN_DATA_POINTS) {
     return 0;
   }

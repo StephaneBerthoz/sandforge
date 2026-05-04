@@ -38,13 +38,12 @@ export const AIPage: React.FC = () => {
   );
 
   // Listen for AI responses
-  useMessageListener<BaseMessage & { payload: { conversationId: string; message: ChatMessageDisplay } }>(
-    'ai:chat:response',
-    (msg) => {
-      setMessages((prev) => [...prev, msg.payload.message]);
-      setIsLoading(false);
-    },
-  );
+  useMessageListener<
+    BaseMessage & { payload: { conversationId: string; message: ChatMessageDisplay } }
+  >('ai:chat:response', (msg) => {
+    setMessages((prev) => [...prev, msg.payload.message]);
+    setIsLoading(false);
+  });
 
   useMessageListener<BaseMessage & { payload: { conversation: ConversationSummary } }>(
     'ai:conversation:created',
@@ -60,20 +59,18 @@ export const AIPage: React.FC = () => {
     },
   );
 
-  useMessageListener<BaseMessage & { payload: { message: string } }>(
-    'ai:error',
-    () => {
-      setIsLoading(false);
-    },
-  );
+  useMessageListener<BaseMessage & { payload: { message: string } }>('ai:error', () => {
+    setIsLoading(false);
+  });
 
   // Listen for conversation loaded with messages
-  useMessageListener<BaseMessage & { payload: { conversation: { id: string; title: string; messages: ChatMessageDisplay[] } } }>(
-    'ai:conversation:loaded',
-    (msg) => {
-      setMessages(msg.payload.conversation.messages);
-    },
-  );
+  useMessageListener<
+    BaseMessage & {
+      payload: { conversation: { id: string; title: string; messages: ChatMessageDisplay[] } };
+    }
+  >('ai:conversation:loaded', (msg) => {
+    setMessages(msg.payload.conversation.messages);
+  });
 
   const handleSendMessage = useCallback(
     (conversationId: string, message: string) => {
@@ -108,9 +105,7 @@ export const AIPage: React.FC = () => {
       setConversations((prev) => [...prev, localConv]);
       setActiveConversationId(localConv.id);
       setMessages([]);
-      sendMessage(
-        buildMessage<{ title: string }>('ai:conversation:create', { title }),
-      );
+      sendMessage(buildMessage<{ title: string }>('ai:conversation:create', { title }));
     },
     [localIdCounter, sendMessage],
   );
@@ -153,12 +148,26 @@ export const AIPage: React.FC = () => {
           <EmptyState
             icon={
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-                <circle cx="24" cy="24" r="20" stroke="var(--vscode-descriptionForeground, #868686)" strokeWidth="1.5" strokeDasharray="4 4" />
-                <path d="M24 14l2 6h6l-5 4 2 6-5-4-5 4 2-6-5-4h6l2-6z" fill="var(--vscode-descriptionForeground, #868686)" fillOpacity="0.3" />
+                <circle
+                  cx="24"
+                  cy="24"
+                  r="20"
+                  stroke="var(--vscode-descriptionForeground, #868686)"
+                  strokeWidth="1.5"
+                  strokeDasharray="4 4"
+                />
+                <path
+                  d="M24 14l2 6h6l-5 4 2 6-5-4-5 4 2-6-5-4h6l2-6z"
+                  fill="var(--vscode-descriptionForeground, #868686)"
+                  fillOpacity="0.3"
+                />
               </svg>
             }
             title={t('ai.notConfigured.title', 'AI Assistant Not Configured')}
-            description={t('ai.notConfigured.description', 'To use AI features, configure your API key in Settings.')}
+            description={t(
+              'ai.notConfigured.description',
+              'To use AI features, configure your API key in Settings.',
+            )}
             actionLabel={t('ai.notConfigured.configureButton', 'Go to Settings')}
             onAction={() => navigate('settings')}
           />

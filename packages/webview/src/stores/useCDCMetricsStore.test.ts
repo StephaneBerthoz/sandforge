@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RealTimeSyncMetrics } from '@sandforge/shared';
-import { useCDCMetricsStore, getEventsPerSecondHistory, getLagHistory, getUptimeSeconds } from './useCDCMetricsStore';
+import {
+  useCDCMetricsStore,
+  getEventsPerSecondHistory,
+  getLagHistory,
+  getUptimeSeconds,
+} from './useCDCMetricsStore';
 
 vi.mock('../hooks/useVSCodeApi', () => ({
   getVscodeApi: () => ({

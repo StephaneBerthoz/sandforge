@@ -10,20 +10,26 @@ vi.mock('react-i18next', () => ({
 }));
 
 /* Mock framer-motion to render plain elements in tests */
-const MOTION_KEYS = new Set(['variants', 'initial', 'animate', 'whileHover', 'whileTap', 'transition', 'exit']);
+const MOTION_KEYS = new Set([
+  'variants',
+  'initial',
+  'animate',
+  'whileHover',
+  'whileTap',
+  'transition',
+  'exit',
+]);
 
 vi.mock('framer-motion', async () => {
   const React = await import('react');
   const makeMotion = <E extends keyof HTMLElementTagNameMap>(tag: E) =>
-    React.forwardRef<HTMLElementTagNameMap[E], Record<string, unknown>>(
-      (props, ref) => {
-        const filtered: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(props)) {
-          if (!MOTION_KEYS.has(k)) filtered[k] = v;
-        }
-        return React.createElement(tag, { ...filtered, ref });
-      },
-    );
+    React.forwardRef<HTMLElementTagNameMap[E], Record<string, unknown>>((props, ref) => {
+      const filtered: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(props)) {
+        if (!MOTION_KEYS.has(k)) filtered[k] = v;
+      }
+      return React.createElement(tag, { ...filtered, ref });
+    });
   return {
     motion: {
       div: makeMotion('div'),
@@ -98,15 +104,18 @@ describe('DataTable', () => {
 
   it('should render empty message when data is empty', () => {
     render(
-      <DataTable columns={columns} data={[]} keyExtractor={keyExtractor} emptyMessage="Nothing here" />,
+      <DataTable
+        columns={columns}
+        data={[]}
+        keyExtractor={keyExtractor}
+        emptyMessage="Nothing here"
+      />,
     );
     expect(screen.getByText('Nothing here')).toBeDefined();
   });
 
   it('should render default empty message when no emptyMessage prop', () => {
-    render(
-      <DataTable columns={columns} data={[]} keyExtractor={keyExtractor} />,
-    );
+    render(<DataTable columns={columns} data={[]} keyExtractor={keyExtractor} />);
     expect(screen.getByText('No data available')).toBeDefined();
   });
 
@@ -170,22 +179,20 @@ describe('DataTable', () => {
         render: (row) => <strong data-testid="custom-cell">{row.name}</strong>,
       },
     ];
-    render(
-      <DataTable columns={customColumns} data={data} keyExtractor={keyExtractor} />,
-    );
+    render(<DataTable columns={customColumns} data={data} keyExtractor={keyExtractor} />);
     const customCells = screen.getAllByTestId('custom-cell');
     expect(customCells).toHaveLength(3);
     expect(customCells[0].textContent).toBe('Alpha');
   });
 
   it('should apply striped class on odd rows when striped is true', () => {
-    render(
-      <DataTable columns={columns} data={data} keyExtractor={keyExtractor} striped />,
-    );
+    render(<DataTable columns={columns} data={data} keyExtractor={keyExtractor} striped />);
     // Second row (index 1) should have the striped class
     expect(screen.getByTestId('table-row-1').className).toContain('bg-[var(--sf-bg-secondary)]');
     // First row (index 0) should not
-    expect(screen.getByTestId('table-row-0').className).not.toContain('bg-[var(--sf-bg-secondary)]');
+    expect(screen.getByTestId('table-row-0').className).not.toContain(
+      'bg-[var(--sf-bg-secondary)]',
+    );
   });
 
   it('should set aria-sort on sorted column header', () => {
@@ -303,24 +310,13 @@ describe('DataTable - Virtual Scrolling', () => {
 
   it('should have a virtual scroll container in virtual mode', () => {
     render(
-      <DataTable
-        columns={columns}
-        data={data}
-        keyExtractor={keyExtractor}
-        enableVirtualization
-      />,
+      <DataTable columns={columns} data={data} keyExtractor={keyExtractor} enableVirtualization />,
     );
     expect(screen.getByTestId('virtual-scroll-container')).toBeDefined();
   });
 
   it('should not have a virtual scroll container in non-virtual mode', () => {
-    render(
-      <DataTable
-        columns={columns}
-        data={data}
-        keyExtractor={keyExtractor}
-      />,
-    );
+    render(<DataTable columns={columns} data={data} keyExtractor={keyExtractor} />);
     expect(screen.queryByTestId('virtual-scroll-container')).toBeNull();
   });
 
@@ -393,12 +389,7 @@ describe('DataTable - Virtual Scrolling', () => {
 
   it('should apply absolute positioning on virtual rows', () => {
     render(
-      <DataTable
-        columns={columns}
-        data={data}
-        keyExtractor={keyExtractor}
-        enableVirtualization
-      />,
+      <DataTable columns={columns} data={data} keyExtractor={keyExtractor} enableVirtualization />,
     );
     const row0 = screen.getByTestId('table-row-0');
     expect(row0.style.position).toBe('absolute');

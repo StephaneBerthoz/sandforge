@@ -63,7 +63,10 @@ export const PermissionMatrix: React.FC<PermissionMatrixProps> = ({
 
   return (
     <Card className={className}>
-      <CardHeader title={t('compare.permissions')} subtitle={t('common.objectCount', { count: filteredRows.length })} />
+      <CardHeader
+        title={t('compare.permissions')}
+        subtitle={t('common.objectCount', { count: filteredRows.length })}
+      />
       <CardBody className="overflow-x-auto max-h-80">
         {/* Filter input */}
         {rows.length > 0 && (
@@ -94,11 +97,21 @@ export const PermissionMatrix: React.FC<PermissionMatrixProps> = ({
             <thead>
               {/* Profile/role column grouping headers */}
               <tr className="text-[var(--vscode-descriptionForeground,#868686)] border-b border-[var(--vscode-panel-border,#3c3c3c)]">
-                <th className="pb-2 pr-3 text-left font-medium" rowSpan={2}>{t('common.object')}</th>
-                <th className="pb-1 text-center font-medium border-b border-[var(--vscode-panel-border,#3c3c3c)]" colSpan={4} data-testid="perm-group-source">
+                <th className="pb-2 pr-3 text-left font-medium" rowSpan={2}>
+                  {t('common.object')}
+                </th>
+                <th
+                  className="pb-1 text-center font-medium border-b border-[var(--vscode-panel-border,#3c3c3c)]"
+                  colSpan={4}
+                  data-testid="perm-group-source"
+                >
                   {sourceLabel}
                 </th>
-                <th className="pb-1 text-center font-medium border-b border-[var(--vscode-panel-border,#3c3c3c)]" colSpan={4} data-testid="perm-group-target">
+                <th
+                  className="pb-1 text-center font-medium border-b border-[var(--vscode-panel-border,#3c3c3c)]"
+                  colSpan={4}
+                  data-testid="perm-group-target"
+                >
                   {targetLabel}
                 </th>
               </tr>
@@ -127,18 +140,12 @@ export const PermissionMatrix: React.FC<PermissionMatrixProps> = ({
                   </td>
                   {crudKeys.map((k) => (
                     <td key={`src-${k}`} className="py-1 text-center">
-                      <PermCell
-                        allowed={row.source[k]}
-                        differs={row.source[k] !== row.target[k]}
-                      />
+                      <PermCell allowed={row.source[k]} differs={row.source[k] !== row.target[k]} />
                     </td>
                   ))}
                   {crudKeys.map((k) => (
                     <td key={`tgt-${k}`} className="py-1 text-center">
-                      <PermCell
-                        allowed={row.target[k]}
-                        differs={row.source[k] !== row.target[k]}
-                      />
+                      <PermCell allowed={row.target[k]} differs={row.source[k] !== row.target[k]} />
                     </td>
                   ))}
                 </tr>

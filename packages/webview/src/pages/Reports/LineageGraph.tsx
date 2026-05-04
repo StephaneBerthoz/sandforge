@@ -35,7 +35,12 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
       destination: 3,
     };
 
-    const columnCounts: Record<string, number> = { source: 0, transform: 0, filter: 0, destination: 0 };
+    const columnCounts: Record<string, number> = {
+      source: 0,
+      transform: 0,
+      filter: 0,
+      destination: 0,
+    };
 
     const flowNodes: Node[] = lineage.nodes.map((node) => {
       const col = columnMap[node.type] ?? 1;
@@ -64,7 +69,11 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
       id: `ledge-${i}`,
       source: edge.sourceId,
       target: edge.targetId,
-      label: edge.label ?? (edge.recordCount ? `${edge.recordCount} ${edge.recordCount === 1 ? 'record' : 'records'}` : undefined),
+      label:
+        edge.label ??
+        (edge.recordCount
+          ? `${edge.recordCount} ${edge.recordCount === 1 ? 'record' : 'records'}`
+          : undefined),
       style: { stroke: 'var(--vscode-panel-border, #3c3c3c)' },
       labelStyle: { fontSize: 9, fill: 'var(--vscode-descriptionForeground, #868686)' },
     }));
@@ -92,14 +101,29 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
 
               {/* Stats */}
               <div className="flex gap-3 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-                <span>{lineage.nodes.length} {t('reports.nodes').toLowerCase()}</span>
-                <span>{lineage.edges.length} {t('reports.edges').toLowerCase()}</span>
+                <span>
+                  {lineage.nodes.length} {t('reports.nodes').toLowerCase()}
+                </span>
+                <span>
+                  {lineage.edges.length} {t('reports.edges').toLowerCase()}
+                </span>
               </div>
 
               {/* React Flow graph */}
               {nodes.length > 0 && (
                 <div
-                  style={{ width: '100%', height: Math.max(250, Math.max(...Object.values({ source: 0, transform: 0, filter: 0, destination: 0 })) * 90 + 100, nodes.length * 40) }}
+                  style={{
+                    width: '100%',
+                    height: Math.max(
+                      250,
+                      Math.max(
+                        ...Object.values({ source: 0, transform: 0, filter: 0, destination: 0 }),
+                      ) *
+                        90 +
+                        100,
+                      nodes.length * 40,
+                    ),
+                  }}
                   className={cn('border border-[var(--vscode-panel-border,#3c3c3c)] rounded')}
                   data-testid="lineage-flow"
                 >

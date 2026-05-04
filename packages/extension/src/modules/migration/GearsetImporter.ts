@@ -1,9 +1,5 @@
 import { z } from 'zod';
-import type {
-  CompareConfig,
-  CompareMode,
-  MetadataComponentType,
-} from '@sandforge/shared';
+import type { CompareConfig, CompareMode, MetadataComponentType } from '@sandforge/shared';
 
 // ── Gearset Report Zod Schemas ────────────────────────────
 
@@ -193,12 +189,8 @@ function mapComponentType(gearsetType: string): MetadataComponentType {
  * @returns Most appropriate CompareMode
  */
 function determineMode(types: MetadataComponentType[]): CompareMode {
-  const hasPermissions = types.some(
-    (t) => t === 'Profile' || t === 'PermissionSet'
-  );
-  const hasMetadata = types.some(
-    (t) => t !== 'Profile' && t !== 'PermissionSet'
-  );
+  const hasPermissions = types.some((t) => t === 'Profile' || t === 'PermissionSet');
+  const hasMetadata = types.some((t) => t !== 'Profile' && t !== 'PermissionSet');
 
   if (hasPermissions && hasMetadata) {
     return 'full';

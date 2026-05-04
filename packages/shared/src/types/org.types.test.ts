@@ -1,12 +1,7 @@
 import { describe, it, expect } from 'vitest';
 
 import { OrgSafetyTier } from './org.types.js';
-import type {
-  SalesforceOrg,
-  HealthProbeResult,
-  OrgAppearance,
-  OrgMetadata,
-} from './org.types.js';
+import type { SalesforceOrg, HealthProbeResult, OrgAppearance, OrgMetadata } from './org.types.js';
 
 describe('OrgSafetyTier', () => {
   it('should expose all four safety tiers with correct values', () => {
@@ -19,16 +14,12 @@ describe('OrgSafetyTier', () => {
   it('should have exactly four members', () => {
     const values = Object.values(OrgSafetyTier);
     expect(values).toHaveLength(4);
-    expect(values).toEqual(
-      expect.arrayContaining(['critical', 'high', 'medium', 'low']),
-    );
+    expect(values).toEqual(expect.arrayContaining(['critical', 'high', 'medium', 'low']));
   });
 });
 
 describe('SalesforceOrg', () => {
-  function createSalesforceOrg(
-    overrides: Partial<SalesforceOrg> = {},
-  ): SalesforceOrg {
+  function createSalesforceOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
     const appearance: OrgAppearance = {
       color: '#FF5733',
       icon: 'cloud',
@@ -99,9 +90,7 @@ describe('SalesforceOrg', () => {
 });
 
 describe('HealthProbeResult', () => {
-  function createHealthProbe(
-    overrides: Partial<HealthProbeResult> = {},
-  ): HealthProbeResult {
+  function createHealthProbe(overrides: Partial<HealthProbeResult> = {}): HealthProbeResult {
     return {
       orgId: '00D000000000001',
       healthy: true,

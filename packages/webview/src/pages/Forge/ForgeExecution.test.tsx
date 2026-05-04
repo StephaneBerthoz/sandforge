@@ -98,10 +98,15 @@ vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
     (selector: (state: Record<string, unknown>) => unknown) =>
       selector({
-        get graph() { return mockGraph; },
+        get graph() {
+          return mockGraph;
+        },
         updateNodeStatus: mockUpdateNodeStatus,
         setPhase: mockSetPhase,
-        addLog: (...args: unknown[]) => { mockAddLog(...args); mockStoreLogs.push(args[0]); },
+        addLog: (...args: unknown[]) => {
+          mockAddLog(...args);
+          mockStoreLogs.push(args[0]);
+        },
         clearLogs: mockClearLogs,
         logs: mockStoreLogs,
       }),
@@ -121,7 +126,9 @@ vi.mock('../../stores/useForgeStore', () => {
 
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: ({ className }: { className?: string }) => (
-    <div data-testid="live-graph" className={className}>LiveGraph mock</div>
+    <div data-testid="live-graph" className={className}>
+      LiveGraph mock
+    </div>
   ),
 }));
 
@@ -290,7 +297,13 @@ describe('ForgeExecution', () => {
     act(() => {
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: { type: 'forge:progress', objectName: 'Account', status: 'running', progress: 50, message: 'Processing Account' },
+          data: {
+            type: 'forge:progress',
+            objectName: 'Account',
+            status: 'running',
+            progress: 50,
+            message: 'Processing Account',
+          },
         }),
       );
     });

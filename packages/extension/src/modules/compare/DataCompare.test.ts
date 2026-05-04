@@ -127,9 +127,7 @@ describe('DataCompare', () => {
     });
 
     it('should skip records with empty match field values', async () => {
-      vi.mocked(fetchRecords).mockResolvedValue([
-        { ExternalId__c: '', Name: 'No Key' },
-      ]);
+      vi.mocked(fetchRecords).mockResolvedValue([{ ExternalId__c: '', Name: 'No Key' }]);
 
       const items = await dataCompare.compare('org-1', 'org-2', 'Account', 'ExternalId__c');
 
@@ -179,7 +177,7 @@ describe('DataCompare', () => {
       vi.mocked(fetchRecords).mockRejectedValue(new Error('Query failed'));
 
       await expect(
-        dataCompare.compare('org-1', 'org-2', 'Account', 'ExternalId__c')
+        dataCompare.compare('org-1', 'org-2', 'Account', 'ExternalId__c'),
       ).rejects.toThrow('Query failed');
     });
   });

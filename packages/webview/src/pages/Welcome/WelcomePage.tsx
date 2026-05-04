@@ -16,12 +16,32 @@ interface ModuleCard {
 }
 
 const MODULES: ModuleCard[] = [
-  { id: 'monitor', icon: '\uD83D\uDCCA', titleKey: 'nav.monitor', descKey: 'onboarding.modules.monitor' },
+  {
+    id: 'monitor',
+    icon: '\uD83D\uDCCA',
+    titleKey: 'nav.monitor',
+    descKey: 'onboarding.modules.monitor',
+  },
   { id: 'seed', icon: '\uD83C\uDF31', titleKey: 'nav.seed', descKey: 'onboarding.modules.seed' },
   { id: 'sync', icon: '\uD83D\uDD04', titleKey: 'nav.sync', descKey: 'onboarding.modules.sync' },
-  { id: 'compare', icon: '\uD83D\uDD0D', titleKey: 'nav.compare', descKey: 'onboarding.modules.compare' },
-  { id: 'dataops', icon: '\uD83D\uDEE1', titleKey: 'nav.dataops', descKey: 'onboarding.modules.dataops' },
-  { id: 'automation', icon: '\u26A1', titleKey: 'nav.automation', descKey: 'onboarding.modules.automation' },
+  {
+    id: 'compare',
+    icon: '\uD83D\uDD0D',
+    titleKey: 'nav.compare',
+    descKey: 'onboarding.modules.compare',
+  },
+  {
+    id: 'dataops',
+    icon: '\uD83D\uDEE1',
+    titleKey: 'nav.dataops',
+    descKey: 'onboarding.modules.dataops',
+  },
+  {
+    id: 'automation',
+    icon: '\u26A1',
+    titleKey: 'nav.automation',
+    descKey: 'onboarding.modules.automation',
+  },
 ];
 
 /** Supported language options for the Bienvenue step. */
@@ -92,9 +112,12 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
     navigate('settings');
   }, [dontShowAgain, onComplete, navigate]);
 
-  const handleLanguageChange = useCallback((code: string): void => {
-    void i18n.changeLanguage(code);
-  }, [i18n]);
+  const handleLanguageChange = useCallback(
+    (code: string): void => {
+      void i18n.changeLanguage(code);
+    },
+    [i18n],
+  );
 
   const progressPercent = ((step + 1) / TOTAL_STEPS) * 100;
 
@@ -126,16 +149,10 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
 
       {/* Header */}
       <div className="text-center mb-8">
-        <h1
-          className="text-3xl font-bold mb-2"
-          style={{ color: 'var(--sf-accent, #E8A838)' }}
-        >
+        <h1 className="text-3xl font-bold mb-2" style={{ color: 'var(--sf-accent, #E8A838)' }}>
           {t('onboarding.welcomeTitle')}
         </h1>
-        <p
-          className="text-base"
-          style={{ color: 'var(--sf-text-secondary, #868686)' }}
-        >
+        <p className="text-base" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
           {t('onboarding.welcomeSubtitle')}
         </p>
       </div>
@@ -152,16 +169,10 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
             >
               {t('onboarding.bienvenueTitle')}
             </h2>
-            <p
-              className="mb-2"
-              style={{ color: 'var(--sf-text-secondary, #868686)' }}
-            >
+            <p className="mb-2" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
               {t('onboarding.bienvenueDesc')}
             </p>
-            <p
-              className="text-xs mb-6"
-              style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}
-            >
+            <p className="text-xs mb-6" style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}>
               {t('onboarding.bienvenueTagline')}
             </p>
             <div className="mb-4">
@@ -198,10 +209,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
             >
               {t('onboarding.step1Title')}
             </h2>
-            <p
-              className="mb-6"
-              style={{ color: 'var(--sf-text-secondary, #868686)' }}
-            >
+            <p className="mb-6" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
               {t('onboarding.step1Desc')}
             </p>
             <div className="flex gap-3 justify-center">
@@ -238,10 +246,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
                     >
                       {t(mod.titleKey)}
                     </h3>
-                    <p
-                      className="text-xs"
-                      style={{ color: 'var(--sf-text-secondary, #868686)' }}
-                    >
+                    <p className="text-xs" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
                       {t(mod.descKey)}
                     </p>
                   </CardBody>
@@ -261,16 +266,10 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
             >
               {t('onboarding.step3Title')}
             </h2>
-            <p
-              className="mb-6"
-              style={{ color: 'var(--sf-text-secondary, #868686)' }}
-            >
+            <p className="mb-6" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
               {t('onboarding.step3Desc')}
             </p>
-            <p
-              className="text-xs mb-6"
-              style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}
-            >
+            <p className="text-xs mb-6" style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}>
               {t('onboarding.aiOptional')}
             </p>
           </div>
@@ -286,10 +285,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
             >
               {t('onboarding.step4Title')}
             </h2>
-            <p
-              className="mb-4"
-              style={{ color: 'var(--sf-text-secondary, #868686)' }}
-            >
+            <p className="mb-4" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
               {t('onboarding.step4Desc')}
             </p>
             <p
@@ -383,9 +379,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
               width: step === i ? '24px' : '8px',
               height: '8px',
               background:
-                step === i
-                  ? 'var(--sf-accent, #E8A838)'
-                  : 'var(--sf-text-muted, #6a6a6a)',
+                step === i ? 'var(--sf-accent, #E8A838)' : 'var(--sf-text-muted, #6a6a6a)',
             }}
           />
         ))}

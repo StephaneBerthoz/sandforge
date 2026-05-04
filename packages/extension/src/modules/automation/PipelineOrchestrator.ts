@@ -14,17 +14,10 @@ import type { PipelineHistory } from './PipelineHistory';
 import type { CoreServices } from '../../services.js';
 
 /** Events emitted by the PipelineOrchestrator */
-export type PipelineEvent =
-  | 'started'
-  | 'stepCompleted'
-  | 'completed'
-  | 'failed';
+export type PipelineEvent = 'started' | 'stepCompleted' | 'completed' | 'failed';
 
 /** Handler function for pipeline events */
-export type PipelineEventHandler = (
-  event: PipelineEvent,
-  data: unknown
-) => void;
+export type PipelineEventHandler = (event: PipelineEvent, data: unknown) => void;
 
 /** Dependencies required by the PipelineOrchestrator */
 export interface PipelineOrchestratorDependencies {
@@ -79,7 +72,7 @@ export class PipelineOrchestrator {
   async execute(
     pipeline: PipelineDefinition,
     variables: Record<string, string>,
-    triggeredBy: TriggerType
+    triggeredBy: TriggerType,
   ): Promise<PipelineRun> {
     const errors = this.deps.builder.validate(pipeline);
     if (errors.length > 0) {
@@ -111,10 +104,7 @@ export class PipelineOrchestrator {
 
       if (step.condition) {
         const conditionContext: Record<string, unknown> = { ...variables };
-        const conditionMet = this.deps.conditionalRouter.evaluate(
-          step.condition,
-          conditionContext
-        );
+        const conditionMet = this.deps.conditionalRouter.evaluate(step.condition, conditionContext);
         if (!conditionMet) {
           const skippedResult: PipelineStepResult = {
             stepId: step.id,
@@ -167,8 +157,7 @@ export class PipelineOrchestrator {
     }
 
     run.endTime = new Date().toISOString();
-    run.duration =
-      new Date(run.endTime).getTime() - new Date(run.startTime).getTime();
+    run.duration = new Date(run.endTime).getTime() - new Date(run.startTime).getTime();
 
     this.activeRuns.delete(run.id);
     this.pausedRuns.delete(run.id);
@@ -282,7 +271,7 @@ export class PipelineOrchestrator {
   private createRun(
     pipeline: PipelineDefinition,
     variables: Record<string, string>,
-    triggeredBy: TriggerType
+    triggeredBy: TriggerType,
   ): PipelineRun {
     return {
       id: generateId(),

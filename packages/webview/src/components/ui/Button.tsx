@@ -11,11 +11,19 @@ export type ButtonSize = 'sm' | 'md' | 'lg';
 
 /** Props omitted to avoid Framer Motion event-handler type conflicts. */
 type MotionEventConflicts =
-  | 'onDrag' | 'onDragStart' | 'onDragEnd' | 'onDragOver'
-  | 'onAnimationStart' | 'onAnimationEnd' | 'onAnimationIteration';
+  | 'onDrag'
+  | 'onDragStart'
+  | 'onDragEnd'
+  | 'onDragOver'
+  | 'onAnimationStart'
+  | 'onAnimationEnd'
+  | 'onAnimationIteration';
 
 /** Button component props. */
-export interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, MotionEventConflicts> {
+export interface ButtonProps extends Omit<
+  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  MotionEventConflicts
+> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   loading?: boolean;
@@ -29,8 +37,7 @@ const variantClasses: Record<ButtonVariant, string> = {
     'bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] hover:bg-[var(--vscode-button-secondaryHoverBackground,#45494e)]',
   ghost:
     'bg-transparent text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
-  danger:
-    'bg-[var(--vscode-errorForeground,#f48771)] text-white hover:opacity-90',
+  danger: 'bg-[var(--vscode-errorForeground,#f48771)] text-white hover:opacity-90',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
@@ -41,7 +48,10 @@ const sizeClasses: Record<ButtonSize, string> = {
 
 /** Styled button component matching VSCode theme. */
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', loading, icon, className, children, disabled, ...props }, ref) => {
+  (
+    { variant = 'primary', size = 'md', loading, icon, className, children, disabled, ...props },
+    ref,
+  ) => {
     return (
       <motion.button
         ref={ref}
@@ -58,7 +68,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
       >
         {loading ? (
-          <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full" role="status" />
+          <span
+            className="animate-spin inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full"
+            role="status"
+          />
         ) : icon ? (
           <span className="shrink-0">{icon}</span>
         ) : null}

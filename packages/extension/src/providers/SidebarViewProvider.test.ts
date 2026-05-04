@@ -45,7 +45,9 @@ describe('SidebarViewProvider', () => {
   it('enables scripts and sets local resource roots', () => {
     provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
     expect((mockWebview.options as Record<string, unknown>).enableScripts).toBe(true);
-    expect((mockWebview.options as Record<string, unknown>).localResourceRoots).toEqual([extensionUri]);
+    expect((mockWebview.options as Record<string, unknown>).localResourceRoots).toEqual([
+      extensionUri,
+    ]);
   });
 
   it('executes correct command on sidebar:navigate message', () => {

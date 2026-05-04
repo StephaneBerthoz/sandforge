@@ -1,7 +1,9 @@
 import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
 import type {
-  AIAnomalyScanRequest, AISuggestionsRequest, AISchemaAdviceRequest,
+  AIAnomalyScanRequest,
+  AISuggestionsRequest,
+  AISchemaAdviceRequest,
 } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
@@ -11,11 +13,7 @@ import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.
 import { queryWithFieldsFallback } from '../../../core/common/soqlQueryHelper.js';
 
 /** Message types handled by AIAnalysisHandler. */
-const AI_ANALYSIS_TYPES = new Set([
-  'ai:anomaly-scan',
-  'ai:suggestions',
-  'ai:schema-advice',
-]);
+const AI_ANALYSIS_TYPES = new Set(['ai:anomaly-scan', 'ai:suggestions', 'ai:schema-advice']);
 
 /**
  * Sub-handler for AI analysis messages.
@@ -63,7 +61,9 @@ export class AIAnalysisHandler implements DomainHandler {
     const { orgId, objectName, sampleSize } = (msg as AIAnomalyScanRequest).payload;
     try {
       if (!this.aiModules?.anomalyDetector) {
-        throw new Error('AI not configured. Set your API key in Settings > AI to enable this feature.');
+        throw new Error(
+          'AI not configured. Set your API key in Settings > AI to enable this feature.',
+        );
       }
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const safeObj = sanitizeSoqlObjectName(objectName);
@@ -74,15 +74,21 @@ export class AIAnalysisHandler implements DomainHandler {
       const report = this.aiModules.anomalyDetector.detectAnomalies(sample, objectName);
       const response = buildResponse(this.deps, msg, 'ai:anomaly-scan:response', {
         success: true,
-        anomalies: report.anomalies.map((a: { field: string; type: string; description: string; severity: string }) => ({
-          field: a.field, type: a.type, description: a.description, severity: a.severity,
-        })),
+        anomalies: report.anomalies.map(
+          (a: { field: string; type: string; description: string; severity: string }) => ({
+            field: a.field,
+            type: a.type,
+            description: a.description,
+            severity: a.severity,
+          }),
+        ),
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:anomaly-scan: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:anomaly-scan:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }
@@ -93,18 +99,27 @@ export class AIAnalysisHandler implements DomainHandler {
     const { module, context } = (msg as AISuggestionsRequest).payload;
     try {
       if (!this.aiModules?.smartSuggestions) {
-        throw new Error('AI not configured. Set your API key in Settings > AI to enable this feature.');
+        throw new Error(
+          'AI not configured. Set your API key in Settings > AI to enable this feature.',
+        );
       }
       const suggestions = await this.aiModules.smartSuggestions.suggest(module, context ?? {});
       const response = buildResponse(this.deps, msg, 'ai:suggestions:response', {
         success: true,
-        suggestions: suggestions.map((s: { title: string; description: string; action: string }) => ({ title: s.title, description: s.description, action: s.action })),
+        suggestions: suggestions.map(
+          (s: { title: string; description: string; action: string }) => ({
+            title: s.title,
+            description: s.description,
+            action: s.action,
+          }),
+        ),
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:suggestions: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:suggestions:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }
@@ -115,7 +130,9 @@ export class AIAnalysisHandler implements DomainHandler {
     const { orgId, objectNames } = (msg as AISchemaAdviceRequest).payload;
     try {
       if (!this.aiModules?.schemaAdvisor) {
-        throw new Error('AI not configured. Set your API key in Settings > AI to enable this feature.');
+        throw new Error(
+          'AI not configured. Set your API key in Settings > AI to enable this feature.',
+        );
       }
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const names = objectNames ?? ['Account', 'Contact', 'Lead', 'Opportunity'];
@@ -126,9 +143,30 @@ export class AIAnalysisHandler implements DomainHandler {
             apiName: desc.name as string,
             label: (desc as { label: string }).label,
             custom: (desc as { custom?: boolean }).custom ?? false,
-            fields: (desc.fields as Array<{ name: string; label: string; type: string; custom?: boolean; referenceTo?: string[] }>).map((f: { name: string; label: string; type: string; custom?: boolean; referenceTo?: string[] }) => ({
-              apiName: f.name, label: f.label, type: f.type, required: false, custom: f.custom ?? false, referenceTo: f.referenceTo,
-            })),
+            fields: (
+              desc.fields as Array<{
+                name: string;
+                label: string;
+                type: string;
+                custom?: boolean;
+                referenceTo?: string[];
+              }>
+            ).map(
+              (f: {
+                name: string;
+                label: string;
+                type: string;
+                custom?: boolean;
+                referenceTo?: string[];
+              }) => ({
+                apiName: f.name,
+                label: f.label,
+                type: f.type,
+                required: false,
+                custom: f.custom ?? false,
+                referenceTo: f.referenceTo,
+              }),
+            ),
           };
         }),
       );
@@ -136,17 +174,31 @@ export class AIAnalysisHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'ai:schema-advice:response', {
         success: true,
         advice: {
-          issues: advice.issues.map((i: { objectName: string; fieldName?: string; severity: string; description: string }) => ({
-            objectName: i.objectName, field: i.fieldName, severity: i.severity, message: i.description,
+          issues: advice.issues.map(
+            (i: {
+              objectName: string;
+              fieldName?: string;
+              severity: string;
+              description: string;
+            }) => ({
+              objectName: i.objectName,
+              field: i.fieldName,
+              severity: i.severity,
+              message: i.description,
+            }),
+          ),
+          recommendations: advice.suggestions.map((r: { title: string; description: string }) => ({
+            title: r.title,
+            description: r.description,
           })),
-          recommendations: advice.suggestions.map((r: { title: string; description: string }) => ({ title: r.title, description: r.description })),
         },
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:schema-advice: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:schema-advice:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }

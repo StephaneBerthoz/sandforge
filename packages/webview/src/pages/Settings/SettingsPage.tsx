@@ -77,7 +77,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [telemetryEnabled, setTelemetryEnabled] = useState(false);
 
   /** Plugins list — static defaults until plugin manager is fully implemented. */
-  const plugins: Array<{ name: string; version: string; description: string; enabled: boolean }> = [];
+  const plugins: Array<{ name: string; version: string; description: string; enabled: boolean }> =
+    [];
 
   const tabs = [
     { id: 'general', label: t('settings.general') },
@@ -98,7 +99,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
       <div className="mt-2">
         {activeTab === 'general' && (
-          <div data-testid="general-settings" id="tabpanel-general" role="tabpanel" aria-labelledby="tab-general" className="flex flex-col gap-3">
+          <div
+            data-testid="general-settings"
+            id="tabpanel-general"
+            role="tabpanel"
+            aria-labelledby="tab-general"
+            className="flex flex-col gap-3"
+          >
             <Card>
               <CardHeader title={t('settings.general')} />
               <CardBody>
@@ -174,7 +181,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
 
         {activeTab === 'ai' && (
-          <div data-testid="ai-settings" id="tabpanel-ai" role="tabpanel" aria-labelledby="tab-ai" className="flex flex-col gap-3">
+          <div
+            data-testid="ai-settings"
+            id="tabpanel-ai"
+            role="tabpanel"
+            aria-labelledby="tab-ai"
+            className="flex flex-col gap-3"
+          >
             <Card>
               <CardHeader title={t('settings.ai')} />
               <CardBody>
@@ -185,9 +198,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       {t('settings.aiStatus')}
                     </span>
                     <Badge variant={aiStatus?.enabled ? 'success' : 'default'}>
-                      {aiStatus?.enabled
-                        ? t('settings.aiEnabled')
-                        : t('settings.aiDisabled')}
+                      {aiStatus?.enabled ? t('settings.aiEnabled') : t('settings.aiDisabled')}
                     </Badge>
                   </div>
 
@@ -212,9 +223,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         <Input
                           data-testid="ai-api-key-input"
                           type="password"
-                          placeholder={aiStatus?.enabled ? t('settings.aiKeyConfigured') : 'sk-ant-...'}
+                          placeholder={
+                            aiStatus?.enabled ? t('settings.aiKeyConfigured') : 'sk-ant-...'
+                          }
                           value={aiApiKey}
-                          onChange={(e) => { setAiApiKey(e.target.value); setAiKeySaved(false); }}
+                          onChange={(e) => {
+                            setAiApiKey(e.target.value);
+                            setAiKeySaved(false);
+                          }}
                         />
                       </div>
                       <Button
@@ -229,7 +245,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       </Button>
                     </div>
                     {aiKeySaved && (
-                      <span className="text-xs text-[var(--vscode-testing-iconPassed,#73c991)]" data-testid="ai-key-saved">
+                      <span
+                        className="text-xs text-[var(--vscode-testing-iconPassed,#73c991)]"
+                        data-testid="ai-key-saved"
+                      >
                         {t('settings.aiKeySaved')}
                       </span>
                     )}
@@ -250,7 +269,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
 
         {activeTab === 'notifications' && (
-          <div data-testid="notification-settings" id="tabpanel-notifications" role="tabpanel" aria-labelledby="tab-notifications" className="flex flex-col gap-3">
+          <div
+            data-testid="notification-settings"
+            id="tabpanel-notifications"
+            role="tabpanel"
+            aria-labelledby="tab-notifications"
+            className="flex flex-col gap-3"
+          >
             <Card>
               <CardHeader title={t('settings.notifications')} />
               <CardBody>
@@ -297,7 +322,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
 
         {activeTab === 'advanced' && (
-          <div data-testid="advanced-settings" id="tabpanel-advanced" role="tabpanel" aria-labelledby="tab-advanced" className="flex flex-col gap-3">
+          <div
+            data-testid="advanced-settings"
+            id="tabpanel-advanced"
+            role="tabpanel"
+            aria-labelledby="tab-advanced"
+            className="flex flex-col gap-3"
+          >
             <Card>
               <CardHeader title={t('settings.advanced')} />
               <CardBody>
@@ -392,7 +423,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
 
         {activeTab === 'plugins' && (
-          <div data-testid="plugins-settings" id="tabpanel-plugins" role="tabpanel" aria-labelledby="tab-plugins" className="flex flex-col gap-3">
+          <div
+            data-testid="plugins-settings"
+            id="tabpanel-plugins"
+            role="tabpanel"
+            aria-labelledby="tab-plugins"
+            className="flex flex-col gap-3"
+          >
             <Card>
               <CardHeader title={t('settings.plugins')} />
               <CardBody>
@@ -406,14 +443,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       >
                         <div className="flex flex-col">
                           <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                            {plugin.name} <span className="text-[var(--vscode-descriptionForeground,#868686)]">v{plugin.version}</span>
+                            {plugin.name}{' '}
+                            <span className="text-[var(--vscode-descriptionForeground,#868686)]">
+                              v{plugin.version}
+                            </span>
                           </span>
                           <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
                             {plugin.description}
                           </span>
                         </div>
-                        <span className={`text-xs px-2 py-0.5 rounded ${plugin.enabled ? 'text-[var(--vscode-testing-iconPassed,#73c991)] bg-[var(--vscode-testing-iconPassed,#73c991)]/10' : 'text-[var(--vscode-descriptionForeground,#868686)] bg-[var(--vscode-descriptionForeground,#868686)]/10'}`}>
-                          {plugin.enabled ? t('settings.pluginEnabled') : t('settings.pluginDisabled')}
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded ${plugin.enabled ? 'text-[var(--vscode-testing-iconPassed,#73c991)] bg-[var(--vscode-testing-iconPassed,#73c991)]/10' : 'text-[var(--vscode-descriptionForeground,#868686)] bg-[var(--vscode-descriptionForeground,#868686)]/10'}`}
+                        >
+                          {plugin.enabled
+                            ? t('settings.pluginEnabled')
+                            : t('settings.pluginDisabled')}
                         </span>
                       </div>
                     ))
@@ -429,7 +473,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
 
         {activeTab === 'telemetry' && (
-          <div data-testid="telemetry-settings" id="tabpanel-telemetry" role="tabpanel" aria-labelledby="tab-telemetry" className="flex flex-col gap-3">
+          <div
+            data-testid="telemetry-settings"
+            id="tabpanel-telemetry"
+            role="tabpanel"
+            aria-labelledby="tab-telemetry"
+            className="flex flex-col gap-3"
+          >
             <Card>
               <CardHeader title={t('settings.telemetry')} />
               <CardBody>
@@ -438,21 +488,29 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
                       {t('settings.telemetryStatus')}
                     </span>
-                    <span className={`text-xs font-medium ${telemetryEnabled ? 'text-[var(--vscode-testing-iconPassed,#73c991)]' : 'text-[var(--vscode-descriptionForeground,#868686)]'}`}>
-                      {telemetryEnabled ? t('settings.telemetryEnabled') : t('settings.telemetryDisabled')}
+                    <span
+                      className={`text-xs font-medium ${telemetryEnabled ? 'text-[var(--vscode-testing-iconPassed,#73c991)]' : 'text-[var(--vscode-descriptionForeground,#868686)]'}`}
+                    >
+                      {telemetryEnabled
+                        ? t('settings.telemetryEnabled')
+                        : t('settings.telemetryDisabled')}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
                       {t('settings.telemetryEventCount')}
                     </span>
-                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">0</span>
+                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                      0
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
                       {t('settings.telemetryBufferSize')}
                     </span>
-                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">0</span>
+                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                      0
+                    </span>
                   </div>
                   <Button
                     data-testid="telemetry-toggle-btn"
@@ -460,7 +518,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     size="sm"
                     onClick={() => setTelemetryEnabled((prev) => !prev)}
                   >
-                    {telemetryEnabled ? t('settings.telemetryDisable') : t('settings.telemetryEnable')}
+                    {telemetryEnabled
+                      ? t('settings.telemetryDisable')
+                      : t('settings.telemetryEnable')}
                   </Button>
                 </div>
               </CardBody>

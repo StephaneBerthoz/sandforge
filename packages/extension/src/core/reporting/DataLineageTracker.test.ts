@@ -86,9 +86,9 @@ describe('DataLineageTracker', () => {
     });
 
     it('should throw if the operation is not being tracked', () => {
-      expect(() =>
-        tracker.addNode('nonexistent', { type: 'source', label: 'Test' })
-      ).toThrow('Operation "nonexistent" is not being tracked');
+      expect(() => tracker.addNode('nonexistent', { type: 'source', label: 'Test' })).toThrow(
+        'Operation "nonexistent" is not being tracked',
+      );
     });
   });
 
@@ -148,7 +148,7 @@ describe('DataLineageTracker', () => {
         tracker.addEdge('nonexistent', {
           sourceId: 'a',
           targetId: 'b',
-        })
+        }),
       ).toThrow('Operation "nonexistent" is not being tracked');
     });
   });

@@ -1,8 +1,12 @@
 import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
-  buildResponse, sendNotification, sendOperationStarted, sendOperationProgress,
-  sendOperationCompleted, sendOperationFailed,
+  buildResponse,
+  sendNotification,
+  sendOperationStarted,
+  sendOperationProgress,
+  sendOperationCompleted,
+  sendOperationFailed,
 } from './HandlerTypes.js';
 import type { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestrator.js';
 import type { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
@@ -93,7 +97,11 @@ export class AutomationHandler implements DomainHandler {
 
   private async handlePipelineRun(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { pipeline: Record<string, unknown>; variables?: Record<string, string> } }).payload;
+    const payload = (
+      msg as BaseMessage & {
+        payload: { pipeline: Record<string, unknown>; variables?: Record<string, string> };
+      }
+    ).payload;
     const operationId = crypto.randomUUID();
 
     try {
@@ -114,7 +122,9 @@ export class AutomationHandler implements DomainHandler {
       const history = new PipelineHistory();
 
       if (!this.deps.services) {
-        throw new Error('AutomationHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.');
+        throw new Error(
+          'AutomationHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.',
+        );
       }
       const orchestrator = this.deps.services.automationOrchestrator({
         builder,
@@ -127,7 +137,8 @@ export class AutomationHandler implements DomainHandler {
         services: this.deps.services,
       });
 
-      const pipeline = payload.pipeline as unknown as import('@sandforge/shared').PipelineDefinition;
+      const pipeline =
+        payload.pipeline as unknown as import('@sandforge/shared').PipelineDefinition;
       const variables = payload.variables ?? {};
 
       this.activeOrchestrators.set(operationId, orchestrator);
@@ -135,7 +146,10 @@ export class AutomationHandler implements DomainHandler {
       sendOperationStarted(this.deps, operationId, 'automation', `Pipeline: ${pipeline.name}`);
 
       const stepCompletedListener = (_event: unknown, data: unknown): void => {
-        const stepData = data as { runId: string; stepResult: { stepName: string; status: string } };
+        const stepData = data as {
+          runId: string;
+          stepResult: { stepName: string; status: string };
+        };
         const activeRuns = orchestrator.getActiveRuns();
         const totalSteps = pipeline.steps.length;
         const completedSteps = activeRuns[0]?.stepResults.length ?? 0;
@@ -167,10 +181,18 @@ export class AutomationHandler implements DomainHandler {
       if (result.status === 'failed') {
         sendOperationFailed(this.deps, operationId, result.error ?? 'Pipeline failed', false);
       } else {
-        sendOperationCompleted(this.deps, operationId, { status: result.status, stepResults: result.stepResults.length });
+        sendOperationCompleted(this.deps, operationId, {
+          status: result.status,
+          stepResults: result.stepResults.length,
+        });
       }
 
-      const response = buildResponse(this.deps, msg, 'pipeline:run:response', result as unknown as Record<string, unknown>);
+      const response = buildResponse(
+        this.deps,
+        msg,
+        'pipeline:run:response',
+        result as unknown as Record<string, unknown>,
+      );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -183,7 +205,9 @@ export class AutomationHandler implements DomainHandler {
 
   private handlePipelineTemplates(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const response = buildResponse(this.deps, msg, 'pipeline:templates:response', { templates: PIPELINE_TEMPLATES });
+    const response = buildResponse(this.deps, msg, 'pipeline:templates:response', {
+      templates: PIPELINE_TEMPLATES,
+    });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] pipeline:templates:response`);
   }
@@ -279,11 +303,12 @@ export class AutomationHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const historyEntries = this.deps.configStore.getByCategory('pipeline-history');
-      const rawHistory: Array<Record<string, unknown>> = Object.entries(historyEntries)
-        .map(([key, value]) => {
+      const rawHistory: Array<Record<string, unknown>> = Object.entries(historyEntries).map(
+        ([key, value]) => {
           const entry = value as Record<string, unknown>;
           return { key, ...entry };
-        });
+        },
+      );
       const history = rawHistory.sort((a, b) => {
         const tsA = typeof a['timestamp'] === 'number' ? a['timestamp'] : 0;
         const tsB = typeof b['timestamp'] === 'number' ? b['timestamp'] : 0;
@@ -304,15 +329,24 @@ export class AutomationHandler implements DomainHandler {
   private handlePipelineSave(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
-      const payload = (msg as BaseMessage & { payload: { id: string; config: Record<string, unknown> } }).payload;
+      const payload = (
+        msg as BaseMessage & { payload: { id: string; config: Record<string, unknown> } }
+      ).payload;
       const pipelineId = payload.id || crypto.randomUUID();
       const storageKey = `pipeline:saved:${pipelineId}`;
-      this.deps.configStore.set(storageKey, {
-        ...payload.config,
+      this.deps.configStore.set(
+        storageKey,
+        {
+          ...payload.config,
+          id: pipelineId,
+          savedAt: new Date().toISOString(),
+        },
+        'pipelines',
+      );
+      const response = buildResponse(this.deps, msg, 'pipeline:save:response', {
+        success: true,
         id: pipelineId,
-        savedAt: new Date().toISOString(),
-      }, 'pipelines');
-      const response = buildResponse(this.deps, msg, 'pipeline:save:response', { success: true, id: pipelineId });
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] pipeline:save:response id=${pipelineId}`);
     } catch (err: unknown) {
@@ -337,14 +371,23 @@ export class AutomationHandler implements DomainHandler {
       }
       const response = buildResponse(this.deps, msg, 'marketplace:list:response', {
         success: true,
-        templates: templates.map((t: { id: string; name: string; description: string; category: string }) => ({
-          id: t.id, name: t.name, description: t.description, category: t.category, author: 'SandForge',
-        })),
+        templates: templates.map(
+          (t: { id: string; name: string; description: string; category: string }) => ({
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            category: t.category,
+            author: 'SandForge',
+          }),
+        ),
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] marketplace:list: ${extractErrorMessage(err)}`);
-      const errResp = buildResponse(this.deps, msg, 'marketplace:list:response', { success: false, error: extractErrorMessage(err) });
+      const errResp = buildResponse(this.deps, msg, 'marketplace:list:response', {
+        success: false,
+        error: extractErrorMessage(err),
+      });
       this.deps.broker.postToWebview(errResp);
     }
   }
@@ -367,11 +410,17 @@ export class AutomationHandler implements DomainHandler {
       } catch {
         throw new Error(`Template "${templateId}" contains invalid JSON.`);
       }
-      const response = buildResponse(this.deps, msg, 'marketplace:install:response', { success: true, pipeline });
+      const response = buildResponse(this.deps, msg, 'marketplace:install:response', {
+        success: true,
+        pipeline,
+      });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] marketplace:install: ${extractErrorMessage(err)}`);
-      const errResp = buildResponse(this.deps, msg, 'marketplace:install:response', { success: false, error: extractErrorMessage(err) });
+      const errResp = buildResponse(this.deps, msg, 'marketplace:install:response', {
+        success: false,
+        error: extractErrorMessage(err),
+      });
       this.deps.broker.postToWebview(errResp);
     }
   }

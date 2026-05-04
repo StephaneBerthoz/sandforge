@@ -80,9 +80,11 @@ describe('CompositeApiManager', () => {
         requests.push(createRequest(`ref${i}`));
       }
 
-      const executor = vi.fn().mockImplementation((batch: CompositeRequest[]) =>
-        Promise.resolve(batch.map((r) => createResult(r.referenceId)))
-      );
+      const executor = vi
+        .fn()
+        .mockImplementation((batch: CompositeRequest[]) =>
+          Promise.resolve(batch.map((r) => createResult(r.referenceId))),
+        );
 
       const results = await manager.execute(requests, executor);
 

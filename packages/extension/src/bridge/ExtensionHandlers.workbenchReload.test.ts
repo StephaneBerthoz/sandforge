@@ -101,7 +101,9 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
       },
     };
     broker.registerPanel(panel as never);
-    const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+    const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+      msg: unknown,
+    ) => void;
 
     messageCallback({
       id: 'bridge-reload-1',

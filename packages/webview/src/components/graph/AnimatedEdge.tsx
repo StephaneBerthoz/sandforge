@@ -64,12 +64,7 @@ export const AnimatedEdge: React.FC<EdgeProps<AnimatedEdgeData>> = ({
     <g data-testid="animated-edge">
       <style>{animationStyle}</style>
       {/* Invisible wider path for easier mouse interaction */}
-      <path
-        d={edgePath}
-        fill="none"
-        stroke="transparent"
-        strokeWidth={10}
-      />
+      <path d={edgePath} fill="none" stroke="transparent" strokeWidth={10} />
       {/* Visible path */}
       <path
         id={id}

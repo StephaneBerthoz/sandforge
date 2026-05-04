@@ -75,7 +75,8 @@ export class ConfigHandler implements DomainHandler {
 
   private handleImport(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { json: string; overwrite: boolean } }).payload;
+    const payload = (msg as BaseMessage & { payload: { json: string; overwrite: boolean } })
+      .payload;
 
     try {
       const result = this.profileManager.importProfile(payload.json, payload.overwrite);

@@ -70,7 +70,12 @@ describe('baseMessageSchema', () => {
   });
 
   it('should accept a message with a valid correlationId', () => {
-    const msg = { id: 'resp-1', type: 'org:list:response', timestamp: 1000, correlationId: 'req-1' };
+    const msg = {
+      id: 'resp-1',
+      type: 'org:list:response',
+      timestamp: 1000,
+      correlationId: 'req-1',
+    };
     const result = baseMessageSchema.safeParse(msg);
     expect(result.success).toBe(true);
     if (result.success) {

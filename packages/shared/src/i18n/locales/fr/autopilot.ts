@@ -31,7 +31,7 @@ export const autopilot: TranslationRecord = {
     estimatedApiCalls: 'Appels API estimes',
     complianceFramework: 'Cadre de conformite',
     anonymization: 'Anonymisation',
-    noAnonymization: 'Pas d\'anonymisation',
+    noAnonymization: "Pas d'anonymisation",
     autoDetect: 'Detection auto PII',
     connectionSummary: 'Resume de la connexion',
     source: 'Source',

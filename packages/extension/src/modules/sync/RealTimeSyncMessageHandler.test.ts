@@ -15,7 +15,9 @@ function createMockBroker() {
         handlers.set(type, set);
       }
       set.add(handler);
-      return () => { handlers.get(type)?.delete(handler); };
+      return () => {
+        handlers.get(type)?.delete(handler);
+      };
     }),
     postToWebview: vi.fn(),
     handlers,
@@ -57,15 +59,21 @@ function createMockOrchestrator() {
     getSessionId: vi.fn().mockReturnValue('session-123'),
     onStatusChange: vi.fn((handler: (status: RealTimeSyncStatus) => void) => {
       statusHandler = handler;
-      return () => { statusHandler = null; };
+      return () => {
+        statusHandler = null;
+      };
     }),
     onEventFeed: vi.fn((handler: (event: unknown, applied: boolean, error?: string) => void) => {
       eventFeedHandler = handler;
-      return () => { eventFeedHandler = null; };
+      return () => {
+        eventFeedHandler = null;
+      };
     }),
     onConflictDetected: vi.fn((handler: (conflict: unknown) => void) => {
       conflictFeedHandler = handler;
-      return () => { conflictFeedHandler = null; };
+      return () => {
+        conflictFeedHandler = null;
+      };
     }),
     /** Simulate a status change. */
     emitStatus(status: RealTimeSyncStatus): void {
@@ -114,12 +122,26 @@ describe('RealTimeSyncMessageHandler', () => {
     orchestrator = createMockOrchestrator();
     batcher = createMockBatcher();
     handler = new RealTimeSyncMessageHandler(
-      broker as unknown as Parameters<typeof RealTimeSyncMessageHandler['prototype']['register']> extends [] ? never : never,
-      orchestrator as unknown as Parameters<typeof RealTimeSyncMessageHandler['prototype']['register']> extends [] ? never : never,
-      batcher as unknown as Parameters<typeof RealTimeSyncMessageHandler['prototype']['register']> extends [] ? never : never,
+      broker as unknown as Parameters<
+        (typeof RealTimeSyncMessageHandler)['prototype']['register']
+      > extends []
+        ? never
+        : never,
+      orchestrator as unknown as Parameters<
+        (typeof RealTimeSyncMessageHandler)['prototype']['register']
+      > extends []
+        ? never
+        : never,
+      batcher as unknown as Parameters<
+        (typeof RealTimeSyncMessageHandler)['prototype']['register']
+      > extends []
+        ? never
+        : never,
     );
     // Fix TypeScript casting - use direct construction
-    handler = new (RealTimeSyncMessageHandler as unknown as new (...args: unknown[]) => RealTimeSyncMessageHandler)(broker, orchestrator, batcher);
+    handler = new (RealTimeSyncMessageHandler as unknown as new (
+      ...args: unknown[]
+    ) => RealTimeSyncMessageHandler)(broker, orchestrator, batcher);
     handler.register();
   });
 
@@ -168,7 +190,16 @@ describe('RealTimeSyncMessageHandler', () => {
     });
 
     // Simulate event from orchestrator
-    const mockEvent = { replayId: 1, objectApiName: 'Account', changeType: 'CREATE', recordIds: ['001A'], changedFields: {}, commitTimestamp: '2026-03-27T00:00:00Z', commitUser: '005A', transactionKey: 'tx-1' };
+    const mockEvent = {
+      replayId: 1,
+      objectApiName: 'Account',
+      changeType: 'CREATE',
+      recordIds: ['001A'],
+      changedFields: {},
+      commitTimestamp: '2026-03-27T00:00:00Z',
+      commitUser: '005A',
+      transactionKey: 'tx-1',
+    };
     orchestrator.emitEvent(mockEvent, true);
 
     expect(batcher.push).toHaveBeenCalledWith(mockEvent);

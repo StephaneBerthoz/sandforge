@@ -29,8 +29,7 @@ function createMockJob(opts?: {
 }): BulkJobHandle {
   const pollCount = opts?.pollCount ?? 1;
   let pollCalls = 0;
-  const results: BulkJobRecordResult[] =
-    opts?.results ?? [];
+  const results: BulkJobRecordResult[] = opts?.results ?? [];
 
   return {
     id: 'job-chunked-001',
@@ -78,21 +77,14 @@ describe('ChunkedBulkExecutor', () => {
 
   it('should open one job, upload 3 chunks, close, poll, and return results', async () => {
     const totalRecords = 6000;
-    const results: BulkJobRecordResult[] = Array.from(
-      { length: totalRecords },
-      (_, i) => ({
-        success: true,
-        id: `001xx${String(i).padStart(7, '0')}`,
-      }),
-    );
+    const results: BulkJobRecordResult[] = Array.from({ length: totalRecords }, (_, i) => ({
+      success: true,
+      id: `001xx${String(i).padStart(7, '0')}`,
+    }));
     const job = createMockJob({ pollCount: 1, results });
     const deps = createMockDeps(job);
 
-    const chunks = [
-      generateRecords(2000),
-      generateRecords(2000),
-      generateRecords(2000),
-    ];
+    const chunks = [generateRecords(2000), generateRecords(2000), generateRecords(2000)];
 
     const result = await executor.executeChunked(
       deps,
@@ -162,11 +154,7 @@ describe('ChunkedBulkExecutor', () => {
       }
     });
 
-    const chunks = [
-      generateRecords(2000),
-      generateRecords(2000),
-      generateRecords(2000),
-    ];
+    const chunks = [generateRecords(2000), generateRecords(2000), generateRecords(2000)];
 
     const result = await abortExecutor.executeChunked(
       deps,
@@ -215,25 +203,16 @@ describe('ChunkedBulkExecutor', () => {
 
   it('should report upload progress after each chunk', async () => {
     const totalRecords = 4000;
-    const results: BulkJobRecordResult[] = Array.from(
-      { length: totalRecords },
-      (_, i) => ({
-        success: true,
-        id: `001xx${String(i).padStart(7, '0')}`,
-      }),
-    );
+    const results: BulkJobRecordResult[] = Array.from({ length: totalRecords }, (_, i) => ({
+      success: true,
+      id: `001xx${String(i).padStart(7, '0')}`,
+    }));
     const job = createMockJob({ pollCount: 0, results });
     const deps = createMockDeps(job);
 
     const chunks = [generateRecords(2000), generateRecords(2000)];
 
-    await executor.executeChunked(
-      deps,
-      'Account',
-      'insert',
-      toAsyncIterable(chunks),
-      totalRecords,
-    );
+    await executor.executeChunked(deps, 'Account', 'insert', toAsyncIterable(chunks), totalRecords);
 
     const progressFn = deps.onProgress as ReturnType<typeof vi.fn>;
     // Upload phase progress calls: 2000/4000, then 4000/4000

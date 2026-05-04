@@ -1,8 +1,4 @@
-import type {
-  CompareConfig,
-  CompareResult,
-  CompareItem,
-} from '@sandforge/shared';
+import type { CompareConfig, CompareResult, CompareItem } from '@sandforge/shared';
 import type { MetadataCompare } from './MetadataCompare';
 import type { ConfigCompare } from './ConfigCompare';
 import type { PermissionCompare } from './PermissionCompare';
@@ -50,7 +46,7 @@ export class CompareOrchestrator {
       const metadataDiffs = await this.deps.metadataCompare.compare(
         config.sourceOrgId,
         config.targetOrgId,
-        config.componentTypes
+        config.componentTypes,
       );
       allDiffs.push(...metadataDiffs);
     }
@@ -58,7 +54,7 @@ export class CompareOrchestrator {
     if (config.mode === 'config' || config.mode === 'full') {
       const configDiffs = await this.deps.configCompare.compare(
         config.sourceOrgId,
-        config.targetOrgId
+        config.targetOrgId,
       );
       allDiffs.push(...configDiffs);
     }
@@ -66,7 +62,7 @@ export class CompareOrchestrator {
     if (config.mode === 'permissions' || config.mode === 'full') {
       const permDiffs = await this.deps.permissionCompare.compare(
         config.sourceOrgId,
-        config.targetOrgId
+        config.targetOrgId,
       );
       allDiffs.push(...permDiffs);
     }
@@ -78,7 +74,7 @@ export class CompareOrchestrator {
           config.sourceOrgId,
           config.targetOrgId,
           objectName,
-          'Id'
+          'Id',
         );
         allDiffs.push(...dataDiffs);
       }

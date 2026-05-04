@@ -61,12 +61,11 @@ describe('WebviewPanelManager', () => {
 
       manager.openPanel(config);
 
-      expect(factory).toHaveBeenCalledWith(
-        'sandforge.seed',
-        'Seed',
-        1,
-        { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: undefined },
-      );
+      expect(factory).toHaveBeenCalledWith('sandforge.seed', 'Seed', 1, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: undefined,
+      });
     });
 
     it('should use the provided column', () => {
@@ -76,12 +75,11 @@ describe('WebviewPanelManager', () => {
         column: 2,
       });
 
-      expect(factory).toHaveBeenCalledWith(
-        'sandforge.compare',
-        'Compare',
-        2,
-        { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: undefined },
-      );
+      expect(factory).toHaveBeenCalledWith('sandforge.compare', 'Compare', 2, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: undefined,
+      });
     });
 
     it('should register the panel with the broker', () => {
@@ -141,11 +139,11 @@ describe('WebviewPanelManager', () => {
   describe('openPanel (with extensionUri and uriJoinPath)', () => {
     let managerWithUri: WebviewPanelManager;
     const mockExtensionUri = { toString: () => 'file:///ext' };
-    const mockUriJoinPath: UriJoinPath = vi.fn().mockImplementation(
-      (_base: unknown, ...segments: string[]) => ({
+    const mockUriJoinPath: UriJoinPath = vi
+      .fn()
+      .mockImplementation((_base: unknown, ...segments: string[]) => ({
         toString: () => `file:///ext/${segments.join('/')}`,
-      }),
-    );
+      }));
 
     beforeEach(() => {
       managerWithUri = new WebviewPanelManager(
@@ -159,12 +157,11 @@ describe('WebviewPanelManager', () => {
     it('should include localResourceRoots when extensionUri is set', () => {
       managerWithUri.openPanel({ viewType: 'test', title: 'Test' });
 
-      expect(factory).toHaveBeenCalledWith(
-        'test',
-        'Test',
-        1,
-        { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [mockExtensionUri] },
-      );
+      expect(factory).toHaveBeenCalledWith('test', 'Test', 1, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [mockExtensionUri],
+      });
     });
 
     it('should generate HTML with moduleId injection when moduleId is provided', () => {
@@ -319,7 +316,9 @@ describe('WebviewPanelManager', () => {
       expect(manager.isAnyPanelVisible()).toBe(true);
 
       // Simulate panel becoming hidden
-      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { visible: boolean } }) => void;
+      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: {
+        webviewPanel: { visible: boolean };
+      }) => void;
       changeCallback({ webviewPanel: { visible: false } });
 
       expect(manager.isAnyPanelVisible()).toBe(false);
@@ -328,7 +327,9 @@ describe('WebviewPanelManager', () => {
     it('should return true again when panel becomes visible', () => {
       manager.openPanel({ viewType: 'test', title: 'Test' });
 
-      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { visible: boolean } }) => void;
+      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: {
+        webviewPanel: { visible: boolean };
+      }) => void;
       changeCallback({ webviewPanel: { visible: false } });
       expect(manager.isAnyPanelVisible()).toBe(false);
 
@@ -344,7 +345,9 @@ describe('WebviewPanelManager', () => {
 
       manager.openPanel({ viewType: 'test', title: 'Test' });
 
-      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { visible: boolean } }) => void;
+      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: {
+        webviewPanel: { visible: boolean };
+      }) => void;
 
       changeCallback({ webviewPanel: { visible: false } });
       expect(callback).toHaveBeenCalledWith(false);
@@ -358,7 +361,9 @@ describe('WebviewPanelManager', () => {
     it('should not throw when no callback is set', () => {
       manager.openPanel({ viewType: 'test', title: 'Test' });
 
-      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: { webviewPanel: { visible: boolean } }) => void;
+      const changeCallback = lastCreatedPanel.onDidChangeViewState.mock.calls[0][0] as (e: {
+        webviewPanel: { visible: boolean };
+      }) => void;
       expect(() => changeCallback({ webviewPanel: { visible: false } })).not.toThrow();
     });
   });

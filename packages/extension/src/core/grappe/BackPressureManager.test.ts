@@ -2,9 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { BackPressureManager } from './BackPressureManager';
 import type { BackPressureConfig } from '@sandforge/shared';
 
-function createConfig(
-  overrides: Partial<BackPressureConfig> = {}
-): BackPressureConfig {
+function createConfig(overrides: Partial<BackPressureConfig> = {}): BackPressureConfig {
   return {
     enabled: true,
     maxQueueDepth: 100,
@@ -50,9 +48,7 @@ describe('BackPressureManager', () => {
     });
 
     it('should always return normal when disabled', () => {
-      const disabled = new BackPressureManager(
-        createConfig({ enabled: false })
-      );
+      const disabled = new BackPressureManager(createConfig({ enabled: false }));
       expect(disabled.evaluate(200, 95)).toBe('normal');
     });
   });
@@ -64,9 +60,7 @@ describe('BackPressureManager', () => {
     });
 
     it('should return false when strategy is throttle', () => {
-      const throttle = new BackPressureManager(
-        createConfig({ strategy: 'throttle' })
-      );
+      const throttle = new BackPressureManager(createConfig({ strategy: 'throttle' }));
       throttle.evaluate(100, 90);
       expect(throttle.shouldPause()).toBe(false);
     });
@@ -77,9 +71,7 @@ describe('BackPressureManager', () => {
     });
 
     it('should return false when disabled', () => {
-      const disabled = new BackPressureManager(
-        createConfig({ enabled: false })
-      );
+      const disabled = new BackPressureManager(createConfig({ enabled: false }));
       disabled.evaluate(200, 95);
       expect(disabled.shouldPause()).toBe(false);
     });
@@ -87,17 +79,13 @@ describe('BackPressureManager', () => {
 
   describe('shouldThrottle', () => {
     it('should return true when warning and strategy is throttle', () => {
-      const throttle = new BackPressureManager(
-        createConfig({ strategy: 'throttle' })
-      );
+      const throttle = new BackPressureManager(createConfig({ strategy: 'throttle' }));
       throttle.evaluate(70, 20);
       expect(throttle.shouldThrottle()).toBe(true);
     });
 
     it('should return true when critical and strategy is throttle', () => {
-      const throttle = new BackPressureManager(
-        createConfig({ strategy: 'throttle' })
-      );
+      const throttle = new BackPressureManager(createConfig({ strategy: 'throttle' }));
       throttle.evaluate(100, 90);
       expect(throttle.shouldThrottle()).toBe(true);
     });
@@ -109,7 +97,7 @@ describe('BackPressureManager', () => {
 
     it('should return false when disabled', () => {
       const disabled = new BackPressureManager(
-        createConfig({ enabled: false, strategy: 'throttle' })
+        createConfig({ enabled: false, strategy: 'throttle' }),
       );
       disabled.evaluate(200, 95);
       expect(disabled.shouldThrottle()).toBe(false);
@@ -133,9 +121,7 @@ describe('BackPressureManager', () => {
     });
 
     it('should return 0 when disabled', () => {
-      const disabled = new BackPressureManager(
-        createConfig({ enabled: false })
-      );
+      const disabled = new BackPressureManager(createConfig({ enabled: false }));
       disabled.evaluate(200, 95);
       expect(disabled.getDelay()).toBe(0);
     });

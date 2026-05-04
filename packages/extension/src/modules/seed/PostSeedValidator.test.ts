@@ -73,8 +73,20 @@ describe('PostSeedValidator', () => {
     it('should validate multiple objects', async () => {
       const execResult = createExecutionResult({
         objectResults: [
-          { objectApiName: 'Account', recordsCreated: 2, recordsFailed: 0, createdIds: ['001A', '001B'], errors: [] },
-          { objectApiName: 'Contact', recordsCreated: 3, recordsFailed: 0, createdIds: ['003A', '003B', '003C'], errors: [] },
+          {
+            objectApiName: 'Account',
+            recordsCreated: 2,
+            recordsFailed: 0,
+            createdIds: ['001A', '001B'],
+            errors: [],
+          },
+          {
+            objectApiName: 'Contact',
+            recordsCreated: 3,
+            recordsFailed: 0,
+            createdIds: ['003A', '003B', '003C'],
+            errors: [],
+          },
         ],
         totalRecordsCreated: 5,
         totalRecordsFailed: 0,
@@ -89,7 +101,13 @@ describe('PostSeedValidator', () => {
     it('should skip objects with no created IDs', async () => {
       const execResult = createExecutionResult({
         objectResults: [
-          { objectApiName: 'Account', recordsCreated: 0, recordsFailed: 5, createdIds: [], errors: ['Error'] },
+          {
+            objectApiName: 'Account',
+            recordsCreated: 0,
+            recordsFailed: 5,
+            createdIds: [],
+            errors: ['Error'],
+          },
         ],
       });
 
@@ -108,14 +126,20 @@ describe('PostSeedValidator', () => {
       vi.mocked(queryRecords).mockRejectedValue(new Error('Query failed'));
 
       await expect(validator.validate('org-1', createExecutionResult())).rejects.toThrow(
-        'Query failed'
+        'Query failed',
       );
     });
 
     it('should return valid true when all objects have empty createdIds', async () => {
       const execResult = createExecutionResult({
         objectResults: [
-          { objectApiName: 'Account', recordsCreated: 0, recordsFailed: 0, createdIds: [], errors: [] },
+          {
+            objectApiName: 'Account',
+            recordsCreated: 0,
+            recordsFailed: 0,
+            createdIds: [],
+            errors: [],
+          },
         ],
         totalRecordsCreated: 0,
         totalRecordsFailed: 0,
@@ -138,8 +162,20 @@ describe('PostSeedValidator', () => {
 
       const execResult = createExecutionResult({
         objectResults: [
-          { objectApiName: 'Account', recordsCreated: 2, recordsFailed: 0, createdIds: ['001A', '001B'], errors: [] },
-          { objectApiName: 'Contact', recordsCreated: 2, recordsFailed: 0, createdIds: ['003A', '003B'], errors: [] },
+          {
+            objectApiName: 'Account',
+            recordsCreated: 2,
+            recordsFailed: 0,
+            createdIds: ['001A', '001B'],
+            errors: [],
+          },
+          {
+            objectApiName: 'Contact',
+            recordsCreated: 2,
+            recordsFailed: 0,
+            createdIds: ['003A', '003B'],
+            errors: [],
+          },
         ],
         totalRecordsCreated: 4,
         totalRecordsFailed: 0,
@@ -155,8 +191,20 @@ describe('PostSeedValidator', () => {
 
       const execResult = createExecutionResult({
         objectResults: [
-          { objectApiName: 'Account', recordsCreated: 2, recordsFailed: 0, createdIds: ['001A', '001B'], errors: [] },
-          { objectApiName: 'Contact', recordsCreated: 3, recordsFailed: 0, createdIds: ['003A', '003B', '003C'], errors: [] },
+          {
+            objectApiName: 'Account',
+            recordsCreated: 2,
+            recordsFailed: 0,
+            createdIds: ['001A', '001B'],
+            errors: [],
+          },
+          {
+            objectApiName: 'Contact',
+            recordsCreated: 3,
+            recordsFailed: 0,
+            createdIds: ['003A', '003B', '003C'],
+            errors: [],
+          },
         ],
         totalRecordsCreated: 5,
         totalRecordsFailed: 1,

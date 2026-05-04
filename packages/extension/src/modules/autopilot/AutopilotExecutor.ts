@@ -23,10 +23,17 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 type AnonymizationRule = AutopilotAnonymizationRule;
 
 /** Function to query records from source org */
-export type QueryFn = (objectApiName: string, offset: number, limit: number) => Promise<Record<string, unknown>[]>;
+export type QueryFn = (
+  objectApiName: string,
+  offset: number,
+  limit: number,
+) => Promise<Record<string, unknown>[]>;
 
 /** Function to insert records into target org */
-export type InsertFn = (objectApiName: string, records: Record<string, unknown>[]) => Promise<InsertResult>;
+export type InsertFn = (
+  objectApiName: string,
+  records: Record<string, unknown>[],
+) => Promise<InsertResult>;
 
 /** Result of an insert operation */
 export interface InsertResult {
@@ -48,8 +55,8 @@ export type AutopilotExecutorEvents = {
   'execution-started': AutopilotEvent;
   'execution-completed': AutopilotEvent;
   'execution-failed': AutopilotEvent;
-  'paused': AutopilotEvent;
-  'resumed': AutopilotEvent;
+  paused: AutopilotEvent;
+  resumed: AutopilotEvent;
 };
 
 /** Execution result summary */
@@ -137,10 +144,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       skippedObjects: [],
     };
 
-    this.emit('execution-started', this.makeEvent({
-      type: 'execution-started' as const,
-      timestamp: '',
-    }));
+    this.emit(
+      'execution-started',
+      this.makeEvent({
+        type: 'execution-started' as const,
+        timestamp: '',
+      }),
+    );
 
     try {
       for (const wave of plan.waves) {
@@ -169,60 +179,78 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
               if (objResult.errors.length > 0 && objResult.success === 0) {
                 result.failedObjects.push(objectApiName);
-                this.emit('node-failed', this.makeEvent({
-                  type: 'node-failed' as const,
-                  timestamp: '',
-                  objectApiName: objectApiName as ApiName,
-                  errors: objResult.errors,
-                  partialSuccessCount: objResult.success,
-                }));
+                this.emit(
+                  'node-failed',
+                  this.makeEvent({
+                    type: 'node-failed' as const,
+                    timestamp: '',
+                    objectApiName: objectApiName as ApiName,
+                    errors: objResult.errors,
+                    partialSuccessCount: objResult.success,
+                  }),
+                );
               } else {
                 result.completedObjects.push(objectApiName);
-                this.emit('node-completed', this.makeEvent({
-                  type: 'node-completed' as const,
-                  timestamp: '',
-                  objectApiName: objectApiName as ApiName,
-                  successCount: objResult.success,
-                  failureCount: objResult.failure,
-                  elapsedMs: objResult.elapsedMs,
-                  apiCallsUsed: objResult.apiCallsUsed,
-                }));
+                this.emit(
+                  'node-completed',
+                  this.makeEvent({
+                    type: 'node-completed' as const,
+                    timestamp: '',
+                    objectApiName: objectApiName as ApiName,
+                    successCount: objResult.success,
+                    failureCount: objResult.failure,
+                    elapsedMs: objResult.elapsedMs,
+                    apiCallsUsed: objResult.apiCallsUsed,
+                  }),
+                );
               }
             } catch (err) {
               result.failedObjects.push(objectApiName);
               const errorMsg = extractErrorMessage(err);
-              this.emit('node-failed', this.makeEvent({
-                type: 'node-failed' as const,
-                timestamp: '',
-                objectApiName: objectApiName as ApiName,
-                errors: [errorMsg],
-                partialSuccessCount: 0,
-              }));
+              this.emit(
+                'node-failed',
+                this.makeEvent({
+                  type: 'node-failed' as const,
+                  timestamp: '',
+                  objectApiName: objectApiName as ApiName,
+                  errors: [errorMsg],
+                  partialSuccessCount: 0,
+                }),
+              );
             }
           }),
         );
 
         void waveResults;
 
-        this.emit('wave-completed', this.makeEvent({
-          type: 'wave-completed' as const,
-          timestamp: '',
-        }));
+        this.emit(
+          'wave-completed',
+          this.makeEvent({
+            type: 'wave-completed' as const,
+            timestamp: '',
+          }),
+        );
       }
 
       result.elapsedMs = Date.now() - startTime;
-      this.emit('execution-completed', this.makeEvent({
-        type: 'execution-completed' as const,
-        timestamp: '',
-      }));
+      this.emit(
+        'execution-completed',
+        this.makeEvent({
+          type: 'execution-completed' as const,
+          timestamp: '',
+        }),
+      );
 
       return result;
     } catch (err) {
       result.elapsedMs = Date.now() - startTime;
-      this.emit('execution-failed', this.makeEvent({
-        type: 'execution-failed' as const,
-        timestamp: '',
-      }));
+      this.emit(
+        'execution-failed',
+        this.makeEvent({
+          type: 'execution-failed' as const,
+          timestamp: '',
+        }),
+      );
       return result;
     }
   }
@@ -291,19 +319,20 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
       // 6. Emit node-progress
       const processed = Math.min(offset, totalRecords);
-      const progress = totalRecords > 0
-        ? Math.round((processed / totalRecords) * 100)
-        : 100;
+      const progress = totalRecords > 0 ? Math.round((processed / totalRecords) * 100) : 100;
 
-      this.emit('node-progress', this.makeEvent({
-        type: 'node-progress' as const,
-        timestamp: '',
-        objectApiName,
-        progress,
-        recordsProcessed: processed,
-        recordsTotal: totalRecords,
-        apiCallsUsed,
-      }));
+      this.emit(
+        'node-progress',
+        this.makeEvent({
+          type: 'node-progress' as const,
+          timestamp: '',
+          objectApiName,
+          progress,
+          recordsProcessed: processed,
+          recordsTotal: totalRecords,
+          apiCallsUsed,
+        }),
+      );
     }
 
     return {
@@ -322,10 +351,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     this.pausePromise = new Promise<void>((resolve) => {
       this.pauseResolve = resolve;
     });
-    this.emit('paused', this.makeEvent({
-      type: 'paused' as const,
-      timestamp: '',
-    }));
+    this.emit(
+      'paused',
+      this.makeEvent({
+        type: 'paused' as const,
+        timestamp: '',
+      }),
+    );
   }
 
   /** Resume execution after a pause. */
@@ -335,10 +367,13 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     this.pauseResolve?.();
     this.pausePromise = null;
     this.pauseResolve = null;
-    this.emit('resumed', this.makeEvent({
-      type: 'resumed' as const,
-      timestamp: '',
-    }));
+    this.emit(
+      'resumed',
+      this.makeEvent({
+        type: 'resumed' as const,
+        timestamp: '',
+      }),
+    );
   }
 
   /**

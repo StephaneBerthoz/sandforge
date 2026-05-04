@@ -5,9 +5,36 @@ import { CsvColumnMapper } from './CsvColumnMapper';
 import type { CsvColumnMapping, SeedFieldInfo } from '@sandforge/shared';
 
 const mockFields: SeedFieldInfo[] = [
-  { apiName: 'Name', label: 'Account Name', type: 'string', required: true, defaultValue: null, unique: false, externalId: false, maxLength: 255 },
-  { apiName: 'Email__c', label: 'Email', type: 'email', required: false, defaultValue: null, unique: false, externalId: false, maxLength: 255 },
-  { apiName: 'Phone', label: 'Phone', type: 'phone', required: false, defaultValue: null, unique: false, externalId: false, maxLength: 40 },
+  {
+    apiName: 'Name',
+    label: 'Account Name',
+    type: 'string',
+    required: true,
+    defaultValue: null,
+    unique: false,
+    externalId: false,
+    maxLength: 255,
+  },
+  {
+    apiName: 'Email__c',
+    label: 'Email',
+    type: 'email',
+    required: false,
+    defaultValue: null,
+    unique: false,
+    externalId: false,
+    maxLength: 255,
+  },
+  {
+    apiName: 'Phone',
+    label: 'Phone',
+    type: 'phone',
+    required: false,
+    defaultValue: null,
+    unique: false,
+    externalId: false,
+    maxLength: 40,
+  },
 ];
 
 const mockMappings: CsvColumnMapping[] = [

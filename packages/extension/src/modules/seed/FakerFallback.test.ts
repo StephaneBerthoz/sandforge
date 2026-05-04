@@ -36,10 +36,7 @@ describe('FakerFallback', () => {
     });
 
     it('should populate all requested fields', () => {
-      const rules = [
-        createFakerRule('name', 'FullName'),
-        createFakerRule('email', 'Email'),
-      ];
+      const rules = [createFakerRule('name', 'FullName'), createFakerRule('email', 'Email')];
       const result = faker.generate(rules, 3);
 
       for (const record of result) {
@@ -180,10 +177,7 @@ describe('FakerFallback', () => {
 
     it('should generate geo-coherent city and country', () => {
       const frFaker = new FakerFallback('fr_FR');
-      const rules = [
-        createFakerRule('city', 'City'),
-        createFakerRule('country', 'Country'),
-      ];
+      const rules = [createFakerRule('city', 'City'), createFakerRule('country', 'Country')];
       const result = frFaker.generate(rules, 5);
       for (const record of result) {
         expect(record['Country']).toBe('France');

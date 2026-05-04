@@ -82,11 +82,13 @@ export class BackgroundOperationRegistry {
     this.operations.set(operationId, operation);
     this.emit(operationId, 'started', operation);
 
-    promise.then(() => {
-      this.markCompleted(operationId);
-    }).catch((error: unknown) => {
-      this.markFailed(operationId, error);
-    });
+    promise
+      .then(() => {
+        this.markCompleted(operationId);
+      })
+      .catch((error: unknown) => {
+        this.markFailed(operationId, error);
+      });
 
     return operation;
   }
@@ -242,7 +244,11 @@ export class BackgroundOperationRegistry {
   /**
    * Emit an event to all listeners.
    */
-  private emit(operationId: string, type: OperationEventType, operation: RegisteredOperation): void {
+  private emit(
+    operationId: string,
+    type: OperationEventType,
+    operation: RegisteredOperation,
+  ): void {
     for (const listener of this.listeners) {
       listener(operationId, type, operation);
     }

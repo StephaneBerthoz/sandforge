@@ -33,9 +33,7 @@ export const GrappeProgressPanel: React.FC = () => {
   ).length;
 
   const overallPercent =
-    totalPartitions > 0
-      ? Math.round((completedPartitions / totalPartitions) * 100)
-      : 0;
+    totalPartitions > 0 ? Math.round((completedPartitions / totalPartitions) * 100) : 0;
 
   const bpVariant =
     backPressureLevel === 'critical'
@@ -88,7 +86,9 @@ export const GrappeProgressPanel: React.FC = () => {
         className="flex gap-4 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
         data-testid="grappe-stats"
       >
-        <span>{t('grappe.totalRecords', 'Records')}: {totalRecords.toLocaleString()}</span>
+        <span>
+          {t('grappe.totalRecords', 'Records')}: {totalRecords.toLocaleString()}
+        </span>
         {!active && (
           <>
             <span className="text-[var(--vscode-testing-iconPassed,#73c991)]">

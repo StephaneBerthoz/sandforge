@@ -4,7 +4,7 @@ import type { SeedExecutionResult } from '@sandforge/shared';
 export type QueryRecordsFn = (
   orgId: string,
   objectApiName: string,
-  ids: string[]
+  ids: string[],
 ) => Promise<QueryResult>;
 
 /** Result of querying records for validation */
@@ -35,10 +35,7 @@ export class PostSeedValidator {
    * Validate a seed execution result by querying all created records
    * and checking they exist in the target org.
    */
-  async validate(
-    orgId: string,
-    result: SeedExecutionResult
-  ): Promise<PostValidationResult> {
+  async validate(orgId: string, result: SeedExecutionResult): Promise<PostValidationResult> {
     const issues: string[] = [];
     let verifiedCount = 0;
 
@@ -50,7 +47,7 @@ export class PostSeedValidator {
       const queryResult = await this.queryRecords(
         orgId,
         objResult.objectApiName,
-        objResult.createdIds
+        objResult.createdIds,
       );
 
       const foundCount = queryResult.totalSize;
@@ -61,15 +58,13 @@ export class PostSeedValidator {
 
       if (missingCount > 0) {
         issues.push(
-          `${objResult.objectApiName}: ${missingCount} of ${expectedCount} records not found`
+          `${objResult.objectApiName}: ${missingCount} of ${expectedCount} records not found`,
         );
       }
     }
 
     if (result.totalRecordsFailed > 0) {
-      issues.push(
-        `${result.totalRecordsFailed} records failed during insertion`
-      );
+      issues.push(`${result.totalRecordsFailed} records failed during insertion`);
     }
 
     return {

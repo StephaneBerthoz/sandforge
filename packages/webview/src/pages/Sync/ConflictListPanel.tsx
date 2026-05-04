@@ -1,6 +1,9 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { useConflictStore, filteredConflicts as filterConflicts } from '../../stores/useConflictStore';
+import {
+  useConflictStore,
+  filteredConflicts as filterConflicts,
+} from '../../stores/useConflictStore';
 import type { UIConflict, ConflictType } from '@sandforge/shared';
 import { DataTable } from '../../components/ui/DataTable';
 import type { DataTableColumn } from '../../components/ui/DataTable';
@@ -65,9 +68,7 @@ export const ConflictListPanel: React.FC = () => {
       {
         key: 'recordId',
         header: 'Record ID',
-        render: (row: UIConflict) => (
-          <span className="font-mono text-[10px]">{row.recordId}</span>
-        ),
+        render: (row: UIConflict) => <span className="font-mono text-[10px]">{row.recordId}</span>,
       },
       {
         key: 'conflictType',
@@ -80,7 +81,9 @@ export const ConflictListPanel: React.FC = () => {
         key: 'conflictFields',
         header: t('sync.conflictResolution.fieldCount', { count: 0 }).replace('0', '#'),
         render: (row: UIConflict) => (
-          <span>{t('sync.conflictResolution.fieldCount', { count: row.conflictFields.length })}</span>
+          <span>
+            {t('sync.conflictResolution.fieldCount', { count: row.conflictFields.length })}
+          </span>
         ),
       },
       {
@@ -130,7 +133,9 @@ export const ConflictListPanel: React.FC = () => {
         >
           <option value="">{t('sync.conflictResolution.filterByObject')}</option>
           {uniqueObjects.map((obj) => (
-            <option key={obj} value={obj}>{obj}</option>
+            <option key={obj} value={obj}>
+              {obj}
+            </option>
           ))}
         </select>
 
@@ -143,7 +148,9 @@ export const ConflictListPanel: React.FC = () => {
         >
           <option value="">{t('sync.conflictResolution.filterByType')}</option>
           {uniqueTypes.map((type) => (
-            <option key={type} value={type}>{t(conflictTypeI18nMap[type])}</option>
+            <option key={type} value={type}>
+              {t(conflictTypeI18nMap[type])}
+            </option>
           ))}
         </select>
 

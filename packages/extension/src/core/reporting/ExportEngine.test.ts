@@ -41,9 +41,7 @@ describe('ExportEngine', () => {
 
     it('should include all report fields in the JSON output', () => {
       const report = makeReport({
-        sections: [
-          { title: 'Section 1', type: 'text', content: { value: 'hello' }, order: 0 },
-        ],
+        sections: [{ title: 'Section 1', type: 'text', content: { value: 'hello' }, order: 0 }],
       });
 
       const json = engine.exportToJson(report);
@@ -65,9 +63,7 @@ describe('ExportEngine', () => {
   describe('exportToCsv', () => {
     it('should return empty string when no table sections exist', () => {
       const report = makeReport({
-        sections: [
-          { title: 'Text', type: 'text', content: { value: 'hello' }, order: 0 },
-        ],
+        sections: [{ title: 'Text', type: 'text', content: { value: 'hello' }, order: 0 }],
       });
 
       const csv = engine.exportToCsv(report);

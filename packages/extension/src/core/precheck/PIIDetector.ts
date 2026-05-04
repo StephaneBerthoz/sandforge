@@ -58,7 +58,7 @@ export class PIIDetector {
   detectPII(
     objectName: string,
     fields: FieldDescribe[],
-    sampleData?: Array<Record<string, unknown>>
+    sampleData?: Array<Record<string, unknown>>,
   ): PIIDetectionResult {
     const detected = new Map<string, PIIField>();
 
@@ -93,10 +93,7 @@ export class PIIDetector {
   }
 
   /** Check a field's API name and label against known PII name patterns */
-  private detectByName(
-    field: FieldDescribe,
-    detected: Map<string, PIIField>
-  ): void {
+  private detectByName(field: FieldDescribe, detected: Map<string, PIIField>): void {
     const nameToCheck = field.apiName.toLowerCase().replace(/__c$/i, '');
     const labelToCheck = field.label.toLowerCase();
 
@@ -114,10 +111,7 @@ export class PIIDetector {
   }
 
   /** Check a field's Salesforce type to infer PII classification */
-  private detectByType(
-    field: FieldDescribe,
-    detected: Map<string, PIIField>
-  ): void {
+  private detectByType(field: FieldDescribe, detected: Map<string, PIIField>): void {
     if (detected.has(field.apiName)) {
       return;
     }
@@ -145,18 +139,14 @@ export class PIIDetector {
   private detectByContent(
     field: FieldDescribe,
     sampleData: Array<Record<string, unknown>>,
-    detected: Map<string, PIIField>
+    detected: Map<string, PIIField>,
   ): void {
     if (detected.has(field.apiName)) {
       return;
     }
 
     for (const pattern of this.contentPatterns) {
-      const matchCount = countContentMatches(
-        field.apiName,
-        sampleData,
-        pattern.regex
-      );
+      const matchCount = countContentMatches(field.apiName, sampleData, pattern.regex);
 
       if (matchCount > 0) {
         const matchRatio = matchCount / sampleData.length;
@@ -182,7 +172,7 @@ export class PIIDetector {
       detectionMethod: PIIField['detectionMethod'];
       confidence: number;
       pattern: string;
-    }
+    },
   ): void {
     const existing = detected.get(field.apiName);
     if (existing && existing.confidence >= info.confidence) {
@@ -207,22 +197,67 @@ function buildNamePatterns(): NamePattern[] {
     { regex: /\bphone\b/i, classification: 'PII', confidence: 0.9, label: 'phone' },
     { regex: /\bmobilephone\b/i, classification: 'PII', confidence: 0.9, label: 'mobile_phone' },
     { regex: /\bpersonemail\b/i, classification: 'PII', confidence: 0.95, label: 'person_email' },
-    { regex: /\bmailingstreet\b/i, classification: 'PII', confidence: 0.85, label: 'mailing_street' },
-    { regex: /\bbillingstreet\b/i, classification: 'PII', confidence: 0.85, label: 'billing_street' },
+    {
+      regex: /\bmailingstreet\b/i,
+      classification: 'PII',
+      confidence: 0.85,
+      label: 'mailing_street',
+    },
+    {
+      regex: /\bbillingstreet\b/i,
+      classification: 'PII',
+      confidence: 0.85,
+      label: 'billing_street',
+    },
     { regex: /\bssn\b/i, classification: 'PII', confidence: 0.99, label: 'ssn' },
-    { regex: /\bsocialsecuritynumber\b/i, classification: 'PII', confidence: 0.99, label: 'social_security_number' },
-    { regex: /\bsocial_security\b/i, classification: 'PII', confidence: 0.99, label: 'social_security' },
+    {
+      regex: /\bsocialsecuritynumber\b/i,
+      classification: 'PII',
+      confidence: 0.99,
+      label: 'social_security_number',
+    },
+    {
+      regex: /\bsocial_security\b/i,
+      classification: 'PII',
+      confidence: 0.99,
+      label: 'social_security',
+    },
     { regex: /\bbirthdate\b/i, classification: 'PII', confidence: 0.9, label: 'birthdate' },
     { regex: /\bdateofbirth\b/i, classification: 'PII', confidence: 0.9, label: 'date_of_birth' },
-    { regex: /\bdate_of_birth\b/i, classification: 'PII', confidence: 0.9, label: 'date_of_birth_underscore' },
+    {
+      regex: /\bdate_of_birth\b/i,
+      classification: 'PII',
+      confidence: 0.9,
+      label: 'date_of_birth_underscore',
+    },
     { regex: /\bnationalid\b/i, classification: 'PII', confidence: 0.95, label: 'national_id' },
-    { regex: /\bnational_id\b/i, classification: 'PII', confidence: 0.95, label: 'national_id_underscore' },
-    { regex: /\bcreditcardnumber\b/i, classification: 'PCI', confidence: 0.99, label: 'credit_card_number' },
+    {
+      regex: /\bnational_id\b/i,
+      classification: 'PII',
+      confidence: 0.95,
+      label: 'national_id_underscore',
+    },
+    {
+      regex: /\bcreditcardnumber\b/i,
+      classification: 'PCI',
+      confidence: 0.99,
+      label: 'credit_card_number',
+    },
     { regex: /\bcreditcard\b/i, classification: 'PCI', confidence: 0.95, label: 'credit_card' },
-    { regex: /\bcredit_card\b/i, classification: 'PCI', confidence: 0.95, label: 'credit_card_underscore' },
+    {
+      regex: /\bcredit_card\b/i,
+      classification: 'PCI',
+      confidence: 0.95,
+      label: 'credit_card_underscore',
+    },
     { regex: /\biban\b/i, classification: 'PCI', confidence: 0.95, label: 'iban' },
     { regex: /\bbankaccount\b/i, classification: 'PCI', confidence: 0.95, label: 'bank_account' },
-    { regex: /\bbank_account\b/i, classification: 'PCI', confidence: 0.95, label: 'bank_account_underscore' },
+    {
+      regex: /\bbank_account\b/i,
+      classification: 'PCI',
+      confidence: 0.95,
+      label: 'bank_account_underscore',
+    },
     { regex: /\bmedical\b/i, classification: 'PHI', confidence: 0.85, label: 'medical' },
     { regex: /\bdiagnos/i, classification: 'PHI', confidence: 0.9, label: 'diagnosis' },
     { regex: /\bhealth\b/i, classification: 'PHI', confidence: 0.8, label: 'health' },
@@ -238,10 +273,25 @@ function buildContentPatterns(): ContentPattern[] {
   // Order matters: more specific patterns must come before broader ones
   // (e.g. SSN and credit card before phone, which is very greedy)
   return [
-    { regex: /[\w.-]+@[\w.-]+\.\w{2,}/, classification: 'PII', confidence: 0.9, label: 'email_content' },
+    {
+      regex: /[\w.-]+@[\w.-]+\.\w{2,}/,
+      classification: 'PII',
+      confidence: 0.9,
+      label: 'email_content',
+    },
     { regex: /\d{3}-\d{2}-\d{4}/, classification: 'PII', confidence: 0.95, label: 'ssn_content' },
-    { regex: /\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}/, classification: 'PCI', confidence: 0.95, label: 'credit_card_content' },
-    { regex: /[A-Z]{2}\d{2}[A-Z0-9]{4,}/, classification: 'PCI', confidence: 0.85, label: 'iban_content' },
+    {
+      regex: /\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}/,
+      classification: 'PCI',
+      confidence: 0.95,
+      label: 'credit_card_content',
+    },
+    {
+      regex: /[A-Z]{2}\d{2}[A-Z0-9]{4,}/,
+      classification: 'PCI',
+      confidence: 0.85,
+      label: 'iban_content',
+    },
     { regex: /\+?\d[\d\s-]{7,}/, classification: 'PII', confidence: 0.7, label: 'phone_content' },
   ];
 }
@@ -250,7 +300,7 @@ function buildContentPatterns(): ContentPattern[] {
 function countContentMatches(
   fieldApiName: string,
   sampleData: Array<Record<string, unknown>>,
-  regex: RegExp
+  regex: RegExp,
 ): number {
   let count = 0;
   for (const record of sampleData) {
@@ -263,9 +313,7 @@ function countContentMatches(
 }
 
 /** Determine risk level based on the number of detected PII fields */
-function computeRiskLevel(
-  piiCount: number
-): PIIDetectionResult['riskLevel'] {
+function computeRiskLevel(piiCount: number): PIIDetectionResult['riskLevel'] {
   if (piiCount === 0) {
     return 'none';
   }

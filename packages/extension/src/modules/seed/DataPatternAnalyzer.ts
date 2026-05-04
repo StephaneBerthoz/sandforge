@@ -1,10 +1,7 @@
 import type { FieldRuleType } from '@sandforge/shared';
 
 /** Function signature for fetching sample data from an org */
-export type FetchSampleDataFn = (
-  orgId: string,
-  objectName: string
-) => Promise<SampleDataResponse>;
+export type FetchSampleDataFn = (orgId: string, objectName: string) => Promise<SampleDataResponse>;
 
 /** Response from fetching sample data */
 export interface SampleDataResponse {
@@ -61,9 +58,7 @@ export class DataPatternAnalyzer {
     const response = await this.fetchSampleData(orgId, objectName);
     const { records, fields, totalCount } = response;
 
-    const fieldPatterns = fields.map((field) =>
-      analyzeField(field, records)
-    );
+    const fieldPatterns = fields.map((field) => analyzeField(field, records));
 
     return {
       objectName,
@@ -77,10 +72,7 @@ export class DataPatternAnalyzer {
  * Analyze a single field across all sample records.
  * Computes null percentage, uniqueness, and suggests a field rule type.
  */
-function analyzeField(
-  field: FieldMetadata,
-  records: Record<string, unknown>[]
-): FieldPattern {
+function analyzeField(field: FieldMetadata, records: Record<string, unknown>[]): FieldPattern {
   const values = records.map((r) => r[field.name]);
   const totalValues = values.length;
 
@@ -89,9 +81,8 @@ function analyzeField(
 
   const nonNullValues = values.filter((v) => v !== null && v !== undefined);
   const uniqueValues = new Set(nonNullValues.map(String));
-  const uniquePercent = nonNullValues.length > 0
-    ? (uniqueValues.size / nonNullValues.length) * 100
-    : 0;
+  const uniquePercent =
+    nonNullValues.length > 0 ? (uniqueValues.size / nonNullValues.length) * 100 : 0;
 
   const sampleValues = nonNullValues.slice(0, MAX_SAMPLE_VALUES);
 
@@ -114,7 +105,7 @@ function analyzeField(
 function suggestFieldRule(
   field: FieldMetadata,
   uniquePercent: number,
-  values: unknown[]
+  values: unknown[],
 ): FieldRuleType {
   if (field.referenceTo && field.referenceTo.length > 0) {
     return 'reference';

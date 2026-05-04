@@ -1,7 +1,4 @@
-import type {
-  MassDeleteConfig,
-  OperationResult,
-} from '@sandforge/shared';
+import type { MassDeleteConfig, OperationResult } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Progress information for an active mass delete operation */
@@ -75,8 +72,9 @@ export class MassDeleteManager {
     let hasMore = true;
 
     while (hasMore && !this.cancelled) {
-      const ids = Array.from({ length: batchSize }, (_, i) =>
-        `${config.objectApiName}-${batchIndex * batchSize + i}`,
+      const ids = Array.from(
+        { length: batchSize },
+        (_, i) => `${config.objectApiName}-${batchIndex * batchSize + i}`,
       );
 
       try {
@@ -84,9 +82,7 @@ export class MassDeleteManager {
         totalDeleted += count;
         this.progress.deleted = totalDeleted;
         this.progress.percentage =
-          this.progress.total > 0
-            ? Math.round((totalDeleted / this.progress.total) * 100)
-            : 0;
+          this.progress.total > 0 ? Math.round((totalDeleted / this.progress.total) * 100) : 0;
 
         if (count < batchSize) {
           hasMore = false;

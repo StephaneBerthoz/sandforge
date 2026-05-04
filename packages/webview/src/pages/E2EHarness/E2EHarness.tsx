@@ -48,15 +48,23 @@ export function getHarnessFlow(search: string): Flow | null {
 
 /** Minimal fetch-style helper: POST a message to the extension mock. */
 function postExtensionMessage(type: string, payload: Record<string, unknown>): void {
-  const api = (window as unknown as { acquireVsCodeApi?: () => { postMessage: (m: unknown) => void } }).acquireVsCodeApi;
+  const api = (
+    window as unknown as { acquireVsCodeApi?: () => { postMessage: (m: unknown) => void } }
+  ).acquireVsCodeApi;
   if (api) {
     try {
       // Cached getter pattern — a real extension host only exposes this once.
       // In tests the mock caches internally, so calling twice is safe.
-      const cached = (window as unknown as { __vscodeApi?: { postMessage: (m: unknown) => void } }).__vscodeApi;
+      const cached = (window as unknown as { __vscodeApi?: { postMessage: (m: unknown) => void } })
+        .__vscodeApi;
       const vscode = cached ?? api();
-      (window as unknown as { __vscodeApi?: { postMessage: (m: unknown) => void } }).__vscodeApi = vscode;
-      vscode.postMessage({ type, id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, payload });
+      (window as unknown as { __vscodeApi?: { postMessage: (m: unknown) => void } }).__vscodeApi =
+        vscode;
+      vscode.postMessage({
+        type,
+        id: `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        payload,
+      });
     } catch {
       /* noop in non-test environments */
     }
@@ -66,7 +74,10 @@ function postExtensionMessage(type: string, payload: Record<string, unknown>): v
 // --- Spec 1 ----------------------------------------------------------------
 
 const SeedAIHarness: React.FC = () => {
-  const [personaPreview, setPersonaPreview] = useState<{ name: string; recordCount: number } | null>(null);
+  const [personaPreview, setPersonaPreview] = useState<{
+    name: string;
+    recordCount: number;
+  } | null>(null);
   const [executionStarted, setExecutionStarted] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [sourceOrg, setSourceOrg] = useState('');
@@ -96,7 +107,9 @@ const SeedAIHarness: React.FC = () => {
     <div data-testid="forge-page" className="p-6 space-y-3">
       <h1 className="text-lg">Forge (E2E harness)</h1>
       <div role="tablist" className="flex gap-2">
-        <button data-testid="forge-tab-ai" role="tab" aria-selected="true">AI</button>
+        <button data-testid="forge-tab-ai" role="tab" aria-selected="true">
+          AI
+        </button>
       </div>
       <textarea
         data-testid="forge-input-ai"
@@ -104,11 +117,19 @@ const SeedAIHarness: React.FC = () => {
         onChange={(e) => setPrompt(e.target.value)}
         placeholder="Describe the persona"
       />
-      <select data-testid="forge-source-org" value={sourceOrg} onChange={(e) => setSourceOrg(e.target.value)}>
+      <select
+        data-testid="forge-source-org"
+        value={sourceOrg}
+        onChange={(e) => setSourceOrg(e.target.value)}
+      >
         <option value="">Source org</option>
         <option value="org-src-1">DevSandbox</option>
       </select>
-      <select data-testid="forge-target-org" value={targetOrg} onChange={(e) => setTargetOrg(e.target.value)}>
+      <select
+        data-testid="forge-target-org"
+        value={targetOrg}
+        onChange={(e) => setTargetOrg(e.target.value)}
+      >
         <option value="">Target org</option>
         <option value="org-tgt-1">QASandbox</option>
       </select>
@@ -195,7 +216,11 @@ const SyncConflictHarness: React.FC = () => {
   return (
     <div data-testid="sync-page" className="p-6 space-y-3">
       <h1 className="text-lg">Sync (E2E harness)</h1>
-      <select data-testid="sync-object-select" value={object} onChange={(e) => setObject(e.target.value)}>
+      <select
+        data-testid="sync-object-select"
+        value={object}
+        onChange={(e) => setObject(e.target.value)}
+      >
         <option value="">Select object</option>
         <option value="Contact">Contact</option>
       </select>
@@ -204,7 +229,9 @@ const SyncConflictHarness: React.FC = () => {
       </button>
       {conflict && (
         <div data-testid="sync-conflict-dialog" role="dialog" className="rounded border p-3">
-          <div>{conflict.objectApiName} conflict on {conflict.recordId}</div>
+          <div>
+            {conflict.objectApiName} conflict on {conflict.recordId}
+          </div>
           <ul>
             {conflict.fieldConflicts.map((fc) => (
               <li key={fc.field} data-testid="sync-conflict-field-row">
@@ -277,15 +304,20 @@ const MonitorHarness: React.FC = () => {
   return (
     <div data-testid="monitor-page" className="p-6 space-y-3">
       <h1 className="text-lg">Monitor (E2E harness)</h1>
-      <button data-testid="monitor-refresh-btn" onClick={refresh}>Refresh</button>
-      <button data-testid="monitor-export-csv-btn" onClick={exportCsv}>Export CSV</button>
+      <button data-testid="monitor-refresh-btn" onClick={refresh}>
+        Refresh
+      </button>
+      <button data-testid="monitor-export-csv-btn" onClick={exportCsv}>
+        Export CSV
+      </button>
       {metrics && (
         <div className="space-y-2">
           <div data-testid="monitor-metric-card-apiRequests" className="rounded border p-3">
             API requests: {metrics.limits.apiRequests.used}/{metrics.limits.apiRequests.max}
           </div>
           <div data-testid="monitor-metric-card-jobs" className="rounded border p-3">
-            Jobs: running {metrics.jobs.running} / completed {metrics.jobs.completed} / failed {metrics.jobs.failed}
+            Jobs: running {metrics.jobs.running} / completed {metrics.jobs.completed} / failed{' '}
+            {metrics.jobs.failed}
           </div>
           <div data-testid="monitor-last-updated">{metrics.lastUpdated}</div>
         </div>
@@ -344,9 +376,15 @@ const CdcHarness: React.FC = () => {
     <div data-testid="monitor-page" className="p-6 space-y-3">
       <h1 className="text-lg">Monitor / CDC (E2E harness)</h1>
       <div role="tablist" className="flex gap-2">
-        <button data-testid="monitor-tab-cdc" role="tab" aria-selected="true">CDC</button>
+        <button data-testid="monitor-tab-cdc" role="tab" aria-selected="true">
+          CDC
+        </button>
       </div>
-      <select data-testid="monitor-cdc-object-select" value={object} onChange={(e) => setObject(e.target.value)}>
+      <select
+        data-testid="monitor-cdc-object-select"
+        value={object}
+        onChange={(e) => setObject(e.target.value)}
+      >
         <option value="">Select object</option>
         <option value="Account">Account</option>
       </select>
@@ -374,7 +412,9 @@ const CdcHarness: React.FC = () => {
         </div>
       )}
       {unsubscribed && (
-        <div data-testid="monitor-cdc-idle" className="rounded border p-2">Idle</div>
+        <div data-testid="monitor-cdc-idle" className="rounded border p-2">
+          Idle
+        </div>
       )}
       <ul>
         {events.map((e) => (
@@ -450,7 +490,9 @@ const AIDiagnoseHarness: React.FC = () => {
       <h1 className="text-lg">AI diagnose (E2E harness)</h1>
       {jobs.map((job) => (
         <div key={job.jobId} data-testid="monitor-failed-job-card" className="rounded border p-3">
-          <div>{job.objectApiName}: {job.errorMessage}</div>
+          <div>
+            {job.objectApiName}: {job.errorMessage}
+          </div>
           <button
             data-testid="ai-diagnose-btn"
             onClick={() => postExtensionMessage('ai:diagnose', { jobId: job.jobId })}

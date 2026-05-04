@@ -194,7 +194,8 @@ export class DiffAnalyzer {
     let totalWeight = 0;
 
     for (const diff of diffs) {
-      const typeWeight = RISK_WEIGHTS[diff.category as MetadataComponentType] ?? DEFAULT_RISK_WEIGHT;
+      const typeWeight =
+        RISK_WEIGHTS[diff.category as MetadataComponentType] ?? DEFAULT_RISK_WEIGHT;
       const multiplier = CHANGE_MULTIPLIER[diff.changeType] ?? 1;
       totalWeight += typeWeight * multiplier;
     }
@@ -212,16 +213,16 @@ export class DiffAnalyzer {
     const highCount = diffs.filter((d) => d.riskLevel === 'high').length;
 
     if (criticalCount > 0) {
-      parts.push(`${criticalCount} critical-risk change(s) detected. Manual review required before deployment.`);
+      parts.push(
+        `${criticalCount} critical-risk change(s) detected. Manual review required before deployment.`,
+      );
     }
 
     if (highCount > 0) {
       parts.push(`${highCount} high-risk change(s). Deploy to a sandbox first.`);
     }
 
-    const hasApex = diffs.some(
-      (d) => d.category === 'ApexClass' || d.category === 'ApexTrigger',
-    );
+    const hasApex = diffs.some((d) => d.category === 'ApexClass' || d.category === 'ApexTrigger');
     if (hasApex) {
       parts.push('Run all Apex tests in the target org.');
     }

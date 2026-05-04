@@ -51,11 +51,11 @@ interface RawEnvelope {
 
 function isEnvelopeShape(raw: unknown): raw is RawEnvelope {
   return (
-    typeof raw === 'object'
-    && raw !== null
-    && 'protocolVersion' in raw
-    && 'payload' in raw
-    && typeof (raw as Record<string, unknown>).payload === 'object'
+    typeof raw === 'object' &&
+    raw !== null &&
+    'protocolVersion' in raw &&
+    'payload' in raw &&
+    typeof (raw as Record<string, unknown>).payload === 'object'
   );
 }
 
@@ -231,7 +231,10 @@ export class MessageBroker {
     const baseResult = baseMessageSchema.safeParse(raw);
     if (!baseResult.success) {
       const issues = baseResult.error.issues
-        .map((issue: { path: (string | number)[]; message: string }) => `${issue.path.join('.')}: ${issue.message}`)
+        .map(
+          (issue: { path: (string | number)[]; message: string }) =>
+            `${issue.path.join('.')}: ${issue.message}`,
+        )
         .join('; ');
       this.logFn?.(`[MessageBroker] Received malformed message: ${issues}`);
       return;

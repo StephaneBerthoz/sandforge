@@ -1,9 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type {
-  DataLineageGraph,
-  LineageNode,
-  LineageEdge,
-} from '@sandforge/shared';
+import type { DataLineageGraph, LineageNode, LineageEdge } from '@sandforge/shared';
 
 /** Internal state for a tracked operation */
 interface TrackedOperation {
@@ -104,7 +100,7 @@ export class DataLineageTracker {
     const operation = this.operations.get(operationId);
     if (!operation) {
       throw new Error(
-        `Operation "${operationId}" is not being tracked. Call startTracking() first.`
+        `Operation "${operationId}" is not being tracked. Call startTracking() first.`,
       );
     }
     return operation;

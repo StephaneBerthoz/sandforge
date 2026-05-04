@@ -1,7 +1,21 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Play, Box, Database, HardDrive, Clock, Loader2, LayoutGrid, List, RotateCcw, CheckSquare, XSquare, Search } from 'lucide-react';
+import {
+  ArrowLeft,
+  Play,
+  Box,
+  Database,
+  HardDrive,
+  Clock,
+  Loader2,
+  LayoutGrid,
+  List,
+  RotateCcw,
+  CheckSquare,
+  XSquare,
+  Search,
+} from 'lucide-react';
 import { SplitView } from '../../components/ui/SplitView';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ForgeNodeDetail } from './ForgeNodeDetail';
@@ -44,11 +58,14 @@ export const ForgeDiscovery: React.FC = () => {
   /** Listen for graph discovery response from the extension. */
   useMessageListener<BaseMessage & { payload: { graph: ForgeGraph } }>(
     'forge:discover:response',
-    useCallback((msg) => {
-      setGraph(msg.payload.graph);
-      setLoading(false);
-      setError(null);
-    }, [setGraph]),
+    useCallback(
+      (msg) => {
+        setGraph(msg.payload.graph);
+        setLoading(false);
+        setError(null);
+      },
+      [setGraph],
+    ),
   );
 
   /** Listen for graph discovery error from the extension. */
@@ -184,7 +201,9 @@ export const ForgeDiscovery: React.FC = () => {
             onClick={() => setViewMode('graph')}
             className={cn(
               'px-2.5 py-1.5 text-xs transition-colors',
-              viewMode === 'graph' ? 'bg-forge text-white' : 'text-text-muted hover:text-text-secondary',
+              viewMode === 'graph'
+                ? 'bg-forge text-white'
+                : 'text-text-muted hover:text-text-secondary',
             )}
             aria-pressed={viewMode === 'graph'}
           >
@@ -197,7 +216,9 @@ export const ForgeDiscovery: React.FC = () => {
             onClick={() => setViewMode('table')}
             className={cn(
               'px-2.5 py-1.5 text-xs transition-colors',
-              viewMode === 'table' ? 'bg-forge text-white' : 'text-text-muted hover:text-text-secondary',
+              viewMode === 'table'
+                ? 'bg-forge text-white'
+                : 'text-text-muted hover:text-text-secondary',
             )}
             aria-pressed={viewMode === 'table'}
           >
@@ -206,7 +227,10 @@ export const ForgeDiscovery: React.FC = () => {
           </button>
         </div>
         <div className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted" />
+          <Search
+            size={14}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted"
+          />
           <input
             type="text"
             data-testid="forge-node-search"

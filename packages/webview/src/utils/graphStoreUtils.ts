@@ -44,8 +44,6 @@ export function updateGraphNodeProgress<T extends GraphNodeLike>(
   counterValue: number,
 ): T[] {
   return nodes.map((n) =>
-    n.objectApiName === objectName
-      ? { ...n, progress, [counterField]: counterValue } as T
-      : n,
+    n.objectApiName === objectName ? ({ ...n, progress, [counterField]: counterValue } as T) : n,
   );
 }

@@ -128,9 +128,9 @@ describe('MetadataCompare', () => {
     it('should handle fetch failures by propagating the error', async () => {
       vi.mocked(fetchMetadata).mockRejectedValue(new Error('Connection failed'));
 
-      await expect(
-        metadataCompare.compare('org-1', 'org-2', ['ApexClass'])
-      ).rejects.toThrow('Connection failed');
+      await expect(metadataCompare.compare('org-1', 'org-2', ['ApexClass'])).rejects.toThrow(
+        'Connection failed',
+      );
     });
 
     it('should handle large numbers of components', async () => {

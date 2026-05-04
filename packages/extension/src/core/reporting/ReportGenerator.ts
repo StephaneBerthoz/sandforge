@@ -35,7 +35,7 @@ export class ReportGenerator {
    */
   async generateReport(
     definition: ReportDefinition,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
   ): Promise<GeneratedReport> {
     const sections = this.buildSections(data);
     const metadata = this.buildMetadata(definition, data);
@@ -71,10 +71,7 @@ export class ReportGenerator {
    * @param filter - Optional filter criteria
    * @returns An array of matching reports
    */
-  listReports(filter?: {
-    type?: ReportType;
-    module?: string;
-  }): GeneratedReport[] {
+  listReports(filter?: { type?: ReportType; module?: string }): GeneratedReport[] {
     let results = Array.from(this.reports.values());
 
     if (filter?.type) {
@@ -107,7 +104,7 @@ export class ReportGenerator {
    */
   on<K extends keyof ReportGeneratorEvents>(
     event: K,
-    listener: (...args: ReportGeneratorEvents[K]) => void
+    listener: (...args: ReportGeneratorEvents[K]) => void,
   ): void {
     this.emitter.on(event, listener as (...args: unknown[]) => void);
   }
@@ -119,7 +116,7 @@ export class ReportGenerator {
    */
   off<K extends keyof ReportGeneratorEvents>(
     event: K,
-    listener: (...args: ReportGeneratorEvents[K]) => void
+    listener: (...args: ReportGeneratorEvents[K]) => void,
   ): void {
     this.emitter.off(event, listener as (...args: unknown[]) => void);
   }
@@ -158,16 +155,14 @@ export class ReportGenerator {
 
   private buildMetadata(
     definition: ReportDefinition,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
   ): ReportMetadata {
     return {
       module: typeof data['module'] === 'string' ? data['module'] : definition.type,
       orgId: typeof data['orgId'] === 'string' ? data['orgId'] : undefined,
-      operationId:
-        typeof data['operationId'] === 'string' ? data['operationId'] : undefined,
+      operationId: typeof data['operationId'] === 'string' ? data['operationId'] : undefined,
       duration: typeof data['duration'] === 'number' ? data['duration'] : undefined,
-      recordCount:
-        typeof data['recordCount'] === 'number' ? data['recordCount'] : undefined,
+      recordCount: typeof data['recordCount'] === 'number' ? data['recordCount'] : undefined,
     };
   }
 }

@@ -7,10 +7,7 @@
 import * as fc from 'fast-check';
 import { describe, it, expect } from 'vitest';
 import { DiffEngine } from './DiffEngine';
-import {
-  componentMapArb,
-  metadataComponentTypeArb,
-} from '../../test/arbitraries';
+import { componentMapArb, metadataComponentTypeArb } from '../../test/arbitraries';
 
 describe('DiffEngine — property-based', () => {
   it('identity: diff(m, m, type) produces only unchanged items', () => {
@@ -55,59 +52,45 @@ describe('DiffEngine — property-based', () => {
 
   it('commutativity up to swap: diff(a,b) vs diff(b,a) mirror added <-> removed', () => {
     fc.assert(
-      fc.property(
-        componentMapArb,
-        componentMapArb,
-        metadataComponentTypeArb,
-        (a, b, type) => {
-          const engine = new DiffEngine();
-          const forward = engine.diff(a, b, type);
-          const backward = engine.diff(b, a, type);
+      fc.property(componentMapArb, componentMapArb, metadataComponentTypeArb, (a, b, type) => {
+        const engine = new DiffEngine();
+        const forward = engine.diff(a, b, type);
+        const backward = engine.diff(b, a, type);
 
-          const flip = (s: string): string =>
-            s === 'added' ? 'removed' : s === 'removed' ? 'added' : s;
+        const flip = (s: string): string =>
+          s === 'added' ? 'removed' : s === 'removed' ? 'added' : s;
 
-          const pairs = (items: typeof forward): string[] =>
-            items
-              .map((i) => `${i.fullName}::${i.status}`)
-              .sort((x, y) => x.localeCompare(y));
+        const pairs = (items: typeof forward): string[] =>
+          items.map((i) => `${i.fullName}::${i.status}`).sort((x, y) => x.localeCompare(y));
 
-          const flippedBackward = pairs(
-            backward.map((i) => ({ ...i, status: flip(i.status) as typeof i.status })),
-          );
-          expect(pairs(forward)).toEqual(flippedBackward);
-        },
-      ),
+        const flippedBackward = pairs(
+          backward.map((i) => ({ ...i, status: flip(i.status) as typeof i.status })),
+        );
+        expect(pairs(forward)).toEqual(flippedBackward);
+      }),
       { numRuns: 100 },
     );
   });
 
   it('disjoint keys: source-only keys are removed, target-only keys are added', () => {
     fc.assert(
-      fc.property(
-        componentMapArb,
-        componentMapArb,
-        metadataComponentTypeArb,
-        (a, b, type) => {
-          const engine = new DiffEngine();
-          const result = engine.diff(a, b, type);
-          for (const item of result) {
-            const inSource = a.has(item.fullName);
-            const inTarget = b.has(item.fullName);
-            if (inSource && !inTarget) {
-              expect(item.status).toBe('removed');
-            } else if (!inSource && inTarget) {
-              expect(item.status).toBe('added');
-            } else if (inSource && inTarget) {
-              const sourceVal = a.get(item.fullName);
-              const targetVal = b.get(item.fullName);
-              expect(item.status).toBe(
-                sourceVal === targetVal ? 'unchanged' : 'modified',
-              );
-            }
+      fc.property(componentMapArb, componentMapArb, metadataComponentTypeArb, (a, b, type) => {
+        const engine = new DiffEngine();
+        const result = engine.diff(a, b, type);
+        for (const item of result) {
+          const inSource = a.has(item.fullName);
+          const inTarget = b.has(item.fullName);
+          if (inSource && !inTarget) {
+            expect(item.status).toBe('removed');
+          } else if (!inSource && inTarget) {
+            expect(item.status).toBe('added');
+          } else if (inSource && inTarget) {
+            const sourceVal = a.get(item.fullName);
+            const targetVal = b.get(item.fullName);
+            expect(item.status).toBe(sourceVal === targetVal ? 'unchanged' : 'modified');
           }
-        },
-      ),
+        }
+      }),
       { numRuns: 100 },
     );
   });

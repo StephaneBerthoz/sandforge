@@ -49,8 +49,13 @@ export const PersonaCustomizePanel: React.FC<PersonaCustomizePanelProps> = ({
         const params = pattern.params as Record<string, unknown> | undefined;
         if (pattern.generator === 'random_pick' && Array.isArray(params?.['values'])) {
           initial[fieldName] = { values: (params['values'] as string[]).join(', ') };
-        } else if (pattern.generator === 'weighted_pick' && typeof params?.['values'] === 'object') {
-          initial[fieldName] = { values: Object.keys(params['values'] as Record<string, unknown>).join(', ') };
+        } else if (
+          pattern.generator === 'weighted_pick' &&
+          typeof params?.['values'] === 'object'
+        ) {
+          initial[fieldName] = {
+            values: Object.keys(params['values'] as Record<string, unknown>).join(', '),
+          };
         }
       }
     }
@@ -73,12 +78,20 @@ export const PersonaCustomizePanel: React.FC<PersonaCustomizePanelProps> = ({
 
       if (pattern.generator === 'range' && edit) {
         const existingParams = (pattern.params ?? {}) as Record<string, unknown>;
-        const min = edit.min !== undefined && edit.min !== '' ? Number(edit.min) : existingParams['min'];
-        const max = edit.max !== undefined && edit.max !== '' ? Number(edit.max) : existingParams['max'];
+        const min =
+          edit.min !== undefined && edit.min !== '' ? Number(edit.min) : existingParams['min'];
+        const max =
+          edit.max !== undefined && edit.max !== '' ? Number(edit.max) : existingParams['max'];
         newPattern.params = { ...existingParams, min, max };
-      } else if ((pattern.generator === 'random_pick' || pattern.generator === 'weighted_pick') && edit?.values !== undefined) {
+      } else if (
+        (pattern.generator === 'random_pick' || pattern.generator === 'weighted_pick') &&
+        edit?.values !== undefined
+      ) {
         const existingParams = (pattern.params ?? {}) as Record<string, unknown>;
-        const valueList = edit.values.split(',').map((v) => v.trim()).filter((v) => v.length > 0);
+        const valueList = edit.values
+          .split(',')
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0);
         if (pattern.generator === 'random_pick') {
           newPattern.params = { ...existingParams, values: valueList };
         } else {
@@ -104,10 +117,7 @@ export const PersonaCustomizePanel: React.FC<PersonaCustomizePanelProps> = ({
 
   return (
     <Card data-testid="persona-customize-panel">
-      <CardHeader
-        title={t('seed.persona.customize.title')}
-        subtitle={persona.name}
-      />
+      <CardHeader title={t('seed.persona.customize.title')} subtitle={persona.name} />
       <CardBody>
         <div className="flex flex-col gap-3">
           {Object.entries(persona.dataPatterns).map(([fieldName, pattern]) => (
@@ -209,18 +219,20 @@ const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate,
         </div>
       )}
 
-      {pattern.generator !== 'range' && pattern.generator !== 'random_pick' && pattern.generator !== 'weighted_pick' && (
-        <div className="flex gap-1 mt-1 flex-wrap">
-          {pattern.examples.slice(0, 3).map((ex, i) => (
-            <span
-              key={i}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#d4d4d4)]"
-            >
-              {ex}
-            </span>
-          ))}
-        </div>
-      )}
+      {pattern.generator !== 'range' &&
+        pattern.generator !== 'random_pick' &&
+        pattern.generator !== 'weighted_pick' && (
+          <div className="flex gap-1 mt-1 flex-wrap">
+            {pattern.examples.slice(0, 3).map((ex, i) => (
+              <span
+                key={i}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#d4d4d4)]"
+              >
+                {ex}
+              </span>
+            ))}
+          </div>
+        )}
     </div>
   );
 };

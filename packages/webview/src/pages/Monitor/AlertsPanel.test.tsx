@@ -25,10 +25,22 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
     if (type === 'monitor:alert:acknowledge') {
-      return { mutate: mockAcknowledgeMutate, data: null, loading: false, error: null, reset: mockAcknowledgeReset };
+      return {
+        mutate: mockAcknowledgeMutate,
+        data: null,
+        loading: false,
+        error: null,
+        reset: mockAcknowledgeReset,
+      };
     }
     if (type === 'monitor:alert:dismiss') {
-      return { mutate: mockDismissMutate, data: null, loading: false, error: null, reset: mockDismissReset };
+      return {
+        mutate: mockDismissMutate,
+        data: null,
+        loading: false,
+        error: null,
+        reset: mockDismissReset,
+      };
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },

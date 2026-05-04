@@ -234,7 +234,9 @@ export const useForgeStore = create<ForgeState>((set) => ({
     });
   },
 
-  applyAnonymizationPreset(rules: ReadonlyArray<{ objectApiName: string; fieldNames: readonly string[] }>): void {
+  applyAnonymizationPreset(
+    rules: ReadonlyArray<{ objectApiName: string; fieldNames: readonly string[] }>,
+  ): void {
     set((state) => {
       if (!state.graph) return state;
       const ruleByObject = new Map<string, readonly string[]>();
@@ -324,9 +326,10 @@ export const useForgeStore = create<ForgeState>((set) => ({
     // grow unbounded and the panel re-render cost dominates.
     const MAX_LOGS = 500;
     set((state) => {
-      const next = state.logs.length >= MAX_LOGS
-        ? [...state.logs.slice(state.logs.length - MAX_LOGS + 1), entry]
-        : [...state.logs, entry];
+      const next =
+        state.logs.length >= MAX_LOGS
+          ? [...state.logs.slice(state.logs.length - MAX_LOGS + 1), entry]
+          : [...state.logs, entry];
       return { logs: next };
     });
   },

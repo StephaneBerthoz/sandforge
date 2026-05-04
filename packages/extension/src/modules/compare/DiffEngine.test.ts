@@ -148,10 +148,7 @@ describe('DiffEngine', () => {
     });
 
     it('should detect modified fields', () => {
-      const diffs = engine.diffFields(
-        { field: 'old' },
-        { field: 'new' }
-      );
+      const diffs = engine.diffFields({ field: 'old' }, { field: 'new' });
 
       expect(diffs).toHaveLength(1);
       expect(diffs[0].status).toBe('modified');
@@ -160,10 +157,7 @@ describe('DiffEngine', () => {
     });
 
     it('should not include unchanged fields', () => {
-      const diffs = engine.diffFields(
-        { field: 'same' },
-        { field: 'same' }
-      );
+      const diffs = engine.diffFields({ field: 'same' }, { field: 'same' });
 
       expect(diffs).toHaveLength(0);
     });
@@ -176,7 +170,7 @@ describe('DiffEngine', () => {
     it('should handle multiple fields with mixed statuses', () => {
       const diffs = engine.diffFields(
         { kept: 'same', changed: 'old', removed: 'val' },
-        { kept: 'same', changed: 'new', added: 'val' }
+        { kept: 'same', changed: 'new', added: 'val' },
       );
 
       expect(diffs).toHaveLength(3);
@@ -219,9 +213,7 @@ describe('DiffEngine', () => {
     });
 
     it('should not include unchanged items in byType', () => {
-      const items: CompareItem[] = [
-        createItem('ApexClass', 'A', 'unchanged'),
-      ];
+      const items: CompareItem[] = [createItem('ApexClass', 'A', 'unchanged')];
 
       const summary = engine.computeSummary(items);
 
@@ -282,7 +274,7 @@ describe('DiffEngine', () => {
 function createItem(
   componentType: MetadataComponentType,
   fullName: string,
-  status: CompareItem['status']
+  status: CompareItem['status'],
 ): CompareItem {
   return {
     componentType,

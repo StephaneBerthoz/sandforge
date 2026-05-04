@@ -186,7 +186,15 @@ describe('forge.types', () => {
   });
 
   it('should support all ForgeAnonymizationCategory values', () => {
-    const categories: ForgeAnonymizationCategory[] = ['email', 'phone', 'name', 'address', 'ssn_id', 'financial', 'other'];
+    const categories: ForgeAnonymizationCategory[] = [
+      'email',
+      'phone',
+      'name',
+      'address',
+      'ssn_id',
+      'financial',
+      'other',
+    ];
     expect(categories).toHaveLength(7);
   });
 

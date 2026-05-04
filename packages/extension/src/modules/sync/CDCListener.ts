@@ -38,7 +38,7 @@ export interface StreamingClient {
   subscribe: (
     channel: string,
     replayId: number,
-    callback: (message: Record<string, unknown>) => void
+    callback: (message: Record<string, unknown>) => void,
   ) => StreamingSubscription;
   disconnect: () => void;
 }
@@ -227,10 +227,8 @@ export class CDCListener {
     const channels = this.buildChannels();
 
     for (const channel of channels) {
-      const subscription = this.client.subscribe(
-        channel,
-        this.lastReplayId,
-        (message) => this.handleMessage(message)
+      const subscription = this.client.subscribe(channel, this.lastReplayId, (message) =>
+        this.handleMessage(message),
       );
       this.subscriptions.push(subscription);
     }
@@ -246,9 +244,7 @@ export class CDCListener {
       return ['/data/ChangeEvents'];
     }
 
-    return this.config.watchedObjects.map(
-      (objectName) => buildCdcChannel(objectName)
-    );
+    return this.config.watchedObjects.map((objectName) => buildCdcChannel(objectName));
   }
 
   private handleMessage(message: Record<string, unknown>): void {
@@ -358,7 +354,11 @@ export class CDCListener {
     this.watchdogTimer = setInterval(() => {
       const silenceMs = Date.now() - this.lastActivityTime;
       if (silenceMs > WATCHDOG_SILENCE_THRESHOLD_MS) {
-        this.emitError(new Error(`Watchdog: no activity for ${Math.round(silenceMs / 1000)}s, forcing reconnect`));
+        this.emitError(
+          new Error(
+            `Watchdog: no activity for ${Math.round(silenceMs / 1000)}s, forcing reconnect`,
+          ),
+        );
         this.forceReconnect();
       }
     }, WATCHDOG_CHECK_INTERVAL_MS);
@@ -393,7 +393,7 @@ export class CDCListener {
 
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
       this.emitError(
-        new Error(`Max reconnect attempts (${this.config.maxReconnectAttempts}) reached`)
+        new Error(`Max reconnect attempts (${this.config.maxReconnectAttempts}) reached`),
       );
       return;
     }
@@ -411,8 +411,7 @@ export class CDCListener {
    * Caps at 30 seconds to avoid excessively long waits.
    */
   private calculateBackoffDelay(): number {
-    const exponentialDelay =
-      this.config.baseReconnectDelayMs * Math.pow(2, this.reconnectAttempts);
+    const exponentialDelay = this.config.baseReconnectDelayMs * Math.pow(2, this.reconnectAttempts);
     const cappedDelay = Math.min(exponentialDelay, 30_000);
     const jitter = Math.random() * 0.3 * cappedDelay;
     return cappedDelay + jitter;

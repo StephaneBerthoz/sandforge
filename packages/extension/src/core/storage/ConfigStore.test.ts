@@ -281,7 +281,7 @@ describe('ConfigStore', () => {
 
       expect(warn).toHaveBeenCalledOnce();
       expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('[ConfigStore] Failed to parse JSON for key "bad"')
+        expect.stringContaining('[ConfigStore] Failed to parse JSON for key "bad"'),
       );
     });
 

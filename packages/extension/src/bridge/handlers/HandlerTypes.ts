@@ -127,7 +127,9 @@ export function sendOperationStarted(
   module: string,
   description: string,
 ): void {
-  const msg: BaseMessage & { payload: { operationId: string; module: string; description: string } } = {
+  const msg: BaseMessage & {
+    payload: { operationId: string; module: string; description: string };
+  } = {
     id: deps.nextId(),
     type: 'operation:started',
     timestamp: Date.now(),
@@ -145,7 +147,15 @@ export function sendOperationProgress(
   totalRecords: number,
   currentStep: string,
 ): void {
-  const msg: BaseMessage & { payload: { operationId: string; percentage: number; processedRecords: number; totalRecords: number; currentStep: string } } = {
+  const msg: BaseMessage & {
+    payload: {
+      operationId: string;
+      percentage: number;
+      processedRecords: number;
+      totalRecords: number;
+      currentStep: string;
+    };
+  } = {
     id: deps.nextId(),
     type: 'operation:progress',
     timestamp: Date.now(),
@@ -209,11 +219,12 @@ export function sendOperationFailed(
   error: string,
   retryable: boolean,
 ): void {
-  const msg: BaseMessage & { payload: { operationId: string; error: string; retryable: boolean } } = {
-    id: deps.nextId(),
-    type: 'operation:failed',
-    timestamp: Date.now(),
-    payload: { operationId, error, retryable },
-  };
+  const msg: BaseMessage & { payload: { operationId: string; error: string; retryable: boolean } } =
+    {
+      id: deps.nextId(),
+      type: 'operation:failed',
+      timestamp: Date.now(),
+      payload: { operationId, error, retryable },
+    };
   deps.broker.postToWebview(msg);
 }

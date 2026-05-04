@@ -36,7 +36,8 @@ export class SchemaAnalyzer {
   analyzeObject(describe: ObjectDescribe): ObjectAnalysis {
     const creatableFields = describe.fields.filter((f) => f.createable);
     const requiredFields = describe.fields.filter(
-      (f) => f.createable && !f.nillable && !f.autoNumber && !f.calculated && f.defaultValue === null,
+      (f) =>
+        f.createable && !f.nillable && !f.autoNumber && !f.calculated && f.defaultValue === null,
     );
     const referenceFields = describe.fields.filter((f) => f.referenceTo.length > 0);
     const externalIdFields = describe.fields.filter((f) => f.externalId);
@@ -67,7 +68,11 @@ export class SchemaAnalyzer {
       fieldName: field.name,
       type: field.type,
       isRequired:
-        field.createable && !field.nillable && !field.autoNumber && !field.calculated && field.defaultValue === null,
+        field.createable &&
+        !field.nillable &&
+        !field.autoNumber &&
+        !field.calculated &&
+        field.defaultValue === null,
       isReference: field.referenceTo.length > 0,
       isExternalId: field.externalId,
       isCustom: field.name.endsWith('__c'),

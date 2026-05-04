@@ -16,7 +16,12 @@ const reports: GeneratedReport[] = [
       {
         title: 'Details',
         type: 'table',
-        content: { rows: [{ object: 'Account', count: 200 }, { object: 'Contact', count: 300 }] },
+        content: {
+          rows: [
+            { object: 'Account', count: 200 },
+            { object: 'Contact', count: 300 },
+          ],
+        },
         order: 1,
       },
     ],
@@ -30,7 +35,12 @@ const reports: GeneratedReport[] = [
     title: 'Sync Report - UAT',
     summary: 'Synced 1000 records',
     sections: [
-      { title: 'Text Section', type: 'text', content: { text: 'Sync completed successfully' }, order: 0 },
+      {
+        title: 'Text Section',
+        type: 'text',
+        content: { text: 'Sync completed successfully' },
+        order: 0,
+      },
     ],
     metadata: { module: 'sync', recordCount: 1000 },
     generatedAt: '2026-02-20T11:00:00Z',

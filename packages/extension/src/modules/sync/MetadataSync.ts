@@ -15,15 +15,12 @@ export interface DeployOutcome {
 }
 
 /** Function to fetch metadata components from an org */
-export type FetchMetadataFn = (
-  orgId: string,
-  types: string[]
-) => Promise<MetadataComponent[]>;
+export type FetchMetadataFn = (orgId: string, types: string[]) => Promise<MetadataComponent[]>;
 
 /** Function to deploy metadata components to an org */
 export type DeployMetadataFn = (
   orgId: string,
-  components: MetadataComponent[]
+  components: MetadataComponent[],
 ) => Promise<DeployOutcome[]>;
 
 /** Dependencies required by MetadataSync */
@@ -47,11 +44,7 @@ export class MetadataSync {
    * Sync metadata of the specified types from source org to target org.
    * Returns a SyncObjectResult summarizing success/failure counts.
    */
-  async sync(
-    sourceOrgId: string,
-    targetOrgId: string,
-    types: string[]
-  ): Promise<SyncObjectResult> {
+  async sync(sourceOrgId: string, targetOrgId: string, types: string[]): Promise<SyncObjectResult> {
     if (types.length === 0) {
       return createEmptyResult();
     }

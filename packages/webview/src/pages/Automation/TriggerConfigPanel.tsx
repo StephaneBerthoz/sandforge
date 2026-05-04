@@ -17,7 +17,14 @@ export interface TriggerConfigPanelProps {
   onUpdateCron?: (triggerId: string, cron: string) => void;
 }
 
-const TRIGGER_TYPES: TriggerType[] = ['manual', 'schedule', 'event', 'webhook', 'sandbox_refresh', 'deployment_complete'];
+const TRIGGER_TYPES: TriggerType[] = [
+  'manual',
+  'schedule',
+  'event',
+  'webhook',
+  'sandbox_refresh',
+  'deployment_complete',
+];
 
 const TRIGGER_VARIANT: Record<TriggerType, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
   manual: 'default',
@@ -49,7 +56,10 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
           <Select
             value={newTriggerType}
             onChange={(e) => setNewTriggerType(e.target.value as TriggerType)}
-            options={TRIGGER_TYPES.map((type) => ({ value: type, label: t(`automation.triggerTypes.${type}`) }))}
+            options={TRIGGER_TYPES.map((type) => ({
+              value: type,
+              label: t(`automation.triggerTypes.${type}`),
+            }))}
             data-testid="trigger-type-select"
           />
           <Button
@@ -73,50 +83,50 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
 
       {triggers.map((trigger) => (
         <div key={trigger.id} data-testid={`trigger-${trigger.id}`}>
-        <Card>
-          <CardHeader
-            title={t(`automation.triggerTypes.${trigger.type}`)}
-            action={
-              <div className="flex items-center gap-2">
-                <Badge variant={TRIGGER_VARIANT[trigger.type]}>
-                  {trigger.enabled ? t('common.active') : t('common.disabled')}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onToggleTrigger?.(trigger.id, !trigger.enabled)}
-                  data-testid={`toggle-trigger-${trigger.id}`}
-                >
-                  {trigger.enabled ? t('common.disable') : t('common.enable')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onRemoveTrigger?.(trigger.id)}
-                  data-testid={`remove-trigger-${trigger.id}`}
-                >
-                  {t('common.delete')}
-                </Button>
-              </div>
-            }
-          />
-          {trigger.type === 'schedule' && (
-            <CardBody>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                  {t('automation.cronExpression')}:
-                </span>
-                <Input
-                  value={trigger.config.cron ?? ''}
-                  onChange={(e) => onUpdateCron?.(trigger.id, e.target.value)}
-                  placeholder="0 0 * * *"
-                  className="w-40"
-                  data-testid={`cron-input-${trigger.id}`}
-                />
-              </div>
-            </CardBody>
-          )}
-        </Card>
+          <Card>
+            <CardHeader
+              title={t(`automation.triggerTypes.${trigger.type}`)}
+              action={
+                <div className="flex items-center gap-2">
+                  <Badge variant={TRIGGER_VARIANT[trigger.type]}>
+                    {trigger.enabled ? t('common.active') : t('common.disabled')}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onToggleTrigger?.(trigger.id, !trigger.enabled)}
+                    data-testid={`toggle-trigger-${trigger.id}`}
+                  >
+                    {trigger.enabled ? t('common.disable') : t('common.enable')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onRemoveTrigger?.(trigger.id)}
+                    data-testid={`remove-trigger-${trigger.id}`}
+                  >
+                    {t('common.delete')}
+                  </Button>
+                </div>
+              }
+            />
+            {trigger.type === 'schedule' && (
+              <CardBody>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                    {t('automation.cronExpression')}:
+                  </span>
+                  <Input
+                    value={trigger.config.cron ?? ''}
+                    onChange={(e) => onUpdateCron?.(trigger.id, e.target.value)}
+                    placeholder="0 0 * * *"
+                    className="w-40"
+                    data-testid={`cron-input-${trigger.id}`}
+                  />
+                </div>
+              </CardBody>
+            )}
+          </Card>
         </div>
       ))}
     </div>

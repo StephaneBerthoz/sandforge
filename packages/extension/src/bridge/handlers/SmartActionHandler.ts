@@ -63,12 +63,19 @@ export class SmartActionHandler implements DomainHandler {
    */
   private async handleAnalyze(msg: BaseMessage): Promise<void> {
     try {
-      const payload = (msg as unknown as { payload?: { targetOrgId: string; sourceOrgId?: string } }).payload;
+      const payload = (
+        msg as unknown as { payload?: { targetOrgId: string; sourceOrgId?: string } }
+      ).payload;
       const targetOrgId = payload?.targetOrgId ?? '';
       const sourceOrgId = payload?.sourceOrgId;
 
       if (!targetOrgId) {
-        sendHandlerError(this.deps, 'smart-action:analyze', 'smart-action:error', new Error('targetOrgId is required'));
+        sendHandlerError(
+          this.deps,
+          'smart-action:analyze',
+          'smart-action:error',
+          new Error('targetOrgId is required'),
+        );
         return;
       }
 

@@ -58,7 +58,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   key={`${item.componentType}-${item.fullName}`}
                   className={cn(
                     'flex items-center gap-2 px-3 py-1.5 text-left text-xs border-b border-[var(--vscode-panel-border,#3c3c3c)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
-                    selectedItem?.fullName === item.fullName && 'bg-[var(--vscode-list-activeSelectionBackground,#094771)]',
+                    selectedItem?.fullName === item.fullName &&
+                      'bg-[var(--vscode-list-activeSelectionBackground,#094771)]',
                   )}
                   onClick={() => onSelectItem?.(item)}
                   data-testid={`diff-item-${item.fullName}`}
@@ -86,7 +87,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
             {/* Inline diff view for selected item */}
             {selectedItem && (selectedItem.sourceValue || selectedItem.targetValue) && (
-              <div className="mt-2 border border-[var(--vscode-panel-border,#3c3c3c)] rounded" data-testid="diff-content">
+              <div
+                className="mt-2 border border-[var(--vscode-panel-border,#3c3c3c)] rounded"
+                data-testid="diff-content"
+              >
                 <div className="grid grid-cols-2 gap-0 text-[10px] font-mono">
                   <div className="p-2 bg-[rgba(239,68,68,0.05)] border-r border-[var(--vscode-panel-border,#3c3c3c)]">
                     <div className="text-[var(--vscode-descriptionForeground,#868686)] mb-1 font-sans font-medium">

@@ -1,6 +1,19 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SyncExecutionResult, FieldMapping, TransformRule, SyncConfig, SyncObjectConfig, SyncDirection, SyncMode, SyncOperation, ConflictStrategy, MappingType, TransformRuleType, SyncTemplateConfig } from '@sandforge/shared';
+import type {
+  SyncExecutionResult,
+  FieldMapping,
+  TransformRule,
+  SyncConfig,
+  SyncObjectConfig,
+  SyncDirection,
+  SyncMode,
+  SyncOperation,
+  ConflictStrategy,
+  MappingType,
+  TransformRuleType,
+  SyncTemplateConfig,
+} from '@sandforge/shared';
 import type { PIIScanResponse } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -150,8 +163,12 @@ export function useSyncPageData(): SyncPageData {
   const [targetOrgId, setTargetOrgId] = useState(initialDraft.current.targetOrgId);
   const [direction, setDirection] = useState<SyncDirection>(initialDraft.current.direction);
   const [mode, setMode] = useState<SyncMode>(initialDraft.current.mode);
-  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>(initialDraft.current.conflictStrategy);
-  const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>(initialDraft.current.objectEntries);
+  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>(
+    initialDraft.current.conflictStrategy,
+  );
+  const [objectEntries, setObjectEntries] = useState<ObjectSetEntry[]>(
+    initialDraft.current.objectEntries,
+  );
   const [mappings, setMappings] = useState<FieldMapping[]>(initialDraft.current.mappings);
   const [transforms, setTransforms] = useState<TransformRule[]>(initialDraft.current.transforms);
   const [error, setError] = useState<string | null>(null);
@@ -169,7 +186,18 @@ export function useSyncPageData(): SyncPageData {
       mappings,
       transforms,
     });
-  }, [currentStep, direction, mode, conflictStrategy, sourceOrgId, targetOrgId, objectEntries, mappings, transforms, setDraft]);
+  }, [
+    currentStep,
+    direction,
+    mode,
+    conflictStrategy,
+    sourceOrgId,
+    targetOrgId,
+    objectEntries,
+    mappings,
+    transforms,
+    setDraft,
+  ]);
 
   // Progress tracking (updated via future progress messages)
   const overallPercent = 0;
@@ -183,22 +211,21 @@ export function useSyncPageData(): SyncPageData {
   );
 
   // Bridge mutation: fetch field details for an object
-  const fieldsMutation = useBridgeMutation<{ objectApiName: string; sourceFields: FieldInfo[]; targetFields: FieldInfo[] }>(
-    'sync:describe-fields',
-    { responseType: 'sync:describe-fields:response' },
-  );
+  const fieldsMutation = useBridgeMutation<{
+    objectApiName: string;
+    sourceFields: FieldInfo[];
+    targetFields: FieldInfo[];
+  }>('sync:describe-fields', { responseType: 'sync:describe-fields:response' });
 
   // Bridge mutation: execute sync
-  const executeMutation = useBridgeMutation<SyncExecutionResult>(
-    'sync:execute',
-    { responseType: 'sync:execute:response' },
-  );
+  const executeMutation = useBridgeMutation<SyncExecutionResult>('sync:execute', {
+    responseType: 'sync:execute:response',
+  });
 
   // Bridge mutation: dry-run preview (unused in UI for now)
-  void useBridgeMutation<Record<string, unknown>>(
-    'sync:preview',
-    { responseType: 'sync:preview:response' },
-  );
+  void useBridgeMutation<Record<string, unknown>>('sync:preview', {
+    responseType: 'sync:preview:response',
+  });
 
   // PII scan for selected objects before sync execution
   const piiScan = useBridgeMutation<PIIScanResponse['payload']>('precheck:pii-scan');
@@ -209,7 +236,7 @@ export function useSyncPageData(): SyncPageData {
   // Update PII warnings when scan completes
   useEffect(() => {
     if (piiScan.data?.success && piiScan.data.results) {
-      setPiiWarnings(piiScan.data.results.filter(r => r.piiFields.length > 0));
+      setPiiWarnings(piiScan.data.results.filter((r) => r.piiFields.length > 0));
     }
   }, [piiScan.data]);
 
@@ -229,7 +256,12 @@ export function useSyncPageData(): SyncPageData {
     const bridgeError = objectsQuery.error ?? fieldsMutation.error ?? executeMutation.error;
     if (bridgeError) {
       setError(bridgeError);
-      addNotification({ level: 'error', title: t('sync.title'), message: bridgeError, autoDismissMs: 5000 });
+      addNotification({
+        level: 'error',
+        title: t('sync.title'),
+        message: bridgeError,
+        autoDismissMs: 5000,
+      });
     }
   }, [objectsQuery.error, fieldsMutation.error, executeMutation.error, addNotification, t]);
 
@@ -243,7 +275,10 @@ export function useSyncPageData(): SyncPageData {
   // Trigger PII scan when entering the review step
   useEffect(() => {
     if (currentStep === 3 && sourceOrgId && objectEntries.length > 0) {
-      piiScan.mutate({ orgId: sourceOrgId, objectNames: objectEntries.map(e => e.objectApiName) });
+      piiScan.mutate({
+        orgId: sourceOrgId,
+        objectNames: objectEntries.map((e) => e.objectApiName),
+      });
     }
   }, [currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -267,16 +302,32 @@ export function useSyncPageData(): SyncPageData {
     setTargetOrgId(orgId);
   };
   const handleAddObject = (apiName: string) => {
-    setObjectEntries((prev) => [...prev, { objectApiName: apiName, operation: 'upsert' as SyncOperation, externalIdField: 'Id', batchSize: 200, where: '' }]);
+    setObjectEntries((prev) => [
+      ...prev,
+      {
+        objectApiName: apiName,
+        operation: 'upsert' as SyncOperation,
+        externalIdField: 'Id',
+        batchSize: 200,
+        where: '',
+      },
+    ]);
   };
   const handleRemoveObject = (index: number) => {
     setObjectEntries((prev) => prev.filter((_, i) => i !== index));
   };
-  const handleObjectChange = (index: number, field: keyof ObjectSetEntry, value: string | number) => {
+  const handleObjectChange = (
+    index: number,
+    field: keyof ObjectSetEntry,
+    value: string | number,
+  ) => {
     setObjectEntries((prev) => prev.map((e, i) => (i === index ? { ...e, [field]: value } : e)));
   };
   const handleAddMapping = (srcField: string, tgtField: string) => {
-    setMappings((prev) => [...prev, { sourceField: srcField, targetField: tgtField, type: 'direct' as MappingType }]);
+    setMappings((prev) => [
+      ...prev,
+      { sourceField: srcField, targetField: tgtField, type: 'direct' as MappingType },
+    ]);
   };
   const handleRemoveMapping = (index: number) => {
     setMappings((prev) => prev.filter((_, i) => i !== index));
@@ -295,13 +346,15 @@ export function useSyncPageData(): SyncPageData {
     setDirection(template.direction);
     setMode(template.mode);
     setConflictStrategy(template.conflictStrategy);
-    setObjectEntries(template.objects.map((o) => ({
-      objectApiName: o.objectApiName,
-      operation: o.operation,
-      externalIdField: o.externalIdField,
-      batchSize: o.batchSize,
-      where: '',
-    })));
+    setObjectEntries(
+      template.objects.map((o) => ({
+        objectApiName: o.objectApiName,
+        operation: o.operation,
+        externalIdField: o.externalIdField,
+        batchSize: o.batchSize,
+        where: '',
+      })),
+    );
     // Clear any existing mappings/transforms since template objects changed
     setMappings([]);
     setTransforms([]);
@@ -319,18 +372,20 @@ export function useSyncPageData(): SyncPageData {
       targetOrgId,
       direction,
       mode,
-      objects: objectEntries.map((entry, index): SyncObjectConfig => ({
-        objectApiName: entry.objectApiName,
-        operation: entry.operation,
-        externalIdField: entry.externalIdField,
-        batchSize: entry.batchSize,
-        where: entry.where || undefined,
-        fieldMappings: mappings,
-        transformRules: transforms,
-        excludedFields: [],
-        addOnFields: [],
-        insertOrder: index,
-      })),
+      objects: objectEntries.map(
+        (entry, index): SyncObjectConfig => ({
+          objectApiName: entry.objectApiName,
+          operation: entry.operation,
+          externalIdField: entry.externalIdField,
+          batchSize: entry.batchSize,
+          where: entry.where || undefined,
+          fieldMappings: mappings,
+          transformRules: transforms,
+          excludedFields: [],
+          addOnFields: [],
+          insertOrder: index,
+        }),
+      ),
       conflictStrategy,
       enableRollback: false,
       dryRun: false,
@@ -343,9 +398,14 @@ export function useSyncPageData(): SyncPageData {
 
   const canGoNext = (): boolean => {
     switch (currentStep) {
-      case 0: return !!sourceOrgId && !!targetOrgId && sourceOrgId !== targetOrgId && objectEntries.length > 0;
-      case 4: return !isRunning;
-      default: return true;
+      case 0:
+        return (
+          !!sourceOrgId && !!targetOrgId && sourceOrgId !== targetOrgId && objectEntries.length > 0
+        );
+      case 4:
+        return !isRunning;
+      default:
+        return true;
     }
   };
 

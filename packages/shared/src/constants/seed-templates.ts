@@ -16,11 +16,19 @@ function fakerRule(fieldApiName: string, fakerMethod: string): FieldRule {
 
 /** Build a sequence field rule. */
 function sequenceRule(fieldApiName: string, prefix: string, start: number): FieldRule {
-  return { fieldApiName, ruleType: 'sequence', config: { sequencePrefix: prefix, sequenceStart: start, sequenceStep: 1 } };
+  return {
+    fieldApiName,
+    ruleType: 'sequence',
+    config: { sequencePrefix: prefix, sequenceStart: start, sequenceStep: 1 },
+  };
 }
 
 /** Build a reference field rule. */
-function referenceRule(fieldApiName: string, referenceObject: string, referenceField: string = 'Id'): FieldRule {
+function referenceRule(
+  fieldApiName: string,
+  referenceObject: string,
+  referenceField: string = 'Id',
+): FieldRule {
   return { fieldApiName, ruleType: 'reference', config: { referenceObject, referenceField } };
 }
 
@@ -51,7 +59,15 @@ function obj(
 
 const ACCOUNT_FIELD_RULES: FieldRule[] = [
   fakerRule('Name', 'company.name'),
-  picklistRule('Industry', ['Technology', 'Finance', 'Healthcare', 'Manufacturing', 'Retail', 'Energy', 'Education']),
+  picklistRule('Industry', [
+    'Technology',
+    'Finance',
+    'Healthcare',
+    'Manufacturing',
+    'Retail',
+    'Energy',
+    'Education',
+  ]),
   picklistRule('Type', ['Customer', 'Prospect', 'Partner']),
   fakerRule('Phone', 'phone.number'),
   fakerRule('Website', 'internet.url'),

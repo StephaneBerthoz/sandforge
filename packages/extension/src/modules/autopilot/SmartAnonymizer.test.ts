@@ -8,9 +8,7 @@ type AnonymizationRule = AutopilotAnonymizationRule;
 import { PersonaRegistry, SmartAnonymizer } from './SmartAnonymizer.js';
 
 /** Helper to create an anonymization rule fixture. */
-function makeRule(
-  overrides: Partial<AnonymizationRule> = {},
-): AnonymizationRule {
+function makeRule(overrides: Partial<AnonymizationRule> = {}): AnonymizationRule {
   return {
     objectApiName: 'Contact' as ApiName,
     fieldApiName: 'Email',
@@ -42,8 +40,8 @@ describe('PersonaRegistry', () => {
     // Very unlikely all fields match for different IDs
     expect(
       persona1.firstName === persona2.firstName &&
-      persona1.lastName === persona2.lastName &&
-      persona1.email === persona2.email,
+        persona1.lastName === persona2.lastName &&
+        persona1.email === persona2.email,
     ).toBe(false);
   });
 
@@ -84,7 +82,13 @@ describe('SmartAnonymizer', () => {
   describe('fake method', () => {
     it('uses persona for known fields (FirstName, Email, Phone)', () => {
       const records = [
-        { Id: '003xx000001', FirstName: 'John', LastName: 'Doe', Email: 'john@real.com', Phone: '555-1234' },
+        {
+          Id: '003xx000001',
+          FirstName: 'John',
+          LastName: 'Doe',
+          Email: 'john@real.com',
+          Phone: '555-1234',
+        },
       ];
       const rules = [
         makeRule({ fieldApiName: 'FirstName', method: 'fake' }),
@@ -104,7 +108,12 @@ describe('SmartAnonymizer', () => {
 
     it('uses persona for address fields', () => {
       const records = [
-        { Id: '003xx000001', MailingStreet: '123 Real St', MailingCity: 'Realtown', MailingPostalCode: '12345' },
+        {
+          Id: '003xx000001',
+          MailingStreet: '123 Real St',
+          MailingCity: 'Realtown',
+          MailingPostalCode: '12345',
+        },
       ];
       const rules = [
         makeRule({ fieldApiName: 'MailingStreet', method: 'fake' }),
@@ -121,12 +130,8 @@ describe('SmartAnonymizer', () => {
     });
 
     it('returns deterministic fallback for unmapped fields', () => {
-      const records = [
-        { Id: '003xx000001', CustomField__c: 'secret data' },
-      ];
-      const rules = [
-        makeRule({ fieldApiName: 'CustomField__c', method: 'fake' }),
-      ];
+      const records = [{ Id: '003xx000001', CustomField__c: 'secret data' }];
+      const rules = [makeRule({ fieldApiName: 'CustomField__c', method: 'fake' })];
 
       anonymizer.anonymize(records, rules, 'Contact' as ApiName);
       expect(records[0].CustomField__c).toMatch(/^fake_[0-9a-f]+$/);
@@ -321,7 +326,9 @@ describe('SmartAnonymizer', () => {
     });
 
     it('truncates multi-word generic values', () => {
-      const records: Record<string, unknown>[] = [{ Id: '001', Description: 'Some detailed description' }];
+      const records: Record<string, unknown>[] = [
+        { Id: '001', Description: 'Some detailed description' },
+      ];
       const rules = [makeRule({ fieldApiName: 'Description', method: 'generalize' })];
 
       anonymizer.anonymize(records, rules, 'Contact' as ApiName);
@@ -366,9 +373,7 @@ describe('SmartAnonymizer', () => {
     });
 
     it('returns records unchanged when no rules match the object', () => {
-      const records: Record<string, unknown>[] = [
-        { Id: '001', Email: 'john@test.com' },
-      ];
+      const records: Record<string, unknown>[] = [{ Id: '001', Email: 'john@test.com' }];
       const rules = [
         makeRule({ objectApiName: 'Account' as ApiName, fieldApiName: 'Email', method: 'redact' }),
       ];
@@ -379,9 +384,7 @@ describe('SmartAnonymizer', () => {
     });
 
     it('returns records unchanged when rules array is empty', () => {
-      const records: Record<string, unknown>[] = [
-        { Id: '001', Email: 'john@test.com' },
-      ];
+      const records: Record<string, unknown>[] = [{ Id: '001', Email: 'john@test.com' }];
 
       const result = anonymizer.anonymize(records, [], 'Contact' as ApiName);
       expect(result[0]['Email']).toBe('john@test.com');

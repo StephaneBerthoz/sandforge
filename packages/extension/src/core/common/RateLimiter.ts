@@ -14,11 +14,7 @@ export class RateLimiter {
    * @param windowMs - Time window in milliseconds (clamped to >= 100)
    * @param nowFn - Function returning current time in ms (default: Date.now)
    */
-  constructor(
-    maxActions: number,
-    windowMs: number,
-    nowFn: () => number = Date.now
-  ) {
+  constructor(maxActions: number, windowMs: number, nowFn: () => number = Date.now) {
     this.maxActions = Math.max(1, maxActions);
     this.windowMs = Math.max(100, windowMs);
     this.nowFn = nowFn;

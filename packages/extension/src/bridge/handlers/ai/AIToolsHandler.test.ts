@@ -29,7 +29,10 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
-function createMsg(type: string, payload: Record<string, unknown> = {}): BaseMessage & { payload: Record<string, unknown> } {
+function createMsg(
+  type: string,
+  payload: Record<string, unknown> = {},
+): BaseMessage & { payload: Record<string, unknown> } {
   return { id: 'msg-1', type, timestamp: Date.now(), payload };
 }
 
@@ -48,7 +51,9 @@ describe('AIToolsHandler', () => {
   });
 
   it('handles ai:nl2soql without modules with correlationId', async () => {
-    const result = await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
+    const result = await handler.handle(
+      createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:nl2soql:response');
@@ -59,12 +64,16 @@ describe('AIToolsHandler', () => {
   it('handles ai:nl2soql with modules with correlationId', async () => {
     const mockModules: Partial<AIModules> = {
       nl2soql: {
-        generateSOQL: vi.fn().mockResolvedValue({ soql: 'SELECT Id FROM Account', explanation: 'Gets all accounts' }),
+        generateSOQL: vi
+          .fn()
+          .mockResolvedValue({ soql: 'SELECT Id FROM Account', explanation: 'Gets all accounts' }),
       } as unknown as AIModules['nl2soql'],
     };
     handler.setAIModules(mockModules as AIModules);
 
-    const result = await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }));
+    const result = await handler.handle(
+      createMsg('ai:nl2soql', { query: 'all accounts', orgId: 'org1' }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:nl2soql:response');
@@ -73,7 +82,9 @@ describe('AIToolsHandler', () => {
   });
 
   it('handles ai:resolve-error without modules with correlationId', async () => {
-    const result = await handler.handle(createMsg('ai:resolve-error', { errorMessage: 'fail', module: 'sync' }));
+    const result = await handler.handle(
+      createMsg('ai:resolve-error', { errorMessage: 'fail', module: 'sync' }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:resolve-error:response');
@@ -93,7 +104,9 @@ describe('AIToolsHandler', () => {
   it('handles ai:personas list with modules with correlationId', async () => {
     const mockModules: Partial<AIModules> = {
       personaManager: {
-        getBuiltInPersonas: vi.fn().mockReturnValue([{ id: 'admin', name: 'Admin', description: 'Salesforce admin' }]),
+        getBuiltInPersonas: vi
+          .fn()
+          .mockReturnValue([{ id: 'admin', name: 'Admin', description: 'Salesforce admin' }]),
         getCustomPersonas: vi.fn().mockReturnValue([]),
       } as unknown as AIModules['personaManager'],
     };
@@ -108,7 +121,9 @@ describe('AIToolsHandler', () => {
   });
 
   it('handles ai:generate-pipeline without modules with correlationId', async () => {
-    const result = await handler.handle(createMsg('ai:generate-pipeline', { description: 'seed accounts', orgIds: ['org1'] }));
+    const result = await handler.handle(
+      createMsg('ai:generate-pipeline', { description: 'seed accounts', orgIds: ['org1'] }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:generate-pipeline:response');
@@ -124,7 +139,9 @@ describe('AIToolsHandler', () => {
     };
     handler.setAIModules(mockModules as AIModules);
 
-    const result = await handler.handle(createMsg('ai:generate-pipeline', { description: 'seed accounts', orgIds: ['org1'] }));
+    const result = await handler.handle(
+      createMsg('ai:generate-pipeline', { description: 'seed accounts', orgIds: ['org1'] }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:generate-pipeline:response');
