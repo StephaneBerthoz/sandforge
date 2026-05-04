@@ -32,17 +32,34 @@ export function getCircuitBreaker(): CircuitBreaker {
  * Returns the new accessToken or throws.
  */
 async function refreshTokenViaCli(username: string): Promise<string> {
-  // Validate username to prevent shell injection (SF usernames are emails or aliases)
+  // Validate username (defense in depth — argv-as-array on POSIX makes
+  // shell-injection moot, but the regex still catches obviously malformed
+  // input early and is the only defense on the Windows shell branch below).
   if (!/^[\w.@+-]+$/.test(username)) {
     throw new Error(`Invalid username format: "${username}"`);
   }
-  const { exec } = await import('child_process');
+  const { execFile, exec } = await import('child_process');
   const { promisify } = await import('util');
-  const { stdout } = await promisify(exec)(`sf org display -u "${username}" --json`, {
+  const opts = {
     maxBuffer: MAX_BUFFER,
     windowsHide: true,
     env: { ...process.env, NO_COLOR: '1' },
-  });
+  } as const;
+
+  // POSIX: pass argv as array to execFile — no shell, no interpolation, the
+  // username could contain anything safely. Audit RT-#8 hardening.
+  // Windows: `sf` resolves to `sf.cmd` which requires shell-based PATHEXT
+  // resolution, so keep exec there. The regex on `username` above is the
+  // shell-injection defense for that branch (allowed chars: word, dot, @,
+  // plus, dash — all shell-safe inside double quotes).
+  const { stdout } =
+    process.platform === 'win32'
+      ? await promisify(exec)(`sf org display -u "${username}" --json`, opts)
+      : await promisify(execFile)(
+          'sf',
+          ['org', 'display', '-u', username, '--json'],
+          opts,
+        );
 
   // eslint-disable-next-line no-control-regex -- Intentional ANSI escape code stripping
   const stripped = stdout.replace(/\u001b\[[0-9;]*m/g, '');
