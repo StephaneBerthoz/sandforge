@@ -2,6 +2,7 @@ import pLimit = require('p-limit');
 import pRetry = require('p-retry');
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter } from '../telemetry/TelemetryAdapter.js';
+import { DescribeCache, type DescribedField } from './DescribeCache.js';
 
 type LimitFunction = pLimit.Limit;
 
@@ -71,6 +72,28 @@ export class SalesforceAdapter {
   private readonly factor: number;
   private readonly pauseThreshold: number;
   private lastSnapshot: SalesforceLimitsSnapshot | null = null;
+  /**
+   * Per-org `Describe` cache (Phase 03 Plan 03-03 — audit Perf #1).
+   *
+   * Wraps `describeFields(orgId, object)` calls with a TTL+LRU cache so the
+   * Forge executor (which calls describes twice per object) and the upcoming
+   * Drift v2 permission diff path (Plan 03-04) share a single warm cache.
+   *
+   * Exposed as a public field so callers that already hold a jsforce
+   * connection can route their describe through the cache:
+   *
+   * ```ts
+   * await services.salesforce.describeCache.getOrFetch(
+   *   orgId,
+   *   'Account',
+   *   () => conn.describe('Account'),
+   * );
+   * ```
+   *
+   * Or use the convenience method {@link describeFields} which already
+   * delegates internally.
+   */
+  public readonly describeCache: DescribeCache;
 
   constructor(
     storage: StorageAdapter,
@@ -85,6 +108,23 @@ export class SalesforceAdapter {
     this.maxTimeout = opts?.maxTimeout ?? 60_000;
     this.factor = opts?.factor ?? 2;
     this.pauseThreshold = opts?.pauseThreshold ?? 0.8;
+    this.describeCache = new DescribeCache();
+  }
+
+  /**
+   * Cache-routed `describeFields(orgId, objectApiName)` (Phase 03 Plan 03-03).
+   *
+   * Caller supplies the actual jsforce loader so the adapter stays decoupled
+   * from any specific connection acquisition path. The cache is the audit
+   * Perf #1 mitigation; legacy direct-jsforce describes elsewhere are NOT
+   * touched in Phase 03 (incremental migration — Phase 06 picks them up).
+   */
+  async describeFields(
+    orgId: string,
+    objectApiName: string,
+    loader: () => Promise<DescribedField[]>,
+  ): Promise<DescribedField[]> {
+    return this.describeCache.getOrFetch(orgId, objectApiName, loader);
   }
 
   /** Current active + queued size of the concurrency gate. Useful for diagnostics/tests. */
