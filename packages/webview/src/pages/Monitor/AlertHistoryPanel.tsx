@@ -104,7 +104,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
     responseType: 'monitor:alerts:result',
   });
 
-  const history = alertsQuery.data?.history ?? [];
+  const history = useMemo(() => alertsQuery.data?.history ?? [], [alertsQuery.data?.history]);
 
   /** Sorted history descending by triggeredAt. */
   const sortedHistory = useMemo(
