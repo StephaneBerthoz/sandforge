@@ -15,6 +15,9 @@ import type {
   LimitsSnapshot,
   ApiLimit,
   MetricSample,
+  FieldDelta,
+  PermissionDelta,
+  DriftEventPayload,
 } from '@sandforge/shared';
 import type { QueryRecord } from '../modules/sync/DeltaDetector';
 
@@ -202,3 +205,86 @@ export const orderedSamplesForOneSeriesArb: fc.Arbitrary<MetricSample[]> = fc
       .map((s) => ({ ...s, orgId, seriesId }))
       .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
   });
+
+// ─── Plan 03-04 — Drift v2 arbitraries ─────────────────────────────────────
+
+/** ISO timestamp arbitrary used by the drift delta arbitraries. */
+const isoTimestampArb: fc.Arbitrary<string> = fc
+  .date({ min: new Date('2020-01-01'), max: new Date('2030-01-01') })
+  .map((d) => d.toISOString());
+
+/** A single FieldDelta. Plan 03-04 — drives DriftDetector property tests. */
+export const fieldDeltaArb: fc.Arbitrary<FieldDelta> = fc.record({
+  objectApiName: fc.string({ minLength: 1, maxLength: 60 }),
+  fieldApiName: fc.string({ minLength: 1, maxLength: 60 }),
+  changeKind: fc.constantFrom(
+    'added',
+    'removed',
+    'type-changed',
+    'length-changed',
+    'picklist-changed',
+    'required-changed',
+  ),
+  detectedAt: isoTimestampArb,
+});
+
+/** A single PermissionDelta. Plan 03-04. */
+export const permissionDeltaArb: fc.Arbitrary<PermissionDelta> = fc.record({
+  profileOrPermSetName: fc.string({ minLength: 1, maxLength: 60 }),
+  fieldApiName: fc.string({ minLength: 1, maxLength: 60 }),
+  changeKind: fc.constantFrom('granted', 'revoked', 'modified'),
+  permission: fc.constantFrom('read', 'edit', 'create', 'delete', 'view-all', 'modify-all'),
+  before: fc.boolean(),
+  after: fc.boolean(),
+  detectedAt: isoTimestampArb,
+});
+
+/** A full DriftEventPayload composed from the above. Plan 03-04. */
+export const driftEventArb: fc.Arbitrary<DriftEventPayload> = fc
+  .record({
+    orgId: fc.string({ minLength: 1, maxLength: 20 }),
+    snapshotPairId: fc.string({ minLength: 1, maxLength: 60 }),
+    severity: fc.constantFrom('info' as const, 'breaking' as const, 'permission' as const),
+    fieldDeltas: fc.array(fieldDeltaArb, { maxLength: 50 }),
+    permDeltas: fc.array(permissionDeltaArb, { maxLength: 50 }),
+  })
+  .map(({ orgId, snapshotPairId, severity, fieldDeltas, permDeltas }) => {
+    const deltas = [...fieldDeltas, ...permDeltas].slice(0, 500);
+    return {
+      orgId,
+      snapshotPairId,
+      summary: `${deltas.length} drift change(s) detected`,
+      deltaCount: deltas.length,
+      severity,
+      deltas,
+    };
+  });
+
+/**
+ * Arbitrary CustomField describe-like record. Used by DriftDetector property
+ * tests for `detectFieldDrift`. Generates an allowlistable-shaped record.
+ */
+export const fieldDescribeArb: fc.Arbitrary<{ name: string } & Record<string, unknown>> = fc.record({
+  name: fc.string({ minLength: 1, maxLength: 30 }),
+  type: fc.constantFrom('Text', 'Email', 'Phone', 'Picklist', 'Number', 'Boolean'),
+  length: fc.option(fc.integer({ min: 1, max: 32_000 }), { nil: undefined }),
+  required: fc.boolean(),
+  externalId: fc.boolean(),
+  // Add some noise so canonicalization actually has work to do.
+  lastModifiedDate: fc
+    .date({ min: new Date('2020-01-01'), max: new Date('2030-01-01') })
+    .map((d) => d.toISOString()),
+});
+
+/** Arbitrary ObjectDescribe-like with `name` + `fields[]`. */
+export const objectDescribeArb: fc.Arbitrary<{
+  name: string;
+  fields: Array<{ name: string } & Record<string, unknown>>;
+}> = fc.record({
+  name: fc.string({ minLength: 1, maxLength: 30 }),
+  fields: fc.uniqueArray(fieldDescribeArb, {
+    minLength: 0,
+    maxLength: 12,
+    selector: (f) => f.name,
+  }),
+});
