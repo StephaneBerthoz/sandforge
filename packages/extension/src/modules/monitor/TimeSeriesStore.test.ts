@@ -257,3 +257,32 @@ describe('TimeSeriesStore — properties', () => {
     );
   });
 });
+
+describe('TimeSeriesStore — Plan 03-02 vertical slice', () => {
+  it('50K samples + LRU + query + getStats invariants all hold', () => {
+    const store = new TimeSeriesStore({ maxBytes: 1_000_000, now: FIXED_NOW });
+    const start = BASE_MS;
+    for (let i = 0; i < 50_000; i++) {
+      store.record(
+        {
+          ts: new Date(start + i * 30_000).toISOString(),
+          orgId: `org-${i % 5}`,
+          seriesId: `series-${i % 20}`,
+          value: i,
+        },
+        { intervalMs: 30_000 },
+      );
+    }
+    const stats = store.getStats();
+    expect(stats.totalSamples).toBeGreaterThan(0);
+    expect(stats.estimatedBytes).toBeLessThanOrEqual(1_000_000);
+
+    const cap = Math.ceil((7 * 24 * 60 * 60 * 1000) / 30_000);
+    for (const orgId of Object.keys(stats.perOrgBytes)) {
+      for (let s = 0; s < 20; s++) {
+        const samples = store.query(orgId, `series-${s}`);
+        expect(samples.length).toBeLessThanOrEqual(cap);
+      }
+    }
+  });
+});
