@@ -13,6 +13,7 @@ import type { CoreServices } from '../../services.js';
 import { MetricBus, type MetricBusBridge } from './MetricBus.js';
 import { TimeSeriesStore } from './TimeSeriesStore.js';
 import { MonitorRegistry } from './MonitorRegistry.js';
+import { AnomalyEngine, type AnomalyDetectedEvent } from './AnomalyEngine.js';
 import { LimitsProbe } from './probes/LimitsProbe.js';
 import { JobProbe } from './probes/JobProbe.js';
 import { ApexLogProbe } from './probes/ApexLogProbe.js';
@@ -124,6 +125,20 @@ export class MonitorOrchestrator {
    */
   public readonly registry: MonitorRegistry;
 
+  /**
+   * Phase 03 Plan 03-05 — rolling 24h std-dev anomaly detector. Subscribes
+   * to {@link metricBus} `monitor:metric` on `start()`; on each sample,
+   * queries the per-series baseline from {@link timeSeriesStore} and emits
+   * `monitor:anomaly:detected` when the signal crosses the warmup-aware
+   * effective threshold. The orchestrator separately bridges those events
+   * into {@link AlertEngine.submitAnomalyInstance} so anomalies surface in
+   * the existing AlertsPanel without polluting the definition store.
+   */
+  public readonly anomalyEngine: AnomalyEngine;
+
+  /** Unsubscribe handle for the anomaly→AlertEngine bridge subscription. */
+  private anomalyBridgeUnsub: (() => void) | undefined;
+
   constructor(deps: MonitorDependencies) {
     this.deps = deps;
     this.metricBus = new MetricBus({
@@ -142,6 +157,12 @@ export class MonitorOrchestrator {
       metricBus: this.metricBus,
       timeSeriesStore: this.timeSeriesStore,
       logger: deps.services?.telemetry?.getLogger?.(),
+    });
+    this.anomalyEngine = new AnomalyEngine({
+      metricBus: this.metricBus,
+      timeSeriesStore: this.timeSeriesStore,
+      logger: deps.services?.telemetry?.getLogger?.(),
+      telemetry: deps.services?.telemetry,
     });
     this.registerProbes();
   }
@@ -183,6 +204,27 @@ export class MonitorOrchestrator {
     // P-03.10: rehydrate the time-series store BEFORE any probe.fetch() so
     // record() never races with the on-disk replay. No-op when persist is off.
     await this.timeSeriesStore.rehydrate();
+
+    // Phase 03 Plan 03-05 — bring up the AnomalyEngine subscription AFTER
+    // rehydrate (so the baseline is hot) and BEFORE registry.startOrg() (so
+    // the very first probe sample can already be evaluated against any
+    // warmed-up replay). Both steps are idempotent for re-entrant start()s.
+    this.anomalyEngine.start();
+    if (!this.anomalyBridgeUnsub) {
+      this.anomalyBridgeUnsub = this.metricBus.subscribe(
+        'monitor:anomaly:detected',
+        (payload) => {
+          // Re-construct the in-process AnomalyDetectedEvent shape — the bus
+          // payload carries every field except `detectedAt` (RESEARCH §4),
+          // which we synthesize here for the AlertInstance triggeredAt.
+          const event: AnomalyDetectedEvent = {
+            ...payload,
+            detectedAt: new Date().toISOString(),
+          };
+          this.deps.alertEngine.submitAnomalyInstance(event);
+        },
+      );
+    }
 
     this.activeOrgs.add(orgId);
 
@@ -229,12 +271,15 @@ export class MonitorOrchestrator {
   }
 
   /**
-   * Tear down the orchestrator — disposes the {@link MonitorRegistry} BEFORE
-   * the {@link MetricBus} (registry depends on the bus subscription) and the
-   * {@link TimeSeriesStore}. Idempotent.
+   * Tear down the orchestrator — disposes the {@link MonitorRegistry} and
+   * {@link AnomalyEngine} BEFORE the {@link MetricBus} (both depend on bus
+   * subscriptions) and the {@link TimeSeriesStore}. Idempotent.
    */
   dispose(): void {
     this.registry.dispose();
+    this.anomalyBridgeUnsub?.();
+    this.anomalyBridgeUnsub = undefined;
+    this.anomalyEngine.dispose();
     this.metricBus.dispose();
     // Best-effort final flush before tearing down. Errors are swallowed by
     // TimeSeriesStore.flush itself (P-03.10) so we don't need a try/catch.
