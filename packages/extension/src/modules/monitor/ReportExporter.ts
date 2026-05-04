@@ -114,12 +114,118 @@ export class ReportExporter {
     return Buffer.byteLength(csv, 'utf8');
   }
 
-  /** PDF path implemented in plan-03-06-task-05. */
-  protected writePdf(
-    _seriesData: Map<string, MetricSample[]>,
-    _filePath: string,
+  /**
+   * Render the slice as a multi-part PDF when over {@link MAX_SERIES_PER_PDF}.
+   * pdfkit is lazy-imported so its ~1.2 MB raw weight only loads on Export
+   * (cold-start guarantee — RESEARCH §1 + CONTEXT D-03-6).
+   */
+  protected async writePdf(
+    seriesData: Map<string, MetricSample[]>,
+    filePath: string,
   ): Promise<number> {
-    return Promise.reject(new Error('writePdf implemented in 03-06-05'));
+    const allSeries = [...seriesData.entries()];
+    const partCount = Math.max(1, Math.ceil(allSeries.length / MAX_SERIES_PER_PDF));
+    let totalBytes = 0;
+    for (let part = 0; part < partCount; part++) {
+      const partFilePath =
+        partCount === 1 ? filePath : filePath.replace(/(\.pdf)$/i, `.part${part + 1}$1`);
+      const partSeries = allSeries.slice(
+        part * MAX_SERIES_PER_PDF,
+        (part + 1) * MAX_SERIES_PER_PDF,
+      );
+      totalBytes += await this.writePdfPart(partSeries, partFilePath, part + 1, partCount);
+    }
+    return totalBytes;
+  }
+
+  private async writePdfPart(
+    series: [string, MetricSample[]][],
+    filePath: string,
+    partIndex: number,
+    partCount: number,
+  ): Promise<number> {
+    const PDFDocument = (await import('pdfkit')).default;
+    const doc = new PDFDocument({ size: 'A4', margin: 50, autoFirstPage: true });
+    const stream = fs.createWriteStream(filePath);
+    doc.pipe(stream);
+
+    doc
+      .fontSize(18)
+      .text(
+        `SandForge Monitor Report${partCount > 1 ? ` (Part ${partIndex} of ${partCount})` : ''}`,
+        { align: 'left' },
+      );
+    doc.fontSize(10).fillColor('#666').text(`Generated: ${new Date().toISOString()}`);
+    doc.moveDown();
+
+    for (const [seriesId, samples] of series) {
+      if (samples.length === 0) continue;
+      doc.fillColor('black').fontSize(12).text(seriesId, { continued: false });
+      this.drawSparkline(doc, samples);
+      const values = samples.map((s) => s.value);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const avg = values.reduce((a, b) => a + b, 0) / values.length;
+      doc
+        .fontSize(9)
+        .fillColor('#444')
+        .text(
+          `min: ${min.toFixed(2)}   avg: ${avg.toFixed(2)}   max: ${max.toFixed(2)}   n: ${samples.length}`,
+        );
+      doc.moveDown();
+    }
+
+    if (partCount > 1 && partIndex < partCount) {
+      doc.fontSize(9).fillColor('#aaa').text(`Continued in part ${partIndex + 1}`, { align: 'right' });
+    }
+
+    doc.end();
+    await new Promise<void>((resolve, reject) => {
+      stream.on('finish', () => resolve());
+      stream.on('error', reject);
+    });
+    const stat = await fs.promises.stat(filePath);
+    return stat.size;
+  }
+
+  /**
+   * Draw a sparkline directly via pdfkit primitives (no svg-to-pdfkit dep).
+   * Downsamples to {@link SPARKLINE_PDF_POINTS} via LTTB so the polyline
+   * stays compact even for series with thousands of samples.
+   */
+  private drawSparkline(
+    doc: { x: number; y: number; moveTo: (x: number, y: number) => unknown; lineTo: (x: number, y: number) => unknown; stroke: (color?: string) => unknown },
+    samples: readonly MetricSample[],
+  ): void {
+    const W = 480;
+    const H = 60;
+    const P = 4;
+    const points = lttb(samplesToPoints(samples), SPARKLINE_PDF_POINTS);
+    if (points.length === 0) return;
+    const xs = points.map((p) => p.x);
+    const ys = points.map((p) => p.y);
+    const xMin = Math.min(...xs);
+    const xMax = Math.max(...xs);
+    const yMin = Math.min(...ys);
+    const yMax = Math.max(...ys);
+    const xRange = Math.max(xMax - xMin, 1);
+    const yRange = Math.max(yMax - yMin, 1);
+    const x0 = (doc as { x: number }).x;
+    const y0 = (doc as { y: number }).y;
+    let started = false;
+    for (const p of points) {
+      const px = x0 + P + ((p.x - xMin) / xRange) * (W - 2 * P);
+      const py = y0 + H - P - ((p.y - yMin) / yRange) * (H - 2 * P);
+      if (!started) {
+        doc.moveTo(px, py);
+        started = true;
+      } else {
+        doc.lineTo(px, py);
+      }
+    }
+    doc.stroke('#3b82f6');
+    // Reserve vertical space so subsequent text rows don't overlap.
+    (doc as { y: number }).y = y0 + H + 4;
   }
 
   /** Internal helper exposed for the PDF path: downsample for sparklines. */
@@ -128,3 +234,8 @@ export class ReportExporter {
     return lttb(points, SPARKLINE_TARGET_POINTS);
   }
 }
+
+/** Per-PDF cap (P-03.4) — anything bigger splits into .partN.pdf files. */
+const MAX_SERIES_PER_PDF = 50;
+/** PDF sparkline detail level — 800 keeps each line under 30 KB. */
+const SPARKLINE_PDF_POINTS = 800;

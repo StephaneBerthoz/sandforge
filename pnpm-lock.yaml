@@ -84,6 +84,9 @@ importers:
       '@types/node':
         specifier: ^20
         version: 20.19.33
+      '@types/pdfkit':
+        specifier: ^0.17.6
+        version: 0.17.6
       '@types/vscode':
         specifier: ^1.95
         version: 1.109.0
@@ -2075,6 +2078,9 @@ packages:
 
   '@types/papaparse@5.5.2':
     resolution: {integrity: sha512-gFnFp/JMzLHCwRf7tQHrNnfhN4eYBVYYI897CGX4MY1tzY9l2aLkVyx2IlKZ/SAqDbB3I1AOZW5gTMGGsqWliA==}
+
+  '@types/pdfkit@0.17.6':
+    resolution: {integrity: sha512-tIwzxk2uWKp0Cq9JIluQXJid77lYhF52EsIOwhsMF4iWLA6YneoBR1xVKYYdAysHuepUB0OX4tdwMiUDdGKmig==}
 
   '@types/pg-pool@2.0.6':
     resolution: {integrity: sha512-TaAUE5rq2VQYxab5Ts7WZhKNmuN78Q6PiFonTDdpbx8a1H0M1vhy3rhiMjl+e2iHmogyMw7jZF4FrE6eJUy5HQ==}
@@ -7181,6 +7187,10 @@ snapshots:
   '@types/normalize-package-data@2.4.4': {}
 
   '@types/papaparse@5.5.2':
+    dependencies:
+      '@types/node': 20.19.33
+
+  '@types/pdfkit@0.17.6':
     dependencies:
       '@types/node': 20.19.33
 
