@@ -19,10 +19,7 @@ export class DataMasker {
    * Each rule targets a specific field and applies the specified masking strategy.
    * Returns new records with masked values; original records are not modified.
    */
-  mask(
-    records: Record<string, unknown>[],
-    rules: MaskRule[]
-  ): Record<string, unknown>[] {
+  mask(records: Record<string, unknown>[], rules: MaskRule[]): Record<string, unknown>[] {
     if (rules.length === 0) {
       return records.map((r) => ({ ...r }));
     }

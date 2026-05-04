@@ -1,11 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { TFunction } from 'i18next';
 import Papa from 'papaparse';
-import type {
-  CsvColumnMapping,
-  CsvValidationResult,
-  SeedFieldInfo,
-} from '@sandforge/shared';
+import type { CsvColumnMapping, CsvValidationResult, SeedFieldInfo } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 
 /** Step in the CSV import wizard. */
@@ -81,13 +77,18 @@ function normalizeForMatch(value: string): string {
  * Auto-map CSV headers to Salesforce fields using case-insensitive,
  * underscore-tolerant matching. Only maps to createable fields.
  */
-function autoMapColumns(
-  headers: string[],
-  fields: SeedFieldInfo[],
-): CsvColumnMapping[] {
+function autoMapColumns(headers: string[], fields: SeedFieldInfo[]): CsvColumnMapping[] {
   const createableFields = fields.filter(
-    (f) => !['id', 'createddate', 'lastmodifieddate', 'systemmodstamp', 'createdbyid', 'lastmodifiedbyid', 'isdeleted']
-      .includes(f.apiName.toLowerCase()),
+    (f) =>
+      ![
+        'id',
+        'createddate',
+        'lastmodifieddate',
+        'systemmodstamp',
+        'createdbyid',
+        'lastmodifiedbyid',
+        'isdeleted',
+      ].includes(f.apiName.toLowerCase()),
   );
 
   return headers.map((header) => {

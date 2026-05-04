@@ -1,7 +1,4 @@
-import type {
-  PreCheckConfig,
-  PreCheckItem,
-} from '@sandforge/shared';
+import type { PreCheckConfig, PreCheckItem } from '@sandforge/shared';
 import { randomUUID } from 'crypto';
 
 /** Schema metadata for a single object */
@@ -18,7 +15,7 @@ export interface ObjectSchemaInfo {
 /** Dependency: fetches schema metadata for objects in the operation */
 export type FetchSchemaFn = (
   orgId: string,
-  operationConfig: Record<string, unknown>
+  operationConfig: Record<string, unknown>,
 ) => Promise<ObjectSchemaInfo[]>;
 
 /**
@@ -34,10 +31,7 @@ export class SchemaCheck {
 
   /** Run all schema checks against the target org */
   async check(config: PreCheckConfig): Promise<PreCheckItem[]> {
-    const schemas = await this.fetchSchema(
-      config.targetOrgId,
-      config.operationConfig
-    );
+    const schemas = await this.fetchSchema(config.targetOrgId, config.operationConfig);
     const items: PreCheckItem[] = [];
 
     for (const schema of schemas) {
@@ -53,36 +47,38 @@ export class SchemaCheck {
 
   /** Check that all required fields are mapped in the operation config */
   private checkRequiredFields(schema: ObjectSchemaInfo): PreCheckItem[] {
-    const unmapped = schema.requiredFields.filter(
-      (field) => !schema.mappedFields.includes(field)
-    );
+    const unmapped = schema.requiredFields.filter((field) => !schema.mappedFields.includes(field));
 
     if (unmapped.length === 0) {
-      return [{
+      return [
+        {
+          id: randomUUID(),
+          category: 'schema',
+          name: `Required fields for ${schema.objectApiName}`,
+          description: `Verifies all required fields are mapped on ${schema.objectApiName}`,
+          severity: 'info',
+          passed: true,
+          message: `All required fields mapped on ${schema.objectApiName}`,
+          details: { objectApiName: schema.objectApiName, requiredFields: schema.requiredFields },
+          autoFixable: false,
+        },
+      ];
+    }
+
+    return [
+      {
         id: randomUUID(),
         category: 'schema',
         name: `Required fields for ${schema.objectApiName}`,
         description: `Verifies all required fields are mapped on ${schema.objectApiName}`,
-        severity: 'info',
-        passed: true,
-        message: `All required fields mapped on ${schema.objectApiName}`,
-        details: { objectApiName: schema.objectApiName, requiredFields: schema.requiredFields },
-        autoFixable: false,
-      }];
-    }
-
-    return [{
-      id: randomUUID(),
-      category: 'schema',
-      name: `Required fields for ${schema.objectApiName}`,
-      description: `Verifies all required fields are mapped on ${schema.objectApiName}`,
-      severity: 'error',
-      passed: false,
-      message: `Unmapped required fields on ${schema.objectApiName}: ${unmapped.join(', ')}`,
-      details: { objectApiName: schema.objectApiName, unmappedFields: unmapped },
-      autoFixable: true,
-      fixDescription: `Auto-map missing required fields on ${schema.objectApiName} using default values`,
-    }];
+        severity: 'error',
+        passed: false,
+        message: `Unmapped required fields on ${schema.objectApiName}: ${unmapped.join(', ')}`,
+        details: { objectApiName: schema.objectApiName, unmappedFields: unmapped },
+        autoFixable: true,
+        fixDescription: `Auto-map missing required fields on ${schema.objectApiName} using default values`,
+      },
+    ];
   }
 
   /** Check for active validation rules that may block inserts/updates */
@@ -99,7 +95,10 @@ export class SchemaCheck {
       message: hasRules
         ? `${schema.validationRuleCount} active validation rule(s) on ${schema.objectApiName} — data must comply`
         : `No active validation rules on ${schema.objectApiName}`,
-      details: { objectApiName: schema.objectApiName, validationRuleCount: schema.validationRuleCount },
+      details: {
+        objectApiName: schema.objectApiName,
+        validationRuleCount: schema.validationRuleCount,
+      },
       autoFixable: false,
     };
   }
@@ -118,7 +117,10 @@ export class SchemaCheck {
       message: hasTriggers
         ? `${schema.activeTriggerCount} active trigger(s) on ${schema.objectApiName} — may affect performance`
         : `No active triggers on ${schema.objectApiName}`,
-      details: { objectApiName: schema.objectApiName, activeTriggerCount: schema.activeTriggerCount },
+      details: {
+        objectApiName: schema.objectApiName,
+        activeTriggerCount: schema.activeTriggerCount,
+      },
       autoFixable: false,
     };
   }
@@ -156,7 +158,10 @@ export class SchemaCheck {
       message: hasRules
         ? `${schema.duplicateRuleCount} duplicate rule(s) on ${schema.objectApiName} — may reject records`
         : `No duplicate rules on ${schema.objectApiName}`,
-      details: { objectApiName: schema.objectApiName, duplicateRuleCount: schema.duplicateRuleCount },
+      details: {
+        objectApiName: schema.objectApiName,
+        duplicateRuleCount: schema.duplicateRuleCount,
+      },
       autoFixable: false,
     };
   }

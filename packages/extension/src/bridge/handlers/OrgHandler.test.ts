@@ -9,9 +9,7 @@ function createMockDeps(): HandlerDeps {
     broker: { postToWebview: vi.fn() } as unknown as HandlerDeps['broker'],
     stateSync: { updateState: vi.fn() } as unknown as HandlerDeps['stateSync'],
     orgManager: {
-      getAllOrgs: vi.fn().mockReturnValue([
-        { id: 'org-1', alias: 'dev', status: 'connected' },
-      ]),
+      getAllOrgs: vi.fn().mockReturnValue([{ id: 'org-1', alias: 'dev', status: 'connected' }]),
       getOrg: vi.fn(),
     } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {
@@ -26,7 +24,10 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
-function createMsg(type: string, payload: Record<string, unknown> = {}): BaseMessage & { payload: Record<string, unknown> } {
+function createMsg(
+  type: string,
+  payload: Record<string, unknown> = {},
+): BaseMessage & { payload: Record<string, unknown> } {
   return { id: 'req-99', type, timestamp: Date.now(), payload };
 }
 

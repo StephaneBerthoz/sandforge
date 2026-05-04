@@ -17,9 +17,19 @@ export interface TransformBuilderProps {
 }
 
 const TRANSFORM_TYPES: TransformRuleType[] = [
-  'uppercase', 'lowercase', 'trim', 'truncate', 'prefix', 'suffix',
-  'replace', 'regex_replace', 'map_value', 'default_value',
-  'format_date', 'format_number', 'custom_formula',
+  'uppercase',
+  'lowercase',
+  'trim',
+  'truncate',
+  'prefix',
+  'suffix',
+  'replace',
+  'regex_replace',
+  'map_value',
+  'default_value',
+  'format_date',
+  'format_number',
+  'custom_formula',
 ];
 
 const CONFIG_FIELDS: Record<string, string[]> = {

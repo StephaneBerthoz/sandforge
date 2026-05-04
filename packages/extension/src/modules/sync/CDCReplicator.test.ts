@@ -178,9 +178,7 @@ describe('CDCReplicator', () => {
     it('should apply field mappings when configured for the object', async () => {
       deps = createMockDeps({
         fieldMappings: {
-          Account: [
-            { sourceField: 'Name', targetField: 'AccountName__c', type: 'rename' },
-          ],
+          Account: [{ sourceField: 'Name', targetField: 'AccountName__c', type: 'rename' }],
         },
       });
       replicator = new CDCReplicator(deps);
@@ -271,22 +269,16 @@ describe('CDCReplicator', () => {
       replicator.receive(createEvent());
       await replicator.flush();
 
-      expect(onError).toHaveBeenCalledWith(
-        'Account',
-        'update',
-        applyError,
-        1,
-      );
+      expect(onError).toHaveBeenCalledWith('Account', 'update', applyError, 1);
       expect(replicator.getTotalFailed()).toBe(1);
     });
 
     it('should call onApplyResult for each event after apply', async () => {
       const onApplyResult = vi.fn();
       deps = createMockDeps({
-        applyFn: vi.fn().mockResolvedValue([
-          createSuccessResult(),
-          createFailureResult('001xx0000005678'),
-        ]),
+        applyFn: vi
+          .fn()
+          .mockResolvedValue([createSuccessResult(), createFailureResult('001xx0000005678')]),
         onApplyResult,
       });
       replicator = new CDCReplicator(deps);
@@ -305,10 +297,11 @@ describe('CDCReplicator', () => {
       vi.useRealTimers();
       const eventCount = 1005;
       deps = createMockDeps({
-        applyFn: vi.fn().mockImplementation(
-          (_obj: string, _op: string, records: Record<string, unknown>[]) =>
+        applyFn: vi
+          .fn()
+          .mockImplementation((_obj: string, _op: string, records: Record<string, unknown>[]) =>
             Promise.resolve(records.map((r) => ({ recordId: String(r.Id), success: true }))),
-        ),
+          ),
       });
       replicator = new CDCReplicator(deps);
 

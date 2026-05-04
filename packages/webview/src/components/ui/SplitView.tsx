@@ -64,11 +64,7 @@ export const SplitView: React.FC<SplitViewProps> = ({
         data-testid="splitview-toggle"
         aria-label={rightCollapsed ? 'Expand right panel' : 'Collapse right panel'}
       >
-        {rightCollapsed ? (
-          <PanelRightOpen size={14} />
-        ) : (
-          <PanelRightClose size={14} />
-        )}
+        {rightCollapsed ? <PanelRightOpen size={14} /> : <PanelRightClose size={14} />}
       </button>
 
       {/* Right (detail) panel */}
@@ -76,10 +72,7 @@ export const SplitView: React.FC<SplitViewProps> = ({
         {!rightCollapsed && (
           <motion.div
             key="splitview-right"
-            className={cn(
-              'overflow-auto border-l border-subtle',
-              rightBasisClass[ratio],
-            )}
+            className={cn('overflow-auto border-l border-subtle', rightBasisClass[ratio])}
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: 'auto', opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}

@@ -1,4 +1,8 @@
-import type { BaseMessage, MigrationImportRequest, MigrationImportSfdmuRequest } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  MigrationImportRequest,
+  MigrationImportSfdmuRequest,
+} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -9,10 +13,7 @@ export interface MigrationFileReader {
 }
 
 /** Message types handled by MigrationHandler. */
-const MIGRATION_TYPES = new Set([
-  'migration:import',
-  'migration:import-sfdmu',
-]);
+const MIGRATION_TYPES = new Set(['migration:import', 'migration:import-sfdmu']);
 
 /**
  * Domain handler for migration import-related webview-to-extension messages.
@@ -65,13 +66,16 @@ export class MigrationHandler implements DomainHandler {
       const content = await this.fileReader.readFile(filePath);
       const detectedFormat = importer.detectFormat(content, filePath);
       const response = buildResponse(this.deps, msg, 'migration:import:response', {
-        success: true, config: config as unknown as Record<string, unknown>, detectedFormat,
+        success: true,
+        config: config as unknown as Record<string, unknown>,
+        detectedFormat,
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] migration:import: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'migration:import:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }
@@ -88,13 +92,15 @@ export class MigrationHandler implements DomainHandler {
       const importer = new SfdmuImporter(this.fileReader);
       const config = await importer.import(filePath);
       const response = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
-        success: true, config: config as unknown as Record<string, unknown>,
+        success: true,
+        config: config as unknown as Record<string, unknown>,
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] migration:import-sfdmu: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }

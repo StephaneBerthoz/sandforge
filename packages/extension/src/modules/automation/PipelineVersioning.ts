@@ -101,12 +101,11 @@ export class PipelineVersioning {
   saveVersion(
     pipelineId: string,
     config: Record<string, unknown>,
-    metadata?: VersionMetadata
+    metadata?: VersionMetadata,
   ): PipelineVersion {
     const pipelineVersions = this.versions.get(pipelineId) ?? [];
-    const nextVersion = pipelineVersions.length > 0
-      ? pipelineVersions[pipelineVersions.length - 1].version + 1
-      : 1;
+    const nextVersion =
+      pipelineVersions.length > 0 ? pipelineVersions[pipelineVersions.length - 1].version + 1 : 1;
 
     const version: PipelineVersion = {
       versionId: generateId(),

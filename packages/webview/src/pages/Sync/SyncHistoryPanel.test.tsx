@@ -5,7 +5,10 @@ import { SyncHistoryPanel } from './SyncHistoryPanel';
 import { useSyncHistoryStore } from '../../stores/useSyncHistoryStore';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 
-const makeMockEntry = (id: string, status: 'success' | 'partial' | 'failure' = 'success'): SyncHistoryEntry => ({
+const makeMockEntry = (
+  id: string,
+  status: 'success' | 'partial' | 'failure' = 'success',
+): SyncHistoryEntry => ({
   id,
   configSnapshot: {
     id: 'cfg-1',

@@ -22,10 +22,7 @@ export class UserMapper {
    * Build a mapping between source and target users.
    * Matches users by username, which is typically consistent across orgs.
    */
-  buildMapping(
-    sourceUsers: UserInfo[],
-    targetUsers: UserInfo[]
-  ): UserMapping[] {
+  buildMapping(sourceUsers: UserInfo[], targetUsers: UserInfo[]): UserMapping[] {
     const targetByUsername = new Map<string, UserInfo>();
     for (const user of targetUsers) {
       targetByUsername.set(user.username, user);
@@ -54,7 +51,7 @@ export class UserMapper {
   apply(
     records: Record<string, unknown>[],
     userFields: string[],
-    mappings: UserMapping[]
+    mappings: UserMapping[],
   ): Record<string, unknown>[] {
     const mappingBySourceId = new Map<string, string>();
     for (const m of mappings) {

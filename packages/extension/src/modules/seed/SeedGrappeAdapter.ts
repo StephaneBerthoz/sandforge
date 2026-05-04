@@ -41,7 +41,7 @@ export class SeedGrappeAdapter {
         obj.objectApiName,
         obj.recordCount,
         this.grappeSize,
-        this.generateId
+        this.generateId,
       );
 
       const deps = extractDependencyPartitionIds(obj, objectPartitionIds);
@@ -121,9 +121,7 @@ export class SeedGrappeAdapter {
 }
 
 /** Sort objects by insertOrder ascending */
-function sortByInsertOrder(
-  objects: SeedTemplate['objects']
-): SeedTemplate['objects'] {
+function sortByInsertOrder(objects: SeedTemplate['objects']): SeedTemplate['objects'] {
   return [...objects].sort((a, b) => a.insertOrder - b.insertOrder);
 }
 
@@ -132,7 +130,7 @@ function splitObject(
   objectApiName: string,
   recordCount: number,
   grappeSize: number,
-  generateId: GenerateIdFn
+  generateId: GenerateIdFn,
 ): Array<{ id: string; recordCount: number; records: string[] }> {
   const partitions: Array<{ id: string; recordCount: number; records: string[] }> = [];
   let remaining = recordCount;
@@ -154,7 +152,7 @@ function splitObject(
 function generatePlaceholderRecordIds(
   objectApiName: string,
   count: number,
-  offset: number
+  offset: number,
 ): string[] {
   const ids: string[] = [];
   for (let i = 0; i < count; i++) {
@@ -166,7 +164,7 @@ function generatePlaceholderRecordIds(
 /** Get partition IDs of dependency objects */
 function extractDependencyPartitionIds(
   obj: SeedTemplate['objects'][number],
-  objectPartitionIds: Map<string, string[]>
+  objectPartitionIds: Map<string, string[]>,
 ): string[] {
   const deps: string[] = [];
 

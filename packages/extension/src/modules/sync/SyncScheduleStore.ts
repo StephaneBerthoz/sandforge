@@ -23,11 +23,7 @@ export class SyncScheduleStore {
    * @param schedule - The schedule entry to save.
    */
   save(schedule: SyncScheduleEntry): void {
-    this.configStore.set(
-      `${SYNC_SCHEDULE_PREFIX}${schedule.id}`,
-      schedule,
-      SYNC_SCHEDULE_CATEGORY,
-    );
+    this.configStore.set(`${SYNC_SCHEDULE_PREFIX}${schedule.id}`, schedule, SYNC_SCHEDULE_CATEGORY);
   }
 
   /**

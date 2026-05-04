@@ -236,7 +236,12 @@ export interface CsvValidationError {
   row: number;
   column: string;
   field: string;
-  errorType: 'type_mismatch' | 'missing_required' | 'length_exceeded' | 'duplicate_external_id' | 'invalid_picklist';
+  errorType:
+    | 'type_mismatch'
+    | 'missing_required'
+    | 'length_exceeded'
+    | 'duplicate_external_id'
+    | 'invalid_picklist';
   message: string;
   value: string;
 }

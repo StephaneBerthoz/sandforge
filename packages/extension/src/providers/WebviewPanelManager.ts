@@ -85,12 +85,11 @@ export class WebviewPanelManager {
       ? [this.extensionUri as { toString(): string }]
       : undefined;
 
-    const panel = this.panelFactory(
-      config.viewType,
-      config.title,
-      config.column ?? 1,
-      { enableScripts: true, retainContextWhenHidden: true, localResourceRoots },
-    );
+    const panel = this.panelFactory(config.viewType, config.title, config.column ?? 1, {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots,
+    });
 
     if (config.moduleId && this.extensionUri && this.uriJoinPath) {
       panel.webview.html = this.buildHtml(panel.webview, config.moduleId);
@@ -178,10 +177,7 @@ export class WebviewPanelManager {
    * Injects the moduleId as `window.__SANDFORGE_MODULE__` so the
    * React application can route to the correct module view.
    */
-  private buildHtml(
-    webview: vscode.Webview,
-    moduleId: string,
-  ): string {
+  private buildHtml(webview: vscode.Webview, moduleId: string): string {
     const joinPath = this.uriJoinPath!;
     const scriptUri = webview.asWebviewUri(
       joinPath(this.extensionUri, 'webview-dist', 'assets', 'index.js') as vscode.Uri,

@@ -30,12 +30,14 @@ describe('PermissionCheck', () => {
     it('should return passing items when all permissions are granted', async () => {
       const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
         createPermissionData({
-          objectPermissions: [{
-            objectApiName: 'Account',
-            crudPermissions: { create: true, read: true, update: true, delete: true },
-            missingFieldPermissions: [],
-          }],
-        })
+          objectPermissions: [
+            {
+              objectApiName: 'Account',
+              crudPermissions: { create: true, read: true, update: true, delete: true },
+              missingFieldPermissions: [],
+            },
+          ],
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);
@@ -49,12 +51,14 @@ describe('PermissionCheck', () => {
     it('should detect missing CRUD permissions', async () => {
       const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
         createPermissionData({
-          objectPermissions: [{
-            objectApiName: 'Contact',
-            crudPermissions: { create: false, read: true, update: false, delete: true },
-            missingFieldPermissions: [],
-          }],
-        })
+          objectPermissions: [
+            {
+              objectApiName: 'Contact',
+              crudPermissions: { create: false, read: true, update: false, delete: true },
+              missingFieldPermissions: [],
+            },
+          ],
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);
@@ -70,12 +74,14 @@ describe('PermissionCheck', () => {
     it('should detect missing field-level security', async () => {
       const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
         createPermissionData({
-          objectPermissions: [{
-            objectApiName: 'Account',
-            crudPermissions: { create: true, read: true, update: true, delete: true },
-            missingFieldPermissions: ['AnnualRevenue', 'Industry'],
-          }],
-        })
+          objectPermissions: [
+            {
+              objectApiName: 'Account',
+              crudPermissions: { create: true, read: true, update: true, delete: true },
+              missingFieldPermissions: ['AnnualRevenue', 'Industry'],
+            },
+          ],
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);
@@ -91,12 +97,14 @@ describe('PermissionCheck', () => {
     it('should not create FLS item when no field permissions are missing', async () => {
       const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
         createPermissionData({
-          objectPermissions: [{
-            objectApiName: 'Account',
-            crudPermissions: { create: true, read: true, update: true, delete: true },
-            missingFieldPermissions: [],
-          }],
-        })
+          objectPermissions: [
+            {
+              objectApiName: 'Account',
+              crudPermissions: { create: true, read: true, update: true, delete: true },
+              missingFieldPermissions: [],
+            },
+          ],
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);
@@ -107,9 +115,9 @@ describe('PermissionCheck', () => {
     });
 
     it('should check Modify All Data permission', async () => {
-      const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
-        createPermissionData({ hasModifyAllData: false })
-      );
+      const fetchFn: FetchPermissionsFn = vi
+        .fn()
+        .mockResolvedValue(createPermissionData({ hasModifyAllData: false }));
 
       const checker = new PermissionCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -120,9 +128,9 @@ describe('PermissionCheck', () => {
     });
 
     it('should pass Modify All Data when granted', async () => {
-      const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
-        createPermissionData({ hasModifyAllData: true })
-      );
+      const fetchFn: FetchPermissionsFn = vi
+        .fn()
+        .mockResolvedValue(createPermissionData({ hasModifyAllData: true }));
 
       const checker = new PermissionCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -133,9 +141,9 @@ describe('PermissionCheck', () => {
     });
 
     it('should check View All Data permission', async () => {
-      const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
-        createPermissionData({ hasViewAllData: false })
-      );
+      const fetchFn: FetchPermissionsFn = vi
+        .fn()
+        .mockResolvedValue(createPermissionData({ hasViewAllData: false }));
 
       const checker = new PermissionCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -146,9 +154,9 @@ describe('PermissionCheck', () => {
     });
 
     it('should check Bulk API permission as blocker', async () => {
-      const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
-        createPermissionData({ hasBulkApiPermission: false })
-      );
+      const fetchFn: FetchPermissionsFn = vi
+        .fn()
+        .mockResolvedValue(createPermissionData({ hasBulkApiPermission: false }));
 
       const checker = new PermissionCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -159,9 +167,9 @@ describe('PermissionCheck', () => {
     });
 
     it('should pass Bulk API permission when granted', async () => {
-      const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
-        createPermissionData({ hasBulkApiPermission: true })
-      );
+      const fetchFn: FetchPermissionsFn = vi
+        .fn()
+        .mockResolvedValue(createPermissionData({ hasBulkApiPermission: true }));
 
       const checker = new PermissionCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -186,7 +194,7 @@ describe('PermissionCheck', () => {
               missingFieldPermissions: [],
             },
           ],
-        })
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);
@@ -199,12 +207,14 @@ describe('PermissionCheck', () => {
     it('should set all items to category permissions', async () => {
       const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
         createPermissionData({
-          objectPermissions: [{
-            objectApiName: 'Account',
-            crudPermissions: { create: true, read: true, update: true, delete: true },
-            missingFieldPermissions: [],
-          }],
-        })
+          objectPermissions: [
+            {
+              objectApiName: 'Account',
+              crudPermissions: { create: true, read: true, update: true, delete: true },
+              missingFieldPermissions: [],
+            },
+          ],
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);
@@ -218,15 +228,17 @@ describe('PermissionCheck', () => {
     it('should mark all permission items as not autoFixable', async () => {
       const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
         createPermissionData({
-          objectPermissions: [{
-            objectApiName: 'Account',
-            crudPermissions: { create: false, read: true, update: true, delete: true },
-            missingFieldPermissions: ['Industry'],
-          }],
+          objectPermissions: [
+            {
+              objectApiName: 'Account',
+              crudPermissions: { create: false, read: true, update: true, delete: true },
+              missingFieldPermissions: ['Industry'],
+            },
+          ],
           hasModifyAllData: false,
           hasViewAllData: false,
           hasBulkApiPermission: false,
-        })
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);
@@ -238,9 +250,7 @@ describe('PermissionCheck', () => {
     });
 
     it('should call fetchPermissions with correct orgId and operationConfig', async () => {
-      const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
-        createPermissionData()
-      );
+      const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(createPermissionData());
 
       const config = createConfig({
         targetOrgId: 'org-test-123',
@@ -256,12 +266,14 @@ describe('PermissionCheck', () => {
     it('should generate unique IDs for each item', async () => {
       const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
         createPermissionData({
-          objectPermissions: [{
-            objectApiName: 'Account',
-            crudPermissions: { create: true, read: true, update: true, delete: true },
-            missingFieldPermissions: [],
-          }],
-        })
+          objectPermissions: [
+            {
+              objectApiName: 'Account',
+              crudPermissions: { create: true, read: true, update: true, delete: true },
+              missingFieldPermissions: [],
+            },
+          ],
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);
@@ -275,12 +287,14 @@ describe('PermissionCheck', () => {
     it('should detect all four missing CRUD permissions', async () => {
       const fetchFn: FetchPermissionsFn = vi.fn().mockResolvedValue(
         createPermissionData({
-          objectPermissions: [{
-            objectApiName: 'Lead',
-            crudPermissions: { create: false, read: false, update: false, delete: false },
-            missingFieldPermissions: [],
-          }],
-        })
+          objectPermissions: [
+            {
+              objectApiName: 'Lead',
+              crudPermissions: { create: false, read: false, update: false, delete: false },
+              missingFieldPermissions: [],
+            },
+          ],
+        }),
       );
 
       const checker = new PermissionCheck(fetchFn);

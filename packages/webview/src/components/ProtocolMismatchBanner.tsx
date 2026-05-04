@@ -23,12 +23,9 @@ export const ProtocolMismatchBanner: React.FC = () => {
   const [visible, setVisible] = useState(false);
   const sendMessage = useSendMessage();
 
-  useMessageListener<BaseMessage & { payload: ReloadBannerPayload }>(
-    'bridge:reload-banner',
-    () => {
-      setVisible(true);
-    },
-  );
+  useMessageListener<BaseMessage & { payload: ReloadBannerPayload }>('bridge:reload-banner', () => {
+    setVisible(true);
+  });
 
   if (!visible) {
     return null;
@@ -48,9 +45,7 @@ export const ProtocolMismatchBanner: React.FC = () => {
       data-testid="protocol-mismatch-banner"
       className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-3 border-b border-yellow-500/40 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-100 shadow-md"
     >
-      <span>
-        SandForge has been updated. Reload the window to apply the new version.
-      </span>
+      <span>SandForge has been updated. Reload the window to apply the new version.</span>
       <div className="flex items-center gap-2">
         <button
           type="button"

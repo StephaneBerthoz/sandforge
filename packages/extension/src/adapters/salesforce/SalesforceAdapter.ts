@@ -72,7 +72,11 @@ export class SalesforceAdapter {
   private readonly pauseThreshold: number;
   private lastSnapshot: SalesforceLimitsSnapshot | null = null;
 
-  constructor(storage: StorageAdapter, telemetry: TelemetryAdapter, opts?: SalesforceAdapterOptions) {
+  constructor(
+    storage: StorageAdapter,
+    telemetry: TelemetryAdapter,
+    opts?: SalesforceAdapterOptions,
+  ) {
     this.storage = storage;
     this.telemetry = telemetry;
     this.limiter = pLimit(opts?.concurrency ?? 8);
@@ -100,7 +104,9 @@ export class SalesforceAdapter {
    * Fetch jsforce `/limits` and return the `DAILY_API_REQUESTS` snapshot.
    * Cached locally so `shouldPauseNonEssential` is a cheap sync read.
    */
-  async checkLimits(conn: { limits: () => Promise<Record<string, { Max?: number; Remaining?: number }>> }): Promise<SalesforceLimitsSnapshot> {
+  async checkLimits(conn: {
+    limits: () => Promise<Record<string, { Max?: number; Remaining?: number }>>;
+  }): Promise<SalesforceLimitsSnapshot> {
     const limits = await conn.limits();
     const daily = limits['DAILY_API_REQUESTS'];
     const max = daily?.Max ?? 0;
@@ -155,7 +161,7 @@ export class SalesforceAdapter {
           this.telemetry.addBreadcrumb(
             `salesforce-retry attempt=${attempt} status=${status}${category ? ` category=${category}` : ''}`,
             'salesforce',
-            status === 429 ? 'warning' : 'info'
+            status === 429 ? 'warning' : 'info',
           );
 
           if (sfErr.retryAfter !== undefined) {
@@ -175,7 +181,7 @@ export class SalesforceAdapter {
             throw new pRetry.AbortError(toError(signal.reason ?? new Error('aborted')));
           }
         },
-      }
+      },
     );
   }
 }

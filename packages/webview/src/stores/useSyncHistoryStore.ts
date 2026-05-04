@@ -48,7 +48,12 @@ function triggerDownload(data: string, filename: string, mimeType: string): void
 
 /** Type guard for messages with a type field. */
 function isTypedMessage(msg: unknown): msg is { type: string; payload?: Record<string, unknown> } {
-  return typeof msg === 'object' && msg !== null && 'type' in msg && typeof (msg as Record<string, unknown>).type === 'string';
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    'type' in msg &&
+    typeof (msg as Record<string, unknown>).type === 'string'
+  );
 }
 
 /** Zustand store for managing sync execution history. */

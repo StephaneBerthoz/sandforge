@@ -137,21 +137,21 @@ describe('DiffAnalyzer', () => {
         }),
       ];
       const report = analyzer.analyze(items);
-      expect(report.diffs[0].riskReasons).toContain('Removing data model components may cause data loss.');
+      expect(report.diffs[0].riskReasons).toContain(
+        'Removing data model components may cause data loss.',
+      );
     });
 
     it('should note breaking change risk', () => {
-      const items = [
-        createItem({ severity: 'breaking', status: 'modified' }),
-      ];
+      const items = [createItem({ severity: 'breaking', status: 'modified' })];
       const report = analyzer.analyze(items);
-      expect(report.diffs[0].riskReasons).toContain('This is a breaking change that requires careful review.');
+      expect(report.diffs[0].riskReasons).toContain(
+        'This is a breaking change that requires careful review.',
+      );
     });
 
     it('should note low risk for added items', () => {
-      const items = [
-        createItem({ status: 'added', severity: 'info' }),
-      ];
+      const items = [createItem({ status: 'added', severity: 'info' })];
       const report = analyzer.analyze(items);
       expect(report.diffs[0].riskReasons).toContain('New component — low risk.');
     });
@@ -161,15 +161,15 @@ describe('DiffAnalyzer', () => {
         createItem({ componentType: 'Flow', status: 'modified', severity: 'breaking' }),
       ];
       const report = analyzer.analyze(items);
-      expect(report.diffs[0].riskReasons).toContain('Flow changes may affect active process automations.');
+      expect(report.diffs[0].riskReasons).toContain(
+        'Flow changes may affect active process automations.',
+      );
     });
   });
 
   describe('dependencies', () => {
     it('should resolve dependencies for CustomObject', () => {
-      const items = [
-        createItem({ componentType: 'CustomObject', status: 'modified' }),
-      ];
+      const items = [createItem({ componentType: 'CustomObject', status: 'modified' })];
       const report = analyzer.analyze(items);
       expect(report.diffs[0].dependencies).toContain('CustomField');
       expect(report.diffs[0].dependencies).toContain('ValidationRule');
@@ -244,9 +244,7 @@ describe('DiffAnalyzer', () => {
     });
 
     it('should mention removed components verification', () => {
-      const items = [
-        createItem({ status: 'removed', severity: 'breaking' }),
-      ];
+      const items = [createItem({ status: 'removed', severity: 'breaking' })];
       const report = analyzer.analyze(items);
       expect(report.deploymentAdvice).toContain('Verify removed components');
     });
@@ -263,11 +261,36 @@ describe('DiffAnalyzer', () => {
   describe('combined analysis', () => {
     it('should handle a realistic mixed changeset', () => {
       const items: CompareItem[] = [
-        createItem({ componentType: 'ApexClass', fullName: 'AccountController', status: 'modified', severity: 'breaking' }),
-        createItem({ componentType: 'ApexTrigger', fullName: 'AccountTrigger', status: 'removed', severity: 'breaking' }),
-        createItem({ componentType: 'CustomField', fullName: 'Account.NewField__c', status: 'added', severity: 'info' }),
-        createItem({ componentType: 'Flow', fullName: 'Account_Automation', status: 'modified', severity: 'breaking' }),
-        createItem({ componentType: 'Profile', fullName: 'System Administrator', status: 'modified', severity: 'warning' }),
+        createItem({
+          componentType: 'ApexClass',
+          fullName: 'AccountController',
+          status: 'modified',
+          severity: 'breaking',
+        }),
+        createItem({
+          componentType: 'ApexTrigger',
+          fullName: 'AccountTrigger',
+          status: 'removed',
+          severity: 'breaking',
+        }),
+        createItem({
+          componentType: 'CustomField',
+          fullName: 'Account.NewField__c',
+          status: 'added',
+          severity: 'info',
+        }),
+        createItem({
+          componentType: 'Flow',
+          fullName: 'Account_Automation',
+          status: 'modified',
+          severity: 'breaking',
+        }),
+        createItem({
+          componentType: 'Profile',
+          fullName: 'System Administrator',
+          status: 'modified',
+          severity: 'warning',
+        }),
       ];
       const report = analyzer.analyze(items);
 

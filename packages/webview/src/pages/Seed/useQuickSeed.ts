@@ -1,5 +1,10 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import type { SeedTemplate, SeedExecutionResult, SeedObjectConfig, FieldRuleConfig } from '@sandforge/shared';
+import type {
+  SeedTemplate,
+  SeedExecutionResult,
+  SeedObjectConfig,
+  FieldRuleConfig,
+} from '@sandforge/shared';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { ObjectProgress } from './Step7_Execute';
 
@@ -56,10 +61,9 @@ export function useQuickSeed(): QuickSeedState {
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
 
-  const executeMutation = useBridgeMutation<SeedExecutionResult>(
-    'seed:execute',
-    { responseType: 'seed:execute:response' },
-  );
+  const executeMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
+    responseType: 'seed:execute:response',
+  });
 
   const isRunning = executeMutation.loading;
 
@@ -97,17 +101,14 @@ export function useQuickSeed(): QuickSeedState {
     }
   }, [executeMutation.error]);
 
-  const startQuickSeed = useCallback(
-    (template: SeedTemplate, counts: Record<string, number>) => {
-      setSelectedTemplate(template);
-      setCustomizedCounts(counts);
-      setPhase('selectOrg');
-      setError(null);
-      setExecutionResult(undefined);
-      setElapsedMs(0);
-    },
-    [],
-  );
+  const startQuickSeed = useCallback((template: SeedTemplate, counts: Record<string, number>) => {
+    setSelectedTemplate(template);
+    setCustomizedCounts(counts);
+    setPhase('selectOrg');
+    setError(null);
+    setExecutionResult(undefined);
+    setElapsedMs(0);
+  }, []);
 
   const selectOrg = useCallback((orgId: string) => {
     setSelectedOrgId(orgId);
@@ -157,13 +158,15 @@ export function useQuickSeed(): QuickSeedState {
   /* Derive object progress from template */
   const objectProgress: ObjectProgress[] = useMemo(() => {
     if (!selectedTemplate) return [];
-    return selectedTemplate.objects.map((obj): ObjectProgress => ({
-      objectApiName: obj.objectApiName,
-      total: customizedCounts[obj.objectApiName] ?? obj.recordCount,
-      completed: 0,
-      failed: 0,
-      status: isRunning ? 'running' : 'pending',
-    }));
+    return selectedTemplate.objects.map(
+      (obj): ObjectProgress => ({
+        objectApiName: obj.objectApiName,
+        total: customizedCounts[obj.objectApiName] ?? obj.recordCount,
+        completed: 0,
+        failed: 0,
+        status: isRunning ? 'running' : 'pending',
+      }),
+    );
   }, [selectedTemplate, customizedCounts, isRunning]);
 
   const overallPercent = isRunning ? 50 : executionResult ? 100 : 0;

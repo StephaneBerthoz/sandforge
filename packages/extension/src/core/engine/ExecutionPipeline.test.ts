@@ -2,10 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ExecutionPipeline } from './ExecutionPipeline';
 import type { PipelineStep, PipelineEvent } from './ExecutionPipeline';
 
-function createStep(
-  id: string,
-  recordCount: number = 100
-): PipelineStep {
+function createStep(id: string, recordCount: number = 100): PipelineStep {
   return {
     id,
     name: `Step ${id}`,
@@ -62,7 +59,7 @@ describe('ExecutionPipeline', () => {
       pipeline.start();
 
       expect(() => pipeline.addStep(createStep('s2'))).toThrow(
-        'Cannot add steps to a pipeline that has already started'
+        'Cannot add steps to a pipeline that has already started',
       );
     });
 

@@ -51,14 +51,14 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [authorName, setAuthorName] = useState('');
   const [importText, setImportText] = useState('');
-  const [mergeStrategy, setMergeStrategy] = useState<'keep-local' | 'keep-remote' | 'merge'>('keep-remote');
+  const [mergeStrategy, setMergeStrategy] = useState<'keep-local' | 'keep-remote' | 'merge'>(
+    'keep-remote',
+  );
   const [copied, setCopied] = useState(false);
 
   const handleCategoryToggle = useCallback((categoryId: string) => {
     setSelectedCategories((prev) =>
-      prev.includes(categoryId)
-        ? prev.filter((c) => c !== categoryId)
-        : [...prev, categoryId],
+      prev.includes(categoryId) ? prev.filter((c) => c !== categoryId) : [...prev, categoryId],
     );
   }, []);
 
@@ -211,12 +211,20 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
               <Select
                 data-testid="merge-strategy-select"
                 options={[
-                  { value: 'keep-remote', label: t('team.keepRemote', 'Keep Remote (overwrite local)') },
-                  { value: 'keep-local', label: t('team.keepLocal', 'Keep Local (skip conflicts)') },
+                  {
+                    value: 'keep-remote',
+                    label: t('team.keepRemote', 'Keep Remote (overwrite local)'),
+                  },
+                  {
+                    value: 'keep-local',
+                    label: t('team.keepLocal', 'Keep Local (skip conflicts)'),
+                  },
                   { value: 'merge', label: t('team.merge', 'Merge (local wins on conflicts)') },
                 ]}
                 value={mergeStrategy}
-                onChange={(e) => setMergeStrategy(e.target.value as 'keep-local' | 'keep-remote' | 'merge')}
+                onChange={(e) =>
+                  setMergeStrategy(e.target.value as 'keep-local' | 'keep-remote' | 'merge')
+                }
               />
             </div>
 
@@ -250,7 +258,9 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
               <div className="flex flex-col gap-1" data-testid="import-conflicts">
                 <div className="flex items-center gap-1 text-xs text-amber-400">
                   <AlertTriangle className="w-3 h-3" />
-                  {t('team.conflictsDetected', '{{count}} conflicts detected', { count: conflicts.length })}
+                  {t('team.conflictsDetected', '{{count}} conflicts detected', {
+                    count: conflicts.length,
+                  })}
                 </div>
                 {conflicts.map((conflict) => (
                   <div

@@ -53,12 +53,7 @@ describe('OrgBadge', () => {
   });
 
   it('should render truncated instanceUrl when provided', () => {
-    render(
-      <OrgBadge
-        {...defaultProps}
-        instanceUrl="https://my-sandbox.salesforce.com/"
-      />,
-    );
+    render(<OrgBadge {...defaultProps} instanceUrl="https://my-sandbox.salesforce.com/" />);
     const urlEl = screen.getByTestId('org-badge-url');
     expect(urlEl.textContent).toBe('my-sandbox.salesforce.com');
   });

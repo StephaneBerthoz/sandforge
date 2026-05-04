@@ -14,9 +14,18 @@ export interface SeedFieldConfigState {
   /** Per-object field configurations. */
   fieldConfigs: ObjectFieldConfig[];
   /** Change the generation rule type for a specific field. */
-  handleChangeFieldRule: (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => void;
+  handleChangeFieldRule: (
+    objectApiName: string,
+    fieldApiName: string,
+    ruleType: FieldRuleType,
+  ) => void;
   /** Change a configuration parameter for a specific field rule. */
-  handleChangeFieldConfig: (objectApiName: string, fieldApiName: string, key: string, value: string) => void;
+  handleChangeFieldConfig: (
+    objectApiName: string,
+    fieldApiName: string,
+    key: string,
+    value: string,
+  ) => void;
   /** Apply a persona's data patterns to field configs. Returns matched field count. */
   applyPersona: (persona: PersonaMsg) => number;
   /** PII scan results per object. */
@@ -54,29 +63,32 @@ export function useSeedFieldConfig(
   const volumeConfig = useSeedVolumes();
   const piiScan = useSeedPIIScan(selectedOrgId, selectedObjects, currentStep, t);
 
-  return useMemo((): SeedFieldConfigState => ({
-    fieldConfigs: fieldRules.fieldConfigs,
-    handleChangeFieldRule: fieldRules.handleChangeFieldRule,
-    handleChangeFieldConfig: fieldRules.handleChangeFieldConfig,
-    applyPersona: fieldRules.applyPersona,
-    piiResults: piiScan.piiResults,
-    hasPiiWarnings: piiScan.hasPiiWarnings,
-    piiLoading: piiScan.piiLoading,
-    volumes: volumeConfig.volumes,
-    handleChangeVolume: volumeConfig.handleChangeVolume,
-    handleChangeBatchSize: volumeConfig.handleChangeBatchSize,
-    fieldError: piiScan.piiError,
-  }), [
-    fieldRules.fieldConfigs,
-    fieldRules.handleChangeFieldRule,
-    fieldRules.handleChangeFieldConfig,
-    fieldRules.applyPersona,
-    piiScan.piiResults,
-    piiScan.hasPiiWarnings,
-    piiScan.piiLoading,
-    piiScan.piiError,
-    volumeConfig.volumes,
-    volumeConfig.handleChangeVolume,
-    volumeConfig.handleChangeBatchSize,
-  ]);
+  return useMemo(
+    (): SeedFieldConfigState => ({
+      fieldConfigs: fieldRules.fieldConfigs,
+      handleChangeFieldRule: fieldRules.handleChangeFieldRule,
+      handleChangeFieldConfig: fieldRules.handleChangeFieldConfig,
+      applyPersona: fieldRules.applyPersona,
+      piiResults: piiScan.piiResults,
+      hasPiiWarnings: piiScan.hasPiiWarnings,
+      piiLoading: piiScan.piiLoading,
+      volumes: volumeConfig.volumes,
+      handleChangeVolume: volumeConfig.handleChangeVolume,
+      handleChangeBatchSize: volumeConfig.handleChangeBatchSize,
+      fieldError: piiScan.piiError,
+    }),
+    [
+      fieldRules.fieldConfigs,
+      fieldRules.handleChangeFieldRule,
+      fieldRules.handleChangeFieldConfig,
+      fieldRules.applyPersona,
+      piiScan.piiResults,
+      piiScan.hasPiiWarnings,
+      piiScan.piiLoading,
+      piiScan.piiError,
+      volumeConfig.volumes,
+      volumeConfig.handleChangeVolume,
+      volumeConfig.handleChangeBatchSize,
+    ],
+  );
 }

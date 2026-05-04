@@ -37,21 +37,25 @@ describe('searchRecords', () => {
   });
 
   it('should restrict search to specified fields', () => {
-    const result = searchRecords(makeInput({
-      query: 'alice',
-      fields: ['Name'],
-      caseSensitive: false,
-    }));
+    const result = searchRecords(
+      makeInput({
+        query: 'alice',
+        fields: ['Name'],
+        caseSensitive: false,
+      }),
+    );
 
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0].matchedFields).toEqual(['Name']);
   });
 
   it('should not match on excluded fields', () => {
-    const result = searchRecords(makeInput({
-      query: 'alice@example.com',
-      fields: ['Name', 'City'],
-    }));
+    const result = searchRecords(
+      makeInput({
+        query: 'alice@example.com',
+        fields: ['Name', 'City'],
+      }),
+    );
 
     expect(result.matches).toHaveLength(0);
   });
@@ -64,10 +68,12 @@ describe('searchRecords', () => {
   });
 
   it('should respect case-sensitive flag', () => {
-    const result = searchRecords(makeInput({
-      query: 'ALICE',
-      caseSensitive: true,
-    }));
+    const result = searchRecords(
+      makeInput({
+        query: 'ALICE',
+        caseSensitive: true,
+      }),
+    );
 
     expect(result.matches).toHaveLength(0);
   });
@@ -121,9 +127,7 @@ describe('searchRecords', () => {
   });
 
   it('should skip null and undefined field values without errors', () => {
-    const data = [
-      { Id: '1', Name: null, Email: undefined, City: 'Paris' },
-    ];
+    const data = [{ Id: '1', Name: null, Email: undefined, City: 'Paris' }];
     const result = searchRecords({ data, query: 'Paris' });
 
     expect(result.matches).toHaveLength(1);

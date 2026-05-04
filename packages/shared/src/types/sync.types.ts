@@ -7,12 +7,7 @@ export type SyncDirection = 'source_to_target' | 'target_to_source' | 'bidirecti
 export type SyncMode = 'full' | 'incremental' | 'delta' | 'cdc';
 
 /** Conflict resolution strategy */
-export type ConflictStrategy =
-  | 'source_wins'
-  | 'target_wins'
-  | 'newest_wins'
-  | 'manual'
-  | 'merge';
+export type ConflictStrategy = 'source_wins' | 'target_wins' | 'newest_wins' | 'manual' | 'merge';
 
 /** Field mapping type */
 export type MappingType =

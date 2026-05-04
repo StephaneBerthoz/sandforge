@@ -129,9 +129,17 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               <div data-testid="ops-chart" style={{ width: '100%', height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={opsChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--vscode-panel-border, #3c3c3c)" />
-                    <XAxis dataKey="time" tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }} />
-                    <YAxis tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }} />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="var(--vscode-panel-border, #3c3c3c)"
+                    />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }}
+                    />
                     <Tooltip />
                     <Bar dataKey="value" fill="var(--vscode-textLink-foreground, #3794ff)" />
                   </BarChart>
@@ -149,11 +157,24 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               <div data-testid="error-chart" style={{ width: '100%', height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={errorChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--vscode-panel-border, #3c3c3c)" />
-                    <XAxis dataKey="time" tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }} />
-                    <YAxis tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }} />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="var(--vscode-panel-border, #3c3c3c)"
+                    />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }}
+                    />
                     <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="var(--sf-error, #EF4444)" strokeWidth={2} />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="var(--sf-error, #EF4444)"
+                      strokeWidth={2}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

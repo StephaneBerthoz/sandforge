@@ -30,11 +30,13 @@ describe('VRAutoAdjuster', () => {
 
   it('should adjust null field to auto/faker for high-risk ISBLANK rule', () => {
     const configs = [makeConfig({ fieldName: 'Phone', fieldType: 'phone' })];
-    const vrResults = [makeVRResult({
-      ruleName: 'Account.RequirePhone',
-      risk: 'high',
-      fieldConstraints: [{ fieldName: 'Phone', constraintType: 'required' }],
-    })];
+    const vrResults = [
+      makeVRResult({
+        ruleName: 'Account.RequirePhone',
+        risk: 'high',
+        fieldConstraints: [{ fieldName: 'Phone', constraintType: 'required' }],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     const adjusted = result.adjustedConfigs.find((c) => c.fieldName === 'Phone');
@@ -47,10 +49,12 @@ describe('VRAutoAdjuster', () => {
 
   it('should adjust null string field to faker lorem for required constraint', () => {
     const configs = [makeConfig({ fieldName: 'Name', fieldType: 'string' })];
-    const vrResults = [makeVRResult({
-      risk: 'high',
-      fieldConstraints: [{ fieldName: 'Name', constraintType: 'required' }],
-    })];
+    const vrResults = [
+      makeVRResult({
+        risk: 'high',
+        fieldConstraints: [{ fieldName: 'Name', constraintType: 'required' }],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     const adjusted = result.adjustedConfigs.find((c) => c.fieldName === 'Name');
@@ -59,19 +63,25 @@ describe('VRAutoAdjuster', () => {
   });
 
   it('should set picklist_random with expected value for ISPICKVAL rule', () => {
-    const configs = [makeConfig({
-      fieldName: 'Status',
-      fieldType: 'picklist',
-      generationMode: 'null',
-    })];
-    const vrResults = [makeVRResult({
-      risk: 'high',
-      fieldConstraints: [{
+    const configs = [
+      makeConfig({
         fieldName: 'Status',
-        constraintType: 'picklist_value',
-        expectedValue: 'Active',
-      }],
-    })];
+        fieldType: 'picklist',
+        generationMode: 'null',
+      }),
+    ];
+    const vrResults = [
+      makeVRResult({
+        risk: 'high',
+        fieldConstraints: [
+          {
+            fieldName: 'Status',
+            constraintType: 'picklist_value',
+            expectedValue: 'Active',
+          },
+        ],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     const adjusted = result.adjustedConfigs.find((c) => c.fieldName === 'Status');
@@ -80,20 +90,26 @@ describe('VRAutoAdjuster', () => {
   });
 
   it('should add expected value to existing picklist_random values', () => {
-    const configs = [makeConfig({
-      fieldName: 'Status',
-      fieldType: 'picklist',
-      generationMode: 'picklist_random',
-      constraints: { required: false, unique: false, picklistValues: ['Open', 'Closed'] },
-    })];
-    const vrResults = [makeVRResult({
-      risk: 'high',
-      fieldConstraints: [{
+    const configs = [
+      makeConfig({
         fieldName: 'Status',
-        constraintType: 'picklist_value',
-        expectedValue: 'Active',
-      }],
-    })];
+        fieldType: 'picklist',
+        generationMode: 'picklist_random',
+        constraints: { required: false, unique: false, picklistValues: ['Open', 'Closed'] },
+      }),
+    ];
+    const vrResults = [
+      makeVRResult({
+        risk: 'high',
+        fieldConstraints: [
+          {
+            fieldName: 'Status',
+            constraintType: 'picklist_value',
+            expectedValue: 'Active',
+          },
+        ],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     const adjusted = result.adjustedConfigs.find((c) => c.fieldName === 'Status');
@@ -103,21 +119,27 @@ describe('VRAutoAdjuster', () => {
   });
 
   it('should update length constraints', () => {
-    const configs = [makeConfig({
-      fieldName: 'Code',
-      fieldType: 'string',
-      generationMode: 'faker',
-      constraints: { required: false, unique: false, maxLength: 100 },
-    })];
-    const vrResults = [makeVRResult({
-      risk: 'medium',
-      fieldConstraints: [{
+    const configs = [
+      makeConfig({
         fieldName: 'Code',
-        constraintType: 'length',
-        minLength: 6,
-        maxLength: 20,
-      }],
-    })];
+        fieldType: 'string',
+        generationMode: 'faker',
+        constraints: { required: false, unique: false, maxLength: 100 },
+      }),
+    ];
+    const vrResults = [
+      makeVRResult({
+        risk: 'medium',
+        fieldConstraints: [
+          {
+            fieldName: 'Code',
+            constraintType: 'length',
+            minLength: 6,
+            maxLength: 20,
+          },
+        ],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     const adjusted = result.adjustedConfigs.find((c) => c.fieldName === 'Code');
@@ -127,10 +149,12 @@ describe('VRAutoAdjuster', () => {
 
   it('should ignore low-risk rules', () => {
     const configs = [makeConfig({ fieldName: 'Phone' })];
-    const vrResults = [makeVRResult({
-      risk: 'low',
-      fieldConstraints: [{ fieldName: 'Phone', constraintType: 'required' }],
-    })];
+    const vrResults = [
+      makeVRResult({
+        risk: 'low',
+        fieldConstraints: [{ fieldName: 'Phone', constraintType: 'required' }],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     const adjusted = result.adjustedConfigs.find((c) => c.fieldName === 'Phone');
@@ -144,10 +168,12 @@ describe('VRAutoAdjuster', () => {
     Object.freeze(original.constraints);
 
     const configs = [original];
-    const vrResults = [makeVRResult({
-      risk: 'high',
-      fieldConstraints: [{ fieldName: 'Phone', constraintType: 'required' }],
-    })];
+    const vrResults = [
+      makeVRResult({
+        risk: 'high',
+        fieldConstraints: [{ fieldName: 'Phone', constraintType: 'required' }],
+      }),
+    ];
 
     // Should not throw even though original is frozen
     const result = adjuster.adjust(configs, vrResults);
@@ -158,14 +184,18 @@ describe('VRAutoAdjuster', () => {
 
   it('should report cross_field constraints as unresolved', () => {
     const configs = [makeConfig({ fieldName: 'Type' })];
-    const vrResults = [makeVRResult({
-      risk: 'high',
-      fieldConstraints: [{
-        fieldName: 'Type',
-        constraintType: 'cross_field',
-        relatedField: 'SubType',
-      }],
-    })];
+    const vrResults = [
+      makeVRResult({
+        risk: 'high',
+        fieldConstraints: [
+          {
+            fieldName: 'Type',
+            constraintType: 'cross_field',
+            relatedField: 'SubType',
+          },
+        ],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     expect(result.unresolvedRules).toHaveLength(1);
@@ -174,19 +204,25 @@ describe('VRAutoAdjuster', () => {
   });
 
   it('should report complex regex as unresolved', () => {
-    const configs = [makeConfig({
-      fieldName: 'Code',
-      fieldType: 'string',
-      generationMode: 'faker',
-    })];
-    const vrResults = [makeVRResult({
-      risk: 'high',
-      fieldConstraints: [{
+    const configs = [
+      makeConfig({
         fieldName: 'Code',
-        constraintType: 'regex',
-        regexPattern: '^[A-Z]{3}-\\d{4}$',
-      }],
-    })];
+        fieldType: 'string',
+        generationMode: 'faker',
+      }),
+    ];
+    const vrResults = [
+      makeVRResult({
+        risk: 'high',
+        fieldConstraints: [
+          {
+            fieldName: 'Code',
+            constraintType: 'regex',
+            regexPattern: '^[A-Z]{3}-\\d{4}$',
+          },
+        ],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     expect(result.unresolvedRules).toHaveLength(1);
@@ -194,20 +230,26 @@ describe('VRAutoAdjuster', () => {
   });
 
   it('should handle simple email regex by setting faker email', () => {
-    const configs = [makeConfig({
-      fieldName: 'Email',
-      fieldType: 'string',
-      generationMode: 'faker',
-      fakerMethod: 'lorem',
-    })];
-    const vrResults = [makeVRResult({
-      risk: 'high',
-      fieldConstraints: [{
+    const configs = [
+      makeConfig({
         fieldName: 'Email',
-        constraintType: 'regex',
-        regexPattern: '^[a-z]+@[a-z]+\\.[a-z]+$',
-      }],
-    })];
+        fieldType: 'string',
+        generationMode: 'faker',
+        fakerMethod: 'lorem',
+      }),
+    ];
+    const vrResults = [
+      makeVRResult({
+        risk: 'high',
+        fieldConstraints: [
+          {
+            fieldName: 'Email',
+            constraintType: 'regex',
+            regexPattern: '^[a-z]+@[a-z]+\\.[a-z]+$',
+          },
+        ],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     const adjusted = result.adjustedConfigs.find((c) => c.fieldName === 'Email');
@@ -216,19 +258,25 @@ describe('VRAutoAdjuster', () => {
   });
 
   it('should have correct before/after modes in adjustment log', () => {
-    const configs = [makeConfig({
-      fieldName: 'Status',
-      fieldType: 'picklist',
-      generationMode: 'null',
-    })];
-    const vrResults = [makeVRResult({
-      risk: 'high',
-      fieldConstraints: [{
+    const configs = [
+      makeConfig({
         fieldName: 'Status',
-        constraintType: 'picklist_value',
-        expectedValue: 'Active',
-      }],
-    })];
+        fieldType: 'picklist',
+        generationMode: 'null',
+      }),
+    ];
+    const vrResults = [
+      makeVRResult({
+        risk: 'high',
+        fieldConstraints: [
+          {
+            fieldName: 'Status',
+            constraintType: 'picklist_value',
+            expectedValue: 'Active',
+          },
+        ],
+      }),
+    ];
 
     const result = adjuster.adjust(configs, vrResults);
     expect(result.adjustments).toHaveLength(1);
@@ -237,11 +285,13 @@ describe('VRAutoAdjuster', () => {
   });
 
   it('should handle multiple VR results on same field (last wins)', () => {
-    const configs = [makeConfig({
-      fieldName: 'Phone',
-      fieldType: 'string',
-      generationMode: 'null',
-    })];
+    const configs = [
+      makeConfig({
+        fieldName: 'Phone',
+        fieldType: 'string',
+        generationMode: 'null',
+      }),
+    ];
     const vrResults = [
       makeVRResult({
         ruleName: 'Rule1',
@@ -251,11 +301,13 @@ describe('VRAutoAdjuster', () => {
       makeVRResult({
         ruleName: 'Rule2',
         risk: 'high',
-        fieldConstraints: [{
-          fieldName: 'Phone',
-          constraintType: 'length',
-          minLength: 10,
-        }],
+        fieldConstraints: [
+          {
+            fieldName: 'Phone',
+            constraintType: 'length',
+            minLength: 10,
+          },
+        ],
       }),
     ];
 

@@ -80,23 +80,14 @@ describe('EmptyState', () => {
 
   it('should prefer module illustration over custom icon', () => {
     render(
-      <EmptyState
-        title="Test"
-        module="seed"
-        icon={<span data-testid="custom-icon">icon</span>}
-      />,
+      <EmptyState title="Test" module="seed" icon={<span data-testid="custom-icon">icon</span>} />,
     );
     expect(screen.getByTestId('illustration-seed')).toBeDefined();
     expect(screen.queryByTestId('custom-icon')).toBeNull();
   });
 
   it('should render encouragement message when provided', () => {
-    render(
-      <EmptyState
-        title="Empty"
-        encouragement="You are just getting started!"
-      />,
-    );
+    render(<EmptyState title="Empty" encouragement="You are just getting started!" />);
     expect(screen.getByTestId('empty-encouragement')).toBeDefined();
     expect(screen.getByText('You are just getting started!')).toBeDefined();
   });
@@ -108,13 +99,7 @@ describe('EmptyState', () => {
 
   it('should render primary action button when actionLabel and onAction are provided', () => {
     const onAction = vi.fn();
-    render(
-      <EmptyState
-        title="No templates"
-        actionLabel="Create template"
-        onAction={onAction}
-      />,
-    );
+    render(<EmptyState title="No templates" actionLabel="Create template" onAction={onAction} />);
     const button = screen.getByTestId('empty-action-button');
     expect(button).toBeDefined();
     expect(button.textContent).toBe('Create template');
@@ -129,13 +114,7 @@ describe('EmptyState', () => {
 
   it('should render documentation link when docLabel and onDocClick are provided', () => {
     const onDocClick = vi.fn();
-    render(
-      <EmptyState
-        title="Empty"
-        docLabel="View docs"
-        onDocClick={onDocClick}
-      />,
-    );
+    render(<EmptyState title="Empty" docLabel="View docs" onDocClick={onDocClick} />);
     const link = screen.getByTestId('empty-doc-link');
     expect(link.textContent).toBe('View docs');
     fireEvent.click(link);
@@ -144,13 +123,7 @@ describe('EmptyState', () => {
 
   it('should render guided tour link when tourLabel and onTourClick are provided', () => {
     const onTourClick = vi.fn();
-    render(
-      <EmptyState
-        title="Empty"
-        tourLabel="Start tour"
-        onTourClick={onTourClick}
-      />,
-    );
+    render(<EmptyState title="Empty" tourLabel="Start tour" onTourClick={onTourClick} />);
     const link = screen.getByTestId('empty-tour-link');
     expect(link.textContent).toBe('Start tour');
     fireEvent.click(link);

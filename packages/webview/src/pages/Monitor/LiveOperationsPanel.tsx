@@ -88,9 +88,11 @@ const OperationRow: React.FC<{
     <div
       className={cn(
         'rounded-lg border bg-surface-1 p-3 flex flex-col gap-2 transition-all',
-        operation.status === 'failed' ? 'border-red-500/30' :
-        operation.status === 'running' ? 'border-blue-500/30' :
-        'border-subtle',
+        operation.status === 'failed'
+          ? 'border-red-500/30'
+          : operation.status === 'running'
+            ? 'border-blue-500/30'
+            : 'border-subtle',
       )}
       data-testid={`live-op-${operation.operationId}`}
     >
@@ -100,9 +102,7 @@ const OperationRow: React.FC<{
         <span className="text-xs font-medium text-text-primary flex-1 truncate">
           {operation.description}
         </span>
-        <Badge variant={moduleBadgeVariant(operation.module)}>
-          {operation.module}
-        </Badge>
+        <Badge variant={moduleBadgeVariant(operation.module)}>{operation.module}</Badge>
       </div>
 
       {/* Progress bar */}
@@ -128,21 +128,15 @@ const OperationRow: React.FC<{
           {operation.processedRecords.toLocaleString()}
           {operation.totalRecords > 0 ? ` / ${operation.totalRecords.toLocaleString()}` : ''}
         </span>
-        <span className="font-medium">
-          {Math.round(operation.percentage)}%
-        </span>
+        <span className="font-medium">{Math.round(operation.percentage)}%</span>
       </div>
 
       {/* Current step */}
-      <div className="text-[10px] text-text-secondary truncate">
-        {operation.currentStep}
-      </div>
+      <div className="text-[10px] text-text-secondary truncate">{operation.currentStep}</div>
 
       {/* Error message */}
       {operation.error && (
-        <div className="text-[10px] text-red-400 truncate">
-          {operation.error}
-        </div>
+        <div className="text-[10px] text-red-400 truncate">{operation.error}</div>
       )}
 
       {/* Action buttons */}

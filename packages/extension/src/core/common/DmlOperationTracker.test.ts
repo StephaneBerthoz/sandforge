@@ -23,7 +23,7 @@ describe('DmlOperationTracker', () => {
       tracker.register('op-1', 'Account', 'insert', 100);
 
       expect(() => tracker.register('op-1', 'Account', 'insert', 50)).toThrow(
-        'Duplicate DML operation detected: op-1'
+        'Duplicate DML operation detected: op-1',
       );
     });
 

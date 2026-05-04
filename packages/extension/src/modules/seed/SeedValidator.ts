@@ -15,8 +15,16 @@ export interface ValidationError {
 
 /** All valid field rule types for validation checks */
 const VALID_RULE_TYPES: ReadonlySet<FieldRuleType> = new Set<FieldRuleType>([
-  'static', 'random', 'sequence', 'formula', 'reference',
-  'picklist_random', 'ai_generate', 'faker', 'regex', 'from_csv',
+  'static',
+  'random',
+  'sequence',
+  'formula',
+  'reference',
+  'picklist_random',
+  'ai_generate',
+  'faker',
+  'regex',
+  'from_csv',
 ]);
 
 /**
@@ -47,10 +55,7 @@ export class SeedValidator {
 }
 
 /** Validate that the template has a non-empty name */
-function validateTemplateName(
-  template: SeedTemplate,
-  errors: ValidationError[]
-): void {
+function validateTemplateName(template: SeedTemplate, errors: ValidationError[]): void {
   if (!template.name || template.name.trim().length === 0) {
     errors.push({ field: 'name', message: 'Template name is required' });
   }
@@ -60,7 +65,7 @@ function validateTemplateName(
 function validateObjects(
   template: SeedTemplate,
   errors: ValidationError[],
-  warnings: ValidationError[]
+  warnings: ValidationError[],
 ): void {
   if (!template.objects || template.objects.length === 0) {
     errors.push({ field: 'objects', message: 'Template must have at least one object' });
@@ -76,7 +81,7 @@ function validateObjects(
 function validateObjectConfig(
   obj: SeedObjectConfig,
   errors: ValidationError[],
-  warnings: ValidationError[]
+  warnings: ValidationError[],
 ): void {
   const prefix = `objects[${obj.objectApiName}]`;
 
@@ -111,11 +116,7 @@ function validateObjectConfig(
 }
 
 /** Validate a single field rule */
-function validateFieldRule(
-  rule: FieldRule,
-  parentPrefix: string,
-  errors: ValidationError[]
-): void {
+function validateFieldRule(rule: FieldRule, parentPrefix: string, errors: ValidationError[]): void {
   const prefix = `${parentPrefix}.fieldRules[${rule.fieldApiName}]`;
 
   if (!rule.fieldApiName || rule.fieldApiName.trim().length === 0) {
@@ -133,11 +134,7 @@ function validateFieldRule(
 }
 
 /** Validate rule-specific configuration requirements */
-function validateRuleConfig(
-  rule: FieldRule,
-  prefix: string,
-  errors: ValidationError[]
-): void {
+function validateRuleConfig(rule: FieldRule, prefix: string, errors: ValidationError[]): void {
   switch (rule.ruleType) {
     case 'reference':
       if (!rule.config.referenceObject) {
@@ -187,10 +184,7 @@ function validateRuleConfig(
 }
 
 /** Validate that all reference targets exist as objects in the template */
-function validateReferenceTargets(
-  template: SeedTemplate,
-  errors: ValidationError[]
-): void {
+function validateReferenceTargets(template: SeedTemplate, errors: ValidationError[]): void {
   const objectNames = new Set(template.objects.map((o) => o.objectApiName));
 
   for (const obj of template.objects) {
@@ -208,10 +202,7 @@ function validateReferenceTargets(
 }
 
 /** Detect circular dependencies in reference chains */
-function validateCircularDependencies(
-  template: SeedTemplate,
-  errors: ValidationError[]
-): void {
+function validateCircularDependencies(template: SeedTemplate, errors: ValidationError[]): void {
   const adjacency = new Map<string, string[]>();
 
   for (const obj of template.objects) {

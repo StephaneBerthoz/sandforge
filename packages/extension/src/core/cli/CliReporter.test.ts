@@ -96,9 +96,7 @@ describe('CliReporter', () => {
       const headers = ['A'];
       const rows = [['1']];
       const result = reporter.formatTable(headers, rows);
-      const separatorCount = result
-        .split('\n')
-        .filter((l) => l.startsWith('+')).length;
+      const separatorCount = result.split('\n').filter((l) => l.startsWith('+')).length;
       expect(separatorCount).toBe(3);
     });
   });
@@ -233,19 +231,12 @@ describe('CliReporter', () => {
 
     it('should format warnings exit message', () => {
       const result = reporter.formatExitMessage(CliExitCode.Warnings, 2000);
-      expect(result).toBe(
-        '[COMPLETED WITH WARNINGS] Completed in 2.00s (exit code: 2)'
-      );
+      expect(result).toBe('[COMPLETED WITH WARNINGS] Completed in 2.00s (exit code: 2)');
     });
 
     it('should format partial success exit message', () => {
-      const result = reporter.formatExitMessage(
-        CliExitCode.PartialSuccess,
-        3500
-      );
-      expect(result).toBe(
-        '[PARTIAL SUCCESS] Completed in 3.50s (exit code: 3)'
-      );
+      const result = reporter.formatExitMessage(CliExitCode.PartialSuccess, 3500);
+      expect(result).toBe('[PARTIAL SUCCESS] Completed in 3.50s (exit code: 3)');
     });
 
     it('should handle unknown exit codes', () => {
@@ -265,10 +256,7 @@ describe('CliReporter', () => {
     });
 
     it('should format large durations', () => {
-      const result = reporter.formatExitMessage(
-        CliExitCode.Success,
-        120000
-      );
+      const result = reporter.formatExitMessage(CliExitCode.Success, 120000);
       expect(result).toContain('120.00s');
     });
   });

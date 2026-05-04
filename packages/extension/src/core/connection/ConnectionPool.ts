@@ -39,7 +39,7 @@ export class ConnectionPool {
 
   constructor(
     config?: Partial<PoolConfig>,
-    options?: { maxPerOrg?: number; recycleIntervalMs?: number }
+    options?: { maxPerOrg?: number; recycleIntervalMs?: number },
   ) {
     this.config = {
       maxConnections: config?.maxConnections ?? 10,

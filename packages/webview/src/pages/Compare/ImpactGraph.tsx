@@ -98,7 +98,15 @@ export const ImpactGraph: React.FC<ImpactGraphProps> = ({ analysis, className })
           <div className="flex flex-col gap-3" data-testid="impact-graph">
             {/* Summary row */}
             <div className="flex items-center gap-3">
-              <Badge variant={analysis.riskLevel === 'low' ? 'success' : analysis.riskLevel === 'medium' ? 'warning' : 'error'}>
+              <Badge
+                variant={
+                  analysis.riskLevel === 'low'
+                    ? 'success'
+                    : analysis.riskLevel === 'medium'
+                      ? 'warning'
+                      : 'error'
+                }
+              >
                 {analysis.riskLevel}
               </Badge>
               <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">

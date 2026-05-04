@@ -143,10 +143,9 @@ describe('useMessageListener', () => {
     const firstHandler = vi.fn();
     const secondHandler = vi.fn();
 
-    const { rerender } = renderHook(
-      ({ handler }) => useMessageListener('test:type', handler),
-      { initialProps: { handler: firstHandler } },
-    );
+    const { rerender } = renderHook(({ handler }) => useMessageListener('test:type', handler), {
+      initialProps: { handler: firstHandler },
+    });
 
     rerender({ handler: secondHandler });
 

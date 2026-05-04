@@ -54,18 +54,24 @@ export interface GovernancePanelProps {
 /** Map status to badge variant. */
 function statusBadgeVariant(status: 'pass' | 'warning' | 'fail'): BadgeVariant {
   switch (status) {
-    case 'pass': return 'success';
-    case 'warning': return 'warning';
-    case 'fail': return 'error';
+    case 'pass':
+      return 'success';
+    case 'warning':
+      return 'warning';
+    case 'fail':
+      return 'error';
   }
 }
 
 /** Map status to icon. */
 function statusIcon(status: 'pass' | 'warning' | 'fail'): React.ReactNode {
   switch (status) {
-    case 'pass': return <CheckCircle className="w-4 h-4 text-green-400" />;
-    case 'warning': return <AlertTriangle className="w-4 h-4 text-amber-400" />;
-    case 'fail': return <XCircle className="w-4 h-4 text-red-400" />;
+    case 'pass':
+      return <CheckCircle className="w-4 h-4 text-green-400" />;
+    case 'warning':
+      return <AlertTriangle className="w-4 h-4 text-amber-400" />;
+    case 'fail':
+      return <XCircle className="w-4 h-4 text-red-400" />;
   }
 }
 
@@ -160,7 +166,10 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
               className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
               data-testid="no-policies"
             >
-              {t('governance.noPolicies', 'No governance policies configured. Add a policy to get started.')}
+              {t(
+                'governance.noPolicies',
+                'No governance policies configured. Add a policy to get started.',
+              )}
             </p>
           ) : (
             <div className="flex flex-col gap-2">
@@ -221,9 +230,7 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                       <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
                         {result.ruleName}
                       </span>
-                      <Badge variant={statusBadgeVariant(result.status)}>
-                        {result.status}
-                      </Badge>
+                      <Badge variant={statusBadgeVariant(result.status)}>{result.status}</Badge>
                     </div>
                     <p className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">
                       {result.message}
@@ -318,22 +325,20 @@ export const GovernancePanelConnected: React.FC = () => {
   );
 
   /** Evaluate mutation. */
-  const evaluateMutation = useBridgeMutation<{ success: boolean; result: GovernanceEvaluationResult }>(
-    'governance:evaluate',
-    { responseType: 'governance:evaluate:response' },
-  );
+  const evaluateMutation = useBridgeMutation<{
+    success: boolean;
+    result: GovernanceEvaluationResult;
+  }>('governance:evaluate', { responseType: 'governance:evaluate:response' });
 
   /** Delete mutation. */
-  const deleteMutation = useBridgeMutation<{ success: boolean }>(
-    'governance:policy:delete',
-    { responseType: 'governance:policy:delete:response' },
-  );
+  const deleteMutation = useBridgeMutation<{ success: boolean }>('governance:policy:delete', {
+    responseType: 'governance:policy:delete:response',
+  });
 
   /** Save mutation (for adding from templates). */
-  const saveMutation = useBridgeMutation<{ success: boolean }>(
-    'governance:policy:save',
-    { responseType: 'governance:policy:save:response' },
-  );
+  const saveMutation = useBridgeMutation<{ success: boolean }>('governance:policy:save', {
+    responseType: 'governance:policy:save:response',
+  });
 
   /** Evaluate a policy. */
   const handleEvaluate = useCallback(

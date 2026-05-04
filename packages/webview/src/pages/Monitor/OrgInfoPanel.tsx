@@ -89,9 +89,7 @@ export const OrgInfoPanel: React.FC<OrgInfoPanelProps> = ({ orgInfo, className }
             {orgInfo.name}
           </span>
           <span data-testid="org-info-type">
-            <Badge variant={orgTypeBadgeVariant(orgInfo.type)}>
-              {orgInfo.type}
-            </Badge>
+            <Badge variant={orgTypeBadgeVariant(orgInfo.type)}>{orgInfo.type}</Badge>
           </span>
         </div>
         <div
@@ -107,9 +105,7 @@ export const OrgInfoPanel: React.FC<OrgInfoPanelProps> = ({ orgInfo, className }
           <span data-testid="org-info-instance">
             {t('monitor.orgInstance', 'Instance')}: {orgInfo.instanceName}
           </span>
-          <span data-testid="org-info-api-version">
-            API v{orgInfo.apiVersion}
-          </span>
+          <span data-testid="org-info-api-version">API v{orgInfo.apiVersion}</span>
           <span data-testid="org-info-id" style={{ fontFamily: 'monospace', fontSize: '11px' }}>
             {orgInfo.orgId}
           </span>

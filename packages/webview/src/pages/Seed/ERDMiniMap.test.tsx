@@ -18,7 +18,9 @@ const contactNode: ObjectNode = {
   label: 'Contact',
   recordCount: 1200,
   fields: [],
-  relationships: [{ fieldName: 'AccountId', targetObject: 'Account', type: 'Lookup', required: false }],
+  relationships: [
+    { fieldName: 'AccountId', targetObject: 'Account', type: 'Lookup', required: false },
+  ],
 };
 
 const opportunityNode: ObjectNode = {
@@ -26,7 +28,9 @@ const opportunityNode: ObjectNode = {
   label: 'Opportunity',
   recordCount: 300,
   fields: [],
-  relationships: [{ fieldName: 'AccountId', targetObject: 'Account', type: 'MasterDetail', required: true }],
+  relationships: [
+    { fieldName: 'AccountId', targetObject: 'Account', type: 'MasterDetail', required: true },
+  ],
 };
 
 const lookupEdge: ERDEdge = {
@@ -74,13 +78,7 @@ describe('ERDMiniMap', () => {
   });
 
   it('should show empty state when no nodes', () => {
-    render(
-      <ERDMiniMap
-        {...defaultProps}
-        nodes={[]}
-        edges={[]}
-      />,
-    );
+    render(<ERDMiniMap {...defaultProps} nodes={[]} edges={[]} />);
     expect(screen.getByTestId('erd-minimap-empty')).toBeDefined();
     expect(screen.getByText('No objects selected')).toBeDefined();
   });
@@ -138,12 +136,7 @@ describe('ERDMiniMap', () => {
   });
 
   it('should highlight circular dependency nodes', () => {
-    render(
-      <ERDMiniMap
-        {...defaultProps}
-        circularDeps={[['Account', 'Contact']]}
-      />,
-    );
+    render(<ERDMiniMap {...defaultProps} circularDeps={[['Account', 'Contact']]} />);
     const nodeEl = screen.getByTestId('erd-node-Account');
     const rect = nodeEl.querySelector('rect');
     expect(rect?.getAttribute('stroke-width')).toBe('2');

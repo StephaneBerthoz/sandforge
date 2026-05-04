@@ -2,9 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SyncGrappeAdapter } from './SyncGrappeAdapter';
 import type { SyncConfig, SyncObjectConfig, GrappeResult } from '@sandforge/shared';
 
-function createObjectConfig(
-  overrides?: Partial<SyncObjectConfig>
-): SyncObjectConfig {
+function createObjectConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
   return {
     objectApiName: 'Account',
     operation: 'upsert',
@@ -207,9 +205,7 @@ describe('SyncGrappeAdapter', () => {
     });
 
     it('should count partial as completed', () => {
-      const results = [
-        createGrappeResult({ status: 'partial' }),
-      ];
+      const results = [createGrappeResult({ status: 'partial' })];
 
       const aggregated = adapter.aggregateResults(results);
 

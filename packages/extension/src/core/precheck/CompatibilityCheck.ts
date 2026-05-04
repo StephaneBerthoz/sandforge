@@ -1,7 +1,4 @@
-import type {
-  PreCheckConfig,
-  PreCheckItem,
-} from '@sandforge/shared';
+import type { PreCheckConfig, PreCheckItem } from '@sandforge/shared';
 import { randomUUID } from 'crypto';
 
 /** Compatibility data for the target org */
@@ -31,7 +28,7 @@ export interface ManagedPackageInfo {
 /** Dependency: fetches compatibility data for the org */
 export type FetchCompatibilityFn = (
   orgId: string,
-  operationConfig: Record<string, unknown>
+  operationConfig: Record<string, unknown>,
 ) => Promise<CompatibilityData>;
 
 /**
@@ -47,10 +44,7 @@ export class CompatibilityCheck {
 
   /** Run all compatibility checks */
   async check(config: PreCheckConfig): Promise<PreCheckItem[]> {
-    const data = await this.fetchCompatibility(
-      config.targetOrgId,
-      config.operationConfig
-    );
+    const data = await this.fetchCompatibility(config.targetOrgId, config.operationConfig);
     const items: PreCheckItem[] = [];
 
     items.push(this.checkApiVersion(data.apiVersion, data.requiredApiVersion));

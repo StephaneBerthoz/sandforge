@@ -162,7 +162,17 @@ describe('ComparePage', () => {
         targetOrgId: 'org-2',
         mode: 'metadata',
         summary: { totalItems: 100, added: 5, removed: 3, modified: 10, unchanged: 82, byType: {} },
-        diffs: [{ componentType: 'ApexClass', fullName: 'TestClass', status: 'modified', sourceValue: 'v1', targetValue: 'v2', severity: 'warning', deployable: true }],
+        diffs: [
+          {
+            componentType: 'ApexClass',
+            fullName: 'TestClass',
+            status: 'modified',
+            sourceValue: 'v1',
+            targetValue: 'v2',
+            severity: 'warning',
+            deployable: true,
+          },
+        ],
         timestamp: '2024-01-01T12:00:00Z',
         duration: 5000,
       },

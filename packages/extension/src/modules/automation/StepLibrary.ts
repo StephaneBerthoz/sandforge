@@ -29,7 +29,11 @@ const STEP_REGISTRY: StepTypeInfo[] = [
     description: 'Synchronize data between orgs or external sources',
     category: 'data',
     icon: 'sync',
-    configSchema: { sourceOrg: { type: 'string' }, targetOrg: { type: 'string' }, objects: { type: 'array' } },
+    configSchema: {
+      sourceOrg: { type: 'string' },
+      targetOrg: { type: 'string' },
+      objects: { type: 'array' },
+    },
   },
   {
     type: 'backup',
@@ -85,7 +89,11 @@ const STEP_REGISTRY: StepTypeInfo[] = [
     description: 'Branch pipeline execution based on conditions',
     category: 'control',
     icon: 'git-branch',
-    configSchema: { field: { type: 'string' }, operator: { type: 'string' }, value: { type: 'string' } },
+    configSchema: {
+      field: { type: 'string' },
+      operator: { type: 'string' },
+      value: { type: 'string' },
+    },
   },
   {
     type: 'loop',
@@ -133,7 +141,11 @@ const STEP_REGISTRY: StepTypeInfo[] = [
     description: 'Send a notification via email, Slack, or other channels',
     category: 'notification',
     icon: 'bell',
-    configSchema: { channel: { type: 'string' }, message: { type: 'string' }, recipients: { type: 'array' } },
+    configSchema: {
+      channel: { type: 'string' },
+      message: { type: 'string' },
+      recipients: { type: 'array' },
+    },
   },
 ];
 
@@ -207,10 +219,7 @@ export class StepLibrary {
    * @param config - The config to validate
    * @returns Array of validation errors
    */
-  validateStepConfig(
-    type: PipelineStepType,
-    config: Record<string, unknown>
-  ): string[] {
+  validateStepConfig(type: PipelineStepType, config: Record<string, unknown>): string[] {
     const info = this.registry.get(type);
     if (!info) {
       return [`Unknown step type: ${type}`];

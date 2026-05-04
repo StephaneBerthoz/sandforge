@@ -144,17 +144,14 @@ export class GovernanceEngine {
 
     if (isViolation(actual, operator, threshold)) {
       status = 'fail';
-    } else if (
-      warningThreshold !== undefined &&
-      isViolation(actual, operator, warningThreshold)
-    ) {
+    } else if (warningThreshold !== undefined && isViolation(actual, operator, warningThreshold)) {
       status = 'warning';
     }
 
     const message =
       status === 'pass'
         ? `${rule.name}: compliant (${actual})`
-        : `${rule.name}: ${status} — actual ${actual} ${operator} ${status === 'fail' ? threshold : warningThreshold ?? threshold}`;
+        : `${rule.name}: ${status} — actual ${actual} ${operator} ${status === 'fail' ? threshold : (warningThreshold ?? threshold)}`;
 
     return {
       ruleId: rule.id,
@@ -175,14 +172,9 @@ export class GovernanceEngine {
    * @param metrics - Map of metric names to their current values.
    * @returns Full evaluation result with compliance score and remediations.
    */
-  evaluatePolicy(
-    policy: GovernancePolicy,
-    metrics: MetricValues,
-  ): GovernanceEvaluationResult {
+  evaluatePolicy(policy: GovernancePolicy, metrics: MetricValues): GovernanceEvaluationResult {
     const enabledRules = policy.rules.filter((r) => r.enabled);
-    const ruleResults = enabledRules.map((rule) =>
-      this.evaluateRule(rule, metrics),
-    );
+    const ruleResults = enabledRules.map((rule) => this.evaluateRule(rule, metrics));
 
     const complianceScore = GovernanceEngine.computeComplianceScore(ruleResults);
 

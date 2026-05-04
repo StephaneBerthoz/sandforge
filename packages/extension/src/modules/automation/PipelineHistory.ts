@@ -1,7 +1,4 @@
-import type {
-  PipelineHistoryEntry,
-  PipelineRun,
-} from '@sandforge/shared';
+import type { PipelineHistoryEntry, PipelineRun } from '@sandforge/shared';
 
 /**
  * Manages the execution history of pipeline runs.
@@ -77,7 +74,7 @@ export class PipelineHistory {
 
     const totalRuns = entries.length;
     const successCount = entries.filter(
-      (e) => e.status === 'completed' || e.status === 'completed_with_warnings'
+      (e) => e.status === 'completed' || e.status === 'completed_with_warnings',
     ).length;
     const successRate = successCount / totalRuns;
     const totalDuration = entries.reduce((sum, e) => sum + e.duration, 0);

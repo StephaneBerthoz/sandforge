@@ -3,19 +3,25 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { Card, CardHeader, CardBody } from './Card';
 
 /* Mock framer-motion to render plain elements in tests */
-const MOTION_KEYS = new Set(['variants', 'initial', 'animate', 'whileHover', 'whileTap', 'transition', 'exit']);
+const MOTION_KEYS = new Set([
+  'variants',
+  'initial',
+  'animate',
+  'whileHover',
+  'whileTap',
+  'transition',
+  'exit',
+]);
 
 vi.mock('framer-motion', async () => {
   const React = await import('react');
-  const mockDiv = React.forwardRef<HTMLDivElement, Record<string, unknown>>(
-    (props, ref) => {
-      const filtered: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(props)) {
-        if (!MOTION_KEYS.has(k)) filtered[k] = v;
-      }
-      return React.createElement('div', { ...filtered, ref });
-    },
-  );
+  const mockDiv = React.forwardRef<HTMLDivElement, Record<string, unknown>>((props, ref) => {
+    const filtered: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(props)) {
+      if (!MOTION_KEYS.has(k)) filtered[k] = v;
+    }
+    return React.createElement('div', { ...filtered, ref });
+  });
   return {
     motion: { div: mockDiv },
     AnimatePresence: ({ children }: { children: React.ReactNode }) => children,

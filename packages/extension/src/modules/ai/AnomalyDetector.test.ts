@@ -77,10 +77,7 @@ describe('AnomalyDetector', () => {
 
   it('should detect future dates in timestamp fields', () => {
     const futureDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-    const records = [
-      { CreatedDate: '2024-01-01T00:00:00Z' },
-      { CreatedDate: futureDate },
-    ];
+    const records = [{ CreatedDate: '2024-01-01T00:00:00Z' }, { CreatedDate: futureDate }];
     const sample: DataSample = { fields: ['CreatedDate'], records };
     const report = detector.detectAnomalies(sample, 'Account');
 
@@ -92,11 +89,7 @@ describe('AnomalyDetector', () => {
   });
 
   it('should detect negative amounts', () => {
-    const records = [
-      { Amount: 100 },
-      { Amount: -50 },
-      { Amount: 200 },
-    ];
+    const records = [{ Amount: 100 }, { Amount: -50 }, { Amount: 200 }];
     const sample: DataSample = { fields: ['Amount'], records };
     const report = detector.detectAnomalies(sample, 'Opportunity');
 
@@ -169,11 +162,7 @@ describe('AnomalyDetector', () => {
   });
 
   it('should detect duplicate email values', () => {
-    const records = [
-      { Email: 'a@test.com' },
-      { Email: 'b@test.com' },
-      { Email: 'A@Test.com' },
-    ];
+    const records = [{ Email: 'a@test.com' }, { Email: 'b@test.com' }, { Email: 'A@Test.com' }];
     const sample: DataSample = { fields: ['Email'], records };
     const report = detector.detectAnomalies(sample, 'Contact');
 
@@ -182,10 +171,7 @@ describe('AnomalyDetector', () => {
   });
 
   it('should not flag duplicates on non-name non-email fields', () => {
-    const records = [
-      { Status: 'Active' },
-      { Status: 'Active' },
-    ];
+    const records = [{ Status: 'Active' }, { Status: 'Active' }];
     const sample: DataSample = { fields: ['Status'], records };
     const report = detector.detectAnomalies(sample, 'Account');
 

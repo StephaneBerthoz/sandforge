@@ -76,19 +76,28 @@ export class QuickSyncHandler implements DomainHandler {
    */
   private async handleSuggestObjects(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; alreadySelected: string[] } }).payload;
+    const payload = (msg as BaseMessage & { payload: { orgId: string; alreadySelected: string[] } })
+      .payload;
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
       const result = await conn.describeGlobal();
 
-      const availableObjects = (result.sobjects as Array<{ name: string; createable: boolean; queryable: boolean }>)
+      const availableObjects = (
+        result.sobjects as Array<{ name: string; createable: boolean; queryable: boolean }>
+      )
         .filter((s) => s.createable && s.queryable)
         .map((s) => s.name);
 
       const suggestions = this.suggester.suggest(availableObjects, payload.alreadySelected ?? []);
 
-      const response = buildResponse(this.deps, msg, 'quicksync:suggest-objects:response', { suggestions });
+      const response = buildResponse(this.deps, msg, 'quicksync:suggest-objects:response', {
+        suggestions,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -102,20 +111,33 @@ export class QuickSyncHandler implements DomainHandler {
    */
   private async handleDetectRelationships(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & {
-      payload: { orgId: string; objectApiName: string; alreadySelected: string[]; availableObjects: string[] };
-    }).payload;
+    const payload = (
+      msg as BaseMessage & {
+        payload: {
+          orgId: string;
+          objectApiName: string;
+          alreadySelected: string[];
+          availableObjects: string[];
+        };
+      }
+    ).payload;
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
       const describeResult = await conn.describe(payload.objectApiName);
 
-      const fields: DescribeFieldInfo[] = (describeResult.fields as Array<{
-        name: string;
-        type: string;
-        referenceTo?: string[];
-        relationshipName?: string | null;
-      }>).map((f) => ({
+      const fields: DescribeFieldInfo[] = (
+        describeResult.fields as Array<{
+          name: string;
+          type: string;
+          referenceTo?: string[];
+          relationshipName?: string | null;
+        }>
+      ).map((f) => ({
         name: f.name,
         type: f.type,
         referenceTo: f.referenceTo ?? [],
@@ -129,7 +151,9 @@ export class QuickSyncHandler implements DomainHandler {
         payload.availableObjects,
       );
 
-      const response = buildResponse(this.deps, msg, 'quicksync:detect-relationships:response', { suggestions });
+      const response = buildResponse(this.deps, msg, 'quicksync:detect-relationships:response', {
+        suggestions,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -143,12 +167,18 @@ export class QuickSyncHandler implements DomainHandler {
    */
   private async handlePreview(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & {
-      payload: { sourceOrgId: string; selectedObjects: string[]; parentObjects?: string[] };
-    }).payload;
+    const payload = (
+      msg as BaseMessage & {
+        payload: { sourceOrgId: string; selectedObjects: string[]; parentObjects?: string[] };
+      }
+    ).payload;
 
     try {
-      const conn = await getJsforceConnection(payload.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       const allObjects = [...payload.selectedObjects, ...(payload.parentObjects ?? [])];
       const recordCounts: RecordCountResult[] = [];
@@ -188,8 +218,16 @@ export class QuickSyncHandler implements DomainHandler {
       // Validate with Zod
       const validatedConfig = QuickSyncConfigSchema.parse(payload.config);
 
-      const sourceConn = await getJsforceConnection(validatedConfig.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager);
-      const targetConn = await getJsforceConnection(validatedConfig.targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
+      const sourceConn = await getJsforceConnection(
+        validatedConfig.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const targetConn = await getJsforceConnection(
+        validatedConfig.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       // Build per-object configs with auto-field mapping (QSYNC-03)
       const allObjects = [...validatedConfig.selectedObjects, ...validatedConfig.parentObjects];
@@ -213,11 +251,25 @@ export class QuickSyncHandler implements DomainHandler {
           targetConn.describe(objectApiName),
         ]);
 
-        const sourceFields: AutoMapFieldInfo[] = (sourceDesc.fields as Array<{ name: string; label: string; type: string; createable: boolean }>)
+        const sourceFields: AutoMapFieldInfo[] = (
+          sourceDesc.fields as Array<{
+            name: string;
+            label: string;
+            type: string;
+            createable: boolean;
+          }>
+        )
           .filter((f) => f.createable)
           .map((f) => ({ apiName: f.name, label: f.label, type: f.type }));
 
-        const targetFields: AutoMapFieldInfo[] = (targetDesc.fields as Array<{ name: string; label: string; type: string; createable: boolean }>)
+        const targetFields: AutoMapFieldInfo[] = (
+          targetDesc.fields as Array<{
+            name: string;
+            label: string;
+            type: string;
+            createable: boolean;
+          }>
+        )
           .filter((f) => f.createable)
           .map((f) => ({ apiName: f.name, label: f.label, type: f.type }));
 
@@ -251,7 +303,12 @@ export class QuickSyncHandler implements DomainHandler {
         dryRun: false,
       };
 
-      sendNotification(this.deps, 'info', 'Quick Sync', `Starting sync of ${allObjects.length} object(s)`);
+      sendNotification(
+        this.deps,
+        'info',
+        'Quick Sync',
+        `Starting sync of ${allObjects.length} object(s)`,
+      );
 
       // Send built sync config back to the webview.
       // The webview will then dispatch a sync:execute message with this config,

@@ -121,9 +121,7 @@ describe('BatchOptimizer', () => {
         hasFlowsActive: true,
         hasValidationRules: true,
       });
-      const history: BatchHistory[] = [
-        createHistoryEntry({ errorRate: 50 }),
-      ];
+      const history: BatchHistory[] = [createHistoryEntry({ errorRate: 50 })];
       const result = optimizer.calculateOptimalBatchSize(profile, history);
 
       // Even with all penalties the minimum is enforced
@@ -133,9 +131,7 @@ describe('BatchOptimizer', () => {
 
     it('should use stored history when no explicit history is provided', () => {
       const profile = createSimpleProfile({ objectName: 'Contact' });
-      optimizer.recordExecution(
-        createHistoryEntry({ objectName: 'Contact', errorRate: 20 })
-      );
+      optimizer.recordExecution(createHistoryEntry({ objectName: 'Contact', errorRate: 20 }));
 
       const result = optimizer.calculateOptimalBatchSize(profile);
 
@@ -145,9 +141,7 @@ describe('BatchOptimizer', () => {
 
     it('should prefer explicit history over stored history', () => {
       const profile = createSimpleProfile({ objectName: 'Lead' });
-      optimizer.recordExecution(
-        createHistoryEntry({ objectName: 'Lead', errorRate: 20 })
-      );
+      optimizer.recordExecution(createHistoryEntry({ objectName: 'Lead', errorRate: 20 }));
 
       const explicitHistory: BatchHistory[] = [
         createHistoryEntry({ objectName: 'Lead', errorRate: 0 }),
@@ -169,9 +163,7 @@ describe('BatchOptimizer', () => {
       const profile = createSimpleProfile();
       const noHistoryResult = optimizer.calculateOptimalBatchSize(profile, []);
 
-      const richHistory = Array.from({ length: 10 }, () =>
-        createHistoryEntry({ errorRate: 1 })
-      );
+      const richHistory = Array.from({ length: 10 }, () => createHistoryEntry({ errorRate: 1 }));
       const withHistoryResult = optimizer.calculateOptimalBatchSize(profile, richHistory);
 
       expect(withHistoryResult.confidence).toBeGreaterThan(noHistoryResult.confidence);

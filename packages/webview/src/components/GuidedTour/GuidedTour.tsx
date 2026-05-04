@@ -57,8 +57,18 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
     nameKey: 'guidedTour.general',
     descriptionKey: 'guidedTour.generalDesc',
     steps: [
-      { target: '[data-testid="sidebar"]', titleKey: 'nav.home', descriptionKey: 'guidedTour.generalDesc', position: 'right' },
-      { target: '[data-testid="status-bar"]', titleKey: 'status.connectedOrgs', descriptionKey: 'guidedTour.generalDesc', position: 'top' },
+      {
+        target: '[data-testid="sidebar"]',
+        titleKey: 'nav.home',
+        descriptionKey: 'guidedTour.generalDesc',
+        position: 'right',
+      },
+      {
+        target: '[data-testid="status-bar"]',
+        titleKey: 'status.connectedOrgs',
+        descriptionKey: 'guidedTour.generalDesc',
+        position: 'top',
+      },
     ],
   },
   {
@@ -66,7 +76,12 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
     nameKey: 'guidedTour.monitorTour',
     descriptionKey: 'guidedTour.monitorTourDesc',
     steps: [
-      { target: '[data-testid="monitor-health"]', titleKey: 'monitor.health', descriptionKey: 'guidedTour.monitorTourDesc', position: 'bottom' },
+      {
+        target: '[data-testid="monitor-health"]',
+        titleKey: 'monitor.health',
+        descriptionKey: 'guidedTour.monitorTourDesc',
+        position: 'bottom',
+      },
     ],
   },
   {
@@ -74,7 +89,12 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
     nameKey: 'guidedTour.seedTour',
     descriptionKey: 'guidedTour.seedTourDesc',
     steps: [
-      { target: '[data-testid="seed-wizard"]', titleKey: 'seed.title', descriptionKey: 'guidedTour.seedTourDesc', position: 'bottom' },
+      {
+        target: '[data-testid="seed-wizard"]',
+        titleKey: 'seed.title',
+        descriptionKey: 'guidedTour.seedTourDesc',
+        position: 'bottom',
+      },
     ],
   },
   {
@@ -82,7 +102,12 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
     nameKey: 'guidedTour.syncTour',
     descriptionKey: 'guidedTour.syncTourDesc',
     steps: [
-      { target: '[data-testid="sync-wizard"]', titleKey: 'sync.title', descriptionKey: 'guidedTour.syncTourDesc', position: 'bottom' },
+      {
+        target: '[data-testid="sync-wizard"]',
+        titleKey: 'sync.title',
+        descriptionKey: 'guidedTour.syncTourDesc',
+        position: 'bottom',
+      },
     ],
   },
   {
@@ -90,7 +115,12 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
     nameKey: 'guidedTour.compareTour',
     descriptionKey: 'guidedTour.compareTourDesc',
     steps: [
-      { target: '[data-testid="compare-page"]', titleKey: 'compare.title', descriptionKey: 'guidedTour.compareTourDesc', position: 'bottom' },
+      {
+        target: '[data-testid="compare-page"]',
+        titleKey: 'compare.title',
+        descriptionKey: 'guidedTour.compareTourDesc',
+        position: 'bottom',
+      },
     ],
   },
   {
@@ -98,7 +128,12 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
     nameKey: 'guidedTour.dataopsTour',
     descriptionKey: 'guidedTour.dataopsTourDesc',
     steps: [
-      { target: '[data-testid="dataops-page"]', titleKey: 'dataops.title', descriptionKey: 'guidedTour.dataopsTourDesc', position: 'bottom' },
+      {
+        target: '[data-testid="dataops-page"]',
+        titleKey: 'dataops.title',
+        descriptionKey: 'guidedTour.dataopsTourDesc',
+        position: 'bottom',
+      },
     ],
   },
   {
@@ -106,7 +141,12 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
     nameKey: 'guidedTour.automationTour',
     descriptionKey: 'guidedTour.automationTourDesc',
     steps: [
-      { target: '[data-testid="automation-page"]', titleKey: 'automation.title', descriptionKey: 'guidedTour.automationTourDesc', position: 'bottom' },
+      {
+        target: '[data-testid="automation-page"]',
+        titleKey: 'automation.title',
+        descriptionKey: 'guidedTour.automationTourDesc',
+        position: 'bottom',
+      },
     ],
   },
 ];
@@ -134,10 +174,7 @@ export function markTourCompleted(tourId: string): void {
  * @param position - The desired tooltip position.
  * @returns The computed top and left pixel values.
  */
-function calculateTooltipPosition(
-  targetRect: DOMRect,
-  position: TooltipPosition,
-): TooltipStyle {
+function calculateTooltipPosition(targetRect: DOMRect, position: TooltipPosition): TooltipStyle {
   const TOOLTIP_OFFSET = 12;
 
   switch (position) {
@@ -169,12 +206,7 @@ function calculateTooltipPosition(
  * Supports navigation (Next, Previous, Skip, Finish) and persists
  * completed tours in localStorage.
  */
-export const GuidedTour: React.FC<GuidedTourProps> = ({
-  steps,
-  tourId,
-  onComplete,
-  isActive,
-}) => {
+export const GuidedTour: React.FC<GuidedTourProps> = ({ steps, tourId, onComplete, isActive }) => {
   const { t } = useTranslation();
   const [currentStep, setCurrentStep] = useState(0);
   const [tooltipPosition, setTooltipPosition] = useState<TooltipStyle>({ top: 0, left: 0 });
@@ -276,19 +308,14 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
           border: '1px solid var(--sf-accent, #E8A838)',
           color: 'var(--vscode-editor-foreground, #d4d4d4)',
           animation: 'fadeIn 0.3s ease-out',
-          transform: position === 'top' || position === 'bottom' ? 'translateX(-50%)' : 'translateY(-50%)',
+          transform:
+            position === 'top' || position === 'bottom' ? 'translateX(-50%)' : 'translateY(-50%)',
         }}
       >
-        <h3
-          className="text-sm font-semibold mb-1"
-          style={{ color: 'var(--sf-accent, #E8A838)' }}
-        >
+        <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--sf-accent, #E8A838)' }}>
           {t(step.titleKey)}
         </h3>
-        <p
-          className="text-xs mb-3"
-          style={{ color: 'var(--sf-text-secondary, #868686)' }}
-        >
+        <p className="text-xs mb-3" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
           {t(step.descriptionKey)}
         </p>
 
@@ -307,12 +334,7 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
         {/* Navigation buttons */}
         <div className="flex items-center gap-2">
           {currentStep > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handlePrevious}
-              data-testid="tour-previous"
-            >
+            <Button variant="ghost" size="sm" onClick={handlePrevious} data-testid="tour-previous">
               {t('guidedTour.previous')}
             </Button>
           )}
@@ -324,12 +346,7 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({
           >
             {isLastStep ? t('guidedTour.finish') : t('guidedTour.next')}
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleSkip}
-            data-testid="tour-skip"
-          >
+          <Button variant="ghost" size="sm" onClick={handleSkip} data-testid="tour-skip">
             {t('guidedTour.skip')}
           </Button>
         </div>

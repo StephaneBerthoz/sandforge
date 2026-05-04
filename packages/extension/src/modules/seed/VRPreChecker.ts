@@ -26,10 +26,7 @@ export class VRPreChecker {
    * Check all validation rules for a list of objects.
    * Returns a list of potential conflicts with risk assessments.
    */
-  async checkAll(
-    conn: VRConnection,
-    objectNames: string[],
-  ): Promise<VRCheckResult[]> {
+  async checkAll(conn: VRConnection, objectNames: string[]): Promise<VRCheckResult[]> {
     const results: VRCheckResult[] = [];
     for (const objectName of objectNames) {
       const objectResults = await this.checkObject(conn, objectName);
@@ -41,10 +38,7 @@ export class VRPreChecker {
   /**
    * Check validation rules for a single object.
    */
-  async checkObject(
-    conn: VRConnection,
-    objectName: string,
-  ): Promise<VRCheckResult[]> {
+  async checkObject(conn: VRConnection, objectName: string): Promise<VRCheckResult[]> {
     let rules: ValidationRuleInfo[];
     try {
       rules = await conn.queryValidationRules(objectName);
@@ -84,14 +78,50 @@ export class VRPreChecker {
     const fields = new Set<string>();
 
     const functionNames = new Set([
-      'ISBLANK', 'ISNULL', 'NOT', 'AND', 'OR', 'IF', 'CASE',
-      'LEN', 'TEXT', 'VALUE', 'BEGINS', 'CONTAINS', 'INCLUDES',
-      'ISPICKVAL', 'PRIORVALUE', 'ISCHANGED', 'ISNEW',
-      'TODAY', 'NOW', 'YEAR', 'MONTH', 'DAY',
-      'TRUE', 'FALSE', 'NULL', 'BLANKVALUE', 'NULLVALUE',
-      'LEFT', 'RIGHT', 'MID', 'TRIM', 'LOWER', 'UPPER',
-      'REGEX', 'ROUND', 'CEILING', 'FLOOR', 'ABS', 'MAX', 'MIN',
-      'BR', 'HYPERLINK', 'IMAGE', 'SUBSTITUTE',
+      'ISBLANK',
+      'ISNULL',
+      'NOT',
+      'AND',
+      'OR',
+      'IF',
+      'CASE',
+      'LEN',
+      'TEXT',
+      'VALUE',
+      'BEGINS',
+      'CONTAINS',
+      'INCLUDES',
+      'ISPICKVAL',
+      'PRIORVALUE',
+      'ISCHANGED',
+      'ISNEW',
+      'TODAY',
+      'NOW',
+      'YEAR',
+      'MONTH',
+      'DAY',
+      'TRUE',
+      'FALSE',
+      'NULL',
+      'BLANKVALUE',
+      'NULLVALUE',
+      'LEFT',
+      'RIGHT',
+      'MID',
+      'TRIM',
+      'LOWER',
+      'UPPER',
+      'REGEX',
+      'ROUND',
+      'CEILING',
+      'FLOOR',
+      'ABS',
+      'MAX',
+      'MIN',
+      'BR',
+      'HYPERLINK',
+      'IMAGE',
+      'SUBSTITUTE',
     ]);
 
     const fieldPattern = /\b([A-Z][A-Za-z0-9_]*(?:__[a-z])?)\b/g;
@@ -128,7 +158,8 @@ export class VRPreChecker {
     }
 
     // ISPICKVAL(FieldName, 'Value') or ISPICKVAL(FieldName, "Value") -> picklist_value
-    const ispickvalPattern = /ISPICKVAL\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*,\s*["']([^"']*)["']\s*\)/gi;
+    const ispickvalPattern =
+      /ISPICKVAL\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*,\s*["']([^"']*)["']\s*\)/gi;
     while ((match = ispickvalPattern.exec(formula)) !== null) {
       constraints.push({
         fieldName: match[1],
@@ -158,7 +189,8 @@ export class VRPreChecker {
     }
 
     // REGEX(FieldName, 'pattern') or REGEX(FieldName, "pattern") -> regex
-    const regexPatternRe = /REGEX\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*,\s*["']([^"']*)["']\s*\)/gi;
+    const regexPatternRe =
+      /REGEX\s*\(\s*([A-Za-z][A-Za-z0-9_]*(?:__[a-z])?)\s*,\s*["']([^"']*)["']\s*\)/gi;
     while ((match = regexPatternRe.exec(formula)) !== null) {
       constraints.push({
         fieldName: match[1],
@@ -187,10 +219,7 @@ export class VRPreChecker {
   /**
    * Assess risk level based on formula complexity and patterns.
    */
-  private assessRisk(
-    formula: string,
-    fields: string[],
-  ): 'low' | 'medium' | 'high' {
+  private assessRisk(formula: string, fields: string[]): 'low' | 'medium' | 'high' {
     let score = 0;
 
     if (/ISBLANK|ISNULL/i.test(formula)) {

@@ -77,7 +77,7 @@ describe('UniversalImporter', () => {
       });
 
       const companyMapping = result.objects[0].fieldMappings.find(
-        (m) => m.sourceField === 'company'
+        (m) => m.sourceField === 'company',
       );
       expect(companyMapping?.targetField).toBe('AccountName__c');
     });
@@ -90,9 +90,7 @@ describe('UniversalImporter', () => {
         excludeColumns: ['phone'],
       });
 
-      const phoneMapping = result.objects[0].fieldMappings.find(
-        (m) => m.sourceField === 'phone'
-      );
+      const phoneMapping = result.objects[0].fieldMappings.find((m) => m.sourceField === 'phone');
       expect(phoneMapping).toBeUndefined();
     });
 
@@ -134,18 +132,14 @@ describe('UniversalImporter', () => {
       const reader = createMockFileReader('');
       const importer = new UniversalImporter(reader);
 
-      await expect(importer.import('/data/empty.csv')).rejects.toThrow(
-        'No records found'
-      );
+      await expect(importer.import('/data/empty.csv')).rejects.toThrow('No records found');
     });
 
     it('should throw on header-only CSV', async () => {
       const reader = createMockFileReader('Name,Email');
       const importer = new UniversalImporter(reader);
 
-      await expect(importer.import('/data/empty.csv')).rejects.toThrow(
-        'No records found'
-      );
+      await expect(importer.import('/data/empty.csv')).rejects.toThrow('No records found');
     });
   });
 
@@ -179,7 +173,7 @@ describe('UniversalImporter', () => {
       const result = await importer.import('/data/contacts.json');
 
       const firstNameMapping = result.objects[0].fieldMappings.find(
-        (m) => m.sourceField === 'FirstName'
+        (m) => m.sourceField === 'FirstName',
       );
       expect(firstNameMapping?.targetField).toBe('FirstName');
       expect(firstNameMapping?.type).toBe('direct');
@@ -196,18 +190,14 @@ describe('UniversalImporter', () => {
       const reader = createMockFileReader('[]');
       const importer = new UniversalImporter(reader);
 
-      await expect(importer.import('/data/empty.json')).rejects.toThrow(
-        'No records found'
-      );
+      await expect(importer.import('/data/empty.json')).rejects.toThrow('No records found');
     });
 
     it('should throw on non-object array elements', async () => {
       const reader = createMockFileReader('[1, 2, 3]');
       const importer = new UniversalImporter(reader);
 
-      await expect(importer.import('/data/bad.json')).rejects.toThrow(
-        'not an object'
-      );
+      await expect(importer.import('/data/bad.json')).rejects.toThrow('not an object');
     });
   });
 
@@ -288,10 +278,7 @@ describe('UniversalImporter', () => {
       const reader = createMockFileReader('');
       const importer = new UniversalImporter(reader);
 
-      const records = [
-        { AccountId: '001000000000001AAA' },
-        { AccountId: '001000000000002AAA' },
-      ];
+      const records = [{ AccountId: '001000000000001AAA' }, { AccountId: '001000000000002AAA' }];
 
       const columns = importer.detectColumns(records);
       expect(columns[0].inferredType).toBe('id');

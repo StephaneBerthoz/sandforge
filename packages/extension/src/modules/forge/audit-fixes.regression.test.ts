@@ -41,7 +41,7 @@ describe('Audit RT-001 — forgeConfigSchema rejects malicious recordId', () => 
     expect(r.success).toBe(true);
   });
 
-  it("rejects an injection payload with a quote", () => {
+  it('rejects an injection payload with a quote', () => {
     const r = forgeConfigSchema.safeParse({ ...baseConfig, recordId: "001' OR Id != null" });
     expect(r.success).toBe(false);
   });
@@ -56,7 +56,9 @@ describe('Audit RT-001 — forgeConfigSchema rejects malicious recordId', () => 
 
   it('rejects strings of wrong length', () => {
     expect(forgeConfigSchema.safeParse({ ...baseConfig, recordId: '001ABC' }).success).toBe(false);
-    expect(forgeConfigSchema.safeParse({ ...baseConfig, recordId: 'a'.repeat(50) }).success).toBe(false);
+    expect(forgeConfigSchema.safeParse({ ...baseConfig, recordId: 'a'.repeat(50) }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -100,11 +102,15 @@ describe('Audit RT-002 — forgeGraphNodeSchema rejects malicious objectApiName'
   });
 
   it('rejects names starting with a digit', () => {
-    expect(forgeGraphNodeSchema.safeParse({ ...validNode, objectApiName: '1Account' }).success).toBe(false);
+    expect(
+      forgeGraphNodeSchema.safeParse({ ...validNode, objectApiName: '1Account' }).success,
+    ).toBe(false);
   });
 
   it('rejects names with a semicolon (DROP attempt)', () => {
-    expect(forgeGraphNodeSchema.safeParse({ ...validNode, objectApiName: 'Account; DROP' }).success).toBe(false);
+    expect(
+      forgeGraphNodeSchema.safeParse({ ...validNode, objectApiName: 'Account; DROP' }).success,
+    ).toBe(false);
   });
 
   it('rejects edge with a malformed sourceObject', () => {
@@ -124,9 +130,21 @@ describe('Audit RT-003 — forgeGraphSchema enforces bounds, Tarjan stack-safe',
   it('rejects > 2000 nodes', () => {
     const node = {
       objectApiName: 'A',
-      recordCount: 0, fieldCount: 0, status: 'idle' as const, progress: 0, included: true,
-      piiFields: [], anonymizeFields: [], level: 0, successCount: 0, failureCount: 0, errors: [],
-      createableFieldCount: 0, estimatedSizeMB: 0, estimatedApiCalls: 0, batchStrategy: 'auto' as const,
+      recordCount: 0,
+      fieldCount: 0,
+      status: 'idle' as const,
+      progress: 0,
+      included: true,
+      piiFields: [],
+      anonymizeFields: [],
+      level: 0,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: 0,
+      estimatedSizeMB: 0,
+      estimatedApiCalls: 0,
+      batchStrategy: 'auto' as const,
     };
     const big = {
       nodes: Array.from({ length: 2001 }, (_, i) => ({ ...node, objectApiName: `A${i}` })),
@@ -145,18 +163,34 @@ describe('Audit RT-003 — forgeGraphSchema enforces bounds, Tarjan stack-safe',
     const N = 5000;
     const nodes = Array.from({ length: N }, (_, i) => ({
       objectApiName: `A${i}`,
-      recordCount: 0, fieldCount: 0, status: 'idle' as const, progress: 0, included: true,
-      piiFields: [], anonymizeFields: [], level: 0, successCount: 0, failureCount: 0, errors: [],
-      createableFieldCount: 0, estimatedSizeMB: 0, estimatedApiCalls: 0, batchStrategy: 'auto' as const,
+      recordCount: 0,
+      fieldCount: 0,
+      status: 'idle' as const,
+      progress: 0,
+      included: true,
+      piiFields: [],
+      anonymizeFields: [],
+      level: 0,
+      successCount: 0,
+      failureCount: 0,
+      errors: [],
+      createableFieldCount: 0,
+      estimatedSizeMB: 0,
+      estimatedApiCalls: 0,
+      batchStrategy: 'auto' as const,
     }));
     const edges = Array.from({ length: N - 1 }, (_, i) => ({
-      sourceObject: `A${i}`, targetObject: `A${i + 1}`,
-      relationshipName: 'r', type: 'lookup' as const,
+      sourceObject: `A${i}`,
+      targetObject: `A${i + 1}`,
+      relationshipName: 'r',
+      type: 'lookup' as const,
     }));
     const graph: ForgeGraph = {
       nodes,
       edges,
-      totalRecords: 0, estimatedSizeMB: 0, estimatedDurationSeconds: 0,
+      totalRecords: 0,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
     };
     const planner = new ForgePlanGenerator();
     // Should not throw RangeError
@@ -167,23 +201,49 @@ describe('Audit RT-003 — forgeGraphSchema enforces bounds, Tarjan stack-safe',
     const graph: ForgeGraph = {
       nodes: [
         {
-          objectApiName: 'A', recordCount: 0, fieldCount: 0, status: 'idle', progress: 0,
-          included: true, piiFields: [], anonymizeFields: [], level: 0, successCount: 0,
-          failureCount: 0, errors: [], createableFieldCount: 0, estimatedSizeMB: 0,
-          estimatedApiCalls: 0, batchStrategy: 'auto',
+          objectApiName: 'A',
+          recordCount: 0,
+          fieldCount: 0,
+          status: 'idle',
+          progress: 0,
+          included: true,
+          piiFields: [],
+          anonymizeFields: [],
+          level: 0,
+          successCount: 0,
+          failureCount: 0,
+          errors: [],
+          createableFieldCount: 0,
+          estimatedSizeMB: 0,
+          estimatedApiCalls: 0,
+          batchStrategy: 'auto',
         },
         {
-          objectApiName: 'B', recordCount: 0, fieldCount: 0, status: 'idle', progress: 0,
-          included: true, piiFields: [], anonymizeFields: [], level: 0, successCount: 0,
-          failureCount: 0, errors: [], createableFieldCount: 0, estimatedSizeMB: 0,
-          estimatedApiCalls: 0, batchStrategy: 'auto',
+          objectApiName: 'B',
+          recordCount: 0,
+          fieldCount: 0,
+          status: 'idle',
+          progress: 0,
+          included: true,
+          piiFields: [],
+          anonymizeFields: [],
+          level: 0,
+          successCount: 0,
+          failureCount: 0,
+          errors: [],
+          createableFieldCount: 0,
+          estimatedSizeMB: 0,
+          estimatedApiCalls: 0,
+          batchStrategy: 'auto',
         },
       ],
       edges: [
         { sourceObject: 'A', targetObject: 'B', relationshipName: 'r', type: 'lookup' },
         { sourceObject: 'B', targetObject: 'A', relationshipName: 'r', type: 'lookup' },
       ],
-      totalRecords: 0, estimatedSizeMB: 0, estimatedDurationSeconds: 0,
+      totalRecords: 0,
+      estimatedSizeMB: 0,
+      estimatedDurationSeconds: 0,
     };
     const planner = new ForgePlanGenerator();
     const plan = planner.generate(graph);
@@ -197,8 +257,13 @@ describe('Audit RT-003 — forgeGraphSchema enforces bounds, Tarjan stack-safe',
 describe('Audit RT-004 — discoveryCache key separates by all material params', () => {
   function makeOrchestrator(): ForgeOrchestrator {
     return new ForgeOrchestrator({
-      discoveryService: { discover: async () => ({} as ForgeGraph) } as never,
-      executor: { execute: async () => ({}) as never, abort: () => {}, pause: () => {}, resume: () => {} } as never,
+      discoveryService: { discover: async () => ({}) as ForgeGraph } as never,
+      executor: {
+        execute: async () => ({}) as never,
+        abort: () => {},
+        pause: () => {},
+        resume: () => {},
+      } as never,
     });
   }
 
@@ -252,7 +317,11 @@ describe('Audit RT-004 — discoveryCache key separates by all material params',
   it('identical configs produce the same cache key (cache hit)', () => {
     const orch = makeOrchestrator();
     type WithKey = ForgeOrchestrator & { cacheKeyFor: (c: ForgeConfig) => string };
-    const c = makeConfig({ anonymizePII: true, expandOrphanParents: true, maxRecordsPerObject: 50 });
+    const c = makeConfig({
+      anonymizePII: true,
+      expandOrphanParents: true,
+      maxRecordsPerObject: 50,
+    });
     expect((orch as WithKey).cacheKeyFor(c)).toBe((orch as WithKey).cacheKeyFor({ ...c }));
   });
 });
@@ -364,14 +433,18 @@ describe('v1.2.5 — forgeConfigSchema accepts objectSoqlFilters', () => {
   });
 
   it('rejects objectSoqlFilters with comment markers', () => {
-    expect(forgeConfigSchema.safeParse({
-      ...baseConfig,
-      objectSoqlFilters: { Case: "Status = 'Open' -- malicious" },
-    }).success).toBe(false);
-    expect(forgeConfigSchema.safeParse({
-      ...baseConfig,
-      objectSoqlFilters: { Case: "Status = 'Open' /* bad */" },
-    }).success).toBe(false);
+    expect(
+      forgeConfigSchema.safeParse({
+        ...baseConfig,
+        objectSoqlFilters: { Case: "Status = 'Open' -- malicious" },
+      }).success,
+    ).toBe(false);
+    expect(
+      forgeConfigSchema.safeParse({
+        ...baseConfig,
+        objectSoqlFilters: { Case: "Status = 'Open' /* bad */" },
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects objectSoqlFilters with trailing semicolon (statement chain)', () => {
@@ -457,7 +530,10 @@ describe('Audit PERF-002 — SchemaCache estimateSize is O(1)', () => {
     // Track JSON.stringify calls. If the heuristic regresses to
     // `JSON.stringify(value).length * 2`, this test will see the spy fire.
     const spy = vi.spyOn(JSON, 'stringify');
-    const cache = new SchemaCache<{ fields: Array<{ name: string }>; childRelationships: unknown[] }>({
+    const cache = new SchemaCache<{
+      fields: Array<{ name: string }>;
+      childRelationships: unknown[];
+    }>({
       defaultTtl: 60_000,
       maxSize: 10,
       maxSizeBytes: 100_000_000,
@@ -499,4 +575,3 @@ describe('Audit PERF-002 — SchemaCache estimateSize is O(1)', () => {
     expect(cache.get('B')).toBeDefined();
   });
 });
-

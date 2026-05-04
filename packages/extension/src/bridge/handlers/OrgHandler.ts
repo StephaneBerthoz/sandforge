@@ -5,11 +5,7 @@ import { buildResponse, sendNotification } from './HandlerTypes.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Message types handled by OrgHandler. */
-const ORG_TYPES = new Set([
-  'org:list',
-  'org:connect',
-  'org:disconnect',
-]);
+const ORG_TYPES = new Set(['org:list', 'org:connect', 'org:disconnect']);
 
 /**
  * Domain handler for org-related webview-to-extension messages.
@@ -70,7 +66,12 @@ export class OrgHandler implements DomainHandler {
         await this.handleOAuthWeb(payload);
         break;
       default:
-        sendNotification(this.deps, 'warning', 'Auth Method', `${payload.authMethod} is not yet supported.`);
+        sendNotification(
+          this.deps,
+          'warning',
+          'Auth Method',
+          `${payload.authMethod} is not yet supported.`,
+        );
         break;
     }
 
@@ -81,13 +82,23 @@ export class OrgHandler implements DomainHandler {
     try {
       const available = await this.deps.sfdxBridge.isCliAvailable();
       if (!available) {
-        sendNotification(this.deps, 'error', 'SF CLI', 'Salesforce CLI (sf) not found on PATH. Install it from https://developer.salesforce.com/tools/salesforcecli');
+        sendNotification(
+          this.deps,
+          'error',
+          'SF CLI',
+          'Salesforce CLI (sf) not found on PATH. Install it from https://developer.salesforce.com/tools/salesforcecli',
+        );
         return;
       }
 
       const results = await this.deps.sfdxBridge.listOrgs();
       if (results.length === 0) {
-        sendNotification(this.deps, 'warning', 'Import', 'No connected orgs found in SF CLI. Run "sf org login web" first.');
+        sendNotification(
+          this.deps,
+          'warning',
+          'Import',
+          'No connected orgs found in SF CLI. Run "sf org login web" first.',
+        );
         return;
       }
 
@@ -102,7 +113,12 @@ export class OrgHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
 
-      sendNotification(this.deps, 'success', 'Import', `Imported ${results.length} org(s) from SF CLI.`);
+      sendNotification(
+        this.deps,
+        'success',
+        'Import',
+        `Imported ${results.length} org(s) from SF CLI.`,
+      );
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:sfdx-import: ${message}`);
@@ -110,7 +126,10 @@ export class OrgHandler implements DomainHandler {
     }
   }
 
-  private async handleUsernamePassword(msg: BaseMessage, payload: OrgConnectRequest['payload']): Promise<void> {
+  private async handleUsernamePassword(
+    msg: BaseMessage,
+    payload: OrgConnectRequest['payload'],
+  ): Promise<void> {
     if (!payload.username || !payload.password) {
       sendNotification(this.deps, 'error', 'Auth', 'Username and password are required.');
       return;
@@ -137,7 +156,12 @@ export class OrgHandler implements DomainHandler {
     });
 
     if (!authResult.success || !authResult.accessToken || !authResult.instanceUrl) {
-      sendNotification(this.deps, 'error', 'Auth Failed', authResult.error ?? 'Authentication failed');
+      sendNotification(
+        this.deps,
+        'error',
+        'Auth Failed',
+        authResult.error ?? 'Authentication failed',
+      );
       return;
     }
 
@@ -156,7 +180,11 @@ export class OrgHandler implements DomainHandler {
         orgType: identity.isSandbox ? 'Sandbox' : 'Production',
         authMethod: 'usernamePassword',
         safetyTier: identity.isSandbox ? OrgSafetyTier.LOW : OrgSafetyTier.CRITICAL,
-        appearance: { color: identity.isSandbox ? '#4a9eff' : '#e74c3c', icon: 'cloud', position: 0 },
+        appearance: {
+          color: identity.isSandbox ? '#4a9eff' : '#e74c3c',
+          icon: 'cloud',
+          position: 0,
+        },
         metadata: {
           apiVersion: '62.0',
           edition: identity.orgType,
@@ -181,16 +209,27 @@ export class OrgHandler implements DomainHandler {
       await this.deps.orgRegistry.saveOrg(org, connectionConfig);
 
       const statusMsg = buildResponse(this.deps, msg, 'org:statusChanged', {
-        orgId: org.id, status: 'connected',
+        orgId: org.id,
+        status: 'connected',
       });
       this.deps.broker.postToWebview(statusMsg);
       this.deps.log(`[TX] ${statusMsg.type} id=${statusMsg.id}`);
 
-      sendNotification(this.deps, 'success', 'Connected', `${org.alias} connected (${identity.orgName}).`);
+      sendNotification(
+        this.deps,
+        'success',
+        'Connected',
+        `${org.alias} connected (${identity.orgName}).`,
+      );
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:username-password: ${message}`);
-      sendNotification(this.deps, 'error', 'Validation Failed', `Auth succeeded but org validation failed: ${message}`);
+      sendNotification(
+        this.deps,
+        'error',
+        'Validation Failed',
+        `Auth succeeded but org validation failed: ${message}`,
+      );
     }
   }
 
@@ -198,7 +237,12 @@ export class OrgHandler implements DomainHandler {
     try {
       const available = await this.deps.sfdxBridge.isCliAvailable();
       if (!available) {
-        sendNotification(this.deps, 'error', 'SF CLI', 'Salesforce CLI (sf) not found on PATH. Required for OAuth web login.');
+        sendNotification(
+          this.deps,
+          'error',
+          'SF CLI',
+          'Salesforce CLI (sf) not found on PATH. Required for OAuth web login.',
+        );
         return;
       }
 
@@ -208,7 +252,12 @@ export class OrgHandler implements DomainHandler {
 
       const results = await this.deps.sfdxBridge.listOrgs();
       if (results.length === 0) {
-        sendNotification(this.deps, 'warning', 'OAuth', 'Login completed but no org found. Try again.');
+        sendNotification(
+          this.deps,
+          'warning',
+          'OAuth',
+          'Login completed but no org found. Try again.',
+        );
         return;
       }
 
@@ -216,7 +265,12 @@ export class OrgHandler implements DomainHandler {
         await this.deps.orgRegistry.saveOrg(org, credentials);
       }
 
-      sendNotification(this.deps, 'success', 'OAuth', `Authenticated via browser. ${results.length} org(s) available.`);
+      sendNotification(
+        this.deps,
+        'success',
+        'OAuth',
+        `Authenticated via browser. ${results.length} org(s) available.`,
+      );
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:oauth-web: ${message}`);
@@ -231,7 +285,8 @@ export class OrgHandler implements DomainHandler {
     await this.deps.orgRegistry.removeOrg(payload.orgId);
 
     const statusMsg = buildResponse(this.deps, msg, 'org:statusChanged', {
-      orgId: payload.orgId, status: 'disconnected',
+      orgId: payload.orgId,
+      status: 'disconnected',
     });
     this.deps.broker.postToWebview(statusMsg);
     this.deps.log(`[TX] ${statusMsg.type} id=${statusMsg.id}`);

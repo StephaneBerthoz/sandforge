@@ -38,10 +38,7 @@ function getTrendDirection(sparkline: number[]): string {
  * @param trends - Optional trend data keyed by limit name.
  * @returns CSV content string.
  */
-export function generateLimitsCsv(
-  limits: ApiLimit[],
-  trends?: Record<string, TrendData>,
-): string {
+export function generateLimitsCsv(limits: ApiLimit[], trends?: Record<string, TrendData>): string {
   const header = 'Limit Name,Max,Remaining,Used %,Trend Direction';
   const rows = limits.map((l) => {
     const trend = trends?.[l.name];

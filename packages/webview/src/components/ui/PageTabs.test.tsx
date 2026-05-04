@@ -86,9 +86,7 @@ describe('PageTabs', () => {
   });
 
   it('should not render badge when badge is 0', () => {
-    const tabsWithZero: PageTab[] = [
-      { id: 'test', label: 'Test', badge: 0 },
-    ];
+    const tabsWithZero: PageTab[] = [{ id: 'test', label: 'Test', badge: 0 }];
     render(<PageTabs tabs={tabsWithZero} activeTab="test" onTabChange={vi.fn()} />);
     expect(screen.queryByTestId('page-tab-badge-test')).toBeNull();
   });
@@ -106,14 +104,7 @@ describe('PageTabs', () => {
 
   /* --- className merging --- */
   it('should merge custom className on root element', () => {
-    render(
-      <PageTabs
-        tabs={tabs}
-        activeTab="overview"
-        onTabChange={vi.fn()}
-        className="mt-6"
-      />,
-    );
+    render(<PageTabs tabs={tabs} activeTab="overview" onTabChange={vi.fn()} className="mt-6" />);
     expect(screen.getByTestId('page-tabs').className).toContain('mt-6');
   });
 

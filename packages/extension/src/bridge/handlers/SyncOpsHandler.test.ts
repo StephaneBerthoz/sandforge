@@ -145,10 +145,21 @@ describe('SyncOpsHandler', () => {
       const mockStart = vi.fn();
 
       deps.infraServices = {
-        performanceTracker: { start: mockStart, complete: mockComplete } as unknown as HandlerDeps['infraServices'] extends undefined ? never : NonNullable<HandlerDeps['infraServices']>['performanceTracker'],
-        productionGuard: undefined as unknown as NonNullable<HandlerDeps['infraServices']>['productionGuard'],
-        offlineManager: undefined as unknown as NonNullable<HandlerDeps['infraServices']>['offlineManager'],
-        piiDetector: undefined as unknown as NonNullable<HandlerDeps['infraServices']>['piiDetector'],
+        performanceTracker: {
+          start: mockStart,
+          complete: mockComplete,
+        } as unknown as HandlerDeps['infraServices'] extends undefined
+          ? never
+          : NonNullable<HandlerDeps['infraServices']>['performanceTracker'],
+        productionGuard: undefined as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['productionGuard'],
+        offlineManager: undefined as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['offlineManager'],
+        piiDetector: undefined as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['piiDetector'],
       };
 
       mockGetConn.mockRejectedValue(new Error('connection failed'));
@@ -181,10 +192,18 @@ describe('SyncOpsHandler', () => {
       const mockStart = vi.fn();
 
       deps.infraServices = {
-        performanceTracker: { start: mockStart, complete: mockComplete } as unknown as NonNullable<HandlerDeps['infraServices']>['performanceTracker'],
-        productionGuard: undefined as unknown as NonNullable<HandlerDeps['infraServices']>['productionGuard'],
-        offlineManager: undefined as unknown as NonNullable<HandlerDeps['infraServices']>['offlineManager'],
-        piiDetector: undefined as unknown as NonNullable<HandlerDeps['infraServices']>['piiDetector'],
+        performanceTracker: { start: mockStart, complete: mockComplete } as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['performanceTracker'],
+        productionGuard: undefined as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['productionGuard'],
+        offlineManager: undefined as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['offlineManager'],
+        piiDetector: undefined as unknown as NonNullable<
+          HandlerDeps['infraServices']
+        >['piiDetector'],
       };
 
       mockGetConn.mockResolvedValue({
@@ -222,9 +241,7 @@ describe('SyncOpsHandler', () => {
   describe('robustness integration', () => {
     it('wraps describe-global with TimeoutManager', async () => {
       const describeGlobalFn = vi.fn().mockResolvedValue({
-        sobjects: [
-          { name: 'Account', label: 'Account', createable: true, queryable: true },
-        ],
+        sobjects: [{ name: 'Account', label: 'Account', createable: true, queryable: true }],
       });
       mockGetConn.mockResolvedValue({
         describeGlobal: describeGlobalFn,
@@ -244,7 +261,9 @@ describe('SyncOpsHandler', () => {
       expect(describeGlobalFn).toHaveBeenCalledTimes(1);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { objects: string[] } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { objects: string[] };
+      };
       expect(response.type).toBe('sync:describe-global:response');
       expect(response.payload.objects).toContain('Account');
     });
@@ -263,7 +282,9 @@ describe('SyncOpsHandler', () => {
         return { describe: targetDescribeFn, limitInfo: undefined } as never;
       });
 
-      const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; objectApiName: string } } = {
+      const msg: BaseMessage & {
+        payload: { sourceOrgId: string; targetOrgId: string; objectApiName: string };
+      } = {
         id: 'req-fields-timeout',
         type: 'sync:describe-fields',
         timestamp: Date.now(),
@@ -343,7 +364,10 @@ describe('SyncOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; id: string } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean; id: string };
+      };
       expect(response.type).toBe('sync:config:save:response');
       expect(response.correlationId).toBe('req-save');
       expect(response.payload.success).toBe(true);
@@ -386,7 +410,9 @@ describe('SyncOpsHandler', () => {
       const result = await handler.handle(msg);
       expect(result).toBe(true);
 
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { configs: Array<{ id: string; name: string }> } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { configs: Array<{ id: string; name: string }> };
+      };
       expect(response.type).toBe('sync:config:list:response');
       expect(response.payload.configs).toHaveLength(1);
       expect(response.payload.configs[0].id).toBe('cfg-list');
@@ -405,7 +431,9 @@ describe('SyncOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { config: unknown } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { config: unknown };
+      };
       expect(response.type).toBe('sync:config:load:response');
       expect(response.payload.config).toBeNull();
     });
@@ -422,7 +450,9 @@ describe('SyncOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { success: boolean } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { success: boolean };
+      };
       expect(response.type).toBe('sync:config:delete:response');
       expect(response.payload.success).toBe(false);
     });

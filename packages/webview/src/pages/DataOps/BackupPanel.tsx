@@ -81,7 +81,9 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
             />
             <CardBody>
               <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                <span>{t('dataops.backupSize')}: {formatFileSize(backup.totalSize)}</span>
+                <span>
+                  {t('dataops.backupSize')}: {formatFileSize(backup.totalSize)}
+                </span>
                 <span>{backup.duration}ms</span>
                 <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
               </div>

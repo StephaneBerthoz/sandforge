@@ -58,7 +58,10 @@ describe('CDCMetricsDashboard', () => {
   });
 
   it('should display correct evt/s throughput value', () => {
-    useCDCMetricsStore.setState({ metrics: fakeMetrics({ eventsPerMinute: 300 }), metricsHistory: [] });
+    useCDCMetricsStore.setState({
+      metrics: fakeMetrics({ eventsPerMinute: 300 }),
+      metricsHistory: [],
+    });
 
     render(<CDCMetricsDashboard />);
 
@@ -68,7 +71,10 @@ describe('CDCMetricsDashboard', () => {
   });
 
   it('should apply green color for lag under 500ms', () => {
-    useCDCMetricsStore.setState({ metrics: fakeMetrics({ currentLagMs: 100 }), metricsHistory: [] });
+    useCDCMetricsStore.setState({
+      metrics: fakeMetrics({ currentLagMs: 100 }),
+      metricsHistory: [],
+    });
 
     render(<CDCMetricsDashboard />);
 
@@ -78,7 +84,10 @@ describe('CDCMetricsDashboard', () => {
   });
 
   it('should apply yellow color for lag between 500-2000ms', () => {
-    useCDCMetricsStore.setState({ metrics: fakeMetrics({ currentLagMs: 1000 }), metricsHistory: [] });
+    useCDCMetricsStore.setState({
+      metrics: fakeMetrics({ currentLagMs: 1000 }),
+      metricsHistory: [],
+    });
 
     render(<CDCMetricsDashboard />);
 
@@ -88,7 +97,10 @@ describe('CDCMetricsDashboard', () => {
   });
 
   it('should apply red color for lag over 2000ms', () => {
-    useCDCMetricsStore.setState({ metrics: fakeMetrics({ currentLagMs: 3000 }), metricsHistory: [] });
+    useCDCMetricsStore.setState({
+      metrics: fakeMetrics({ currentLagMs: 3000 }),
+      metricsHistory: [],
+    });
 
     render(<CDCMetricsDashboard />);
 

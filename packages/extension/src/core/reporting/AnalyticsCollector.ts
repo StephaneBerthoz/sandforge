@@ -1,7 +1,4 @@
-import type {
-  AnalyticsDataPoint,
-  AnalyticsTimeSeries,
-} from '@sandforge/shared';
+import type { AnalyticsDataPoint, AnalyticsTimeSeries } from '@sandforge/shared';
 
 /** Summary of all collected analytics data */
 export interface AnalyticsSummary {
@@ -22,11 +19,7 @@ export class AnalyticsCollector {
    * @param value - The numeric value
    * @param dimensions - Optional key-value dimensions for grouping
    */
-  recordMetric(
-    metric: string,
-    value: number,
-    dimensions?: Record<string, string>
-  ): void {
+  recordMetric(metric: string, value: number, dimensions?: Record<string, string>): void {
     const point: AnalyticsDataPoint = {
       metric,
       value,
@@ -47,7 +40,7 @@ export class AnalyticsCollector {
   getTimeSeries(
     metric: string,
     interval: AnalyticsTimeSeries['interval'],
-    aggregation: AnalyticsTimeSeries['aggregation']
+    aggregation: AnalyticsTimeSeries['aggregation'],
   ): AnalyticsTimeSeries {
     const filtered = this.dataPoints.filter((p) => p.metric === metric);
     const buckets = this.groupByInterval(filtered, interval);
@@ -56,7 +49,7 @@ export class AnalyticsCollector {
     for (const [bucketKey, bucketPoints] of buckets.entries()) {
       const aggregatedValue = this.aggregate(
         bucketPoints.map((p) => p.value),
-        aggregation
+        aggregation,
       );
       points.push({
         metric,
@@ -100,7 +93,7 @@ export class AnalyticsCollector {
 
   private groupByInterval(
     points: AnalyticsDataPoint[],
-    interval: AnalyticsTimeSeries['interval']
+    interval: AnalyticsTimeSeries['interval'],
   ): Map<string, AnalyticsDataPoint[]> {
     const buckets = new Map<string, AnalyticsDataPoint[]>();
 
@@ -117,10 +110,7 @@ export class AnalyticsCollector {
     return buckets;
   }
 
-  private getBucketKey(
-    timestamp: string,
-    interval: AnalyticsTimeSeries['interval']
-  ): string {
+  private getBucketKey(timestamp: string, interval: AnalyticsTimeSeries['interval']): string {
     const date = new Date(timestamp);
 
     switch (interval) {
@@ -146,10 +136,7 @@ export class AnalyticsCollector {
     }
   }
 
-  private aggregate(
-    values: number[],
-    aggregation: AnalyticsTimeSeries['aggregation']
-  ): number {
+  private aggregate(values: number[], aggregation: AnalyticsTimeSeries['aggregation']): number {
     if (values.length === 0) {
       return 0;
     }

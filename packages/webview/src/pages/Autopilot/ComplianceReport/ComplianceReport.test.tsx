@@ -12,7 +12,8 @@ vi.mock('../../../stores/useAutopilotStore', () => {
   };
 
   return {
-    useAutopilotStore: (selector: (state: typeof defaultState) => unknown) => selector(defaultState),
+    useAutopilotStore: (selector: (state: typeof defaultState) => unknown) =>
+      selector(defaultState),
   };
 });
 

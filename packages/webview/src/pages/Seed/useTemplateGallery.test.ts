@@ -11,7 +11,17 @@ const mockMutate = vi.fn();
 const mockReset = vi.fn();
 
 let mockQueryState = {
-  data: null as { templates: Array<{ id: string; name: string; description: string; tags: string[]; updatedAt: string; objectCount: number; totalRecords: number }> } | null,
+  data: null as {
+    templates: Array<{
+      id: string;
+      name: string;
+      description: string;
+      tags: string[];
+      updatedAt: string;
+      objectCount: number;
+      totalRecords: number;
+    }>;
+  } | null,
   loading: false,
   error: null as string | null,
   refetch: mockRefetch,
@@ -99,7 +109,9 @@ describe('useTemplateGallery', () => {
     expect(salesCloud?.objectCount).toBe(7);
     expect(salesCloud?.totalRecords).toBe(7601);
 
-    const serviceCloud = result.current.items.find((i) => i.id === 'prebuilt-service-cloud-starter');
+    const serviceCloud = result.current.items.find(
+      (i) => i.id === 'prebuilt-service-cloud-starter',
+    );
     expect(serviceCloud).toBeDefined();
     expect(serviceCloud?.objectCount).toBe(5);
     expect(serviceCloud?.totalRecords).toBe(3800);

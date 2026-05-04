@@ -127,8 +127,12 @@ vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
     (selector: (state: Record<string, unknown>) => unknown) =>
       selector({
-        get graph() { return mockGraph; },
-        get result() { return mockResult; },
+        get graph() {
+          return mockGraph;
+        },
+        get result() {
+          return mockResult;
+        },
         reset: (...args: unknown[]) => mockReset(...args),
         forgeAgain: (...args: unknown[]) => mockForgeAgain(...args),
         setPhase: (...args: unknown[]) => mockSetPhase(...args),

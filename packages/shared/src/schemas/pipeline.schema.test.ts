@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 
-import { pipelineSchema, pipelineStepSchema, pipelineStepTypeEnum, pipelineTriggerSchema, pipelineTriggerTypeEnum, pipelineVariableSchema, pipelineVariableTypeEnum } from './pipeline.schema.js';
+import {
+  pipelineSchema,
+  pipelineStepSchema,
+  pipelineStepTypeEnum,
+  pipelineTriggerSchema,
+  pipelineTriggerTypeEnum,
+  pipelineVariableSchema,
+  pipelineVariableTypeEnum,
+} from './pipeline.schema.js';
 
 const VALID_UUID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
 const VALID_UUID_2 = 'b2c3d4e5-f6a7-8901-bcde-f12345678901';
@@ -60,27 +68,19 @@ describe('pipelineSchema', () => {
   });
 
   it('should reject empty name', () => {
-    expect(() =>
-      pipelineSchema.parse({ ...createValidPipeline(), name: '' }),
-    ).toThrow();
+    expect(() => pipelineSchema.parse({ ...createValidPipeline(), name: '' })).toThrow();
   });
 
   it('should reject empty steps array', () => {
-    expect(() =>
-      pipelineSchema.parse({ ...createValidPipeline(), steps: [] }),
-    ).toThrow();
+    expect(() => pipelineSchema.parse({ ...createValidPipeline(), steps: [] })).toThrow();
   });
 
   it('should reject non-positive version', () => {
-    expect(() =>
-      pipelineSchema.parse({ ...createValidPipeline(), version: 0 }),
-    ).toThrow();
+    expect(() => pipelineSchema.parse({ ...createValidPipeline(), version: 0 })).toThrow();
   });
 
   it('should reject negative version', () => {
-    expect(() =>
-      pipelineSchema.parse({ ...createValidPipeline(), version: -1 }),
-    ).toThrow();
+    expect(() => pipelineSchema.parse({ ...createValidPipeline(), version: -1 })).toThrow();
   });
 
   it('should accept empty triggers and variables arrays', () => {
@@ -118,9 +118,21 @@ describe('pipelineStepSchema', () => {
 
   it('should accept all valid step types', () => {
     const types = [
-      'seed', 'sync', 'backup', 'restore', 'anonymize', 'delete', 'compare',
-      'precheck', 'script', 'notification', 'approval', 'delay', 'condition',
-      'loop', 'parallel',
+      'seed',
+      'sync',
+      'backup',
+      'restore',
+      'anonymize',
+      'delete',
+      'compare',
+      'precheck',
+      'script',
+      'notification',
+      'approval',
+      'delay',
+      'condition',
+      'loop',
+      'parallel',
     ] as const;
 
     for (const type of types) {
@@ -213,8 +225,12 @@ describe('pipelineTriggerSchema', () => {
 
   it('should accept all valid trigger types', () => {
     const types = [
-      'manual', 'schedule', 'event', 'webhook',
-      'sandbox_refresh', 'deployment_complete',
+      'manual',
+      'schedule',
+      'event',
+      'webhook',
+      'sandbox_refresh',
+      'deployment_complete',
     ] as const;
 
     for (const type of types) {
@@ -332,7 +348,23 @@ describe('pipelineVariableSchema', () => {
 
 describe('pipelineStepTypeEnum alignment with PipelineStepType', () => {
   it('should accept all PipelineStepType values', () => {
-    const types = ['seed','sync','backup','restore','anonymize','delete','compare','precheck','script','notification','approval','delay','condition','loop','parallel'];
+    const types = [
+      'seed',
+      'sync',
+      'backup',
+      'restore',
+      'anonymize',
+      'delete',
+      'compare',
+      'precheck',
+      'script',
+      'notification',
+      'approval',
+      'delay',
+      'condition',
+      'loop',
+      'parallel',
+    ];
     for (const t of types) {
       expect(pipelineStepTypeEnum.safeParse(t).success).toBe(true);
     }
@@ -347,7 +379,14 @@ describe('pipelineStepTypeEnum alignment with PipelineStepType', () => {
 
 describe('pipelineTriggerTypeEnum alignment with TriggerType', () => {
   it('should accept all TriggerType values', () => {
-    const types = ['manual','schedule','event','webhook','sandbox_refresh','deployment_complete'];
+    const types = [
+      'manual',
+      'schedule',
+      'event',
+      'webhook',
+      'sandbox_refresh',
+      'deployment_complete',
+    ];
     for (const t of types) {
       expect(pipelineTriggerTypeEnum.safeParse(t).success).toBe(true);
     }

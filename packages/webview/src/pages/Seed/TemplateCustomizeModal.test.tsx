@@ -5,8 +5,16 @@ import { TemplateCustomizeModal } from './TemplateCustomizeModal';
 import type { SeedTemplate } from '@sandforge/shared';
 
 /* Polyfill dialog showModal/close for jsdom */
-HTMLDialogElement.prototype.showModal = HTMLDialogElement.prototype.showModal ?? function showModal(this: HTMLDialogElement) { this.setAttribute('open', ''); };
-HTMLDialogElement.prototype.close = HTMLDialogElement.prototype.close ?? function close(this: HTMLDialogElement) { this.removeAttribute('open'); };
+HTMLDialogElement.prototype.showModal =
+  HTMLDialogElement.prototype.showModal ??
+  function showModal(this: HTMLDialogElement) {
+    this.setAttribute('open', '');
+  };
+HTMLDialogElement.prototype.close =
+  HTMLDialogElement.prototype.close ??
+  function close(this: HTMLDialogElement) {
+    this.removeAttribute('open');
+  };
 
 const mockTemplate: SeedTemplate = {
   id: 'prebuilt-minimal-demo',
@@ -15,9 +23,30 @@ const mockTemplate: SeedTemplate = {
   version: 1,
   strategy: 'faker',
   objects: [
-    { objectApiName: 'Account', recordCount: 50, fieldRules: [], excludedFields: [], insertOrder: 0, batchSize: 200 },
-    { objectApiName: 'Contact', recordCount: 100, fieldRules: [], excludedFields: [], insertOrder: 1, batchSize: 200 },
-    { objectApiName: 'Opportunity', recordCount: 200, fieldRules: [], excludedFields: [], insertOrder: 2, batchSize: 200 },
+    {
+      objectApiName: 'Account',
+      recordCount: 50,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder: 0,
+      batchSize: 200,
+    },
+    {
+      objectApiName: 'Contact',
+      recordCount: 100,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder: 1,
+      batchSize: 200,
+    },
+    {
+      objectApiName: 'Opportunity',
+      recordCount: 200,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder: 2,
+      batchSize: 200,
+    },
   ],
   tags: ['prebuilt', 'demo'],
   createdAt: '2026-01-01T00:00:00.000Z',

@@ -57,24 +57,22 @@ export class RealTimeSyncMessageHandler {
 
     // Subscribe to conflict feed from orchestrator
     this.conflictFeedUnsub?.();
-    this.conflictFeedUnsub = this.orchestrator.onConflictDetected(
-      (conflict: CDCConflict) => {
-        this.broker.postToWebview({
-          id: `rt-conflict-${Date.now()}`,
-          type: 'realtime:conflict',
-          timestamp: Date.now(),
-          payload: {
-            replayId: conflict.event.replayId,
-            objectApiName: conflict.event.objectApiName,
-            recordIds: conflict.event.recordIds,
-            changeType: conflict.event.changeType,
-            sourceValues: conflict.event.changedFields,
-            targetValues: conflict.targetValues,
-            targetLastModified: conflict.targetLastModified,
-          },
-        } as BaseMessage);
-      },
-    );
+    this.conflictFeedUnsub = this.orchestrator.onConflictDetected((conflict: CDCConflict) => {
+      this.broker.postToWebview({
+        id: `rt-conflict-${Date.now()}`,
+        type: 'realtime:conflict',
+        timestamp: Date.now(),
+        payload: {
+          replayId: conflict.event.replayId,
+          objectApiName: conflict.event.objectApiName,
+          recordIds: conflict.event.recordIds,
+          changeType: conflict.event.changeType,
+          sourceValues: conflict.event.changedFields,
+          targetValues: conflict.targetValues,
+          targetLastModified: conflict.targetLastModified,
+        },
+      } as BaseMessage);
+    });
   }
 
   /**
@@ -174,14 +172,16 @@ export class RealTimeSyncMessageHandler {
   }
 
   private handleResolveConflict(msg: BaseMessage): void {
-    const payload = (msg as BaseMessage & {
-      payload: {
-        conflictId: string;
-        eventReplayId?: number;
-        resolution: string;
-        fieldResolutions?: Record<string, FieldResolution>;
-      };
-    }).payload;
+    const payload = (
+      msg as BaseMessage & {
+        payload: {
+          conflictId: string;
+          eventReplayId?: number;
+          resolution: string;
+          fieldResolutions?: Record<string, FieldResolution>;
+        };
+      }
+    ).payload;
 
     const { conflictId, resolution, fieldResolutions } = payload;
 
@@ -207,13 +207,15 @@ export class RealTimeSyncMessageHandler {
         // Bulk strategy resolution -- delegate to ConflictResolver
         const strategy = resolution as ConflictStrategy;
         const resolved = this.conflictResolver.resolve(
-          [{
-            objectApiName: '',
-            recordId: conflictId,
-            sourceValues: {},
-            targetValues: {},
-            conflictFields: [],
-          }],
+          [
+            {
+              objectApiName: '',
+              recordId: conflictId,
+              sourceValues: {},
+              targetValues: {},
+              conflictFields: [],
+            },
+          ],
           strategy,
         );
         resolvedValues = resolved[0]?.resolvedValues;

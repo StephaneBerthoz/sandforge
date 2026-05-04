@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  AIAssistant,
-  type AICallFn,
-  type AIModelConfig,
-  type AICallResult,
-} from './AIAssistant';
+import { AIAssistant, type AICallFn, type AIModelConfig, type AICallResult } from './AIAssistant';
 
 const mockConfig: AIModelConfig = {
   provider: 'anthropic',
@@ -197,7 +192,9 @@ describe('AIAssistant', () => {
   });
 
   it('should analyze sync configuration', async () => {
-    const result = await assistant.analyzeSyncConfig('Source: Prod, Target: Sandbox, Objects: Account, Contact');
+    const result = await assistant.analyzeSyncConfig(
+      'Source: Prod, Target: Sandbox, Objects: Account, Contact',
+    );
     expect(result).toBe('AI response content');
 
     const messages = mockCallFn.mock.calls[0][0];

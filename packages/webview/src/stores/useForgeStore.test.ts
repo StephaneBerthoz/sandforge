@@ -74,7 +74,15 @@ function createMockResult(overrides: Partial<ForgeExecutionResult> = {}): ForgeE
 
 function createMockPlan(): ForgePlan {
   return {
-    waves: [{ order: 0, objectApiNames: ['Account'], totalRecords: 100, estimatedDurationSeconds: 1, estimatedApiCalls: 1 }],
+    waves: [
+      {
+        order: 0,
+        objectApiNames: ['Account'],
+        totalRecords: 100,
+        estimatedDurationSeconds: 1,
+        estimatedApiCalls: 1,
+      },
+    ],
     totalRecords: 100,
     totalApiCalls: 1,
     estimatedDurationSeconds: 1,
@@ -114,9 +122,17 @@ describe('useForgeStore', () => {
   it('should clear stale artifacts when setConfig is called', () => {
     // Set up stale state from a previous run
     getState().setPlan(createMockPlan());
-    getState().setComplianceReport({ id: 'rpt-stale' } as unknown as import('@sandforge/shared').ComplianceReport);
+    getState().setComplianceReport({
+      id: 'rpt-stale',
+    } as unknown as import('@sandforge/shared').ComplianceReport);
     getState().setMetadataDiffs([
-      { objectApiName: 'Account', fieldApiName: 'Custom__c', issue: 'missing', severity: 'error', details: '' },
+      {
+        objectApiName: 'Account',
+        fieldApiName: 'Custom__c',
+        issue: 'missing',
+        severity: 'error',
+        details: '',
+      },
     ]);
     getState().setResult(createMockResult());
     getState().setGraph(createMockGraph());
@@ -312,7 +328,10 @@ describe('useForgeStore', () => {
   });
 
   it('should set compliance report via setComplianceReport', () => {
-    const report = { id: 'rpt-1', framework: 'gdpr' } as unknown as import('@sandforge/shared').ComplianceReport;
+    const report = {
+      id: 'rpt-1',
+      framework: 'gdpr',
+    } as unknown as import('@sandforge/shared').ComplianceReport;
     getState().setComplianceReport(report);
     expect(getState().complianceReport).toEqual(report);
   });
@@ -326,7 +345,13 @@ describe('useForgeStore', () => {
 
   it('should set metadata diffs via setMetadataDiffs', () => {
     const diffs = [
-      { objectApiName: 'Account', fieldApiName: 'Custom__c', issue: 'missing' as const, severity: 'error' as const, details: 'missing field' },
+      {
+        objectApiName: 'Account',
+        fieldApiName: 'Custom__c',
+        issue: 'missing' as const,
+        severity: 'error' as const,
+        details: 'missing field',
+      },
     ];
     getState().setMetadataDiffs(diffs);
     expect(getState().metadataDiffs).toHaveLength(1);
@@ -357,7 +382,9 @@ describe('useForgeStore', () => {
   it('should reset review phase state on reset', () => {
     getState().setPlan(createMockPlan());
     getState().setAnonymizationRule('email', 'hash');
-    getState().setMetadataDiffs([{ objectApiName: 'A', fieldApiName: 'B', issue: 'missing', severity: 'error', details: '' }]);
+    getState().setMetadataDiffs([
+      { objectApiName: 'A', fieldApiName: 'B', issue: 'missing', severity: 'error', details: '' },
+    ]);
     getState().reset();
 
     const state = getState();
@@ -399,7 +426,13 @@ describe('useForgeStore', () => {
         id: 'tpl-002',
         name: 'Old Name',
         description: 'Old desc',
-        config: { inputMode: 'record' as const, depth: 'direct' as const, anonymizePII: false, skipEmpty: false, batchSize: 'auto' as const },
+        config: {
+          inputMode: 'record' as const,
+          depth: 'direct' as const,
+          anonymizePII: false,
+          skipEmpty: false,
+          batchSize: 'auto' as const,
+        },
         objectCount: 3,
         recordCount: 50,
         createdAt: new Date().toISOString(),
@@ -461,7 +494,13 @@ describe('useForgeStore', () => {
       store.setResult({
         forgeId: 'f1',
         status: 'success',
-        graph: { nodes: [], edges: [], totalRecords: 0, estimatedSizeMB: 0, estimatedDurationSeconds: 0 },
+        graph: {
+          nodes: [],
+          edges: [],
+          totalRecords: 0,
+          estimatedSizeMB: 0,
+          estimatedDurationSeconds: 0,
+        },
         duration: 1000,
         timestamp: '2026-01-01',
         idRemapCount: 5,

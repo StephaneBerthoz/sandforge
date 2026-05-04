@@ -124,11 +124,13 @@ export class MetricBus extends TypedEventEmitter<MetricEventTypeMap> {
     if (!parsed.success) {
       this.logger?.warn('MetricBus rejected invalid payload', {
         type: String(type),
-        issues: parsed.error.issues.map((issue: { path: (string | number)[]; code: string; message: string }) => ({
-          path: issue.path,
-          code: issue.code,
-          message: issue.message,
-        })),
+        issues: parsed.error.issues.map(
+          (issue: { path: (string | number)[]; code: string; message: string }) => ({
+            path: issue.path,
+            code: issue.code,
+            message: issue.message,
+          }),
+        ),
       });
       return false;
     }

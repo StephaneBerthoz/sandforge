@@ -23,9 +23,7 @@ describe('SchemaValidator', () => {
     });
 
     it('should detect missing required fields', () => {
-      const schema: FieldSchema[] = [
-        { apiName: 'Name', type: 'string', required: true },
-      ];
+      const schema: FieldSchema[] = [{ apiName: 'Name', type: 'string', required: true }];
       const records = [{ Industry: 'Tech' }];
 
       const result = validator.validate(records, schema);
@@ -36,9 +34,7 @@ describe('SchemaValidator', () => {
     });
 
     it('should detect null values for required fields', () => {
-      const schema: FieldSchema[] = [
-        { apiName: 'Name', type: 'string', required: true },
-      ];
+      const schema: FieldSchema[] = [{ apiName: 'Name', type: 'string', required: true }];
       const records = [{ Name: null }];
 
       const result = validator.validate(records, schema);
@@ -47,9 +43,7 @@ describe('SchemaValidator', () => {
     });
 
     it('should detect empty string for required fields', () => {
-      const schema: FieldSchema[] = [
-        { apiName: 'Name', type: 'string', required: true },
-      ];
+      const schema: FieldSchema[] = [{ apiName: 'Name', type: 'string', required: true }];
       const records = [{ Name: '' }];
 
       const result = validator.validate(records, schema);
@@ -114,9 +108,7 @@ describe('SchemaValidator', () => {
     });
 
     it('should detect type mismatch for boolean fields', () => {
-      const schema: FieldSchema[] = [
-        { apiName: 'IsActive', type: 'boolean', required: false },
-      ];
+      const schema: FieldSchema[] = [{ apiName: 'IsActive', type: 'boolean', required: false }];
       const records = [{ IsActive: 'yes' }];
 
       const result = validator.validate(records, schema);
@@ -126,9 +118,7 @@ describe('SchemaValidator', () => {
     });
 
     it('should detect type mismatch for numeric fields', () => {
-      const schema: FieldSchema[] = [
-        { apiName: 'Revenue', type: 'double', required: false },
-      ];
+      const schema: FieldSchema[] = [{ apiName: 'Revenue', type: 'double', required: false }];
       const records = [{ Revenue: 'not a number' }];
 
       const result = validator.validate(records, schema);
@@ -138,9 +128,7 @@ describe('SchemaValidator', () => {
     });
 
     it('should include correct recordIndex in errors', () => {
-      const schema: FieldSchema[] = [
-        { apiName: 'Name', type: 'string', required: true },
-      ];
+      const schema: FieldSchema[] = [{ apiName: 'Name', type: 'string', required: true }];
       const records = [{ Name: 'Valid' }, { Industry: 'Tech' }];
 
       const result = validator.validate(records, schema);
@@ -160,9 +148,7 @@ describe('SchemaValidator', () => {
     });
 
     it('should handle empty records array', () => {
-      const schema: FieldSchema[] = [
-        { apiName: 'Name', type: 'string', required: true },
-      ];
+      const schema: FieldSchema[] = [{ apiName: 'Name', type: 'string', required: true }];
 
       const result = validator.validate([], schema);
 

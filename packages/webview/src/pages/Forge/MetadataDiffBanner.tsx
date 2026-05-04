@@ -52,23 +52,13 @@ export const MetadataDiffBanner: React.FC<MetadataDiffBannerProps> = ({
       animate="visible"
       className={cn(
         'flex flex-col gap-3 rounded-lg border p-4',
-        hasErrors
-          ? 'border-red-500/40 bg-red-500/10'
-          : 'border-amber-500/40 bg-amber-500/10',
+        hasErrors ? 'border-red-500/40 bg-red-500/10' : 'border-amber-500/40 bg-amber-500/10',
       )}
     >
       {/* Header */}
       <div className="flex items-center gap-2">
-        <AlertTriangle
-          size={16}
-          className={hasErrors ? 'text-red-400' : 'text-amber-400'}
-        />
-        <span
-          className={cn(
-            'text-sm font-medium',
-            hasErrors ? 'text-red-400' : 'text-amber-400',
-          )}
-        >
+        <AlertTriangle size={16} className={hasErrors ? 'text-red-400' : 'text-amber-400'} />
+        <span className={cn('text-sm font-medium', hasErrors ? 'text-red-400' : 'text-amber-400')}>
           {t('forge.metadataMismatch')}
         </span>
       </div>
@@ -102,12 +92,7 @@ export const MetadataDiffBanner: React.FC<MetadataDiffBannerProps> = ({
           </Button>
         )}
         {onSkip && (
-          <Button
-            data-testid="skip-metadata-btn"
-            variant="ghost"
-            size="sm"
-            onClick={onSkip}
-          >
+          <Button data-testid="skip-metadata-btn" variant="ghost" size="sm" onClick={onSkip}>
             {t('forge.skipMetadata')}
           </Button>
         )}

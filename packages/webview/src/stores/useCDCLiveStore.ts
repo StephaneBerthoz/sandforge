@@ -200,9 +200,7 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
   },
 
   stopStream(): void {
-    getVscodeApi().postMessage(
-      buildMessage('realtime:stop', { sessionId: '' }),
-    );
+    getVscodeApi().postMessage(buildMessage('realtime:stop', { sessionId: '' }));
   },
 }));
 

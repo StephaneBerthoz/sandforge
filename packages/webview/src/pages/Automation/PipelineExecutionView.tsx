@@ -30,24 +30,36 @@ export interface PipelineExecutionViewProps {
 /** Badge variant for step status. */
 function stepStatusBadge(status: PipelineStepResult['status']): BadgeVariant {
   switch (status) {
-    case 'completed': return 'success';
-    case 'running': return 'info';
-    case 'failed': return 'error';
-    case 'skipped': return 'default';
-    default: return 'default';
+    case 'completed':
+      return 'success';
+    case 'running':
+      return 'info';
+    case 'failed':
+      return 'error';
+    case 'skipped':
+      return 'default';
+    default:
+      return 'default';
   }
 }
 
 /** Badge variant for run status. */
 function runStatusBadge(status: PipelineRunStatus): BadgeVariant {
   switch (status) {
-    case 'completed': return 'success';
-    case 'completed_with_warnings': return 'warning';
-    case 'running': return 'info';
-    case 'paused': return 'warning';
-    case 'failed': return 'error';
-    case 'cancelled': return 'error';
-    default: return 'default';
+    case 'completed':
+      return 'success';
+    case 'completed_with_warnings':
+      return 'warning';
+    case 'running':
+      return 'info';
+    case 'paused':
+      return 'warning';
+    case 'failed':
+      return 'error';
+    case 'cancelled':
+      return 'error';
+    default:
+      return 'default';
   }
 }
 
@@ -75,15 +87,15 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
     );
   }
 
-  const isActive = execution.status === 'running' || execution.status === 'paused' || execution.status === 'waiting_approval';
+  const isActive =
+    execution.status === 'running' ||
+    execution.status === 'paused' ||
+    execution.status === 'waiting_approval';
   const completedSteps = execution.steps.filter((s) => s.status === 'completed').length;
   const failedSteps = execution.steps.filter((s) => s.status === 'failed').length;
 
   return (
-    <div
-      className={cn('flex flex-col gap-3', className)}
-      data-testid="execution-view"
-    >
+    <div className={cn('flex flex-col gap-3', className)} data-testid="execution-view">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -133,8 +145,13 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
       </div>
 
       {/* Stats row */}
-      <div className="flex gap-4 text-[10px] text-[var(--sf-text-muted,#868686)]" data-testid="execution-stats">
-        <span>{completedSteps}/{execution.steps.length} {t('automation.steps', 'steps')}</span>
+      <div
+        className="flex gap-4 text-[10px] text-[var(--sf-text-muted,#868686)]"
+        data-testid="execution-stats"
+      >
+        <span>
+          {completedSteps}/{execution.steps.length} {t('automation.steps', 'steps')}
+        </span>
         {failedSteps > 0 && (
           <span style={{ color: 'var(--sf-error, #EF4444)' }}>
             {failedSteps} {t('automation.failed', 'failed')}
@@ -171,9 +188,7 @@ export const PipelineExecutionView: React.FC<PipelineExecutionViewProps> = ({
               {step.status === 'skipped' && (
                 <span className="text-[var(--sf-text-muted,#868686)]">{'\u2014'}</span>
               )}
-              <span className="text-[var(--sf-text-primary,#d4d4d4)]">
-                {step.stepName}
-              </span>
+              <span className="text-[var(--sf-text-primary,#d4d4d4)]">{step.stepName}</span>
               <Badge variant="default">{t(`automation.stepTypes.${step.stepType}`)}</Badge>
             </div>
             <div className="flex items-center gap-2">

@@ -37,9 +37,7 @@ export interface CDCSubscriptionPanelProps {
  * CDC subscription panel: object picker, start/stop button, connection status,
  * and per-object auto-sync toggle with conflict strategy selector.
  */
-export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({
-  availableObjects,
-}) => {
+export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ availableObjects }) => {
   const { t } = useTranslation();
   const status = useCDCLiveStore((s) => s.status);
   const watchedObjects = useCDCLiveStore((s) => s.watchedObjects);
@@ -71,9 +69,7 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({
             {t('sync.realtime.title')}
           </h3>
           <span data-testid="cdc-status-badge">
-            <Badge variant={statusVariantMap[status]}>
-              {t(`sync.realtime.status.${status}`)}
-            </Badge>
+            <Badge variant={statusVariantMap[status]}>{t(`sync.realtime.status.${status}`)}</Badge>
           </span>
         </div>
         <div className="flex items-center gap-[var(--sf-space-2)]">
@@ -107,10 +103,7 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({
         <CardBody>
           <div className="flex flex-wrap gap-[var(--sf-space-2)]">
             {availableObjects.map((objectName) => (
-              <label
-                key={objectName}
-                className="flex items-center gap-1 text-xs"
-              >
+              <label key={objectName} className="flex items-center gap-1 text-xs">
                 <input
                   type="checkbox"
                   checked={watchedObjects.includes(objectName)}
@@ -139,7 +132,10 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({
               {watchedObjects.map((objectName) => {
                 const config = autoSyncObjects[objectName];
                 return (
-                  <div key={objectName} className="flex items-center gap-[var(--sf-space-2)] text-xs">
+                  <div
+                    key={objectName}
+                    className="flex items-center gap-[var(--sf-space-2)] text-xs"
+                  >
                     <label className="flex items-center gap-1 min-w-[120px]">
                       <input
                         type="checkbox"
@@ -153,7 +149,9 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({
                       <Select
                         options={conflictOptions}
                         value={config.conflictStrategy}
-                        onChange={(e) => setConflictStrategy(objectName, e.target.value as ConflictStrategy)}
+                        onChange={(e) =>
+                          setConflictStrategy(objectName, e.target.value as ConflictStrategy)
+                        }
                         data-testid={`cdc-conflict-select-${objectName}`}
                       />
                     )}

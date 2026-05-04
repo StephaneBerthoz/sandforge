@@ -35,10 +35,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const totalRecords = previewResult.objects.reduce(
-    (sum, obj) => sum + obj.recordCount,
-    0,
-  );
+  const totalRecords = previewResult.objects.reduce((sum, obj) => sum + obj.recordCount, 0);
   const totalRelationships = previewResult.objects.reduce(
     (sum, obj) => sum + obj.relationships.length,
     0,
@@ -67,10 +64,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
       <Card>
         <CardHeader title={t('seed.clone.preview.insertOrder')} />
         <CardBody>
-          <div
-            className="flex flex-col gap-1"
-            data-testid="clone-insert-order"
-          >
+          <div className="flex flex-col gap-1" data-testid="clone-insert-order">
             {previewResult.insertOrder.map((objectName, index) => (
               <div key={objectName} className="flex items-center gap-2">
                 <span className="w-5 h-5 flex items-center justify-center rounded-full bg-[var(--vscode-focusBorder,#007fd4)] text-white text-[10px] font-bold shrink-0">
@@ -118,7 +112,10 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
               <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
                 {t('seed.totalRecords')}
               </span>
-              <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]" data-testid="clone-total-records">
+              <span
+                className="text-[var(--vscode-editor-foreground,#d4d4d4)]"
+                data-testid="clone-total-records"
+              >
                 {totalRecords} {t('seed.records')}, {totalRelationships} {t('seed.dependencies')}
               </span>
             </div>
@@ -164,20 +161,10 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
 
       {/* Actions */}
       <div className="flex justify-between items-center pt-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onBack}
-          data-testid="clone-preview-back"
-        >
+        <Button variant="secondary" size="sm" onClick={onBack} data-testid="clone-preview-back">
           {t('common.back')}
         </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={onExecute}
-          data-testid="clone-preview-execute"
-        >
+        <Button variant="primary" size="sm" onClick={onExecute} data-testid="clone-preview-execute">
           {t('seed.clone.preview.execute')}
         </Button>
       </div>

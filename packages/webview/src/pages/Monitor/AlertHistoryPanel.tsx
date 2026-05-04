@@ -27,19 +27,26 @@ const INITIAL_DISPLAY_LIMIT = 100;
 /** Map alert status to badge variant. */
 function statusBadgeVariant(status: AlertStatus): BadgeVariant {
   switch (status) {
-    case 'active': return 'error';
-    case 'acknowledged': return 'warning';
-    case 'resolved': return 'success';
-    case 'dismissed': return 'default';
+    case 'active':
+      return 'error';
+    case 'acknowledged':
+      return 'warning';
+    case 'resolved':
+      return 'success';
+    case 'dismissed':
+      return 'default';
   }
 }
 
 /** Map alert severity to badge variant. */
 function severityBadgeVariant(severity: AlertSeverity): BadgeVariant {
   switch (severity) {
-    case 'critical': return 'error';
-    case 'warning': return 'warning';
-    case 'info': return 'info';
+    case 'critical':
+      return 'error';
+    case 'warning':
+      return 'warning';
+    case 'info':
+      return 'info';
   }
 }
 
@@ -47,7 +54,12 @@ function severityBadgeVariant(severity: AlertSeverity): BadgeVariant {
 function StatusIcon({ status }: { status: AlertStatus }): React.ReactElement {
   switch (status) {
     case 'active':
-      return <span className="relative flex h-3 w-3" data-testid="status-icon-active"><span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" /><span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" /></span>;
+      return (
+        <span className="relative flex h-3 w-3" data-testid="status-icon-active">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75 animate-ping" />
+          <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+        </span>
+      );
     case 'acknowledged':
       return <Eye className="h-3.5 w-3.5 text-amber-400" />;
     case 'resolved':
@@ -96,7 +108,10 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
 
   /** Sorted history descending by triggeredAt. */
   const sortedHistory = useMemo(
-    () => [...history].sort((a, b) => new Date(b.triggeredAt).getTime() - new Date(a.triggeredAt).getTime()),
+    () =>
+      [...history].sort(
+        (a, b) => new Date(b.triggeredAt).getTime() - new Date(a.triggeredAt).getTime(),
+      ),
     [history],
   );
 
@@ -107,18 +122,21 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
   );
 
   /** Grouped by date for the timeline display. */
-  const dateGroups = useMemo(
-    () => groupByDate(visibleEntries),
-    [visibleEntries],
-  );
+  const dateGroups = useMemo(() => groupByDate(visibleEntries), [visibleEntries]);
 
   const hasMore = sortedHistory.length > displayLimit;
 
   return (
-    <Card className={cn('border-0 bg-transparent shadow-none', className)} data-testid="alert-history-panel">
+    <Card
+      className={cn('border-0 bg-transparent shadow-none', className)}
+      data-testid="alert-history-panel"
+    >
       <CardHeader
         title={t('monitor.alertHistory', 'Alert History')}
-        subtitle={t('monitor.alertHistoryCount', { count: history.length, defaultValue: '{{count}} events' })}
+        subtitle={t('monitor.alertHistoryCount', {
+          count: history.length,
+          defaultValue: '{{count}} events',
+        })}
         action={
           <div className="flex items-center gap-1 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
             <Clock className="h-3 w-3" />
@@ -126,7 +144,10 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
           </div>
         }
       />
-      <CardBody className="flex flex-col gap-3 max-h-96 overflow-y-auto" data-testid="alert-history-body">
+      <CardBody
+        className="flex flex-col gap-3 max-h-96 overflow-y-auto"
+        data-testid="alert-history-body"
+      >
         {history.length === 0 ? (
           <p
             className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-6"
@@ -137,7 +158,11 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
         ) : (
           <>
             {Array.from(dateGroups.entries()).map(([dateKey, alerts]) => (
-              <div key={dateKey} className="flex flex-col gap-1.5" data-testid={`date-group-${dateKey}`}>
+              <div
+                key={dateKey}
+                className="flex flex-col gap-1.5"
+                data-testid={`date-group-${dateKey}`}
+              >
                 {/* Date group header */}
                 <div className="flex items-center gap-2 mt-1 mb-0.5">
                   <span className="text-[10px] font-semibold text-[var(--vscode-descriptionForeground,#868686)] uppercase tracking-wider">
@@ -162,9 +187,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span data-testid={`status-badge-${alert.id}`}>
-                          <Badge variant={statusBadgeVariant(alert.status)}>
-                            {alert.status}
-                          </Badge>
+                          <Badge variant={statusBadgeVariant(alert.status)}>{alert.status}</Badge>
                         </span>
                         <span data-testid={`severity-badge-${alert.id}`}>
                           <Badge variant={severityBadgeVariant(alert.severity)}>
@@ -176,7 +199,8 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
                         {alert.message}
                       </p>
                       <p className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] mt-0.5 font-mono">
-                        {t('monitor.alertValue', 'Value')}: {alert.currentValue} ({t('monitor.alertThreshold', 'threshold')}: {alert.threshold})
+                        {t('monitor.alertValue', 'Value')}: {alert.currentValue} (
+                        {t('monitor.alertThreshold', 'threshold')}: {alert.threshold})
                       </p>
                     </div>
 
@@ -193,7 +217,8 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
                           className="text-[10px] text-amber-400"
                           data-testid={`acknowledged-time-${alert.id}`}
                         >
-                          {t('monitor.ack', 'Ack')}: {timeFmt.format(new Date(alert.acknowledgedAt))}
+                          {t('monitor.ack', 'Ack')}:{' '}
+                          {timeFmt.format(new Date(alert.acknowledgedAt))}
                         </span>
                       )}
                       {alert.resolvedAt && (
@@ -201,7 +226,8 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
                           className="text-[10px] text-green-400"
                           data-testid={`resolved-time-${alert.id}`}
                         >
-                          {t('monitor.resolved', 'Resolved')}: {timeFmt.format(new Date(alert.resolvedAt))}
+                          {t('monitor.resolved', 'Resolved')}:{' '}
+                          {timeFmt.format(new Date(alert.resolvedAt))}
                         </span>
                       )}
                     </div>
@@ -220,7 +246,8 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
                 data-testid="show-more-btn"
               >
                 <ChevronDown className="w-3 h-3 mr-1" />
-                {t('monitor.showMore', 'Show more')} ({sortedHistory.length - displayLimit} {t('monitor.remaining', 'remaining')})
+                {t('monitor.showMore', 'Show more')} ({sortedHistory.length - displayLimit}{' '}
+                {t('monitor.remaining', 'remaining')})
               </Button>
             )}
           </>

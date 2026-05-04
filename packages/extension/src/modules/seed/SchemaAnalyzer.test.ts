@@ -2,7 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { SchemaAnalyzer } from './SchemaAnalyzer';
 import type { SchemaConnection, DescribeResult } from './SchemaAnalyzer';
 
-function mockDescribe(name: string, label: string, fields: DescribeResult['fields'] = []): DescribeResult {
+function mockDescribe(
+  name: string,
+  label: string,
+  fields: DescribeResult['fields'] = [],
+): DescribeResult {
   return { name, label, fields };
 }
 
@@ -111,7 +115,9 @@ describe('SchemaAnalyzer', () => {
     });
     const result = await analyzer.analyzeSchema(conn, ['OpportunityLineItem', 'Opportunity']);
     expect(result.edges[0].type).toBe('MasterDetail');
-    expect(result.nodes.find((n) => n.apiName === 'OpportunityLineItem')!.relationships[0].required).toBe(true);
+    expect(
+      result.nodes.find((n) => n.apiName === 'OpportunityLineItem')!.relationships[0].required,
+    ).toBe(true);
   });
 
   it('should auto-add missing parent objects', async () => {
@@ -178,10 +184,28 @@ describe('SchemaAnalyzer', () => {
   it('should detect circular dependencies', async () => {
     const conn = createMockConn({
       A: mockDescribe('A', 'Object A', [
-        { name: 'BId', label: 'B', type: 'reference', nillable: true, defaultValue: null, referenceTo: ['B'], unique: false, externalId: false },
+        {
+          name: 'BId',
+          label: 'B',
+          type: 'reference',
+          nillable: true,
+          defaultValue: null,
+          referenceTo: ['B'],
+          unique: false,
+          externalId: false,
+        },
       ]),
       B: mockDescribe('B', 'Object B', [
-        { name: 'AId', label: 'A', type: 'reference', nillable: true, defaultValue: null, referenceTo: ['A'], unique: false, externalId: false },
+        {
+          name: 'AId',
+          label: 'A',
+          type: 'reference',
+          nillable: true,
+          defaultValue: null,
+          referenceTo: ['A'],
+          unique: false,
+          externalId: false,
+        },
       ]),
     });
 
@@ -206,7 +230,16 @@ describe('SchemaAnalyzer', () => {
   it('should generate MasterDetail warnings', async () => {
     const conn = createMockConn({
       Child: mockDescribe('Child', 'Child', [
-        { name: 'ParentId', label: 'Parent', type: 'masterdetail', nillable: false, defaultValue: null, referenceTo: ['Parent'], unique: false, externalId: false },
+        {
+          name: 'ParentId',
+          label: 'Parent',
+          type: 'masterdetail',
+          nillable: false,
+          defaultValue: null,
+          referenceTo: ['Parent'],
+          unique: false,
+          externalId: false,
+        },
       ]),
       Parent: mockDescribe('Parent', 'Parent'),
     });
@@ -261,7 +294,15 @@ describe('SchemaAnalyzer', () => {
   it('should handle objects with no relationships', async () => {
     const conn = createMockConn({
       Account: mockDescribe('Account', 'Account', [
-        { name: 'Name', label: 'Name', type: 'string', nillable: false, defaultValue: null, unique: false, externalId: false },
+        {
+          name: 'Name',
+          label: 'Name',
+          type: 'string',
+          nillable: false,
+          defaultValue: null,
+          unique: false,
+          externalId: false,
+        },
       ]),
     });
     const result = await analyzer.analyzeSchema(conn, ['Account']);

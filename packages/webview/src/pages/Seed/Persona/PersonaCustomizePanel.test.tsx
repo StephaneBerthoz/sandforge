@@ -40,13 +40,7 @@ const mockPersona: PersonaMsg = {
 
 describe('PersonaCustomizePanel', () => {
   it('renders all field rows from the persona', () => {
-    render(
-      <PersonaCustomizePanel
-        persona={mockPersona}
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    render(<PersonaCustomizePanel persona={mockPersona} onConfirm={vi.fn()} onCancel={vi.fn()} />);
 
     expect(screen.getByTestId('persona-customize-panel')).toBeDefined();
     expect(screen.getByTestId('field-row-IBAN__c')).toBeDefined();
@@ -55,13 +49,7 @@ describe('PersonaCustomizePanel', () => {
   });
 
   it('shows min/max inputs for range generator fields', () => {
-    render(
-      <PersonaCustomizePanel
-        persona={mockPersona}
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    render(<PersonaCustomizePanel persona={mockPersona} onConfirm={vi.fn()} onCancel={vi.fn()} />);
 
     const minInput = screen.getByTestId('field-min-Transaction_Amount__c');
     const maxInput = screen.getByTestId('field-max-Transaction_Amount__c');
@@ -72,13 +60,7 @@ describe('PersonaCustomizePanel', () => {
   });
 
   it('shows comma-separated values input for random_pick fields', () => {
-    render(
-      <PersonaCustomizePanel
-        persona={mockPersona}
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    render(<PersonaCustomizePanel persona={mockPersona} onConfirm={vi.fn()} onCancel={vi.fn()} />);
 
     const valuesInput = screen.getByTestId('field-values-Transaction_Type__c');
     expect(valuesInput).toBeDefined();
@@ -86,13 +68,7 @@ describe('PersonaCustomizePanel', () => {
   });
 
   it('shows read-only example badges for faker fields', () => {
-    render(
-      <PersonaCustomizePanel
-        persona={mockPersona}
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    render(<PersonaCustomizePanel persona={mockPersona} onConfirm={vi.fn()} onCancel={vi.fn()} />);
 
     // Faker field IBAN__c should show example values as badges, not editable inputs
     const fieldRow = screen.getByTestId('field-row-IBAN__c');
@@ -102,11 +78,7 @@ describe('PersonaCustomizePanel', () => {
   it('calls onConfirm with modified range min/max on confirm', () => {
     const onConfirm = vi.fn();
     render(
-      <PersonaCustomizePanel
-        persona={mockPersona}
-        onConfirm={onConfirm}
-        onCancel={vi.fn()}
-      />,
+      <PersonaCustomizePanel persona={mockPersona} onConfirm={onConfirm} onCancel={vi.fn()} />,
     );
 
     // Modify the min value for Transaction_Amount__c
@@ -118,33 +90,24 @@ describe('PersonaCustomizePanel', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     const customized = onConfirm.mock.calls[0][0] as PersonaMsg;
     expect(customized.id).toBe('banque-eu');
-    const amountParams = customized.dataPatterns['Transaction_Amount__c'].params as Record<string, unknown>;
+    const amountParams = customized.dataPatterns['Transaction_Amount__c'].params as Record<
+      string,
+      unknown
+    >;
     expect(amountParams['min']).toBe(0);
     expect(amountParams['max']).toBe(50000);
   });
 
   it('calls onCancel when Cancel button is clicked', () => {
     const onCancel = vi.fn();
-    render(
-      <PersonaCustomizePanel
-        persona={mockPersona}
-        onConfirm={vi.fn()}
-        onCancel={onCancel}
-      />,
-    );
+    render(<PersonaCustomizePanel persona={mockPersona} onConfirm={vi.fn()} onCancel={onCancel} />);
 
     fireEvent.click(screen.getByTestId('customize-cancel-btn'));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it('handles weighted_pick values display', () => {
-    render(
-      <PersonaCustomizePanel
-        persona={mockPersona}
-        onConfirm={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
+    render(<PersonaCustomizePanel persona={mockPersona} onConfirm={vi.fn()} onCancel={vi.fn()} />);
 
     const valuesInput = screen.getByTestId('field-values-DPE__c');
     expect(valuesInput).toBeDefined();

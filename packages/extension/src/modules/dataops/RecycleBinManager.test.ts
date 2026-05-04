@@ -10,9 +10,9 @@ describe('RecycleBinManager', () => {
 
   describe('getDeletedRecords', () => {
     it('should query deleted records with proper SOQL', async () => {
-      const queryFn = vi.fn().mockResolvedValue([
-        { Id: '001', Name: 'Deleted Account', IsDeleted: true },
-      ]);
+      const queryFn = vi
+        .fn()
+        .mockResolvedValue([{ Id: '001', Name: 'Deleted Account', IsDeleted: true }]);
 
       const result = await manager.getDeletedRecords('org-1', 'Account', queryFn);
 

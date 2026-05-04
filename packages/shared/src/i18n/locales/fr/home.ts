@@ -9,7 +9,8 @@ export const home: TranslationRecord = {
   opsLast7d: 'Ops (7j)',
   limitWarnings: 'Alertes limites',
   forgeASandbox: 'Forger une Sandbox',
-  forgeDescription: "Entrez un ID de record ou une requete SOQL pour cloner un graphe de donnees complet — avec dependances, remapping d'IDs et anonymisation PII.",
+  forgeDescription:
+    "Entrez un ID de record ou une requete SOQL pour cloner un graphe de donnees complet — avec dependances, remapping d'IDs et anonymisation PII.",
   recordIdPlaceholder: 'ID de record ou requete SOQL...',
   startForge: 'Lancer le Forge',
   sandboxHealth: 'Sante des Sandboxes',
@@ -28,7 +29,7 @@ export const home: TranslationRecord = {
   gettingStarted: 'Premiers pas',
   gettingStartedDesc: 'Bienvenue sur SandForge ! Suivez ces etapes pour configurer votre espace.',
   step1: 'Connectez une org Salesforce depuis la page Organisations',
-  step2: "Explorez le Moniteur pour verifier la sante de votre org et les limites API",
+  step2: 'Explorez le Moniteur pour verifier la sante de votre org et les limites API',
   step3: 'Utilisez Seed pour generer des donnees de test ou Sync pour transferer entre orgs',
   step4: "Configurez des pipelines d'Automation pour les workflows recurrents",
   connectOrg: 'Connecter une Org',

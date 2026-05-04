@@ -58,11 +58,7 @@ export class GovernancePolicyStore {
    * @param policy - The policy to save.
    */
   save(policy: GovernancePolicy): void {
-    this.configStore.set(
-      `${POLICY_PREFIX}${policy.id}`,
-      policy,
-      POLICY_CATEGORY,
-    );
+    this.configStore.set(`${POLICY_PREFIX}${policy.id}`, policy, POLICY_CATEGORY);
   }
 
   /**
@@ -122,7 +118,12 @@ export class GovernancePolicyStore {
         name: 'MFA Enabled',
         description: 'Multi-factor authentication should be enabled for all users',
         category: 'security',
-        condition: { metric: 'mfaEnabledPercent', operator: 'lt', threshold: 100, warningThreshold: 90 },
+        condition: {
+          metric: 'mfaEnabledPercent',
+          operator: 'lt',
+          threshold: 100,
+          warningThreshold: 90,
+        },
         remediation: 'Enable MFA for all user profiles in Setup > Identity Verification',
         enabled: true,
       },
@@ -131,7 +132,12 @@ export class GovernancePolicyStore {
         name: 'Password Policy Strength',
         description: 'Password policy should enforce minimum complexity',
         category: 'security',
-        condition: { metric: 'passwordPolicyScore', operator: 'lt', threshold: 60, warningThreshold: 80 },
+        condition: {
+          metric: 'passwordPolicyScore',
+          operator: 'lt',
+          threshold: 60,
+          warningThreshold: 80,
+        },
         remediation: 'Strengthen password policy in Setup > Password Policies',
         enabled: true,
       },
@@ -143,7 +149,12 @@ export class GovernancePolicyStore {
         name: 'API Usage Limit',
         description: 'API usage should stay below critical thresholds',
         category: 'performance',
-        condition: { metric: 'apiUsagePercent', operator: 'gt', threshold: 90, warningThreshold: 75 },
+        condition: {
+          metric: 'apiUsagePercent',
+          operator: 'gt',
+          threshold: 90,
+          warningThreshold: 75,
+        },
         remediation: 'Optimize API-heavy integrations or request a limit increase',
         enabled: true,
       },
@@ -152,7 +163,12 @@ export class GovernancePolicyStore {
         name: 'Storage Usage',
         description: 'Data storage should not exceed safe limits',
         category: 'performance',
-        condition: { metric: 'storageUsagePercent', operator: 'gt', threshold: 90, warningThreshold: 75 },
+        condition: {
+          metric: 'storageUsagePercent',
+          operator: 'gt',
+          threshold: 90,
+          warningThreshold: 75,
+        },
         remediation: 'Archive old records or increase storage allocation',
         enabled: true,
       },
@@ -164,7 +180,12 @@ export class GovernancePolicyStore {
         name: 'Code Coverage',
         description: 'Apex code coverage must meet minimum threshold',
         category: 'compliance',
-        condition: { metric: 'codeCoveragePercent', operator: 'lt', threshold: 75, warningThreshold: 85 },
+        condition: {
+          metric: 'codeCoveragePercent',
+          operator: 'lt',
+          threshold: 75,
+          warningThreshold: 85,
+        },
         remediation: 'Write additional unit tests to increase code coverage',
         enabled: true,
       },

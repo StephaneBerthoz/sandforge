@@ -161,9 +161,7 @@ describe('ForgeOrchestrator', () => {
     });
 
     it('should include idRemapCount from executor summary', async () => {
-      vi.mocked(deps.executor.execute).mockResolvedValue(
-        createMockSummary({ remapCount: 42 }),
-      );
+      vi.mocked(deps.executor.execute).mockResolvedValue(createMockSummary({ remapCount: 42 }));
 
       const result = await orchestrator.execute(createMockGraph(), createMockConfig());
       expect(result.idRemapCount).toBe(42);
@@ -228,9 +226,9 @@ describe('ForgeOrchestrator', () => {
 
       vi.mocked(deps.executor.execute).mockRejectedValue(new Error('Executor crash'));
 
-      await expect(
-        orchestrator.execute(createMockGraph(), createMockConfig()),
-      ).rejects.toThrow('Executor crash');
+      await expect(orchestrator.execute(createMockGraph(), createMockConfig())).rejects.toThrow(
+        'Executor crash',
+      );
 
       expect(errorEvents).toHaveLength(1);
       expect(errorEvents[0].message).toBe('Executor crash');

@@ -1,8 +1,4 @@
-import type {
-  PreCheckConfig,
-  PreCheckItem,
-  ConfirmationItem,
-} from '@sandforge/shared';
+import type { PreCheckConfig, PreCheckItem, ConfirmationItem } from '@sandforge/shared';
 import { randomUUID } from 'crypto';
 
 /** Org security information */
@@ -36,7 +32,7 @@ export interface SecurityCheckResult {
 /** Dependency: fetches security information for the org */
 export type FetchSecurityInfoFn = (
   orgId: string,
-  operationConfig: Record<string, unknown>
+  operationConfig: Record<string, unknown>,
 ) => Promise<OrgSecurityInfo>;
 
 /**
@@ -52,10 +48,7 @@ export class SecurityCheck {
 
   /** Run all security checks and return both items and confirmation requirements */
   async check(config: PreCheckConfig): Promise<SecurityCheckResult> {
-    const info = await this.fetchSecurityInfo(
-      config.targetOrgId,
-      config.operationConfig
-    );
+    const info = await this.fetchSecurityInfo(config.targetOrgId, config.operationConfig);
     const items: PreCheckItem[] = [];
     const confirmations: ConfirmationItem[] = [];
 
@@ -120,16 +113,18 @@ export class SecurityCheck {
   /** Check for sensitive fields in the operation scope */
   private checkSensitiveFields(fields: SensitiveFieldInfo[]): PreCheckItem[] {
     if (fields.length === 0) {
-      return [{
-        id: randomUUID(),
-        category: 'security',
-        name: 'Sensitive Data Detection',
-        description: 'Scans for sensitive fields in the operation scope',
-        severity: 'info',
-        passed: true,
-        message: 'No sensitive fields detected in operation scope',
-        autoFixable: false,
-      }];
+      return [
+        {
+          id: randomUUID(),
+          category: 'security',
+          name: 'Sensitive Data Detection',
+          description: 'Scans for sensitive fields in the operation scope',
+          severity: 'info',
+          passed: true,
+          message: 'No sensitive fields detected in operation scope',
+          autoFixable: false,
+        },
+      ];
     }
 
     return fields.map((field) => ({
@@ -148,16 +143,18 @@ export class SecurityCheck {
   /** Check for GDPR-classified fields */
   private checkGdprFields(fields: GdprFieldInfo[]): PreCheckItem[] {
     if (fields.length === 0) {
-      return [{
-        id: randomUUID(),
-        category: 'security',
-        name: 'GDPR Fields',
-        description: 'Checks for GDPR-classified fields in the operation scope',
-        severity: 'info',
-        passed: true,
-        message: 'No GDPR-classified fields detected',
-        autoFixable: false,
-      }];
+      return [
+        {
+          id: randomUUID(),
+          category: 'security',
+          name: 'GDPR Fields',
+          description: 'Checks for GDPR-classified fields in the operation scope',
+          severity: 'info',
+          passed: true,
+          message: 'No GDPR-classified fields detected',
+          autoFixable: false,
+        },
+      ];
     }
 
     return fields.map((field) => ({
@@ -174,9 +171,10 @@ export class SecurityCheck {
   }
 
   /** Production guard: requires typed confirmation for critical production operations */
-  private checkProductionGuard(
-    info: OrgSecurityInfo
-  ): { item: PreCheckItem; confirmation?: ConfirmationItem } {
+  private checkProductionGuard(info: OrgSecurityInfo): {
+    item: PreCheckItem;
+    confirmation?: ConfirmationItem;
+  } {
     const isProduction = info.orgType === 'production';
     const isCritical = info.safetyTier === 'critical';
 

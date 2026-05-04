@@ -5,7 +5,7 @@ import type { DiffInput } from './diffWorker';
 function makeDiffInput(
   source: Array<Record<string, unknown>>,
   target: Array<Record<string, unknown>>,
-  keyField = 'Id'
+  keyField = 'Id',
 ): DiffInput {
   return { source, target, keyField };
 }
@@ -14,7 +14,10 @@ describe('computeDiff', () => {
   it('should detect added records in target', () => {
     const input = makeDiffInput(
       [{ Id: '1', Name: 'Alice' }],
-      [{ Id: '1', Name: 'Alice' }, { Id: '2', Name: 'Bob' }]
+      [
+        { Id: '1', Name: 'Alice' },
+        { Id: '2', Name: 'Bob' },
+      ],
     );
     const result = computeDiff(input);
 
@@ -24,8 +27,11 @@ describe('computeDiff', () => {
 
   it('should detect removed records from source', () => {
     const input = makeDiffInput(
-      [{ Id: '1', Name: 'Alice' }, { Id: '2', Name: 'Bob' }],
-      [{ Id: '1', Name: 'Alice' }]
+      [
+        { Id: '1', Name: 'Alice' },
+        { Id: '2', Name: 'Bob' },
+      ],
+      [{ Id: '1', Name: 'Alice' }],
     );
     const result = computeDiff(input);
 
@@ -36,7 +42,7 @@ describe('computeDiff', () => {
   it('should detect modified records with field-level changes', () => {
     const input = makeDiffInput(
       [{ Id: '1', Name: 'Alice', Age: 30 }],
-      [{ Id: '1', Name: 'Alice Updated', Age: 31 }]
+      [{ Id: '1', Name: 'Alice Updated', Age: 31 }],
     );
     const result = computeDiff(input);
 
@@ -50,8 +56,14 @@ describe('computeDiff', () => {
 
   it('should count unchanged records', () => {
     const input = makeDiffInput(
-      [{ Id: '1', Name: 'Alice' }, { Id: '2', Name: 'Bob' }],
-      [{ Id: '1', Name: 'Alice' }, { Id: '2', Name: 'Bob' }]
+      [
+        { Id: '1', Name: 'Alice' },
+        { Id: '2', Name: 'Bob' },
+      ],
+      [
+        { Id: '1', Name: 'Alice' },
+        { Id: '2', Name: 'Bob' },
+      ],
     );
     const result = computeDiff(input);
 
@@ -62,10 +74,7 @@ describe('computeDiff', () => {
   });
 
   it('should handle empty source (all added)', () => {
-    const input = makeDiffInput(
-      [],
-      [{ Id: '1', Name: 'Alice' }]
-    );
+    const input = makeDiffInput([], [{ Id: '1', Name: 'Alice' }]);
     const result = computeDiff(input);
 
     expect(result.added).toHaveLength(1);
@@ -74,10 +83,7 @@ describe('computeDiff', () => {
   });
 
   it('should handle empty target (all removed)', () => {
-    const input = makeDiffInput(
-      [{ Id: '1', Name: 'Alice' }],
-      []
-    );
+    const input = makeDiffInput([{ Id: '1', Name: 'Alice' }], []);
     const result = computeDiff(input);
 
     expect(result.added).toHaveLength(0);
@@ -96,10 +102,7 @@ describe('computeDiff', () => {
   });
 
   it('should not include the key field in changes', () => {
-    const input = makeDiffInput(
-      [{ Id: '1', Name: 'Alice' }],
-      [{ Id: '1', Name: 'Bob' }]
-    );
+    const input = makeDiffInput([{ Id: '1', Name: 'Alice' }], [{ Id: '1', Name: 'Bob' }]);
     const result = computeDiff(input);
 
     expect(result.modified).toHaveLength(1);
@@ -109,7 +112,7 @@ describe('computeDiff', () => {
   it('should detect fields added in target record', () => {
     const input = makeDiffInput(
       [{ Id: '1', Name: 'Alice' }],
-      [{ Id: '1', Name: 'Alice', Email: 'alice@example.com' }]
+      [{ Id: '1', Name: 'Alice', Email: 'alice@example.com' }],
     );
     const result = computeDiff(input);
 
@@ -122,7 +125,7 @@ describe('computeDiff', () => {
   it('should detect fields removed from source record', () => {
     const input = makeDiffInput(
       [{ Id: '1', Name: 'Alice', Phone: '555-1234' }],
-      [{ Id: '1', Name: 'Alice' }]
+      [{ Id: '1', Name: 'Alice' }],
     );
     const result = computeDiff(input);
 
@@ -135,7 +138,7 @@ describe('computeDiff', () => {
   it('should handle object values correctly', () => {
     const input = makeDiffInput(
       [{ Id: '1', Address: { city: 'Paris' } }],
-      [{ Id: '1', Address: { city: 'Lyon' } }]
+      [{ Id: '1', Address: { city: 'Lyon' } }],
     );
     const result = computeDiff(input);
 
@@ -155,7 +158,7 @@ describe('computeDiff', () => {
         { Id: '1', Name: 'Alice' },
         { Id: '2', Name: 'Bob Updated' },
         { Id: '4', Name: 'Diana' },
-      ]
+      ],
     );
     const result = computeDiff(input);
 

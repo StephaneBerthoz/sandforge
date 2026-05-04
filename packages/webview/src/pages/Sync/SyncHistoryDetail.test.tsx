@@ -16,16 +16,18 @@ const makeMockEntry = (): SyncHistoryEntry => ({
     direction: 'source_to_target',
     mode: 'full',
     conflictStrategy: 'source_wins',
-    objects: [{
-      objectApiName: 'Account',
-      operation: 'insert',
-      fieldMappings: [{ sourceField: 'Name', targetField: 'Name', type: 'direct' }],
-      transformRules: [],
-      excludedFields: [],
-      addOnFields: [],
-      batchSize: 200,
-      insertOrder: 0,
-    }],
+    objects: [
+      {
+        objectApiName: 'Account',
+        operation: 'insert',
+        fieldMappings: [{ sourceField: 'Name', targetField: 'Name', type: 'direct' }],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 0,
+      },
+    ],
     enableRollback: false,
     dryRun: false,
     createdAt: '2024-01-01T00:00:00Z',
@@ -117,7 +119,10 @@ describe('SyncHistoryDetail', () => {
 
   it('should call clearSelection when close button is clicked', () => {
     const clearSelectionSpy = vi.fn();
-    useSyncHistoryStore.setState({ selectedEntry: makeMockEntry(), clearSelection: clearSelectionSpy });
+    useSyncHistoryStore.setState({
+      selectedEntry: makeMockEntry(),
+      clearSelection: clearSelectionSpy,
+    });
     render(<SyncHistoryDetail />);
     fireEvent.click(screen.getByTestId('detail-close-btn'));
     expect(clearSelectionSpy).toHaveBeenCalled();

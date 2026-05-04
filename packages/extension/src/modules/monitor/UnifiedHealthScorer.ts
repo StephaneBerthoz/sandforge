@@ -43,8 +43,8 @@ export interface UnifiedHealthInput {
 
 /** Weight configuration for the 5 core limit factors. */
 const CORE_LIMIT_FACTORS: Record<string, LimitFactorConfig> = {
-  DailyApiRequests: { weight: 0.20, category: 'limits' },
-  DataStorageMB: { weight: 0.20, category: 'storage' },
+  DailyApiRequests: { weight: 0.2, category: 'limits' },
+  DataStorageMB: { weight: 0.2, category: 'storage' },
   DailySoqlQueries: { weight: 0.15, category: 'limits' },
   DailyDmlStatements: { weight: 0.15, category: 'limits' },
   DailyAsyncApexExecutions: { weight: 0.15, category: 'jobs' },
@@ -340,9 +340,7 @@ export class UnifiedHealthScorer {
     weightMultiplier: number,
   ): void {
     const coreNames = new Set(Object.keys(CORE_LIMIT_FACTORS));
-    const remainingLimits = input.limits.filter(
-      (l) => !coreNames.has(l.name) && l.usedPercent > 0,
-    );
+    const remainingLimits = input.limits.filter((l) => !coreNames.has(l.name) && l.usedPercent > 0);
 
     if (remainingLimits.length === 0) return;
 
@@ -384,20 +382,22 @@ export class UnifiedHealthScorer {
   ): void {
     if (input.metadataCounts === undefined && input.orgInfo === undefined) return;
 
-    const objCount = input.metadataCounts?.customObjectCount ?? input.orgInfo?.customObjectCount ?? 0;
+    const objCount =
+      input.metadataCounts?.customObjectCount ?? input.orgInfo?.customObjectCount ?? 0;
     const fieldCount = input.metadataCounts?.customFieldCount ?? 0;
     const apexCount = input.metadataCounts?.apexClassCount ?? input.orgInfo?.apexClassCount ?? 0;
 
     const score = Math.round(
       complexityScore(objCount, 50, 500) * 0.4 +
-      complexityScore(fieldCount, 200, 2000) * 0.3 +
-      complexityScore(apexCount, 100, 1000) * 0.3,
+        complexityScore(fieldCount, 200, 2000) * 0.3 +
+        complexityScore(apexCount, 100, 1000) * 0.3,
     );
 
     const detail = `${objCount} custom objects, ${fieldCount} custom fields, ${apexCount} Apex classes`;
-    const recommendation = score < 60
-      ? 'High metadata complexity detected - consider consolidating custom objects and reviewing unused Apex classes'
-      : 'Metadata complexity is manageable';
+    const recommendation =
+      score < 60
+        ? 'High metadata complexity detected - consider consolidating custom objects and reviewing unused Apex classes'
+        : 'Metadata complexity is manageable';
 
     factors.push({
       name: 'Metadata Complexity',
@@ -427,9 +427,10 @@ export class UnifiedHealthScorer {
 
     const score = linearCoverageScore(input.codeCoverage);
     const detail = `${Math.round(input.codeCoverage)}% org-wide Apex code coverage`;
-    const recommendation = input.codeCoverage < 75
-      ? `Code coverage is at ${Math.round(input.codeCoverage)}% - Salesforce requires minimum 75% for deployment`
-      : 'Code coverage meets Salesforce requirements';
+    const recommendation =
+      input.codeCoverage < 75
+        ? `Code coverage is at ${Math.round(input.codeCoverage)}% - Salesforce requires minimum 75% for deployment`
+        : 'Code coverage meets Salesforce requirements';
 
     factors.push({
       name: 'Code Coverage',
@@ -510,13 +511,15 @@ export class UnifiedHealthScorer {
     if (settings.ipRestrictions) score += 15;
     else issues.push('login IP restrictions are not configured');
 
-    const detail = issues.length === 0
-      ? 'All security settings are properly configured'
-      : `${issues.length} security issue(s) found`;
+    const detail =
+      issues.length === 0
+        ? 'All security settings are properly configured'
+        : `${issues.length} security issue(s) found`;
 
-    const recommendation = issues.length === 0
-      ? 'Security configuration is strong'
-      : `Improve security: ${issues.join(', ')}`;
+    const recommendation =
+      issues.length === 0
+        ? 'Security configuration is strong'
+        : `Improve security: ${issues.join(', ')}`;
 
     return { score, detail, recommendation };
   }
@@ -552,10 +555,7 @@ export class UnifiedHealthScorer {
    * @param topRisks - The top risk factors.
    * @returns Summary string.
    */
-  private buildSummary(
-    status: HealthReport['overallStatus'],
-    topRisks: HealthFactor[],
-  ): string {
+  private buildSummary(status: HealthReport['overallStatus'], topRisks: HealthFactor[]): string {
     if (status === 'healthy' && topRisks.length === 0) {
       return 'Your org is healthy. All limits are within safe thresholds.';
     }

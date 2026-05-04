@@ -79,8 +79,7 @@ export class BackupManager {
     }
 
     const endTime = new Date().toISOString();
-    const duration =
-      new Date(endTime).getTime() - new Date(startTime).getTime();
+    const duration = new Date(endTime).getTime() - new Date(startTime).getTime();
 
     const completed: BackupResult = {
       configId: config.id,

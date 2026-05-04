@@ -63,9 +63,11 @@ describe('useBridgeMutation', () => {
     expect(mockPostMessage).toHaveBeenCalledOnce();
 
     // Outbound messages are wrapped in an envelope — unwrap payload.
-    const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage & {
-      payload: { orgId: string; authMethod: string };
-    } };
+    const envelope = mockPostMessage.mock.calls[0][0] as {
+      payload: BaseMessage & {
+        payload: { orgId: string; authMethod: string };
+      };
+    };
     const sentMsg = envelope.payload;
     expect(sentMsg.type).toBe('org:connect');
     expect(sentMsg.payload).toEqual({ orgId: '', authMethod: 'sfdx_import' });
@@ -126,16 +128,12 @@ describe('useBridgeMutation', () => {
     });
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBe(
-      "Bridge mutation 'org:connect' timed out after 5000ms",
-    );
+    expect(result.current.error).toBe("Bridge mutation 'org:connect' timed out after 5000ms");
     expect(result.current.data).toBeNull();
   });
 
   it('should support mutate without payload', () => {
-    const { result } = renderHook(() =>
-      useBridgeMutation<{ orgs: string[] }>('org:list'),
-    );
+    const { result } = renderHook(() => useBridgeMutation<{ orgs: string[] }>('org:list'));
 
     act(() => {
       result.current.mutate();
@@ -196,9 +194,7 @@ describe('useBridgeMutation', () => {
   });
 
   it('should cancel previous mutation when mutate is called again', () => {
-    const { result } = renderHook(() =>
-      useBridgeMutation<{ orgs: string[] }>('org:list'),
-    );
+    const { result } = renderHook(() => useBridgeMutation<{ orgs: string[] }>('org:list'));
 
     act(() => {
       result.current.mutate();

@@ -98,7 +98,16 @@ function createValidCycleResolution(): Record<string, unknown> {
 
 describe('autopilotNodeStatusSchema', () => {
   it('should accept all valid statuses', () => {
-    const statuses = ['pending', 'queued', 'extracting', 'anonymizing', 'loading', 'completed', 'failed', 'skipped'];
+    const statuses = [
+      'pending',
+      'queued',
+      'extracting',
+      'anonymizing',
+      'loading',
+      'completed',
+      'failed',
+      'skipped',
+    ];
     for (const status of statuses) {
       expect(autopilotNodeStatusSchema.parse(status)).toBe(status);
     }
@@ -124,7 +133,18 @@ describe('autopilotRelationshipTypeSchema', () => {
 
 describe('anonymizationMethodSchema', () => {
   it('should accept all valid methods', () => {
-    const methods = ['fake', 'mask', 'hash', 'nullify', 'redact', 'shuffle', 'truncate', 'preserve_format', 'age_band', 'generalize'];
+    const methods = [
+      'fake',
+      'mask',
+      'hash',
+      'nullify',
+      'redact',
+      'shuffle',
+      'truncate',
+      'preserve_format',
+      'age_band',
+      'generalize',
+    ];
     for (const m of methods) {
       expect(anonymizationMethodSchema.parse(m)).toBe(m);
     }
@@ -273,9 +293,7 @@ describe('autopilotEdgeSchema', () => {
   });
 
   it('should reject empty from', () => {
-    expect(() =>
-      autopilotEdgeSchema.parse({ ...createValidAutopilotEdge(), from: '' }),
-    ).toThrow();
+    expect(() => autopilotEdgeSchema.parse({ ...createValidAutopilotEdge(), from: '' })).toThrow();
   });
 });
 
@@ -518,8 +536,6 @@ describe('autopilotEventSchema', () => {
   });
 
   it('should reject unknown event type', () => {
-    expect(() =>
-      autopilotEventSchema.parse({ type: 'unknown-event', timestamp }),
-    ).toThrow();
+    expect(() => autopilotEventSchema.parse({ type: 'unknown-event', timestamp })).toThrow();
   });
 });

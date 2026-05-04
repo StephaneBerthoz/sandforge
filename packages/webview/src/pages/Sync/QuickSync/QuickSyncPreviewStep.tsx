@@ -74,8 +74,12 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                 ? t('sync.partial')
                 : t('sync.failed')}
           </Badge>
-          <span>{t('sync.totalProcessed')}: <strong>{result.totalProcessed}</strong></span>
-          <span>{t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong></span>
+          <span>
+            {t('sync.totalProcessed')}: <strong>{result.totalProcessed}</strong>
+          </span>
+          <span>
+            {t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong>
+          </span>
           {result.totalFailed > 0 && (
             <span className="text-[var(--vscode-errorForeground,#f48771)]">
               {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
@@ -91,18 +95,16 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             {obj.errors.length > 0 && (
               <CardBody>
                 {obj.errors.map((err, i) => (
-                  <p key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">{err}</p>
+                  <p key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">
+                    {err}
+                  </p>
                 ))}
               </CardBody>
             )}
           </Card>
         ))}
         <div className="flex justify-center mt-2">
-          <Button
-            variant="primary"
-            onClick={onReset}
-            data-testid="quick-sync-new-btn"
-          >
+          <Button variant="primary" onClick={onReset} data-testid="quick-sync-new-btn">
             {t('quickSync.newQuickSync')}
           </Button>
         </div>
@@ -120,11 +122,23 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
       {preview && (
         <>
           {/* Summary bar */}
-          <div className="flex items-center gap-4 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]" data-testid="quick-sync-preview-summary">
-            <Badge variant="info">{t('quickSync.objectCount', { count: preview.objects.length })}</Badge>
-            <span>{t('quickSync.totalRecords')}: <strong>{preview.totalRecords}</strong></span>
-            <span>{t('quickSync.totalApiCalls')}: <strong>{preview.totalApiCalls}</strong></span>
-            <span>{t('quickSync.estimatedDuration')}: <strong>{t('quickSync.seconds', { count: preview.estimatedDurationSec })}</strong></span>
+          <div
+            className="flex items-center gap-4 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]"
+            data-testid="quick-sync-preview-summary"
+          >
+            <Badge variant="info">
+              {t('quickSync.objectCount', { count: preview.objects.length })}
+            </Badge>
+            <span>
+              {t('quickSync.totalRecords')}: <strong>{preview.totalRecords}</strong>
+            </span>
+            <span>
+              {t('quickSync.totalApiCalls')}: <strong>{preview.totalApiCalls}</strong>
+            </span>
+            <span>
+              {t('quickSync.estimatedDuration')}:{' '}
+              <strong>{t('quickSync.seconds', { count: preview.estimatedDurationSec })}</strong>
+            </span>
           </div>
 
           {/* Per-object table */}
@@ -159,12 +173,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
         <Button variant="ghost" onClick={onBack} data-testid="quick-sync-preview-back">
           {t('quickSync.back')}
         </Button>
-        <Button
-          variant="primary"
-          size="lg"
-          onClick={onExecute}
-          data-testid="quick-sync-go-btn"
-        >
+        <Button variant="primary" size="lg" onClick={onExecute} data-testid="quick-sync-go-btn">
           {t('quickSync.go')}
         </Button>
       </div>

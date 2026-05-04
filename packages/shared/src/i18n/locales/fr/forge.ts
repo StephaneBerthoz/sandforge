@@ -1,7 +1,8 @@
 import type { TranslationRecord } from '../../types.js';
 
 export const forge: TranslationRecord = {
-  subtitle: "Clonez un graphe de donnees complet entre orgs avec remapping d'IDs et anonymisation PII.",
+  subtitle:
+    "Clonez un graphe de donnees complet entre orgs avec remapping d'IDs et anonymisation PII.",
   selectNode: 'Selectionnez un noeud pour voir les details',
   objects: 'Objets',
   records: 'Enregistrements',
@@ -24,7 +25,8 @@ export const forge: TranslationRecord = {
   recordIdPlaceholder: 'Entrez un ID de record Salesforce (ex: 001xx000003DGbZ)',
   soqlPlaceholder: "SELECT Id FROM Account WHERE Industry = 'Technology'",
   noTemplates: 'Aucun modele enregistre.',
-  aiPlaceholder: 'Decrivez les donnees dont vous avez besoin (ex: "Tous les comptes avec leurs contacts et opportunites")...',
+  aiPlaceholder:
+    'Decrivez les donnees dont vous avez besoin (ex: "Tous les comptes avec leurs contacts et opportunites")...',
   depthDirect: 'Direct uniquement',
   depthFull: 'Arbre complet',
   depthCustom: 'Profondeur personnalisee',
@@ -69,10 +71,13 @@ export const forge: TranslationRecord = {
   'review.cycles': 'Resolutions de cycles',
   'review.category': 'Categorie',
   'review.method': 'Methode',
-  'review.anonymizationDesc': "{count} champs PII detectes. Configurez la methode d'anonymisation par categorie.",
+  'review.anonymizationDesc':
+    "{count} champs PII detectes. Configurez la methode d'anonymisation par categorie.",
   'review.framework': 'Cadre reglementaire',
-  'review.noCompliance': 'Aucun cadre de conformite selectionne. Selectionnez-en un pour generer un rapport.',
-  'review.complianceLoading': 'Selectionnez un cadre et executez pour generer le rapport de conformite.',
+  'review.noCompliance':
+    'Aucun cadre de conformite selectionne. Selectionnez-en un pour generer un rapport.',
+  'review.complianceLoading':
+    'Selectionnez un cadre et executez pour generer le rapport de conformite.',
   'review.complianceStatus': 'Statut',
   'review.noDiffs': 'Aucune difference de metadata detectee.',
   'review.diffsFound': '{count} differences detectees entre la source et la cible.',
@@ -105,7 +110,8 @@ export const forge: TranslationRecord = {
 
   // Volume cap (enregistrements par objet pendant l'execution)
   recordLimit: 'Enregistrements / objet',
-  recordLimitHint: "Limite le nombre de lignes clonees par objet. Plus bas = plus rapide, plus sur sur les grosses orgs.",
+  recordLimitHint:
+    'Limite le nombre de lignes clonees par objet. Plus bas = plus rapide, plus sur sur les grosses orgs.',
   recordLimitAll: 'Tout',
   recordLimitOpt10: '10 / objet (echantillon)',
   recordLimitOpt50: '50 / objet',
@@ -163,7 +169,7 @@ export const forge: TranslationRecord = {
     cannotInsertEntity: {
       explanation:
         "Cette table est en lecture seule (audit/history/system). Salesforce n'accepte pas l'insertion.",
-      action: "Cet objet est desormais skipped automatiquement par le scope (isObjectCreatable).",
+      action: 'Cet objet est desormais skipped automatiquement par le scope (isObjectCreatable).',
     },
     insufficientAccess: {
       explanation: "Ton profile sur la sandbox cible n'a pas les droits suffisants.",

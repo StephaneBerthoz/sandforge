@@ -147,8 +147,7 @@ export const ForgePreviewCard: React.FC<ForgePreviewCardProps> = ({
             {plan.totalApiCalls} {t('forge.apiCalls', 'API calls')}
           </span>
           <span className="flex items-center gap-1.5">
-            <Clock size={11} />
-            ~{plan.estimatedDurationSeconds.toFixed(0)}s
+            <Clock size={11} />~{plan.estimatedDurationSeconds.toFixed(0)}s
           </span>
           {cycleCount > 0 && (
             <span

@@ -88,7 +88,10 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
             />
           )}
           {sourceOrg && targetOrg && (
-            <span className="codicon codicon-arrow-right text-[var(--vscode-text-secondary)]" aria-hidden="true" />
+            <span
+              className="codicon codicon-arrow-right text-[var(--vscode-text-secondary)]"
+              aria-hidden="true"
+            />
           )}
           {targetOrg && (
             <OrgBadge

@@ -25,8 +25,7 @@ function msUntilMidnightPacific(): number {
   });
 
   const parts = formatter.formatToParts(now);
-  const get = (type: string): number =>
-    Number(parts.find((p) => p.type === type)?.value ?? '0');
+  const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? '0');
 
   const pacificHour = get('hour') === 24 ? 0 : get('hour');
   const pacificMinute = get('minute');
@@ -48,9 +47,7 @@ function formatCountdown(ms: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds]
-    .map((n) => String(n).padStart(2, '0'))
-    .join(':');
+  return [hours, minutes, seconds].map((n) => String(n).padStart(2, '0')).join(':');
 }
 
 /**

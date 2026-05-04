@@ -1,8 +1,4 @@
-import type {
-  PipelineStep,
-  PipelineStepResult,
-  PipelineStepType,
-} from '@sandforge/shared';
+import type { PipelineStep, PipelineStepResult, PipelineStepType } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Runtime context passed to step handlers during execution */
@@ -14,10 +10,7 @@ export interface StepContext {
 }
 
 /** Function signature for a step handler that executes a specific step type */
-export type StepHandler = (
-  step: PipelineStep,
-  context: StepContext
-) => Promise<PipelineStepResult>;
+export type StepHandler = (step: PipelineStep, context: StepContext) => Promise<PipelineStepResult>;
 
 /**
  * Creates a successful step result for the given step.
@@ -28,7 +21,7 @@ export type StepHandler = (
 function createSuccessResult(
   step: PipelineStep,
   output: Record<string, unknown>,
-  startTime: string
+  startTime: string,
 ): PipelineStepResult {
   const endTime = new Date().toISOString();
   return {
@@ -52,7 +45,7 @@ function createSuccessResult(
 function createFailureResult(
   step: PipelineStep,
   error: string,
-  startTime: string
+  startTime: string,
 ): PipelineStepResult {
   const endTime = new Date().toISOString();
   return {
@@ -86,10 +79,7 @@ export class StepExecutor {
    * @param context - Runtime context with variables and previous results
    * @returns The result of executing the step
    */
-  async execute(
-    step: PipelineStep,
-    context: StepContext
-  ): Promise<PipelineStepResult> {
+  async execute(step: PipelineStep, context: StepContext): Promise<PipelineStepResult> {
     const handler = this.getExecutor(step.type);
     const maxRetries = step.retries ?? 0;
     let lastError = '';
@@ -141,16 +131,28 @@ export class StepExecutor {
     this.handlers.set(type, handler);
   }
 
-  private readonly defaultHandler: StepHandler = async (step: PipelineStep): Promise<PipelineStepResult> => {
+  private readonly defaultHandler: StepHandler = async (
+    step: PipelineStep,
+  ): Promise<PipelineStepResult> => {
     const startTime = new Date().toISOString();
     return createSuccessResult(step, { message: `Step "${step.name}" completed` }, startTime);
   };
 
   private registerDefaults(): void {
     const passThrough: PipelineStepType[] = [
-      'seed', 'sync', 'backup', 'restore', 'anonymize', 'delete',
-      'compare', 'precheck', 'script', 'notification', 'approval',
-      'loop', 'parallel',
+      'seed',
+      'sync',
+      'backup',
+      'restore',
+      'anonymize',
+      'delete',
+      'compare',
+      'precheck',
+      'script',
+      'notification',
+      'approval',
+      'loop',
+      'parallel',
     ];
 
     for (const type of passThrough) {
@@ -164,9 +166,8 @@ export class StepExecutor {
   private createDelayHandler(): StepHandler {
     return async (step: PipelineStep): Promise<PipelineStepResult> => {
       const startTime = new Date().toISOString();
-      const durationMs = typeof step.config['durationMs'] === 'number'
-        ? step.config['durationMs']
-        : 0;
+      const durationMs =
+        typeof step.config['durationMs'] === 'number' ? step.config['durationMs'] : 0;
 
       await new Promise<void>((resolve) => setTimeout(resolve, durationMs));
 
@@ -186,7 +187,7 @@ export class StepExecutor {
       const conditionMet = this.evaluateSimpleCondition(
         fieldValue,
         step.condition.operator,
-        step.condition.value
+        step.condition.value,
       );
 
       return createSuccessResult(step, { conditionMet }, startTime);
@@ -196,7 +197,7 @@ export class StepExecutor {
   private evaluateSimpleCondition(
     actual: string | undefined,
     operator: string,
-    expected: string | number | boolean
+    expected: string | number | boolean,
   ): boolean {
     const actualStr = actual ?? '';
     const expectedStr = String(expected);

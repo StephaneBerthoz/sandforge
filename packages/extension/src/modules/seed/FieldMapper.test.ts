@@ -14,10 +14,7 @@ function createMockDeps(): FieldMapperDependencies {
   };
 }
 
-function createObjectConfig(
-  fieldRules: FieldRule[],
-  recordCount = 3
-): SeedObjectConfig {
+function createObjectConfig(fieldRules: FieldRule[], recordCount = 3): SeedObjectConfig {
   return {
     objectApiName: 'Account',
     recordCount,
@@ -39,9 +36,10 @@ describe('FieldMapper', () => {
 
   describe('mapFields', () => {
     it('should return empty array for zero record count', async () => {
-      const config = createObjectConfig([
-        { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } },
-      ], 0);
+      const config = createObjectConfig(
+        [{ fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } }],
+        0,
+      );
       const result = await mapper.mapFields(config, new Map());
       expect(result).toEqual([]);
     });
@@ -85,9 +83,10 @@ describe('FieldMapper', () => {
         { Bio: 'AI text 2' },
       ]);
 
-      const config = createObjectConfig([
-        { fieldApiName: 'Bio', ruleType: 'ai_generate', config: { aiPrompt: 'Generate bio' } },
-      ], 2);
+      const config = createObjectConfig(
+        [{ fieldApiName: 'Bio', ruleType: 'ai_generate', config: { aiPrompt: 'Generate bio' } }],
+        2,
+      );
 
       const result = await mapper.mapFields(config, new Map());
       expect(deps.aiGenerator.generate).toHaveBeenCalledTimes(1);
@@ -100,9 +99,10 @@ describe('FieldMapper', () => {
         { Email: 'other@example.com' },
       ]);
 
-      const config = createObjectConfig([
-        { fieldApiName: 'Email', ruleType: 'faker', config: { fakerMethod: 'email' } },
-      ], 2);
+      const config = createObjectConfig(
+        [{ fieldApiName: 'Email', ruleType: 'faker', config: { fakerMethod: 'email' } }],
+        2,
+      );
 
       const result = await mapper.mapFields(config, new Map());
       expect(deps.fakerFallback.generate).toHaveBeenCalledTimes(1);
@@ -111,13 +111,16 @@ describe('FieldMapper', () => {
 
     it('should resolve reference fields from existing IDs', async () => {
       const existingIds = new Map([['Account', ['001AAA', '001BBB']]]);
-      const config = createObjectConfig([
-        {
-          fieldApiName: 'AccountId',
-          ruleType: 'reference',
-          config: { referenceObject: 'Account' },
-        },
-      ], 2);
+      const config = createObjectConfig(
+        [
+          {
+            fieldApiName: 'AccountId',
+            ruleType: 'reference',
+            config: { referenceObject: 'Account' },
+          },
+        ],
+        2,
+      );
 
       const result = await mapper.mapFields(config, existingIds);
       for (const record of result) {
@@ -126,27 +129,31 @@ describe('FieldMapper', () => {
     });
 
     it('should return null for reference with no available IDs', async () => {
-      const config = createObjectConfig([
-        {
-          fieldApiName: 'AccountId',
-          ruleType: 'reference',
-          config: { referenceObject: 'Account' },
-        },
-      ], 1);
+      const config = createObjectConfig(
+        [
+          {
+            fieldApiName: 'AccountId',
+            ruleType: 'reference',
+            config: { referenceObject: 'Account' },
+          },
+        ],
+        1,
+      );
 
       const result = await mapper.mapFields(config, new Map());
       expect(result[0]['AccountId']).toBeNull();
     });
 
     it('should combine multiple rule types in one record', async () => {
-      vi.mocked(deps.fakerFallback.generate).mockReturnValue([
-        { Email: 'a@b.com' },
-      ]);
+      vi.mocked(deps.fakerFallback.generate).mockReturnValue([{ Email: 'a@b.com' }]);
 
-      const config = createObjectConfig([
-        { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } },
-        { fieldApiName: 'Email', ruleType: 'faker', config: { fakerMethod: 'email' } },
-      ], 1);
+      const config = createObjectConfig(
+        [
+          { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } },
+          { fieldApiName: 'Email', ruleType: 'faker', config: { fakerMethod: 'email' } },
+        ],
+        1,
+      );
 
       const result = await mapper.mapFields(config, new Map());
       expect(result[0]['Name']).toBe('Test');
@@ -154,13 +161,16 @@ describe('FieldMapper', () => {
     });
 
     it('should handle picklist_random rule', async () => {
-      const config = createObjectConfig([
-        {
-          fieldApiName: 'Status',
-          ruleType: 'picklist_random',
-          config: { picklistValues: ['Open', 'Closed', 'Pending'] },
-        },
-      ], 5);
+      const config = createObjectConfig(
+        [
+          {
+            fieldApiName: 'Status',
+            ruleType: 'picklist_random',
+            config: { picklistValues: ['Open', 'Closed', 'Pending'] },
+          },
+        ],
+        5,
+      );
 
       const result = await mapper.mapFields(config, new Map());
       for (const record of result) {
@@ -171,7 +181,11 @@ describe('FieldMapper', () => {
 
   describe('generateValue', () => {
     it('should return static value', () => {
-      const rule: FieldRule = { fieldApiName: 'X', ruleType: 'static', config: { staticValue: 42 } };
+      const rule: FieldRule = {
+        fieldApiName: 'X',
+        ruleType: 'static',
+        config: { staticValue: 42 },
+      };
       expect(generateValue(rule, 0, new Map())).toBe(42);
     });
 
@@ -181,17 +195,29 @@ describe('FieldMapper', () => {
     });
 
     it('should return formula string for formula rule', () => {
-      const rule: FieldRule = { fieldApiName: 'X', ruleType: 'formula', config: { formula: 'A + B' } };
+      const rule: FieldRule = {
+        fieldApiName: 'X',
+        ruleType: 'formula',
+        config: { formula: 'A + B' },
+      };
       expect(generateValue(rule, 0, new Map())).toBe('A + B');
     });
 
     it('should return null for from_csv rule', () => {
-      const rule: FieldRule = { fieldApiName: 'X', ruleType: 'from_csv', config: { csvColumn: 'col1' } };
+      const rule: FieldRule = {
+        fieldApiName: 'X',
+        ruleType: 'from_csv',
+        config: { csvColumn: 'col1' },
+      };
       expect(generateValue(rule, 0, new Map())).toBeNull();
     });
 
     it('should return null for unknown rule type', () => {
-      const rule = { fieldApiName: 'X', ruleType: 'unknown_type' as FieldRule['ruleType'], config: {} };
+      const rule = {
+        fieldApiName: 'X',
+        ruleType: 'unknown_type' as FieldRule['ruleType'],
+        config: {},
+      };
       expect(generateValue(rule, 0, new Map())).toBeNull();
     });
   });

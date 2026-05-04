@@ -28,7 +28,7 @@ export class SnapshotManager {
   async createSnapshot(
     orgId: string,
     name: string,
-    types: MetadataComponentType[]
+    types: MetadataComponentType[],
   ): Promise<OrgSnapshot> {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.expiryMs);

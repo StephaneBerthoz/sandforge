@@ -2,10 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { BatchProcessor } from './BatchProcessor';
 import type { BatchResult } from './BatchProcessor';
 
-function createSuccessResult(
-  batchIndex: number,
-  count: number
-): BatchResult {
+function createSuccessResult(batchIndex: number, count: number): BatchResult {
   return {
     batchIndex,
     totalRecords: count,
@@ -108,13 +105,10 @@ describe('BatchProcessor', () => {
       const processor = new BatchProcessor(2);
       const callOrder: number[] = [];
 
-      const results = await processor.processSequential(
-        [1, 2, 3, 4, 5],
-        async (batch, index) => {
-          callOrder.push(index);
-          return createSuccessResult(index, batch.length);
-        }
-      );
+      const results = await processor.processSequential([1, 2, 3, 4, 5], async (batch, index) => {
+        callOrder.push(index);
+        return createSuccessResult(index, batch.length);
+      });
 
       expect(results).toHaveLength(3);
       expect(callOrder).toEqual([0, 1, 2]);
@@ -123,9 +117,8 @@ describe('BatchProcessor', () => {
     it('should return results for each batch', async () => {
       const processor = new BatchProcessor(2);
 
-      const results = await processor.processSequential(
-        [1, 2, 3],
-        async (batch, index) => createSuccessResult(index, batch.length)
+      const results = await processor.processSequential([1, 2, 3], async (batch, index) =>
+        createSuccessResult(index, batch.length),
       );
 
       expect(results[0].totalRecords).toBe(2);
@@ -135,9 +128,8 @@ describe('BatchProcessor', () => {
     it('should handle empty input', async () => {
       const processor = new BatchProcessor(10);
 
-      const results = await processor.processSequential(
-        [],
-        async (batch, index) => createSuccessResult(index, batch.length)
+      const results = await processor.processSequential([], async (batch, index) =>
+        createSuccessResult(index, batch.length),
       );
 
       expect(results).toEqual([]);
@@ -151,7 +143,7 @@ describe('BatchProcessor', () => {
       const results = await processor.processParallel(
         [1, 2, 3, 4],
         async (batch, index) => createSuccessResult(index, batch.length),
-        2
+        2,
       );
 
       expect(results).toHaveLength(2);
@@ -173,7 +165,7 @@ describe('BatchProcessor', () => {
           currentConcurrent--;
           return createSuccessResult(index, batch.length);
         },
-        2
+        2,
       );
 
       expect(results).toHaveLength(5);
@@ -186,7 +178,7 @@ describe('BatchProcessor', () => {
       const results = await processor.processParallel(
         [],
         async (batch, index) => createSuccessResult(index, batch.length),
-        3
+        3,
       );
 
       expect(results).toEqual([]);
@@ -201,7 +193,7 @@ describe('BatchProcessor', () => {
           if (batchIndex === 0) throw new Error('Simulated failure');
           return createSuccessResult(batchIndex, batch.length);
         },
-        2
+        2,
       );
 
       expect(results).toHaveLength(2);
@@ -219,16 +211,13 @@ describe('BatchProcessor', () => {
       let maxConcurrent = 0;
       let currentConcurrent = 0;
 
-      await processor.processParallel(
-        [1, 2, 3, 4, 5, 6],
-        async (batch, index) => {
-          currentConcurrent++;
-          maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
-          await new Promise((resolve) => setTimeout(resolve, 10));
-          currentConcurrent--;
-          return createSuccessResult(index, batch.length);
-        }
-      );
+      await processor.processParallel([1, 2, 3, 4, 5, 6], async (batch, index) => {
+        currentConcurrent++;
+        maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        currentConcurrent--;
+        return createSuccessResult(index, batch.length);
+      });
 
       expect(maxConcurrent).toBeLessThanOrEqual(3);
     });
@@ -238,16 +227,13 @@ describe('BatchProcessor', () => {
       let maxConcurrent = 0;
       let currentConcurrent = 0;
 
-      await processor.processParallel(
-        [1, 2, 3, 4, 5, 6],
-        async (batch, index) => {
-          currentConcurrent++;
-          maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
-          await new Promise((resolve) => setTimeout(resolve, 10));
-          currentConcurrent--;
-          return createSuccessResult(index, batch.length);
-        }
-      );
+      await processor.processParallel([1, 2, 3, 4, 5, 6], async (batch, index) => {
+        currentConcurrent++;
+        maxConcurrent = Math.max(maxConcurrent, currentConcurrent);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        currentConcurrent--;
+        return createSuccessResult(index, batch.length);
+      });
 
       expect(maxConcurrent).toBeLessThanOrEqual(2);
     });

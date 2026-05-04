@@ -71,7 +71,9 @@ const JsonNode: React.FC<{
     return (
       <div className="leading-5" style={{ paddingLeft: depth * 16 }}>
         {keyName !== undefined && (
-          <><span className={typeColors.key}>&quot;{keyName}&quot;</span>: </>
+          <>
+            <span className={typeColors.key}>&quot;{keyName}&quot;</span>:{' '}
+          </>
         )}
         <JsonValue value={value} />
         {comma}
@@ -107,7 +109,9 @@ const JsonNode: React.FC<{
           {expanded ? '\u25BC' : '\u25B6'}
         </span>
         {keyName !== undefined && (
-          <><span className={typeColors.key}>&quot;{keyName}&quot;</span>: </>
+          <>
+            <span className={typeColors.key}>&quot;{keyName}&quot;</span>:{' '}
+          </>
         )}
         {expanded ? (
           <span>{openBracket}</span>
@@ -135,7 +139,8 @@ const JsonNode: React.FC<{
             />
           ))}
           <div className="leading-5" style={{ paddingLeft: depth * 16 }}>
-            {closeBracket}{comma}
+            {closeBracket}
+            {comma}
           </div>
         </>
       )}
@@ -162,13 +167,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
       )}
       data-testid="json-viewer"
     >
-      <JsonNode
-        value={data}
-        depth={0}
-        maxDepth={maxDepth}
-        defaultCollapsed={collapsed}
-        isLast
-      />
+      <JsonNode value={data} depth={0} maxDepth={maxDepth} defaultCollapsed={collapsed} isLast />
     </div>
   );
 };

@@ -2,10 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { BulkApiManager } from './BulkApiManager';
 import type { BulkJobInfo } from './BulkApiManager';
 
-function createJob(
-  id: string,
-  overrides?: Partial<BulkJobInfo>
-): BulkJobInfo {
+function createJob(id: string, overrides?: Partial<BulkJobInfo>): BulkJobInfo {
   return {
     id,
     operation: 'insert',
@@ -223,9 +220,7 @@ describe('BulkApiManager', () => {
       const defaultManager = new BulkApiManager();
 
       for (let i = 0; i < 5; i++) {
-        defaultManager.registerJob(
-          createJob(`job-${i}`, { state: 'InProgress' })
-        );
+        defaultManager.registerJob(createJob(`job-${i}`, { state: 'InProgress' }));
       }
 
       expect(defaultManager.canStartNewJob()).toBe(false);

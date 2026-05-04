@@ -55,7 +55,8 @@ export const settings: TranslationRecord = {
   aiApiKey: 'Cle API Anthropic',
   aiKeyConfigured: 'Cle configuree (masquee)',
   aiKeySaved: 'Cle API enregistree. Rechargez la fenetre pour activer les fonctionnalites IA.',
-  aiHint: "Votre cle API est stockee de facon securisee dans VSCode Secret Storage. Elle est utilisee pour NL2SOQL, Smart Suggestions et les autres fonctionnalites IA.",
+  aiHint:
+    'Votre cle API est stockee de facon securisee dans VSCode Secret Storage. Elle est utilisee pour NL2SOQL, Smart Suggestions et les autres fonctionnalites IA.',
   plugins: 'Plugins',
   pluginEnabled: 'Active',
   pluginDisabled: 'Desactive',

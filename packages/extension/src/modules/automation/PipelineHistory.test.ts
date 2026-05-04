@@ -145,9 +145,15 @@ describe('PipelineHistory', () => {
 
   describe('getRecentRuns', () => {
     it('should return runs across all pipelines sorted by time', () => {
-      history.record(createRun({ id: 'run-1', pipelineId: 'p1', startTime: '2026-01-01T00:00:00Z' }));
-      history.record(createRun({ id: 'run-2', pipelineId: 'p2', startTime: '2026-01-03T00:00:00Z' }));
-      history.record(createRun({ id: 'run-3', pipelineId: 'p1', startTime: '2026-01-02T00:00:00Z' }));
+      history.record(
+        createRun({ id: 'run-1', pipelineId: 'p1', startTime: '2026-01-01T00:00:00Z' }),
+      );
+      history.record(
+        createRun({ id: 'run-2', pipelineId: 'p2', startTime: '2026-01-03T00:00:00Z' }),
+      );
+      history.record(
+        createRun({ id: 'run-3', pipelineId: 'p1', startTime: '2026-01-02T00:00:00Z' }),
+      );
 
       const recent = history.getRecentRuns(2);
 

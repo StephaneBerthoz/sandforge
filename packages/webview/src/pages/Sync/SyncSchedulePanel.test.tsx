@@ -5,7 +5,10 @@ import { SyncSchedulePanel } from './SyncSchedulePanel';
 import { useSyncScheduleStore } from '../../stores/useSyncScheduleStore';
 import type { SyncScheduleEntry } from '@sandforge/shared';
 
-const makeMockSchedule = (id: string, overrides?: Partial<SyncScheduleEntry>): SyncScheduleEntry => ({
+const makeMockSchedule = (
+  id: string,
+  overrides?: Partial<SyncScheduleEntry>,
+): SyncScheduleEntry => ({
   id,
   name: `Schedule ${id}`,
   configId: 'cfg-1',

@@ -58,16 +58,13 @@ export interface TemplateGalleryState {
  * into a unified gallery item list.
  */
 export function useTemplateGallery(): TemplateGalleryState {
-  const savedQuery = useBridgeQuery<TemplateListResponse>(
-    'seed:template:list',
-    undefined,
-    { responseType: 'seed:template:list:response' },
-  );
+  const savedQuery = useBridgeQuery<TemplateListResponse>('seed:template:list', undefined, {
+    responseType: 'seed:template:list:response',
+  });
 
-  const loadMutation = useBridgeMutation<SeedTemplate>(
-    'seed:template:load',
-    { responseType: 'seed:template:load:response' },
-  );
+  const loadMutation = useBridgeMutation<SeedTemplate>('seed:template:load', {
+    responseType: 'seed:template:load:response',
+  });
 
   const [loadResolve, setLoadResolve] = useState<((t: SeedTemplate) => void) | null>(null);
 
@@ -105,10 +102,7 @@ export function useTemplateGallery(): TemplateGalleryState {
     [savedQuery.data],
   );
 
-  const items = useMemo(
-    () => [...prebuiltItems, ...savedItems],
-    [prebuiltItems, savedItems],
-  );
+  const items = useMemo(() => [...prebuiltItems, ...savedItems], [prebuiltItems, savedItems]);
 
   /* Resolve the load mutation when data arrives */
   if (loadMutation.data && loadResolve) {

@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  GovernanceEngine,
-  GovernanceRuleSchema,
-  GovernancePolicySchema,
-} from './GovernanceEngine';
+import { GovernanceEngine, GovernanceRuleSchema, GovernancePolicySchema } from './GovernanceEngine';
 import type {
   GovernanceRule,
   GovernancePolicy,
@@ -183,30 +179,84 @@ describe('GovernanceEngine', () => {
 
     it('should return 100 when all pass', () => {
       const results: GovernanceRuleResult[] = [
-        { ruleId: 'r1', ruleName: 'R1', category: 'security', status: 'pass', actualValue: 0, threshold: 0, message: '', remediation: '' },
-        { ruleId: 'r2', ruleName: 'R2', category: 'security', status: 'pass', actualValue: 0, threshold: 0, message: '', remediation: '' },
+        {
+          ruleId: 'r1',
+          ruleName: 'R1',
+          category: 'security',
+          status: 'pass',
+          actualValue: 0,
+          threshold: 0,
+          message: '',
+          remediation: '',
+        },
+        {
+          ruleId: 'r2',
+          ruleName: 'R2',
+          category: 'security',
+          status: 'pass',
+          actualValue: 0,
+          threshold: 0,
+          message: '',
+          remediation: '',
+        },
       ];
       expect(GovernanceEngine.computeComplianceScore(results)).toBe(100);
     });
 
     it('should return 0 when all fail', () => {
       const results: GovernanceRuleResult[] = [
-        { ruleId: 'r1', ruleName: 'R1', category: 'security', status: 'fail', actualValue: 0, threshold: 0, message: '', remediation: '' },
+        {
+          ruleId: 'r1',
+          ruleName: 'R1',
+          category: 'security',
+          status: 'fail',
+          actualValue: 0,
+          threshold: 0,
+          message: '',
+          remediation: '',
+        },
       ];
       expect(GovernanceEngine.computeComplianceScore(results)).toBe(0);
     });
 
     it('should return 50 for warnings', () => {
       const results: GovernanceRuleResult[] = [
-        { ruleId: 'r1', ruleName: 'R1', category: 'security', status: 'warning', actualValue: 0, threshold: 0, message: '', remediation: '' },
+        {
+          ruleId: 'r1',
+          ruleName: 'R1',
+          category: 'security',
+          status: 'warning',
+          actualValue: 0,
+          threshold: 0,
+          message: '',
+          remediation: '',
+        },
       ];
       expect(GovernanceEngine.computeComplianceScore(results)).toBe(50);
     });
 
     it('should average scores correctly', () => {
       const results: GovernanceRuleResult[] = [
-        { ruleId: 'r1', ruleName: 'R1', category: 'security', status: 'pass', actualValue: 0, threshold: 0, message: '', remediation: '' },
-        { ruleId: 'r2', ruleName: 'R2', category: 'security', status: 'fail', actualValue: 0, threshold: 0, message: '', remediation: '' },
+        {
+          ruleId: 'r1',
+          ruleName: 'R1',
+          category: 'security',
+          status: 'pass',
+          actualValue: 0,
+          threshold: 0,
+          message: '',
+          remediation: '',
+        },
+        {
+          ruleId: 'r2',
+          ruleName: 'R2',
+          category: 'security',
+          status: 'fail',
+          actualValue: 0,
+          threshold: 0,
+          message: '',
+          remediation: '',
+        },
       ];
       expect(GovernanceEngine.computeComplianceScore(results)).toBe(50);
     });

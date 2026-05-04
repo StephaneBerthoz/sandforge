@@ -48,10 +48,17 @@ function mockDescribe(name: string, fields: FieldDescribeResult[] = []): ObjectD
 function mockScanResult(): SchemaScanResult {
   const objectDescribes = new Map<string, ObjectDescribeResult>();
   objectDescribes.set('Account', mockDescribe('Account'));
-  objectDescribes.set('Contact', mockDescribe('Contact', [
-    mockField('Id'),
-    mockField('AccountId', { type: 'reference', referenceTo: ['Account'], relationshipName: 'Account' }),
-  ]));
+  objectDescribes.set(
+    'Contact',
+    mockDescribe('Contact', [
+      mockField('Id'),
+      mockField('AccountId', {
+        type: 'reference',
+        referenceTo: ['Account'],
+        relationshipName: 'Account',
+      }),
+    ]),
+  );
 
   const recordCounts = new Map<string, number>();
   recordCounts.set('Account', 100);
@@ -192,7 +199,11 @@ function mockConfig(): AutopilotConfig {
 }
 
 /** Helper: create a mock AutopilotConnection. */
-function mockConnection(): { describe: ReturnType<typeof vi.fn>; describeGlobal: ReturnType<typeof vi.fn>; query: ReturnType<typeof vi.fn> } {
+function mockConnection(): {
+  describe: ReturnType<typeof vi.fn>;
+  describeGlobal: ReturnType<typeof vi.fn>;
+  query: ReturnType<typeof vi.fn>;
+} {
   return {
     describe: vi.fn(),
     describeGlobal: vi.fn(),
@@ -263,9 +274,14 @@ describe('AutopilotOrchestrator', () => {
       expect(recordCounts.get('Contact')).toBe(200);
 
       // Verify Contact fields were converted correctly
-      const contactDescribe = describes.get('Contact') as { name: string; fields: Array<{ name: string; type: string; referenceTo: string[] }> };
+      const contactDescribe = describes.get('Contact') as {
+        name: string;
+        fields: Array<{ name: string; type: string; referenceTo: string[] }>;
+      };
       expect(contactDescribe.name).toBe('Contact');
-      const accountIdField = contactDescribe.fields.find((f: { name: string }) => f.name === 'AccountId');
+      const accountIdField = contactDescribe.fields.find(
+        (f: { name: string }) => f.name === 'AccountId',
+      );
       expect(accountIdField).toBeDefined();
       expect(accountIdField?.type).toBe('reference');
       expect(accountIdField?.referenceTo).toEqual(['Account']);

@@ -37,7 +37,7 @@ export class BatchProcessor {
   /** Process batches sequentially, one after another */
   async processSequential<T>(
     records: T[],
-    processor: (batch: T[], batchIndex: number) => Promise<BatchResult>
+    processor: (batch: T[], batchIndex: number) => Promise<BatchResult>,
   ): Promise<BatchResult[]> {
     const batches = this.createBatches(records);
     const results: BatchResult[] = [];
@@ -57,11 +57,10 @@ export class BatchProcessor {
   async processParallel<T>(
     records: T[],
     processor: (batch: T[], batchIndex: number) => Promise<BatchResult>,
-    concurrency?: number
+    concurrency?: number,
   ): Promise<BatchResult[]> {
-    const effectiveConcurrency = concurrency !== undefined
-      ? Math.max(1, Math.min(concurrency, 20))
-      : this.defaultConcurrency;
+    const effectiveConcurrency =
+      concurrency !== undefined ? Math.max(1, Math.min(concurrency, 20)) : this.defaultConcurrency;
     const batches = this.createBatches(records);
     const results: BatchResult[] = new Array<BatchResult>(batches.length);
     let nextIndex = 0;
@@ -83,9 +82,8 @@ export class BatchProcessor {
       }
     }
 
-    const workers = Array.from(
-      { length: Math.min(effectiveConcurrency, batches.length) },
-      () => runWorker()
+    const workers = Array.from({ length: Math.min(effectiveConcurrency, batches.length) }, () =>
+      runWorker(),
     );
     await Promise.all(workers);
     return results;

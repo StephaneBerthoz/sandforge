@@ -7,8 +7,12 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 
 class InMemoryBackend implements ConfigStoreBackend {
   private data: Record<string, ConfigEntry> = {};
-  getData(): Record<string, ConfigEntry> { return { ...this.data }; }
-  setData(data: Record<string, ConfigEntry>): void { this.data = { ...data }; }
+  getData(): Record<string, ConfigEntry> {
+    return { ...this.data };
+  }
+  setData(data: Record<string, ConfigEntry>): void {
+    this.data = { ...data };
+  }
 }
 
 function createMockDeps(store: ConfigStore): HandlerDeps {
@@ -47,7 +51,9 @@ describe('ConfigHandler', () => {
     store.set('sync:mapping-1', { source: 'Account' }, 'syncMappings');
 
     const msg: BaseMessage & { payload: { categories: string[] } } = {
-      id: '1', type: 'config:export', timestamp: Date.now(),
+      id: '1',
+      type: 'config:export',
+      timestamp: Date.now(),
       payload: { categories: ['syncMappings'] },
     };
 
@@ -73,7 +79,9 @@ describe('ConfigHandler', () => {
     };
 
     const msg: BaseMessage & { payload: { json: string; overwrite: boolean } } = {
-      id: '1', type: 'config:import', timestamp: Date.now(),
+      id: '1',
+      type: 'config:import',
+      timestamp: Date.now(),
       payload: { json: JSON.stringify(profile), overwrite: true },
     };
 
@@ -112,7 +120,9 @@ describe('ConfigHandler', () => {
     };
 
     const msg: BaseMessage & { payload: { json: string } } = {
-      id: '1', type: 'config:validate', timestamp: Date.now(),
+      id: '1',
+      type: 'config:validate',
+      timestamp: Date.now(),
       payload: { json: JSON.stringify(profile) },
     };
 
@@ -125,7 +135,9 @@ describe('ConfigHandler', () => {
 
   it('handles config:validate with invalid JSON', async () => {
     const msg: BaseMessage & { payload: { json: string } } = {
-      id: '1', type: 'config:validate', timestamp: Date.now(),
+      id: '1',
+      type: 'config:validate',
+      timestamp: Date.now(),
       payload: { json: 'not-json' },
     };
 

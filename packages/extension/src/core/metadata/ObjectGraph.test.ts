@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { ObjectGraph } from './ObjectGraph';
 import type { GraphEdge } from './ObjectGraph';
 
-function createEdge(overrides: Partial<GraphEdge> & Pick<GraphEdge, 'source' | 'target'>): GraphEdge {
+function createEdge(
+  overrides: Partial<GraphEdge> & Pick<GraphEdge, 'source' | 'target'>,
+): GraphEdge {
   return {
     fieldName: `${overrides.target}Id`,
     type: 'lookup',
@@ -168,7 +170,14 @@ describe('ObjectGraph', () => {
   it('should handle self-reference edges', () => {
     const graph = new ObjectGraph();
     graph.addNode('Account');
-    graph.addEdge(createEdge({ source: 'Account', target: 'Account', type: 'self_reference', fieldName: 'ParentId' }));
+    graph.addEdge(
+      createEdge({
+        source: 'Account',
+        target: 'Account',
+        type: 'self_reference',
+        fieldName: 'ParentId',
+      }),
+    );
 
     expect(graph.nodeCount).toBe(1);
     expect(graph.edgeCount).toBe(1);
@@ -179,7 +188,9 @@ describe('ObjectGraph', () => {
   it('should not duplicate adjacency entries for multiple edges between same nodes', () => {
     const graph = new ObjectGraph();
     graph.addEdge(createEdge({ source: 'Contact', target: 'Account', fieldName: 'AccountId' }));
-    graph.addEdge(createEdge({ source: 'Contact', target: 'Account', fieldName: 'ReportsToAccountId' }));
+    graph.addEdge(
+      createEdge({ source: 'Contact', target: 'Account', fieldName: 'ReportsToAccountId' }),
+    );
 
     // Two edge records stored
     expect(graph.edgeCount).toBe(2);

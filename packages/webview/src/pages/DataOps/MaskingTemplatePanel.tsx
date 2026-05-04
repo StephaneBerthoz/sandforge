@@ -43,7 +43,9 @@ const RULE_TYPE_ICONS: Record<string, string> = {
 };
 
 /** Badge variant for rule types. */
-function ruleTypeBadgeVariant(ruleType: string): 'default' | 'info' | 'warning' | 'success' | 'error' {
+function ruleTypeBadgeVariant(
+  ruleType: string,
+): 'default' | 'info' | 'warning' | 'success' | 'error' {
   switch (ruleType) {
     case 'fake':
       return 'info';
@@ -78,9 +80,7 @@ export const MaskingTemplatePanel: React.FC<MaskingTemplatePanelProps> = ({
     if (!search.trim()) return templates;
     const q = search.toLowerCase();
     return templates.filter(
-      (t) =>
-        t.objectApiName.toLowerCase().includes(q) ||
-        t.label.toLowerCase().includes(q),
+      (t) => t.objectApiName.toLowerCase().includes(q) || t.label.toLowerCase().includes(q),
     );
   }, [templates, search]);
 
@@ -157,9 +157,14 @@ export const MaskingTemplatePanel: React.FC<MaskingTemplatePanelProps> = ({
 
   if (templates.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-text-muted" data-testid="masking-empty">
+      <div
+        className="flex flex-col items-center justify-center py-8 text-text-muted"
+        data-testid="masking-empty"
+      >
         <Shield className="w-8 h-8 mb-2 opacity-50" />
-        <span className="text-xs">{t('dataops.masking.noTemplates', 'No masking templates available')}</span>
+        <span className="text-xs">
+          {t('dataops.masking.noTemplates', 'No masking templates available')}
+        </span>
       </div>
     );
   }
@@ -174,7 +179,10 @@ export const MaskingTemplatePanel: React.FC<MaskingTemplatePanelProps> = ({
       </div>
 
       <p className="text-xs text-text-secondary">
-        {t('dataops.masking.description', 'Pre-built anonymization rules for common Salesforce objects. Select fields to mask and apply.')}
+        {t(
+          'dataops.masking.description',
+          'Pre-built anonymization rules for common Salesforce objects. Select fields to mask and apply.',
+        )}
       </p>
 
       {/* Search */}
@@ -225,9 +233,7 @@ export const MaskingTemplatePanel: React.FC<MaskingTemplatePanelProps> = ({
                 <span className="text-[10px] text-text-muted">
                   {template.rules.length} {t('dataops.masking.fields', 'fields')}
                 </span>
-                {selectedCount > 0 && (
-                  <Badge variant="info">{selectedCount}</Badge>
-                )}
+                {selectedCount > 0 && <Badge variant="info">{selectedCount}</Badge>}
               </button>
 
               {/* Expanded rules */}
@@ -288,9 +294,7 @@ export const MaskingTemplatePanel: React.FC<MaskingTemplatePanelProps> = ({
                         <span className="text-[10px] text-text-secondary flex-1 truncate">
                           {rule.description}
                         </span>
-                        {rule.recommended && (
-                          <Check className="w-3 h-3 text-green-400 shrink-0" />
-                        )}
+                        {rule.recommended && <Check className="w-3 h-3 text-green-400 shrink-0" />}
                       </label>
                     );
                   })}
@@ -302,13 +306,18 @@ export const MaskingTemplatePanel: React.FC<MaskingTemplatePanelProps> = ({
                       size="sm"
                       className="mt-2"
                       onClick={() =>
-                        onApply(template.objectApiName, getSelectedRulesForObject(template.objectApiName))
+                        onApply(
+                          template.objectApiName,
+                          getSelectedRulesForObject(template.objectApiName),
+                        )
                       }
                       loading={isApplying}
                       data-testid={`apply-${template.objectApiName}`}
                     >
-                      {t('dataops.masking.apply', 'Apply {{count}} rules')
-                        .replace('{{count}}', String(selectedCount))}
+                      {t('dataops.masking.apply', 'Apply {{count}} rules').replace(
+                        '{{count}}',
+                        String(selectedCount),
+                      )}
                     </Button>
                   )}
                 </div>

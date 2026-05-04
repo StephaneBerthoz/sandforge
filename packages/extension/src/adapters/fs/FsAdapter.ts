@@ -70,13 +70,9 @@ export class FsAdapter {
     const escapes = rel === '' ? false : rel.startsWith('..') || path.isAbsolute(rel);
     if (escapes) {
       const err = new Error(
-        `[FsAdapter] ${op} refused: "${relPath}" escapes workspace root "${workspaceRoot}"`
+        `[FsAdapter] ${op} refused: "${relPath}" escapes workspace root "${workspaceRoot}"`,
       );
-      this.telemetry.addBreadcrumb(
-        `fs-path-traversal op=${op} rel=${relPath}`,
-        'fs',
-        'error'
-      );
+      this.telemetry.addBreadcrumb(`fs-path-traversal op=${op} rel=${relPath}`, 'fs', 'error');
       throw err;
     }
     return candidate;

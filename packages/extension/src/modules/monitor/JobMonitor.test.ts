@@ -93,9 +93,7 @@ describe('JobMonitor', () => {
     });
 
     it('should return empty when all jobs are completed', async () => {
-      vi.mocked(queryJobs).mockResolvedValue([
-        { ...createMockJobs()[0], status: 'Completed' },
-      ]);
+      vi.mocked(queryJobs).mockResolvedValue([{ ...createMockJobs()[0], status: 'Completed' }]);
       await monitor.fetch('org-1');
       expect(monitor.getActiveJobs('org-1')).toEqual([]);
     });
@@ -111,9 +109,7 @@ describe('JobMonitor', () => {
     });
 
     it('should return empty array when no jobs have failed', async () => {
-      vi.mocked(queryJobs).mockResolvedValue([
-        { ...createMockJobs()[0], status: 'Completed' },
-      ]);
+      vi.mocked(queryJobs).mockResolvedValue([{ ...createMockJobs()[0], status: 'Completed' }]);
       await monitor.fetch('org-1');
       expect(monitor.getFailedJobs('org-1')).toEqual([]);
     });
