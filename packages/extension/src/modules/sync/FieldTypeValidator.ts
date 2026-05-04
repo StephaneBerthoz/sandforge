@@ -69,8 +69,15 @@ export interface RecordValidationError {
  */
 const COMPATIBLE_TYPES: Record<string, Set<string>> = {
   string: new Set([
-    'string', 'textarea', 'richtext', 'phone', 'email', 'url',
-    'picklist', 'multipicklist', 'encryptedstring',
+    'string',
+    'textarea',
+    'richtext',
+    'phone',
+    'email',
+    'url',
+    'picklist',
+    'multipicklist',
+    'encryptedstring',
   ]),
   int: new Set(['int', 'double', 'currency', 'percent', 'string']),
   double: new Set(['double', 'currency', 'percent', 'string']),
@@ -261,10 +268,7 @@ export class FieldTypeValidator {
    * Validate that a value matches the expected field type.
    * Returns an error message if invalid, or undefined if valid.
    */
-  private validateValueType(
-    value: unknown,
-    field: TargetFieldDescriptor,
-  ): string | undefined {
+  private validateValueType(value: unknown, field: TargetFieldDescriptor): string | undefined {
     const type = field.type.toLowerCase();
 
     switch (type) {

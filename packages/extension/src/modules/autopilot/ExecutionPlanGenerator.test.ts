@@ -11,10 +11,7 @@ import type {
 } from '@sandforge/shared';
 
 /** Helper to create a minimal AutopilotNode */
-function makeNode(
-  objectApiName: string,
-  overrides: Partial<AutopilotNode> = {},
-): AutopilotNode {
+function makeNode(objectApiName: string, overrides: Partial<AutopilotNode> = {}): AutopilotNode {
   return {
     objectApiName,
     recordCount: 100,
@@ -35,11 +32,7 @@ function makeNode(
 }
 
 /** Helper to create a minimal AutopilotEdge */
-function makeEdge(
-  from: string,
-  to: string,
-  overrides: Partial<AutopilotEdge> = {},
-): AutopilotEdge {
+function makeEdge(from: string, to: string, overrides: Partial<AutopilotEdge> = {}): AutopilotEdge {
   return {
     from,
     to,
@@ -64,9 +57,7 @@ function makeStats(overrides: Partial<GraphStats> = {}): GraphStats {
 }
 
 /** Helper to create a minimal AnonymizationSummary */
-function makeSummary(
-  overrides: Partial<AnonymizationSummary> = {},
-): AnonymizationSummary {
+function makeSummary(overrides: Partial<AnonymizationSummary> = {}): AnonymizationSummary {
   return {
     totalPiiFields: 0,
     totalFieldsToAnonymize: 0,
@@ -94,12 +85,8 @@ function makeGraph(
   cycles: CycleResolution[] = [],
 ): AutopilotGraph {
   const totalRecords = nodes.reduce((sum, n) => sum + n.recordCount, 0);
-  const totalEstimatedApiCalls = nodes.reduce(
-    (sum, n) => sum + n.estimatedApiCalls,
-    0,
-  );
-  const maxDepth =
-    nodes.length > 0 ? Math.max(...nodes.map((n) => n.level)) : 0;
+  const totalEstimatedApiCalls = nodes.reduce((sum, n) => sum + n.estimatedApiCalls, 0);
+  const maxDepth = nodes.length > 0 ? Math.max(...nodes.map((n) => n.level)) : 0;
 
   return {
     nodes,
@@ -150,10 +137,7 @@ describe('ExecutionPlanGenerator', () => {
       makeNode('Contact', { insertOrder: 1, level: 1, estimatedApiCalls: 5 }),
       makeNode('Case', { insertOrder: 2, level: 2, estimatedApiCalls: 2 }),
     ];
-    const edges = [
-      makeEdge('Account', 'Contact'),
-      makeEdge('Contact', 'Case'),
-    ];
+    const edges = [makeEdge('Account', 'Contact'), makeEdge('Contact', 'Case')];
     const graph = makeGraph(nodes, edges);
     const plan = generator.generate(graph, framework, summary);
 
@@ -193,12 +177,7 @@ describe('ExecutionPlanGenerator', () => {
       makeNode('C', { insertOrder: 2, level: 1, estimatedApiCalls: 3 }),
       makeNode('D', { insertOrder: 3, level: 2, estimatedApiCalls: 1 }),
     ];
-    const edges = [
-      makeEdge('A', 'B'),
-      makeEdge('A', 'C'),
-      makeEdge('B', 'D'),
-      makeEdge('C', 'D'),
-    ];
+    const edges = [makeEdge('A', 'B'), makeEdge('A', 'C'), makeEdge('B', 'D'), makeEdge('C', 'D')];
     const graph = makeGraph(nodes, edges);
     const plan = generator.generate(graph, framework, summary);
 
@@ -258,9 +237,7 @@ describe('ExecutionPlanGenerator', () => {
     const customGenerator = new ExecutionPlanGenerator({
       avgSecondsPerApiCall: 1.0,
     });
-    const nodes = [
-      makeNode('Account', { insertOrder: 0, level: 0, estimatedApiCalls: 4 }),
-    ];
+    const nodes = [makeNode('Account', { insertOrder: 0, level: 0, estimatedApiCalls: 4 })];
     const graph = makeGraph(nodes);
     const plan = customGenerator.generate(graph, framework, summary);
 
@@ -269,9 +246,7 @@ describe('ExecutionPlanGenerator', () => {
   });
 
   it('should pass through the compliance framework in the plan', () => {
-    const graph = makeGraph([
-      makeNode('Account', { insertOrder: 0, level: 0 }),
-    ]);
+    const graph = makeGraph([makeNode('Account', { insertOrder: 0, level: 0 })]);
 
     const hipaaplan = generator.generate(graph, 'hipaa', summary);
     expect(hipaaplan.complianceFramework).toBe('hipaa');

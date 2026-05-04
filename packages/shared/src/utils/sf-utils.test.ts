@@ -219,7 +219,9 @@ describe('estimateApiCalls', () => {
   });
 
   it('should throw for Infinity batchSize', () => {
-    expect(() => estimateApiCalls(100, Infinity)).toThrow('batchSize must be a finite positive number');
+    expect(() => estimateApiCalls(100, Infinity)).toThrow(
+      'batchSize must be a finite positive number',
+    );
   });
 
   it('should throw for NaN batchSize', () => {
@@ -276,8 +278,12 @@ describe('sanitizeSoqlObjectName', () => {
   });
 
   it('should throw for SOQL injection attempts', () => {
-    expect(() => sanitizeSoqlObjectName('Account; DELETE')).toThrow('Invalid Salesforce object API name');
-    expect(() => sanitizeSoqlObjectName("Account' OR 1=1--")).toThrow('Invalid Salesforce object API name');
+    expect(() => sanitizeSoqlObjectName('Account; DELETE')).toThrow(
+      'Invalid Salesforce object API name',
+    );
+    expect(() => sanitizeSoqlObjectName("Account' OR 1=1--")).toThrow(
+      'Invalid Salesforce object API name',
+    );
     expect(() => sanitizeSoqlObjectName('<script>')).toThrow('Invalid Salesforce object API name');
   });
 

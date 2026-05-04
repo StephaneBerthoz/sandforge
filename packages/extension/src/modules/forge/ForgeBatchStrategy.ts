@@ -33,9 +33,7 @@ export class ForgeBatchStrategy {
    * @returns Resolved strategy with API type, batch size, and batch count.
    */
   resolve(strategy: StrategyType, recordCount: number): ResolvedBatchStrategy {
-    const api = strategy === 'auto'
-      ? (recordCount > BULK_THRESHOLD ? 'bulk' : 'rest')
-      : strategy;
+    const api = strategy === 'auto' ? (recordCount > BULK_THRESHOLD ? 'bulk' : 'rest') : strategy;
 
     const batchSize = api === 'bulk' ? BULK_BATCH_SIZE : REST_BATCH_SIZE;
     const batchCount = Math.max(1, Math.ceil(recordCount / batchSize));

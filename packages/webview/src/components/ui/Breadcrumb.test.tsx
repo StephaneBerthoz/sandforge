@@ -31,10 +31,7 @@ describe('Breadcrumb', () => {
 
   it('should call onClick when an ancestor is clicked', () => {
     const onClick = vi.fn();
-    const navItems: BreadcrumbItem[] = [
-      { label: 'Home', onClick },
-      { label: 'Current' },
-    ];
+    const navItems: BreadcrumbItem[] = [{ label: 'Home', onClick }, { label: 'Current' }];
     render(<Breadcrumb items={navItems} />);
     fireEvent.click(screen.getByLabelText('Navigate to Home'));
     expect(onClick).toHaveBeenCalledOnce();

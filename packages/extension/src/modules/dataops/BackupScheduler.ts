@@ -108,10 +108,7 @@ export class BackupScheduler {
    * @param retentionDays - Number of days to retain backups
    * @returns Retention check result with expired and retained lists
    */
-  checkRetention(
-    backups: BackupResult[],
-    retentionDays: number,
-  ): RetentionCheckResult {
+  checkRetention(backups: BackupResult[], retentionDays: number): RetentionCheckResult {
     const now = new Date();
     const cutoff = new Date(now);
     cutoff.setDate(cutoff.getDate() - retentionDays);
@@ -144,10 +141,7 @@ export class BackupScheduler {
    * @param retentionDays - Number of days to retain
    * @returns Array of backup operation IDs to clean up
    */
-  getCleanupCandidates(
-    backups: BackupResult[],
-    retentionDays: number,
-  ): string[] {
+  getCleanupCandidates(backups: BackupResult[], retentionDays: number): string[] {
     const { expiredBackups } = this.checkRetention(backups, retentionDays);
     const failedBackups = backups.filter((b) => b.status === 'failed');
 

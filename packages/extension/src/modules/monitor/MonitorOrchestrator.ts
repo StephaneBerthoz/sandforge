@@ -10,17 +10,10 @@ import type { CoreServices } from '../../services.js';
 import { MetricBus, type MetricBusBridge } from './MetricBus.js';
 
 /** Events emitted by the MonitorOrchestrator */
-export type MonitorEvent =
-  | 'started'
-  | 'stopped'
-  | 'healthUpdated'
-  | 'error';
+export type MonitorEvent = 'started' | 'stopped' | 'healthUpdated' | 'error';
 
 /** Handler function for monitor events */
-export type MonitorEventHandler = (
-  event: MonitorEvent,
-  data: unknown
-) => void;
+export type MonitorEventHandler = (event: MonitorEvent, data: unknown) => void;
 
 /** Dependencies required by the MonitorOrchestrator */
 export interface MonitorDependencies {

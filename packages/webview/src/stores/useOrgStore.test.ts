@@ -89,10 +89,7 @@ describe('useOrgStore', () => {
   });
 
   it('should remove an org by id', () => {
-    const orgs = [
-      createMockOrg({ id: 'org-001' }),
-      createMockOrg({ id: 'org-002' }),
-    ];
+    const orgs = [createMockOrg({ id: 'org-001' }), createMockOrg({ id: 'org-002' })];
     getState().setOrgs(orgs);
 
     getState().removeOrg('org-001');
@@ -111,10 +108,7 @@ describe('useOrgStore', () => {
   });
 
   it('should preserve selectedOrgId when a different org is removed', () => {
-    getState().setOrgs([
-      createMockOrg({ id: 'org-001' }),
-      createMockOrg({ id: 'org-002' }),
-    ]);
+    getState().setOrgs([createMockOrg({ id: 'org-001' }), createMockOrg({ id: 'org-002' })]);
     getState().selectOrg('org-002');
 
     getState().removeOrg('org-001');

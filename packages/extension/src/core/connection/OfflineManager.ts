@@ -195,7 +195,9 @@ export class OfflineManager {
    * Drain the queue by executing all pending operations FIFO.
    * Calls progressCallback with (processed, total) for each operation.
    */
-  async drainQueue(progressCallback?: DrainProgressCallback): Promise<{ executed: number; failed: number }> {
+  async drainQueue(
+    progressCallback?: DrainProgressCallback,
+  ): Promise<{ executed: number; failed: number }> {
     if (this.draining || this.queue.length === 0 || !this.operationExecutor) {
       return { executed: 0, failed: 0 };
     }

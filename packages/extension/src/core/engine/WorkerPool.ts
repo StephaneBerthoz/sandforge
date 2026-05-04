@@ -52,7 +52,9 @@ export class WorkerPool {
   /** Execute a task, queuing it if all workers are busy */
   async execute<T>(task: WorkerTask): Promise<T> {
     if (this.isShutdown) {
-      throw new Error('Worker pool is shut down and cannot accept new tasks. Create a new WorkerPool instance to continue.');
+      throw new Error(
+        'Worker pool is shut down and cannot accept new tasks. Create a new WorkerPool instance to continue.',
+      );
     }
 
     const idleWorker = this.workers.find((w) => !w.busy);
@@ -141,9 +143,7 @@ export class WorkerPool {
     const queued = this.taskQueue.shift();
     if (!queued) return;
 
-    this.runOnWorker(idleWorker, queued.task)
-      .then(queued.resolve)
-      .catch(queued.reject);
+    this.runOnWorker(idleWorker, queued.task).then(queued.resolve).catch(queued.reject);
   }
 
   /** Wait until all workers are idle */

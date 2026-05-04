@@ -20,15 +20,22 @@ export const ComplianceTimeline: React.FC = () => {
   const entries: TimelineEntry[] = React.useMemo(() => {
     if (!graph) return [];
     return graph.nodes
-      .filter((n) => n.status === 'completed' || n.status === 'loading' || n.status === 'anonymizing')
+      .filter(
+        (n) => n.status === 'completed' || n.status === 'loading' || n.status === 'anonymizing',
+      )
       .map((node) => {
         const nodeRuleCount = rules.filter((r) => r.objectApiName === node.objectApiName).length;
         return {
-          timestamp: new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date()),
+          timestamp: new Intl.DateTimeFormat(undefined, {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }).format(new Date()),
           objectName: node.objectApiName,
-          event: node.status === 'anonymizing'
-            ? t('autopilot.graph.anonymizing')
-            : t('autopilot.graph.completed'),
+          event:
+            node.status === 'anonymizing'
+              ? t('autopilot.graph.anonymizing')
+              : t('autopilot.graph.completed'),
           fieldsAnonymized: nodeRuleCount,
         };
       });
@@ -36,7 +43,10 @@ export const ComplianceTimeline: React.FC = () => {
 
   if (entries.length === 0) {
     return (
-      <div className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]" data-testid="compliance-timeline-empty">
+      <div
+        className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="compliance-timeline-empty"
+      >
         {t('common.noData')}
       </div>
     );
@@ -60,7 +70,8 @@ export const ComplianceTimeline: React.FC = () => {
               </span>
             </div>
             <div className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-              {entry.event} — {entry.fieldsAnonymized} {t('autopilot.control.piiFields').toLowerCase()}
+              {entry.event} — {entry.fieldsAnonymized}{' '}
+              {t('autopilot.control.piiFields').toLowerCase()}
             </div>
           </div>
         </div>

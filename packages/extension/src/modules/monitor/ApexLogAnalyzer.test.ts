@@ -21,11 +21,13 @@ describe('ApexLogAnalyzer', () => {
   let fetchLogs: FetchLogsFn;
 
   beforeEach(() => {
-    fetchLogs = vi.fn<FetchLogsFn>().mockResolvedValue([
-      createMockLog({ id: 'log-1', durationMs: 1000, logSize: 5000 }),
-      createMockLog({ id: 'log-2', durationMs: 8000, logSize: 60000 }),
-      createMockLog({ id: 'log-3', durationMs: 500, logSize: 200 }),
-    ]);
+    fetchLogs = vi
+      .fn<FetchLogsFn>()
+      .mockResolvedValue([
+        createMockLog({ id: 'log-1', durationMs: 1000, logSize: 5000 }),
+        createMockLog({ id: 'log-2', durationMs: 8000, logSize: 60000 }),
+        createMockLog({ id: 'log-3', durationMs: 500, logSize: 200 }),
+      ]);
     analyzer = new ApexLogAnalyzer(fetchLogs);
   });
 
@@ -72,7 +74,9 @@ describe('ApexLogAnalyzer', () => {
       const log = createMockLog({ logSize: 45000 });
       const result = analyzer.analyze(log);
       const soqlIssues = result.issues.filter(
-        (i) => i.type === 'soql_in_loop' || (i.type === 'governor_warning' && i.message.includes('SOQL'))
+        (i) =>
+          i.type === 'soql_in_loop' ||
+          (i.type === 'governor_warning' && i.message.includes('SOQL')),
       );
       expect(soqlIssues.length).toBeGreaterThan(0);
     });
@@ -81,7 +85,7 @@ describe('ApexLogAnalyzer', () => {
       const log = createMockLog({ logSize: 50000 });
       const result = analyzer.analyze(log);
       const criticalSoql = result.issues.filter(
-        (i) => i.type === 'soql_in_loop' && i.severity === 'critical'
+        (i) => i.type === 'soql_in_loop' && i.severity === 'critical',
       );
       expect(criticalSoql).toHaveLength(1);
     });

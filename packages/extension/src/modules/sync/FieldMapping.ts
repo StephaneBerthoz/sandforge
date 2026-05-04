@@ -10,10 +10,7 @@ export class FieldMappingService {
    * Apply field mappings to a source record, producing a mapped target record.
    * Each mapping type controls how the source field value is transferred.
    */
-  apply(
-    record: Record<string, unknown>,
-    mappings: FieldMapping[]
-  ): Record<string, unknown> {
+  apply(record: Record<string, unknown>, mappings: FieldMapping[]): Record<string, unknown> {
     const result: Record<string, unknown> = {};
 
     for (const mapping of mappings) {
@@ -30,10 +27,7 @@ export class FieldMappingService {
    * Apply add-on fields to a record, injecting constant values.
    * Respects the overwriteExisting flag on each add-on field.
    */
-  applyAddOns(
-    record: Record<string, unknown>,
-    addOns: AddOnField[]
-  ): Record<string, unknown> {
+  applyAddOns(record: Record<string, unknown>, addOns: AddOnField[]): Record<string, unknown> {
     const result: Record<string, unknown> = { ...record };
 
     for (const addOn of addOns) {
@@ -54,10 +48,7 @@ const EXCLUDE = Symbol('exclude');
  * Apply a single field mapping to a source record.
  * Returns undefined for exclude mappings, the mapped value otherwise.
  */
-function applyMapping(
-  record: Record<string, unknown>,
-  mapping: FieldMapping
-): unknown {
+function applyMapping(record: Record<string, unknown>, mapping: FieldMapping): unknown {
   const handler = MAPPING_HANDLERS[mapping.type];
   const value = handler(record, mapping);
   if (value === EXCLUDE) {
@@ -66,10 +57,7 @@ function applyMapping(
   return value;
 }
 
-type MappingHandler = (
-  record: Record<string, unknown>,
-  mapping: FieldMapping
-) => unknown;
+type MappingHandler = (record: Record<string, unknown>, mapping: FieldMapping) => unknown;
 
 const MAPPING_HANDLERS: Record<MappingType, MappingHandler> = {
   direct: (record, mapping) => record[mapping.sourceField],
@@ -86,7 +74,7 @@ const MAPPING_HANDLERS: Record<MappingType, MappingHandler> = {
     return value;
   },
 
-  constant: (_record, mapping) => mapping.targetField ? mapping.sourceField : undefined,
+  constant: (_record, mapping) => (mapping.targetField ? mapping.sourceField : undefined),
 
   formula: (record, mapping) => evaluateFormula(record, mapping.sourceField),
 
@@ -99,10 +87,7 @@ const MAPPING_HANDLERS: Record<MappingType, MappingHandler> = {
  * Apply a single transform rule to a value.
  * Delegates to the TransformPipeline for actual transformation logic.
  */
-function applyTransformRule(
-  value: unknown,
-  rule: TransformRule
-): unknown {
+function applyTransformRule(value: unknown, rule: TransformRule): unknown {
   const strValue = String(value ?? '');
 
   switch (rule.type) {
@@ -128,10 +113,7 @@ function applyTransformRule(
  * The formula is the source field name by default; complex formulas
  * concatenate field references in {FieldName} syntax.
  */
-function evaluateFormula(
-  record: Record<string, unknown>,
-  formula: string
-): unknown {
+function evaluateFormula(record: Record<string, unknown>, formula: string): unknown {
   const fieldRefPattern = /\{(\w+)\}/g;
   if (!fieldRefPattern.test(formula)) {
     return record[formula];

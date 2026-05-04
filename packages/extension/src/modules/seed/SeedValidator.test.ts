@@ -13,9 +13,7 @@ function createValidTemplate(overrides?: Partial<SeedTemplate>): SeedTemplate {
       {
         objectApiName: 'Account',
         recordCount: 10,
-        fieldRules: [
-          { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } },
-        ],
+        fieldRules: [{ fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } }],
         excludedFields: [],
         insertOrder: 0,
         batchSize: 200,
@@ -66,14 +64,16 @@ describe('SeedValidator', () => {
 
     it('should fail when record count is zero or negative', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Account',
-          recordCount: 0,
-          fieldRules: [],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 0,
+            fieldRules: [],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
@@ -82,14 +82,16 @@ describe('SeedValidator', () => {
 
     it('should warn when record count exceeds 100,000', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Account',
-          recordCount: 150000,
-          fieldRules: [],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 150000,
+            fieldRules: [],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.warnings.some((w) => w.message.includes('grappe'))).toBe(true);
@@ -97,14 +99,16 @@ describe('SeedValidator', () => {
 
     it('should fail when batch size is zero', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Account',
-          recordCount: 10,
-          fieldRules: [],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 0,
-        }],
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 10,
+            fieldRules: [],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 0,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
@@ -112,18 +116,22 @@ describe('SeedValidator', () => {
 
     it('should fail when reference target is missing from template', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Contact',
-          recordCount: 10,
-          fieldRules: [{
-            fieldApiName: 'AccountId',
-            ruleType: 'reference',
-            config: { referenceObject: 'Account' },
-          }],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: 'Contact',
+            recordCount: 10,
+            fieldRules: [
+              {
+                fieldApiName: 'AccountId',
+                ruleType: 'reference',
+                config: { referenceObject: 'Account' },
+              },
+            ],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
@@ -144,11 +152,13 @@ describe('SeedValidator', () => {
           {
             objectApiName: 'Contact',
             recordCount: 10,
-            fieldRules: [{
-              fieldApiName: 'AccountId',
-              ruleType: 'reference',
-              config: { referenceObject: 'Account' },
-            }],
+            fieldRules: [
+              {
+                fieldApiName: 'AccountId',
+                ruleType: 'reference',
+                config: { referenceObject: 'Account' },
+              },
+            ],
             excludedFields: [],
             insertOrder: 1,
             batchSize: 200,
@@ -165,7 +175,9 @@ describe('SeedValidator', () => {
           {
             objectApiName: 'A',
             recordCount: 10,
-            fieldRules: [{ fieldApiName: 'BId', ruleType: 'reference', config: { referenceObject: 'B' } }],
+            fieldRules: [
+              { fieldApiName: 'BId', ruleType: 'reference', config: { referenceObject: 'B' } },
+            ],
             excludedFields: [],
             insertOrder: 0,
             batchSize: 200,
@@ -173,7 +185,9 @@ describe('SeedValidator', () => {
           {
             objectApiName: 'B',
             recordCount: 10,
-            fieldRules: [{ fieldApiName: 'AId', ruleType: 'reference', config: { referenceObject: 'A' } }],
+            fieldRules: [
+              { fieldApiName: 'AId', ruleType: 'reference', config: { referenceObject: 'A' } },
+            ],
             excludedFields: [],
             insertOrder: 1,
             batchSize: 200,
@@ -187,14 +201,16 @@ describe('SeedValidator', () => {
 
     it('should fail when reference rule lacks referenceObject', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Contact',
-          recordCount: 10,
-          fieldRules: [{ fieldApiName: 'AccountId', ruleType: 'reference', config: {} }],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: 'Contact',
+            recordCount: 10,
+            fieldRules: [{ fieldApiName: 'AccountId', ruleType: 'reference', config: {} }],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
@@ -203,14 +219,16 @@ describe('SeedValidator', () => {
 
     it('should fail when picklist rule has no values', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Account',
-          recordCount: 10,
-          fieldRules: [{ fieldApiName: 'Status', ruleType: 'picklist_random', config: {} }],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 10,
+            fieldRules: [{ fieldApiName: 'Status', ruleType: 'picklist_random', config: {} }],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
@@ -218,14 +236,16 @@ describe('SeedValidator', () => {
 
     it('should fail when faker rule has no fakerMethod', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Account',
-          recordCount: 10,
-          fieldRules: [{ fieldApiName: 'Email', ruleType: 'faker', config: {} }],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 10,
+            fieldRules: [{ fieldApiName: 'Email', ruleType: 'faker', config: {} }],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
@@ -233,14 +253,16 @@ describe('SeedValidator', () => {
 
     it('should fail when regex rule has no pattern', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Account',
-          recordCount: 10,
-          fieldRules: [{ fieldApiName: 'Code', ruleType: 'regex', config: {} }],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 10,
+            fieldRules: [{ fieldApiName: 'Code', ruleType: 'regex', config: {} }],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
@@ -248,14 +270,16 @@ describe('SeedValidator', () => {
 
     it('should fail when from_csv rule has no csvColumn', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: 'Account',
-          recordCount: 10,
-          fieldRules: [{ fieldApiName: 'Data', ruleType: 'from_csv', config: {} }],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: 'Account',
+            recordCount: 10,
+            fieldRules: [{ fieldApiName: 'Data', ruleType: 'from_csv', config: {} }],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);
@@ -263,14 +287,16 @@ describe('SeedValidator', () => {
 
     it('should fail when object API name is empty', () => {
       const template = createValidTemplate({
-        objects: [{
-          objectApiName: '',
-          recordCount: 10,
-          fieldRules: [],
-          excludedFields: [],
-          insertOrder: 0,
-          batchSize: 200,
-        }],
+        objects: [
+          {
+            objectApiName: '',
+            recordCount: 10,
+            fieldRules: [],
+            excludedFields: [],
+            insertOrder: 0,
+            batchSize: 200,
+          },
+        ],
       });
       const result = validator.validate(template);
       expect(result.valid).toBe(false);

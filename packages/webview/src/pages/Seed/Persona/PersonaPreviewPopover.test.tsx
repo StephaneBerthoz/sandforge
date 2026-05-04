@@ -7,7 +7,7 @@ import { PersonaPreviewPopover } from './PersonaPreviewPopover';
 const mockPersona: PersonaMsg = {
   id: 'assureur-fr',
   name: 'Assureur francais',
-  description: 'Compagnie d\'assurance',
+  description: "Compagnie d'assurance",
   industry: 'Insurance',
   locale: 'fr-FR',
   dataPatterns: {
@@ -100,13 +100,7 @@ describe('PersonaPreviewPopover', () => {
   });
 
   it('shows empty state when no sample records', () => {
-    render(
-      <PersonaPreviewPopover
-        persona={mockPersona}
-        sampleRecords={[]}
-        onClose={vi.fn()}
-      />,
-    );
+    render(<PersonaPreviewPopover persona={mockPersona} sampleRecords={[]} onClose={vi.fn()} />);
 
     expect(screen.getByText(/No data/i)).toBeDefined();
   });

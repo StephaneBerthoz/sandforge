@@ -20,17 +20,12 @@ interface ParseFailure {
 }
 
 /** Safely parses data with a Zod schema, returning a discriminated result. */
-export function safeParse<T>(
-  schema: z.ZodType<T>,
-  data: unknown,
-): ParseSuccess<T> | ParseFailure {
+export function safeParse<T>(schema: z.ZodType<T>, data: unknown): ParseSuccess<T> | ParseFailure {
   const result = schema.safeParse(data);
   if (result.success) {
     return { success: true, data: result.data };
   }
-  const errors = result.error.issues.map(
-    (issue) => `${issue.path.join('.')}: ${issue.message}`,
-  );
+  const errors = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
   return { success: false, errors };
 }
 
@@ -63,7 +58,6 @@ export function isValidUrl(url: string): boolean {
 export function isValidCron(cron: string): boolean {
   const parts = cron.trim().split(/\s+/);
   return (
-    (parts.length >= 5 && parts.length <= 7) &&
-    parts.every((p) => /^[\dA-Za-z*,\-/?LW#]+$/.test(p))
+    parts.length >= 5 && parts.length <= 7 && parts.every((p) => /^[\dA-Za-z*,\-/?LW#]+$/.test(p))
   );
 }

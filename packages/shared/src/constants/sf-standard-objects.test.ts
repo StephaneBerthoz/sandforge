@@ -14,9 +14,7 @@ describe('SF_STANDARD_OBJECTS', () => {
   });
 
   it('should contain core CRM objects', () => {
-    const coreObjects: StandardObjectName[] = [
-      'Account', 'Contact', 'Lead', 'Opportunity', 'Case',
-    ];
+    const coreObjects: StandardObjectName[] = ['Account', 'Contact', 'Lead', 'Opportunity', 'Case'];
 
     for (const obj of coreObjects) {
       expect(SF_STANDARD_OBJECTS).toContain(obj);

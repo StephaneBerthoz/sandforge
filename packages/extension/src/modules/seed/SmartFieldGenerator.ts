@@ -30,7 +30,11 @@ export class SmartFieldGenerator {
     { pattern: /^(street|address|mailing)/i, fakerMethod: 'address', mode: 'faker' },
     { pattern: /^city/i, fakerMethod: 'city', mode: 'faker' },
     { pattern: /^(country|pays)/i, fakerMethod: 'country', mode: 'faker' },
-    { pattern: /^(state|province|billing\s?state|shipping\s?state)/i, fakerMethod: 'state', mode: 'faker' },
+    {
+      pattern: /^(state|province|billing\s?state|shipping\s?state)/i,
+      fakerMethod: 'state',
+      mode: 'faker',
+    },
     { pattern: /^(zip|postal)/i, fakerMethod: 'zipCode', mode: 'faker' },
     { pattern: /^company|^account\s?name/i, fakerMethod: 'company', mode: 'faker' },
     { pattern: /website|url|link/i, fakerMethod: 'url', mode: 'faker' },
@@ -181,8 +185,8 @@ export class SmartFieldGenerator {
       }
 
       // Match name patterns (includes state pattern for geo-coherent addresses)
-      const match = SmartFieldGenerator.NAME_PATTERNS.find((p) =>
-        p.pattern.test(field.apiName) || p.pattern.test(field.label),
+      const match = SmartFieldGenerator.NAME_PATTERNS.find(
+        (p) => p.pattern.test(field.apiName) || p.pattern.test(field.label),
       );
       if (match) {
         return this.buildConfig(field, match.mode, constraints, {
@@ -203,9 +207,16 @@ export class SmartFieldGenerator {
   /** Check if a field is a system/auto-populated field that should be skipped. */
   private isSystemField(field: SeedFieldInfo): boolean {
     const systemFields = new Set([
-      'Id', 'CreatedDate', 'CreatedById', 'LastModifiedDate',
-      'LastModifiedById', 'SystemModstamp', 'IsDeleted',
-      'LastActivityDate', 'LastViewedDate', 'LastReferencedDate',
+      'Id',
+      'CreatedDate',
+      'CreatedById',
+      'LastModifiedDate',
+      'LastModifiedById',
+      'SystemModstamp',
+      'IsDeleted',
+      'LastActivityDate',
+      'LastViewedDate',
+      'LastReferencedDate',
     ]);
     return systemFields.has(field.apiName);
   }

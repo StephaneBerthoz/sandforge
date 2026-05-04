@@ -64,7 +64,7 @@ export class DmlOperationTracker {
     operationId: string,
     objectApiName: string,
     dmlType: TrackedOperation['dmlType'],
-    recordCount: number
+    recordCount: number,
   ): TrackedOperation {
     this.pruneExpired();
 

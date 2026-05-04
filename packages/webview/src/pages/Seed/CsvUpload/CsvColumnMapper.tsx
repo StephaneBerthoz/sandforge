@@ -19,8 +19,13 @@ export interface CsvColumnMapperProps {
 
 /** Non-createable system field API names to exclude from dropdown. */
 const SYSTEM_FIELDS = new Set([
-  'id', 'createddate', 'lastmodifieddate', 'systemmodstamp',
-  'createdbyid', 'lastmodifiedbyid', 'isdeleted',
+  'id',
+  'createddate',
+  'lastmodifieddate',
+  'systemmodstamp',
+  'createdbyid',
+  'lastmodifiedbyid',
+  'isdeleted',
 ]);
 
 /**
@@ -77,12 +82,7 @@ export const CsvColumnMapper: React.FC<CsvColumnMapperProps> = ({
         />
       );
     }
-    return (
-      <Check
-        className="w-4 h-4 text-emerald-400"
-        aria-label="Mapped"
-      />
-    );
+    return <Check className="w-4 h-4 text-emerald-400" aria-label="Mapped" />;
   };
 
   return (
@@ -134,7 +134,9 @@ export const CsvColumnMapper: React.FC<CsvColumnMapperProps> = ({
 
               {/* Status icon */}
               <div className="shrink-0" data-testid={`mapping-status-${header}`}>
-                {mapping ? getStatusIcon(mapping) : (
+                {mapping ? (
+                  getStatusIcon(mapping)
+                ) : (
                   <AlertTriangle className="w-4 h-4 text-amber-400" />
                 )}
               </div>

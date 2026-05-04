@@ -41,7 +41,7 @@ function createMessage(type: string, payload?: Record<string, unknown>): BaseMes
     id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     type,
     timestamp: Date.now(),
-    ...( payload ? { payload } : {}),
+    ...(payload ? { payload } : {}),
   } as BaseMessage;
 }
 
@@ -65,19 +65,23 @@ describe('Bridge E2E Integration', () => {
   describe('org:connect flow', () => {
     it('should route org:connect message and respond', async () => {
       const handler = vi.fn().mockImplementation(async (msg: BaseMessage) => {
-        broker.postToWebview(createMessage('org:connect:response', {
-          orgId: (msg as BaseMessage & { payload: { orgId: string } }).payload.orgId,
-          success: true,
-        }));
+        broker.postToWebview(
+          createMessage('org:connect:response', {
+            orgId: (msg as BaseMessage & { payload: { orgId: string } }).payload.orgId,
+            success: true,
+          }),
+        );
       });
 
       router.route('org:connect', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('org:connect', {
-        orgId: 'org-1',
-        authMethod: 'oauth',
-        alias: 'TestOrg',
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('org:connect', {
+          orgId: 'org-1',
+          authMethod: 'oauth',
+          alias: 'TestOrg',
+        }),
+      );
 
       await Promise.resolve();
 
@@ -90,17 +94,21 @@ describe('Bridge E2E Integration', () => {
   describe('org:disconnect flow', () => {
     it('should route org:disconnect message and respond', async () => {
       const handler = vi.fn().mockImplementation((msg: BaseMessage) => {
-        broker.postToWebview(createMessage('org:statusChanged', {
-          orgId: (msg as BaseMessage & { payload: { orgId: string } }).payload.orgId,
-          status: 'disconnected',
-        }));
+        broker.postToWebview(
+          createMessage('org:statusChanged', {
+            orgId: (msg as BaseMessage & { payload: { orgId: string } }).payload.orgId,
+            status: 'disconnected',
+          }),
+        );
       });
 
       router.route('org:disconnect', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('org:disconnect', {
-        orgId: 'org-1',
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('org:disconnect', {
+          orgId: 'org-1',
+        }),
+      );
 
       expect(handler).toHaveBeenCalledTimes(1);
       expect(mockPanel.sentMessages).toHaveLength(1);
@@ -111,33 +119,41 @@ describe('Bridge E2E Integration', () => {
   describe('seed:execute flow', () => {
     it('should route seed:execute and emit lifecycle events', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:started', {
-          operationId: 'seed-op-1',
-          module: 'seed',
-          description: 'Seeding Account data',
-        }));
+        broker.postToWebview(
+          createMessage('operation:started', {
+            operationId: 'seed-op-1',
+            module: 'seed',
+            description: 'Seeding Account data',
+          }),
+        );
 
-        broker.postToWebview(createMessage('operation:progress', {
-          operationId: 'seed-op-1',
-          percentage: 50,
-          processedRecords: 500,
-          totalRecords: 1000,
-          currentStep: 'Inserting records',
-        }));
+        broker.postToWebview(
+          createMessage('operation:progress', {
+            operationId: 'seed-op-1',
+            percentage: 50,
+            processedRecords: 500,
+            totalRecords: 1000,
+            currentStep: 'Inserting records',
+          }),
+        );
 
-        broker.postToWebview(createMessage('operation:completed', {
-          operationId: 'seed-op-1',
-          result: { inserted: 1000, failed: 0 },
-        }));
+        broker.postToWebview(
+          createMessage('operation:completed', {
+            operationId: 'seed-op-1',
+            result: { inserted: 1000, failed: 0 },
+          }),
+        );
       });
 
       router.route('seed:execute', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('seed:execute', {
-        templateId: 'tpl-1',
-        orgId: 'org-1',
-        dryRun: false,
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('seed:execute', {
+          templateId: 'tpl-1',
+          orgId: 'org-1',
+          dryRun: false,
+        }),
+      );
 
       await Promise.resolve();
 
@@ -152,23 +168,29 @@ describe('Bridge E2E Integration', () => {
   describe('sync:start flow', () => {
     it('should route sync:execute and handle lifecycle', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:started', {
-          operationId: 'sync-op-1',
-          module: 'sync',
-          description: 'Syncing Account data',
-        }));
-        broker.postToWebview(createMessage('operation:completed', {
-          operationId: 'sync-op-1',
-          result: { synced: 500 },
-        }));
+        broker.postToWebview(
+          createMessage('operation:started', {
+            operationId: 'sync-op-1',
+            module: 'sync',
+            description: 'Syncing Account data',
+          }),
+        );
+        broker.postToWebview(
+          createMessage('operation:completed', {
+            operationId: 'sync-op-1',
+            result: { synced: 500 },
+          }),
+        );
       });
 
       router.route('sync:execute', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('sync:execute', {
-        configId: 'cfg-1',
-        dryRun: false,
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('sync:execute', {
+          configId: 'cfg-1',
+          dryRun: false,
+        }),
+      );
 
       await Promise.resolve();
 
@@ -180,17 +202,21 @@ describe('Bridge E2E Integration', () => {
   describe('monitor:refresh flow', () => {
     it('should route monitor:refresh and return data', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('monitor:refresh:response', {
-          limits: { DailyApiRequests: { used: 100, max: 15000 } },
-          healthScore: 85,
-        }));
+        broker.postToWebview(
+          createMessage('monitor:refresh:response', {
+            limits: { DailyApiRequests: { used: 100, max: 15000 } },
+            healthScore: 85,
+          }),
+        );
       });
 
       router.route('monitor:refresh', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('monitor:refresh', {
-        orgId: 'org-1',
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('monitor:refresh', {
+          orgId: 'org-1',
+        }),
+      );
 
       await Promise.resolve();
 
@@ -202,22 +228,28 @@ describe('Bridge E2E Integration', () => {
   describe('compare:execute flow', () => {
     it('should route compare:execute and return diff results', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:started', {
-          operationId: 'cmp-op-1',
-          module: 'compare',
-          description: 'Comparing metadata',
-        }));
-        broker.postToWebview(createMessage('operation:completed', {
-          operationId: 'cmp-op-1',
-          result: { added: 5, modified: 10, removed: 2 },
-        }));
+        broker.postToWebview(
+          createMessage('operation:started', {
+            operationId: 'cmp-op-1',
+            module: 'compare',
+            description: 'Comparing metadata',
+          }),
+        );
+        broker.postToWebview(
+          createMessage('operation:completed', {
+            operationId: 'cmp-op-1',
+            result: { added: 5, modified: 10, removed: 2 },
+          }),
+        );
       });
 
       router.route('compare:execute', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('compare:execute', {
-        configId: 'cfg-cmp-1',
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('compare:execute', {
+          configId: 'cfg-cmp-1',
+        }),
+      );
 
       await Promise.resolve();
 
@@ -229,22 +261,28 @@ describe('Bridge E2E Integration', () => {
   describe('backup:execute flow', () => {
     it('should route backup:execute and return results', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:started', {
-          operationId: 'bkp-op-1',
-          module: 'dataops',
-          description: 'Backing up Account data',
-        }));
-        broker.postToWebview(createMessage('operation:completed', {
-          operationId: 'bkp-op-1',
-          result: { recordCount: 5000 },
-        }));
+        broker.postToWebview(
+          createMessage('operation:started', {
+            operationId: 'bkp-op-1',
+            module: 'dataops',
+            description: 'Backing up Account data',
+          }),
+        );
+        broker.postToWebview(
+          createMessage('operation:completed', {
+            operationId: 'bkp-op-1',
+            result: { recordCount: 5000 },
+          }),
+        );
       });
 
       router.route('backup:execute', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('backup:execute', {
-        configId: 'cfg-bkp-1',
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('backup:execute', {
+          configId: 'cfg-bkp-1',
+        }),
+      );
 
       await Promise.resolve();
 
@@ -255,36 +293,46 @@ describe('Bridge E2E Integration', () => {
   describe('pipeline:run flow', () => {
     it('should route pipeline:run and emit step progress', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:started', {
-          operationId: 'pip-op-1',
-          module: 'automation',
-          description: 'Running pipeline',
-        }));
-        broker.postToWebview(createMessage('operation:progress', {
-          operationId: 'pip-op-1',
-          percentage: 33,
-          processedRecords: 1,
-          totalRecords: 3,
-          currentStep: 'Step 1: Backup',
-        }));
-        broker.postToWebview(createMessage('operation:progress', {
-          operationId: 'pip-op-1',
-          percentage: 66,
-          processedRecords: 2,
-          totalRecords: 3,
-          currentStep: 'Step 2: Seed',
-        }));
-        broker.postToWebview(createMessage('operation:completed', {
-          operationId: 'pip-op-1',
-          result: { stepsCompleted: 3, stepsFailed: 0 },
-        }));
+        broker.postToWebview(
+          createMessage('operation:started', {
+            operationId: 'pip-op-1',
+            module: 'automation',
+            description: 'Running pipeline',
+          }),
+        );
+        broker.postToWebview(
+          createMessage('operation:progress', {
+            operationId: 'pip-op-1',
+            percentage: 33,
+            processedRecords: 1,
+            totalRecords: 3,
+            currentStep: 'Step 1: Backup',
+          }),
+        );
+        broker.postToWebview(
+          createMessage('operation:progress', {
+            operationId: 'pip-op-1',
+            percentage: 66,
+            processedRecords: 2,
+            totalRecords: 3,
+            currentStep: 'Step 2: Seed',
+          }),
+        );
+        broker.postToWebview(
+          createMessage('operation:completed', {
+            operationId: 'pip-op-1',
+            result: { stepsCompleted: 3, stepsFailed: 0 },
+          }),
+        );
       });
 
       router.route('pipeline:run', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('pipeline:run', {
-        pipelineId: 'pip-1',
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('pipeline:run', {
+          pipelineId: 'pip-1',
+        }),
+      );
 
       await Promise.resolve();
 
@@ -296,20 +344,24 @@ describe('Bridge E2E Integration', () => {
   describe('error handling', () => {
     it('should handle timeout error gracefully', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:failed', {
-          operationId: 'op-timeout',
-          error: 'Operation timed out after 30s',
-          retryable: true,
-        }));
+        broker.postToWebview(
+          createMessage('operation:failed', {
+            operationId: 'op-timeout',
+            error: 'Operation timed out after 30s',
+            retryable: true,
+          }),
+        );
       });
 
       router.route('seed:execute', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('seed:execute', {
-        templateId: 'tpl-1',
-        orgId: 'org-1',
-        dryRun: false,
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('seed:execute', {
+          templateId: 'tpl-1',
+          orgId: 'org-1',
+          dryRun: false,
+        }),
+      );
 
       await Promise.resolve();
 
@@ -318,23 +370,29 @@ describe('Bridge E2E Integration', () => {
 
     it('should handle auth expired error', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:failed', {
-          operationId: 'op-auth',
-          error: 'Authentication token expired',
-          retryable: false,
-        }));
-        broker.postToWebview(createMessage('org:statusChanged', {
-          orgId: 'org-1',
-          status: 'expired',
-        }));
+        broker.postToWebview(
+          createMessage('operation:failed', {
+            operationId: 'op-auth',
+            error: 'Authentication token expired',
+            retryable: false,
+          }),
+        );
+        broker.postToWebview(
+          createMessage('org:statusChanged', {
+            orgId: 'org-1',
+            status: 'expired',
+          }),
+        );
       });
 
       router.route('sync:execute', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('sync:execute', {
-        configId: 'cfg-1',
-        dryRun: false,
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('sync:execute', {
+          configId: 'cfg-1',
+          dryRun: false,
+        }),
+      );
 
       await Promise.resolve();
 
@@ -343,18 +401,22 @@ describe('Bridge E2E Integration', () => {
 
     it('should handle rate limit error', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:failed', {
-          operationId: 'op-rate',
-          error: 'API rate limit exceeded. Retry after 60s',
-          retryable: true,
-        }));
+        broker.postToWebview(
+          createMessage('operation:failed', {
+            operationId: 'op-rate',
+            error: 'API rate limit exceeded. Retry after 60s',
+            retryable: true,
+          }),
+        );
       });
 
       router.route('monitor:refresh', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('monitor:refresh', {
-        orgId: 'org-1',
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('monitor:refresh', {
+          orgId: 'org-1',
+        }),
+      );
 
       await Promise.resolve();
 
@@ -363,23 +425,29 @@ describe('Bridge E2E Integration', () => {
 
     it('should handle network error', async () => {
       const handler = vi.fn().mockImplementation(async () => {
-        broker.postToWebview(createMessage('operation:failed', {
-          operationId: 'op-network',
-          error: 'Network unreachable',
-          retryable: true,
-        }));
-        broker.postToWebview(createMessage('notification', {
-          level: 'error',
-          title: 'Connection Lost',
-          message: 'Unable to reach Salesforce. Check your network connection.',
-        }));
+        broker.postToWebview(
+          createMessage('operation:failed', {
+            operationId: 'op-network',
+            error: 'Network unreachable',
+            retryable: true,
+          }),
+        );
+        broker.postToWebview(
+          createMessage('notification', {
+            level: 'error',
+            title: 'Connection Lost',
+            message: 'Unable to reach Salesforce. Check your network connection.',
+          }),
+        );
       });
 
       router.route('backup:execute', handler);
 
-      mockPanel.simulateWebViewMessage(createMessage('backup:execute', {
-        configId: 'cfg-1',
-      }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('backup:execute', {
+          configId: 'cfg-1',
+        }),
+      );
 
       await Promise.resolve();
 
@@ -393,11 +461,13 @@ describe('Bridge E2E Integration', () => {
       const panel2 = createMockPanel();
       broker.registerPanel(panel2.panel);
 
-      broker.postToWebview(createMessage('notification', {
-        level: 'info',
-        title: 'Test',
-        message: 'Broadcast test',
-      }));
+      broker.postToWebview(
+        createMessage('notification', {
+          level: 'info',
+          title: 'Test',
+          message: 'Broadcast test',
+        }),
+      );
 
       expect(mockPanel.sentMessages).toHaveLength(1);
       expect(panel2.sentMessages).toHaveLength(1);
@@ -407,7 +477,13 @@ describe('Bridge E2E Integration', () => {
   describe('router prefix routing', () => {
     it('should route all messages with a prefix', () => {
       const handler = vi.fn();
-      const allTypes = ['org:list', 'org:connect', 'org:disconnect', 'seed:execute', 'sync:execute'];
+      const allTypes = [
+        'org:list',
+        'org:connect',
+        'org:disconnect',
+        'seed:execute',
+        'sync:execute',
+      ];
       router.routePrefix('org:', allTypes, handler);
 
       mockPanel.simulateWebViewMessage(createMessage('org:list'));
@@ -424,31 +500,49 @@ describe('Bridge E2E Integration', () => {
 
       const seedHandler = vi.fn().mockImplementation(async () => {
         operations.push('seed:start');
-        broker.postToWebview(createMessage('operation:started', {
-          operationId: 'seed-1', module: 'seed', description: 'Seed op',
-        }));
+        broker.postToWebview(
+          createMessage('operation:started', {
+            operationId: 'seed-1',
+            module: 'seed',
+            description: 'Seed op',
+          }),
+        );
         operations.push('seed:complete');
-        broker.postToWebview(createMessage('operation:completed', {
-          operationId: 'seed-1', result: {},
-        }));
+        broker.postToWebview(
+          createMessage('operation:completed', {
+            operationId: 'seed-1',
+            result: {},
+          }),
+        );
       });
 
       const syncHandler = vi.fn().mockImplementation(async () => {
         operations.push('sync:start');
-        broker.postToWebview(createMessage('operation:started', {
-          operationId: 'sync-1', module: 'sync', description: 'Sync op',
-        }));
+        broker.postToWebview(
+          createMessage('operation:started', {
+            operationId: 'sync-1',
+            module: 'sync',
+            description: 'Sync op',
+          }),
+        );
         operations.push('sync:complete');
-        broker.postToWebview(createMessage('operation:completed', {
-          operationId: 'sync-1', result: {},
-        }));
+        broker.postToWebview(
+          createMessage('operation:completed', {
+            operationId: 'sync-1',
+            result: {},
+          }),
+        );
       });
 
       router.route('seed:execute', seedHandler);
       router.route('sync:execute', syncHandler);
 
-      mockPanel.simulateWebViewMessage(createMessage('seed:execute', { templateId: 'tpl-1', orgId: 'org-1', dryRun: false }));
-      mockPanel.simulateWebViewMessage(createMessage('sync:execute', { configId: 'cfg-1', dryRun: false }));
+      mockPanel.simulateWebViewMessage(
+        createMessage('seed:execute', { templateId: 'tpl-1', orgId: 'org-1', dryRun: false }),
+      );
+      mockPanel.simulateWebViewMessage(
+        createMessage('sync:execute', { configId: 'cfg-1', dryRun: false }),
+      );
 
       await Promise.resolve();
       await Promise.resolve();

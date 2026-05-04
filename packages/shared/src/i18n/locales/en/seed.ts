@@ -86,19 +86,23 @@ export const seed: TranslationRecord = {
   nl2soqlError: 'SOQL generation failed. Check your AI API key in Settings > AI.',
   piiScanning: 'Scanning for PII fields...',
   piiWarningTitle: 'PII Fields Detected',
-  piiWarningHint: 'Consider masking or excluding these fields to avoid exposing personal data in your sandbox.',
+  piiWarningHint:
+    'Consider masking or excluding these fields to avoid exposing personal data in your sandbox.',
   templates: {
     salesCloudStarter: {
       name: 'Sales Cloud Starter',
-      description: 'Pre-built template for Sales Cloud with Accounts, Contacts, Opportunities, Products, and Price Books. Includes full referential integrity chain for OpportunityLineItems.',
+      description:
+        'Pre-built template for Sales Cloud with Accounts, Contacts, Opportunities, Products, and Price Books. Includes full referential integrity chain for OpportunityLineItems.',
     },
     serviceCloudStarter: {
       name: 'Service Cloud Starter',
-      description: 'Pre-built template for Service Cloud with Accounts, Contacts, Cases, Case Comments, and Knowledge articles.',
+      description:
+        'Pre-built template for Service Cloud with Accounts, Contacts, Cases, Case Comments, and Knowledge articles.',
     },
     minimalDemo: {
       name: 'Minimal Demo',
-      description: 'Lightweight demo template with just Accounts, Contacts, and Opportunities. Perfect for quick demos and testing.',
+      description:
+        'Lightweight demo template with just Accounts, Contacts, and Opportunities. Perfect for quick demos and testing.',
     },
   },
   clone: {
@@ -123,7 +127,8 @@ export const seed: TranslationRecord = {
       insertOrder: 'Insert Order',
       recordCounts: 'Record Counts',
       sampleRecords: 'Sample Records',
-      largeWarning: 'This clone involves over 10,000 records. It may take several minutes to complete.',
+      largeWarning:
+        'This clone involves over 10,000 records. It may take several minutes to complete.',
       execute: 'Execute Clone',
     },
     results: {

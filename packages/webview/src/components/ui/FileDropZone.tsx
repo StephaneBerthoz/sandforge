@@ -44,9 +44,7 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
     (file: File) => {
       setSizeError(null);
       if (file.size > maxSizeBytes) {
-        setSizeError(
-          t('seed.csv.dropzone.maxSize', { max: maxSizeMB }),
-        );
+        setSizeError(t('seed.csv.dropzone.maxSize', { max: maxSizeMB }));
         return;
       }
       onFileSelected(file);
@@ -65,14 +63,11 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
     [disabled],
   );
 
-  const handleDragLeave = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragOver(false);
-    },
-    [],
-  );
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -110,7 +105,9 @@ export const FileDropZone: React.FC<FileDropZoneProps> = ({
         className={cn(
           'border-2 border-dashed rounded-lg p-8 text-center transition-colors',
           'border-[var(--vscode-input-border,#3c3c3c)]',
-          isDragOver && !disabled && 'border-[var(--vscode-focusBorder,#007fd4)] bg-[var(--vscode-focusBorder,#007fd4)]/5',
+          isDragOver &&
+            !disabled &&
+            'border-[var(--vscode-focusBorder,#007fd4)] bg-[var(--vscode-focusBorder,#007fd4)]/5',
           disabled && 'opacity-50 cursor-not-allowed',
         )}
         onDragOver={handleDragOver}

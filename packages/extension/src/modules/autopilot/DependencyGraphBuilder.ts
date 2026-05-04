@@ -72,18 +72,8 @@ export class DependencyGraphBuilder {
     const edges = this.extractEdges(describes);
     const sccs = this.tarjanSCC(Array.from(describes.keys()), edges);
     const cycles = this.resolveCycles(sccs, edges);
-    const { order, levels } = this.topologicalSort(
-      Array.from(describes.keys()),
-      edges,
-      sccs,
-    );
-    const nodes = this.buildNodes(
-      describes,
-      recordCounts,
-      order,
-      levels,
-      batchSize,
-    );
+    const { order, levels } = this.topologicalSort(Array.from(describes.keys()), edges, sccs);
+    const nodes = this.buildNodes(describes, recordCounts, order, levels, batchSize);
     const stats = this.computeStats(nodes, edges, cycles);
     return { nodes, edges, cycles, stats };
   }
@@ -95,9 +85,7 @@ export class DependencyGraphBuilder {
    * @param describes - Map of object name to describe result.
    * @returns Array of AutopilotEdge representing all relationships.
    */
-  private extractEdges(
-    describes: Map<string, GraphObjectDescribe>,
-  ): AutopilotEdge[] {
+  private extractEdges(describes: Map<string, GraphObjectDescribe>): AutopilotEdge[] {
     const edges: AutopilotEdge[] = [];
     const knownObjects = new Set(describes.keys());
 
@@ -108,9 +96,7 @@ export class DependencyGraphBuilder {
         }
 
         // Filter to only references that exist in our graph
-        const validRefs = field.referenceTo.filter((ref) =>
-          knownObjects.has(ref),
-        );
+        const validRefs = field.referenceTo.filter((ref) => knownObjects.has(ref));
 
         if (validRefs.length === 0) {
           continue;
@@ -257,10 +243,7 @@ export class DependencyGraphBuilder {
    * @param edges - All edges in the graph.
    * @returns Array of CycleResolution for each detected cycle.
    */
-  private resolveCycles(
-    sccs: string[][],
-    edges: AutopilotEdge[],
-  ): CycleResolution[] {
+  private resolveCycles(sccs: string[][], edges: AutopilotEdge[]): CycleResolution[] {
     const resolutions: CycleResolution[] = [];
 
     // Also detect self-referencing objects (hierarchical edges)
@@ -339,7 +322,6 @@ export class DependencyGraphBuilder {
       for (const obj of sccs[i]) {
         objectToScc.set(obj, i);
       }
-
     }
 
     // Build SCC-level dependency graph
@@ -354,11 +336,7 @@ export class DependencyGraphBuilder {
     for (const edge of edges) {
       const fromScc = objectToScc.get(edge.from);
       const toScc = objectToScc.get(edge.to);
-      if (
-        fromScc !== undefined &&
-        toScc !== undefined &&
-        fromScc !== toScc
-      ) {
+      if (fromScc !== undefined && toScc !== undefined && fromScc !== toScc) {
         // Child (to) SCC depends on parent (from) SCC
         sccDeps.get(toScc)!.add(fromScc);
       }
@@ -500,10 +478,7 @@ export class DependencyGraphBuilder {
       cycleCount: cycles.length,
       maxDepth: Math.max(0, ...nodes.map((n) => n.level)),
       totalRecords: nodes.reduce((sum, n) => sum + n.recordCount, 0),
-      totalEstimatedApiCalls: nodes.reduce(
-        (sum, n) => sum + n.estimatedApiCalls,
-        0,
-      ),
+      totalEstimatedApiCalls: nodes.reduce((sum, n) => sum + n.estimatedApiCalls, 0),
     };
   }
 }

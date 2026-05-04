@@ -7,9 +7,7 @@ import type { FieldMapping } from './FieldMapper';
 const sourceFields = ['Name', 'Email', 'Phone'];
 const targetFields = ['Name', 'Email__c', 'Phone__c'];
 
-const existingMappings: FieldMapping[] = [
-  { sourceField: 'Name', targetField: 'Name' },
-];
+const existingMappings: FieldMapping[] = [{ sourceField: 'Name', targetField: 'Name' }];
 
 describe('FieldMapper', () => {
   it('should render source and target fields', () => {
@@ -45,9 +43,7 @@ describe('FieldMapper', () => {
     fireEvent.click(screen.getByTestId('field-source-Email'));
     fireEvent.click(screen.getByTestId('field-target-Email__c'));
 
-    expect(onChange).toHaveBeenCalledWith([
-      { sourceField: 'Email', targetField: 'Email__c' },
-    ]);
+    expect(onChange).toHaveBeenCalledWith([{ sourceField: 'Email', targetField: 'Email__c' }]);
   });
 
   it('should remove a mapping when clicking the connection path', () => {

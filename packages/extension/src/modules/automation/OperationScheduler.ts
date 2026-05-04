@@ -1,7 +1,4 @@
-import type {
-  ScheduledOperation,
-  ScheduledOperationRun,
-} from '@sandforge/shared';
+import type { ScheduledOperation, ScheduledOperationRun } from '@sandforge/shared';
 
 /** Dependencies required by OperationScheduler. */
 export interface OperationSchedulerDeps {
@@ -84,7 +81,9 @@ export class OperationScheduler {
     };
     this.schedules.set(full.id, full);
     this.persist();
-    this.deps.log(`[OperationScheduler] upserted schedule ${full.id} (${full.operationType} ${full.frequency})`);
+    this.deps.log(
+      `[OperationScheduler] upserted schedule ${full.id} (${full.operationType} ${full.frequency})`,
+    );
     return full;
   }
 
@@ -119,7 +118,9 @@ export class OperationScheduler {
       schedule.nextRunAt = this.computeNextRunAt(schedule);
     }
     this.persist();
-    this.deps.log(`[OperationScheduler] toggled ${scheduleId} → ${enabled ? 'enabled' : 'disabled'}`);
+    this.deps.log(
+      `[OperationScheduler] toggled ${scheduleId} → ${enabled ? 'enabled' : 'disabled'}`,
+    );
     return schedule;
   }
 
@@ -144,9 +145,12 @@ export class OperationScheduler {
    * @param schedule - Schedule definition with frequency and time.
    * @returns ISO date string of the next run.
    */
-  computeNextRunAt(
-    schedule: { frequency: string; time: string; dayOfWeek?: number; dayOfMonth?: number },
-  ): string {
+  computeNextRunAt(schedule: {
+    frequency: string;
+    time: string;
+    dayOfWeek?: number;
+    dayOfMonth?: number;
+  }): string {
     const now = new Date();
     const [hours, minutes] = schedule.time.split(':').map(Number);
     const next = new Date(now);

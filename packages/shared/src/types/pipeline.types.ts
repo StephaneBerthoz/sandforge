@@ -17,19 +17,10 @@ export type PipelineStatus =
 export type ApiMode = 'rest' | 'bulk' | 'composite' | 'auto';
 
 /** Error handling strategy */
-export type ErrorHandlingStrategy =
-  | 'stop_on_first'
-  | 'continue_and_report'
-  | 'retry_failed';
+export type ErrorHandlingStrategy = 'stop_on_first' | 'continue_and_report' | 'retry_failed';
 
 /** Execution step status */
-export type StepStatus =
-  | 'pending'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'skipped'
-  | 'rolled_back';
+export type StepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'rolled_back';
 
 /** A single step in the execution pipeline */
 export interface ExecutionStep {

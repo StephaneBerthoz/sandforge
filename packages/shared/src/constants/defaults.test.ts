@@ -73,9 +73,7 @@ describe('DEFAULT_RETRY_CONFIG', () => {
   });
 
   it('should have maxDelay greater than initialDelay', () => {
-    expect(DEFAULT_RETRY_CONFIG.maxDelay).toBeGreaterThan(
-      DEFAULT_RETRY_CONFIG.initialDelay,
-    );
+    expect(DEFAULT_RETRY_CONFIG.maxDelay).toBeGreaterThan(DEFAULT_RETRY_CONFIG.initialDelay);
   });
 
   it('should have backoff multiplier greater than 1', () => {
@@ -142,9 +140,7 @@ describe('MODULE_NAMES', () => {
   });
 
   it('should contain all expected module names', () => {
-    const expected: ModuleName[] = [
-      'seed', 'sync', 'monitor', 'compare', 'dataops', 'automation',
-    ];
+    const expected: ModuleName[] = ['seed', 'sync', 'monitor', 'compare', 'dataops', 'automation'];
 
     for (const name of expected) {
       expect(MODULE_NAMES).toContain(name);

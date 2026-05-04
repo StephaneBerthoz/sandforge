@@ -11,7 +11,11 @@ export interface Step1SelectOrgProps {
 }
 
 /** Step 1 — Select the target org for seeding. */
-export const Step1SelectOrg: React.FC<Step1SelectOrgProps> = ({ orgs, selectedOrgId, onSelect }) => {
+export const Step1SelectOrg: React.FC<Step1SelectOrgProps> = ({
+  orgs,
+  selectedOrgId,
+  onSelect,
+}) => {
   const { t } = useTranslation();
   const options = orgs.map((org) => ({
     value: org.id,

@@ -3,7 +3,9 @@ import { render, screen } from '@testing-library/react';
 import { PanelApp } from './PanelApp';
 
 vi.mock('./bridge/BridgeProvider', () => ({
-  BridgeProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="bridge">{children}</div>,
+  BridgeProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="bridge">{children}</div>
+  ),
 }));
 
 vi.mock('./components/ui/FloatingToasts', () => ({
@@ -11,7 +13,9 @@ vi.mock('./components/ui/FloatingToasts', () => ({
 }));
 
 vi.mock('./PanelRouter', () => ({
-  PanelRouter: ({ moduleId }: { moduleId: string }) => <div data-testid="panel-router">{moduleId}</div>,
+  PanelRouter: ({ moduleId }: { moduleId: string }) => (
+    <div data-testid="panel-router">{moduleId}</div>
+  ),
 }));
 
 describe('PanelApp', () => {

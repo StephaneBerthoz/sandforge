@@ -1,7 +1,4 @@
-import type {
-  PreCheckConfig,
-  PreCheckItem,
-} from '@sandforge/shared';
+import type { PreCheckConfig, PreCheckItem } from '@sandforge/shared';
 import { randomUUID } from 'crypto';
 
 /** Org status data returned by the fetch function */

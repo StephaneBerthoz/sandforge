@@ -47,9 +47,7 @@ function computeLayout(
   // Compute levels using insertion order
   for (const name of insertionOrder) {
     const parentNames = parents.get(name) ?? [];
-    const parentLevels = parentNames
-      .map((p) => levels.get(p) ?? 0)
-      .filter((l) => l >= 0);
+    const parentLevels = parentNames.map((p) => levels.get(p) ?? 0).filter((l) => l >= 0);
     const level = parentLevels.length > 0 ? Math.max(...parentLevels) + 1 : 0;
     levels.set(name, level);
   }
@@ -101,10 +99,7 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
     [nodes, edges, insertionOrder],
   );
 
-  const circularSet = useMemo(
-    () => new Set(circularDeps.flat()),
-    [circularDeps],
-  );
+  const circularSet = useMemo(() => new Set(circularDeps.flat()), [circularDeps]);
 
   const orderMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -134,11 +129,14 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
   }, []);
 
   /** Mouse down for pan. */
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    setDragging(true);
-    dragStart.current = { x: e.clientX - transform.x, y: e.clientY - transform.y };
-  }, [transform.x, transform.y]);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      setDragging(true);
+      dragStart.current = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+    },
+    [transform.x, transform.y],
+  );
 
   /** Mouse move for pan. */
   const handleMouseMove = useCallback(
@@ -171,7 +169,14 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
   }
 
   return (
-    <div data-testid="erd-minimap" style={{ overflow: 'hidden', border: '1px solid var(--sf-border)', borderRadius: 'var(--sf-radius-md)' }}>
+    <div
+      data-testid="erd-minimap"
+      style={{
+        overflow: 'hidden',
+        border: '1px solid var(--sf-border)',
+        borderRadius: 'var(--sf-radius-md)',
+      }}
+    >
       <svg
         ref={svgRef}
         width="100%"
@@ -186,10 +191,24 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
         data-testid="erd-svg"
       >
         <defs>
-          <marker id="arrow-lookup" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <marker
+            id="arrow-lookup"
+            markerWidth="8"
+            markerHeight="6"
+            refX="8"
+            refY="3"
+            orient="auto"
+          >
             <path d="M0,0 L8,3 L0,6" fill="var(--sf-info, #3B82F6)" />
           </marker>
-          <marker id="arrow-master" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <marker
+            id="arrow-master"
+            markerWidth="8"
+            markerHeight="6"
+            refX="8"
+            refY="3"
+            orient="auto"
+          >
             <path d="M0,0 L8,3 L0,6" fill="var(--sf-error, #EF4444)" />
           </marker>
         </defs>
@@ -287,7 +306,9 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
                       cx={pos.x + NODE_W - 14}
                       cy={pos.y + 14}
                       r={10}
-                      fill={isSelected ? 'var(--sf-info, #3B82F6)' : 'var(--sf-text-muted, #868686)'}
+                      fill={
+                        isSelected ? 'var(--sf-info, #3B82F6)' : 'var(--sf-text-muted, #868686)'
+                      }
                     />
                     <text
                       x={pos.x + NODE_W - 14}

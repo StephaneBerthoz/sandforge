@@ -52,12 +52,7 @@ export const complianceFrameworkTypeSchema = z.enum([
 // ─── Detection Method Schema ─────────────────────────────────────────────────
 
 /** Zod schema for PII detection method */
-export const detectionMethodSchema = z.enum([
-  'field_name',
-  'regex',
-  'content_sampling',
-  'ai',
-]);
+export const detectionMethodSchema = z.enum(['field_name', 'regex', 'content_sampling', 'ai']);
 
 // ─── Leaf Schemas ────────────────────────────────────────────────────────────
 

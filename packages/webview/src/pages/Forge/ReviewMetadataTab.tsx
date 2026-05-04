@@ -22,10 +22,7 @@ export const ReviewMetadataTab: React.FC = () => {
   if (diffs.length === 0) {
     return (
       <div data-testid="review-metadata-tab" className="py-4">
-        <p
-          data-testid="no-diffs"
-          className="text-xs text-text-muted text-center"
-        >
+        <p data-testid="no-diffs" className="text-xs text-text-muted text-center">
           {t('forge.review.noDiffs', 'No metadata differences detected.')}
         </p>
       </div>
@@ -50,9 +47,7 @@ export const ReviewMetadataTab: React.FC = () => {
             <span className="font-medium text-text-primary">
               {diff.objectApiName}.{diff.fieldApiName}
             </span>
-            <span
-              className={`text-[9px] px-1.5 py-0.5 rounded ${SEVERITY_STYLES[diff.severity]}`}
-            >
+            <span className={`text-[9px] px-1.5 py-0.5 rounded ${SEVERITY_STYLES[diff.severity]}`}>
               {diff.severity.toUpperCase()}
             </span>
           </div>

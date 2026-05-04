@@ -10,14 +10,9 @@ export interface DeploymentInfo {
 }
 
 /** Function signature for querying Salesforce deployments */
-export type QueryDeploymentsFn = (
-  orgId: string
-) => Promise<DeploymentInfo[]>;
+export type QueryDeploymentsFn = (orgId: string) => Promise<DeploymentInfo[]>;
 
-const ACTIVE_DEPLOYMENT_STATUSES = new Set<DeploymentInfo['status']>([
-  'Pending',
-  'InProgress',
-]);
+const ACTIVE_DEPLOYMENT_STATUSES = new Set<DeploymentInfo['status']>(['Pending', 'InProgress']);
 
 /**
  * Tracks recent Salesforce metadata deployments.
@@ -49,7 +44,7 @@ export class DeploymentTracker {
   getRecentDeployments(orgId: string, count: number): DeploymentInfo[] {
     const deployments = this.deploymentCache.get(orgId) ?? [];
     const sorted = [...deployments].sort(
-      (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
+      (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime(),
     );
     return sorted.slice(0, count);
   }

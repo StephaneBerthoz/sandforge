@@ -81,7 +81,12 @@ function createTestPolicy(id = 'test-policy-1'): Record<string, unknown> {
         name: 'API Usage Check',
         description: 'API usage should not exceed 90%',
         category: 'performance',
-        condition: { metric: 'DailyApiRequests', operator: 'gt', threshold: 90, warningThreshold: 75 },
+        condition: {
+          metric: 'DailyApiRequests',
+          operator: 'gt',
+          threshold: 90,
+          warningThreshold: 75,
+        },
         remediation: 'Reduce API calls',
         enabled: true,
       },
@@ -117,14 +122,21 @@ describe('GovernanceOpsHandler', () => {
   });
 
   it('handles governance:policies:list returning empty array initially', async () => {
-    const msg: BaseMessage = { id: 'req-1', type: 'governance:policies:list', timestamp: Date.now() };
+    const msg: BaseMessage = {
+      id: 'req-1',
+      type: 'governance:policies:list',
+      timestamp: Date.now(),
+    };
     const result = await handler.handle(msg);
     expect(result).toBe(true);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { policies: unknown[] }; correlationId: string };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { policies: unknown[] };
+      correlationId: string;
+    };
     expect(response.type).toBe('governance:policies:result');
     expect(response.correlationId).toBe('req-1');
     expect(response.payload.policies).toEqual([]);
@@ -142,7 +154,9 @@ describe('GovernanceOpsHandler', () => {
     await handler.handle(saveMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const saveResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { success: boolean } };
+    const saveResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { success: boolean };
+    };
     expect(saveResponse.type).toBe('governance:policy:save:response');
     expect(saveResponse.payload.success).toBe(true);
 
@@ -156,7 +170,9 @@ describe('GovernanceOpsHandler', () => {
     } as BaseMessage & { payload: { policyId: string } };
 
     await handler.handle(getMsg);
-    const getResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { policy: { id: string; name: string } | null } };
+    const getResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { policy: { id: string; name: string } | null };
+    };
     expect(getResponse.type).toBe('governance:policy:result');
     expect(getResponse.payload.policy).not.toBeNull();
     expect(getResponse.payload.policy?.id).toBe('test-policy-1');
@@ -176,10 +192,16 @@ describe('GovernanceOpsHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     postToWebview.mockClear();
 
-    const listMsg: BaseMessage = { id: 'req-list', type: 'governance:policies:list', timestamp: Date.now() };
+    const listMsg: BaseMessage = {
+      id: 'req-list',
+      type: 'governance:policies:list',
+      timestamp: Date.now(),
+    };
     await handler.handle(listMsg);
 
-    const listResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { policies: Array<{ id: string; ruleCount: number }> } };
+    const listResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { policies: Array<{ id: string; ruleCount: number }> };
+    };
     expect(listResponse.payload.policies).toHaveLength(1);
     expect(listResponse.payload.policies[0].id).toBe('test-policy-1');
     expect(listResponse.payload.policies[0].ruleCount).toBe(2);
@@ -205,7 +227,9 @@ describe('GovernanceOpsHandler', () => {
     } as BaseMessage & { payload: { policyId: string } };
     await handler.handle(deleteMsg);
 
-    const delResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { success: boolean } };
+    const delResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { success: boolean };
+    };
     expect(delResponse.type).toBe('governance:policy:delete:response');
     expect(delResponse.payload.success).toBe(true);
   });
@@ -222,10 +246,16 @@ describe('GovernanceOpsHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     postToWebview.mockClear();
 
-    const exportMsg: BaseMessage = { id: 'req-exp', type: 'governance:policies:export', timestamp: Date.now() };
+    const exportMsg: BaseMessage = {
+      id: 'req-exp',
+      type: 'governance:policies:export',
+      timestamp: Date.now(),
+    };
     await handler.handle(exportMsg);
 
-    const exportResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { json: string } };
+    const exportResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { json: string };
+    };
     expect(exportResponse.type).toBe('governance:policies:export:response');
     const parsed: unknown = JSON.parse(exportResponse.payload.json);
     expect(Array.isArray(parsed)).toBe(true);
@@ -245,7 +275,9 @@ describe('GovernanceOpsHandler', () => {
     await handler.handle(importMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const importResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { success: boolean; count: number } };
+    const importResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { success: boolean; count: number };
+    };
     expect(importResponse.type).toBe('governance:policies:import:response');
     expect(importResponse.payload.success).toBe(true);
     expect(importResponse.payload.count).toBe(2);
@@ -261,7 +293,9 @@ describe('GovernanceOpsHandler', () => {
     await handler.handle(importMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string };
+    };
     expect(errorResponse.type).toBe('governance:policies:import:response');
   });
 
@@ -290,7 +324,10 @@ describe('GovernanceOpsHandler', () => {
     await handler.handle(evalMsg);
 
     const evalResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { success: boolean; result: { complianceScore: number; ruleResults: Array<{ ruleId: string; status: string }> } };
+      payload: {
+        success: boolean;
+        result: { complianceScore: number; ruleResults: Array<{ ruleId: string; status: string }> };
+      };
     };
     expect(evalResponse.type).toBe('governance:evaluate:response');
     expect(evalResponse.payload.success).toBe(true);
@@ -341,11 +378,7 @@ describe('GovernanceOpsHandler', () => {
 
     const alertEvaluate = mockAlertEngine.evaluate as ReturnType<typeof vi.fn>;
     expect(alertEvaluate).toHaveBeenCalledTimes(1);
-    expect(alertEvaluate).toHaveBeenCalledWith(
-      'governance:rule-fail',
-      expect.any(Number),
-      'org-1',
-    );
+    expect(alertEvaluate).toHaveBeenCalledWith('governance:rule-fail', expect.any(Number), 'org-1');
   });
 
   it('handles governance:evaluate returns error for unknown policy', async () => {
@@ -358,7 +391,9 @@ describe('GovernanceOpsHandler', () => {
     await handler.handle(evalMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string; code: string } };
+    const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string; code: string };
+    };
     expect(errorResponse.type).toBe('governance:evaluate:response');
     expect(errorResponse.payload.code).toBe('NOT_FOUND');
   });
@@ -411,7 +446,9 @@ describe('GovernanceOpsHandler', () => {
     expect(result).toBe(true);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const lastCall = postToWebview.mock.calls[postToWebview.mock.calls.length - 1][0] as BaseMessage & {
+    const lastCall = postToWebview.mock.calls[
+      postToWebview.mock.calls.length - 1
+    ][0] as BaseMessage & {
       payload: { success: boolean };
     };
     expect(lastCall.payload.success).toBe(true);

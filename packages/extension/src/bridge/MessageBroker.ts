@@ -51,11 +51,11 @@ interface RawEnvelope {
 
 function isEnvelopeShape(raw: unknown): raw is RawEnvelope {
   return (
-    typeof raw === 'object'
-    && raw !== null
-    && 'protocolVersion' in raw
-    && 'payload' in raw
-    && typeof (raw as Record<string, unknown>).payload === 'object'
+    typeof raw === 'object' &&
+    raw !== null &&
+    'protocolVersion' in raw &&
+    'payload' in raw &&
+    typeof (raw as Record<string, unknown>).payload === 'object'
   );
 }
 
@@ -231,7 +231,10 @@ export class MessageBroker {
     const baseResult = baseMessageSchema.safeParse(raw);
     if (!baseResult.success) {
       const issues = baseResult.error.issues
-        .map((issue: { path: (string | number)[]; message: string }) => `${issue.path.join('.')}: ${issue.message}`)
+        .map(
+          (issue: { path: (string | number)[]; message: string }) =>
+            `${issue.path.join('.')}: ${issue.message}`,
+        )
         .join('; ');
       this.logFn?.(`[MessageBroker] Received malformed message: ${issues}`);
       return;
@@ -271,13 +274,9 @@ export class MessageBroker {
   // ── Bridge control messages ──────────────────────────────────────────────
 
   private nextControlId(): string {
-    // crypto.randomUUID is available everywhere we run (Node 16.7+, modern
-    // browsers, VS Code webview). Use it instead of Math.random to avoid
-    // birthday-paradox collisions under load (~4096 IDs at 6 hex chars).
-    const uuid = typeof globalThis.crypto?.randomUUID === 'function'
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    return `bridge-${uuid}`;
+    // Node 20+ and the VS Code webview both expose globalThis.crypto.randomUUID.
+    // Engines block declares node>=20 so the fallback is unreachable — dropped.
+    return `bridge-${globalThis.crypto.randomUUID()}`;
   }
 
   private postBridgeError(reason: string, details: string): void {

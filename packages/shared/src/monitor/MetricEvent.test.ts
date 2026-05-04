@@ -134,8 +134,7 @@ describe('MetricEventSchemaByType lookup', () => {
   it('exposes a per-type payload schema for every union member', () => {
     expect(MetricEventSchemaByType['monitor:metric'].safeParse(sample()).success).toBe(true);
     expect(
-      MetricEventSchemaByType['monitor:metrics:batch'].safeParse({ samples: [sample()] })
-        .success,
+      MetricEventSchemaByType['monitor:metrics:batch'].safeParse({ samples: [sample()] }).success,
     ).toBe(true);
   });
 
@@ -148,7 +147,9 @@ describe('MetricEventSchemaByType lookup', () => {
 
 describe('member schemas (referenced individually)', () => {
   it('all five member schemas parse their canonical example', () => {
-    expect(MetricSampleEventSchema.safeParse({ type: 'monitor:metric', payload: sample() }).success).toBe(true);
+    expect(
+      MetricSampleEventSchema.safeParse({ type: 'monitor:metric', payload: sample() }).success,
+    ).toBe(true);
     expect(
       MetricBatchEventSchema.safeParse({
         type: 'monitor:metrics:batch',

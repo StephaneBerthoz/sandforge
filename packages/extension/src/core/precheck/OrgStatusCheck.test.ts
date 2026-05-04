@@ -53,7 +53,7 @@ describe('OrgStatusCheck', () => {
         createOrgStatus({
           isMaintenanceScheduled: true,
           maintenanceWindow: { start: '2026-02-20T02:00:00Z', end: '2026-02-20T06:00:00Z' },
-        })
+        }),
       );
 
       const checker = new OrgStatusCheck(fetchFn);
@@ -66,9 +66,9 @@ describe('OrgStatusCheck', () => {
     });
 
     it('should blocker when sandbox refresh is in progress', async () => {
-      const fetchFn: FetchOrgStatusFn = vi.fn().mockResolvedValue(
-        createOrgStatus({ isSandboxRefreshInProgress: true })
-      );
+      const fetchFn: FetchOrgStatusFn = vi
+        .fn()
+        .mockResolvedValue(createOrgStatus({ isSandboxRefreshInProgress: true }));
 
       const checker = new OrgStatusCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -79,9 +79,9 @@ describe('OrgStatusCheck', () => {
     });
 
     it('should blocker when org is in read-only mode', async () => {
-      const fetchFn: FetchOrgStatusFn = vi.fn().mockResolvedValue(
-        createOrgStatus({ isReadOnly: true })
-      );
+      const fetchFn: FetchOrgStatusFn = vi
+        .fn()
+        .mockResolvedValue(createOrgStatus({ isReadOnly: true }));
 
       const checker = new OrgStatusCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -92,9 +92,9 @@ describe('OrgStatusCheck', () => {
     });
 
     it('should warn when deployment is in progress', async () => {
-      const fetchFn: FetchOrgStatusFn = vi.fn().mockResolvedValue(
-        createOrgStatus({ isDeploymentInProgress: true })
-      );
+      const fetchFn: FetchOrgStatusFn = vi
+        .fn()
+        .mockResolvedValue(createOrgStatus({ isDeploymentInProgress: true }));
 
       const checker = new OrgStatusCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -105,9 +105,9 @@ describe('OrgStatusCheck', () => {
     });
 
     it('should pass deployment check when no deployment', async () => {
-      const fetchFn: FetchOrgStatusFn = vi.fn().mockResolvedValue(
-        createOrgStatus({ isDeploymentInProgress: false })
-      );
+      const fetchFn: FetchOrgStatusFn = vi
+        .fn()
+        .mockResolvedValue(createOrgStatus({ isDeploymentInProgress: false }));
 
       const checker = new OrgStatusCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -118,9 +118,9 @@ describe('OrgStatusCheck', () => {
     });
 
     it('should include instance name in maintenance message', async () => {
-      const fetchFn: FetchOrgStatusFn = vi.fn().mockResolvedValue(
-        createOrgStatus({ instanceName: 'NA99' })
-      );
+      const fetchFn: FetchOrgStatusFn = vi
+        .fn()
+        .mockResolvedValue(createOrgStatus({ instanceName: 'NA99' }));
 
       const checker = new OrgStatusCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -153,7 +153,7 @@ describe('OrgStatusCheck', () => {
           isMaintenanceScheduled: true,
           isReadOnly: true,
           isDeploymentInProgress: true,
-        })
+        }),
       );
 
       const checker = new OrgStatusCheck(fetchFn);
@@ -165,9 +165,9 @@ describe('OrgStatusCheck', () => {
     });
 
     it('should handle maintenance without window gracefully', async () => {
-      const fetchFn: FetchOrgStatusFn = vi.fn().mockResolvedValue(
-        createOrgStatus({ isMaintenanceScheduled: true })
-      );
+      const fetchFn: FetchOrgStatusFn = vi
+        .fn()
+        .mockResolvedValue(createOrgStatus({ isMaintenanceScheduled: true }));
 
       const checker = new OrgStatusCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -182,7 +182,7 @@ describe('OrgStatusCheck', () => {
           isMaintenanceScheduled: true,
           isSandboxRefreshInProgress: true,
           isReadOnly: true,
-        })
+        }),
       );
 
       const checker = new OrgStatusCheck(fetchFn);

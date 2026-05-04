@@ -14,6 +14,7 @@ NUL
 
 # Local tooling
 .claude/
+.omc/
 .sfdx/
 .superpowers/
 .vscode/
@@ -28,3 +29,7 @@ test-results/
 !.stryker-tmp/.gitignore
 reports/mutation/
 stryker.log
+
+# Local backup files (e.g. CLAUDE.md.bak.<unix-ts> from save-memory ops)
+*.bak
+*.bak.*

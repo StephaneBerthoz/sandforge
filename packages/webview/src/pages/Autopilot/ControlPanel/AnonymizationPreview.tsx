@@ -10,7 +10,10 @@ export const AnonymizationPreview: React.FC = () => {
 
   if (!selectedNode) {
     return (
-      <div className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]" data-testid="anonymization-preview-empty">
+      <div
+        className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="anonymization-preview-empty"
+      >
         {t('autopilot.control.noNodeSelected')}
       </div>
     );
@@ -20,7 +23,10 @@ export const AnonymizationPreview: React.FC = () => {
 
   if (nodeRules.length === 0) {
     return (
-      <div className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]" data-testid="anonymization-preview-no-rules">
+      <div
+        className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="anonymization-preview-no-rules"
+      >
         {t('autopilot.step3.none')}
       </div>
     );
@@ -42,9 +48,15 @@ export const AnonymizationPreview: React.FC = () => {
               key={`${rule.objectApiName}-${rule.fieldApiName}`}
               className="border-t border-[var(--vscode-panel-border,#3c3c3c)]"
             >
-              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">{rule.fieldApiName}</td>
-              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">{rule.method}</td>
-              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">{rule.piiCategory}</td>
+              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                {rule.fieldApiName}
+              </td>
+              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                {rule.method}
+              </td>
+              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                {rule.piiCategory}
+              </td>
             </tr>
           ))}
         </tbody>

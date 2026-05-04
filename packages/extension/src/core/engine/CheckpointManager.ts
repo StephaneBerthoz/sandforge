@@ -192,7 +192,7 @@ export class CheckpointManager {
   startAutoSave(
     operationId: string,
     stateProvider: CheckpointStateProvider,
-    intervalMs: number = CheckpointManager.DEFAULT_AUTO_SAVE_INTERVAL
+    intervalMs: number = CheckpointManager.DEFAULT_AUTO_SAVE_INTERVAL,
   ): void {
     this.stopAutoSave(operationId);
 

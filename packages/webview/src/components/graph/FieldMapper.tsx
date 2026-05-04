@@ -63,16 +63,10 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
 
   /** Set of source fields that are already mapped. */
-  const mappedSources = useMemo(
-    () => new Set(mappings.map((m) => m.sourceField)),
-    [mappings],
-  );
+  const mappedSources = useMemo(() => new Set(mappings.map((m) => m.sourceField)), [mappings]);
 
   /** Set of target fields that are already mapped. */
-  const mappedTargets = useMemo(
-    () => new Set(mappings.map((m) => m.targetField)),
-    [mappings],
-  );
+  const mappedTargets = useMemo(() => new Set(mappings.map((m) => m.targetField)), [mappings]);
 
   /** Source field index lookup. */
   const sourceIndex = useMemo(() => {
@@ -165,7 +159,11 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
       {/* Canvas: source pills | SVG overlay | target pills */}
       <div className="flex items-start" data-testid="field-mapper-canvas">
         {/* Source column */}
-        <div className="flex flex-col" style={{ gap: PILL_GAP }} data-testid="field-mapper-source-col">
+        <div
+          className="flex flex-col"
+          style={{ gap: PILL_GAP }}
+          data-testid="field-mapper-source-col"
+        >
           {sourceFields.map((field) => {
             const isMapped = mappedSources.has(field);
             const isSelected = selectedSource === field;
@@ -225,7 +223,11 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
         </svg>
 
         {/* Target column */}
-        <div className="flex flex-col" style={{ gap: PILL_GAP }} data-testid="field-mapper-target-col">
+        <div
+          className="flex flex-col"
+          style={{ gap: PILL_GAP }}
+          data-testid="field-mapper-target-col"
+        >
           {targetFields.map((field) => {
             const isMapped = mappedTargets.has(field);
             const isClickable = selectedSource !== null && !isMapped;
@@ -255,7 +257,9 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
       {/* Hint text */}
       {mappings.length === 0 && (
         <p className="text-[10px] text-center text-[var(--vscode-descriptionForeground,#868686)]">
-          {t('sync.fieldMapperHint', { defaultValue: 'Click a source field, then a target field to create a mapping' })}
+          {t('sync.fieldMapperHint', {
+            defaultValue: 'Click a source field, then a target field to create a mapping',
+          })}
         </p>
       )}
     </div>

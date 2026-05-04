@@ -105,9 +105,9 @@ describe('LiveOperationTracker', () => {
     tracker.onChange(handler);
     tracker.register('op-1', 'sync', 'Syncing', 100);
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ operationId: 'op-1' }),
-    ]));
+    expect(handler).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ operationId: 'op-1' })]),
+    );
   });
 
   it('stops notifying after offChange', () => {

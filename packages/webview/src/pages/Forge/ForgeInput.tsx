@@ -2,9 +2,23 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
-  Database, FileCode, Sparkles, Layers, Search, Loader2, X,
-  ArrowLeftRight, Lock, Ban, AlertTriangle, Flame, RefreshCw,
-  Plus, Pencil, Trash2, Check,
+  Database,
+  FileCode,
+  Sparkles,
+  Layers,
+  Search,
+  Loader2,
+  X,
+  ArrowLeftRight,
+  Lock,
+  Ban,
+  AlertTriangle,
+  Flame,
+  RefreshCw,
+  Plus,
+  Pencil,
+  Trash2,
+  Check,
 } from 'lucide-react';
 import { cn } from '../../theme';
 import { OrgDropdown } from '../../components/ui/OrgDropdown';
@@ -16,7 +30,12 @@ import {
   getBuiltinTemplateObjects,
 } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
-import type { ForgeConfig, ForgeDepth, ForgeInputMode, ForgeTemplate } from '../../stores/useForgeStore';
+import type {
+  ForgeConfig,
+  ForgeDepth,
+  ForgeInputMode,
+  ForgeTemplate,
+} from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSendMessage, useMessageListener } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
@@ -36,9 +55,19 @@ interface TabConfig {
 
 /** Static tab configuration. */
 const TABS: TabConfig[] = [
-  { id: 'record', labelKey: 'forge.recordTab', icon: <Database size={14} />, testId: 'forge-tab-record' },
+  {
+    id: 'record',
+    labelKey: 'forge.recordTab',
+    icon: <Database size={14} />,
+    testId: 'forge-tab-record',
+  },
   { id: 'soql', labelKey: 'forge.soqlTab', icon: <FileCode size={14} />, testId: 'forge-tab-soql' },
-  { id: 'template', labelKey: 'forge.templateTab', icon: <Layers size={14} />, testId: 'forge-tab-template' },
+  {
+    id: 'template',
+    labelKey: 'forge.templateTab',
+    icon: <Layers size={14} />,
+    testId: 'forge-tab-template',
+  },
   { id: 'ai', labelKey: 'forge.aiTab', icon: <Sparkles size={14} />, testId: 'forge-tab-ai' },
 ];
 
@@ -55,9 +84,18 @@ interface RecordPreview {
 
 /** Common PII field name patterns for badge detection. */
 const PII_FIELD_PATTERNS = [
-  /email/i, /phone/i, /mobile/i, /fax/i,
-  /street/i, /address/i, /city/i, /postal/i, /zip/i,
-  /ssn/i, /birth/i, /personal/i,
+  /email/i,
+  /phone/i,
+  /mobile/i,
+  /fax/i,
+  /street/i,
+  /address/i,
+  /city/i,
+  /postal/i,
+  /zip/i,
+  /ssn/i,
+  /birth/i,
+  /personal/i,
 ];
 
 /** Check if a field name matches common PII patterns. */
@@ -160,22 +198,27 @@ export const ForgeInput: React.FC = () => {
   const [recordLimit, setRecordLimit] = useState<string>('smart');
 
   /** Arrow-key navigation handler for depth radio chips. */
-  const handleDepthKeyDown = useCallback((e: React.KeyboardEvent, currentDepth: ForgeDepth) => {
-    const idx = DEPTH_OPTIONS.indexOf(currentDepth);
-    let nextIdx = idx;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      nextIdx = (idx + 1) % DEPTH_OPTIONS.length;
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      nextIdx = (idx - 1 + DEPTH_OPTIONS.length) % DEPTH_OPTIONS.length;
-    }
-    if (nextIdx !== idx) {
-      setDepth(DEPTH_OPTIONS[nextIdx]);
-      const nextEl = document.querySelector(`[data-testid="forge-depth-${DEPTH_OPTIONS[nextIdx]}"]`) as HTMLElement;
-      nextEl?.focus();
-    }
-  }, [setDepth]);
+  const handleDepthKeyDown = useCallback(
+    (e: React.KeyboardEvent, currentDepth: ForgeDepth) => {
+      const idx = DEPTH_OPTIONS.indexOf(currentDepth);
+      let nextIdx = idx;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        nextIdx = (idx + 1) % DEPTH_OPTIONS.length;
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        nextIdx = (idx - 1 + DEPTH_OPTIONS.length) % DEPTH_OPTIONS.length;
+      }
+      if (nextIdx !== idx) {
+        setDepth(DEPTH_OPTIONS[nextIdx]);
+        const nextEl = document.querySelector(
+          `[data-testid="forge-depth-${DEPTH_OPTIONS[nextIdx]}"]`,
+        ) as HTMLElement;
+        nextEl?.focus();
+      }
+    },
+    [setDepth],
+  );
 
   /* ---- Template management state ---- */
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -256,7 +299,8 @@ export const ForgeInput: React.FC = () => {
   }, [inputMode, recordId, soqlQuery, selectedTemplate, aiPrompt]);
 
   const sameOrgSelected = sourceOrgId.length > 0 && sourceOrgId === targetOrgId;
-  const canDiscover = hasInput() && sourceOrgId.length > 0 && targetOrgId.length > 0 && !sameOrgSelected;
+  const canDiscover =
+    hasInput() && sourceOrgId.length > 0 && targetOrgId.length > 0 && !sameOrgSelected;
 
   /** Fetch a preview of the record from the source org. */
   const handlePreview = useCallback(() => {
@@ -265,10 +309,12 @@ export const ForgeInput: React.FC = () => {
     setPreviewLoading(true);
     setPreviewError(null);
     setPreview(null);
-    sendMessage(buildMessage<{ recordId: string; orgId: string }>('forge:preview', {
-      recordId: id,
-      orgId: sourceOrgId,
-    }));
+    sendMessage(
+      buildMessage<{ recordId: string; orgId: string }>('forge:preview', {
+        recordId: id,
+        orgId: sourceOrgId,
+      }),
+    );
   }, [recordId, sourceOrgId, sendMessage]);
 
   /* ---- Auto-trigger preview when record ID is valid ---- */
@@ -279,7 +325,9 @@ export const ForgeInput: React.FC = () => {
     if (id && sourceOrgId && !previewLoading) {
       previewTimerRef.current = setTimeout(() => handlePreview(), 400);
     }
-    return () => { if (previewTimerRef.current) clearTimeout(previewTimerRef.current); };
+    return () => {
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    };
   }, [recordId, sourceOrgId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Create a new template from the current config. */
@@ -298,7 +346,9 @@ export const ForgeInput: React.FC = () => {
         expandOrphanParents,
         batchSize: 'auto',
         maxRecordsPerObject: recordLimitValue,
-        ...(inputMode === 'record' && recordId ? { recordId: extractRecordId(recordId) ?? undefined } : {}),
+        ...(inputMode === 'record' && recordId
+          ? { recordId: extractRecordId(recordId) ?? undefined }
+          : {}),
         ...(inputMode === 'soql' && soqlQuery ? { soqlQuery } : {}),
         ...(inputMode === 'ai' && aiPrompt ? { aiPrompt } : {}),
       },
@@ -311,8 +361,29 @@ export const ForgeInput: React.FC = () => {
     setNewTemplateName('');
     setNewTemplateDescription('');
     setShowCreateForm(false);
-    addNotification({ level: 'success', title: t('forge.templateCreated'), message: template.name, autoDismissMs: 3000 });
-  }, [newTemplateName, newTemplateDescription, inputMode, depth, customDepth, anonymize, skipEmpty, expandOrphanParents, recordLimitValue, recordId, soqlQuery, aiPrompt, addTemplate, addNotification, t]);
+    addNotification({
+      level: 'success',
+      title: t('forge.templateCreated'),
+      message: template.name,
+      autoDismissMs: 3000,
+    });
+  }, [
+    newTemplateName,
+    newTemplateDescription,
+    inputMode,
+    depth,
+    customDepth,
+    anonymize,
+    skipEmpty,
+    expandOrphanParents,
+    recordLimitValue,
+    recordId,
+    soqlQuery,
+    aiPrompt,
+    addTemplate,
+    addNotification,
+    t,
+  ]);
 
   /** Start editing a template. */
   const handleStartEdit = useCallback((tpl: ForgeTemplate) => {
@@ -324,9 +395,17 @@ export const ForgeInput: React.FC = () => {
   /** Save template edits. */
   const handleSaveEdit = useCallback(() => {
     if (editingTemplateId && editName.trim()) {
-      updateTemplate(editingTemplateId, { name: editName.trim(), description: editDescription.trim() });
+      updateTemplate(editingTemplateId, {
+        name: editName.trim(),
+        description: editDescription.trim(),
+      });
       setEditingTemplateId(null);
-      addNotification({ level: 'success', title: t('forge.templateUpdated'), message: editName, autoDismissMs: 3000 });
+      addNotification({
+        level: 'success',
+        title: t('forge.templateUpdated'),
+        message: editName,
+        autoDismissMs: 3000,
+      });
     }
   }, [editingTemplateId, editName, editDescription, updateTemplate, addNotification, t]);
 
@@ -339,7 +418,12 @@ export const ForgeInput: React.FC = () => {
       if (selectedTemplate === tpl?.id) {
         setSelectedTemplate('');
       }
-      addNotification({ level: 'info', title: t('forge.templateDeleted'), message: tpl?.name ?? '', autoDismissMs: 3000 });
+      addNotification({
+        level: 'info',
+        title: t('forge.templateDeleted'),
+        message: tpl?.name ?? '',
+        autoDismissMs: 3000,
+      });
     }
   }, [deleteConfirmId, templates, removeTemplate, selectedTemplate, addNotification, t]);
 
@@ -368,9 +452,23 @@ export const ForgeInput: React.FC = () => {
     sendMessage(buildMessage<{ config: ForgeConfig }>('forge:discover', { config }));
     setPhase('discovery');
   }, [
-    canDiscover, inputMode, depth, recordId, soqlQuery, selectedTemplate,
-    aiPrompt, customDepth, anonymize, skipEmpty, expandOrphanParents,
-    recordLimitValue, sourceOrgId, targetOrgId, setConfig, setPhase, sendMessage,
+    canDiscover,
+    inputMode,
+    depth,
+    recordId,
+    soqlQuery,
+    selectedTemplate,
+    aiPrompt,
+    customDepth,
+    anonymize,
+    skipEmpty,
+    expandOrphanParents,
+    recordLimitValue,
+    sourceOrgId,
+    targetOrgId,
+    setConfig,
+    setPhase,
+    sendMessage,
   ]);
 
   /** Quick-start path: starter template selected → synthetic graph, no BFS. */
@@ -407,9 +505,19 @@ export const ForgeInput: React.FC = () => {
     );
     setPhase('review');
   }, [
-    canQuickStartTemplate, builtinTplCandidate, sourceOrgId, targetOrgId,
-    anonymize, skipEmpty, expandOrphanParents, recordLimit, recordLimitValue,
-    setConfig, setGraph, setPhase, sendMessage,
+    canQuickStartTemplate,
+    builtinTplCandidate,
+    sourceOrgId,
+    targetOrgId,
+    anonymize,
+    skipEmpty,
+    expandOrphanParents,
+    recordLimit,
+    recordLimitValue,
+    setConfig,
+    setGraph,
+    setPhase,
+    sendMessage,
   ]);
 
   /** Reuse the most recent execution's graph to skip discovery. */
@@ -446,9 +554,25 @@ export const ForgeInput: React.FC = () => {
     );
     setPhase('review');
   }, [
-    canReuseLastGraph, lastGraph, inputMode, depth, recordId, soqlQuery, selectedTemplate,
-    aiPrompt, customDepth, anonymize, skipEmpty, expandOrphanParents, recordLimitValue,
-    sourceOrgId, targetOrgId, setConfig, setGraph, setPhase, sendMessage,
+    canReuseLastGraph,
+    lastGraph,
+    inputMode,
+    depth,
+    recordId,
+    soqlQuery,
+    selectedTemplate,
+    aiPrompt,
+    customDepth,
+    anonymize,
+    skipEmpty,
+    expandOrphanParents,
+    recordLimitValue,
+    sourceOrgId,
+    targetOrgId,
+    setConfig,
+    setGraph,
+    setPhase,
+    sendMessage,
   ]);
 
   return (
@@ -507,14 +631,8 @@ export const ForgeInput: React.FC = () => {
         <div className="flex flex-col gap-3">
           {/* Tabs card */}
           <div className="rounded-lg border border-subtle bg-surface-1 overflow-hidden">
-            <Tabs.Root
-              value={inputMode}
-              onValueChange={(v) => setInputMode(v as ForgeInputMode)}
-            >
-              <Tabs.List
-                className="flex border-b border-subtle"
-                aria-label={t('nav.forge')}
-              >
+            <Tabs.Root value={inputMode} onValueChange={(v) => setInputMode(v as ForgeInputMode)}>
+              <Tabs.List className="flex border-b border-subtle" aria-label={t('nav.forge')}>
                 {TABS.map((tab) => (
                   <Tabs.Trigger
                     key={tab.id}
@@ -571,7 +689,11 @@ export const ForgeInput: React.FC = () => {
                       type="button"
                       data-testid="forge-preview-btn"
                       aria-label={t('forge.refreshPreview')}
-                      disabled={extractRecordId(recordId) === null || sourceOrgId.length === 0 || previewLoading}
+                      disabled={
+                        extractRecordId(recordId) === null ||
+                        sourceOrgId.length === 0 ||
+                        previewLoading
+                      }
                       onClick={handlePreview}
                       title={t('forge.refreshPreview')}
                       className={cn(
@@ -582,7 +704,11 @@ export const ForgeInput: React.FC = () => {
                         'disabled:opacity-40 disabled:cursor-not-allowed',
                       )}
                     >
-                      {previewLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                      {previewLoading ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={14} />
+                      )}
                     </button>
                   </div>
                   {previewError && (
@@ -617,7 +743,11 @@ export const ForgeInput: React.FC = () => {
                 </Tabs.Content>
 
                 {/* Template tab — forceMount keeps state alive for CRUD management */}
-                <Tabs.Content value="template" forceMount className={inputMode !== 'template' ? 'hidden' : ''}>
+                <Tabs.Content
+                  value="template"
+                  forceMount
+                  className={inputMode !== 'template' ? 'hidden' : ''}
+                >
                   <div data-testid="forge-input-template" className="flex flex-col gap-2">
                     {/* Create template button/form */}
                     {showCreateForm ? (
@@ -664,7 +794,11 @@ export const ForgeInput: React.FC = () => {
                           <button
                             type="button"
                             data-testid="forge-template-cancel"
-                            onClick={() => { setShowCreateForm(false); setNewTemplateName(''); setNewTemplateDescription(''); }}
+                            onClick={() => {
+                              setShowCreateForm(false);
+                              setNewTemplateName('');
+                              setNewTemplateDescription('');
+                            }}
                             className="flex items-center gap-1 px-3 py-1.5 rounded-md text-xs text-text-muted hover:text-text-primary"
                           >
                             <X size={12} />
@@ -717,7 +851,9 @@ export const ForgeInput: React.FC = () => {
                             )}
                           </div>
                           {tpl.description && (
-                            <span className="block text-xs text-text-muted mt-0.5">{tpl.description}</span>
+                            <span className="block text-xs text-text-muted mt-0.5">
+                              {tpl.description}
+                            </span>
                           )}
                         </div>
                       </button>
@@ -770,10 +906,19 @@ export const ForgeInput: React.FC = () => {
                                 )}
                               />
                               <div className="flex gap-1">
-                                <button type="button" onClick={handleSaveEdit} data-testid="forge-template-edit-save" className="text-forge text-xs hover:underline">
+                                <button
+                                  type="button"
+                                  onClick={handleSaveEdit}
+                                  data-testid="forge-template-edit-save"
+                                  className="text-forge text-xs hover:underline"
+                                >
                                   <Check size={12} className="inline" /> {t('forge.saveTemplate')}
                                 </button>
-                                <button type="button" onClick={() => setEditingTemplateId(null)} className="text-text-muted text-xs hover:underline">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingTemplateId(null)}
+                                  className="text-text-muted text-xs hover:underline"
+                                >
                                   <X size={12} className="inline" /> {t('forge.cancelEdit')}
                                 </button>
                               </div>
@@ -787,14 +932,19 @@ export const ForgeInput: React.FC = () => {
                               >
                                 <span className="font-medium">{tpl.name}</span>
                                 {tpl.description && (
-                                  <span className="block text-xs text-text-muted mt-0.5">{tpl.description}</span>
+                                  <span className="block text-xs text-text-muted mt-0.5">
+                                    {tpl.description}
+                                  </span>
                                 )}
                               </button>
                               <div className="flex items-center gap-1 shrink-0">
                                 <button
                                   type="button"
                                   data-testid={`forge-template-edit-${tpl.id}`}
-                                  onClick={(e) => { e.stopPropagation(); handleStartEdit(tpl); }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStartEdit(tpl);
+                                  }}
                                   className="p-1 text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
                                   title={t('forge.editTemplate')}
                                 >
@@ -803,7 +953,10 @@ export const ForgeInput: React.FC = () => {
                                 <button
                                   type="button"
                                   data-testid={`forge-template-delete-${tpl.id}`}
-                                  onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(tpl.id); }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteConfirmId(tpl.id);
+                                  }}
                                   className="p-1 text-text-muted hover:text-red-400 transition-colors rounded hover:bg-red-500/10"
                                   title={t('forge.deleteTemplate')}
                                 >
@@ -850,7 +1003,11 @@ export const ForgeInput: React.FC = () => {
             <div className="text-[10px] text-text-muted uppercase tracking-widest mb-2">
               {t('forge.depth')}
             </div>
-            <div className="flex items-center gap-2 flex-wrap" role="radiogroup" aria-label={t('forge.depth', 'Depth')}>
+            <div
+              className="flex items-center gap-2 flex-wrap"
+              role="radiogroup"
+              aria-label={t('forge.depth', 'Depth')}
+            >
               {DEPTH_OPTIONS.map((d) => (
                 <button
                   key={d}
@@ -1016,7 +1173,10 @@ export const ForgeInput: React.FC = () => {
           </button>
           {/* UX-05: Disabled CTA hint */}
           {!canDiscover && (
-            <p className="text-[10px] text-text-muted text-center mt-1" data-testid="forge-discover-hint">
+            <p
+              className="text-[10px] text-text-muted text-center mt-1"
+              data-testid="forge-discover-hint"
+            >
               {!sourceOrgId
                 ? t('forge.hintNoSource')
                 : !targetOrgId
@@ -1063,7 +1223,7 @@ export const ForgeInput: React.FC = () => {
               )}
               title={t(
                 'forge.quickStartTemplateHint',
-                'Skip discovery and use the starter template\'s known object set. Record counts will be queried during execution.',
+                "Skip discovery and use the starter template's known object set. Record counts will be queried during execution.",
               )}
             >
               <Sparkles size={12} />
@@ -1124,7 +1284,9 @@ export const ForgeInput: React.FC = () => {
               <Search size={20} className="mx-auto mb-2 text-text-muted/50" />
               <p className="text-xs text-text-muted">
                 {inputMode === 'record'
-                  ? (sourceOrgId ? t('forge.recordIdPlaceholder') : t('forge.noOrgSelected'))
+                  ? sourceOrgId
+                    ? t('forge.recordIdPlaceholder')
+                    : t('forge.noOrgSelected')
                   : inputMode === 'soql'
                     ? t('forge.soqlPreviewHint')
                     : inputMode === 'template'
@@ -1136,24 +1298,36 @@ export const ForgeInput: React.FC = () => {
 
           {/* Estimated graph stats */}
           <div className="rounded-lg border border-subtle bg-surface-1 p-3">
-            <div className="text-[10px] text-text-muted mb-2">
-              {t('forge.estimatedGraph')}
-            </div>
+            <div className="text-[10px] text-text-muted mb-2">{t('forge.estimatedGraph')}</div>
             <div className="grid grid-cols-2 gap-2 text-center">
               <div>
-                <div className="text-lg font-bold text-forge" data-testid="est-objects">{preview ? '1' : '\u2014'}</div>
+                <div className="text-lg font-bold text-forge" data-testid="est-objects">
+                  {preview ? '1' : '\u2014'}
+                </div>
                 <div className="text-[9px] text-text-muted">{t('forge.objects')}</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-forge" data-testid="est-fields">{preview ? String(preview.totalFieldCount ?? preview.fields?.length ?? 0) : '\u2014'}</div>
+                <div className="text-lg font-bold text-forge" data-testid="est-fields">
+                  {preview
+                    ? String(preview.totalFieldCount ?? preview.fields?.length ?? 0)
+                    : '\u2014'}
+                </div>
                 <div className="text-[9px] text-text-muted">{t('forge.fields')}</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-green-500" data-testid="est-size">{preview?.estimatedSize != null ? `${preview.estimatedSize.toFixed(2)} MB` : '\u2014'}</div>
+                <div className="text-lg font-bold text-green-500" data-testid="est-size">
+                  {preview?.estimatedSize != null
+                    ? `${preview.estimatedSize.toFixed(2)} MB`
+                    : '\u2014'}
+                </div>
                 <div className="text-[9px] text-text-muted">{t('forge.estSize')}</div>
               </div>
               <div>
-                <div className="text-lg font-bold text-yellow-500" data-testid="est-records">{preview?.estimatedRecordCount != null ? String(preview.estimatedRecordCount) : '\u2014'}</div>
+                <div className="text-lg font-bold text-yellow-500" data-testid="est-records">
+                  {preview?.estimatedRecordCount != null
+                    ? String(preview.estimatedRecordCount)
+                    : '\u2014'}
+                </div>
                 <div className="text-[9px] text-text-muted">{t('forge.estRecords')}</div>
               </div>
             </div>
@@ -1170,9 +1344,7 @@ export const ForgeInput: React.FC = () => {
                 <div className="text-[11px] text-red-400 font-medium">
                   {t('forge.piiWarning', { count: piiFieldCount })}
                 </div>
-                <div className="text-[10px] text-text-muted">
-                  {t('forge.piiWarningHint')}
-                </div>
+                <div className="text-[10px] text-text-muted">{t('forge.piiWarningHint')}</div>
               </div>
             </div>
           )}
@@ -1213,7 +1385,14 @@ interface OrgCardProps {
 }
 
 /** Org selection card with custom dropdown, alias, and username. */
-function OrgCard({ labelKey, org, orgId, onOrgChange, orgs, testId }: OrgCardProps): React.JSX.Element {
+function OrgCard({
+  labelKey,
+  org,
+  orgId,
+  onOrgChange,
+  orgs,
+  testId,
+}: OrgCardProps): React.JSX.Element {
   const { t } = useTranslation();
 
   return (
@@ -1233,9 +1412,7 @@ function OrgCard({ labelKey, org, orgId, onOrgChange, orgs, testId }: OrgCardPro
         ariaLabel={t(labelKey)}
         testId={testId}
       />
-      {org && (
-        <div className="text-[10px] text-text-muted mt-1 truncate">{org.username}</div>
-      )}
+      {org && <div className="text-[10px] text-text-muted mt-1 truncate">{org.username}</div>}
     </div>
   );
 }

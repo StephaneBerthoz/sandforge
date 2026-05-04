@@ -171,9 +171,7 @@ export class CDCReplicator {
     }
     let total = 0;
     const count = this.timingsCount;
-    const start = this.timingsCount < TIMINGS_CAPACITY
-      ? 0
-      : this.timingsWriteIndex;
+    const start = this.timingsCount < TIMINGS_CAPACITY ? 0 : this.timingsWriteIndex;
     for (let i = 0; i < count; i++) {
       const idx = (start + i) % TIMINGS_CAPACITY;
       const t = this.timingsBuffer[idx];
@@ -205,10 +203,7 @@ export class CDCReplicator {
     return this.running;
   }
 
-  private async applyEvents(
-    objectName: string,
-    events: CDCEvent[],
-  ): Promise<void> {
+  private async applyEvents(objectName: string, events: CDCEvent[]): Promise<void> {
     // Group by change type
     const groups = this.groupByChangeType(events);
 
@@ -220,16 +215,10 @@ export class CDCReplicator {
         await this.checkConflicts(objectName, groupEvents);
       }
 
-      const mappedRecords = groupEvents.map((event) =>
-        this.mapFields(objectName, event),
-      );
+      const mappedRecords = groupEvents.map((event) => this.mapFields(objectName, event));
 
       try {
-        const results = await this.deps.applyFn(
-          objectName,
-          sfOperation,
-          mappedRecords,
-        );
+        const results = await this.deps.applyFn(objectName, sfOperation, mappedRecords);
 
         const now = Date.now();
         for (let i = 0; i < results.length; i++) {
@@ -261,9 +250,7 @@ export class CDCReplicator {
     this.timingsCount = Math.min(this.timingsCount + 1, TIMINGS_CAPACITY);
   }
 
-  private groupByChangeType(
-    events: CDCEvent[],
-  ): Map<string, CDCEvent[]> {
+  private groupByChangeType(events: CDCEvent[]): Map<string, CDCEvent[]> {
     const groups = new Map<string, CDCEvent[]>();
     for (const event of events) {
       const existing = groups.get(event.changeType) ?? [];
@@ -273,9 +260,7 @@ export class CDCReplicator {
     return groups;
   }
 
-  private mapOperation(
-    changeType: string,
-  ): 'insert' | 'update' | 'delete' | 'undelete' {
+  private mapOperation(changeType: string): 'insert' | 'update' | 'delete' | 'undelete' {
     switch (changeType) {
       case 'CREATE':
         return 'insert';
@@ -290,10 +275,7 @@ export class CDCReplicator {
     }
   }
 
-  private mapFields(
-    objectName: string,
-    event: CDCEvent,
-  ): Record<string, unknown> {
+  private mapFields(objectName: string, event: CDCEvent): Record<string, unknown> {
     const mappings = this.deps.fieldMappings[objectName];
     if (!mappings || mappings.length === 0) {
       // No mappings configured — pass through with record IDs
@@ -310,10 +292,7 @@ export class CDCReplicator {
     };
   }
 
-  private async checkConflicts(
-    objectName: string,
-    events: CDCEvent[],
-  ): Promise<void> {
+  private async checkConflicts(objectName: string, events: CDCEvent[]): Promise<void> {
     if (!this.deps.onConflict) {
       return;
     }
@@ -345,9 +324,7 @@ export class CDCReplicator {
           continue;
         }
 
-        const targetLastModified = String(
-          targetRecord.LastModifiedDate ?? '',
-        );
+        const targetLastModified = String(targetRecord.LastModifiedDate ?? '');
         if (!targetLastModified) {
           continue;
         }
@@ -363,9 +340,7 @@ export class CDCReplicator {
             targetLastModified: targetDate.toISOString(),
             resolved: this.deps.conflictStrategy !== 'manual',
             resolution:
-              this.deps.conflictStrategy !== 'manual'
-                ? this.deps.conflictStrategy
-                : undefined,
+              this.deps.conflictStrategy !== 'manual' ? this.deps.conflictStrategy : undefined,
           };
           this.deps.onConflict(conflict);
         }

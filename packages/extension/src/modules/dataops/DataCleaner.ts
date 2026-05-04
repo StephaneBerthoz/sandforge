@@ -1,11 +1,6 @@
 /** Rule type for data cleaning operations */
 export interface CleanRule {
-  type:
-    | 'trim'
-    | 'deduplicate'
-    | 'normalize_phone'
-    | 'normalize_email'
-    | 'remove_empty';
+  type: 'trim' | 'deduplicate' | 'normalize_phone' | 'normalize_email' | 'remove_empty';
   fields: string[];
 }
 
@@ -21,10 +16,7 @@ export class DataCleaner {
    * @param rules - The cleaning rules to apply in order
    * @returns A new array of cleaned records
    */
-  clean(
-    records: Record<string, unknown>[],
-    rules: CleanRule[],
-  ): Record<string, unknown>[] {
+  clean(records: Record<string, unknown>[], rules: CleanRule[]): Record<string, unknown>[] {
     let result = records.map((r) => ({ ...r }));
 
     for (const rule of rules) {
@@ -60,10 +52,7 @@ export class DataCleaner {
    * @param fields - The field names to trim
    * @returns Records with trimmed fields
    */
-  trimWhitespace(
-    records: Record<string, unknown>[],
-    fields: string[],
-  ): Record<string, unknown>[] {
+  trimWhitespace(records: Record<string, unknown>[], fields: string[]): Record<string, unknown>[] {
     return records.map((record) => {
       const copy = { ...record };
       for (const field of fields) {
@@ -130,10 +119,7 @@ export class DataCleaner {
    * @param field - The email field name
    * @returns Records with normalized emails
    */
-  normalizeEmails(
-    records: Record<string, unknown>[],
-    field: string,
-  ): Record<string, unknown>[] {
+  normalizeEmails(records: Record<string, unknown>[], field: string): Record<string, unknown>[] {
     return records.map((record) => {
       const copy = { ...record };
       const value = copy[field];

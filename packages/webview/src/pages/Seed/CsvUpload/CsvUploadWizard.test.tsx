@@ -11,14 +11,19 @@ import { CsvUploadWizard } from './CsvUploadWizard';
 vi.mock('papaparse', () => ({
   default: {
     parse: vi.fn((input: string, opts?: { preview?: number }) => {
-      const lines = input.replace(/^\uFEFF/, '').split('\n').filter(Boolean);
+      const lines = input
+        .replace(/^\uFEFF/, '')
+        .split('\n')
+        .filter(Boolean);
       const fields = (lines[0] ?? '').split(',');
       const dataLines = lines.slice(1);
       const limited = opts?.preview ? dataLines.slice(0, opts.preview) : dataLines;
       const data = limited.map((line) => {
         const values = line.split(',');
         const row: Record<string, string> = {};
-        fields.forEach((f, i) => { row[f] = values[i] ?? ''; });
+        fields.forEach((f, i) => {
+          row[f] = values[i] ?? '';
+        });
         return row;
       });
       return { data, meta: { fields } };
@@ -28,7 +33,12 @@ vi.mock('papaparse', () => ({
 
 vi.mock('../../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: () => ({
-    data: { objects: [{ apiName: 'Account', label: 'Account' }, { apiName: 'Contact', label: 'Contact' }] },
+    data: {
+      objects: [
+        { apiName: 'Account', label: 'Account' },
+        { apiName: 'Contact', label: 'Contact' },
+      ],
+    },
     loading: false,
     error: null,
     refetch: vi.fn(),
@@ -46,7 +56,17 @@ vi.mock('../../../hooks/useBridgeMutation', () => ({
 }));
 
 const mockOrgs = [
-  { id: 'org-1', alias: 'dev1', username: 'user@dev1.com', instanceUrl: 'https://dev1.sf.com', orgType: 'sandbox' as const, status: 'connected' as const, safetyTier: 'low' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
+  {
+    id: 'org-1',
+    alias: 'dev1',
+    username: 'user@dev1.com',
+    instanceUrl: 'https://dev1.sf.com',
+    orgType: 'sandbox' as const,
+    status: 'connected' as const,
+    safetyTier: 'low' as const,
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
 ];
 
 describe('CsvUploadWizard', () => {

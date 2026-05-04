@@ -35,7 +35,15 @@ export interface FieldMappingCanvasProps {
   className?: string;
 }
 
-const MAPPING_TYPES: MappingType[] = ['direct', 'rename', 'transform', 'constant', 'formula', 'exclude', 'add_on'];
+const MAPPING_TYPES: MappingType[] = [
+  'direct',
+  'rename',
+  'transform',
+  'constant',
+  'formula',
+  'exclude',
+  'add_on',
+];
 
 /** Visual field mapping canvas for source-to-target mapping. */
 export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
@@ -62,7 +70,10 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
   const targetOptions = targetFields
     .filter((f) => !mappedTargetFields.has(f.apiName))
     .map((f) => ({ value: f.apiName, label: `${f.label} (${f.apiName})` }));
-  const typeOptions = MAPPING_TYPES.map((mt) => ({ value: mt, label: t(`sync.mappingTypes.${mt}`) }));
+  const typeOptions = MAPPING_TYPES.map((mt) => ({
+    value: mt,
+    label: t(`sync.mappingTypes.${mt}`),
+  }));
 
   const handleAdd = () => {
     if (pendingSource && pendingTarget) {
@@ -150,7 +161,11 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
               <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] w-28 truncate">
                 {s.targetField}
               </span>
-              <Badge variant={s.confidence >= 0.8 ? 'success' : s.confidence >= 0.5 ? 'warning' : 'default'}>
+              <Badge
+                variant={
+                  s.confidence >= 0.8 ? 'success' : s.confidence >= 0.5 ? 'warning' : 'default'
+                }
+              >
                 {Math.round(s.confidence * 100)}%
               </Badge>
             </div>

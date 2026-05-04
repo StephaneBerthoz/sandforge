@@ -48,7 +48,7 @@ export class RateLimiter {
   getTimeUntilReset(): number {
     this.pruneExpired();
     if (this.timestamps.length === 0) return 0;
-    return Math.max(0, (this.timestamps[0] + this.windowMs) - Date.now());
+    return Math.max(0, this.timestamps[0] + this.windowMs - Date.now());
   }
 
   /** Calculate the delay needed before the next request (0 if can proceed) */

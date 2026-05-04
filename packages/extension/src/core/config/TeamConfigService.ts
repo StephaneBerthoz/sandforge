@@ -196,10 +196,7 @@ export class TeamConfigService {
    * @param strategy - The merge strategy to use.
    * @returns Import result.
    */
-  private applyBundle(
-    bundle: TeamConfigBundle,
-    strategy: MergeStrategy,
-  ): TeamImportResult {
+  private applyBundle(bundle: TeamConfigBundle, strategy: MergeStrategy): TeamImportResult {
     let keysImported = 0;
     let keysSkipped = 0;
     const conflicts: ConfigConflict[] = [];

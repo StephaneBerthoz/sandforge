@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GrappeOrchestrator } from './GrappeOrchestrator';
-import type {
-  GrappeOrchestratorDeps,
-  GrappeOrchestratorListener,
-} from './GrappeOrchestrator';
+import type { GrappeOrchestratorDeps, GrappeOrchestratorListener } from './GrappeOrchestrator';
 import type { GrappePartitioner } from './GrappePartitioner';
 import type { GrappeWorkerManager } from './GrappeWorkerManager';
 import type { GrappeAggregator } from './GrappeAggregator';
@@ -18,9 +15,7 @@ import type {
   AggregatedGrappeResult,
 } from '@sandforge/shared';
 
-function createConfig(
-  overrides: Partial<GrappeConfig> = {}
-): GrappeConfig {
+function createConfig(overrides: Partial<GrappeConfig> = {}): GrappeConfig {
   return {
     enabled: true,
     autoActivateThreshold: 1000,
@@ -41,9 +36,7 @@ function createConfig(
   };
 }
 
-function createPartition(
-  overrides: Partial<GrappePartition> = {}
-): GrappePartition {
+function createPartition(overrides: Partial<GrappePartition> = {}): GrappePartition {
   const progress: GrappeProgress = {
     processedRecords: 0,
     totalRecords: 3,
@@ -67,9 +60,7 @@ function createPartition(
   };
 }
 
-function createResult(
-  overrides: Partial<GrappeResult> = {}
-): GrappeResult {
+function createResult(overrides: Partial<GrappeResult> = {}): GrappeResult {
   return {
     grappeId: 'p-001',
     status: 'success',
@@ -83,7 +74,7 @@ function createResult(
 }
 
 function createAggregatedResult(
-  overrides: Partial<AggregatedGrappeResult> = {}
+  overrides: Partial<AggregatedGrappeResult> = {},
 ): AggregatedGrappeResult {
   return {
     operationId: 'op-001',
@@ -121,13 +112,15 @@ function createMockDeps(): GrappeOrchestratorDeps {
     }),
     getAllWorkerStatuses: vi.fn().mockReturnValue([]),
     getAvailableWorkerCount: vi.fn().mockReturnValue(2),
-    processPartition: vi.fn().mockImplementation(
-      async (
-        _workerId: number,
-        _partition: GrappePartition,
-        processFn: (records: string[]) => Promise<GrappeResult>
-      ) => processFn(_partition.records)
-    ),
+    processPartition: vi
+      .fn()
+      .mockImplementation(
+        async (
+          _workerId: number,
+          _partition: GrappePartition,
+          processFn: (records: string[]) => Promise<GrappeResult>,
+        ) => processFn(_partition.records),
+      ),
   } as unknown as GrappeWorkerManager;
 
   const aggregator = {
@@ -149,9 +142,7 @@ function createMockDeps(): GrappeOrchestratorDeps {
     schedule: vi.fn().mockReturnValue([[partition]]),
     getNextBatch: vi.fn().mockReturnValue([]),
     canExecute: vi.fn().mockReturnValue(true),
-    reorderByPriority: vi.fn().mockImplementation(
-      (partitions: GrappePartition[]) => partitions
-    ),
+    reorderByPriority: vi.fn().mockImplementation((partitions: GrappePartition[]) => partitions),
   } as unknown as GrappeScheduler;
 
   const backPressureManager = {
@@ -249,11 +240,7 @@ describe('GrappeOrchestrator', () => {
       const processFn = vi.fn<(records: string[]) => Promise<GrappeResult>>();
       processFn.mockResolvedValue(createResult());
 
-      const result = await orchestrator.execute(
-        ['r1', 'r2', 'r3'],
-        config,
-        processFn
-      );
+      const result = await orchestrator.execute(['r1', 'r2', 'r3'], config, processFn);
 
       expect(deps.partitioner.partition).toHaveBeenCalled();
       expect(deps.scheduler.schedule).toHaveBeenCalled();
@@ -264,10 +251,8 @@ describe('GrappeOrchestrator', () => {
     });
 
     it('should emit started and completed events', async () => {
-      const startedListener =
-        vi.fn<GrappeOrchestratorListener>();
-      const completedListener =
-        vi.fn<GrappeOrchestratorListener>();
+      const startedListener = vi.fn<GrappeOrchestratorListener>();
+      const completedListener = vi.fn<GrappeOrchestratorListener>();
 
       orchestrator.on('started', startedListener);
       orchestrator.on('completed', completedListener);
@@ -282,28 +267,25 @@ describe('GrappeOrchestrator', () => {
     });
 
     it('should emit failed event when execution throws', async () => {
-      const failedListener =
-        vi.fn<GrappeOrchestratorListener>();
+      const failedListener = vi.fn<GrappeOrchestratorListener>();
       orchestrator.on('failed', failedListener);
 
-      (deps.partitioner.partition as ReturnType<typeof vi.fn>).mockImplementation(
-        () => {
-          throw new Error('Partition error');
-        }
-      );
+      (deps.partitioner.partition as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('Partition error');
+      });
 
       const processFn = vi.fn<(records: string[]) => Promise<GrappeResult>>();
 
-      await expect(
-        orchestrator.execute(['r1'], createConfig(), processFn)
-      ).rejects.toThrow('Partition error');
+      await expect(orchestrator.execute(['r1'], createConfig(), processFn)).rejects.toThrow(
+        'Partition error',
+      );
 
       expect(failedListener).toHaveBeenCalledOnce();
       expect(failedListener).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'failed',
           error: 'Partition error',
-        })
+        }),
       );
     });
 
@@ -327,29 +309,21 @@ describe('GrappeOrchestrator', () => {
 
     it('should handle partition processing failures gracefully', async () => {
       const failingPartition = createPartition({ id: 'fail-p' });
-      (deps.partitioner.partition as ReturnType<typeof vi.fn>).mockReturnValue([
-        failingPartition,
-      ]);
-      (deps.scheduler.schedule as ReturnType<typeof vi.fn>).mockReturnValue([
-        [failingPartition],
-      ]);
+      (deps.partitioner.partition as ReturnType<typeof vi.fn>).mockReturnValue([failingPartition]);
+      (deps.scheduler.schedule as ReturnType<typeof vi.fn>).mockReturnValue([[failingPartition]]);
       (deps.workerManager.processPartition as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('Worker failed')
+        new Error('Worker failed'),
       );
 
       const processFn = vi.fn<(records: string[]) => Promise<GrappeResult>>();
 
-      const result = await orchestrator.execute(
-        ['r1'],
-        createConfig(),
-        processFn
-      );
+      const result = await orchestrator.execute(['r1'], createConfig(), processFn);
 
       expect(deps.aggregator.addResult).toHaveBeenCalledWith(
         expect.objectContaining({
           status: 'failure',
           errors: ['Worker failed'],
-        })
+        }),
       );
       expect(result).toBeDefined();
     });
@@ -372,8 +346,7 @@ describe('GrappeOrchestrator', () => {
 
   describe('pause / resume', () => {
     it('should emit paused event when pause is called', async () => {
-      const listener =
-        vi.fn<GrappeOrchestratorListener>();
+      const listener = vi.fn<GrappeOrchestratorListener>();
       orchestrator.on('paused', listener);
 
       const processFn = vi.fn<(records: string[]) => Promise<GrappeResult>>();
@@ -383,14 +356,11 @@ describe('GrappeOrchestrator', () => {
 
       orchestrator.pause();
 
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'paused' })
-      );
+      expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: 'paused' }));
     });
 
     it('should emit resumed event when resume is called', async () => {
-      const listener =
-        vi.fn<GrappeOrchestratorListener>();
+      const listener = vi.fn<GrappeOrchestratorListener>();
       orchestrator.on('resumed', listener);
 
       const processFn = vi.fn<(records: string[]) => Promise<GrappeResult>>();
@@ -401,9 +371,7 @@ describe('GrappeOrchestrator', () => {
       orchestrator.pause();
       orchestrator.resume();
 
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'resumed' })
-      );
+      expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: 'resumed' }));
     });
   });
 
@@ -416,8 +384,7 @@ describe('GrappeOrchestrator', () => {
 
   describe('on / off', () => {
     it('should register and call event listeners', async () => {
-      const listener =
-        vi.fn<GrappeOrchestratorListener>();
+      const listener = vi.fn<GrappeOrchestratorListener>();
       orchestrator.on('started', listener);
 
       const processFn = vi.fn<(records: string[]) => Promise<GrappeResult>>();
@@ -429,8 +396,7 @@ describe('GrappeOrchestrator', () => {
     });
 
     it('should stop calling removed listeners', async () => {
-      const listener =
-        vi.fn<GrappeOrchestratorListener>();
+      const listener = vi.fn<GrappeOrchestratorListener>();
       orchestrator.on('started', listener);
       orchestrator.off('started', listener);
 

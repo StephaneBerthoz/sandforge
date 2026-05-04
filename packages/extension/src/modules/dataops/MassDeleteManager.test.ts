@@ -5,7 +5,7 @@ import type { MassDeleteConfig } from '@sandforge/shared';
 function createValidConfig(overrides?: Partial<MassDeleteConfig>): MassDeleteConfig {
   return {
     objectApiName: 'Account',
-    query: "SELECT Id FROM Account WHERE CreatedDate < LAST_YEAR",
+    query: 'SELECT Id FROM Account WHERE CreatedDate < LAST_YEAR',
     hardDelete: false,
     batchSize: 200,
     dryRun: false,

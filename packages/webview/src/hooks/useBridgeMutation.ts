@@ -44,13 +44,20 @@ export function useBridgeMutation<T>(
   const responseType = options?.responseType ?? `${requestType}:response`;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  const { listen, data, loading, error, setLoading, setError, reset: resetResponse } =
-    useMessageResponse<T>({
-      requestType,
-      responseType,
-      timeoutMs,
-      requestLabel: 'mutation',
-    });
+  const {
+    listen,
+    data,
+    loading,
+    error,
+    setLoading,
+    setError,
+    reset: resetResponse,
+  } = useMessageResponse<T>({
+    requestType,
+    responseType,
+    timeoutMs,
+    requestLabel: 'mutation',
+  });
 
   // Store cleanup function for the current listener
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -70,9 +77,10 @@ export function useBridgeMutation<T>(
       setLoading(true);
       setError(null);
 
-      const msg = payload !== undefined
-        ? buildMessage<Record<string, unknown>>(requestType, payload)
-        : buildMessage(requestType);
+      const msg =
+        payload !== undefined
+          ? buildMessage<Record<string, unknown>>(requestType, payload)
+          : buildMessage(requestType);
 
       sendMessage(msg);
 

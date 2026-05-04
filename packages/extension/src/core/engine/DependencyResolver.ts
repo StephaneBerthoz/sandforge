@@ -53,12 +53,8 @@ export class DependencyResolver {
     const depsOf = this.buildDependencyMap();
     const { sorted, remaining } = this.topologicalSort(depsOf);
 
-    const cycles: string[][] =
-      remaining.size > 0 ? this.findConnectedComponents(remaining) : [];
-    const topologicalOrder = [
-      ...sorted,
-      ...Array.from(remaining.keys()).sort(),
-    ];
+    const cycles: string[][] = remaining.size > 0 ? this.findConnectedComponents(remaining) : [];
+    const topologicalOrder = [...sorted, ...Array.from(remaining.keys()).sort()];
     const layers = this.computeLayers(topologicalOrder, depsOf);
 
     return {
@@ -106,9 +102,7 @@ export class DependencyResolver {
     remaining: Map<string, Set<string>>;
   } {
     const sorted: string[] = [];
-    const remaining = new Map(
-      Array.from(depsOf).map(([k, v]) => [k, new Set(v)])
-    );
+    const remaining = new Map(Array.from(depsOf).map(([k, v]) => [k, new Set(v)]));
 
     while (remaining.size > 0) {
       const ready: string[] = [];
@@ -157,10 +151,7 @@ export class DependencyResolver {
   }
 
   /** Compute parallel execution layers from topological order */
-  private computeLayers(
-    order: string[],
-    depsOf: Map<string, Set<string>>
-  ): string[][] {
+  private computeLayers(order: string[], depsOf: Map<string, Set<string>>): string[][] {
     const layers: string[][] = [];
     const layerOf = new Map<string, number>();
 

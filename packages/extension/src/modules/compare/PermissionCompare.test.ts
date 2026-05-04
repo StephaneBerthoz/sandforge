@@ -1,16 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PermissionCompare } from './PermissionCompare';
-import type {
-  FetchPermissionsFn,
-  PermissionEntry,
-  CrudPermissions,
-} from './PermissionCompare';
+import type { FetchPermissionsFn, PermissionEntry, CrudPermissions } from './PermissionCompare';
 
 function createEntry(
   name: string,
   type: 'Profile' | 'PermissionSet',
   objectPermissions: Record<string, CrudPermissions> = {},
-  fieldPermissions: Record<string, boolean> = {}
+  fieldPermissions: Record<string, boolean> = {},
 ): PermissionEntry {
   return { name, type, objectPermissions, fieldPermissions };
 }
@@ -139,9 +135,7 @@ describe('PermissionCompare', () => {
     it('should handle fetch failures by propagating the error', async () => {
       vi.mocked(fetchPermissions).mockRejectedValue(new Error('Auth failed'));
 
-      await expect(
-        permCompare.compare('org-1', 'org-2')
-      ).rejects.toThrow('Auth failed');
+      await expect(permCompare.compare('org-1', 'org-2')).rejects.toThrow('Auth failed');
     });
 
     it('should handle multiple permission entries of mixed types', async () => {
@@ -218,7 +212,9 @@ describe('PermissionCompare', () => {
     it('should aggregate permissions across multiple entries with OR logic', () => {
       const source = [
         createEntry('Admin', 'Profile', { Account: READ_ONLY }),
-        createEntry('Editor', 'PermissionSet', { Account: { create: true, read: false, update: true, delete: false } }),
+        createEntry('Editor', 'PermissionSet', {
+          Account: { create: true, read: false, update: true, delete: false },
+        }),
       ];
       const target: PermissionEntry[] = [];
 

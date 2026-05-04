@@ -116,10 +116,7 @@ export class ComplianceEngine {
         continue;
       }
 
-      const matchingRule = this.findMatchingRule(
-        profile.rules,
-        detection.piiCategory,
-      );
+      const matchingRule = this.findMatchingRule(profile.rules, detection.piiCategory);
 
       const method =
         matchingRule && matchingRule.requiredMethod !== 'any'
@@ -181,16 +178,11 @@ export class ComplianceEngine {
     totalFieldsScanned: number,
   ): ComplianceReport {
     const overrideSet = new Set(
-      profile.userOverrides.map(
-        (o) => `${o.objectApiName}.${o.fieldApiName}`,
-      ),
+      profile.userOverrides.map((o) => `${o.objectApiName}.${o.fieldApiName}`),
     );
 
     const entries: ComplianceReportEntry[] = rules.map((rule) => {
-      const matchingRule = this.findMatchingRule(
-        profile.rules,
-        rule.piiCategory,
-      );
+      const matchingRule = this.findMatchingRule(profile.rules, rule.piiCategory);
       const ruleId = matchingRule ? matchingRule.id : 'custom';
       const objectRecords = recordCounts.get(rule.objectApiName) ?? 0;
       const key = `${rule.objectApiName}.${rule.fieldApiName}`;
@@ -205,11 +197,7 @@ export class ComplianceEngine {
       };
     });
 
-    const objectSummaries = this.buildObjectSummaries(
-      rules,
-      recordCounts,
-      profile,
-    );
+    const objectSummaries = this.buildObjectSummaries(rules, recordCounts, profile);
 
     const overallStatus = this.computeOverallStatus(objectSummaries);
 
@@ -217,9 +205,7 @@ export class ComplianceEngine {
     const reportId = randomUUID();
 
     const checksumPayload = JSON.stringify(entries);
-    const checksumSha256 = createHash('sha256')
-      .update(checksumPayload)
-      .digest('hex');
+    const checksumSha256 = createHash('sha256').update(checksumPayload).digest('hex');
 
     return {
       id: reportId,
@@ -275,25 +261,16 @@ export class ComplianceEngine {
     const summaries: ComplianceObjectSummary[] = [];
 
     for (const objectName of objectNames) {
-      const objectRules = rules.filter(
-        (r) => r.objectApiName === objectName,
-      );
+      const objectRules = rules.filter((r) => r.objectApiName === objectName);
       const objectDetections = profile.autoDetectedPII.filter(
         (d) => d.objectApiName === objectName,
       );
-      const methods = [
-        ...new Set(objectRules.map((r) => r.method)),
-      ];
+      const methods = [...new Set(objectRules.map((r) => r.method))];
       const recordCount = recordCounts.get(objectName) ?? 0;
 
       const allDetectedCovered =
         objectDetections.length > 0 &&
-        objectDetections.every((d) =>
-          objectRules.some(
-            (r) =>
-              r.fieldApiName === d.fieldApiName,
-          ),
-        );
+        objectDetections.every((d) => objectRules.some((r) => r.fieldApiName === d.fieldApiName));
 
       const status: 'pass' | 'partial' | 'fail' =
         objectDetections.length === 0
@@ -321,9 +298,7 @@ export class ComplianceEngine {
    * @param summaries - Per-object compliance summaries.
    * @returns 'pass' if all pass, 'fail' if all fail, 'partial' otherwise.
    */
-  private computeOverallStatus(
-    summaries: ComplianceObjectSummary[],
-  ): 'pass' | 'partial' | 'fail' {
+  private computeOverallStatus(summaries: ComplianceObjectSummary[]): 'pass' | 'partial' | 'fail' {
     if (summaries.length === 0) {
       return 'pass';
     }
@@ -347,8 +322,7 @@ export class ComplianceEngine {
         id: 'gdpr-01',
         framework: 'gdpr',
         category: 'data_minimization',
-        description:
-          'Anonymize personal identifiers (name, email, phone, address)',
+        description: 'Anonymize personal identifiers (name, email, phone, address)',
         targetPiiCategories: ['PII'],
         requiredMethod: 'fake',
         articleReference: 'GDPR Art. 25',
@@ -390,8 +364,7 @@ export class ComplianceEngine {
         id: 'ccpa-01',
         framework: 'ccpa',
         category: 'personal_info',
-        description:
-          'Anonymize personal information (name, email, phone)',
+        description: 'Anonymize personal information (name, email, phone)',
         targetPiiCategories: ['PII'],
         requiredMethod: 'fake',
       },
@@ -421,8 +394,7 @@ export class ComplianceEngine {
         id: 'hipaa-01',
         framework: 'hipaa',
         category: 'safe_harbor',
-        description:
-          'Anonymize patient identifiers (name, address, phone)',
+        description: 'Anonymize patient identifiers (name, address, phone)',
         targetPiiCategories: ['PII', 'PHI'],
         requiredMethod: 'fake',
         articleReference: 'HIPAA Safe Harbor \u00A7164.514(b)',
@@ -464,8 +436,7 @@ export class ComplianceEngine {
         id: 'pci-02',
         framework: 'pci_dss',
         category: 'auth_data',
-        description:
-          'Nullify CVV, expiration, and magnetic strip data',
+        description: 'Nullify CVV, expiration, and magnetic strip data',
         targetPiiCategories: ['PCI'],
         requiredMethod: 'nullify',
         articleReference: 'PCI-DSS Requirement 3.2',

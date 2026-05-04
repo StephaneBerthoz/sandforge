@@ -12,8 +12,20 @@ const execution: PipelineExecutionData = {
   startTime: '2025-01-01T00:00:00.000Z',
   elapsed: 120,
   steps: [
-    { stepId: 'step-1', stepName: 'Backup', stepType: 'backup', status: 'completed', duration: 30000 },
-    { stepId: 'step-2', stepName: 'Sync Accounts', stepType: 'sync', status: 'running', startTime: '2025-01-01T00:01:00.000Z' },
+    {
+      stepId: 'step-1',
+      stepName: 'Backup',
+      stepType: 'backup',
+      status: 'completed',
+      duration: 30000,
+    },
+    {
+      stepId: 'step-2',
+      stepName: 'Sync Accounts',
+      stepType: 'sync',
+      status: 'running',
+      startTime: '2025-01-01T00:01:00.000Z',
+    },
     { stepId: 'step-3', stepName: 'Notify', stepType: 'notification', status: 'pending' },
   ],
 };
@@ -91,7 +103,13 @@ describe('PipelineExecutionView', () => {
     const withError: PipelineExecutionData = {
       ...execution,
       steps: [
-        { stepId: 'step-1', stepName: 'Backup', stepType: 'backup', status: 'failed', error: 'Connection timeout' },
+        {
+          stepId: 'step-1',
+          stepName: 'Backup',
+          stepType: 'backup',
+          status: 'failed',
+          error: 'Connection timeout',
+        },
       ],
     };
     render(<PipelineExecutionView execution={withError} />);

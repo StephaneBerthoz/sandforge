@@ -36,9 +36,9 @@ describe('CompatibilityCheck', () => {
     });
 
     it('should pass API version when current meets requirement', async () => {
-      const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
-        createCompatData({ apiVersion: '60.0', requiredApiVersion: '55.0' })
-      );
+      const fetchFn: FetchCompatibilityFn = vi
+        .fn()
+        .mockResolvedValue(createCompatData({ apiVersion: '60.0', requiredApiVersion: '55.0' }));
 
       const checker = new CompatibilityCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -49,9 +49,9 @@ describe('CompatibilityCheck', () => {
     });
 
     it('should blocker when API version is too low', async () => {
-      const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
-        createCompatData({ apiVersion: '50.0', requiredApiVersion: '55.0' })
-      );
+      const fetchFn: FetchCompatibilityFn = vi
+        .fn()
+        .mockResolvedValue(createCompatData({ apiVersion: '50.0', requiredApiVersion: '55.0' }));
 
       const checker = new CompatibilityCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -62,9 +62,9 @@ describe('CompatibilityCheck', () => {
     });
 
     it('should pass when API version exactly matches', async () => {
-      const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
-        createCompatData({ apiVersion: '55.0', requiredApiVersion: '55.0' })
-      );
+      const fetchFn: FetchCompatibilityFn = vi
+        .fn()
+        .mockResolvedValue(createCompatData({ apiVersion: '55.0', requiredApiVersion: '55.0' }));
 
       const checker = new CompatibilityCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -77,7 +77,7 @@ describe('CompatibilityCheck', () => {
       const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
         createCompatData({
           features: [{ featureName: 'BulkApi2', required: true, available: true }],
-        })
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -92,7 +92,7 @@ describe('CompatibilityCheck', () => {
       const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
         createCompatData({
           features: [{ featureName: 'BulkApi2', required: true, available: false }],
-        })
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -107,7 +107,7 @@ describe('CompatibilityCheck', () => {
       const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
         createCompatData({
           features: [{ featureName: 'CompositeApi', required: false, available: false }],
-        })
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -121,14 +121,16 @@ describe('CompatibilityCheck', () => {
     it('should pass when managed package is compatible', async () => {
       const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
         createCompatData({
-          managedPackages: [{
-            namespace: 'npe01',
-            name: 'NPSP',
-            currentVersion: '3.200',
-            requiredVersion: '3.100',
-            isCompatible: true,
-          }],
-        })
+          managedPackages: [
+            {
+              namespace: 'npe01',
+              name: 'NPSP',
+              currentVersion: '3.200',
+              requiredVersion: '3.100',
+              isCompatible: true,
+            },
+          ],
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -142,14 +144,16 @@ describe('CompatibilityCheck', () => {
     it('should error when managed package is incompatible', async () => {
       const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
         createCompatData({
-          managedPackages: [{
-            namespace: 'npe01',
-            name: 'NPSP',
-            currentVersion: '2.50',
-            requiredVersion: '3.100',
-            isCompatible: false,
-          }],
-        })
+          managedPackages: [
+            {
+              namespace: 'npe01',
+              name: 'NPSP',
+              currentVersion: '2.50',
+              requiredVersion: '3.100',
+              isCompatible: false,
+            },
+          ],
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -168,10 +172,22 @@ describe('CompatibilityCheck', () => {
             { featureName: 'CompositeApi', required: false, available: true },
           ],
           managedPackages: [
-            { namespace: 'ns1', name: 'Pkg1', currentVersion: '1.0', requiredVersion: '1.0', isCompatible: true },
-            { namespace: 'ns2', name: 'Pkg2', currentVersion: '2.0', requiredVersion: '2.0', isCompatible: true },
+            {
+              namespace: 'ns1',
+              name: 'Pkg1',
+              currentVersion: '1.0',
+              requiredVersion: '1.0',
+              isCompatible: true,
+            },
+            {
+              namespace: 'ns2',
+              name: 'Pkg2',
+              currentVersion: '2.0',
+              requiredVersion: '2.0',
+              isCompatible: true,
+            },
           ],
-        })
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -184,7 +200,7 @@ describe('CompatibilityCheck', () => {
       const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
         createCompatData({
           features: [{ featureName: 'BulkApi2', required: true, available: true }],
-        })
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -212,7 +228,7 @@ describe('CompatibilityCheck', () => {
       const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
         createCompatData({
           features: [{ featureName: 'Test', required: true, available: false }],
-        })
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -230,7 +246,7 @@ describe('CompatibilityCheck', () => {
             { featureName: 'F1', required: true, available: true },
             { featureName: 'F2', required: true, available: true },
           ],
-        })
+        }),
       );
 
       const checker = new CompatibilityCheck(fetchFn);
@@ -241,9 +257,9 @@ describe('CompatibilityCheck', () => {
     });
 
     it('should include version info in API version message', async () => {
-      const fetchFn: FetchCompatibilityFn = vi.fn().mockResolvedValue(
-        createCompatData({ apiVersion: '61.0', requiredApiVersion: '58.0' })
-      );
+      const fetchFn: FetchCompatibilityFn = vi
+        .fn()
+        .mockResolvedValue(createCompatData({ apiVersion: '61.0', requiredApiVersion: '58.0' }));
 
       const checker = new CompatibilityCheck(fetchFn);
       const items = await checker.check(createConfig());

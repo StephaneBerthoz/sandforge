@@ -7,7 +7,7 @@ function createSnapshot(
   orgId: string,
   limitName: string,
   usedPercent: number,
-  timestamp: string
+  timestamp: string,
 ): LimitsSnapshot {
   return {
     orgId,
@@ -26,7 +26,7 @@ function createSnapshot(
 function createMultiLimitSnapshot(
   orgId: string,
   limits: Array<{ name: string; usedPercent: number }>,
-  timestamp: string
+  timestamp: string,
 ): LimitsSnapshot {
   return {
     orgId,
@@ -65,14 +65,22 @@ describe('GovernorLimitPredictor', () => {
 
     it('should return predictions for all tracked limits', () => {
       historyStore.set('org-1', [
-        createMultiLimitSnapshot('org-1', [
-          { name: 'DailyApiRequests', usedPercent: 10 },
-          { name: 'DailyBulkApiRequests', usedPercent: 5 },
-        ], '2026-01-01T00:00:00Z'),
-        createMultiLimitSnapshot('org-1', [
-          { name: 'DailyApiRequests', usedPercent: 20 },
-          { name: 'DailyBulkApiRequests', usedPercent: 8 },
-        ], '2026-01-01T01:00:00Z'),
+        createMultiLimitSnapshot(
+          'org-1',
+          [
+            { name: 'DailyApiRequests', usedPercent: 10 },
+            { name: 'DailyBulkApiRequests', usedPercent: 5 },
+          ],
+          '2026-01-01T00:00:00Z',
+        ),
+        createMultiLimitSnapshot(
+          'org-1',
+          [
+            { name: 'DailyApiRequests', usedPercent: 20 },
+            { name: 'DailyBulkApiRequests', usedPercent: 8 },
+          ],
+          '2026-01-01T01:00:00Z',
+        ),
       ]);
 
       const predictions = predictor.predict('org-1');
@@ -165,9 +173,7 @@ describe('GovernorLimitPredictor', () => {
     });
 
     it('should return stable with zero confidence for insufficient data', () => {
-      const snapshots = [
-        createSnapshot('org-1', 'DailyApiRequests', 50, '2026-01-01T00:00:00Z'),
-      ];
+      const snapshots = [createSnapshot('org-1', 'DailyApiRequests', 50, '2026-01-01T00:00:00Z')];
 
       const prediction = predictor.predictLimit(snapshots, 'DailyApiRequests');
 

@@ -30,10 +30,7 @@ export class StorageOptimizer {
    * @param objectStats - Array of per-object statistics
    * @returns Array of storage recommendations
    */
-  analyze(
-    _orgId: string,
-    objectStats: ObjectStats[],
-  ): StorageRecommendation[] {
+  analyze(_orgId: string, objectStats: ObjectStats[]): StorageRecommendation[] {
     const recommendations: StorageRecommendation[] = [];
 
     for (const stat of objectStats) {
@@ -52,13 +49,8 @@ export class StorageOptimizer {
    * @param limit - Maximum number of results to return
    * @returns The top N objects by size
    */
-  getTopConsumers(
-    objectStats: ObjectSizeStats[],
-    limit: number,
-  ): ObjectSizeStats[] {
-    return [...objectStats]
-      .sort((a, b) => b.size - a.size)
-      .slice(0, Math.max(0, limit));
+  getTopConsumers(objectStats: ObjectSizeStats[], limit: number): ObjectSizeStats[] {
+    return [...objectStats].sort((a, b) => b.size - a.size).slice(0, Math.max(0, limit));
   }
 
   /**
@@ -67,10 +59,7 @@ export class StorageOptimizer {
    * @returns Total estimated savings in bytes
    */
   estimateSavings(recommendations: StorageRecommendation[]): number {
-    return recommendations.reduce(
-      (total, rec) => total + rec.estimatedSaving,
-      0,
-    );
+    return recommendations.reduce((total, rec) => total + rec.estimatedSaving, 0);
   }
 
   private classifyObject(stat: ObjectStats): StorageRecommendation | null {

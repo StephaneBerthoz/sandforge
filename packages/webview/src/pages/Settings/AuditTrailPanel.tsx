@@ -48,10 +48,14 @@ export interface AuditFilterValues {
 /** Map status to badge variant. */
 function statusBadge(status: string): BadgeVariant {
   switch (status) {
-    case 'success': return 'success';
-    case 'failure': return 'error';
-    case 'partial': return 'warning';
-    default: return 'default';
+    case 'success':
+      return 'success';
+    case 'failure':
+      return 'error';
+    case 'partial':
+      return 'warning';
+    default:
+      return 'default';
   }
 }
 
@@ -133,7 +137,9 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
             {t('audit.title', 'Audit Trail')}
           </h2>
           {total !== undefined && (
-            <Badge variant="default">{total} {t('audit.entries', 'entries')}</Badge>
+            <Badge variant="default">
+              {total} {t('audit.entries', 'entries')}
+            </Badge>
           )}
         </div>
         {onExport && (
@@ -214,11 +220,17 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
       <Card>
         <CardBody>
           {loading ? (
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]" data-testid="audit-loading">
+            <p
+              className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+              data-testid="audit-loading"
+            >
               {t('common.loading', 'Loading...')}
             </p>
           ) : filteredEntries.length === 0 ? (
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]" data-testid="audit-empty">
+            <p
+              className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+              data-testid="audit-empty"
+            >
               {t('audit.noEntries', 'No audit entries found.')}
             </p>
           ) : (
@@ -229,13 +241,12 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
                     className="flex items-center gap-2 p-2 rounded border border-[var(--vscode-panel-border,#2b2b2b)] bg-[var(--vscode-editor-background,#1e1e1e)] cursor-pointer hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]"
                     onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
                   >
-                    {expandedId === entry.id
-                      ? <ChevronDown className="w-3 h-3 text-[var(--vscode-descriptionForeground,#868686)]" />
-                      : <ChevronRight className="w-3 h-3 text-[var(--vscode-descriptionForeground,#868686)]" />
-                    }
-                    <Badge variant={statusBadge(entry.status)}>
-                      {entry.status}
-                    </Badge>
+                    {expandedId === entry.id ? (
+                      <ChevronDown className="w-3 h-3 text-[var(--vscode-descriptionForeground,#868686)]" />
+                    ) : (
+                      <ChevronRight className="w-3 h-3 text-[var(--vscode-descriptionForeground,#868686)]" />
+                    )}
+                    <Badge variant={statusBadge(entry.status)}>{entry.status}</Badge>
                     <span className="text-xs font-mono text-[var(--vscode-descriptionForeground,#868686)]">
                       {entry.operationType}
                     </span>
@@ -259,14 +270,18 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
                         <span className="text-[var(--vscode-descriptionForeground,#868686)]">
                           {t('audit.operationType', 'Operation')}:
                         </span>
-                        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">{entry.operationType}</span>
+                        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                          {entry.operationType}
+                        </span>
 
                         {entry.orgId && (
                           <>
                             <span className="text-[var(--vscode-descriptionForeground,#868686)]">
                               {t('audit.org', 'Org')}:
                             </span>
-                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">{entry.orgId}</span>
+                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                              {entry.orgId}
+                            </span>
                           </>
                         )}
 
@@ -275,7 +290,9 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
                             <span className="text-[var(--vscode-descriptionForeground,#868686)]">
                               {t('audit.user', 'User')}:
                             </span>
-                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">{entry.user}</span>
+                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                              {entry.user}
+                            </span>
                           </>
                         )}
 
@@ -284,21 +301,27 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
                             <span className="text-[var(--vscode-descriptionForeground,#868686)]">
                               {t('audit.records', 'Records')}:
                             </span>
-                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">{entry.recordCount}</span>
+                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                              {entry.recordCount}
+                            </span>
                           </>
                         )}
 
                         <span className="text-[var(--vscode-descriptionForeground,#868686)]">
                           {t('audit.duration', 'Duration')}:
                         </span>
-                        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">{formatDuration(entry.durationMs)}</span>
+                        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                          {formatDuration(entry.durationMs)}
+                        </span>
 
                         {entry.error && (
                           <>
                             <span className="text-[var(--vscode-errorForeground,#f48771)]">
                               {t('audit.error', 'Error')}:
                             </span>
-                            <span className="text-[var(--vscode-errorForeground,#f48771)]">{entry.error}</span>
+                            <span className="text-[var(--vscode-errorForeground,#f48771)]">
+                              {entry.error}
+                            </span>
                           </>
                         )}
                       </div>

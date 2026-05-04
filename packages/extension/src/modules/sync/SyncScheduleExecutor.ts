@@ -106,11 +106,7 @@ export class SyncScheduleExecutor {
       }
 
       if (schedule.notifyOnComplete) {
-        this.deps.notificationCenter.notify(
-          'info',
-          'Sync schedule started',
-          schedule.name,
-        );
+        this.deps.notificationCenter.notify('info', 'Sync schedule started', schedule.name);
       }
 
       try {
@@ -122,11 +118,7 @@ export class SyncScheduleExecutor {
         this.deps.scheduleStore.save(schedule);
 
         if (schedule.notifyOnComplete) {
-          this.deps.notificationCenter.notify(
-            'success',
-            'Sync schedule completed',
-            schedule.name,
-          );
+          this.deps.notificationCenter.notify('success', 'Sync schedule completed', schedule.name);
         }
       } catch (err: unknown) {
         schedule.lastRunAt = new Date(currentTime).toISOString();

@@ -77,13 +77,19 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
     <div className="flex flex-col gap-2" data-testid="conflict-diff-viewer">
       {/* Three-way auto-resolved section */}
       {threeWay && Object.keys(threeWay.autoResolved).length > 0 && (
-        <div className="px-2 py-1.5 rounded bg-emerald-900/20 border border-emerald-700/30" data-testid="auto-resolved-section">
+        <div
+          className="px-2 py-1.5 rounded bg-emerald-900/20 border border-emerald-700/30"
+          data-testid="auto-resolved-section"
+        >
           <p className="text-[10px] font-semibold text-emerald-300 mb-1">
             Auto-resolved ({Object.keys(threeWay.autoResolved).length} fields)
           </p>
           <div className="flex flex-wrap gap-1">
             {Object.entries(threeWay.autoResolved).map(([field, value]) => (
-              <span key={field} className="text-[10px] font-mono bg-emerald-900/30 px-1.5 py-0.5 rounded">
+              <span
+                key={field}
+                className="text-[10px] font-mono bg-emerald-900/30 px-1.5 py-0.5 rounded"
+              >
                 {field}: {formatValue(value)}
               </span>
             ))}
@@ -106,7 +112,10 @@ export const ConflictDiffViewer: React.FC<ConflictDiffViewerProps> = ({ conflict
                 {t('sync.conflictResolution.targetValue')}
               </th>
               {hasBase && (
-                <th className="text-left px-2 py-1 font-semibold text-[var(--sf-text-secondary)]" data-testid="base-column-header">
+                <th
+                  className="text-left px-2 py-1 font-semibold text-[var(--sf-text-secondary)]"
+                  data-testid="base-column-header"
+                >
                   {t('sync.conflictResolution.baseValue')}
                 </th>
               )}

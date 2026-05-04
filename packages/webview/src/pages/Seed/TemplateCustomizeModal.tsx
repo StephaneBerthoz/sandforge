@@ -27,10 +27,7 @@ export const TemplateCustomizeModal: React.FC<TemplateCustomizeModalProps> = ({
   const { t } = useTranslation();
 
   const initialCounts = useMemo(
-    () =>
-      Object.fromEntries(
-        template.objects.map((obj) => [obj.objectApiName, obj.recordCount]),
-      ),
+    () => Object.fromEntries(template.objects.map((obj) => [obj.objectApiName, obj.recordCount])),
     [template],
   );
 
@@ -67,10 +64,7 @@ export const TemplateCustomizeModal: React.FC<TemplateCustomizeModalProps> = ({
         </>
       }
     >
-      <div
-        className="flex flex-col gap-2"
-        data-testid="template-customize-modal"
-      >
+      <div className="flex flex-col gap-2" data-testid="template-customize-modal">
         {template.objects.map((obj) => (
           <div key={obj.objectApiName} className="flex items-center gap-3 text-xs">
             <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">

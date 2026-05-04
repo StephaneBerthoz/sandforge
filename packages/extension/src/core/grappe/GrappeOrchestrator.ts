@@ -14,12 +14,7 @@ import type { GrappeMonitor } from './GrappeMonitor.js';
 import { generateId } from './GrappePartitioner.js';
 
 /** Event types emitted by the GrappeOrchestrator */
-export type GrappeOrchestratorEventType =
-  | 'started'
-  | 'completed'
-  | 'failed'
-  | 'paused'
-  | 'resumed';
+export type GrappeOrchestratorEventType = 'started' | 'completed' | 'failed' | 'paused' | 'resumed';
 
 /** Listener function for orchestrator events */
 export type GrappeOrchestratorListener = (data: GrappeOrchestratorEventData) => void;
@@ -49,10 +44,7 @@ export interface GrappeOrchestratorDeps {
  */
 export class GrappeOrchestrator {
   private readonly deps: GrappeOrchestratorDeps;
-  private listeners: Map<
-    GrappeOrchestratorEventType,
-    Set<GrappeOrchestratorListener>
-  > = new Map();
+  private listeners: Map<GrappeOrchestratorEventType, Set<GrappeOrchestratorListener>> = new Map();
   private currentStatus: GrappeOperationStatus | undefined;
   private paused = false;
   private cancelled = false;
@@ -77,7 +69,7 @@ export class GrappeOrchestrator {
   async execute(
     records: string[],
     config: GrappeConfig,
-    processFn: (records: string[]) => Promise<GrappeResult>
+    processFn: (records: string[]) => Promise<GrappeResult>,
   ): Promise<AggregatedGrappeResult> {
     const operationId = generateId();
     this.currentOperationId = operationId;
@@ -124,8 +116,7 @@ export class GrappeOrchestrator {
             await this.waitForBackPressureRelease();
           }
 
-          const availableWorkers =
-            this.deps.workerManager.getAvailableWorkerCount();
+          const availableWorkers = this.deps.workerManager.getAvailableWorkerCount();
           if (availableWorkers === 0 && wavePromises.length > 0) {
             await Promise.race(wavePromises);
           }
@@ -142,10 +133,7 @@ export class GrappeOrchestrator {
             .then((result) => {
               partition.status = 'completed';
               partition.endTime = new Date().toISOString();
-              this.deps.monitor.updatePartitionStatus(
-                partition.id,
-                'completed'
-              );
+              this.deps.monitor.updatePartitionStatus(partition.id, 'completed');
               this.deps.aggregator.addResult(result);
               completed.add(partition.id);
             })
@@ -177,7 +165,7 @@ export class GrappeOrchestrator {
         this.deps.partitioner.partition(records, config),
         this.deps.workerManager.getAllWorkerStatuses(),
         this.deps.backPressureManager.getLevel(),
-        0
+        0,
       );
 
       this.deps.monitor.stopMonitoring();
@@ -191,8 +179,7 @@ export class GrappeOrchestrator {
       return result;
     } catch (error: unknown) {
       this.deps.monitor.stopMonitoring();
-      const message =
-        error instanceof Error ? error.message : 'Unknown error';
+      const message = error instanceof Error ? error.message : 'Unknown error';
 
       this.emitEvent('failed', {
         type: 'failed',
@@ -262,10 +249,7 @@ export class GrappeOrchestrator {
    * @param event - The event type
    * @param listener - The callback function
    */
-  on(
-    event: GrappeOrchestratorEventType,
-    listener: GrappeOrchestratorListener
-  ): void {
+  on(event: GrappeOrchestratorEventType, listener: GrappeOrchestratorListener): void {
     const listeners = this.listeners.get(event);
     if (listeners) {
       listeners.add(listener);
@@ -279,10 +263,7 @@ export class GrappeOrchestrator {
    * @param event - The event type
    * @param listener - The callback function to remove
    */
-  off(
-    event: GrappeOrchestratorEventType,
-    listener: GrappeOrchestratorListener
-  ): void {
+  off(event: GrappeOrchestratorEventType, listener: GrappeOrchestratorListener): void {
     const listeners = this.listeners.get(event);
     if (listeners) {
       listeners.delete(listener);
@@ -292,10 +273,7 @@ export class GrappeOrchestrator {
   /**
    * Emit an event to all registered listeners.
    */
-  private emitEvent(
-    event: GrappeOrchestratorEventType,
-    data: GrappeOrchestratorEventData
-  ): void {
+  private emitEvent(event: GrappeOrchestratorEventType, data: GrappeOrchestratorEventData): void {
     const listeners = this.listeners.get(event);
     if (listeners) {
       for (const listener of listeners) {
@@ -317,10 +295,7 @@ export class GrappeOrchestrator {
    * Wait until back-pressure drops below critical.
    */
   private async waitForBackPressureRelease(): Promise<void> {
-    while (
-      this.deps.backPressureManager.shouldPause() &&
-      !this.cancelled
-    ) {
+    while (this.deps.backPressureManager.shouldPause() && !this.cancelled) {
       await this.sleep(this.deps.backPressureManager.getDelay());
     }
   }

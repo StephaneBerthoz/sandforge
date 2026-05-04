@@ -1,8 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  PluginManager,
-  pluginManifestSchema,
-} from './PluginManager';
+import { PluginManager, pluginManifestSchema } from './PluginManager';
 import type {
   PluginFileSystem,
   ModuleLoader,
@@ -330,7 +327,10 @@ describe('PluginManager', () => {
         deactivate: vi.fn(),
       };
 
-      const manifest = createManifest({ name: 'export-plugin', extensionPoints: ['exportFormats'] });
+      const manifest = createManifest({
+        name: 'export-plugin',
+        extensionPoints: ['exportFormats'],
+      });
       const fs = createMockFs({ 'export-plugin': manifest });
       const loader = createMockLoader({ 'export-plugin': plugin });
       const mgr = new PluginManager(fs, loader, '/workspace/.sandforge/plugins');
@@ -361,7 +361,10 @@ describe('PluginManager', () => {
         deactivate: vi.fn(),
       };
 
-      const manifest = createManifest({ name: 'grappe-plugin', extensionPoints: ['grappeStrategies'] });
+      const manifest = createManifest({
+        name: 'grappe-plugin',
+        extensionPoints: ['grappeStrategies'],
+      });
       const fs = createMockFs({ 'grappe-plugin': manifest });
       const loader = createMockLoader({ 'grappe-plugin': plugin });
       const mgr = new PluginManager(fs, loader, '/workspace/.sandforge/plugins');
@@ -380,30 +383,22 @@ describe('PluginManager', () => {
     });
 
     it('should reject empty name', () => {
-      const result = pluginManifestSchema.safeParse(
-        createManifest({ name: '' })
-      );
+      const result = pluginManifestSchema.safeParse(createManifest({ name: '' }));
       expect(result.success).toBe(false);
     });
 
     it('should reject name with uppercase letters', () => {
-      const result = pluginManifestSchema.safeParse(
-        createManifest({ name: 'MyPlugin' })
-      );
+      const result = pluginManifestSchema.safeParse(createManifest({ name: 'MyPlugin' }));
       expect(result.success).toBe(false);
     });
 
     it('should reject invalid semver version', () => {
-      const result = pluginManifestSchema.safeParse(
-        createManifest({ version: 'not-a-version' })
-      );
+      const result = pluginManifestSchema.safeParse(createManifest({ version: 'not-a-version' }));
       expect(result.success).toBe(false);
     });
 
     it('should reject empty extension points', () => {
-      const result = pluginManifestSchema.safeParse(
-        createManifest({ extensionPoints: [] })
-      );
+      const result = pluginManifestSchema.safeParse(createManifest({ extensionPoints: [] }));
       expect(result.success).toBe(false);
     });
 
@@ -432,15 +427,13 @@ describe('PluginManager', () => {
     });
 
     it('should accept name with hyphens', () => {
-      const result = pluginManifestSchema.safeParse(
-        createManifest({ name: 'my-cool-plugin-v2' })
-      );
+      const result = pluginManifestSchema.safeParse(createManifest({ name: 'my-cool-plugin-v2' }));
       expect(result.success).toBe(true);
     });
 
     it('should reject invalid extension point name', () => {
       const result = pluginManifestSchema.safeParse(
-        createManifest({ extensionPoints: ['invalidPoint' as never] })
+        createManifest({ extensionPoints: ['invalidPoint' as never] }),
       );
       expect(result.success).toBe(false);
     });

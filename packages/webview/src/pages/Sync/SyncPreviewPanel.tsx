@@ -42,9 +42,12 @@ export interface SyncPreviewPanelProps {
 /** Badge variant for risk level. */
 function riskBadge(risk: 'low' | 'medium' | 'high'): BadgeVariant {
   switch (risk) {
-    case 'high': return 'error';
-    case 'medium': return 'warning';
-    default: return 'success';
+    case 'high':
+      return 'error';
+    case 'medium':
+      return 'warning';
+    default:
+      return 'success';
   }
 }
 
@@ -77,16 +80,25 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
 
   const stats = [
     { label: t('sync.previewNew', 'New'), value: preview.totalNewRecords, testId: 'preview-new' },
-    { label: t('sync.previewModified', 'Modified'), value: preview.totalModifiedRecords, testId: 'preview-modified' },
-    { label: t('sync.previewDeleted', 'Deleted'), value: preview.totalDeletedRecords, testId: 'preview-deleted' },
-    { label: t('sync.previewConflicts', 'Conflicts'), value: preview.totalConflicts, testId: 'preview-conflicts' },
+    {
+      label: t('sync.previewModified', 'Modified'),
+      value: preview.totalModifiedRecords,
+      testId: 'preview-modified',
+    },
+    {
+      label: t('sync.previewDeleted', 'Deleted'),
+      value: preview.totalDeletedRecords,
+      testId: 'preview-deleted',
+    },
+    {
+      label: t('sync.previewConflicts', 'Conflicts'),
+      value: preview.totalConflicts,
+      testId: 'preview-conflicts',
+    },
   ];
 
   return (
-    <div
-      className={cn('flex flex-col gap-3', className)}
-      data-testid="sync-preview-panel"
-    >
+    <div className={cn('flex flex-col gap-3', className)} data-testid="sync-preview-panel">
       {/* Header with overall risk */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-[var(--sf-text-primary,#d4d4d4)]">
@@ -100,10 +112,7 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
       </div>
 
       {/* Summary stats */}
-      <div
-        className="grid grid-cols-2 sm:grid-cols-4 gap-2"
-        data-testid="preview-stats"
-      >
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="preview-stats">
         {stats.map((stat) => (
           <div
             key={stat.testId}
@@ -117,29 +126,32 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
             <span
               className="text-sm font-bold"
               style={{
-                color: stat.value > 0 && stat.label === t('sync.previewDeleted', 'Deleted')
-                  ? 'var(--sf-error, #EF4444)'
-                  : stat.value > 0 && stat.label === t('sync.previewConflicts', 'Conflicts')
-                    ? 'var(--sf-warning, #F59E0B)'
-                    : 'var(--sf-text-primary, #d4d4d4)',
+                color:
+                  stat.value > 0 && stat.label === t('sync.previewDeleted', 'Deleted')
+                    ? 'var(--sf-error, #EF4444)'
+                    : stat.value > 0 && stat.label === t('sync.previewConflicts', 'Conflicts')
+                      ? 'var(--sf-warning, #F59E0B)'
+                      : 'var(--sf-text-primary, #d4d4d4)',
               }}
             >
               {stat.value.toLocaleString()}
             </span>
-            <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
-              {stat.label}
-            </span>
+            <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">{stat.label}</span>
           </div>
         ))}
       </div>
 
       {/* Estimates */}
-      <div className="flex gap-4 text-[10px] text-[var(--sf-text-muted,#868686)]" data-testid="preview-estimates">
+      <div
+        className="flex gap-4 text-[10px] text-[var(--sf-text-muted,#868686)]"
+        data-testid="preview-estimates"
+      >
         <span>
           {t('sync.previewApiCalls', 'API Calls')}: {preview.estimatedApiCalls.toLocaleString()}
         </span>
         <span>
-          {t('sync.previewDuration', 'Est. Duration')}: {formatDurationSec(preview.estimatedDuration)}
+          {t('sync.previewDuration', 'Est. Duration')}:{' '}
+          {formatDurationSec(preview.estimatedDuration)}
         </span>
       </div>
 
@@ -171,11 +183,11 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
             </div>
             <div className="flex items-center gap-2">
               {obj.conflictCount > 0 && (
-                <Badge variant="warning">{obj.conflictCount} {t('sync.previewConflicts', 'Conflicts').toLowerCase()}</Badge>
+                <Badge variant="warning">
+                  {obj.conflictCount} {t('sync.previewConflicts', 'Conflicts').toLowerCase()}
+                </Badge>
               )}
-              <Badge variant={riskBadge(obj.riskLevel)}>
-                {obj.riskLevel}
-              </Badge>
+              <Badge variant={riskBadge(obj.riskLevel)}>{obj.riskLevel}</Badge>
             </div>
           </div>
         ))}

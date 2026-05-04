@@ -8,7 +8,7 @@ import type { LimitsSnapshot } from '@sandforge/shared';
 function createSnapshot(
   orgId: string,
   limits: Array<{ name: string; usedPercent: number }>,
-  timestamp: string
+  timestamp: string,
 ): LimitsSnapshot {
   return {
     orgId,
@@ -42,9 +42,21 @@ describe('OrgTrendAnalyzer', () => {
   describe('analyzeLimitTrend', () => {
     it('should return a trend analysis for a specific limit', () => {
       historyStore.set('org-1', [
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 10 }], '2026-01-01T00:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 20 }], '2026-01-01T01:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 30 }], '2026-01-01T02:00:00Z'),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 10 }],
+          '2026-01-01T00:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 20 }],
+          '2026-01-01T01:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 30 }],
+          '2026-01-01T02:00:00Z',
+        ),
       ]);
 
       const result = analyzer.analyzeLimitTrend('org-1', 'DailyApiRequests');
@@ -57,9 +69,21 @@ describe('OrgTrendAnalyzer', () => {
 
     it('should detect a decreasing limit trend', () => {
       historyStore.set('org-1', [
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 80 }], '2026-01-01T00:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 60 }], '2026-01-01T01:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 40 }], '2026-01-01T02:00:00Z'),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 80 }],
+          '2026-01-01T00:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 60 }],
+          '2026-01-01T01:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 40 }],
+          '2026-01-01T02:00:00Z',
+        ),
       ]);
 
       const result = analyzer.analyzeLimitTrend('org-1', 'DailyApiRequests');
@@ -68,9 +92,21 @@ describe('OrgTrendAnalyzer', () => {
 
     it('should detect a stable limit trend', () => {
       historyStore.set('org-1', [
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 50 }], '2026-01-01T00:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 50 }], '2026-01-01T01:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 50 }], '2026-01-01T02:00:00Z'),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 50 }],
+          '2026-01-01T00:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 50 }],
+          '2026-01-01T01:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 50 }],
+          '2026-01-01T02:00:00Z',
+        ),
       ]);
 
       const result = analyzer.analyzeLimitTrend('org-1', 'DailyApiRequests');
@@ -79,8 +115,16 @@ describe('OrgTrendAnalyzer', () => {
 
     it('should return empty data points for a non-existent limit', () => {
       historyStore.set('org-1', [
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 50 }], '2026-01-01T00:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 60 }], '2026-01-01T01:00:00Z'),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 50 }],
+          '2026-01-01T00:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 60 }],
+          '2026-01-01T01:00:00Z',
+        ),
       ]);
 
       const result = analyzer.analyzeLimitTrend('org-1', 'NonExistent');
@@ -89,8 +133,16 @@ describe('OrgTrendAnalyzer', () => {
 
     it('should include a human-readable period string', () => {
       historyStore.set('org-1', [
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 10 }], '2026-01-01T00:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 20 }], '2026-01-01T02:00:00Z'),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 10 }],
+          '2026-01-01T00:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 20 }],
+          '2026-01-01T02:00:00Z',
+        ),
       ]);
 
       const result = analyzer.analyzeLimitTrend('org-1', 'DailyApiRequests');
@@ -161,27 +213,43 @@ describe('OrgTrendAnalyzer', () => {
 
     it('should return trends sorted by absolute change percent', () => {
       historyStore.set('org-1', [
-        createSnapshot('org-1', [
-          { name: 'DailyApiRequests', usedPercent: 10 },
-          { name: 'Storage', usedPercent: 50 },
-        ], '2026-01-01T00:00:00Z'),
-        createSnapshot('org-1', [
-          { name: 'DailyApiRequests', usedPercent: 50 },
-          { name: 'Storage', usedPercent: 55 },
-        ], '2026-01-01T01:00:00Z'),
+        createSnapshot(
+          'org-1',
+          [
+            { name: 'DailyApiRequests', usedPercent: 10 },
+            { name: 'Storage', usedPercent: 50 },
+          ],
+          '2026-01-01T00:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [
+            { name: 'DailyApiRequests', usedPercent: 50 },
+            { name: 'Storage', usedPercent: 55 },
+          ],
+          '2026-01-01T01:00:00Z',
+        ),
       ]);
 
       const trends = analyzer.getTopTrends('org-1');
       expect(trends.length).toBeGreaterThanOrEqual(2);
       expect(Math.abs(trends[0].changePercent)).toBeGreaterThanOrEqual(
-        Math.abs(trends[1].changePercent)
+        Math.abs(trends[1].changePercent),
       );
     });
 
     it('should include both limit trends and job trends', () => {
       historyStore.set('org-1', [
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 10 }], '2026-01-01T00:00:00Z'),
-        createSnapshot('org-1', [{ name: 'DailyApiRequests', usedPercent: 20 }], '2026-01-01T01:00:00Z'),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 10 }],
+          '2026-01-01T00:00:00Z',
+        ),
+        createSnapshot(
+          'org-1',
+          [{ name: 'DailyApiRequests', usedPercent: 20 }],
+          '2026-01-01T01:00:00Z',
+        ),
       ]);
 
       const trends = analyzer.getTopTrends('org-1');

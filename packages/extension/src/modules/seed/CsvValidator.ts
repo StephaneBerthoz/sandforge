@@ -122,7 +122,11 @@ export class CsvValidator {
       const extMapping = columnMappings.find((m) => m.sfFieldApiName === externalIdField);
       if (extMapping) {
         const seen = new Map<string, number>();
-        for (let rowIndex = 0; rowIndex < records.length && errors.length < MAX_ERRORS; rowIndex++) {
+        for (
+          let rowIndex = 0;
+          rowIndex < records.length && errors.length < MAX_ERRORS;
+          rowIndex++
+        ) {
           const value = records[rowIndex][extMapping.csvHeader] ?? '';
           if (value === '') continue;
 

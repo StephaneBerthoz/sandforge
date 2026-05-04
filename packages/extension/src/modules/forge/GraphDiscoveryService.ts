@@ -135,14 +135,7 @@ const EXCLUDED_OBJECTS = new Set([
 ]);
 
 /** Suffix patterns excluded from BFS traversal. */
-const EXCLUDED_SUFFIXES = [
-  'History',
-  'Feed',
-  'Share',
-  'ChangeEvent',
-  '__hd',
-  '__Tag',
-];
+const EXCLUDED_SUFFIXES = ['History', 'Feed', 'Share', 'ChangeEvent', '__hd', '__Tag'];
 
 /** Check whether an object should be excluded from BFS traversal. */
 function isExcludedObject(objectName: string): boolean {
@@ -192,7 +185,9 @@ export class GraphDiscoveryService {
     const t1 = Date.now();
     if (t1 - t0 > 2_000) {
       // eslint-disable-next-line no-console
-      console.warn(`[forge-discover] resolveRootObject took ${t1 - t0}ms (cold path, consider verifying describeGlobal cache state)`);
+      console.warn(
+        `[forge-discover] resolveRootObject took ${t1 - t0}ms (cold path, consider verifying describeGlobal cache state)`,
+      );
     }
     const maxDepth = this.resolveMaxDepth(config);
     const maxNodes = options?.maxNodes ?? DEFAULT_MAX_NODES;
@@ -389,16 +384,20 @@ export class GraphDiscoveryService {
     if (config.inputMode === 'record' && config.recordId) {
       const prefix = config.recordId.substring(0, 3);
       const globalDesc = await this.deps.describeGlobal(config.sourceOrgId);
-      const match = globalDesc.find(s => s.keyPrefix === prefix);
+      const match = globalDesc.find((s) => s.keyPrefix === prefix);
       if (!match) {
-        throw new Error(`No object found for record ID prefix "${prefix}". The ID may not belong to any accessible object in this org.`);
+        throw new Error(
+          `No object found for record ID prefix "${prefix}". The ID may not belong to any accessible object in this org.`,
+        );
       }
       return match.name;
     }
     if (config.inputMode === 'soql' && config.soqlQuery) {
       return parseObjectFromSOQL(config.soqlQuery);
     }
-    throw new Error(`Cannot resolve root object for inputMode "${config.inputMode}". Provide a valid recordId (for "record" mode) or soqlQuery (for "soql" mode).`);
+    throw new Error(
+      `Cannot resolve root object for inputMode "${config.inputMode}". Provide a valid recordId (for "record" mode) or soqlQuery (for "soql" mode).`,
+    );
   }
 
   /** Resolve the maximum BFS traversal depth from the config. */
@@ -430,9 +429,7 @@ export class GraphDiscoveryService {
  * Bounded to 32 iterations (deeper than any realistic SOQL) to keep this O(L).
  */
 function parseObjectFromSOQL(soql: string): string {
-  let cleaned = soql
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/--[^\n]*/g, '');
+  let cleaned = soql.replace(/\/\*[\s\S]*?\*\//g, '').replace(/--[^\n]*/g, '');
   for (let i = 0; i < 32; i++) {
     const next = cleaned.replace(/\([^()]*\)/g, '');
     if (next === cleaned) break;
@@ -440,7 +437,9 @@ function parseObjectFromSOQL(soql: string): string {
   }
   const matched = /\bFROM\s+(\w+)/i.exec(cleaned);
   if (!matched) {
-    throw new Error('Could not parse object name from SOQL query. Ensure the query uses standard "SELECT ... FROM ObjectName" syntax.');
+    throw new Error(
+      'Could not parse object name from SOQL query. Ensure the query uses standard "SELECT ... FROM ObjectName" syntax.',
+    );
   }
   return assertSoqlIdentifier(matched[1]);
 }

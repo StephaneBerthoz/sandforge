@@ -35,9 +35,9 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should pass daily API check when quota is sufficient', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ dailyApiRequests: { current: 1000, max: 100_000 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(createLimitData({ dailyApiRequests: { current: 1000, max: 100_000 } }));
 
       const checker = new ApiLimitCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -48,9 +48,11 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should blocker when daily API quota is below 10%', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ dailyApiRequests: { current: 95_000, max: 100_000 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(
+          createLimitData({ dailyApiRequests: { current: 95_000, max: 100_000 } }),
+        );
 
       const checker = new ApiLimitCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -60,9 +62,11 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should error when daily API quota is below 20%', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ dailyApiRequests: { current: 85_000, max: 100_000 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(
+          createLimitData({ dailyApiRequests: { current: 85_000, max: 100_000 } }),
+        );
 
       const checker = new ApiLimitCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -72,9 +76,11 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should warn when daily API quota is below 40%', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ dailyApiRequests: { current: 65_000, max: 100_000 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(
+          createLimitData({ dailyApiRequests: { current: 65_000, max: 100_000 } }),
+        );
 
       const checker = new ApiLimitCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -84,9 +90,11 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should blocker when estimated exceeds remaining quota', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ dailyApiRequests: { current: 99_998, max: 100_000 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(
+          createLimitData({ dailyApiRequests: { current: 99_998, max: 100_000 } }),
+        );
 
       const config = createConfig({
         operationConfig: { recordCount: 10_000, batchSize: 200 },
@@ -101,9 +109,9 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should estimate API calls based on record count and batch size', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ dailyApiRequests: { current: 0, max: 100_000 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(createLimitData({ dailyApiRequests: { current: 0, max: 100_000 } }));
 
       const config = createConfig({
         operationConfig: { recordCount: 1000, batchSize: 200 },
@@ -117,9 +125,9 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should check concurrent API request slots', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ concurrentApiRequests: { current: 25, max: 25 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(createLimitData({ concurrentApiRequests: { current: 25, max: 25 } }));
 
       const checker = new ApiLimitCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -129,9 +137,9 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should pass concurrent check when slots are available', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ concurrentApiRequests: { current: 5, max: 25 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(createLimitData({ concurrentApiRequests: { current: 5, max: 25 } }));
 
       const checker = new ApiLimitCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -141,9 +149,9 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should check Bulk API job slots', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ bulkApiJobSlots: { current: 100, max: 100 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(createLimitData({ bulkApiJobSlots: { current: 100, max: 100 } }));
 
       const checker = new ApiLimitCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -184,9 +192,9 @@ describe('ApiLimitCheck', () => {
     });
 
     it('should use default 10 estimated calls when no recordCount', async () => {
-      const fetchFn: FetchLimitsFn = vi.fn().mockResolvedValue(
-        createLimitData({ dailyApiRequests: { current: 0, max: 100_000 } })
-      );
+      const fetchFn: FetchLimitsFn = vi
+        .fn()
+        .mockResolvedValue(createLimitData({ dailyApiRequests: { current: 0, max: 100_000 } }));
 
       const checker = new ApiLimitCheck(fetchFn);
       const items = await checker.check(createConfig({ operationConfig: {} }));
@@ -211,7 +219,7 @@ describe('ApiLimitCheck', () => {
           dailyApiRequests: { current: 0, max: 0 },
           concurrentApiRequests: { current: 0, max: 0 },
           bulkApiJobSlots: { current: 0, max: 0 },
-        })
+        }),
       );
 
       const checker = new ApiLimitCheck(fetchFn);

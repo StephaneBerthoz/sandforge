@@ -49,7 +49,8 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
         {orgs.map((org) => {
           const isSelected = org.id === selectedId;
           const isDisabled = org.id === disabledId;
-          const tierClass = tierColors[org.safetyTier ?? ''] ?? 'border-[var(--vscode-panel-border,#3c3c3c)]';
+          const tierClass =
+            tierColors[org.safetyTier ?? ''] ?? 'border-[var(--vscode-panel-border,#3c3c3c)]';
 
           return (
             <button

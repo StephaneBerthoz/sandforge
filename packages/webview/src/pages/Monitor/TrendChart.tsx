@@ -31,17 +31,22 @@ export interface TrendChartProps {
 type Period = '24h' | '7d' | '30d';
 
 /** Period label i18n keys. */
-const PERIOD_CONFIG: Array<{ key: Period; i18nKey: string; defaultLabel: string; hours: number }> = [
-  { key: '24h', i18nKey: 'monitor.period24h', defaultLabel: '24h', hours: 24 },
-  { key: '7d', i18nKey: 'monitor.period7d', defaultLabel: '7d', hours: 168 },
-  { key: '30d', i18nKey: 'monitor.period30d', defaultLabel: '30d', hours: 720 },
-];
+const PERIOD_CONFIG: Array<{ key: Period; i18nKey: string; defaultLabel: string; hours: number }> =
+  [
+    { key: '24h', i18nKey: 'monitor.period24h', defaultLabel: '24h', hours: 24 },
+    { key: '7d', i18nKey: 'monitor.period7d', defaultLabel: '7d', hours: 168 },
+    { key: '30d', i18nKey: 'monitor.period30d', defaultLabel: '30d', hours: 720 },
+  ];
 
 /** Formats a timestamp for the x-axis using locale-aware formatting. */
 function formatXAxis(ts: number, period: Period): string {
   const date = new Date(ts);
   if (period === '24h') {
-    return new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+    return new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
   }
   return new Intl.DateTimeFormat(undefined, { month: '2-digit', day: '2-digit' }).format(date);
 }
@@ -55,7 +60,10 @@ const ChartTooltip: React.FC<{
   if (!active || !payload || payload.length === 0 || label === undefined) return null;
 
   const date = new Date(label);
-  const timeStr = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  const timeStr = new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 
   return (
     <div
@@ -88,10 +96,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, className }) => {
   return (
     <div className={cn('flex flex-col', className)} data-testid="trend-chart">
       {/* Period selector */}
-      <div
-        className="flex items-center gap-1 mb-3"
-        data-testid="trend-period-selector"
-      >
+      <div className="flex items-center gap-1 mb-3" data-testid="trend-period-selector">
         {PERIOD_CONFIG.map((p) => (
           <button
             key={p.key}
@@ -120,11 +125,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({ data, className }) => {
                 <stop offset="95%" stopColor="var(--sf-accent, #3B82F6)" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              stroke="var(--sf-border, #3c3c3c)"
-              opacity={0.3}
-            />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border, #3c3c3c)" opacity={0.3} />
             <XAxis
               dataKey="timestamp"
               tickFormatter={(ts: number) => formatXAxis(ts, period)}

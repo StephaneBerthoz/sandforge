@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { MetadataReader } from './MetadataReader';
-import type { ObjectDescribe, FieldDescribe, RecordTypeInfo, ChildRelationship } from './MetadataReader';
+import type {
+  ObjectDescribe,
+  FieldDescribe,
+  RecordTypeInfo,
+  ChildRelationship,
+} from './MetadataReader';
 
 function createMockField(overrides: Partial<FieldDescribe> = {}): FieldDescribe {
   return {
@@ -119,7 +124,11 @@ describe('MetadataReader', () => {
     const fields = [
       createMockField({ name: 'AccountId', referenceTo: ['Account'], relationshipName: 'Account' }),
       createMockField({ name: 'Name', referenceTo: [] }),
-      createMockField({ name: 'OwnerId', referenceTo: ['User', 'Group'], relationshipName: 'Owner' }),
+      createMockField({
+        name: 'OwnerId',
+        referenceTo: ['User', 'Group'],
+        relationshipName: 'Owner',
+      }),
     ];
     reader.cacheDescribe('Contact', createMockObjectDescribe('Contact', fields));
 
@@ -136,7 +145,12 @@ describe('MetadataReader', () => {
       createMockField({ name: 'FirstName', createable: true, nillable: true }),
       createMockField({ name: 'AutoNum', createable: true, nillable: false, autoNumber: true }),
       createMockField({ name: 'Formula', createable: true, nillable: false, calculated: true }),
-      createMockField({ name: 'HasDefault', createable: true, nillable: false, defaultValue: 'test' }),
+      createMockField({
+        name: 'HasDefault',
+        createable: true,
+        nillable: false,
+        defaultValue: 'test',
+      }),
       createMockField({ name: 'ReadOnly', createable: false, nillable: false }),
     ];
     reader.cacheDescribe('Contact', createMockObjectDescribe('Contact', fields));
@@ -165,11 +179,32 @@ describe('MetadataReader', () => {
   it('should return active record types only', () => {
     const reader = new MetadataReader();
     const recordTypes: RecordTypeInfo[] = [
-      { recordTypeId: '012000000000001', name: 'Standard', developerName: 'Standard', active: true, defaultRecordTypeMapping: true },
-      { recordTypeId: '012000000000002', name: 'Custom', developerName: 'Custom', active: true, defaultRecordTypeMapping: false },
-      { recordTypeId: '012000000000003', name: 'Inactive', developerName: 'Inactive', active: false, defaultRecordTypeMapping: false },
+      {
+        recordTypeId: '012000000000001',
+        name: 'Standard',
+        developerName: 'Standard',
+        active: true,
+        defaultRecordTypeMapping: true,
+      },
+      {
+        recordTypeId: '012000000000002',
+        name: 'Custom',
+        developerName: 'Custom',
+        active: true,
+        defaultRecordTypeMapping: false,
+      },
+      {
+        recordTypeId: '012000000000003',
+        name: 'Inactive',
+        developerName: 'Inactive',
+        active: false,
+        defaultRecordTypeMapping: false,
+      },
     ];
-    reader.cacheDescribe('Account', createMockObjectDescribe('Account', [], { recordTypeInfos: recordTypes }));
+    reader.cacheDescribe(
+      'Account',
+      createMockObjectDescribe('Account', [], { recordTypeInfos: recordTypes }),
+    );
 
     const activeRTs = reader.getRecordTypes('Account');
 
@@ -180,10 +215,23 @@ describe('MetadataReader', () => {
   it('should return child relationships', () => {
     const reader = new MetadataReader();
     const childRelationships: ChildRelationship[] = [
-      { childSObject: 'Contact', field: 'AccountId', relationshipName: 'Contacts', cascadeDelete: false },
-      { childSObject: 'Opportunity', field: 'AccountId', relationshipName: 'Opportunities', cascadeDelete: true },
+      {
+        childSObject: 'Contact',
+        field: 'AccountId',
+        relationshipName: 'Contacts',
+        cascadeDelete: false,
+      },
+      {
+        childSObject: 'Opportunity',
+        field: 'AccountId',
+        relationshipName: 'Opportunities',
+        cascadeDelete: true,
+      },
     ];
-    reader.cacheDescribe('Account', createMockObjectDescribe('Account', [], { childRelationships }));
+    reader.cacheDescribe(
+      'Account',
+      createMockObjectDescribe('Account', [], { childRelationships }),
+    );
 
     const children = reader.getChildRelationships('Account');
 

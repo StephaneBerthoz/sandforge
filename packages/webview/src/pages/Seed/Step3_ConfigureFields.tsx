@@ -96,9 +96,7 @@ const ObjectPanel: React.FC<{
   const hasSuggestions = smartSuggestions?.has(obj.objectApiName);
 
   /** Get smart suggestion for a specific field. */
-  const getFieldSuggestion = (
-    fieldApiName: string,
-  ): FieldGenerationConfig | undefined => {
+  const getFieldSuggestion = (fieldApiName: string): FieldGenerationConfig | undefined => {
     const objSuggestions = smartSuggestions?.get(obj.objectApiName);
     return objSuggestions?.find((s) => s.fieldName === fieldApiName);
   };
@@ -110,7 +108,9 @@ const ObjectPanel: React.FC<{
     >
       <button
         className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]"
-        onClick={() => setExpandedObject(expandedObject === obj.objectApiName ? '' : obj.objectApiName)}
+        onClick={() =>
+          setExpandedObject(expandedObject === obj.objectApiName ? '' : obj.objectApiName)
+        }
         data-testid={`obj-header-${obj.objectApiName}`}
       >
         <span className="flex items-center gap-2">
@@ -121,7 +121,9 @@ const ObjectPanel: React.FC<{
             </span>
           )}
         </span>
-        <Badge variant="default">{obj.fields.length} {t('seed.configureFields').toLowerCase()}</Badge>
+        <Badge variant="default">
+          {obj.fields.length} {t('seed.configureFields').toLowerCase()}
+        </Badge>
       </button>
 
       {expandedObject === obj.objectApiName && (
@@ -165,7 +167,9 @@ const ObjectPanel: React.FC<{
                 data-testid={`field-${obj.objectApiName}-${field.fieldApiName}`}
               >
                 <div className="w-32 truncate">
-                  <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">{field.label}</span>
+                  <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    {field.label}
+                  </span>
                   {field.required && <span className="text-red-400 ml-0.5">*</span>}
                 </div>
                 <span className="w-16 text-[var(--vscode-descriptionForeground,#868686)] truncate">
@@ -174,7 +178,13 @@ const ObjectPanel: React.FC<{
                 <Select
                   options={ruleOptions}
                   value={field.ruleType}
-                  onChange={(e) => onChangeRule(obj.objectApiName, field.fieldApiName, e.target.value as FieldRuleType)}
+                  onChange={(e) =>
+                    onChangeRule(
+                      obj.objectApiName,
+                      field.fieldApiName,
+                      e.target.value as FieldRuleType,
+                    )
+                  }
                   className="flex-1"
                 />
 
@@ -183,7 +193,14 @@ const ObjectPanel: React.FC<{
                   <Input
                     placeholder={t('seed.fieldRules.static')}
                     value={String(field.config['staticValue'] ?? '')}
-                    onChange={(e) => onChangeConfig(obj.objectApiName, field.fieldApiName, 'staticValue', e.target.value)}
+                    onChange={(e) =>
+                      onChangeConfig(
+                        obj.objectApiName,
+                        field.fieldApiName,
+                        'staticValue',
+                        e.target.value,
+                      )
+                    }
                     className="w-32"
                   />
                 )}
@@ -191,7 +208,14 @@ const ObjectPanel: React.FC<{
                   <Input
                     placeholder="faker.method"
                     value={String(field.config['fakerMethod'] ?? '')}
-                    onChange={(e) => onChangeConfig(obj.objectApiName, field.fieldApiName, 'fakerMethod', e.target.value)}
+                    onChange={(e) =>
+                      onChangeConfig(
+                        obj.objectApiName,
+                        field.fieldApiName,
+                        'fakerMethod',
+                        e.target.value,
+                      )
+                    }
                     className="w-32"
                   />
                 )}
@@ -199,7 +223,14 @@ const ObjectPanel: React.FC<{
                   <Input
                     placeholder={t('seed.sequencePattern', 'PREFIX-{n}')}
                     value={String(field.config['sequencePrefix'] ?? '')}
-                    onChange={(e) => onChangeConfig(obj.objectApiName, field.fieldApiName, 'sequencePrefix', e.target.value)}
+                    onChange={(e) =>
+                      onChangeConfig(
+                        obj.objectApiName,
+                        field.fieldApiName,
+                        'sequencePrefix',
+                        e.target.value,
+                      )
+                    }
                     className="w-32"
                   />
                 )}
@@ -207,7 +238,14 @@ const ObjectPanel: React.FC<{
                   <Input
                     placeholder={t('seed.regexPlaceholder', '[A-Z]{3}-\\d{4}')}
                     value={String(field.config['regexPattern'] ?? '')}
-                    onChange={(e) => onChangeConfig(obj.objectApiName, field.fieldApiName, 'regexPattern', e.target.value)}
+                    onChange={(e) =>
+                      onChangeConfig(
+                        obj.objectApiName,
+                        field.fieldApiName,
+                        'regexPattern',
+                        e.target.value,
+                      )
+                    }
                     className="w-32"
                   />
                 )}
@@ -215,7 +253,14 @@ const ObjectPanel: React.FC<{
                   <Input
                     placeholder={t('seed.aiPromptPlaceholder', 'Generate...')}
                     value={String(field.config['aiPrompt'] ?? '')}
-                    onChange={(e) => onChangeConfig(obj.objectApiName, field.fieldApiName, 'aiPrompt', e.target.value)}
+                    onChange={(e) =>
+                      onChangeConfig(
+                        obj.objectApiName,
+                        field.fieldApiName,
+                        'aiPrompt',
+                        e.target.value,
+                      )
+                    }
                     className="w-32"
                   />
                 )}
@@ -223,7 +268,14 @@ const ObjectPanel: React.FC<{
                   <Input
                     placeholder={t('seed.csvColumnPlaceholder', 'column_name')}
                     value={String(field.config['csvColumn'] ?? '')}
-                    onChange={(e) => onChangeConfig(obj.objectApiName, field.fieldApiName, 'csvColumn', e.target.value)}
+                    onChange={(e) =>
+                      onChangeConfig(
+                        obj.objectApiName,
+                        field.fieldApiName,
+                        'csvColumn',
+                        e.target.value,
+                      )
+                    }
                     className="w-32"
                   />
                 )}
@@ -310,9 +362,7 @@ export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
 
   /** Render a flat list of object panels. */
   const renderFlatList = (configs: ObjectFieldConfig[]) =>
-    configs.map((obj) => (
-      <ObjectPanel key={obj.objectApiName} obj={obj} {...panelProps} />
-    ));
+    configs.map((obj) => <ObjectPanel key={obj.objectApiName} obj={obj} {...panelProps} />);
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-configure-fields">
@@ -337,25 +387,43 @@ export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
           <Accordion
             items={[
               ...(groupedConfigs.standard.length > 0
-                ? [{
-                    title: `${t('seed.adaptive.groupStandard')} (${groupedConfigs.standard.length})`,
-                    content: <div className="flex flex-col gap-3">{renderFlatList(groupedConfigs.standard)}</div>,
-                    defaultOpen: true,
-                  }]
+                ? [
+                    {
+                      title: `${t('seed.adaptive.groupStandard')} (${groupedConfigs.standard.length})`,
+                      content: (
+                        <div className="flex flex-col gap-3">
+                          {renderFlatList(groupedConfigs.standard)}
+                        </div>
+                      ),
+                      defaultOpen: true,
+                    },
+                  ]
                 : []),
               ...(groupedConfigs.custom.length > 0
-                ? [{
-                    title: `${t('seed.adaptive.groupCustom')} (${groupedConfigs.custom.length})`,
-                    content: <div className="flex flex-col gap-3">{renderFlatList(groupedConfigs.custom)}</div>,
-                    defaultOpen: false,
-                  }]
+                ? [
+                    {
+                      title: `${t('seed.adaptive.groupCustom')} (${groupedConfigs.custom.length})`,
+                      content: (
+                        <div className="flex flex-col gap-3">
+                          {renderFlatList(groupedConfigs.custom)}
+                        </div>
+                      ),
+                      defaultOpen: false,
+                    },
+                  ]
                 : []),
               ...(groupedConfigs.managed.length > 0
-                ? [{
-                    title: `${t('seed.adaptive.groupManaged')} (${groupedConfigs.managed.length})`,
-                    content: <div className="flex flex-col gap-3">{renderFlatList(groupedConfigs.managed)}</div>,
-                    defaultOpen: false,
-                  }]
+                ? [
+                    {
+                      title: `${t('seed.adaptive.groupManaged')} (${groupedConfigs.managed.length})`,
+                      content: (
+                        <div className="flex flex-col gap-3">
+                          {renderFlatList(groupedConfigs.managed)}
+                        </div>
+                      ),
+                      defaultOpen: false,
+                    },
+                  ]
                 : []),
             ]}
           />

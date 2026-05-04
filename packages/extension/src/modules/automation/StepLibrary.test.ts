@@ -20,9 +20,20 @@ describe('StepLibrary', () => {
       const typeValues = types.map((t) => t.type);
 
       const expected: PipelineStepType[] = [
-        'seed', 'sync', 'backup', 'restore', 'anonymize', 'delete',
-        'compare', 'precheck',
-        'condition', 'loop', 'parallel', 'delay', 'approval', 'script',
+        'seed',
+        'sync',
+        'backup',
+        'restore',
+        'anonymize',
+        'delete',
+        'compare',
+        'precheck',
+        'condition',
+        'loop',
+        'parallel',
+        'delay',
+        'approval',
+        'script',
         'notification',
       ];
 
@@ -87,10 +98,7 @@ describe('StepLibrary', () => {
     });
 
     it('should return error for unknown step type', () => {
-      const errors = library.validateStepConfig(
-        'unknown' as PipelineStepType,
-        {}
-      );
+      const errors = library.validateStepConfig('unknown' as PipelineStepType, {});
       expect(errors).toHaveLength(1);
       expect(errors[0]).toContain('Unknown step type');
     });
@@ -115,7 +123,14 @@ describe('StepLibrary', () => {
 
   describe('category assignments', () => {
     it('should assign data category to data-related steps', () => {
-      const dataSteps: PipelineStepType[] = ['seed', 'sync', 'backup', 'restore', 'anonymize', 'delete'];
+      const dataSteps: PipelineStepType[] = [
+        'seed',
+        'sync',
+        'backup',
+        'restore',
+        'anonymize',
+        'delete',
+      ];
       for (const type of dataSteps) {
         const info = library.getStepType(type);
         expect(info?.category).toBe('data');
@@ -131,7 +146,14 @@ describe('StepLibrary', () => {
     });
 
     it('should assign control category to control-related steps', () => {
-      const controlSteps: PipelineStepType[] = ['condition', 'loop', 'parallel', 'delay', 'approval', 'script'];
+      const controlSteps: PipelineStepType[] = [
+        'condition',
+        'loop',
+        'parallel',
+        'delay',
+        'approval',
+        'script',
+      ];
       for (const type of controlSteps) {
         const info = library.getStepType(type);
         expect(info?.category).toBe('control');

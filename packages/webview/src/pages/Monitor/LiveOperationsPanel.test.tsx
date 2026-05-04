@@ -55,10 +55,7 @@ describe('LiveOperationsPanel', () => {
   it('shows pause button for running operations', () => {
     const onPause = vi.fn();
     render(
-      <LiveOperationsPanel
-        operations={[makeOperation({ status: 'running' })]}
-        onPause={onPause}
-      />,
+      <LiveOperationsPanel operations={[makeOperation({ status: 'running' })]} onPause={onPause} />,
     );
     const pauseBtn = screen.getByTestId('pause-op-1');
     fireEvent.click(pauseBtn);
@@ -113,7 +110,14 @@ describe('LiveOperationsPanel', () => {
   it('displays progress stats', () => {
     render(
       <LiveOperationsPanel
-        operations={[makeOperation({ processedRecords: 250, totalRecords: 500, percentage: 50, recordsPerSecond: 17 })]}
+        operations={[
+          makeOperation({
+            processedRecords: 250,
+            totalRecords: 500,
+            percentage: 50,
+            recordsPerSecond: 17,
+          }),
+        ]}
       />,
     );
     expect(screen.getByText('50%')).toBeTruthy();

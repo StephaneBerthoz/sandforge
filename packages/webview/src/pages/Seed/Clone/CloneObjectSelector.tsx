@@ -38,9 +38,7 @@ export const CloneObjectSelector: React.FC<CloneObjectSelectorProps> = ({
     if (!searchTerm.trim()) return sourceObjects;
     const lower = searchTerm.toLowerCase();
     return sourceObjects.filter(
-      (obj) =>
-        obj.name.toLowerCase().includes(lower) ||
-        obj.label.toLowerCase().includes(lower),
+      (obj) => obj.name.toLowerCase().includes(lower) || obj.label.toLowerCase().includes(lower),
     );
   }, [sourceObjects, searchTerm]);
 

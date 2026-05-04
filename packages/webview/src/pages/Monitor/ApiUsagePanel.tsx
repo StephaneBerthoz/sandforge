@@ -51,7 +51,10 @@ export const ApiUsagePanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="api-usage-panel-loading">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="api-usage-panel-loading"
+      >
         <Skeleton variant="rect" height="200px" />
       </div>
     );
@@ -59,10 +62,15 @@ export const ApiUsagePanel: React.FC = () => {
 
   if (categories.length === 0) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="api-usage-panel-empty">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="api-usage-panel-empty"
+      >
         <div className="flex items-center gap-2 mb-3">
           <BarChart3 className="w-4 h-4 text-text-secondary" />
-          <h3 className="text-sm font-semibold text-text-primary">{t('monitor.apiUsage.title', 'API Usage Breakdown')}</h3>
+          <h3 className="text-sm font-semibold text-text-primary">
+            {t('monitor.apiUsage.title', 'API Usage Breakdown')}
+          </h3>
         </div>
         <p className="text-xs text-text-muted text-center py-6">
           {t('monitor.apiUsage.empty', 'No API usage data available')}
@@ -75,14 +83,18 @@ export const ApiUsagePanel: React.FC = () => {
     <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="api-usage-panel">
       <div className="flex items-center gap-2 mb-3">
         <BarChart3 className="w-4 h-4 text-text-secondary" />
-        <h3 className="text-sm font-semibold text-text-primary">{t('monitor.apiUsage.title', 'API Usage Breakdown')}</h3>
+        <h3 className="text-sm font-semibold text-text-primary">
+          {t('monitor.apiUsage.title', 'API Usage Breakdown')}
+        </h3>
       </div>
 
       {/* Table header */}
       <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-muted font-medium uppercase tracking-wider border-b border-subtle mb-1">
         <span className="flex-1">{t('monitor.apiUsage.category', 'Category')}</span>
         <span className="w-28">{t('monitor.apiUsage.usage', 'Usage')}</span>
-        <span className="w-24 text-right">{t('monitor.apiUsage.used', 'Used')} / {t('monitor.apiUsage.max', 'Max')}</span>
+        <span className="w-24 text-right">
+          {t('monitor.apiUsage.used', 'Used')} / {t('monitor.apiUsage.max', 'Max')}
+        </span>
         <span className="w-14 text-right">%</span>
       </div>
 
@@ -98,7 +110,11 @@ export const ApiUsagePanel: React.FC = () => {
               {formatCategoryName(cat.category)}
             </span>
             <div className="w-28">
-              <ProgressBar value={cat.usedPercent} variant={usageVariant(cat.usedPercent)} size="sm" />
+              <ProgressBar
+                value={cat.usedPercent}
+                variant={usageVariant(cat.usedPercent)}
+                size="sm"
+              />
             </div>
             <span className="text-xs tabular-nums text-text-secondary w-24 text-right">
               {formatNumber(cat.used)} / {formatNumber(cat.max)}
@@ -106,15 +122,11 @@ export const ApiUsagePanel: React.FC = () => {
             <span className="w-14 text-right">
               {cat.usedPercent >= 95 ? (
                 <span data-testid={`api-usage-badge-critical-${cat.category}`}>
-                  <Badge variant="error">
-                    {cat.usedPercent}%
-                  </Badge>
+                  <Badge variant="error">{cat.usedPercent}%</Badge>
                 </span>
               ) : cat.usedPercent >= 80 ? (
                 <span data-testid={`api-usage-badge-warning-${cat.category}`}>
-                  <Badge variant="warning">
-                    {cat.usedPercent}%
-                  </Badge>
+                  <Badge variant="warning">{cat.usedPercent}%</Badge>
                 </span>
               ) : (
                 <span className="text-xs tabular-nums text-text-muted">{cat.usedPercent}%</span>

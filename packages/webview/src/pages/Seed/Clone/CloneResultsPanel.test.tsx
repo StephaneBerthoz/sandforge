@@ -27,9 +27,7 @@ const mockSuccessResult: CloneExecutionResult = {
       sourceCount: 150,
       insertedCount: 150,
       failedCount: 0,
-      idMappings: [
-        { sourceId: '003xx001', targetId: '003yy001' },
-      ],
+      idMappings: [{ sourceId: '003xx001', targetId: '003yy001' }],
       errors: [],
     },
   ],
@@ -47,9 +45,7 @@ const mockPartialResult: CloneExecutionResult = {
       sourceCount: 50,
       insertedCount: 50,
       failedCount: 0,
-      idMappings: [
-        { sourceId: '001xx001', targetId: '001yy001' },
-      ],
+      idMappings: [{ sourceId: '001xx001', targetId: '001yy001' }],
       errors: [],
     },
     {
@@ -57,9 +53,7 @@ const mockPartialResult: CloneExecutionResult = {
       sourceCount: 50,
       insertedCount: 30,
       failedCount: 20,
-      idMappings: [
-        { sourceId: '003xx001', targetId: '003yy001' },
-      ],
+      idMappings: [{ sourceId: '003xx001', targetId: '003yy001' }],
       errors: [
         { sourceId: '003xx002', message: 'REQUIRED_FIELD_MISSING: LastName' },
         { sourceId: '003xx003', message: 'DUPLICATE_VALUE: Email' },
@@ -70,9 +64,7 @@ const mockPartialResult: CloneExecutionResult = {
 
 describe('CloneResultsPanel', () => {
   it('should render success status with counts', () => {
-    render(
-      <CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />,
-    );
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 
     expect(screen.getByTestId('clone-results-panel')).toBeDefined();
     expect(screen.getByTestId('clone-results-summary')).toBeDefined();
@@ -85,18 +77,14 @@ describe('CloneResultsPanel', () => {
   });
 
   it('should show duration', () => {
-    render(
-      <CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />,
-    );
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 
     const summary = screen.getByTestId('clone-results-summary');
     expect(summary.textContent).toContain('12.5');
   });
 
   it('should show per-object results in accordion', () => {
-    render(
-      <CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />,
-    );
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 
     const panel = screen.getByTestId('clone-results-panel');
     expect(panel.textContent).toContain('Account');
@@ -104,9 +92,7 @@ describe('CloneResultsPanel', () => {
   });
 
   it('should show failed count for partial results', () => {
-    render(
-      <CloneResultsPanel result={mockPartialResult} onDone={vi.fn()} />,
-    );
+    render(<CloneResultsPanel result={mockPartialResult} onDone={vi.fn()} />);
 
     const summary = screen.getByTestId('clone-results-summary');
     expect(summary.textContent).toContain('partial');
@@ -117,26 +103,20 @@ describe('CloneResultsPanel', () => {
 
   it('should call onDone when clicking Done button', () => {
     const onDone = vi.fn();
-    render(
-      <CloneResultsPanel result={mockSuccessResult} onDone={onDone} />,
-    );
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={onDone} />);
 
     fireEvent.click(screen.getByTestId('clone-results-done'));
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
   it('should have export mapping button', () => {
-    render(
-      <CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />,
-    );
+    render(<CloneResultsPanel result={mockSuccessResult} onDone={vi.fn()} />);
 
     expect(screen.getByTestId('clone-export-mapping')).toBeDefined();
   });
 
   it('should render errors for failed objects in partial results', () => {
-    render(
-      <CloneResultsPanel result={mockPartialResult} onDone={vi.fn()} />,
-    );
+    render(<CloneResultsPanel result={mockPartialResult} onDone={vi.fn()} />);
 
     const panel = screen.getByTestId('clone-results-panel');
     // The accordion content contains error info for Contact

@@ -19,7 +19,7 @@ export type InsertFn = (
   orgId: string,
   objectApiName: string,
   records: Record<string, unknown>[],
-  batchSize: number
+  batchSize: number,
 ) => Promise<InsertResult>;
 
 /** Result of a batch insert operation */
@@ -79,10 +79,7 @@ export class SeedOrchestrator {
    * in dependency order, insert records, and collect results.
    * Activates grappe mode when total records exceed the configured threshold.
    */
-  async execute(
-    template: SeedTemplate,
-    orgId: string
-  ): Promise<SeedExecutionResult> {
+  async execute(template: SeedTemplate, orgId: string): Promise<SeedExecutionResult> {
     const operationId = this.deps.generateId();
     const startTime = Date.now();
 
@@ -92,7 +89,7 @@ export class SeedOrchestrator {
         template.id,
         operationId,
         validation.errors.map((e) => e.message),
-        this.deps.now()
+        this.deps.now(),
       );
     }
 
@@ -126,7 +123,7 @@ export class SeedOrchestrator {
     template: SeedTemplate,
     orgId: string,
     operationId: UUID,
-    startTime: number
+    startTime: number,
   ): Promise<SeedExecutionResult> {
     const sortedObjects = this.deps.referenceLinker.resolveInsertOrder(template.objects);
     const existingIds = new Map<string, string[]>();
@@ -134,12 +131,7 @@ export class SeedOrchestrator {
 
     for (const obj of sortedObjects) {
       const records = await this.deps.fieldMapper.mapFields(obj, existingIds);
-      const insertResult = await this.deps.insert(
-        orgId,
-        obj.objectApiName,
-        records,
-        obj.batchSize
-      );
+      const insertResult = await this.deps.insert(orgId, obj.objectApiName, records, obj.batchSize);
 
       existingIds.set(obj.objectApiName, insertResult.successIds);
 
@@ -160,7 +152,7 @@ export class SeedOrchestrator {
     template: SeedTemplate,
     orgId: string,
     operationId: UUID,
-    startTime: number
+    startTime: number,
   ): Promise<SeedExecutionResult> {
     const adapter = this.deps.grappeAdapter!;
     const partitions = adapter.partition(template);
@@ -199,7 +191,12 @@ export class SeedOrchestrator {
 
         grappeResults.push({
           grappeId: partitionId,
-          status: insertResult.errors.length === 0 ? 'success' : insertResult.successIds.length > 0 ? 'partial' : 'failure',
+          status:
+            insertResult.errors.length === 0
+              ? 'success'
+              : insertResult.successIds.length > 0
+                ? 'partial'
+                : 'failure',
           processedRecords: chunk.length,
           successCount: insertResult.successIds.length,
           failureCount: insertResult.errors.length,
@@ -254,7 +251,7 @@ function buildSuccessResult(
   operationId: UUID,
   objectResults: SeedObjectResult[],
   startTime: number,
-  timestamp: string
+  timestamp: string,
 ): SeedExecutionResult {
   const totalCreated = objectResults.reduce((s, r) => s + r.recordsCreated, 0);
   const totalFailed = objectResults.reduce((s, r) => s + r.recordsFailed, 0);
@@ -273,7 +270,7 @@ function buildSuccessResult(
 /** Determine the overall status based on created/failed counts */
 function determineStatus(
   totalCreated: number,
-  totalFailed: number
+  totalFailed: number,
 ): 'success' | 'partial' | 'failure' {
   if (totalFailed === 0) {
     return 'success';
@@ -289,19 +286,21 @@ function buildFailureResult(
   templateId: UUID,
   operationId: UUID,
   errors: string[],
-  timestamp: string
+  timestamp: string,
 ): SeedExecutionResult {
   return {
     templateId,
     operationId,
     status: 'failure',
-    objectResults: [{
-      objectApiName: 'validation',
-      recordsCreated: 0,
-      recordsFailed: 0,
-      createdIds: [],
-      errors,
-    }],
+    objectResults: [
+      {
+        objectApiName: 'validation',
+        recordsCreated: 0,
+        recordsFailed: 0,
+        createdIds: [],
+        errors,
+      },
+    ],
     totalRecordsCreated: 0,
     totalRecordsFailed: 0,
     duration: 0,

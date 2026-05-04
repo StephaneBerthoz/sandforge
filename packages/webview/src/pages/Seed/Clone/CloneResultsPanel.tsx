@@ -31,10 +31,7 @@ export interface CloneResultsPanelProps {
  * Displays clone execution results: overall status, per-object
  * results with ID mapping tables, error lists, and an export button.
  */
-export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
-  result,
-  onDone,
-}) => {
+export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, onDone }) => {
   const { t } = useTranslation();
 
   /** Track current pagination page per object. */
@@ -47,8 +44,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
   );
 
   /** Get page for a specific object. */
-  const getPage = (objectApiName: string): number =>
-    objectPages[objectApiName] ?? 1;
+  const getPage = (objectApiName: string): number => objectPages[objectApiName] ?? 1;
 
   /** Set page for a specific object. */
   const setPage = (objectApiName: string, page: number): void => {
@@ -91,10 +87,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
     const totalMappings = objResult.idMappings.length;
     const totalPages = Math.max(1, Math.ceil(totalMappings / MAPPING_PAGE_SIZE));
     const start = (page - 1) * MAPPING_PAGE_SIZE;
-    const paginatedMappings = objResult.idMappings.slice(
-      start,
-      start + MAPPING_PAGE_SIZE,
-    );
+    const paginatedMappings = objResult.idMappings.slice(start, start + MAPPING_PAGE_SIZE);
 
     return (
       <div className="flex flex-col gap-2">
@@ -152,9 +145,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
         <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
           {t('seed.clone.results.title')}
         </span>
-        <Badge variant={STATUS_VARIANT[result.status] ?? 'default'}>
-          {result.status}
-        </Badge>
+        <Badge variant={STATUS_VARIANT[result.status] ?? 'default'}>{result.status}</Badge>
         <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
           {t('seed.clone.results.duration')}: {formattedDuration}s
         </span>
@@ -193,12 +184,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({
         >
           {t('seed.clone.results.exportMapping')}
         </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={onDone}
-          data-testid="clone-results-done"
-        >
+        <Button variant="primary" size="sm" onClick={onDone} data-testid="clone-results-done">
           {t('seed.clone.results.done')}
         </Button>
       </div>

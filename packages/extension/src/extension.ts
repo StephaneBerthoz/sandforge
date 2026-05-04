@@ -143,220 +143,235 @@ export function activate(context: vscode.ExtensionContext): void {
     import('./modules/forge/ForgeTemplateStore.js'),
     import('./modules/forge/ForgeHistoryStore.js'),
     import('./core/connection/ConnectionHelper.js'),
-  ]).then(([
-    { GraphDiscoveryService },
-    { ForgeExecutor },
-    { ForgeOrchestrator },
-    { ForgePlanGenerator },
-    { ForgeAnonymizer },
-    { ForgeComplianceService },
-    { ForgeMetadataDiff },
-    { ForgeBatchStrategy: ForgeBatchStrategyService },
-    { ForgeTemplateStore },
-    { ForgeHistoryStore },
-    { getJsforceConnection },
-  ]) => {
-    // Shared schema cache + timeout manager. Eliminates the 600+ describe
-    // round-trips per forge run on big orgs (Mutuaide UAT2 = 350+ SObjects).
-    // Per-call timeouts: describe 30s, describeGlobal 60s, queryCount 15s.
-    // Without timeouts, jsforce calls hang indefinitely on rate-limited orgs.
-    //
-    // PERF-002: byte cap restored. SchemaCache now uses an O(1) structural
-    // estimator (describe payloads sized by fields/childRel array length,
-    // not JSON.stringify) so eviction triggers cheaply. 200 entries × 1 MB
-    // each ≈ 200 MB cap matches the typical extension-host heap budget.
-    const describeCache = new SchemaCache<ObjectDescribe>({
-      defaultTtl: 5 * 60_000,
-      maxSize: 200,
-      maxSizeBytes: 200 * 1024 * 1024,
-    });
-    const describeGlobalCache = new SchemaCache<Array<{ name: string; keyPrefix: string | null }>>({
-      defaultTtl: 5 * 60_000,
-      maxSize: 16,
-      maxSizeBytes: 50 * 1024 * 1024,
-    });
-    const sfTimeouts = new TimeoutManager(30_000);
+  ])
+    .then(
+      ([
+        { GraphDiscoveryService },
+        { ForgeExecutor },
+        { ForgeOrchestrator },
+        { ForgePlanGenerator },
+        { ForgeAnonymizer },
+        { ForgeComplianceService },
+        { ForgeMetadataDiff },
+        { ForgeBatchStrategy: ForgeBatchStrategyService },
+        { ForgeTemplateStore },
+        { ForgeHistoryStore },
+        { getJsforceConnection },
+      ]) => {
+        // Shared schema cache + timeout manager. Eliminates the 600+ describe
+        // round-trips per forge run on big orgs (Mutuaide UAT2 = 350+ SObjects).
+        // Per-call timeouts: describe 30s, describeGlobal 60s, queryCount 15s.
+        // Without timeouts, jsforce calls hang indefinitely on rate-limited orgs.
+        //
+        // PERF-002: byte cap restored. SchemaCache now uses an O(1) structural
+        // estimator (describe payloads sized by fields/childRel array length,
+        // not JSON.stringify) so eviction triggers cheaply. 200 entries × 1 MB
+        // each ≈ 200 MB cap matches the typical extension-host heap budget.
+        const describeCache = new SchemaCache<ObjectDescribe>({
+          defaultTtl: 5 * 60_000,
+          maxSize: 200,
+          maxSizeBytes: 200 * 1024 * 1024,
+        });
+        const describeGlobalCache = new SchemaCache<
+          Array<{ name: string; keyPrefix: string | null }>
+        >({
+          defaultTtl: 5 * 60_000,
+          maxSize: 16,
+          maxSizeBytes: 50 * 1024 * 1024,
+        });
+        const sfTimeouts = new TimeoutManager(30_000);
 
-    const discoveryService = new GraphDiscoveryService({
-      describeObject: async (orgId, objectApiName) => {
-        const cacheKey = `${orgId}::${objectApiName}`;
-        const cached = describeCache.get(cacheKey);
-        if (cached) return cached;
-        const formatted = await sfTimeouts.withTimeout(
-          `describe:${objectApiName}`,
-          async () => {
+        const discoveryService = new GraphDiscoveryService({
+          describeObject: async (orgId, objectApiName) => {
+            const cacheKey = `${orgId}::${objectApiName}`;
+            const cached = describeCache.get(cacheKey);
+            if (cached) return cached;
+            const formatted = await sfTimeouts.withTimeout(
+              `describe:${objectApiName}`,
+              async () => {
+                const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                const meta = await conn.describe(objectApiName);
+                return {
+                  name: meta.name,
+                  fields: meta.fields.map((f) => ({
+                    name: f.name,
+                    type: f.type,
+                    referenceTo: f.referenceTo ?? [],
+                    relationshipName: f.relationshipName ?? null,
+                    isMasterDetail: f.cascadeDelete === true,
+                  })),
+                  childRelationships: (meta.childRelationships ?? []).map((cr) => ({
+                    childSObject: cr.childSObject,
+                    field: cr.field,
+                    relationshipName: cr.relationshipName ?? cr.field,
+                    isCascadeDelete: cr.cascadeDelete === true,
+                  })),
+                };
+              },
+              30_000,
+            );
+            describeCache.set(cacheKey, formatted);
+            return formatted;
+          },
+          queryCount: async (orgId, soql) => {
+            return sfTimeouts.withTimeout(
+              `queryCount`,
+              async () => {
+                const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                const result = await conn.query<{ expr0: number }>(soql);
+                return result.totalSize;
+              },
+              15_000,
+            );
+          },
+          detectPII: (fields) => {
+            const result = piiDetector.detectPII(
+              'unknown',
+              fields.map((f) => ({ apiName: f.name, label: f.name, type: f.type })),
+            );
+            return result.piiFields.map((p) => p.fieldApiName);
+          },
+          describeGlobal: async (orgId) => {
+            const cached = describeGlobalCache.get(orgId);
+            if (cached) return cached;
+            const result = await sfTimeouts.withTimeout(
+              'describeGlobal',
+              async () => {
+                const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+                const r = await conn.describeGlobal();
+                return r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+              },
+              60_000,
+            );
+            describeGlobalCache.set(orgId, result);
+            return result;
+          },
+        });
+
+        const batchStrategyService = new ForgeBatchStrategyService();
+        const anonymizer = new ForgeAnonymizer();
+
+        const executor = new ForgeExecutor({
+          queryRecords: async (orgId, soql) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const result = await conn.query<Record<string, unknown>>(soql);
+            return result.records;
+          },
+          insertRecords: async (orgId, objectName, records) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const results = await conn.sobject(objectName).create(records);
+            const arr = Array.isArray(results) ? results : [results];
+            return arr.map((r) => ({
+              id: r.id ?? '',
+              success: r.success,
+              errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
+            }));
+          },
+          updateRecords: async (orgId, objectName, records) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const results = await conn
+              .sobject(objectName)
+              .update(records as unknown as { Id: string }[]);
+            const arr = Array.isArray(results) ? results : [results];
+            return arr.map((r, i) => ({
+              id: r.id ?? (records[i]['Id'] as string) ?? '',
+              success: r.success,
+              errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
+            }));
+          },
+          upsertRecords: async (orgId, objectName, externalIdField, records) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const results = await conn
+              .sobject(objectName)
+              .upsert(records as unknown as Record<string, unknown>[], externalIdField);
+            const arr = Array.isArray(results) ? results : [results];
+            return arr.map((r) => ({
+              id: r.id ?? '',
+              success: r.success,
+              errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
+            }));
+          },
+          describeFields: async (orgId, objectName) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const meta = await conn.describe(objectName);
+            return meta.fields.map((f) => ({
+              name: f.name,
+              queryable: true,
+              createable: f.createable ?? false,
+              isReference: f.type === 'reference',
+              referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
+              nillable: f.nillable ?? true,
+              picklistValues: (f.picklistValues ?? [])
+                .filter((p) => p?.active !== false && typeof p?.value === 'string')
+                .map((p) => p.value as string),
+              externalId: f.externalId === true,
+            }));
+          },
+          isObjectCreatable: async (orgId, objectName) => {
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const meta = await conn.describe(objectName);
+            // Default to true when jsforce omits the flag — only opt out when
+            // the org explicitly says false (read-only system entities).
+            return meta.createable !== false;
+          },
+          batchStrategy: batchStrategyService,
+          anonymize: (records, objectApiName) => {
+            return anonymizer.anonymizeRecords(
+              records,
+              [],
+              anonymizer.getDefaults(),
+              objectApiName,
+            );
+          },
+        });
+
+        const planGenerator = new ForgePlanGenerator();
+        const complianceService = new ForgeComplianceService();
+
+        const metadataDiff = new ForgeMetadataDiff({
+          describeObject: async (orgId, objectApiName) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             const meta = await conn.describe(objectApiName);
             return {
-              name: meta.name,
               fields: meta.fields.map((f) => ({
                 name: f.name,
                 type: f.type,
-                referenceTo: f.referenceTo ?? [],
-                relationshipName: f.relationshipName ?? null,
-                isMasterDetail: f.cascadeDelete === true,
-              })),
-              childRelationships: (meta.childRelationships ?? []).map((cr) => ({
-                childSObject: cr.childSObject,
-                field: cr.field,
-                relationshipName: cr.relationshipName ?? cr.field,
-                isCascadeDelete: cr.cascadeDelete === true,
+                createable: f.createable ?? false,
               })),
             };
           },
-          30_000,
-        );
-        describeCache.set(cacheKey, formatted);
-        return formatted;
-      },
-      queryCount: async (orgId, soql) => {
-        return sfTimeouts.withTimeout(
-          `queryCount`,
-          async () => {
-            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            const result = await conn.query<{ expr0: number }>(soql);
-            return result.totalSize;
-          },
-          15_000,
-        );
-      },
-      detectPII: (fields) => {
-        const result = piiDetector.detectPII(
-          'unknown',
-          fields.map((f) => ({ apiName: f.name, label: f.name, type: f.type })),
-        );
-        return result.piiFields.map((p) => p.fieldApiName);
-      },
-      describeGlobal: async (orgId) => {
-        const cached = describeGlobalCache.get(orgId);
-        if (cached) return cached;
-        const result = await sfTimeouts.withTimeout(
-          'describeGlobal',
-          async () => {
-            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            const r = await conn.describeGlobal();
-            return r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
-          },
-          60_000,
-        );
-        describeGlobalCache.set(orgId, result);
-        return result;
-      },
-    });
+        });
 
-    const batchStrategyService = new ForgeBatchStrategyService();
-    const anonymizer = new ForgeAnonymizer();
+        const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+        const templateStore = new ForgeTemplateStore({
+          workspacePath,
+          readFile: (path) => fs.readFile(path, 'utf-8'),
+          writeFile: (path, content) => fs.writeFile(path, content, 'utf-8'),
+          mkdir: (path) => fs.mkdir(path, { recursive: true }).then(() => undefined),
+        });
 
-    const executor = new ForgeExecutor({
-      queryRecords: async (orgId, soql) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const result = await conn.query<Record<string, unknown>>(soql);
-        return result.records;
-      },
-      insertRecords: async (orgId, objectName, records) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const results = await conn.sobject(objectName).create(records);
-        const arr = Array.isArray(results) ? results : [results];
-        return arr.map((r) => ({
-          id: r.id ?? '',
-          success: r.success,
-          errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
-        }));
-      },
-      updateRecords: async (orgId, objectName, records) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const results = await conn
-          .sobject(objectName)
-          .update(records as unknown as { Id: string }[]);
-        const arr = Array.isArray(results) ? results : [results];
-        return arr.map((r, i) => ({
-          id: r.id ?? (records[i]['Id'] as string) ?? '',
-          success: r.success,
-          errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
-        }));
-      },
-      upsertRecords: async (orgId, objectName, externalIdField, records) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const results = await conn
-          .sobject(objectName)
-          .upsert(records as unknown as Record<string, unknown>[], externalIdField);
-        const arr = Array.isArray(results) ? results : [results];
-        return arr.map((r) => ({
-          id: r.id ?? '',
-          success: r.success,
-          errors: r.errors?.map((e: { message: string }) => e.message) ?? [],
-        }));
-      },
-      describeFields: async (orgId, objectName) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const meta = await conn.describe(objectName);
-        return meta.fields.map((f) => ({
-          name: f.name,
-          queryable: true,
-          createable: f.createable ?? false,
-          isReference: f.type === 'reference',
-          referenceTo: (f.referenceTo ?? []).filter((r): r is string => typeof r === 'string'),
-          nillable: f.nillable ?? true,
-          picklistValues: (f.picklistValues ?? [])
-            .filter((p) => p?.active !== false && typeof p?.value === 'string')
-            .map((p) => p.value as string),
-          externalId: f.externalId === true,
-        }));
-      },
-      isObjectCreatable: async (orgId, objectName) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const meta = await conn.describe(objectName);
-        // Default to true when jsforce omits the flag — only opt out when
-        // the org explicitly says false (read-only system entities).
-        return meta.createable !== false;
-      },
-      batchStrategy: batchStrategyService,
-      anonymize: (records, objectApiName) => {
-        return anonymizer.anonymizeRecords(records, [], anonymizer.getDefaults(), objectApiName);
-      },
-    });
+        const historyStore = new ForgeHistoryStore({
+          get: (key) => configStore.get(key),
+          update: (key, value) => Promise.resolve(configStore.set(key, value)),
+        });
 
-    const planGenerator = new ForgePlanGenerator();
-    const complianceService = new ForgeComplianceService();
+        const forgeOrchestrator = new ForgeOrchestrator({
+          discoveryService,
+          executor,
+          planGenerator,
+        });
 
-    const metadataDiff = new ForgeMetadataDiff({
-      describeObject: async (orgId, objectApiName) => {
-        const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-        const meta = await conn.describe(objectApiName);
-        return {
-          fields: meta.fields.map((f) => ({
-            name: f.name,
-            type: f.type,
-            createable: f.createable ?? false,
-          })),
-        };
+        handlers.setForgeOrchestrator(forgeOrchestrator, {
+          planGenerator,
+          complianceService,
+          metadataDiff,
+          templateStore,
+          historyStore,
+        });
+        log('Forge v2 module initialized.');
       },
-    });
-
-    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-    const templateStore = new ForgeTemplateStore({
-      workspacePath,
-      readFile: (path) => fs.readFile(path, 'utf-8'),
-      writeFile: (path, content) => fs.writeFile(path, content, 'utf-8'),
-      mkdir: (path) => fs.mkdir(path, { recursive: true }).then(() => undefined),
-    });
-
-    const historyStore = new ForgeHistoryStore({
-      get: (key) => configStore.get(key),
-      update: (key, value) => Promise.resolve(configStore.set(key, value)),
-    });
-
-    const forgeOrchestrator = new ForgeOrchestrator({ discoveryService, executor, planGenerator });
-
-    handlers.setForgeOrchestrator(forgeOrchestrator, {
-      planGenerator,
-      complianceService,
-      metadataDiff,
-      templateStore,
-      historyStore,
-    });
-    log('Forge v2 module initialized.');
-  }).catch((err) => log(`Failed to init Forge module: ${String(err)}`));
+    )
+    .catch((err) => log(`Failed to init Forge module: ${String(err)}`));
 
   // 7d. Wire up AI assistant if API key is configured
   const initAI = async (): Promise<void> => {
@@ -369,7 +384,9 @@ export function activate(context: vscode.ExtensionContext): void {
       const start = Date.now();
       const baseUrl = aiConfig.baseUrl ?? AI_CONFIG.BASE_URL;
       if (!baseUrl.startsWith('https://')) {
-        throw new Error('AI API requires HTTPS connection. Refusing to send API key over insecure transport.');
+        throw new Error(
+          'AI API requires HTTPS connection. Refusing to send API key over insecure transport.',
+        );
       }
       const response = await fetch(`${baseUrl}/v1/messages`, {
         method: 'POST',
@@ -382,15 +399,21 @@ export function activate(context: vscode.ExtensionContext): void {
           model: aiConfig.model,
           max_tokens: aiConfig.maxTokens,
           temperature: aiConfig.temperature,
-          messages: messages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
-          system: messages.find(m => m.role === 'system')?.content,
+          messages: messages
+            .filter((m) => m.role !== 'system')
+            .map((m) => ({ role: m.role, content: m.content })),
+          system: messages.find((m) => m.role === 'system')?.content,
         }),
       });
       if (!response.ok) {
         const errorBody = await response.text();
         throw new Error(`AI API request failed (${response.status}): ${errorBody}`);
       }
-      const data = await response.json() as { content: Array<{ text: string }>; usage: { output_tokens: number }; model: string };
+      const data = (await response.json()) as {
+        content: Array<{ text: string }>;
+        usage: { output_tokens: number };
+        model: string;
+      };
       return {
         content: data.content[0]?.text ?? '',
         tokenCount: data.usage?.output_tokens ?? 0,
@@ -411,10 +434,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Wire up AI modules (Tier 2) using the same provider function
     const aiProvider = async (prompt: string): Promise<string> => {
-      const result = await aiCallFn(
-        [{ role: 'user', content: prompt }],
-        { provider: AI_PROVIDER, model: AI_CONFIG.MODEL, apiKey, maxTokens: AI_CONFIG.MAX_TOKENS, temperature: AI_CONFIG.TEMPERATURE },
-      );
+      const result = await aiCallFn([{ role: 'user', content: prompt }], {
+        provider: AI_PROVIDER,
+        model: AI_CONFIG.MODEL,
+        apiKey,
+        maxTokens: AI_CONFIG.MAX_TOKENS,
+        temperature: AI_CONFIG.TEMPERATURE,
+      });
       return result.content;
     };
 
@@ -472,9 +498,10 @@ export function activate(context: vscode.ExtensionContext): void {
       // Native VSCode notification if no SandForge panel is visible
       if (!panelManager.isAnyPanelVisible() && !operation.notifiedNatively) {
         backgroundRegistry.markNotifiedNatively(operationId);
-        const label = type === 'completed'
-          ? `SandForge: ${operation.module} completed${operation.resultSummary ? ' \u2014 ' + operation.resultSummary : ''}`
-          : `SandForge: ${operation.module} failed${operation.resultSummary ? ' \u2014 ' + operation.resultSummary : ''}`;
+        const label =
+          type === 'completed'
+            ? `SandForge: ${operation.module} completed${operation.resultSummary ? ' \u2014 ' + operation.resultSummary : ''}`
+            : `SandForge: ${operation.module} failed${operation.resultSummary ? ' \u2014 ' + operation.resultSummary : ''}`;
         vscode.window.showInformationMessage(label, 'Show Details').then((action) => {
           if (action === 'Show Details') {
             panelManager.openPanel({ viewType: 'sandforge-main', title: 'SandForge', column: 1 });
@@ -593,7 +620,10 @@ export function activate(context: vscode.ExtensionContext): void {
       orgs: orgs as unknown as Record<string, unknown>[],
     });
     const count = orgs.length;
-    statusBar.updateText('sandforge.status', `$(flame) SandForge: ${count} org${count !== 1 ? 's' : ''}`);
+    statusBar.updateText(
+      'sandforge.status',
+      `$(flame) SandForge: ${count} org${count !== 1 ? 's' : ''}`,
+    );
     // Push updated org list to sidebar webview
     sidebarProvider.postMessage({
       type: 'org:list:response',
@@ -601,13 +631,9 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   });
 
-  context.subscriptions.push(
-    outputChannel,
-    sidebarRegistration,
-    statusBar,
-    panelManager,
-    { dispose: () => backgroundRegistry.dispose() },
-  );
+  context.subscriptions.push(outputChannel, sidebarRegistration, statusBar, panelManager, {
+    dispose: () => backgroundRegistry.dispose(),
+  });
 }
 
 /**

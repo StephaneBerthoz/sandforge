@@ -96,9 +96,7 @@ export function useMessageResponse<T>(
       const timer = setTimeout(() => {
         if (mountedRef.current && activeRequestId.current === messageId) {
           setLoading(false);
-          setError(
-            `Bridge ${requestLabel} '${requestType}' timed out after ${timeoutMs}ms`,
-          );
+          setError(`Bridge ${requestLabel} '${requestType}' timed out after ${timeoutMs}ms`);
           activeRequestId.current = null;
         }
       }, timeoutMs);
@@ -133,8 +131,7 @@ export function useMessageResponse<T>(
         }
         activeRequestId.current = null;
 
-        const responsePayload = (eventData as BaseMessage & { payload: T })
-          .payload;
+        const responsePayload = (eventData as BaseMessage & { payload: T }).payload;
         setData(responsePayload);
         setLoading(false);
         setTimedOut(false);

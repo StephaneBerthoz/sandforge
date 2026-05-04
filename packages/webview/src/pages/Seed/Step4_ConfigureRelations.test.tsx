@@ -11,7 +11,15 @@ const relations: SeedRelation[] = [
 
 const erdNodes: ObjectNode[] = [
   { apiName: 'Account', label: 'Account', recordCount: 500, fields: [], relationships: [] },
-  { apiName: 'Contact', label: 'Contact', recordCount: 1200, fields: [], relationships: [{ fieldName: 'AccountId', targetObject: 'Account', type: 'Lookup', required: false }] },
+  {
+    apiName: 'Contact',
+    label: 'Contact',
+    recordCount: 1200,
+    fields: [],
+    relationships: [
+      { fieldName: 'AccountId', targetObject: 'Account', type: 'Lookup', required: false },
+    ],
+  },
 ];
 
 const erdEdges: ERDEdge[] = [

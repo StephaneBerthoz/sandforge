@@ -47,10 +47,7 @@ export class SchemaAnalyzer {
   }
 
   /** Analyze the schema for the given objects. */
-  async analyzeSchema(
-    conn: SchemaConnection,
-    objectNames: string[],
-  ): Promise<ERDData> {
+  async analyzeSchema(conn: SchemaConnection, objectNames: string[]): Promise<ERDData> {
     const describes = await this.describeAll(conn, objectNames);
     const nodeMap = new Map<string, ObjectNode>();
     const edges: ERDEdge[] = [];
@@ -84,10 +81,7 @@ export class SchemaAnalyzer {
 
     // Auto-add missing parent objects
     if (parentObjectsToAdd.size > 0) {
-      const parentDescribes = await this.describeAll(
-        conn,
-        [...parentObjectsToAdd],
-      );
+      const parentDescribes = await this.describeAll(conn, [...parentObjectsToAdd]);
       for (const desc of parentDescribes) {
         const fields = this.extractFields(desc);
         const relationships = this.extractRelationships(desc);
@@ -114,9 +108,7 @@ export class SchemaAnalyzer {
     await this.fetchRecordCounts(conn, nodeMap);
 
     const nodes = [...nodeMap.values()];
-    const relevantEdges = edges.filter(
-      (e) => nodeMap.has(e.source) && nodeMap.has(e.target),
-    );
+    const relevantEdges = edges.filter((e) => nodeMap.has(e.source) && nodeMap.has(e.target));
 
     const { order, cycles } = this.topologicalSort(nodes, relevantEdges);
     const warnings = this.generateWarnings(nodes, relevantEdges, cycles, parentObjectsToAdd);
@@ -139,9 +131,7 @@ export class SchemaAnalyzer {
     const chunks = this.chunk(objectNames, this.maxConcurrent);
 
     for (const batch of chunks) {
-      const settled = await Promise.allSettled(
-        batch.map((name) => conn.describe(name)),
-      );
+      const settled = await Promise.allSettled(batch.map((name) => conn.describe(name)));
       for (const result of settled) {
         if (result.status === 'fulfilled') {
           results.push(result.value);
@@ -160,9 +150,7 @@ export class SchemaAnalyzer {
       type: f.type,
       required: !f.nillable && f.defaultValue === null,
       defaultValue: f.defaultValue,
-      picklistValues: f.picklistValues
-        ?.filter((pv) => pv.active)
-        .map((pv) => pv.value),
+      picklistValues: f.picklistValues?.filter((pv) => pv.active).map((pv) => pv.value),
       referenceTo: f.referenceTo?.[0],
       unique: f.unique,
       externalId: f.externalId,
@@ -182,7 +170,7 @@ export class SchemaAnalyzer {
       .map((f) => ({
         fieldName: f.name,
         targetObject: f.referenceTo![0],
-        type: f.type === 'masterdetail' ? 'MasterDetail' as const : 'Lookup' as const,
+        type: f.type === 'masterdetail' ? ('MasterDetail' as const) : ('Lookup' as const),
         required: f.type === 'masterdetail' || !f.nillable,
       }));
   }
@@ -198,9 +186,7 @@ export class SchemaAnalyzer {
     for (const batch of chunks) {
       const settled = await Promise.allSettled(
         batch.map(async ([name, node]) => {
-          const count = await conn.queryCount(
-            `SELECT COUNT() FROM ${assertSoqlIdentifier(name)}`,
-          );
+          const count = await conn.queryCount(`SELECT COUNT() FROM ${assertSoqlIdentifier(name)}`);
           node.recordCount = count;
         }),
       );
@@ -258,9 +244,7 @@ export class SchemaAnalyzer {
     // Detect cycles: nodes not in the order
     const cycles: string[][] = [];
     const ordered = new Set(order);
-    const remaining = nodes
-      .map((n) => n.apiName)
-      .filter((n) => !ordered.has(n));
+    const remaining = nodes.map((n) => n.apiName).filter((n) => !ordered.has(n));
 
     if (remaining.length > 0) {
       cycles.push(remaining);
@@ -284,12 +268,8 @@ export class SchemaAnalyzer {
     for (const name of autoAdded) {
       const node = nodes.find((n) => n.apiName === name);
       if (node) {
-        const children = edges
-          .filter((e) => e.target === name)
-          .map((e) => e.source);
-        warnings.push(
-          `${name} auto-added as required parent for ${children.join(', ')}`,
-        );
+        const children = edges.filter((e) => e.target === name).map((e) => e.source);
+        warnings.push(`${name} auto-added as required parent for ${children.join(', ')}`);
       }
     }
 
@@ -304,9 +284,7 @@ export class SchemaAnalyzer {
 
     // Warn about circular dependencies
     for (const cycle of cycles) {
-      warnings.push(
-        `Circular dependency detected: ${cycle.join(' → ')}`,
-      );
+      warnings.push(`Circular dependency detected: ${cycle.join(' → ')}`);
     }
 
     return warnings;

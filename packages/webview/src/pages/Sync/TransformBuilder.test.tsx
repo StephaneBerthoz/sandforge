@@ -12,14 +12,24 @@ const rules: TransformRule[] = [
 describe('TransformBuilder', () => {
   it('should render the builder', () => {
     render(
-      <TransformBuilder rules={rules} onAddRule={vi.fn()} onRemoveRule={vi.fn()} onChangeConfig={vi.fn()} />,
+      <TransformBuilder
+        rules={rules}
+        onAddRule={vi.fn()}
+        onRemoveRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
     );
     expect(screen.getByTestId('transform-builder')).toBeDefined();
   });
 
   it('should show existing rules', () => {
     render(
-      <TransformBuilder rules={rules} onAddRule={vi.fn()} onRemoveRule={vi.fn()} onChangeConfig={vi.fn()} />,
+      <TransformBuilder
+        rules={rules}
+        onAddRule={vi.fn()}
+        onRemoveRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
     );
     expect(screen.getByTestId('transform-0')).toBeDefined();
     expect(screen.getByTestId('transform-1')).toBeDefined();
@@ -27,7 +37,12 @@ describe('TransformBuilder', () => {
 
   it('should show rule type badges', () => {
     render(
-      <TransformBuilder rules={rules} onAddRule={vi.fn()} onRemoveRule={vi.fn()} onChangeConfig={vi.fn()} />,
+      <TransformBuilder
+        rules={rules}
+        onAddRule={vi.fn()}
+        onRemoveRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
     );
     expect(screen.getAllByText('Uppercase').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Prefix').length).toBeGreaterThan(0);
@@ -36,7 +51,12 @@ describe('TransformBuilder', () => {
   it('should call onRemoveRule when remove is clicked', () => {
     const onRemove = vi.fn();
     render(
-      <TransformBuilder rules={rules} onAddRule={vi.fn()} onRemoveRule={onRemove} onChangeConfig={vi.fn()} />,
+      <TransformBuilder
+        rules={rules}
+        onAddRule={vi.fn()}
+        onRemoveRule={onRemove}
+        onChangeConfig={vi.fn()}
+      />,
     );
     fireEvent.click(screen.getByTestId('remove-transform-0'));
     expect(onRemove).toHaveBeenCalledWith(0);
@@ -45,7 +65,12 @@ describe('TransformBuilder', () => {
   it('should call onAddRule when add is clicked', () => {
     const onAdd = vi.fn();
     render(
-      <TransformBuilder rules={[]} onAddRule={onAdd} onRemoveRule={vi.fn()} onChangeConfig={vi.fn()} />,
+      <TransformBuilder
+        rules={[]}
+        onAddRule={onAdd}
+        onRemoveRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
     );
     fireEvent.click(screen.getByTestId('add-transform-btn'));
     expect(onAdd).toHaveBeenCalledWith('uppercase');
@@ -53,21 +78,36 @@ describe('TransformBuilder', () => {
 
   it('should show count', () => {
     render(
-      <TransformBuilder rules={rules} onAddRule={vi.fn()} onRemoveRule={vi.fn()} onChangeConfig={vi.fn()} />,
+      <TransformBuilder
+        rules={rules}
+        onAddRule={vi.fn()}
+        onRemoveRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
     );
     expect(screen.getByText('Transforms (2)')).toBeDefined();
   });
 
   it('should show empty state when no rules', () => {
     render(
-      <TransformBuilder rules={[]} onAddRule={vi.fn()} onRemoveRule={vi.fn()} onChangeConfig={vi.fn()} />,
+      <TransformBuilder
+        rules={[]}
+        onAddRule={vi.fn()}
+        onRemoveRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
     );
     expect(screen.getByText('No data available')).toBeDefined();
   });
 
   it('should show config input for prefix rule', () => {
     render(
-      <TransformBuilder rules={rules} onAddRule={vi.fn()} onRemoveRule={vi.fn()} onChangeConfig={vi.fn()} />,
+      <TransformBuilder
+        rules={rules}
+        onAddRule={vi.fn()}
+        onRemoveRule={vi.fn()}
+        onChangeConfig={vi.fn()}
+      />,
     );
     const prefixRule = screen.getByTestId('transform-1');
     expect(prefixRule.querySelector('input')).toBeDefined();

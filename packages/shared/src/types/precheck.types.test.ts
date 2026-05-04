@@ -103,7 +103,9 @@ describe('precheck.types', () => {
       expect(result.requiresConfirmation).toHaveLength(1);
       expect(result.requiresConfirmation[0].requiresTypedConfirmation).toBe(true);
       expect(result.autoFixable).toHaveLength(1);
-      expect(result.autoFixable[0].fixDescription).toBe('Create the missing field via Metadata API.');
+      expect(result.autoFixable[0].fixDescription).toBe(
+        'Create the missing field via Metadata API.',
+      );
     });
   });
 

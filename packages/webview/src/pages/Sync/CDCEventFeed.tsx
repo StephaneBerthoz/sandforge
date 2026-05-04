@@ -78,7 +78,10 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
       {/* Applied status */}
       <span className="w-[20px] shrink-0 text-center">
         {event.error ? (
-          <span className="codicon codicon-error text-[var(--vscode-errorForeground,#f48771)]" title={event.error} />
+          <span
+            className="codicon codicon-error text-[var(--vscode-errorForeground,#f48771)]"
+            title={event.error}
+          />
         ) : event.applied ? (
           <span className="codicon codicon-check text-[var(--vscode-testing-iconPassed,#73c991)]" />
         ) : (
@@ -134,9 +137,7 @@ export const CDCEventFeed: React.FC = () => {
         <span>
           {eventCount} {t('sync.realtime.events')}
         </span>
-        {eventCount > RING_BUFFER_CAPACITY && (
-          <span>{t('sync.realtime.bufferFull')}</span>
-        )}
+        {eventCount > RING_BUFFER_CAPACITY && <span>{t('sync.realtime.bufferFull')}</span>}
       </div>
     </div>
   );

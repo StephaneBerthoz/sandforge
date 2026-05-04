@@ -37,9 +37,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should start with idle state', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     expect(result.current.data).toBeNull();
     expect(result.current.loading).toBe(false);
@@ -47,9 +45,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should listen for the correct response type and populate data', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);
@@ -66,9 +62,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should set error on timeout', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);
@@ -80,9 +74,7 @@ describe('useMessageResponse', () => {
     });
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBe(
-      "Bridge query 'org:list' timed out after 5000ms",
-    );
+    expect(result.current.error).toBe("Bridge query 'org:list' timed out after 5000ms");
     expect(result.current.data).toBeNull();
   });
 
@@ -104,18 +96,14 @@ describe('useMessageResponse', () => {
       vi.advanceTimersByTime(5000);
     });
 
-    expect(result.current.error).toBe(
-      "Bridge mutation 'org:connect' timed out after 5000ms",
-    );
+    expect(result.current.error).toBe("Bridge mutation 'org:connect' timed out after 5000ms");
   });
 
   it('should clean up event listener via returned cleanup function', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     let cleanup: () => void = () => undefined;
     act(() => {
@@ -135,9 +123,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should ignore non-matching response types', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);
@@ -153,9 +139,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should reset all state when reset is called', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);
@@ -199,9 +183,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should ignore stale responses when a new listen call replaces the active request', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);
@@ -226,9 +208,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should accept response with matching correlationId', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);
@@ -244,9 +224,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should reject response with wrong correlationId', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);
@@ -263,9 +241,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should fall back to type-only matching when correlationId is absent', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<{ orgs: string[] }>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);
@@ -282,9 +258,7 @@ describe('useMessageResponse', () => {
   });
 
   it('should allow setLoading and setError to be called externally', () => {
-    const { result } = renderHook(() =>
-      useMessageResponse<unknown>(defaultOptions),
-    );
+    const { result } = renderHook(() => useMessageResponse<unknown>(defaultOptions));
 
     act(() => {
       result.current.setLoading(true);

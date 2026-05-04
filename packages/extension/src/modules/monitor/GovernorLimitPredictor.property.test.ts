@@ -56,31 +56,25 @@ describe('GovernorLimitPredictor — property-based', () => {
 
   it('monotone non-decreasing usage never yields a "decreasing" trend', () => {
     fc.assert(
-      fc.property(
-        monotoneNonDecreasingSnapshotsArb('ApiRequests'),
-        (snapshots) => {
-          const predictor = new GovernorLimitPredictor(fakeTracker(snapshots));
-          const predictions = predictor.predict('org-1');
-          // Only the named limit is present — a single prediction expected.
-          const target = predictions.find((p) => p.limitName === 'ApiRequests');
-          if (target) {
-            expect(target.trend).not.toBe('decreasing');
-          }
-        },
-      ),
+      fc.property(monotoneNonDecreasingSnapshotsArb('ApiRequests'), (snapshots) => {
+        const predictor = new GovernorLimitPredictor(fakeTracker(snapshots));
+        const predictions = predictor.predict('org-1');
+        // Only the named limit is present — a single prediction expected.
+        const target = predictions.find((p) => p.limitName === 'ApiRequests');
+        if (target) {
+          expect(target.trend).not.toBe('decreasing');
+        }
+      }),
       { numRuns: 100 },
     );
   });
 
   it('empty-history guard: fewer than 2 snapshots → predict() returns []', () => {
     fc.assert(
-      fc.property(
-        fc.array(limitsSnapshotArb, { minLength: 0, maxLength: 1 }),
-        (snapshots) => {
-          const predictor = new GovernorLimitPredictor(fakeTracker(snapshots));
-          expect(predictor.predict('org-1')).toEqual([]);
-        },
-      ),
+      fc.property(fc.array(limitsSnapshotArb, { minLength: 0, maxLength: 1 }), (snapshots) => {
+        const predictor = new GovernorLimitPredictor(fakeTracker(snapshots));
+        expect(predictor.predict('org-1')).toEqual([]);
+      }),
       { numRuns: 100 },
     );
   });

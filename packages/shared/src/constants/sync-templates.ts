@@ -1,4 +1,9 @@
-import type { SyncDirection, SyncMode, SyncOperation, ConflictStrategy } from '../types/sync.types.js';
+import type {
+  SyncDirection,
+  SyncMode,
+  SyncOperation,
+  ConflictStrategy,
+} from '../types/sync.types.js';
 
 /* ------------------------------------------------------------------ */
 /* SyncTemplateConfig interface                                        */
@@ -62,11 +67,41 @@ export const SYNC_ACCOUNT_HIERARCHY: SyncTemplateConfig = {
   mode: 'full',
   conflictStrategy: 'source_wins',
   objects: [
-    { objectApiName: 'Account', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 0 },
-    { objectApiName: 'Contact', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 1 },
-    { objectApiName: 'Opportunity', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 2 },
-    { objectApiName: 'Task', operation: 'insert', externalIdField: 'Id', batchSize: 200, insertOrder: 3 },
-    { objectApiName: 'Note', operation: 'insert', externalIdField: 'Id', batchSize: 200, insertOrder: 4 },
+    {
+      objectApiName: 'Account',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 0,
+    },
+    {
+      objectApiName: 'Contact',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 1,
+    },
+    {
+      objectApiName: 'Opportunity',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 2,
+    },
+    {
+      objectApiName: 'Task',
+      operation: 'insert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 3,
+    },
+    {
+      objectApiName: 'Note',
+      operation: 'insert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 4,
+    },
   ],
 };
 
@@ -88,11 +123,41 @@ export const SYNC_OPPS_PRODUCTS: SyncTemplateConfig = {
   mode: 'full',
   conflictStrategy: 'source_wins',
   objects: [
-    { objectApiName: 'Pricebook2', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 0 },
-    { objectApiName: 'Product2', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 1 },
-    { objectApiName: 'PricebookEntry', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 2 },
-    { objectApiName: 'Opportunity', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 3 },
-    { objectApiName: 'OpportunityLineItem', operation: 'insert', externalIdField: 'Id', batchSize: 200, insertOrder: 4 },
+    {
+      objectApiName: 'Pricebook2',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 0,
+    },
+    {
+      objectApiName: 'Product2',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 1,
+    },
+    {
+      objectApiName: 'PricebookEntry',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 2,
+    },
+    {
+      objectApiName: 'Opportunity',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 3,
+    },
+    {
+      objectApiName: 'OpportunityLineItem',
+      operation: 'insert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 4,
+    },
   ],
 };
 
@@ -114,11 +179,41 @@ export const SYNC_CASES_ATTACHMENTS: SyncTemplateConfig = {
   mode: 'full',
   conflictStrategy: 'source_wins',
   objects: [
-    { objectApiName: 'Account', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 0 },
-    { objectApiName: 'Contact', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 1 },
-    { objectApiName: 'Case', operation: 'upsert', externalIdField: 'Id', batchSize: 200, insertOrder: 2 },
-    { objectApiName: 'CaseComment', operation: 'insert', externalIdField: 'Id', batchSize: 200, insertOrder: 3 },
-    { objectApiName: 'Attachment', operation: 'insert', externalIdField: 'Id', batchSize: 100, insertOrder: 4 },
+    {
+      objectApiName: 'Account',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 0,
+    },
+    {
+      objectApiName: 'Contact',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 1,
+    },
+    {
+      objectApiName: 'Case',
+      operation: 'upsert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 2,
+    },
+    {
+      objectApiName: 'CaseComment',
+      operation: 'insert',
+      externalIdField: 'Id',
+      batchSize: 200,
+      insertOrder: 3,
+    },
+    {
+      objectApiName: 'Attachment',
+      operation: 'insert',
+      externalIdField: 'Id',
+      batchSize: 100,
+      insertOrder: 4,
+    },
   ],
 };
 

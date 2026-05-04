@@ -101,7 +101,16 @@ describe('MaskingTemplateService', () => {
     });
 
     it('each rule has a valid ruleType', () => {
-      const validTypes = new Set(['fake', 'mask', 'hash', 'nullify', 'preserve_format', 'constant', 'truncate', 'shuffle']);
+      const validTypes = new Set([
+        'fake',
+        'mask',
+        'hash',
+        'nullify',
+        'preserve_format',
+        'constant',
+        'truncate',
+        'shuffle',
+      ]);
       const templates = service.getAllTemplates();
       for (const template of templates) {
         for (const rule of template.rules) {

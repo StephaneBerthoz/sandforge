@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { TFunction } from 'i18next';
-import type { SalesforceOrg, SeedExecutionResult, FieldRuleType, PersonaMsg } from '@sandforge/shared';
+import type {
+  SalesforceOrg,
+  SeedExecutionResult,
+  FieldRuleType,
+  PersonaMsg,
+} from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
@@ -56,8 +61,17 @@ export interface SeedWizardState {
 
   /* Fields */
   fieldConfigs: ObjectFieldConfig[];
-  handleChangeFieldRule: (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => void;
-  handleChangeFieldConfig: (objectApiName: string, fieldApiName: string, key: string, value: string) => void;
+  handleChangeFieldRule: (
+    objectApiName: string,
+    fieldApiName: string,
+    ruleType: FieldRuleType,
+  ) => void;
+  handleChangeFieldConfig: (
+    objectApiName: string,
+    fieldApiName: string,
+    key: string,
+    value: string,
+  ) => void;
 
   /* Relations */
   relations: SeedRelation[];
@@ -170,7 +184,14 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
       volumes: fieldConfig.volumes,
       nl2soqlQuery: nl2soqlState.nl2soqlQuery,
     });
-  }, [currentStep, orgSelection.selectedOrgId, objectSelection.selectedObjects, fieldConfig.volumes, nl2soqlState.nl2soqlQuery, setDraft]);
+  }, [
+    currentStep,
+    orgSelection.selectedOrgId,
+    objectSelection.selectedObjects,
+    fieldConfig.volumes,
+    nl2soqlState.nl2soqlQuery,
+    setDraft,
+  ]);
 
   /* ------------------------------------------------------------------ */
   /* Error aggregation                                                   */
@@ -179,7 +200,12 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
     const bridgeError = objectSelection.describeError ?? execution.executionError;
     if (bridgeError) {
       setError(bridgeError);
-      addNotification({ level: 'error', title: t('seed.title'), message: bridgeError, autoDismissMs: 5000 });
+      addNotification({
+        level: 'error',
+        title: t('seed.title'),
+        message: bridgeError,
+        autoDismissMs: 5000,
+      });
     }
   }, [objectSelection.describeError, execution.executionError, addNotification, t]);
 
@@ -193,15 +219,25 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   /* ------------------------------------------------------------------ */
   /* Persona application                                                 */
   /* ------------------------------------------------------------------ */
+  // The deps below intentionally pin specific fields of `fieldConfig` instead
+  // of the full object. `useSeedFieldConfig` rebuilds its return object on
+  // every render even when the underlying state is unchanged, so depending on
+  // `fieldConfig` itself would trigger a re-run on every parent render.
+  // Pinning `applyPersona` (a method ref) and `fieldConfigs.length` is the
+  // intended behavior — the lint rule cannot statically prove the ref is
+  // stable, so disable it here with a rationale.
   const applySelectedPersona = useCallback((): number => {
     if (!selectedPersona) return 0;
     const count = fieldConfig.applyPersona(selectedPersona);
     setPersonaMatchedFields(count);
     return count;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPersona, fieldConfig.applyPersona]);
 
   /* Auto-apply persona when field configs become available */
   const personaAppliedRef = useRef<string | null>(null);
+  // Same rationale as applySelectedPersona above: depend on the specific
+  // method + length scalar, not the full fieldConfig object.
   useEffect(() => {
     if (
       selectedPersona &&
@@ -212,6 +248,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
       const count = fieldConfig.applyPersona(selectedPersona);
       setPersonaMatchedFields(count);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPersona, fieldConfig.fieldConfigs.length, fieldConfig.applyPersona]);
 
   /* ------------------------------------------------------------------ */
@@ -219,11 +256,19 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   /* ------------------------------------------------------------------ */
   const canGoNext = useMemo((): boolean => {
     switch (currentStep) {
-      case 0: return !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0;
-      case 2: return !execution.isRunning;
-      default: return true;
+      case 0:
+        return !!orgSelection.selectedOrgId && objectSelection.selectedObjects.length > 0;
+      case 2:
+        return !execution.isRunning;
+      default:
+        return true;
     }
-  }, [currentStep, orgSelection.selectedOrgId, objectSelection.selectedObjects.length, execution.isRunning]);
+  }, [
+    currentStep,
+    orgSelection.selectedOrgId,
+    objectSelection.selectedObjects.length,
+    execution.isRunning,
+  ]);
 
   const isFinished = currentStep === 3 && !!execution.executionResult;
 

@@ -21,9 +21,7 @@ export class TriggerEngine {
       case 'manual':
         return true;
       case 'schedule':
-        return trigger.config.cron
-          ? this.matchesCron(trigger.config.cron, new Date())
-          : false;
+        return trigger.config.cron ? this.matchesCron(trigger.config.cron, new Date()) : false;
       case 'event':
         return false;
       case 'webhook':

@@ -24,8 +24,9 @@ let currentOrgId: string | null = null;
 
 const mockAddNotification = vi.fn();
 vi.mock('../stores/useNotificationStore', () => ({
-  useNotificationStore: (selector: (state: { addNotification: typeof mockAddNotification }) => unknown) =>
-    selector({ addNotification: mockAddNotification }),
+  useNotificationStore: (
+    selector: (state: { addNotification: typeof mockAddNotification }) => unknown,
+  ) => selector({ addNotification: mockAddNotification }),
 }));
 
 vi.mock('../stores/useOrgStore', () => ({

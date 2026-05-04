@@ -1,10 +1,18 @@
 import type { BaseMessage, SeedTemplate, PersonaMsg } from '@sandforge/shared';
-import { sanitizeSoqlObjectName, orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
+import {
+  sanitizeSoqlObjectName,
+  orgTypeToGuardTier,
+  RobustnessConfigSchema,
+} from '@sandforge/shared';
 import type { RobustnessConfig } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
-  buildResponse, sendHandlerError, sendOperationStarted, sendOperationProgress,
-  sendOperationCompleted, sendOperationFailed,
+  buildResponse,
+  sendHandlerError,
+  sendOperationStarted,
+  sendOperationProgress,
+  sendOperationCompleted,
+  sendOperationFailed,
 } from './HandlerTypes.js';
 import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
 import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
@@ -123,17 +131,24 @@ export class SeedOpsHandler implements DomainHandler {
   private async handleTemplateSave(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
-      const payload = (msg as BaseMessage & { payload: { template: Record<string, unknown> } }).payload;
+      const payload = (msg as BaseMessage & { payload: { template: Record<string, unknown> } })
+        .payload;
       const template = payload.template as unknown as SeedTemplate;
 
       if (template.id && this.templateManager.get(template.id)) {
         const updated = this.templateManager.update(template.id, template);
-        const response = buildResponse(this.deps, msg, 'seed:template:save:response', { success: true, id: updated.id });
+        const response = buildResponse(this.deps, msg, 'seed:template:save:response', {
+          success: true,
+          id: updated.id,
+        });
         this.deps.broker.postToWebview(response);
         this.deps.log(`[TX] ${response.type} id=${response.id}`);
       } else {
         const created = this.templateManager.create(template);
-        const response = buildResponse(this.deps, msg, 'seed:template:save:response', { success: true, id: created.id });
+        const response = buildResponse(this.deps, msg, 'seed:template:save:response', {
+          success: true,
+          id: created.id,
+        });
         this.deps.broker.postToWebview(response);
         this.deps.log(`[TX] ${response.type} id=${response.id}`);
       }
@@ -172,7 +187,9 @@ export class SeedOpsHandler implements DomainHandler {
         objectCount: t.objects.length,
         totalRecords: t.objects.reduce((sum, o) => sum + o.recordCount, 0),
       }));
-      const response = buildResponse(this.deps, msg, 'seed:template:list:response', { templates: summaries });
+      const response = buildResponse(this.deps, msg, 'seed:template:list:response', {
+        templates: summaries,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -232,7 +249,14 @@ export class SeedOpsHandler implements DomainHandler {
       const payload = (msg as BaseMessage & { payload: { description: string } }).payload;
       if (!payload.description || payload.description.trim().length === 0) {
         const response = buildResponse(this.deps, msg, 'seed:create-persona:response', {
-          persona: { id: '', name: '', description: '', industry: '', locale: '', dataPatterns: {} },
+          persona: {
+            id: '',
+            name: '',
+            description: '',
+            industry: '',
+            locale: '',
+            dataPatterns: {},
+          },
           success: false,
           error: 'Description is required to create a custom persona',
         });
@@ -248,7 +272,10 @@ export class SeedOpsHandler implements DomainHandler {
         return prompt;
       };
 
-      const persona = await this.personaManager.createCustomPersona(payload.description, aiProvider);
+      const persona = await this.personaManager.createCustomPersona(
+        payload.description,
+        aiProvider,
+      );
       const personaMsg: PersonaMsg = {
         id: persona.id,
         name: persona.name,
@@ -274,7 +301,11 @@ export class SeedOpsHandler implements DomainHandler {
     const config = this.getRobustnessConfig();
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       const timeout = new TimeoutManager(config.timeouts.describeGlobal);
       const result = await timeout.withTimeout('describe-global', () => conn.describeGlobal());
@@ -298,17 +329,36 @@ export class SeedOpsHandler implements DomainHandler {
 
   private async handleDescribeObject(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; objectApiName: string } }).payload;
+    const payload = (msg as BaseMessage & { payload: { orgId: string; objectApiName: string } })
+      .payload;
     const config = this.getRobustnessConfig();
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
       const safeObjectName = sanitizeSoqlObjectName(payload.objectApiName);
 
       const timeout = new TimeoutManager(config.timeouts.describe);
-      const result = await timeout.withTimeout('describe-object', () => conn.describe(safeObjectName));
+      const result = await timeout.withTimeout('describe-object', () =>
+        conn.describe(safeObjectName),
+      );
 
-      const fields = (result.fields as { name: string; label: string; type: string; nillable: boolean; defaultedOnCreate: boolean; picklistValues?: { value: string }[]; referenceTo?: string[]; length: number; createable: boolean }[])
+      const fields = (
+        result.fields as {
+          name: string;
+          label: string;
+          type: string;
+          nillable: boolean;
+          defaultedOnCreate: boolean;
+          picklistValues?: { value: string }[];
+          referenceTo?: string[];
+          length: number;
+          createable: boolean;
+        }[]
+      )
         .filter((f) => f.createable)
         .map((f) => ({
           fieldApiName: f.name,
@@ -334,11 +384,19 @@ export class SeedOpsHandler implements DomainHandler {
 
   private async handleExecute(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean } }).payload;
+    const payload = (
+      msg as BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean };
+      }
+    ).payload;
     const operationId = crypto.randomUUID();
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       // Production guard check
       if (this.deps.infraServices?.productionGuard) {
@@ -352,7 +410,9 @@ export class SeedOpsHandler implements DomainHandler {
           module: 'seed',
         });
         if (!check.allowed) {
-          throw new Error(`Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`);
+          throw new Error(
+            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+          );
         }
       }
 
@@ -427,7 +487,9 @@ export class SeedOpsHandler implements DomainHandler {
       const retryOp = new RetryableOperation({
         retryConfig: robustnessConfig.retry,
         onRetry: (attempt, classified, delay) => {
-          this.deps.log(`[RETRY] seed insert attempt=${attempt} code=${classified.originalError.statusCode} delay=${delay}ms`);
+          this.deps.log(
+            `[RETRY] seed insert attempt=${attempt} code=${classified.originalError.statusCode} delay=${delay}ms`,
+          );
         },
       });
       const handlerDeps = this.deps;
@@ -446,11 +508,20 @@ export class SeedOpsHandler implements DomainHandler {
             bulkManager,
             onProgress: (processed, total) => {
               const pct = Math.round((processed / total) * 100);
-              sendOperationProgress(handlerDeps, operationId, pct, processed, total, `Streaming insert ${objectApiName}`);
+              sendOperationProgress(
+                handlerDeps,
+                operationId,
+                pct,
+                processed,
+                total,
+                `Streaming insert ${objectApiName}`,
+              );
             },
           };
           const streamResult = await chunkedExecutor.executeChunked(
-            bulkDeps, objectApiName, 'insert',
+            bulkDeps,
+            objectApiName,
+            'insert',
             chunkedExecutor.createChunkGenerator(records),
             records.length,
           );
@@ -467,10 +538,22 @@ export class SeedOpsHandler implements DomainHandler {
             bulkManager,
             onProgress: (processed, total) => {
               const pct = Math.round((processed / total) * 100);
-              sendOperationProgress(handlerDeps, operationId, pct, processed, total, `Bulk insert ${objectApiName}`);
+              sendOperationProgress(
+                handlerDeps,
+                operationId,
+                pct,
+                processed,
+                total,
+                `Bulk insert ${objectApiName}`,
+              );
             },
           };
-          const bulkResult = await bulkExecutor.executeBulk(bulkDeps, objectApiName, 'insert', records);
+          const bulkResult = await bulkExecutor.executeBulk(
+            bulkDeps,
+            objectApiName,
+            'insert',
+            records,
+          );
           return {
             successIds: bulkResult.successIds,
             errors: bulkResult.failures.map((f) => f.error),
@@ -484,7 +567,9 @@ export class SeedOpsHandler implements DomainHandler {
         for (let i = 0; i < records.length; i += batchSize) {
           const batch = records.slice(i, i + batchSize);
           const retryResult = await retryOp.execute(async () => {
-            return conn.sobject(objectApiName).create(batch) as Promise<Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>>;
+            return conn.sobject(objectApiName).create(batch) as Promise<
+              Array<{ success: boolean; id?: string; errors?: Array<{ message: string }> }>
+            >;
           });
 
           if (retryResult.success && retryResult.result) {
@@ -529,12 +614,21 @@ export class SeedOpsHandler implements DomainHandler {
         services: this.deps.services,
       };
       if (!this.deps.services) {
-        throw new Error('SeedOpsHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.');
+        throw new Error(
+          'SeedOpsHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.',
+        );
       }
       const orchestrator = this.deps.services.seedOrchestrator(seedDeps);
 
       const template = payload.template as unknown as import('@sandforge/shared').SeedTemplate;
-      sendOperationProgress(this.deps, operationId, 10, 0, 1, 'Validating template and building plan');
+      sendOperationProgress(
+        this.deps,
+        operationId,
+        10,
+        0,
+        1,
+        'Validating template and building plan',
+      );
       const result = await orchestrator.execute(template, payload.orgId);
       sendOperationProgress(this.deps, operationId, 100, 1, 1, 'Seed complete');
       const totalRecords = (result as { insertedIds?: string[] }).insertedIds?.length ?? 0;
@@ -542,7 +636,12 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       sendOperationCompleted(this.deps, operationId, { totalRecords });
 
-      const response = buildResponse(this.deps, msg, 'seed:execute:response', result as unknown as Record<string, unknown>);
+      const response = buildResponse(
+        this.deps,
+        msg,
+        'seed:execute:response',
+        result as unknown as Record<string, unknown>,
+      );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {

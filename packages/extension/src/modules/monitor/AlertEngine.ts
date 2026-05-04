@@ -70,7 +70,7 @@ export class AlertEngine {
   /** Return all alerts that have not been resolved or dismissed */
   getActiveAlerts(): AlertInstance[] {
     return [...this.activeAlerts.values()].filter(
-      (a) => a.status === 'active' || a.status === 'acknowledged'
+      (a) => a.status === 'active' || a.status === 'acknowledged',
     );
   }
 
@@ -129,11 +129,7 @@ export class AlertEngine {
     return Date.now() - lastTime < cooldownMs;
   }
 
-  private createAlert(
-    def: AlertDefinition,
-    value: number,
-    orgId: string
-  ): AlertInstance {
+  private createAlert(def: AlertDefinition, value: number, orgId: string): AlertInstance {
     this.idCounter++;
     return {
       id: `alert-${this.idCounter}`,

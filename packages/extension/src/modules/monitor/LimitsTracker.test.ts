@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LimitsTracker } from './LimitsTracker';
 import type { RawSalesforceLimits, QueryLimitsFn } from './LimitsTracker';
 
-function createMockLimits(overrides?: Partial<Record<string, { Max: number; Remaining: number }>>): RawSalesforceLimits {
+function createMockLimits(
+  overrides?: Partial<Record<string, { Max: number; Remaining: number }>>,
+): RawSalesforceLimits {
   return {
     DailyApiRequests: { Max: 15000, Remaining: 14000 },
     DailyBulkApiRequests: { Max: 10000, Remaining: 9500 },

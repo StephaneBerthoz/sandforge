@@ -86,7 +86,10 @@ describe('useSeedPIIScan', () => {
     mockData = {
       success: true,
       results: [
-        { objectName: 'Contact', piiFields: [{ fieldName: 'Email', piiType: 'email', confidence: 0.95 }] },
+        {
+          objectName: 'Contact',
+          piiFields: [{ fieldName: 'Email', piiType: 'email', confidence: 0.95 }],
+        },
       ],
     };
 

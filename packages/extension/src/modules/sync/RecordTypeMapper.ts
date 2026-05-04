@@ -23,10 +23,7 @@ export class RecordTypeMapper {
    * Matches by developerName, which is consistent across orgs.
    * Only includes types that exist in both source and target.
    */
-  buildMapping(
-    sourceTypes: RecordTypeInfo[],
-    targetTypes: RecordTypeInfo[]
-  ): RecordTypeMapping[] {
+  buildMapping(sourceTypes: RecordTypeInfo[], targetTypes: RecordTypeInfo[]): RecordTypeMapping[] {
     const targetByDevName = new Map<string, RecordTypeInfo>();
     for (const t of targetTypes) {
       targetByDevName.set(t.developerName, t);
@@ -55,7 +52,7 @@ export class RecordTypeMapper {
    */
   apply(
     records: Record<string, unknown>[],
-    mappings: RecordTypeMapping[]
+    mappings: RecordTypeMapping[],
   ): Record<string, unknown>[] {
     const mappingBySourceId = new Map<string, string>();
     for (const m of mappings) {

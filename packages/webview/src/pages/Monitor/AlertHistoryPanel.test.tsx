@@ -11,7 +11,10 @@ vi.mock('react-i18next', () => ({
     t: (key: string, valOrDefault?: string | Record<string, unknown>) => {
       if (typeof valOrDefault === 'string') return valOrDefault;
       if (valOrDefault && typeof valOrDefault === 'object' && 'defaultValue' in valOrDefault) {
-        return String(valOrDefault.defaultValue).replace('{{count}}', String(valOrDefault.count ?? ''));
+        return String(valOrDefault.defaultValue).replace(
+          '{{count}}',
+          String(valOrDefault.count ?? ''),
+        );
       }
       return key;
     },

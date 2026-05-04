@@ -39,7 +39,12 @@ const TYPE_WEIGHTS: Partial<Record<MetadataComponentType, number>> = {
 const DEFAULT_WEIGHT = 1;
 
 /** Dependency map: component types that are implicitly affected by changes to others */
-const DEPENDENCY_MAP: Partial<Record<MetadataComponentType, { targets: MetadataComponentType[]; linkType: DependencyLink['type'] }[]>> = {
+const DEPENDENCY_MAP: Partial<
+  Record<
+    MetadataComponentType,
+    { targets: MetadataComponentType[]; linkType: DependencyLink['type'] }[]
+  >
+> = {
   CustomObject: [
     { targets: ['CustomField', 'ValidationRule', 'RecordType'], linkType: 'references' },
     { targets: ['Layout'], linkType: 'layout' },
@@ -186,14 +191,18 @@ function scoreToRiskLevel(score: number): ImpactAnalysis['riskLevel'] {
 /** Generate recommendations based on the changed items and risk level */
 function buildRecommendations(
   items: CompareItem[],
-  riskLevel: ImpactAnalysis['riskLevel']
+  riskLevel: ImpactAnalysis['riskLevel'],
 ): string[] {
   const recommendations: string[] = [];
 
   const hasBreaking = items.some((i) => i.severity === 'breaking');
-  const hasApex = items.some((i) => i.componentType === 'ApexClass' || i.componentType === 'ApexTrigger');
+  const hasApex = items.some(
+    (i) => i.componentType === 'ApexClass' || i.componentType === 'ApexTrigger',
+  );
   const hasRemovals = items.some((i) => i.status === 'removed');
-  const hasPermissions = items.some((i) => i.componentType === 'Profile' || i.componentType === 'PermissionSet');
+  const hasPermissions = items.some(
+    (i) => i.componentType === 'Profile' || i.componentType === 'PermissionSet',
+  );
 
   if (hasBreaking) {
     recommendations.push('Review breaking changes carefully before deployment.');

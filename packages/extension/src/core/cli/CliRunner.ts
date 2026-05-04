@@ -83,8 +83,7 @@ export class CliRunner {
       };
     } catch (error: unknown) {
       const duration = Date.now() - startTime;
-      const message =
-        error instanceof Error ? error.message : 'Unknown error occurred';
+      const message = error instanceof Error ? error.message : 'Unknown error occurred';
       return {
         exitCode: CliExitCode.Failure,
         output: this.reporter.formatJson({ error: message }),
@@ -102,12 +101,7 @@ export class CliRunner {
    */
   private resolveFormat(command: CliCommand): CliOutputFormat {
     const formatOption = command.options['format'];
-    const validFormats: ReadonlySet<string> = new Set([
-      'json',
-      'table',
-      'csv',
-      'html',
-    ]);
+    const validFormats: ReadonlySet<string> = new Set(['json', 'table', 'csv', 'html']);
     if (formatOption && validFormats.has(formatOption)) {
       return formatOption as CliOutputFormat;
     }
@@ -157,7 +151,7 @@ export class CliRunner {
   private formatOutput(
     result: CommandHandlerResult,
     format: CliOutputFormat,
-    title: string
+    title: string,
   ): string {
     switch (format) {
       case 'json':
@@ -165,12 +159,12 @@ export class CliRunner {
       case 'table':
         return this.reporter.formatTable(
           result.headers ?? Object.keys(result.data),
-          result.rows ?? [Object.values(result.data).map(String)]
+          result.rows ?? [Object.values(result.data).map(String)],
         );
       case 'csv':
         return this.reporter.formatCsv(
           result.headers ?? Object.keys(result.data),
-          result.rows ?? [Object.values(result.data).map(String)]
+          result.rows ?? [Object.values(result.data).map(String)],
         );
       case 'html':
         return this.reporter.formatHtml(title, result.data);
@@ -233,9 +227,7 @@ export class CliRunner {
   }
 
   /** Handle the compare command */
-  private async handleCompare(
-    command: CliCommand
-  ): Promise<CommandHandlerResult> {
+  private async handleCompare(command: CliCommand): Promise<CommandHandlerResult> {
     const source = command.options['source'];
     const target = command.options['target'];
     const outputPath = command.options['output'];
@@ -262,9 +254,7 @@ export class CliRunner {
   }
 
   /** Handle the backup command */
-  private async handleBackup(
-    command: CliCommand
-  ): Promise<CommandHandlerResult> {
+  private async handleBackup(command: CliCommand): Promise<CommandHandlerResult> {
     const org = command.options['org'];
     const objects = command.options['objects'] ?? 'all';
     const outputPath = command.options['output'];
@@ -291,9 +281,7 @@ export class CliRunner {
   }
 
   /** Handle the pipeline command */
-  private async handlePipeline(
-    command: CliCommand
-  ): Promise<CommandHandlerResult> {
+  private async handlePipeline(command: CliCommand): Promise<CommandHandlerResult> {
     const config = command.options['config'];
 
     return {
@@ -320,9 +308,7 @@ export class CliRunner {
   }
 
   /** Handle the anonymize command */
-  private async handleAnonymize(
-    command: CliCommand
-  ): Promise<CommandHandlerResult> {
+  private async handleAnonymize(command: CliCommand): Promise<CommandHandlerResult> {
     const org = command.options['org'];
     const template = command.options['template'];
     const reportPath = command.options['report'];
@@ -349,9 +335,7 @@ export class CliRunner {
   }
 
   /** Handle the health command */
-  private async handleHealth(
-    command: CliCommand
-  ): Promise<CommandHandlerResult> {
+  private async handleHealth(command: CliCommand): Promise<CommandHandlerResult> {
     const org = command.options['org'];
 
     return {
@@ -376,9 +360,7 @@ export class CliRunner {
   }
 
   /** Handle the grappe command */
-  private async handleGrappe(
-    command: CliCommand
-  ): Promise<CommandHandlerResult> {
+  private async handleGrappe(command: CliCommand): Promise<CommandHandlerResult> {
     const operationId = command.options['operation-id'];
 
     return {

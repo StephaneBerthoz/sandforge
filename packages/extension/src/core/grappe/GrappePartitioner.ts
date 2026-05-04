@@ -6,14 +6,10 @@ import type {
 } from '@sandforge/shared';
 
 /**
- * Generate a UUID v4-like string for partition IDs.
- * Uses Math.random for simplicity; not cryptographically secure.
+ * Generate a RFC4122 v4 UUID for partition IDs via the platform crypto primitive.
  */
 export function generateId(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+  return globalThis.crypto.randomUUID();
 }
 
 /** Record metadata used by strategy-aware partitioning */
@@ -109,7 +105,7 @@ export class GrappePartitioner {
     index: number,
     totalPartitions: number,
     records: string[],
-    dependencies: string[] = []
+    dependencies: string[] = [],
   ): GrappePartition {
     const progress: GrappeProgress = {
       processedRecords: 0,
@@ -136,35 +132,21 @@ export class GrappePartitioner {
   /**
    * Round-robin: distribute records evenly across N partitions.
    */
-  private partitionRoundRobin(
-    records: string[],
-    config: GrappeConfig
-  ): GrappePartition[] {
-    const partitionCount = this.getPartitionCount(
-      records.length,
-      config.grappeSize
-    );
-    const buckets: string[][] = Array.from(
-      { length: partitionCount },
-      () => []
-    );
+  private partitionRoundRobin(records: string[], config: GrappeConfig): GrappePartition[] {
+    const partitionCount = this.getPartitionCount(records.length, config.grappeSize);
+    const buckets: string[][] = Array.from({ length: partitionCount }, () => []);
 
     for (let i = 0; i < records.length; i++) {
       buckets[i % partitionCount].push(records[i]);
     }
 
-    return buckets.map((bucket, index) =>
-      this.buildPartition(index, partitionCount, bucket)
-    );
+    return buckets.map((bucket, index) => this.buildPartition(index, partitionCount, bucket));
   }
 
   /**
    * By record type: group records sharing the same RecordTypeId.
    */
-  private partitionByRecordType(
-    records: string[],
-    _config: GrappeConfig
-  ): GrappePartition[] {
+  private partitionByRecordType(records: string[], _config: GrappeConfig): GrappePartition[] {
     const groups = new Map<string, string[]>();
 
     for (const recordId of records) {
@@ -179,18 +161,13 @@ export class GrappePartitioner {
     }
 
     const entries = Array.from(groups.values());
-    return entries.map((group, index) =>
-      this.buildPartition(index, entries.length, group)
-    );
+    return entries.map((group, index) => this.buildPartition(index, entries.length, group));
   }
 
   /**
    * By parent: group records sharing the same parent reference.
    */
-  private partitionByParent(
-    records: string[],
-    _config: GrappeConfig
-  ): GrappePartition[] {
+  private partitionByParent(records: string[], _config: GrappeConfig): GrappePartition[] {
     const groups = new Map<string, string[]>();
 
     for (const recordId of records) {
@@ -205,22 +182,14 @@ export class GrappePartitioner {
     }
 
     const entries = Array.from(groups.values());
-    return entries.map((group, index) =>
-      this.buildPartition(index, entries.length, group)
-    );
+    return entries.map((group, index) => this.buildPartition(index, entries.length, group));
   }
 
   /**
    * By date range: split records into partitions based on CreatedDate ranges.
    */
-  private partitionByDateRange(
-    records: string[],
-    config: GrappeConfig
-  ): GrappePartition[] {
-    const partitionCount = this.getPartitionCount(
-      records.length,
-      config.grappeSize
-    );
+  private partitionByDateRange(records: string[], config: GrappeConfig): GrappePartition[] {
+    const partitionCount = this.getPartitionCount(records.length, config.grappeSize);
 
     const datedRecords = records
       .map((id) => ({
@@ -240,8 +209,8 @@ export class GrappePartitioner {
           this.buildPartition(
             i,
             partitionCount,
-            chunk.map((r) => r.id)
-          )
+            chunk.map((r) => r.id),
+          ),
         );
       }
     }
@@ -253,18 +222,9 @@ export class GrappePartitioner {
    * By hash: hash-based distribution for even spread.
    * Uses a simple string hash function to distribute records deterministically.
    */
-  private partitionByHash(
-    records: string[],
-    config: GrappeConfig
-  ): GrappePartition[] {
-    const partitionCount = this.getPartitionCount(
-      records.length,
-      config.grappeSize
-    );
-    const buckets: string[][] = Array.from(
-      { length: partitionCount },
-      () => []
-    );
+  private partitionByHash(records: string[], config: GrappeConfig): GrappePartition[] {
+    const partitionCount = this.getPartitionCount(records.length, config.grappeSize);
+    const buckets: string[][] = Array.from({ length: partitionCount }, () => []);
 
     for (const recordId of records) {
       const hash = this.simpleHash(recordId);
@@ -274,29 +234,19 @@ export class GrappePartitioner {
 
     return buckets
       .filter((bucket) => bucket.length > 0)
-      .map((bucket, index) =>
-        this.buildPartition(index, partitionCount, bucket)
-      );
+      .map((bucket, index) => this.buildPartition(index, partitionCount, bucket));
   }
 
   /**
    * By volume: split records to keep each partition under grappeSize.
    */
-  private partitionByVolume(
-    records: string[],
-    config: GrappeConfig
-  ): GrappePartition[] {
+  private partitionByVolume(records: string[], config: GrappeConfig): GrappePartition[] {
     const partitions: GrappePartition[] = [];
-    const totalPartitions = this.getPartitionCount(
-      records.length,
-      config.grappeSize
-    );
+    const totalPartitions = this.getPartitionCount(records.length, config.grappeSize);
 
     for (let i = 0; i < records.length; i += config.grappeSize) {
       const chunk = records.slice(i, i + config.grappeSize);
-      partitions.push(
-        this.buildPartition(partitions.length, totalPartitions, chunk)
-      );
+      partitions.push(this.buildPartition(partitions.length, totalPartitions, chunk));
     }
 
     return partitions;
@@ -306,10 +256,7 @@ export class GrappePartitioner {
    * Dependency-aware: respect record dependencies so children come after parents.
    * Records with dependencies are placed in later partitions than their dependencies.
    */
-  private partitionDependencyAware(
-    records: string[],
-    config: GrappeConfig
-  ): GrappePartition[] {
+  private partitionDependencyAware(records: string[], config: GrappeConfig): GrappePartition[] {
     const recordSet = new Set(records);
     const visited = new Set<string>();
     const waves: string[][] = [];
@@ -323,9 +270,7 @@ export class GrappePartitioner {
         const meta = this.metadataMap.get(recordId);
         const deps = meta?.dependencies ?? [];
 
-        const depsResolved = deps.every(
-          (dep) => !recordSet.has(dep) || visited.has(dep)
-        );
+        const depsResolved = deps.every((dep) => !recordSet.has(dep) || visited.has(dep));
 
         if (depsResolved) {
           wave.push(recordId);
@@ -347,10 +292,7 @@ export class GrappePartitioner {
     }
 
     const allRecordsOrdered = waves.flat();
-    const totalPartitions = this.getPartitionCount(
-      allRecordsOrdered.length,
-      config.grappeSize
-    );
+    const totalPartitions = this.getPartitionCount(allRecordsOrdered.length, config.grappeSize);
     const partitions: GrappePartition[] = [];
 
     for (let i = 0; i < allRecordsOrdered.length; i += config.grappeSize) {
@@ -369,14 +311,7 @@ export class GrappePartitioner {
       }
 
       const uniqueDeps = Array.from(new Set(deps));
-      partitions.push(
-        this.buildPartition(
-          partitions.length,
-          totalPartitions,
-          chunk,
-          uniqueDeps
-        )
-      );
+      partitions.push(this.buildPartition(partitions.length, totalPartitions, chunk, uniqueDeps));
     }
 
     return partitions;

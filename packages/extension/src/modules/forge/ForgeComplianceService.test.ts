@@ -2,9 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ForgeComplianceService } from './ForgeComplianceService.js';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 
-function makeNode(
-  overrides: Partial<ForgeGraphNode> & { objectApiName: string },
-): ForgeGraphNode {
+function makeNode(overrides: Partial<ForgeGraphNode> & { objectApiName: string }): ForgeGraphNode {
   return {
     recordCount: 100,
     fieldCount: 10,
@@ -40,9 +38,7 @@ describe('ForgeComplianceService', () => {
 
   describe('generate', () => {
     it('should return null for "none" framework', () => {
-      const graph = makeGraph([
-        makeNode({ objectApiName: 'Account', piiFields: ['Email'] }),
-      ]);
+      const graph = makeGraph([makeNode({ objectApiName: 'Account', piiFields: ['Email'] })]);
       const result = service.generate('none', graph, 'src-org', 'tgt-org');
 
       expect(result).toBeNull();
@@ -85,9 +81,7 @@ describe('ForgeComplianceService', () => {
 
       expect(report).not.toBeNull();
       expect(report!.objectSummaries.length).toBeGreaterThanOrEqual(2);
-      const accountSummary = report!.objectSummaries.find(
-        (s) => s.objectApiName === 'Account',
-      );
+      const accountSummary = report!.objectSummaries.find((s) => s.objectApiName === 'Account');
       expect(accountSummary).toBeDefined();
       expect(accountSummary!.recordCount).toBe(100);
     });

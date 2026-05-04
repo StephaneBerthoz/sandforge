@@ -20,12 +20,18 @@ interface HealthScorePayload {
 /** Icon for each dimension. */
 function dimensionIcon(name: string): React.ReactNode {
   switch (name) {
-    case 'apiUsage': return <Activity className="w-4 h-4" />;
-    case 'storageUsage': return <Database className="w-4 h-4" />;
-    case 'metadataComplexity': return <Code className="w-4 h-4" />;
-    case 'codeCoverage': return <Shield className="w-4 h-4" />;
-    case 'securitySettings': return <Lock className="w-4 h-4" />;
-    default: return <Activity className="w-4 h-4" />;
+    case 'apiUsage':
+      return <Activity className="w-4 h-4" />;
+    case 'storageUsage':
+      return <Database className="w-4 h-4" />;
+    case 'metadataComplexity':
+      return <Code className="w-4 h-4" />;
+    case 'codeCoverage':
+      return <Shield className="w-4 h-4" />;
+    case 'securitySettings':
+      return <Lock className="w-4 h-4" />;
+    default:
+      return <Activity className="w-4 h-4" />;
   }
 }
 
@@ -44,7 +50,12 @@ function scoreBadgeVariant(score: number): 'success' | 'warning' | 'error' {
 }
 
 /** Angle computation for radar chart. */
-function polarToCartesian(cx: number, cy: number, radius: number, angleRad: number): { x: number; y: number } {
+function polarToCartesian(
+  cx: number,
+  cy: number,
+  radius: number,
+  angleRad: number,
+): { x: number; y: number } {
   return {
     x: cx + radius * Math.cos(angleRad),
     y: cy + radius * Math.sin(angleRad),
@@ -68,11 +79,13 @@ const RadarChart: React.FC<{ dimensions: OrgHealthDimension[]; size?: number }> 
     const lines: React.ReactNode[] = [];
     for (let level = 1; level <= levels; level++) {
       const r = (maxRadius / levels) * level;
-      const points = dimensions.map((_, i) => {
-        const angle = startAngle + i * angleStep;
-        const { x, y } = polarToCartesian(cx, cy, r, angle);
-        return `${x},${y}`;
-      }).join(' ');
+      const points = dimensions
+        .map((_, i) => {
+          const angle = startAngle + i * angleStep;
+          const { x, y } = polarToCartesian(cx, cy, r, angle);
+          return `${x},${y}`;
+        })
+        .join(' ');
       lines.push(
         <polygon
           key={`grid-${level}`}
@@ -85,26 +98,28 @@ const RadarChart: React.FC<{ dimensions: OrgHealthDimension[]; size?: number }> 
       );
     }
     return lines;
-  }, [dimensions.length, maxRadius, cx, cy, angleStep, startAngle]);
+  }, [dimensions, maxRadius, cx, cy, angleStep, startAngle]);
 
-  const axes = useMemo(() =>
-    dimensions.map((_, i) => {
-      const angle = startAngle + i * angleStep;
-      const { x, y } = polarToCartesian(cx, cy, maxRadius, angle);
-      return (
-        <line
-          key={`axis-${i}`}
-          x1={cx}
-          y1={cy}
-          x2={x}
-          y2={y}
-          stroke="var(--vscode-input-background, #3c3c3c)"
-          strokeWidth={1}
-          opacity={0.3}
-        />
-      );
-    }),
-  [dimensions.length, maxRadius, cx, cy, angleStep, startAngle]);
+  const axes = useMemo(
+    () =>
+      dimensions.map((_, i) => {
+        const angle = startAngle + i * angleStep;
+        const { x, y } = polarToCartesian(cx, cy, maxRadius, angle);
+        return (
+          <line
+            key={`axis-${i}`}
+            x1={cx}
+            y1={cy}
+            x2={x}
+            y2={y}
+            stroke="var(--vscode-input-background, #3c3c3c)"
+            strokeWidth={1}
+            opacity={0.3}
+          />
+        );
+      }),
+    [dimensions, maxRadius, cx, cy, angleStep, startAngle],
+  );
 
   const dataPoints = dimensions.map((dim, i) => {
     const angle = startAngle + i * angleStep;
@@ -135,12 +150,7 @@ const RadarChart: React.FC<{ dimensions: OrgHealthDimension[]; size?: number }> 
   });
 
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox={`0 0 ${size} ${size}`}
-      data-testid="radar-chart"
-    >
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} data-testid="radar-chart">
       {gridLines}
       {axes}
       <polygon
@@ -170,10 +180,9 @@ export const OrgHealthPanel: React.FC = () => {
   const { t } = useTranslation();
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
 
-  const healthMutation = useBridgeMutation<HealthScorePayload>(
-    'monitor:health-score',
-    { responseType: 'monitor:health-score:response' },
-  );
+  const healthMutation = useBridgeMutation<HealthScorePayload>('monitor:health-score', {
+    responseType: 'monitor:health-score:response',
+  });
 
   const handleScan = () => {
     if (!selectedOrgId) return;
@@ -183,7 +192,10 @@ export const OrgHealthPanel: React.FC = () => {
   const data = healthMutation.data;
 
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="org-health-panel">
+    <div
+      className="rounded-lg border border-subtle bg-surface-1 p-4"
+      data-testid="org-health-panel"
+    >
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Shield className="w-5 h-5 text-text-secondary" />
@@ -205,16 +217,25 @@ export const OrgHealthPanel: React.FC = () => {
       </div>
 
       {healthMutation.error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 mb-4" data-testid="health-error">
+        <div
+          className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400 mb-4"
+          data-testid="health-error"
+        >
           {healthMutation.error}
         </div>
       )}
 
       {!data && !healthMutation.loading && !healthMutation.error && (
-        <div className="flex flex-col items-center justify-center py-8 text-center" data-testid="health-empty">
+        <div
+          className="flex flex-col items-center justify-center py-8 text-center"
+          data-testid="health-empty"
+        >
           <Shield className="w-10 h-10 text-text-muted mb-3" />
           <p className="text-sm text-text-secondary">
-            {t('monitor.orgHealth.emptyDescription', 'Click Scan to analyze your org health across API usage, storage, metadata complexity, code coverage, and security.')}
+            {t(
+              'monitor.orgHealth.emptyDescription',
+              'Click Scan to analyze your org health across API usage, storage, metadata complexity, code coverage, and security.',
+            )}
           </p>
         </div>
       )}
@@ -224,10 +245,15 @@ export const OrgHealthPanel: React.FC = () => {
           {/* Overall score + radar */}
           <div className="flex flex-col lg:flex-row items-center gap-6">
             <div className="flex flex-col items-center gap-2">
-              <div className={cn('text-4xl font-bold tabular-nums', scoreColor(data.overallScore))} data-testid="overall-score">
+              <div
+                className={cn('text-4xl font-bold tabular-nums', scoreColor(data.overallScore))}
+                data-testid="overall-score"
+              >
                 {data.overallScore}
               </div>
-              <span className="text-xs text-text-muted">{t('monitor.orgHealth.overallScore', 'Overall Score')}</span>
+              <span className="text-xs text-text-muted">
+                {t('monitor.orgHealth.overallScore', 'Overall Score')}
+              </span>
               <Badge variant={scoreBadgeVariant(data.overallScore)}>
                 {data.overallScore >= 80
                   ? t('monitor.orgHealth.healthy', 'Healthy')
@@ -241,7 +267,10 @@ export const OrgHealthPanel: React.FC = () => {
           </div>
 
           {/* Dimension details */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="dimension-cards">
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+            data-testid="dimension-cards"
+          >
             {data.dimensions.map((dim) => (
               <div
                 key={dim.name}

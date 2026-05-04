@@ -118,11 +118,7 @@ describe('ForgeNodeDetail', () => {
   it('should call onToggleIncluded when include toggle is clicked', () => {
     const onToggle = vi.fn();
     render(
-      <ForgeNodeDetail
-        node={makeNode()}
-        onToggleIncluded={onToggle}
-        onToggleAnonymize={vi.fn()}
-      />,
+      <ForgeNodeDetail node={makeNode()} onToggleIncluded={onToggle} onToggleAnonymize={vi.fn()} />,
     );
     const toggle = screen.getByTestId('node-include-toggle');
     fireEvent.click(toggle);

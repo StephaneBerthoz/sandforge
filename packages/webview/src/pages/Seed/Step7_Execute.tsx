@@ -62,7 +62,10 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
         variant={overallPercent >= 100 ? 'success' : 'default'}
       />
 
-      <div className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]" data-testid="elapsed-time">
+      <div
+        className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="elapsed-time"
+      >
         {t('seed.executionTime')}: {(elapsedMs / 1000).toFixed(1)}s
       </div>
 
@@ -85,7 +88,9 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
               </span>
               <ProgressBar
                 value={percent}
-                variant={obj.status === 'error' ? 'error' : obj.status === 'done' ? 'success' : 'default'}
+                variant={
+                  obj.status === 'error' ? 'error' : obj.status === 'done' ? 'success' : 'default'
+                }
                 size="sm"
                 className="flex-1"
               />

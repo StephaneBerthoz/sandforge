@@ -12,8 +12,16 @@ import {
 /* ------------------------------------------------------------------ */
 
 const VALID_RULE_TYPES = new Set([
-  'static', 'random', 'sequence', 'formula', 'reference',
-  'picklist_random', 'ai_generate', 'faker', 'regex', 'from_csv',
+  'static',
+  'random',
+  'sequence',
+  'formula',
+  'reference',
+  'picklist_random',
+  'ai_generate',
+  'faker',
+  'regex',
+  'from_csv',
 ]);
 
 /** Assert insertOrder is a contiguous 0..N sequence. */
@@ -41,8 +49,14 @@ function assertReferentialIntegrity(template: SeedTemplate): void {
     for (const rule of obj.fieldRules) {
       if (rule.ruleType === 'reference' && rule.config.referenceObject) {
         const refOrder = orderMap.get(rule.config.referenceObject);
-        expect(refOrder, `${obj.objectApiName}.${rule.fieldApiName} references unknown object ${rule.config.referenceObject}`).toBeDefined();
-        expect(refOrder, `${obj.objectApiName}.${rule.fieldApiName}: ${rule.config.referenceObject} must be inserted before ${obj.objectApiName}`).toBeLessThan(obj.insertOrder);
+        expect(
+          refOrder,
+          `${obj.objectApiName}.${rule.fieldApiName} references unknown object ${rule.config.referenceObject}`,
+        ).toBeDefined();
+        expect(
+          refOrder,
+          `${obj.objectApiName}.${rule.fieldApiName}: ${rule.config.referenceObject} must be inserted before ${obj.objectApiName}`,
+        ).toBeLessThan(obj.insertOrder);
       }
     }
   }
@@ -52,13 +66,20 @@ function assertReferentialIntegrity(template: SeedTemplate): void {
 function assertValidRuleTypes(template: SeedTemplate): void {
   for (const obj of template.objects) {
     for (const rule of obj.fieldRules) {
-      expect(VALID_RULE_TYPES.has(rule.ruleType), `Invalid ruleType "${rule.ruleType}" on ${obj.objectApiName}.${rule.fieldApiName}`).toBe(true);
+      expect(
+        VALID_RULE_TYPES.has(rule.ruleType),
+        `Invalid ruleType "${rule.ruleType}" on ${obj.objectApiName}.${rule.fieldApiName}`,
+      ).toBe(true);
     }
   }
 }
 
 /** Get the field rule for a given object + field within a template. */
-function getRule(template: SeedTemplate, objectName: string, fieldName: string): FieldRule | undefined {
+function getRule(
+  template: SeedTemplate,
+  objectName: string,
+  fieldName: string,
+): FieldRule | undefined {
   const obj = template.objects.find((o) => o.objectApiName === objectName);
   return obj?.fieldRules.find((r) => r.fieldApiName === fieldName);
 }
@@ -224,7 +245,9 @@ describe('SERVICE_CLOUD_STARTER', () => {
 
   it('should use i18n keys for name and description', () => {
     expect(SERVICE_CLOUD_STARTER.name).toBe('seed.templates.serviceCloudStarter.name');
-    expect(SERVICE_CLOUD_STARTER.description).toBe('seed.templates.serviceCloudStarter.description');
+    expect(SERVICE_CLOUD_STARTER.description).toBe(
+      'seed.templates.serviceCloudStarter.description',
+    );
   });
 
   it('should have batchSize 200 for all objects', () => {

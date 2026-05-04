@@ -67,7 +67,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
     'quicksync:detect-relationships',
   );
 
-  const suggestions = suggestionsQuery.data ?? [];
+  const suggestions = useMemo(() => suggestionsQuery.data ?? [], [suggestionsQuery.data]);
 
   // Available objects from suggestions for the search dropdown
   const availableForSearch = useMemo(() => {
@@ -83,19 +83,25 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
   }, [availableForSearch, searchTerm]);
 
   // Trigger relationship detection when objects change
-  const handleAddObject = useCallback((apiName: string) => {
-    onAddObject(apiName);
-    detectRelationships.mutate({
-      sourceOrgId,
-      selectedObjects: [...selectedObjects, apiName],
-    });
-  }, [onAddObject, detectRelationships, sourceOrgId, selectedObjects]);
+  const handleAddObject = useCallback(
+    (apiName: string) => {
+      onAddObject(apiName);
+      detectRelationships.mutate({
+        sourceOrgId,
+        selectedObjects: [...selectedObjects, apiName],
+      });
+    },
+    [onAddObject, detectRelationships, sourceOrgId, selectedObjects],
+  );
 
   // Show relationship banner when detection returns results
   useEffect(() => {
     if (detectRelationships.data && detectRelationships.data.length > 0) {
       const suggestion = detectRelationships.data[0];
-      if (!selectedObjects.includes(suggestion.parentObject) && !parentObjects.includes(suggestion.parentObject)) {
+      if (
+        !selectedObjects.includes(suggestion.parentObject) &&
+        !parentObjects.includes(suggestion.parentObject)
+      ) {
         setRelationshipBanner({
           childObject: suggestion.childObject,
           parentObject: suggestion.parentObject,
@@ -160,17 +166,30 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
           className="flex items-center gap-3 p-3 rounded-lg bg-[var(--vscode-editorInfo-background,#063b49)] border border-[var(--vscode-editorInfo-border,#007acc)]"
           data-testid="relationship-banner"
         >
-          <span className="codicon codicon-info text-[var(--vscode-editorInfo-foreground,#3794ff)]" aria-hidden="true" />
+          <span
+            className="codicon codicon-info text-[var(--vscode-editorInfo-foreground,#3794ff)]"
+            aria-hidden="true"
+          />
           <span className="text-xs flex-1 text-[var(--vscode-editor-foreground,#d4d4d4)]">
             {t('quickSync.addParent', {
               parent: relationshipBanner.parentObject,
               child: relationshipBanner.childObject,
             })}
           </span>
-          <Button variant="primary" size="sm" onClick={handleAddParent} data-testid="relationship-add-btn">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleAddParent}
+            data-testid="relationship-add-btn"
+          >
             {t('quickSync.add')}
           </Button>
-          <Button variant="ghost" size="sm" onClick={handleDismissBanner} data-testid="relationship-dismiss-btn">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleDismissBanner}
+            data-testid="relationship-dismiss-btn"
+          >
             {t('quickSync.dismiss')}
           </Button>
         </div>

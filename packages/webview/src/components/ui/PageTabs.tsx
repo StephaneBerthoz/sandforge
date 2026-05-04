@@ -31,12 +31,7 @@ export interface PageTabsProps {
  * Renders codicon icons, labels, and optional badge counts with
  * an accent underline on the active tab.
  */
-export const PageTabs: React.FC<PageTabsProps> = ({
-  tabs,
-  activeTab,
-  onTabChange,
-  className,
-}) => {
+export const PageTabs: React.FC<PageTabsProps> = ({ tabs, activeTab, onTabChange, className }) => {
   return (
     <div
       className={cn(
@@ -77,9 +72,7 @@ export const PageTabs: React.FC<PageTabsProps> = ({
                 name={tab.icon}
                 className={cn(
                   'text-[14px]',
-                  isActive
-                    ? 'text-[var(--sf-text-primary)]'
-                    : 'text-[var(--sf-text-secondary)]',
+                  isActive ? 'text-[var(--sf-text-primary)]' : 'text-[var(--sf-text-secondary)]',
                 )}
               />
             )}

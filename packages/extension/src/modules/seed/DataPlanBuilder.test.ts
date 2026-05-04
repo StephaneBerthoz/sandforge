@@ -20,7 +20,7 @@ function createObject(
   name: string,
   recordCount: number,
   fieldRules: SeedObjectConfig['fieldRules'] = [],
-  batchSize = 200
+  batchSize = 200,
 ): SeedObjectConfig {
   return {
     objectApiName: name,
@@ -41,42 +41,31 @@ describe('DataPlanBuilder', () => {
 
   describe('build', () => {
     it('should calculate total records across all objects', () => {
-      const template = createTemplate([
-        createObject('Account', 100),
-        createObject('Contact', 200),
-      ]);
+      const template = createTemplate([createObject('Account', 100), createObject('Contact', 200)]);
       const plan = builder.build(template);
       expect(plan.totalRecords).toBe(300);
     });
 
     it('should calculate API calls based on batch sizes', () => {
-      const template = createTemplate([
-        createObject('Account', 500, [], 200),
-      ]);
+      const template = createTemplate([createObject('Account', 500, [], 200)]);
       const plan = builder.build(template);
       expect(plan.estimatedApiCalls).toBe(3);
     });
 
     it('should estimate duration from API calls', () => {
-      const template = createTemplate([
-        createObject('Account', 200, [], 200),
-      ]);
+      const template = createTemplate([createObject('Account', 200, [], 200)]);
       const plan = builder.build(template);
       expect(plan.estimatedDuration).toBe(150);
     });
 
     it('should recommend grappe mode for large operations', () => {
-      const template = createTemplate([
-        createObject('Account', 15000),
-      ]);
+      const template = createTemplate([createObject('Account', 15000)]);
       const plan = builder.build(template);
       expect(plan.grappeRecommended).toBe(true);
     });
 
     it('should not recommend grappe mode for small operations', () => {
-      const template = createTemplate([
-        createObject('Account', 100),
-      ]);
+      const template = createTemplate([createObject('Account', 100)]);
       const plan = builder.build(template);
       expect(plan.grappeRecommended).toBe(false);
     });
@@ -120,9 +109,7 @@ describe('DataPlanBuilder', () => {
     });
 
     it('should handle default batch size when zero', () => {
-      const template = createTemplate([
-        createObject('Account', 400, [], 0),
-      ]);
+      const template = createTemplate([createObject('Account', 400, [], 0)]);
       const plan = builder.build(template);
       expect(plan.estimatedApiCalls).toBe(2);
     });
@@ -154,7 +141,11 @@ describe('DataPlanBuilder', () => {
     it('should place dependencies before dependents', () => {
       const objects: SeedObjectConfig[] = [
         createObject('Contact', 50, [
-          { fieldApiName: 'AccountId', ruleType: 'reference', config: { referenceObject: 'Account' } },
+          {
+            fieldApiName: 'AccountId',
+            ruleType: 'reference',
+            config: { referenceObject: 'Account' },
+          },
         ]),
         createObject('Account', 10),
       ];
@@ -167,10 +158,7 @@ describe('DataPlanBuilder', () => {
     });
 
     it('should handle objects with no dependencies', () => {
-      const objects = [
-        createObject('Account', 10),
-        createObject('Lead', 20),
-      ];
+      const objects = [createObject('Account', 10), createObject('Lead', 20)];
 
       const sorted = resolveInsertOrder(objects);
       expect(sorted).toHaveLength(2);
@@ -179,10 +167,18 @@ describe('DataPlanBuilder', () => {
     it('should handle multi-level dependencies', () => {
       const objects: SeedObjectConfig[] = [
         createObject('OpportunityLineItem', 30, [
-          { fieldApiName: 'OpportunityId', ruleType: 'reference', config: { referenceObject: 'Opportunity' } },
+          {
+            fieldApiName: 'OpportunityId',
+            ruleType: 'reference',
+            config: { referenceObject: 'Opportunity' },
+          },
         ]),
         createObject('Opportunity', 20, [
-          { fieldApiName: 'AccountId', ruleType: 'reference', config: { referenceObject: 'Account' } },
+          {
+            fieldApiName: 'AccountId',
+            ruleType: 'reference',
+            config: { referenceObject: 'Account' },
+          },
         ]),
         createObject('Account', 10),
       ];

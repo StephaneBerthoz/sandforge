@@ -39,9 +39,7 @@ describe('MetadataSync', () => {
       const components = [createComponent()];
       deps = createDeps({
         fetchMetadata: vi.fn().mockResolvedValue(components),
-        deployMetadata: vi.fn().mockResolvedValue([
-          { fullName: 'MyClass', success: true },
-        ]),
+        deployMetadata: vi.fn().mockResolvedValue([{ fullName: 'MyClass', success: true }]),
       });
       service = new MetadataSync(deps);
 
@@ -56,10 +54,12 @@ describe('MetadataSync', () => {
         { fullName: 'ClassB', success: true },
       ];
       deps = createDeps({
-        fetchMetadata: vi.fn().mockResolvedValue([
-          createComponent({ fullName: 'ClassA' }),
-          createComponent({ fullName: 'ClassB' }),
-        ]),
+        fetchMetadata: vi
+          .fn()
+          .mockResolvedValue([
+            createComponent({ fullName: 'ClassA' }),
+            createComponent({ fullName: 'ClassB' }),
+          ]),
         deployMetadata: vi.fn().mockResolvedValue(outcomes),
       });
       service = new MetadataSync(deps);
@@ -77,10 +77,12 @@ describe('MetadataSync', () => {
         { fullName: 'ClassB', success: false, error: 'Compilation error' },
       ];
       deps = createDeps({
-        fetchMetadata: vi.fn().mockResolvedValue([
-          createComponent({ fullName: 'ClassA' }),
-          createComponent({ fullName: 'ClassB' }),
-        ]),
+        fetchMetadata: vi
+          .fn()
+          .mockResolvedValue([
+            createComponent({ fullName: 'ClassA' }),
+            createComponent({ fullName: 'ClassB' }),
+          ]),
         deployMetadata: vi.fn().mockResolvedValue(outcomes),
       });
       service = new MetadataSync(deps);
@@ -138,9 +140,9 @@ describe('MetadataSync', () => {
         { fullName: 'BadTrigger', success: false, error: 'Missing reference' },
       ];
       deps = createDeps({
-        fetchMetadata: vi.fn().mockResolvedValue([
-          createComponent({ fullName: 'BadTrigger', type: 'ApexTrigger' }),
-        ]),
+        fetchMetadata: vi
+          .fn()
+          .mockResolvedValue([createComponent({ fullName: 'BadTrigger', type: 'ApexTrigger' })]),
         deployMetadata: vi.fn().mockResolvedValue(outcomes),
       });
       service = new MetadataSync(deps);
@@ -152,9 +154,7 @@ describe('MetadataSync', () => {
     });
 
     it('should handle failed outcome without error message', async () => {
-      const outcomes: DeployOutcome[] = [
-        { fullName: 'ClassA', success: false },
-      ];
+      const outcomes: DeployOutcome[] = [{ fullName: 'ClassA', success: false }];
       deps = createDeps({
         fetchMetadata: vi.fn().mockResolvedValue([createComponent()]),
         deployMetadata: vi.fn().mockResolvedValue(outcomes),
