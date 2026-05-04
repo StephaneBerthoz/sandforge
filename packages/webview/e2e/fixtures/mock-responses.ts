@@ -350,3 +350,34 @@ export function mockFixApplied(): {
     updatedRecords: 12,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Phase 03 / Plan 03-04 — Drift v2 fixtures
+// ---------------------------------------------------------------------------
+
+/**
+ * Mock `monitor:drift:detected` envelope payload (Plan 03-01 contract:
+ * `{ orgId, snapshotPairId, summary, deltaCount, severity }`).
+ *
+ * @param seq Sequence number used to compose stable summaries / pair ids.
+ * @param severity One of `info | breaking | permission` — drives the chip
+ *   filter behavior in `monitor-drift-feed.spec.ts`.
+ */
+export function mockDriftEvent(
+  seq: number,
+  severity: 'info' | 'breaking' | 'permission' = 'info',
+): {
+  orgId: string;
+  snapshotPairId: string;
+  summary: string;
+  deltaCount: number;
+  severity: 'info' | 'breaking' | 'permission';
+} {
+  return {
+    orgId: 'org-1',
+    snapshotPairId: `snap-pair-${seq}`,
+    summary: `Drift event ${seq} - ${severity}`,
+    deltaCount: 3,
+    severity,
+  };
+}
