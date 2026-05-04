@@ -98,7 +98,7 @@ const RadarChart: React.FC<{ dimensions: OrgHealthDimension[]; size?: number }> 
       );
     }
     return lines;
-  }, [dimensions.length, maxRadius, cx, cy, angleStep, startAngle]);
+  }, [dimensions, maxRadius, cx, cy, angleStep, startAngle]);
 
   const axes = useMemo(
     () =>
@@ -118,7 +118,7 @@ const RadarChart: React.FC<{ dimensions: OrgHealthDimension[]; size?: number }> 
           />
         );
       }),
-    [dimensions.length, maxRadius, cx, cy, angleStep, startAngle],
+    [dimensions, maxRadius, cx, cy, angleStep, startAngle],
   );
 
   const dataPoints = dimensions.map((dim, i) => {
