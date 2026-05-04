@@ -42,8 +42,13 @@
   "pnpm": {
     "overrides": {
       "picomatch@<4.0.4": ">=4.0.4",
-      "lodash@<4.18.0": ">=4.18.0"
+      "lodash@<4.18.0": ">=4.18.0",
+      "minimatch@<3.1.4": ">=3.1.4",
+      "minimatch@>=9.0.0 <9.0.7": ">=9.0.7",
+      "minimatch@>=10.0.0 <10.2.3": ">=10.2.3",
+      "rollup@>=4.0.0 <4.59.0": ">=4.59.0",
+      "flatted@<3.4.2": ">=3.4.2"
     },
-    "overridesComment": "picomatch <4.0.4: ReDoS CVE GHSA-c2c7-rcm5-vvqj (transitive via knip+@vscode/vsce). lodash <4.18.0: code injection CVE GHSA-r5fr-rjxr-66jc (transitive via @vscode/vsce → @secretlint). Both are devDeps that don't ship in the marketplace VSIX, but the dev environment was flagged by `pnpm audit --audit-level high`."
+    "overridesComment": "All entries close high-severity CVEs surfaced by `pnpm audit`. picomatch / lodash: see Round 1 commit 1b27ff9. minimatch (3 ranges, one per major): ReDoS GHSA — transitive via eslint, jsforce, @vscode/vsce. rollup ≥4.59.0: closes a sourcemap-injection issue in older 4.x. flatted ≥3.4.2: prototype pollution in older flatted. All devDep-only — they don't ship in the marketplace VSIX. Verified pnpm install regenerates lock cleanly + pnpm validate passes."
   }
 }
