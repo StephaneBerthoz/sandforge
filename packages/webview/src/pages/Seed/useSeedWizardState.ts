@@ -219,15 +219,25 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   /* ------------------------------------------------------------------ */
   /* Persona application                                                 */
   /* ------------------------------------------------------------------ */
+  // The deps below intentionally pin specific fields of `fieldConfig` instead
+  // of the full object. `useSeedFieldConfig` rebuilds its return object on
+  // every render even when the underlying state is unchanged, so depending on
+  // `fieldConfig` itself would trigger a re-run on every parent render.
+  // Pinning `applyPersona` (a method ref) and `fieldConfigs.length` is the
+  // intended behavior — the lint rule cannot statically prove the ref is
+  // stable, so disable it here with a rationale.
   const applySelectedPersona = useCallback((): number => {
     if (!selectedPersona) return 0;
     const count = fieldConfig.applyPersona(selectedPersona);
     setPersonaMatchedFields(count);
     return count;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPersona, fieldConfig.applyPersona]);
 
   /* Auto-apply persona when field configs become available */
   const personaAppliedRef = useRef<string | null>(null);
+  // Same rationale as applySelectedPersona above: depend on the specific
+  // method + length scalar, not the full fieldConfig object.
   useEffect(() => {
     if (
       selectedPersona &&
@@ -238,6 +248,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
       const count = fieldConfig.applyPersona(selectedPersona);
       setPersonaMatchedFields(count);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPersona, fieldConfig.fieldConfigs.length, fieldConfig.applyPersona]);
 
   /* ------------------------------------------------------------------ */

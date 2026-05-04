@@ -247,11 +247,13 @@ export function useMonitorPageData(): MonitorPageData {
   // isRefreshing: true when loading but we already have data (not initial load)
   const isRefreshing = loading && lastUpdated !== null;
 
-  // Stale data computation
+  // Stale data computation. lastUpdatedStr is derived from lastUpdated and
+  // does not need to be in the deps array — recomputing on lastUpdated alone
+  // is sufficient and avoids the lint warning.
   const minutesSinceUpdate = useMemo(() => {
     if (!lastUpdated) return 0;
     return Math.floor((Date.now() - new Date(lastUpdated).getTime()) / 60_000);
-  }, [lastUpdated, lastUpdatedStr]); // lastUpdatedStr changes trigger recalc
+  }, [lastUpdated]);
 
   const isStale =
     lastUpdated !== null && Date.now() - new Date(lastUpdated).getTime() > STALE_THRESHOLD_MS;
