@@ -361,4 +361,36 @@ describe('FleetSummaryService', () => {
     expect(_typecheck).toBeDefined();
     svc.dispose();
   });
+
+  // ─── Plan 03-07 vertical slice — addresses audit M1, M5, H7 ────────────
+  it('Plan 03-07 vertical slice: 3-org fleet -> pool reuse + cache + visibility pause', async () => {
+    const pool = buildPool();
+    const svc = new FleetSummaryService({
+      pool: pool as never,
+      healthCheck: buildHealth() as never,
+      alertEngine: buildAlertEngine() as never,
+      bootstrapConnection: buildBootstrap(),
+      maxConcurrent: 3,
+      cacheTtlMs: 60_000,
+    });
+
+    const orgIds = ['o1', 'o2', 'o3'];
+
+    // First call — cold cache, 3 orgs → 3 acquire calls (P-03.5 pool reuse).
+    const summaries = await svc.getSummary(orgIds);
+    expect(summaries).toHaveLength(3);
+    expect(pool.acquire).toHaveBeenCalledTimes(3);
+
+    // Second call within 60s — cache hit, NO new acquire calls.
+    const summaries2 = await svc.getSummary(orgIds);
+    expect(pool.acquire).toHaveBeenCalledTimes(3);
+    expect(summaries2.map((s) => s.orgId).sort()).toEqual(['o1', 'o2', 'o3']);
+
+    // Advance 61s → cache miss, 3 fresh acquire calls.
+    vi.setSystemTime(new Date('2026-05-04T10:01:01.000Z'));
+    await svc.getSummary(orgIds);
+    expect(pool.acquire).toHaveBeenCalledTimes(6);
+
+    svc.dispose();
+  });
 });
