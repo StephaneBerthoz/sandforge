@@ -15,11 +15,11 @@ vi.mock('../hooks/useVisibilityGate', () => ({
 function summary(overrides: Partial<OrgFleetSummary> = {}): OrgFleetSummary {
   return {
     orgId: 'o1',
-    alias: 'Org One',
+    name: 'Org One',
     healthScore: 85,
-    apiUsedPercent: 12,
-    activeAlerts: 0,
-    lastUpdatedMs: Date.now(),
+    lastUpdated: new Date().toISOString(),
+    alertCount: 0,
+    recentAlerts: [],
     ...overrides,
   };
 }
