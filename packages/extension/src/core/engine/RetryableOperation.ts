@@ -135,12 +135,7 @@ export class RetryableOperation {
  * Extracts statusCode from common SF error patterns.
  */
 function toSalesforceApiError(err: unknown): SalesforceApiError {
-  if (
-    typeof err === 'object' &&
-    err !== null &&
-    'statusCode' in err &&
-    'message' in err
-  ) {
+  if (typeof err === 'object' && err !== null && 'statusCode' in err && 'message' in err) {
     return err as SalesforceApiError;
   }
   const message = err instanceof Error ? err.message : String(err);

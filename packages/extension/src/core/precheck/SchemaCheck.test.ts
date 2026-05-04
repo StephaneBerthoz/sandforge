@@ -89,9 +89,9 @@ describe('SchemaCheck', () => {
     });
 
     it('should warn about active validation rules', async () => {
-      const fetchFn: FetchSchemaFn = vi.fn().mockResolvedValue([
-        createSchemaInfo({ validationRuleCount: 3 }),
-      ]);
+      const fetchFn: FetchSchemaFn = vi
+        .fn()
+        .mockResolvedValue([createSchemaInfo({ validationRuleCount: 3 })]);
 
       const checker = new SchemaCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -102,9 +102,9 @@ describe('SchemaCheck', () => {
     });
 
     it('should pass validation rules when none exist', async () => {
-      const fetchFn: FetchSchemaFn = vi.fn().mockResolvedValue([
-        createSchemaInfo({ validationRuleCount: 0 }),
-      ]);
+      const fetchFn: FetchSchemaFn = vi
+        .fn()
+        .mockResolvedValue([createSchemaInfo({ validationRuleCount: 0 })]);
 
       const checker = new SchemaCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -114,9 +114,9 @@ describe('SchemaCheck', () => {
     });
 
     it('should warn about active triggers', async () => {
-      const fetchFn: FetchSchemaFn = vi.fn().mockResolvedValue([
-        createSchemaInfo({ activeTriggerCount: 2 }),
-      ]);
+      const fetchFn: FetchSchemaFn = vi
+        .fn()
+        .mockResolvedValue([createSchemaInfo({ activeTriggerCount: 2 })]);
 
       const checker = new SchemaCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -127,9 +127,9 @@ describe('SchemaCheck', () => {
     });
 
     it('should warn about active flows', async () => {
-      const fetchFn: FetchSchemaFn = vi.fn().mockResolvedValue([
-        createSchemaInfo({ activeFlowCount: 5 }),
-      ]);
+      const fetchFn: FetchSchemaFn = vi
+        .fn()
+        .mockResolvedValue([createSchemaInfo({ activeFlowCount: 5 })]);
 
       const checker = new SchemaCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -140,9 +140,9 @@ describe('SchemaCheck', () => {
     });
 
     it('should warn about duplicate rules', async () => {
-      const fetchFn: FetchSchemaFn = vi.fn().mockResolvedValue([
-        createSchemaInfo({ duplicateRuleCount: 1 }),
-      ]);
+      const fetchFn: FetchSchemaFn = vi
+        .fn()
+        .mockResolvedValue([createSchemaInfo({ duplicateRuleCount: 1 })]);
 
       const checker = new SchemaCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -153,10 +153,12 @@ describe('SchemaCheck', () => {
     });
 
     it('should handle multiple objects', async () => {
-      const fetchFn: FetchSchemaFn = vi.fn().mockResolvedValue([
-        createSchemaInfo({ objectApiName: 'Account' }),
-        createSchemaInfo({ objectApiName: 'Contact' }),
-      ]);
+      const fetchFn: FetchSchemaFn = vi
+        .fn()
+        .mockResolvedValue([
+          createSchemaInfo({ objectApiName: 'Account' }),
+          createSchemaInfo({ objectApiName: 'Contact' }),
+        ]);
 
       const checker = new SchemaCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -199,9 +201,9 @@ describe('SchemaCheck', () => {
     });
 
     it('should pass triggers check when count is zero', async () => {
-      const fetchFn: FetchSchemaFn = vi.fn().mockResolvedValue([
-        createSchemaInfo({ activeTriggerCount: 0 }),
-      ]);
+      const fetchFn: FetchSchemaFn = vi
+        .fn()
+        .mockResolvedValue([createSchemaInfo({ activeTriggerCount: 0 })]);
 
       const checker = new SchemaCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -212,10 +214,12 @@ describe('SchemaCheck', () => {
     });
 
     it('should generate unique IDs across all items', async () => {
-      const fetchFn: FetchSchemaFn = vi.fn().mockResolvedValue([
-        createSchemaInfo({ objectApiName: 'Account' }),
-        createSchemaInfo({ objectApiName: 'Contact' }),
-      ]);
+      const fetchFn: FetchSchemaFn = vi
+        .fn()
+        .mockResolvedValue([
+          createSchemaInfo({ objectApiName: 'Account' }),
+          createSchemaInfo({ objectApiName: 'Contact' }),
+        ]);
 
       const checker = new SchemaCheck(fetchFn);
       const items = await checker.check(createConfig());

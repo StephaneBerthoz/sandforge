@@ -1,8 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  GearsetImporter,
-  gearsetReportSchema,
-} from './GearsetImporter';
+import { GearsetImporter, gearsetReportSchema } from './GearsetImporter';
 import type { FileReader, GearsetReport } from './GearsetImporter';
 
 function createMockFileReader(content: string): FileReader {
@@ -245,9 +242,7 @@ describe('GearsetImporter', () => {
         sourceOrg: { name: 'A', id: '1' },
         targetOrg: { name: 'B', id: '2' },
         comparisonDate: '2026-01-01T00:00:00Z',
-        components: [
-          { componentName: 'MyFlow', componentType: 'FlowDefinition', status: 'Added' },
-        ],
+        components: [{ componentName: 'MyFlow', componentType: 'FlowDefinition', status: 'Added' }],
         includeManaged: false,
         includeUnmanaged: true,
         filterTypes: [],
@@ -323,11 +318,13 @@ describe('GearsetImporter', () => {
         sourceOrg: { name: 'A', id: '1' },
         targetOrg: { name: 'B', id: '2' },
         comparisonDate: '2026-01-01',
-        components: [{
-          componentName: 'X',
-          componentType: 'ApexClass',
-          status: 'InvalidStatus',
-        }],
+        components: [
+          {
+            componentName: 'X',
+            componentType: 'ApexClass',
+            status: 'InvalidStatus',
+          },
+        ],
       });
       expect(result.success).toBe(false);
     });

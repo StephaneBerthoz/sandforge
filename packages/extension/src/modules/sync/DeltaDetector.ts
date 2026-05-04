@@ -10,10 +10,7 @@ export interface QueryRecord {
 }
 
 /** Function to query records from an org */
-export type QueryFn = (
-  orgId: string,
-  soql: string
-) => Promise<QueryRecord[]>;
+export type QueryFn = (orgId: string, soql: string) => Promise<QueryRecord[]>;
 
 /** Dependencies required by DeltaDetector */
 export interface DeltaDetectorDeps {
@@ -40,7 +37,7 @@ export class DeltaDetector {
   async detect(
     config: SyncObjectConfig,
     sourceOrgId: string,
-    lastSync?: string
+    lastSync?: string,
   ): Promise<DeltaResult> {
     const allRecordsQuery = buildAllRecordsQuery(config);
     const allRecords = await this.deps.query(sourceOrgId, allRecordsQuery);
@@ -68,9 +65,7 @@ export class DeltaDetector {
         continue;
       }
 
-      const modifiedDate = record.LastModifiedDate
-        ? new Date(record.LastModifiedDate)
-        : null;
+      const modifiedDate = record.LastModifiedDate ? new Date(record.LastModifiedDate) : null;
 
       if (!modifiedDate) {
         newCount++;
@@ -78,9 +73,7 @@ export class DeltaDetector {
       }
 
       if (modifiedDate > lastSyncDate) {
-        const createdDate = record.CreatedDate
-          ? new Date(String(record.CreatedDate))
-          : null;
+        const createdDate = record.CreatedDate ? new Date(String(record.CreatedDate)) : null;
 
         if (createdDate && createdDate > lastSyncDate) {
           newCount++;
@@ -107,12 +100,7 @@ export class DeltaDetector {
  * Build a SOQL query to retrieve all records with metadata fields.
  */
 function buildAllRecordsQuery(config: SyncObjectConfig): string {
-  const fields = [
-    'Id',
-    'LastModifiedDate',
-    'CreatedDate',
-    'IsDeleted',
-  ];
+  const fields = ['Id', 'LastModifiedDate', 'CreatedDate', 'IsDeleted'];
 
   let soql = `SELECT ${fields.join(', ')} FROM ${assertSoqlIdentifier(config.objectApiName)}`;
 

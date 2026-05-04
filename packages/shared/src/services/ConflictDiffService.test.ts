@@ -35,10 +35,7 @@ describe('ConflictDiffService', () => {
       const source = { Name: null, Industry: undefined };
       const target = { Name: 'Acme', Industry: 'Tech' };
 
-      const result = ConflictDiffService.diffFields(
-        source as Record<string, unknown>,
-        target,
-      );
+      const result = ConflictDiffService.diffFields(source as Record<string, unknown>, target);
 
       expect(result.length).toBeGreaterThanOrEqual(1);
       const nameField = result.find((d) => d.field === 'Name');

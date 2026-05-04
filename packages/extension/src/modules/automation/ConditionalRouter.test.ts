@@ -1,10 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ConditionalRouter } from './ConditionalRouter';
-import type {
-  PipelineCondition,
-  PipelineStep,
-  PipelineStepResult,
-} from '@sandforge/shared';
+import type { PipelineCondition, PipelineStep, PipelineStepResult } from '@sandforge/shared';
 
 function createStep(overrides?: Partial<PipelineStep>): PipelineStep {
   return {
@@ -48,18 +44,34 @@ describe('ConditionalRouter', () => {
     });
 
     it('should evaluate gt/gte/lt/lte operators numerically', () => {
-      expect(router.evaluate({ field: 'count', operator: 'gt', value: 5 }, { count: 10 })).toBe(true);
-      expect(router.evaluate({ field: 'count', operator: 'gt', value: 5 }, { count: 3 })).toBe(false);
-      expect(router.evaluate({ field: 'count', operator: 'gte', value: 5 }, { count: 5 })).toBe(true);
-      expect(router.evaluate({ field: 'count', operator: 'lt', value: 5 }, { count: 3 })).toBe(true);
-      expect(router.evaluate({ field: 'count', operator: 'lte', value: 5 }, { count: 5 })).toBe(true);
+      expect(router.evaluate({ field: 'count', operator: 'gt', value: 5 }, { count: 10 })).toBe(
+        true,
+      );
+      expect(router.evaluate({ field: 'count', operator: 'gt', value: 5 }, { count: 3 })).toBe(
+        false,
+      );
+      expect(router.evaluate({ field: 'count', operator: 'gte', value: 5 }, { count: 5 })).toBe(
+        true,
+      );
+      expect(router.evaluate({ field: 'count', operator: 'lt', value: 5 }, { count: 3 })).toBe(
+        true,
+      );
+      expect(router.evaluate({ field: 'count', operator: 'lte', value: 5 }, { count: 5 })).toBe(
+        true,
+      );
     });
 
     it('should evaluate contains and not_contains operators', () => {
       const context = { name: 'hello world' };
-      expect(router.evaluate({ field: 'name', operator: 'contains', value: 'world' }, context)).toBe(true);
-      expect(router.evaluate({ field: 'name', operator: 'not_contains', value: 'foo' }, context)).toBe(true);
-      expect(router.evaluate({ field: 'name', operator: 'contains', value: 'foo' }, context)).toBe(false);
+      expect(
+        router.evaluate({ field: 'name', operator: 'contains', value: 'world' }, context),
+      ).toBe(true);
+      expect(
+        router.evaluate({ field: 'name', operator: 'not_contains', value: 'foo' }, context),
+      ).toBe(true);
+      expect(router.evaluate({ field: 'name', operator: 'contains', value: 'foo' }, context)).toBe(
+        false,
+      );
     });
 
     it('should evaluate matches operator with regex', () => {
@@ -70,9 +82,15 @@ describe('ConditionalRouter', () => {
 
     it('should evaluate is_empty and is_not_empty operators', () => {
       expect(router.evaluate({ field: 'val', operator: 'is_empty', value: '' }, {})).toBe(true);
-      expect(router.evaluate({ field: 'val', operator: 'is_empty', value: '' }, { val: '' })).toBe(true);
-      expect(router.evaluate({ field: 'val', operator: 'is_not_empty', value: '' }, { val: 'x' })).toBe(true);
-      expect(router.evaluate({ field: 'val', operator: 'is_not_empty', value: '' }, {})).toBe(false);
+      expect(router.evaluate({ field: 'val', operator: 'is_empty', value: '' }, { val: '' })).toBe(
+        true,
+      );
+      expect(
+        router.evaluate({ field: 'val', operator: 'is_not_empty', value: '' }, { val: 'x' }),
+      ).toBe(true);
+      expect(router.evaluate({ field: 'val', operator: 'is_not_empty', value: '' }, {})).toBe(
+        false,
+      );
     });
 
     it('should handle matches operator with invalid regex', () => {

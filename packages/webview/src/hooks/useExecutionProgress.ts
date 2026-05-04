@@ -22,16 +22,16 @@ export function useExecutionProgress(): {
     () => new Map(),
   );
 
-  useMessageListener<ExecutionProgressMessage>('execution:progress', useCallback(
-    (message: ExecutionProgressMessage) => {
+  useMessageListener<ExecutionProgressMessage>(
+    'execution:progress',
+    useCallback((message: ExecutionProgressMessage) => {
       setProgressMap((prev) => {
         const next = new Map(prev);
         next.set(message.payload.executionId, message.payload);
         return next;
       });
-    },
-    [],
-  ));
+    }, []),
+  );
 
   const getProgress = useCallback(
     (executionId: string): BulkExecutionProgress | undefined => {

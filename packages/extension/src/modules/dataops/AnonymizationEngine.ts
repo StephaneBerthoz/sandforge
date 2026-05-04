@@ -1,7 +1,4 @@
-import type {
-  DataOpsAnonymizationRule,
-  AnonymizationMethod,
-} from '@sandforge/shared';
+import type { DataOpsAnonymizationRule, AnonymizationMethod } from '@sandforge/shared';
 
 /**
  * Applies anonymization rules to records in order to protect
@@ -25,10 +22,7 @@ export class AnonymizationEngine {
       const copy = { ...record };
       for (const rule of rules) {
         if (rule.fieldApiName in copy) {
-          copy[rule.fieldApiName] = this.applyRule(
-            copy[rule.fieldApiName],
-            rule,
-          );
+          copy[rule.fieldApiName] = this.applyRule(copy[rule.fieldApiName], rule);
         }
       }
       return copy;
@@ -43,10 +37,9 @@ export class AnonymizationEngine {
    * @returns The anonymized value
    */
   applyRule(value: unknown, rule: DataOpsAnonymizationRule): unknown {
-    const handlers: Partial<Record<
-      AnonymizationMethod,
-      (v: unknown, r: DataOpsAnonymizationRule) => unknown
-    >> = {
+    const handlers: Partial<
+      Record<AnonymizationMethod, (v: unknown, r: DataOpsAnonymizationRule) => unknown>
+    > = {
       mask: (v, r) => this.applyMask(v, r),
       hash: (v, r) => this.applyHash(v, r),
       fake: (v, r) => this.applyFake(v, r),
@@ -96,9 +89,7 @@ export class AnonymizationEngine {
         errors.push('Rule must specify an objectApiName');
       }
       if (rule.method === 'mask' && !rule.config.maskChar) {
-        errors.push(
-          `Mask rule for ${rule.fieldApiName} must specify a maskChar`,
-        );
+        errors.push(`Mask rule for ${rule.fieldApiName} must specify a maskChar`);
       }
       if (
         rule.method === 'hash' &&
@@ -110,9 +101,7 @@ export class AnonymizationEngine {
         );
       }
       if (rule.method === 'constant' && rule.config.constantValue === undefined) {
-        errors.push(
-          `Constant rule for ${rule.fieldApiName} must specify a constantValue`,
-        );
+        errors.push(`Constant rule for ${rule.fieldApiName} must specify a constantValue`);
       }
     }
 

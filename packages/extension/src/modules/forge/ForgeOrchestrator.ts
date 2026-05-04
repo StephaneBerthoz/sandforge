@@ -67,12 +67,12 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
   private cacheKeyFor(config: ForgeConfig): string {
     const root =
       config.inputMode === 'record'
-        ? config.recordId ?? ''
+        ? (config.recordId ?? '')
         : config.inputMode === 'soql'
-          ? config.soqlQuery ?? ''
+          ? (config.soqlQuery ?? '')
           : config.inputMode === 'template'
-            ? config.templateId ?? ''
-            : config.aiPrompt ?? '';
+            ? (config.templateId ?? '')
+            : (config.aiPrompt ?? '');
     return [
       config.sourceOrgId,
       config.targetOrgId,
@@ -138,7 +138,9 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    */
   async generatePlan(graph: ForgeGraph): Promise<ForgePlan> {
     if (!this.deps.planGenerator) {
-      throw new Error('Plan generator not configured. Ensure ForgeOrchestrator was initialized with a planGenerator dependency.');
+      throw new Error(
+        'Plan generator not configured. Ensure ForgeOrchestrator was initialized with a planGenerator dependency.',
+      );
     }
     return this.deps.planGenerator.generate(graph);
   }
@@ -190,11 +192,11 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
               objectSoqlFilters: config.objectSoqlFilters,
               fieldMappings: config.fieldMappings,
             }
-          : (config.maxRecordsPerObject != null ||
+          : config.maxRecordsPerObject != null ||
               config.fieldExclusions ||
               config.ownerMappings ||
               config.objectSoqlFilters ||
-              config.fieldMappings)
+              config.fieldMappings
             ? {
                 maxRecordsPerObject: config.maxRecordsPerObject,
                 fieldExclusions: config.fieldExclusions,

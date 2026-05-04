@@ -19,12 +19,18 @@ interface DeploymentData {
 /** Maps deployment status to timeline status. */
 function statusToTimelineStatus(status: DeploymentEntry['status']): TimelineStatus {
   switch (status) {
-    case 'Succeeded': return 'success';
-    case 'Failed': return 'error';
-    case 'Canceled': return 'warning';
-    case 'InProgress': return 'info';
-    case 'Pending': return 'info';
-    default: return 'info';
+    case 'Succeeded':
+      return 'success';
+    case 'Failed':
+      return 'error';
+    case 'Canceled':
+      return 'warning';
+    case 'InProgress':
+      return 'info';
+    case 'Pending':
+      return 'info';
+    default:
+      return 'info';
   }
 }
 
@@ -60,9 +66,10 @@ export const DeploymentTimeline: React.FC = () => {
     () =>
       deployments.map((d) => ({
         title: `${d.createdBy} - ${d.componentCount} ${t('monitor.deployments.components', 'components')}`,
-        description: d.errorCount > 0
-          ? `${d.status} (${d.errorCount} ${t('monitor.deployments.errors', 'errors')})`
-          : d.status,
+        description:
+          d.errorCount > 0
+            ? `${d.status} (${d.errorCount} ${t('monitor.deployments.errors', 'errors')})`
+            : d.status,
         timestamp: formatDate(d.startDate),
         status: statusToTimelineStatus(d.status),
       })),
@@ -71,24 +78,33 @@ export const DeploymentTimeline: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="deployment-timeline-loading">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="deployment-timeline-loading"
+      >
         <Skeleton variant="rect" height="200px" />
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="deployment-timeline">
+    <div
+      className="rounded-lg border border-subtle bg-surface-1 p-4"
+      data-testid="deployment-timeline"
+    >
       <div className="flex items-center gap-2 mb-3">
         <Rocket className="w-4 h-4 text-text-secondary" />
-        <h3 className="text-sm font-semibold text-text-primary">{t('monitor.deployments.title', 'Recent Deployments')}</h3>
-        {deployments.length > 0 && (
-          <Badge variant="default">{deployments.length}</Badge>
-        )}
+        <h3 className="text-sm font-semibold text-text-primary">
+          {t('monitor.deployments.title', 'Recent Deployments')}
+        </h3>
+        {deployments.length > 0 && <Badge variant="default">{deployments.length}</Badge>}
       </div>
 
       {deployments.length === 0 ? (
-        <p className="text-xs text-text-muted text-center py-6" data-testid="deployment-timeline-empty">
+        <p
+          className="text-xs text-text-muted text-center py-6"
+          data-testid="deployment-timeline-empty"
+        >
           {t('monitor.deployments.empty', 'No recent deployments')}
         </p>
       ) : (

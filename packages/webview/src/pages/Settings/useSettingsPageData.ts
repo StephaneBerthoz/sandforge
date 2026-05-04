@@ -55,33 +55,25 @@ export function useSettingsPageData(
   const [settings, setSettings] = useState<SettingsValues>(initialSettings ?? defaultSettings);
 
   /** Bridge query: load current settings from extension. */
-  const settingsQuery = useBridgeQuery<{ settings: SettingsValues }>(
-    'settings:get',
-    undefined,
-    {
-      responseType: 'settings:response',
-      skip: !!initialSettings,
-    },
-  );
+  const settingsQuery = useBridgeQuery<{ settings: SettingsValues }>('settings:get', undefined, {
+    responseType: 'settings:response',
+    skip: !!initialSettings,
+  });
 
   /** Bridge mutation: save settings to extension. */
-  const settingsUpdateMutation = useBridgeMutation<{ success: boolean }>(
-    'settings:update',
-    { responseType: 'settings:response' },
-  );
+  const settingsUpdateMutation = useBridgeMutation<{ success: boolean }>('settings:update', {
+    responseType: 'settings:response',
+  });
 
   /** AI status query. */
-  const aiStatusQuery = useBridgeQuery<AIStatusResponse>(
-    'ai:status',
-    undefined,
-    { responseType: 'ai:status:response' },
-  );
+  const aiStatusQuery = useBridgeQuery<AIStatusResponse>('ai:status', undefined, {
+    responseType: 'ai:status:response',
+  });
 
   /** AI save key mutation. */
-  const aiSaveKeyMutation = useBridgeMutation<{ success: boolean; error?: string }>(
-    'ai:save-key',
-    { responseType: 'ai:save-key:response' },
-  );
+  const aiSaveKeyMutation = useBridgeMutation<{ success: boolean; error?: string }>('ai:save-key', {
+    responseType: 'ai:save-key:response',
+  });
 
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiKeySaved, setAiKeySaved] = useState(false);
@@ -102,7 +94,10 @@ export function useSettingsPageData(
     }
   }, [settingsQuery.data]);
 
-  const updateSetting = <K extends keyof SettingsValues>(key: K, value: SettingsValues[K]): void => {
+  const updateSetting = <K extends keyof SettingsValues>(
+    key: K,
+    value: SettingsValues[K],
+  ): void => {
     setSettings((prev) => ({ ...prev, [key]: value }));
   };
 

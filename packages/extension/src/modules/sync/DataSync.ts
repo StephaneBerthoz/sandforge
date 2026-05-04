@@ -14,28 +14,28 @@ export type UpsertFn = (
   objectName: string,
   externalIdField: string,
   records: Record<string, unknown>[],
-  batchSize: number
+  batchSize: number,
 ) => Promise<OperationOutcome[]>;
 
 /** Function to insert records */
 export type InsertFn = (
   objectName: string,
   records: Record<string, unknown>[],
-  batchSize: number
+  batchSize: number,
 ) => Promise<OperationOutcome[]>;
 
 /** Function to update records */
 export type UpdateFn = (
   objectName: string,
   records: Record<string, unknown>[],
-  batchSize: number
+  batchSize: number,
 ) => Promise<OperationOutcome[]>;
 
 /** Function to delete records by IDs */
 export type DeleteFn = (
   objectName: string,
   recordIds: string[],
-  batchSize: number
+  batchSize: number,
 ) => Promise<OperationOutcome[]>;
 
 /** Outcome for a single record operation */
@@ -79,18 +79,25 @@ export class DataSync {
    */
   async sync(
     config: SyncObjectConfig,
-    sourceRecords: Record<string, unknown>[]
+    sourceRecords: Record<string, unknown>[],
   ): Promise<SyncObjectResult> {
     const mappedRecords = sourceRecords.map((record) =>
-      applyMappingsAndAddOns(record, config.fieldMappings, config.addOnFields)
+      applyMappingsAndAddOns(record, config.fieldMappings, config.addOnFields),
     );
 
     // Pre-CRUD field validation when target descriptors are available
-    if (this.deps.targetFieldDescriptors && this.deps.targetFieldDescriptors.length > 0 && mappedRecords.length > 0) {
-      const validation = this.fieldValidator.validateRecords(mappedRecords, this.deps.targetFieldDescriptors);
+    if (
+      this.deps.targetFieldDescriptors &&
+      this.deps.targetFieldDescriptors.length > 0 &&
+      mappedRecords.length > 0
+    ) {
+      const validation = this.fieldValidator.validateRecords(
+        mappedRecords,
+        this.deps.targetFieldDescriptors,
+      );
       if (!validation.valid) {
         const errorMessages = validation.errors.map(
-          (e) => `Record[${e.recordIndex}].${e.field}: ${e.message}`
+          (e) => `Record[${e.recordIndex}].${e.field}: ${e.message}`,
         );
         return {
           objectApiName: config.objectApiName,
@@ -110,7 +117,7 @@ export class DataSync {
       config.operation,
       mappedRecords,
       config.batchSize,
-      config.externalIdField
+      config.externalIdField,
     );
 
     return buildResult(config.objectApiName, config.operation, outcomes);
@@ -121,7 +128,7 @@ export class DataSync {
     operation: SyncOperation,
     records: Record<string, unknown>[],
     batchSize: number,
-    externalIdField?: string
+    externalIdField?: string,
   ): Promise<OperationOutcome[]> {
     // Re-verify CRUD/FLS permissions immediately before DML execution
     if (this.deps.crudFlsGuard) {
@@ -142,16 +149,9 @@ export class DataSync {
       case 'update':
         return this.deps.update(objectName, records, batchSize);
       case 'upsert':
-        return this.deps.upsert(
-          objectName,
-          externalIdField ?? 'Id',
-          records,
-          batchSize
-        );
+        return this.deps.upsert(objectName, externalIdField ?? 'Id', records, batchSize);
       case 'delete': {
-        const ids = records
-          .map((r) => r.Id)
-          .filter((id): id is string => typeof id === 'string');
+        const ids = records.map((r) => r.Id).filter((id): id is string => typeof id === 'string');
         return this.deps.delete(objectName, ids, batchSize);
       }
     }
@@ -164,7 +164,7 @@ export class DataSync {
 function applyMappingsAndAddOns(
   record: Record<string, unknown>,
   mappings: FieldMapping[],
-  addOns: AddOnField[]
+  addOns: AddOnField[],
 ): Record<string, unknown> {
   let result: Record<string, unknown>;
 
@@ -196,7 +196,7 @@ function applyMappingsAndAddOns(
 function buildResult(
   objectApiName: string,
   operation: SyncOperation,
-  outcomes: OperationOutcome[]
+  outcomes: OperationOutcome[],
 ): SyncObjectResult {
   let success = 0;
   let failed = 0;

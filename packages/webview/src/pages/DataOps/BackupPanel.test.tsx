@@ -9,9 +9,7 @@ const backups: BackupResult[] = [
     configId: 'cfg-1',
     operationId: 'op-1',
     status: 'completed',
-    objectResults: [
-      { objectApiName: 'Account', recordCount: 100, size: 5000, status: 'success' },
-    ],
+    objectResults: [{ objectApiName: 'Account', recordCount: 100, size: 5000, status: 'success' }],
     totalRecords: 100,
     totalSize: 5000,
     filePath: '/backups/op-1.zip',

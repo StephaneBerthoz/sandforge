@@ -74,7 +74,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full gap-[var(--sf-space-4)] p-[var(--sf-space-4)]" data-testid="ai-chat-panel">
+    <div
+      className="flex flex-col h-full gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
+      data-testid="ai-chat-panel"
+    >
       <PageHeader
         title={t('ai.title', 'AI Assistant')}
         subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
@@ -96,7 +99,11 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             {t('ai.newConversation', 'New Conversation')}
           </Button>
 
-          <div className="flex-1 overflow-y-auto flex flex-col gap-1" data-testid="conversation-list" aria-label={t('ai.conversations', 'Conversations')}>
+          <div
+            className="flex-1 overflow-y-auto flex flex-col gap-1"
+            data-testid="conversation-list"
+            aria-label={t('ai.conversations', 'Conversations')}
+          >
             {conversations.length === 0 && (
               <p
                 className="text-xs text-[var(--vscode-descriptionForeground,#868686)] px-2 py-4 text-center"
@@ -133,7 +140,13 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                   data-testid={`delete-conversation-${conv.id}`}
                   tabIndex={0}
                   aria-label={t('common.delete', 'Delete')}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDeleteConversation?.(conv.id); } }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      onDeleteConversation?.(conv.id);
+                    }
+                  }}
                 >
                   x
                 </span>
@@ -148,7 +161,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             <EmptyState
               icon="comment-discussion"
               title={t('ai.selectOrCreate', 'Select or create a conversation')}
-              description={t('ai.startDescription', 'Start a new conversation to get AI-powered help')}
+              description={t(
+                'ai.startDescription',
+                'Start a new conversation to get AI-powered help',
+              )}
               data-testid="chat-empty-state"
             />
           ) : (
@@ -156,7 +172,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
               {/* Messages */}
               <Card className="flex-1 min-h-0 overflow-y-auto mb-[var(--sf-space-2)]">
                 <CardBody>
-                  <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="messages-container">
+                  <div
+                    className="flex flex-col gap-[var(--sf-space-3)]"
+                    data-testid="messages-container"
+                  >
                     {messages.length === 0 && (
                       <p
                         className="text-sm text-[var(--vscode-descriptionForeground,#868686)] text-center py-8"
@@ -204,8 +223,14 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                     border-[var(--vscode-input-border,#3c3c3c)]
                     focus:border-[var(--vscode-focusBorder,#007fd4)] outline-none"
                   rows={2}
-                  placeholder={t('ai.placeholder', 'Type a message... (Enter to send, Shift+Enter for new line)')}
-                  aria-label={t('ai.placeholder', 'Type a message... (Enter to send, Shift+Enter for new line)')}
+                  placeholder={t(
+                    'ai.placeholder',
+                    'Type a message... (Enter to send, Shift+Enter for new line)',
+                  )}
+                  aria-label={t(
+                    'ai.placeholder',
+                    'Type a message... (Enter to send, Shift+Enter for new line)',
+                  )}
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}

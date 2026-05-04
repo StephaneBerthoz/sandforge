@@ -226,8 +226,9 @@ export function useMonitorPageData(): MonitorPageData {
         name: key.replace(/([A-Z])/g, ' $1').trim(),
         color: colorMap[key] ?? 'var(--sf-accent)',
         data: td.sparklineData.map((value, i) => ({
-          timestamp: td.timestamps?.[i]
-            ?? new Date(Date.now() - (td.sparklineData.length - 1 - i) * 15 * 60 * 1000).toISOString(),
+          timestamp:
+            td.timestamps?.[i] ??
+            new Date(Date.now() - (td.sparklineData.length - 1 - i) * 15 * 60 * 1000).toISOString(),
           value,
         })),
       }));
@@ -246,13 +247,16 @@ export function useMonitorPageData(): MonitorPageData {
   // isRefreshing: true when loading but we already have data (not initial load)
   const isRefreshing = loading && lastUpdated !== null;
 
-  // Stale data computation
+  // Stale data computation. lastUpdatedStr is derived from lastUpdated and
+  // does not need to be in the deps array — recomputing on lastUpdated alone
+  // is sufficient and avoids the lint warning.
   const minutesSinceUpdate = useMemo(() => {
     if (!lastUpdated) return 0;
     return Math.floor((Date.now() - new Date(lastUpdated).getTime()) / 60_000);
-  }, [lastUpdated, lastUpdatedStr]); // lastUpdatedStr changes trigger recalc
+  }, [lastUpdated]);
 
-  const isStale = lastUpdated !== null && (Date.now() - new Date(lastUpdated).getTime()) > STALE_THRESHOLD_MS;
+  const isStale =
+    lastUpdated !== null && Date.now() - new Date(lastUpdated).getTime() > STALE_THRESHOLD_MS;
 
   // Connection lost when 3+ consecutive failures
   const connectionLost = consecutiveFailures >= CONNECTION_LOST_THRESHOLD;
@@ -292,7 +296,11 @@ export function useMonitorPageData(): MonitorPageData {
   // Error notification effect
   useEffect(() => {
     if (monitorQuery.error) {
-      addNotification({ level: 'error', title: t('monitor.errorTitle', 'Monitor Error'), message: monitorQuery.error });
+      addNotification({
+        level: 'error',
+        title: t('monitor.errorTitle', 'Monitor Error'),
+        message: monitorQuery.error,
+      });
     }
   }, [monitorQuery.error, addNotification, t]);
 
@@ -319,7 +327,9 @@ export function useMonitorPageData(): MonitorPageData {
 
   const handleRefresh = useCallback(() => monitorQuery.refetch(), [monitorQuery]);
   const handleAbortJob = useCallback(
-    (jobId: string) => { if (selectedOrgId) abortJobMutation.mutate({ orgId: selectedOrgId, jobId }); },
+    (jobId: string) => {
+      if (selectedOrgId) abortJobMutation.mutate({ orgId: selectedOrgId, jobId });
+    },
     [selectedOrgId, abortJobMutation],
   );
 

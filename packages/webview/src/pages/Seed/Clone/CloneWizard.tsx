@@ -92,8 +92,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack }) => {
     }
   };
 
-  const isFinished =
-    clone.step === 'execute' && clone.executionResult !== null;
+  const isFinished = clone.step === 'execute' && clone.executionResult !== null;
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-wizard-container">
@@ -140,7 +139,10 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack }) => {
         {clone.step === 'preview' && (
           <>
             {clone.executionStatus === 'previewing' ? (
-              <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-preview-loading">
+              <div
+                className="flex flex-col gap-[var(--sf-space-3)]"
+                data-testid="clone-preview-loading"
+              >
                 <Skeleton variant="text" width="40%" height="1em" />
                 <Skeleton variant="rect" height="100px" />
                 <Skeleton variant="rect" height="80px" />
@@ -174,10 +176,7 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack }) => {
                 ))}
               </div>
             ) : clone.executionResult ? (
-              <CloneResultsPanel
-                result={clone.executionResult}
-                onDone={onBack}
-              />
+              <CloneResultsPanel result={clone.executionResult} onDone={onBack} />
             ) : null}
           </>
         )}

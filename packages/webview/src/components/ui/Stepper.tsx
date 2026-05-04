@@ -15,7 +15,11 @@ export interface StepperProps {
 /** Multi-step progress indicator with numbered steps, labels, and connecting lines. */
 export const Stepper: React.FC<StepperProps> = ({ steps, currentStep, onStepClick, className }) => {
   return (
-    <div className={cn('flex items-center w-full', className)} role="navigation" aria-label="Progress steps">
+    <div
+      className={cn('flex items-center w-full', className)}
+      role="navigation"
+      aria-label="Progress steps"
+    >
       {steps.map((label, index) => {
         const isCompleted = index < currentStep;
         const isActive = index === currentStep;
@@ -31,8 +35,7 @@ export const Stepper: React.FC<StepperProps> = ({ steps, currentStep, onStepClic
                 disabled={!onStepClick}
                 className={cn(
                   'w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-colors border-2',
-                  isCompleted &&
-                    'bg-emerald-600 border-emerald-600 text-white',
+                  isCompleted && 'bg-emerald-600 border-emerald-600 text-white',
                   isActive &&
                     'border-[var(--vscode-focusBorder,#007fd4)] bg-[var(--vscode-focusBorder,#007fd4)] text-white',
                   !isCompleted &&
@@ -44,7 +47,13 @@ export const Stepper: React.FC<StepperProps> = ({ steps, currentStep, onStepClic
                 onClick={() => onStepClick?.(index)}
               >
                 {isCompleted ? (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                  >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
                 ) : (

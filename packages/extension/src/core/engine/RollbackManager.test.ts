@@ -85,9 +85,7 @@ describe('RollbackManager', () => {
 
     it('should handle executor throwing an error', async () => {
       const sp = manager.createSavepoint('op-1', 'Account', ['001a']);
-      const executor: RollbackExecutor = vi.fn().mockRejectedValue(
-        new Error('Network error')
-      );
+      const executor: RollbackExecutor = vi.fn().mockRejectedValue(new Error('Network error'));
 
       const result = await manager.rollback(sp, executor);
 

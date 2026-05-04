@@ -35,9 +35,7 @@ describe('usePagination', () => {
   });
 
   it('should navigate to next and previous pages', () => {
-    const { result } = renderHook(() =>
-      usePagination({ totalItems: 100, initialPageSize: 25 }),
-    );
+    const { result } = renderHook(() => usePagination({ totalItems: 100, initialPageSize: 25 }));
 
     act(() => {
       result.current.nextPage();
@@ -53,9 +51,7 @@ describe('usePagination', () => {
   });
 
   it('should clamp page at boundaries', () => {
-    const { result } = renderHook(() =>
-      usePagination({ totalItems: 50, initialPageSize: 25 }),
-    );
+    const { result } = renderHook(() => usePagination({ totalItems: 50, initialPageSize: 25 }));
 
     // Try going before page 1
     act(() => {
@@ -90,9 +86,7 @@ describe('usePagination', () => {
   });
 
   it('should reset to page 1 when pageSize changes', () => {
-    const { result } = renderHook(() =>
-      usePagination({ totalItems: 100, initialPageSize: 25 }),
-    );
+    const { result } = renderHook(() => usePagination({ totalItems: 100, initialPageSize: 25 }));
 
     act(() => {
       result.current.setPage(3);
@@ -110,9 +104,7 @@ describe('usePagination', () => {
   it('should compute paginatedSlice correctly', () => {
     const data = Array.from({ length: 30 }, (_, i) => `item-${i}`);
 
-    const { result } = renderHook(() =>
-      usePagination({ totalItems: 30, initialPageSize: 10 }),
-    );
+    const { result } = renderHook(() => usePagination({ totalItems: 30, initialPageSize: 10 }));
 
     let slice = result.current.paginatedSlice(data);
     expect(slice).toEqual(data.slice(0, 10));
@@ -144,9 +136,7 @@ describe('usePagination', () => {
   });
 
   it('should clamp endIndex to totalItems on last page', () => {
-    const { result } = renderHook(() =>
-      usePagination({ totalItems: 27, initialPageSize: 10 }),
-    );
+    const { result } = renderHook(() => usePagination({ totalItems: 27, initialPageSize: 10 }));
 
     act(() => {
       result.current.setPage(3);

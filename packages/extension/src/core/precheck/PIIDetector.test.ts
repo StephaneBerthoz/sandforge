@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { PIIDetector } from './PIIDetector';
 import type { FieldDescribe } from './PIIDetector';
 
-function field(apiName: string, label: string, type: string = 'string', length?: number): FieldDescribe {
+function field(
+  apiName: string,
+  label: string,
+  type: string = 'string',
+  length?: number,
+): FieldDescribe {
   return { apiName, label, type, length };
 }
 
@@ -10,9 +15,7 @@ describe('PIIDetector', () => {
   describe('detectPII — name pattern detection', () => {
     it('should detect Email field by API name', () => {
       const detector = new PIIDetector();
-      const result = detector.detectPII('Contact', [
-        field('Email', 'Email Address'),
-      ]);
+      const result = detector.detectPII('Contact', [field('Email', 'Email Address')]);
 
       expect(result.piiFields).toHaveLength(1);
       expect(result.piiFields[0].fieldApiName).toBe('Email');
@@ -33,9 +36,7 @@ describe('PIIDetector', () => {
 
     it('should detect PersonEmail field', () => {
       const detector = new PIIDetector();
-      const result = detector.detectPII('Account', [
-        field('PersonEmail', 'Person Email'),
-      ]);
+      const result = detector.detectPII('Account', [field('PersonEmail', 'Person Email')]);
 
       expect(result.piiFields).toHaveLength(1);
       expect(result.piiFields[0].classification).toBe('PII');
@@ -76,9 +77,7 @@ describe('PIIDetector', () => {
 
     it('should detect NationalId field', () => {
       const detector = new PIIDetector();
-      const result = detector.detectPII('Contact', [
-        field('NationalId__c', 'National ID'),
-      ]);
+      const result = detector.detectPII('Contact', [field('NationalId__c', 'National ID')]);
 
       expect(result.piiFields).toHaveLength(1);
       expect(result.piiFields[0].classification).toBe('PII');
@@ -120,9 +119,7 @@ describe('PIIDetector', () => {
   describe('detectPII — type analysis detection', () => {
     it('should detect field with email type', () => {
       const detector = new PIIDetector();
-      const result = detector.detectPII('Lead', [
-        field('WorkEmail__c', 'Work Email', 'email'),
-      ]);
+      const result = detector.detectPII('Lead', [field('WorkEmail__c', 'Work Email', 'email')]);
 
       const pii = result.piiFields.find((f) => f.fieldApiName === 'WorkEmail__c');
       expect(pii).toBeDefined();
@@ -131,9 +128,7 @@ describe('PIIDetector', () => {
 
     it('should detect field with phone type', () => {
       const detector = new PIIDetector();
-      const result = detector.detectPII('Lead', [
-        field('Fax', 'Fax Number', 'phone'),
-      ]);
+      const result = detector.detectPII('Lead', [field('Fax', 'Fax Number', 'phone')]);
 
       const pii = result.piiFields.find((f) => f.fieldApiName === 'Fax');
       expect(pii).toBeDefined();
@@ -142,9 +137,7 @@ describe('PIIDetector', () => {
 
     it('should not duplicate detection when name already matched', () => {
       const detector = new PIIDetector();
-      const result = detector.detectPII('Contact', [
-        field('Email', 'Email', 'email'),
-      ]);
+      const result = detector.detectPII('Contact', [field('Email', 'Email', 'email')]);
 
       expect(result.piiFields).toHaveLength(1);
       expect(result.piiFields[0].detectionMethod).toBe('name_pattern');
@@ -170,10 +163,7 @@ describe('PIIDetector', () => {
     it('should detect SSN patterns in sample data', () => {
       const detector = new PIIDetector();
       const fields = [field('TaxId__c', 'Tax ID')];
-      const sampleData = [
-        { TaxId__c: '123-45-6789' },
-        { TaxId__c: '987-65-4321' },
-      ];
+      const sampleData = [{ TaxId__c: '123-45-6789' }, { TaxId__c: '987-65-4321' }];
 
       const result = detector.detectPII('Contact', fields, sampleData);
 
@@ -185,9 +175,7 @@ describe('PIIDetector', () => {
     it('should detect credit card patterns in sample data', () => {
       const detector = new PIIDetector();
       const fields = [field('PaymentRef__c', 'Payment Reference')];
-      const sampleData = [
-        { PaymentRef__c: '4111-1111-1111-1111' },
-      ];
+      const sampleData = [{ PaymentRef__c: '4111-1111-1111-1111' }];
 
       const result = detector.detectPII('Order', fields, sampleData);
 
@@ -198,9 +186,7 @@ describe('PIIDetector', () => {
     it('should detect IBAN patterns in sample data', () => {
       const detector = new PIIDetector();
       const fields = [field('BankRef__c', 'Bank Reference')];
-      const sampleData = [
-        { BankRef__c: 'DE89370400440532013000' },
-      ];
+      const sampleData = [{ BankRef__c: 'DE89370400440532013000' }];
 
       const result = detector.detectPII('Account', fields, sampleData);
 
@@ -211,9 +197,7 @@ describe('PIIDetector', () => {
     it('should skip content detection for already detected fields', () => {
       const detector = new PIIDetector();
       const fields = [field('Email', 'Email Address')];
-      const sampleData = [
-        { Email: 'test@example.com' },
-      ];
+      const sampleData = [{ Email: 'test@example.com' }];
 
       const result = detector.detectPII('Contact', fields, sampleData);
 
@@ -237,11 +221,7 @@ describe('PIIDetector', () => {
     it('should handle null and non-string sample values gracefully', () => {
       const detector = new PIIDetector();
       const fields = [field('Amount__c', 'Amount')];
-      const sampleData = [
-        { Amount__c: null },
-        { Amount__c: 12345 },
-        { Amount__c: undefined },
-      ];
+      const sampleData = [{ Amount__c: null }, { Amount__c: 12345 }, { Amount__c: undefined }];
 
       const result = detector.detectPII('Order', fields, sampleData);
 
@@ -341,9 +321,7 @@ describe('PIIDetector', () => {
 
     it('should strip __c suffix for pattern matching on custom fields', () => {
       const detector = new PIIDetector();
-      const result = detector.detectPII('Custom__c', [
-        field('SSN__c', 'Social Security Number'),
-      ]);
+      const result = detector.detectPII('Custom__c', [field('SSN__c', 'Social Security Number')]);
 
       expect(result.piiFields).toHaveLength(1);
       expect(result.piiFields[0].fieldApiName).toBe('SSN__c');
@@ -376,9 +354,7 @@ describe('PIIDetector', () => {
   describe('detectPII — label-based detection', () => {
     it('should detect PII by field label when API name does not match', () => {
       const detector = new PIIDetector();
-      const result = detector.detectPII('Custom__c', [
-        field('CustField1__c', 'Email Address'),
-      ]);
+      const result = detector.detectPII('Custom__c', [field('CustField1__c', 'Email Address')]);
 
       expect(result.piiFields).toHaveLength(1);
       expect(result.piiFields[0].classification).toBe('PII');
@@ -405,10 +381,7 @@ describe('PIIDetector', () => {
     it('should give full confidence when all sample data matches', () => {
       const detector = new PIIDetector();
       const fields = [field('Data__c', 'Data')];
-      const sampleData = [
-        { Data__c: 'user@test.com' },
-        { Data__c: 'admin@example.org' },
-      ];
+      const sampleData = [{ Data__c: 'user@test.com' }, { Data__c: 'admin@example.org' }];
 
       const result = detector.detectPII('Obj', fields, sampleData);
 

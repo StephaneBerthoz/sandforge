@@ -9,9 +9,7 @@ import type {
 } from './seed.types.js';
 
 describe('SeedTemplate', () => {
-  function createTemplate(
-    overrides: Partial<SeedTemplate> = {},
-  ): SeedTemplate {
+  function createTemplate(overrides: Partial<SeedTemplate> = {}): SeedTemplate {
     return {
       id: 'tpl-uuid-001',
       name: 'Account & Contact Seed',
@@ -56,8 +54,7 @@ describe('SeedTemplate', () => {
   it('should support AI strategy with an aiPersona', () => {
     const template = createTemplate({
       strategy: 'ai',
-      aiPersona:
-        'A B2B SaaS company selling project management tools to mid-market enterprises',
+      aiPersona: 'A B2B SaaS company selling project management tools to mid-market enterprises',
       tags: ['ai', 'b2b'],
     });
 
@@ -97,10 +94,7 @@ describe('SeedTemplate', () => {
     };
 
     const template = createTemplate({
-      objects: [
-        createTemplate().objects[0],
-        contactConfig,
-      ],
+      objects: [createTemplate().objects[0], contactConfig],
     });
 
     expect(template.objects).toHaveLength(2);
@@ -255,9 +249,7 @@ describe('SeedExecutionResult', () => {
     expect(result.status).toBe('partial');
     expect(result.totalRecordsFailed).toBe(20);
     expect(result.objectResults[1].errors).toHaveLength(2);
-    expect(result.objectResults[1].errors[0]).toContain(
-      'REQUIRED_FIELD_MISSING',
-    );
+    expect(result.objectResults[1].errors[0]).toContain('REQUIRED_FIELD_MISSING');
   });
 
   it('should represent a complete failure', () => {

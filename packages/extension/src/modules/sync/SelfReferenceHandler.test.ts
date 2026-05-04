@@ -77,9 +77,7 @@ describe('SelfReferenceHandler', () => {
     });
 
     it('should handle orphan records whose parent is not in the set', () => {
-      const records = [
-        { Id: 'child-1', Name: 'Orphan', ParentId: 'missing-parent' },
-      ];
+      const records = [{ Id: 'child-1', Name: 'Orphan', ParentId: 'missing-parent' }];
 
       const sorted = handler.sortForInsert(records, 'ParentId');
 
@@ -103,9 +101,7 @@ describe('SelfReferenceHandler', () => {
     });
 
     it('should preserve all record fields', () => {
-      const records = [
-        { Id: 'a1', Name: 'Acme', Industry: 'Tech', ParentId: null },
-      ];
+      const records = [{ Id: 'a1', Name: 'Acme', Industry: 'Tech', ParentId: null }];
 
       const sorted = handler.sortForInsert(records, 'ParentId');
 
@@ -115,9 +111,7 @@ describe('SelfReferenceHandler', () => {
 
   describe('remapIds', () => {
     it('should replace parent IDs using the ID map', () => {
-      const records = [
-        { Id: 'new-child', Name: 'Child', ParentId: 'old-parent' },
-      ];
+      const records = [{ Id: 'new-child', Name: 'Child', ParentId: 'old-parent' }];
       const idMap = new Map([['old-parent', 'new-parent']]);
 
       const result = handler.remapIds(records, 'ParentId', idMap);
@@ -126,9 +120,7 @@ describe('SelfReferenceHandler', () => {
     });
 
     it('should leave unmapped IDs unchanged', () => {
-      const records = [
-        { Id: 'child', Name: 'Child', ParentId: 'unknown-parent' },
-      ];
+      const records = [{ Id: 'child', Name: 'Child', ParentId: 'unknown-parent' }];
       const idMap = new Map<string, string>();
 
       const result = handler.remapIds(records, 'ParentId', idMap);
@@ -137,9 +129,7 @@ describe('SelfReferenceHandler', () => {
     });
 
     it('should not modify records with null parent', () => {
-      const records = [
-        { Id: 'root', Name: 'Root', ParentId: null },
-      ];
+      const records = [{ Id: 'root', Name: 'Root', ParentId: null }];
       const idMap = new Map<string, string>();
 
       const result = handler.remapIds(records, 'ParentId', idMap);
@@ -148,9 +138,7 @@ describe('SelfReferenceHandler', () => {
     });
 
     it('should not modify original records', () => {
-      const records = [
-        { Id: 'child', Name: 'Child', ParentId: 'old-parent' },
-      ];
+      const records = [{ Id: 'child', Name: 'Child', ParentId: 'old-parent' }];
       const idMap = new Map([['old-parent', 'new-parent']]);
 
       handler.remapIds(records, 'ParentId', idMap);

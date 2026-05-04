@@ -292,11 +292,7 @@ export class RealTimeSyncOrchestrator {
     }
   }
 
-  private emitEventFeed(
-    event: CDCEvent,
-    applied: boolean,
-    error?: string,
-  ): void {
+  private emitEventFeed(event: CDCEvent, applied: boolean, error?: string): void {
     for (const handler of this.eventFeedHandlers) {
       handler(event, applied, error);
     }

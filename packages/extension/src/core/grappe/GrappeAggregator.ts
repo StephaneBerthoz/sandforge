@@ -29,11 +29,9 @@ export class GrappeAggregator {
    */
   aggregate(operationId: UUID): AggregatedGrappeResult {
     const completedPartitions = this.results.filter(
-      (r) => r.status === 'success' || r.status === 'partial'
+      (r) => r.status === 'success' || r.status === 'partial',
     ).length;
-    const failedPartitions = this.results.filter(
-      (r) => r.status === 'failure'
-    ).length;
+    const failedPartitions = this.results.filter((r) => r.status === 'failure').length;
 
     let totalRecords = 0;
     let successRecords = 0;
@@ -92,8 +90,7 @@ export class GrappeAggregator {
       totalRecordsPerSecond += partition.progress.recordsPerSecond;
     }
 
-    const percentage =
-      totalRecords > 0 ? (processedRecords / totalRecords) * 100 : 0;
+    const percentage = totalRecords > 0 ? (processedRecords / totalRecords) * 100 : 0;
 
     return {
       processedRecords,

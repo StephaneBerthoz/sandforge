@@ -6,7 +6,7 @@ import { InMemoryConfigStoreBackend } from '../storage/ConfigStoreBackend';
 
 function createCheckpoint(
   operationId: string,
-  overrides?: Partial<OperationCheckpoint>
+  overrides?: Partial<OperationCheckpoint>,
 ): OperationCheckpoint {
   return {
     operationId,
@@ -62,7 +62,7 @@ describe('CheckpointManager', () => {
       manager.save('op-1', createCheckpoint('op-1'));
 
       expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'saved', operationId: 'op-1' })
+        expect.objectContaining({ type: 'saved', operationId: 'op-1' }),
       );
     });
   });
@@ -100,7 +100,7 @@ describe('CheckpointManager', () => {
       manager.restore('op-1');
 
       expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'restored', operationId: 'op-1' })
+        expect.objectContaining({ type: 'restored', operationId: 'op-1' }),
       );
     });
 
@@ -254,7 +254,7 @@ describe('CheckpointManager', () => {
       manager.cleanup();
 
       expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'expired', operationId: 'op-1' })
+        expect.objectContaining({ type: 'expired', operationId: 'op-1' }),
       );
     });
   });
@@ -293,9 +293,11 @@ describe('CheckpointManager', () => {
 
     it('should save at regular intervals', () => {
       let processedRecords = 0;
-      const stateProvider = vi.fn().mockImplementation(() =>
-        createCheckpoint('op-1', { processedRecords: ++processedRecords })
-      );
+      const stateProvider = vi
+        .fn()
+        .mockImplementation(() =>
+          createCheckpoint('op-1', { processedRecords: ++processedRecords }),
+        );
 
       manager.startAutoSave('op-1', stateProvider, 10_000);
 
@@ -370,7 +372,7 @@ describe('CheckpointManager', () => {
       const recoverable = manager.getRecoverableCheckpoints();
       expect(recoverable).toHaveLength(2);
       expect(recoverable.map((cp) => cp.operationId)).toEqual(
-        expect.arrayContaining(['op-1', 'op-4'])
+        expect.arrayContaining(['op-1', 'op-4']),
       );
     });
 

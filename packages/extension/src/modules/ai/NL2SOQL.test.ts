@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  NL2SOQL,
-  type AIProvider,
-  type SchemaContext,
-  type NL2SOQLResult,
-} from './NL2SOQL';
+import { NL2SOQL, type AIProvider, type SchemaContext, type NL2SOQLResult } from './NL2SOQL';
 
 const MOCK_SCHEMA: SchemaContext = {
   objects: [
@@ -77,7 +72,7 @@ describe('NL2SOQL', () => {
       mockProvider.mockResolvedValue(
         createMockAIResponse({
           confidence: 0.6,
-          alternatives: ['SELECT Name FROM Account WHERE Industry = \'Tech\''],
+          alternatives: ["SELECT Name FROM Account WHERE Industry = 'Tech'"],
         }),
       );
 
@@ -89,9 +84,7 @@ describe('NL2SOQL', () => {
     });
 
     it('should not include alternatives when confidence is above 0.8', async () => {
-      mockProvider.mockResolvedValue(
-        createMockAIResponse({ confidence: 0.9 }),
-      );
+      mockProvider.mockResolvedValue(createMockAIResponse({ confidence: 0.9 }));
 
       const result = await converter.generateSOQL('Get all accounts', MOCK_SCHEMA);
 

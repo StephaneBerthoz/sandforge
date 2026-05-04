@@ -131,9 +131,7 @@ describe('complianceRuleSchema', () => {
   });
 
   it('should reject empty id', () => {
-    expect(() =>
-      complianceRuleSchema.parse({ ...createValidComplianceRule(), id: '' }),
-    ).toThrow();
+    expect(() => complianceRuleSchema.parse({ ...createValidComplianceRule(), id: '' })).toThrow();
   });
 
   it('should reject invalid pii category in targetPiiCategories', () => {
@@ -243,7 +241,11 @@ describe('complianceReportSchema', () => {
       ...createValidComplianceReport(),
       entries: [
         createValidComplianceReportEntry(),
-        { ...createValidComplianceReportEntry(), fieldApiName: 'Phone', anonymizationMethod: 'mask' },
+        {
+          ...createValidComplianceReportEntry(),
+          fieldApiName: 'Phone',
+          anonymizationMethod: 'mask',
+        },
       ],
       objectSummaries: [
         createValidObjectSummary(),

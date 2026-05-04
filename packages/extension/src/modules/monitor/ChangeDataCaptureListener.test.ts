@@ -29,18 +29,12 @@ describe('ChangeDataCaptureListener', () => {
   describe('watch', () => {
     it('should subscribe to the CDC channel for a standard entity', () => {
       listener.watch('Account');
-      expect(subscribe).toHaveBeenCalledWith(
-        '/data/AccountChangeEvent',
-        expect.any(Function)
-      );
+      expect(subscribe).toHaveBeenCalledWith('/data/AccountChangeEvent', expect.any(Function));
     });
 
     it('should subscribe to the CDC channel for a custom object', () => {
       listener.watch('MyObject__c');
-      expect(subscribe).toHaveBeenCalledWith(
-        '/data/MyObject__ChangeEvent',
-        expect.any(Function)
-      );
+      expect(subscribe).toHaveBeenCalledWith('/data/MyObject__ChangeEvent', expect.any(Function));
     });
 
     it('should not re-subscribe if already watching an entity', () => {

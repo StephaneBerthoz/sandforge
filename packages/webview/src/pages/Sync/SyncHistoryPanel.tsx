@@ -50,7 +50,8 @@ function formatDuration(ms: number): string {
  */
 export const SyncHistoryPanel: React.FC = () => {
   const { t } = useTranslation();
-  const { entries, loading, selectedEntry, fetchHistory, fetchDetail, exportHistory } = useSyncHistoryStore();
+  const { entries, loading, selectedEntry, fetchHistory, fetchDetail, exportHistory } =
+    useSyncHistoryStore();
 
   useEffect(() => {
     fetchHistory();
@@ -62,53 +63,58 @@ export const SyncHistoryPanel: React.FC = () => {
     [entries, pagination],
   );
 
-  const columns: DataTableColumn<HistoryRow>[] = useMemo(() => [
-    {
-      key: 'startTime',
-      header: t('sync.history.dateTime'),
-      width: '180px',
-      render: (row: HistoryRow) => (
-        <span title={format(new Date(row.startTime), 'yyyy-MM-dd HH:mm:ss')}>
-          {formatDistanceToNow(new Date(row.startTime), { addSuffix: true })}
-        </span>
-      ),
-    },
-    {
-      key: 'objects',
-      header: t('sync.history.objects'),
-      render: (row: HistoryRow) => row.result.objectResults.map((o) => o.objectApiName).join(', '),
-    },
-    {
-      key: 'records',
-      header: t('sync.history.records'),
-      width: '100px',
-      align: 'right' as const,
-      render: (row: HistoryRow) => String(row.result.totalProcessed),
-    },
-    {
-      key: 'status',
-      header: t('sync.history.status'),
-      width: '110px',
-      render: (row: HistoryRow) => (
-        <Badge variant={statusVariantMap[row.result.status] ?? 'default'}>
-          {t(`sync.history.status_${row.result.status}`)}
-        </Badge>
-      ),
-    },
-    {
-      key: 'duration',
-      header: t('sync.history.duration'),
-      width: '100px',
-      align: 'right' as const,
-      render: (row: HistoryRow) => formatDuration(row.result.duration),
-    },
-    {
-      key: 'triggeredBy',
-      header: t('sync.history.triggeredBy'),
-      width: '120px',
-      render: (row: HistoryRow) => t(triggeredByKeyMap[row.triggeredBy] ?? 'sync.history.triggeredManual'),
-    },
-  ], [t]);
+  const columns: DataTableColumn<HistoryRow>[] = useMemo(
+    () => [
+      {
+        key: 'startTime',
+        header: t('sync.history.dateTime'),
+        width: '180px',
+        render: (row: HistoryRow) => (
+          <span title={format(new Date(row.startTime), 'yyyy-MM-dd HH:mm:ss')}>
+            {formatDistanceToNow(new Date(row.startTime), { addSuffix: true })}
+          </span>
+        ),
+      },
+      {
+        key: 'objects',
+        header: t('sync.history.objects'),
+        render: (row: HistoryRow) =>
+          row.result.objectResults.map((o) => o.objectApiName).join(', '),
+      },
+      {
+        key: 'records',
+        header: t('sync.history.records'),
+        width: '100px',
+        align: 'right' as const,
+        render: (row: HistoryRow) => String(row.result.totalProcessed),
+      },
+      {
+        key: 'status',
+        header: t('sync.history.status'),
+        width: '110px',
+        render: (row: HistoryRow) => (
+          <Badge variant={statusVariantMap[row.result.status] ?? 'default'}>
+            {t(`sync.history.status_${row.result.status}`)}
+          </Badge>
+        ),
+      },
+      {
+        key: 'duration',
+        header: t('sync.history.duration'),
+        width: '100px',
+        align: 'right' as const,
+        render: (row: HistoryRow) => formatDuration(row.result.duration),
+      },
+      {
+        key: 'triggeredBy',
+        header: t('sync.history.triggeredBy'),
+        width: '120px',
+        render: (row: HistoryRow) =>
+          t(triggeredByKeyMap[row.triggeredBy] ?? 'sync.history.triggeredManual'),
+      },
+    ],
+    [t],
+  );
 
   const isLoading = loading && entries.length === 0;
   const isEmpty = !loading && entries.length === 0;

@@ -1,15 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GrappeMonitor } from './GrappeMonitor';
 import type { GrappeMonitorListener } from './GrappeMonitor';
-import type {
-  GrappePartition,
-  GrappeProgress,
-  GrappeWorkerStatus,
-} from '@sandforge/shared';
+import type { GrappePartition, GrappeProgress, GrappeWorkerStatus } from '@sandforge/shared';
 
-function createPartition(
-  overrides: Partial<GrappePartition> = {}
-): GrappePartition {
+function createPartition(overrides: Partial<GrappePartition> = {}): GrappePartition {
   const progress: GrappeProgress = {
     processedRecords: 0,
     totalRecords: 10,
@@ -33,9 +27,7 @@ function createPartition(
   };
 }
 
-function createWorkerStatus(
-  overrides: Partial<GrappeWorkerStatus> = {}
-): GrappeWorkerStatus {
+function createWorkerStatus(overrides: Partial<GrappeWorkerStatus> = {}): GrappeWorkerStatus {
   return {
     workerId: 0,
     active: false,
@@ -77,7 +69,7 @@ describe('GrappeMonitor', () => {
           operationId: 'op-001',
           partitionId: 'p-001',
           status: 'completed',
-        })
+        }),
       );
     });
 
@@ -120,12 +112,7 @@ describe('GrappeMonitor', () => {
       monitor.updateProgress('p-001', progress);
 
       const partition = createPartition({ id: 'p-001' });
-      const status = monitor.getOperationStatus(
-        [partition],
-        [createWorkerStatus()],
-        'normal',
-        10
-      );
+      const status = monitor.getOperationStatus([partition], [createWorkerStatus()], 'normal', 10);
 
       expect(status.overallProgress.processedRecords).toBe(5);
       expect(status.overallProgress.percentage).toBe(50);
@@ -139,12 +126,7 @@ describe('GrappeMonitor', () => {
       const partitions = [createPartition()];
       const workers = [createWorkerStatus({ active: true })];
 
-      const status = monitor.getOperationStatus(
-        partitions,
-        workers,
-        'warning',
-        45
-      );
+      const status = monitor.getOperationStatus(partitions, workers, 'warning', 45);
 
       expect(status.operationId).toBe('op-001');
       expect(status.workers).toHaveLength(1);
@@ -171,12 +153,7 @@ describe('GrappeMonitor', () => {
         },
       });
 
-      const status = monitor.getOperationStatus(
-        [partition],
-        [createWorkerStatus()],
-        'normal',
-        10
-      );
+      const status = monitor.getOperationStatus([partition], [createWorkerStatus()], 'normal', 10);
 
       expect(status.estimatedTimeRemaining).toBeGreaterThan(0);
     });

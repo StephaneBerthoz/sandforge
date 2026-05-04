@@ -1,8 +1,4 @@
-import type {
-  PreCheckCategory,
-  PreCheckConfig,
-  PreCheckItem,
-} from '@sandforge/shared';
+import type { PreCheckCategory, PreCheckConfig, PreCheckItem } from '@sandforge/shared';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 
 /** Result of an auto-fix operation */
@@ -18,10 +14,7 @@ export interface FixFailure {
 }
 
 /** Handler function that applies a fix for a single item */
-export type FixHandlerFn = (
-  item: PreCheckItem,
-  config: PreCheckConfig
-) => Promise<PreCheckItem>;
+export type FixHandlerFn = (item: PreCheckItem, config: PreCheckConfig) => Promise<PreCheckItem>;
 
 /** Map of fix handlers keyed by category */
 export type FixHandlerMap = Partial<Record<PreCheckCategory, FixHandlerFn>>;

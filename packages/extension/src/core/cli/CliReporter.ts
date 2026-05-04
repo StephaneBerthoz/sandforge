@@ -44,26 +44,15 @@ export class CliReporter {
 
     // Calculate column widths
     const colWidths = headers.map((h, i) => {
-      const cellMax = rows.reduce(
-        (max, row) => Math.max(max, (row[i] ?? '').length),
-        0
-      );
+      const cellMax = rows.reduce((max, row) => Math.max(max, (row[i] ?? '').length), 0);
       return Math.max(h.length, cellMax);
     });
 
     const separator = '+' + colWidths.map((w) => '-'.repeat(w + 2)).join('+') + '+';
     const formatRow = (cells: string[]): string =>
-      '|' +
-      cells
-        .map((cell, i) => ` ${(cell ?? '').padEnd(colWidths[i])} `)
-        .join('|') +
-      '|';
+      '|' + cells.map((cell, i) => ` ${(cell ?? '').padEnd(colWidths[i])} `).join('|') + '|';
 
-    const lines: string[] = [
-      separator,
-      formatRow(headers),
-      separator,
-    ];
+    const lines: string[] = [separator, formatRow(headers), separator];
 
     for (const row of rows) {
       lines.push(formatRow(row));
@@ -113,7 +102,7 @@ export class CliReporter {
     const rows = Object.entries(data)
       .map(
         ([key, value]) =>
-          `      <tr><td>${this.escapeHtml(key)}</td><td>${this.escapeHtml(String(value))}</td></tr>`
+          `      <tr><td>${this.escapeHtml(key)}</td><td>${this.escapeHtml(String(value))}</td></tr>`,
       )
       .join('\n');
 

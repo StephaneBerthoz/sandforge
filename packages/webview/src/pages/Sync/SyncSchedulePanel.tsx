@@ -26,7 +26,8 @@ const resultVariant: Record<string, BadgeVariant> = {
  */
 export const SyncSchedulePanel: React.FC = () => {
   const { t } = useTranslation();
-  const { schedules, loading, fetchSchedules, upsertSchedule, toggleSchedule, deleteSchedule } = useSyncScheduleStore();
+  const { schedules, loading, fetchSchedules, upsertSchedule, toggleSchedule, deleteSchedule } =
+    useSyncScheduleStore();
 
   const [showBuilder, setShowBuilder] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<SyncScheduleEntry | null>(null);
@@ -36,35 +37,41 @@ export const SyncSchedulePanel: React.FC = () => {
     fetchSchedules();
   }, [fetchSchedules]);
 
-  const handleSubmit = useCallback((data: CronScheduleFormData) => {
-    const payload: SyncScheduleUpsertPayload = {
-      id: editingSchedule?.id ?? `sched-${Date.now()}`,
-      name: data.name,
-      configId: data.configId,
-      cron: data.cron,
-      timezone: data.timezone,
-      enabled: editingSchedule?.enabled ?? true,
-      maxRetries: data.maxRetries,
-      notifyOnComplete: data.notifyOnComplete,
-      notifyOnFailure: data.notifyOnFailure,
-      createdAt: editingSchedule?.createdAt ?? new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      version: editingSchedule?.version ?? 1,
-    };
-    upsertSchedule(payload);
-    setShowBuilder(false);
-    setEditingSchedule(null);
-  }, [editingSchedule, upsertSchedule]);
+  const handleSubmit = useCallback(
+    (data: CronScheduleFormData) => {
+      const payload: SyncScheduleUpsertPayload = {
+        id: editingSchedule?.id ?? `sched-${Date.now()}`,
+        name: data.name,
+        configId: data.configId,
+        cron: data.cron,
+        timezone: data.timezone,
+        enabled: editingSchedule?.enabled ?? true,
+        maxRetries: data.maxRetries,
+        notifyOnComplete: data.notifyOnComplete,
+        notifyOnFailure: data.notifyOnFailure,
+        createdAt: editingSchedule?.createdAt ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        version: editingSchedule?.version ?? 1,
+      };
+      upsertSchedule(payload);
+      setShowBuilder(false);
+      setEditingSchedule(null);
+    },
+    [editingSchedule, upsertSchedule],
+  );
 
   const handleEdit = useCallback((schedule: SyncScheduleEntry) => {
     setEditingSchedule(schedule);
     setShowBuilder(true);
   }, []);
 
-  const handleDelete = useCallback((scheduleId: string) => {
-    deleteSchedule(scheduleId);
-    setConfirmDeleteId(null);
-  }, [deleteSchedule]);
+  const handleDelete = useCallback(
+    (scheduleId: string) => {
+      deleteSchedule(scheduleId);
+      setConfirmDeleteId(null);
+    },
+    [deleteSchedule],
+  );
 
   const handleCancel = useCallback(() => {
     setShowBuilder(false);
@@ -139,7 +146,9 @@ export const SyncSchedulePanel: React.FC = () => {
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-[var(--sf-space-2)]">
-                  <span className="text-xs font-semibold text-[var(--vscode-editor-foreground)]">{schedule.name}</span>
+                  <span className="text-xs font-semibold text-[var(--vscode-editor-foreground)]">
+                    {schedule.name}
+                  </span>
                   <Badge variant={schedule.enabled ? 'success' : 'default'}>
                     {schedule.enabled ? t('sync.schedules.active') : t('sync.schedules.paused')}
                   </Badge>
@@ -153,10 +162,16 @@ export const SyncSchedulePanel: React.FC = () => {
                   <span>{cronToHuman(schedule.cron)}</span>
                   <span>{schedule.timezone}</span>
                   {schedule.nextRunAt && (
-                    <span>{t('sync.schedules.nextRun')}: {format(new Date(schedule.nextRunAt), 'yyyy-MM-dd HH:mm')}</span>
+                    <span>
+                      {t('sync.schedules.nextRun')}:{' '}
+                      {format(new Date(schedule.nextRunAt), 'yyyy-MM-dd HH:mm')}
+                    </span>
                   )}
                   {schedule.lastRunAt && (
-                    <span>{t('sync.schedules.lastRun')}: {format(new Date(schedule.lastRunAt), 'yyyy-MM-dd HH:mm')}</span>
+                    <span>
+                      {t('sync.schedules.lastRun')}:{' '}
+                      {format(new Date(schedule.lastRunAt), 'yyyy-MM-dd HH:mm')}
+                    </span>
                   )}
                 </div>
               </div>

@@ -28,8 +28,7 @@ export const ForgeReview: React.FC = () => {
   const toggleNodeIncluded = useForgeStore((s) => s.toggleNodeIncluded);
   const metadataDiffs = useForgeStore((s) => s.metadataDiffs);
 
-  const piiFieldCount =
-    graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
+  const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
   const anonymizePII = config?.anonymizePII ?? false;
 
   const tabs: Array<{
@@ -66,9 +65,7 @@ export const ForgeReview: React.FC = () => {
       <div className="flex gap-4 min-h-[500px]">
         {/* Graph panel (60%) */}
         <div className="w-3/5 rounded-lg border border-subtle bg-surface-1 overflow-hidden">
-          {graph && (
-            <LiveGraph graph={graph} onIncludeToggle={toggleNodeIncluded} />
-          )}
+          {graph && <LiveGraph graph={graph} onIncludeToggle={toggleNodeIncluded} />}
         </div>
 
         {/* Tabbed panel (40%) */}

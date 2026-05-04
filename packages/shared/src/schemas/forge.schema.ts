@@ -9,7 +9,14 @@ export const forgeInputModeSchema = z.enum(['record', 'soql', 'template', 'ai'])
 export const forgeDepthSchema = z.enum(['direct', 'full', 'custom']);
 
 /** Zod schema for ForgeNodeStatus enum */
-export const forgeNodeStatusSchema = z.enum(['idle', 'scanning', 'running', 'done', 'error', 'skipped']);
+export const forgeNodeStatusSchema = z.enum([
+  'idle',
+  'scanning',
+  'running',
+  'done',
+  'error',
+  'skipped',
+]);
 
 /** Zod schema for ForgeGraphEdge relationship type */
 export const forgeEdgeTypeSchema = z.enum(['master-detail', 'lookup']);
@@ -21,10 +28,22 @@ export const forgeExecutionStatusSchema = z.enum(['success', 'partial', 'failure
 export const forgeBatchStrategySchema = z.enum(['rest', 'bulk', 'auto']);
 
 /** Zod schema for ForgeAnonymizationCategory */
-export const forgeAnonymizationCategorySchema = z.enum(['email', 'phone', 'name', 'address', 'ssn_id', 'financial', 'other']);
+export const forgeAnonymizationCategorySchema = z.enum([
+  'email',
+  'phone',
+  'name',
+  'address',
+  'ssn_id',
+  'financial',
+  'other',
+]);
 
 /** Zod schema for ForgeCycleStrategy */
-export const forgeCycleStrategySchema = z.enum(['two_pass', 'upsert_external_id', 'nullable_lookup']);
+export const forgeCycleStrategySchema = z.enum([
+  'two_pass',
+  'upsert_external_id',
+  'nullable_lookup',
+]);
 
 // ─── Config Schema ──────────────────────────────────────────────────────────
 
@@ -65,7 +84,14 @@ export const forgeConfigSchema = z.object({
   fieldExclusions: z
     .record(
       z.string().regex(SF_OBJECT_NAME_REGEX, 'Invalid SObject API name'),
-      z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/).max(80)).max(200),
+      z
+        .array(
+          z
+            .string()
+            .regex(/^[A-Za-z][A-Za-z0-9_]{0,79}$/)
+            .max(80),
+        )
+        .max(200),
     )
     .optional(),
   // Source-org → target-org User Id remap for OwnerId. Both sides are
@@ -96,7 +122,8 @@ export const forgeConfigSchema = z.object({
         .min(1)
         .max(512)
         .refine((s) => !/--|\/\*|\*\/|;\s*$/.test(s), {
-          message: 'SOQL filter must not contain comment markers (--, /*, */) or trailing semicolon',
+          message:
+            'SOQL filter must not contain comment markers (--, /*, */) or trailing semicolon',
         }),
     )
     .refine((m) => Object.keys(m).length <= 50, {
@@ -140,7 +167,8 @@ export const forgeConfigSchemaStrict = forgeConfigSchema.refine(
     return false;
   },
   {
-    message: 'inputMode requires the matching field (record→recordId, soql→soqlQuery, template→templateId, ai→aiPrompt)',
+    message:
+      'inputMode requires the matching field (record→recordId, soql→soqlQuery, template→templateId, ai→aiPrompt)',
     path: ['inputMode'],
   },
 );

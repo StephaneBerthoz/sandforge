@@ -1,8 +1,4 @@
-import type {
-  PipelineCondition,
-  PipelineStep,
-  PipelineStepResult,
-} from '@sandforge/shared';
+import type { PipelineCondition, PipelineStep, PipelineStepResult } from '@sandforge/shared';
 
 /**
  * Routes pipeline execution based on conditions and step results.
@@ -18,10 +14,7 @@ export class ConditionalRouter {
    * @param context - Key-value context to resolve field references
    * @returns true if the condition is satisfied
    */
-  evaluate(
-    condition: PipelineCondition,
-    context: Record<string, unknown>
-  ): boolean {
+  evaluate(condition: PipelineCondition, context: Record<string, unknown>): boolean {
     const fieldValue = context[condition.field];
 
     switch (condition.operator) {
@@ -43,25 +36,15 @@ export class ConditionalRouter {
         return !String(fieldValue ?? '').includes(String(condition.value));
       case 'matches': {
         try {
-          return new RegExp(String(condition.value)).test(
-            String(fieldValue ?? '')
-          );
+          return new RegExp(String(condition.value)).test(String(fieldValue ?? ''));
         } catch {
           return false;
         }
       }
       case 'is_empty':
-        return (
-          fieldValue === undefined ||
-          fieldValue === null ||
-          fieldValue === ''
-        );
+        return fieldValue === undefined || fieldValue === null || fieldValue === '';
       case 'is_not_empty':
-        return (
-          fieldValue !== undefined &&
-          fieldValue !== null &&
-          fieldValue !== ''
-        );
+        return fieldValue !== undefined && fieldValue !== null && fieldValue !== '';
     }
   }
 
@@ -72,10 +55,7 @@ export class ConditionalRouter {
    * @param context - Key-value context to resolve field references
    * @returns true if the combined conditions are satisfied
    */
-  evaluateGroup(
-    conditions: PipelineCondition[],
-    context: Record<string, unknown>
-  ): boolean {
+  evaluateGroup(conditions: PipelineCondition[], context: Record<string, unknown>): boolean {
     if (conditions.length === 0) {
       return true;
     }
@@ -96,10 +76,7 @@ export class ConditionalRouter {
    * @param result - The execution result of that step
    * @returns The ID of the next step, or undefined if no branching is configured
    */
-  getNextStep(
-    step: PipelineStep,
-    result: PipelineStepResult
-  ): string | undefined {
+  getNextStep(step: PipelineStep, result: PipelineStepResult): string | undefined {
     if (result.status === 'completed') {
       return step.onSuccess;
     }
@@ -118,11 +95,7 @@ export class ConditionalRouter {
    * @param success - true to follow onSuccess, false to follow onFailure
    * @returns Array of steps along the branch path
    */
-  findBranch(
-    steps: PipelineStep[],
-    fromStepId: string,
-    success: boolean
-  ): PipelineStep[] {
+  findBranch(steps: PipelineStep[], fromStepId: string, success: boolean): PipelineStep[] {
     const stepMap = new Map(steps.map((s) => [s.id, s]));
     const branch: PipelineStep[] = [];
     const visited = new Set<string>();

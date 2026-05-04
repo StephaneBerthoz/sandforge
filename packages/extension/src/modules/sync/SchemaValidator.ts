@@ -31,10 +31,7 @@ export class SchemaValidator {
    * Returns a result indicating whether all records are valid,
    * and a list of specific errors for invalid records.
    */
-  validate(
-    records: Record<string, unknown>[],
-    schema: FieldSchema[]
-  ): SchemaValidationResult {
+  validate(records: Record<string, unknown>[], schema: FieldSchema[]): SchemaValidationResult {
     const errors: SchemaError[] = [];
 
     for (let i = 0; i < records.length; i++) {
@@ -56,7 +53,7 @@ export class SchemaValidator {
 function validateRecord(
   record: Record<string, unknown>,
   schema: FieldSchema[],
-  recordIndex: number
+  recordIndex: number,
 ): SchemaError[] {
   const errors: SchemaError[] = [];
 
@@ -108,7 +105,7 @@ function isEmptyValue(value: unknown): boolean {
 function validateLength(
   value: unknown,
   field: FieldSchema,
-  recordIndex: number
+  recordIndex: number,
 ): SchemaError | null {
   if (field.maxLength === undefined) {
     return null;
@@ -132,7 +129,7 @@ function validateLength(
 function validatePicklist(
   value: unknown,
   field: FieldSchema,
-  recordIndex: number
+  recordIndex: number,
 ): SchemaError | null {
   if (!field.picklistValues || field.picklistValues.length === 0) {
     return null;
@@ -153,11 +150,7 @@ function validatePicklist(
 /**
  * Validate basic type compatibility between the value and the schema type.
  */
-function validateType(
-  value: unknown,
-  field: FieldSchema,
-  recordIndex: number
-): SchemaError | null {
+function validateType(value: unknown, field: FieldSchema, recordIndex: number): SchemaError | null {
   switch (field.type) {
     case 'boolean':
       if (typeof value !== 'boolean') {

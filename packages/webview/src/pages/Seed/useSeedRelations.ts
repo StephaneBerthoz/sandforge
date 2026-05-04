@@ -18,16 +18,22 @@ export function useSeedRelations(): SeedRelationsState {
   const [relations, setRelations] = useState<SeedRelation[]>([]);
 
   const handleAddRelation = useCallback(() => {
-    setRelations((prev) => [...prev, { childObject: '', childField: '', parentObject: '', parentField: 'Id' }]);
+    setRelations((prev) => [
+      ...prev,
+      { childObject: '', childField: '', parentObject: '', parentField: 'Id' },
+    ]);
   }, []);
 
   const handleRemoveRelation = useCallback((index: number) => {
     setRelations((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const handleChangeRelation = useCallback((index: number, field: keyof SeedRelation, value: string) => {
-    setRelations((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
-  }, []);
+  const handleChangeRelation = useCallback(
+    (index: number, field: keyof SeedRelation, value: string) => {
+      setRelations((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
+    },
+    [],
+  );
 
   return {
     relations,

@@ -70,7 +70,7 @@ export class CompositeApiManager {
    */
   async execute(
     requests: CompositeRequest[],
-    executor: (batch: CompositeRequest[]) => Promise<CompositeResult[]>
+    executor: (batch: CompositeRequest[]) => Promise<CompositeResult[]>,
   ): Promise<CompositeResult[]> {
     if (requests.length === 0) {
       return [];
@@ -119,9 +119,7 @@ export class CompositeApiManager {
   }
 
   /** Parse a composite response and extract results mapped by referenceId */
-  parseCompositeResponse(
-    response: CompositeResult[]
-  ): Map<string, CompositeResult> {
+  parseCompositeResponse(response: CompositeResult[]): Map<string, CompositeResult> {
     const resultMap = new Map<string, CompositeResult>();
     for (const result of response) {
       resultMap.set(result.referenceId, result);
@@ -130,9 +128,7 @@ export class CompositeApiManager {
   }
 
   /** Parse a graph response and flatten into individual results */
-  parseGraphResponse(
-    graphResults: CompositeGraphResult[]
-  ): CompositeResult[] {
+  parseGraphResponse(graphResults: CompositeGraphResult[]): CompositeResult[] {
     const results: CompositeResult[] = [];
     for (const graph of graphResults) {
       results.push(...graph.graphResponse.compositeResponse);
@@ -142,16 +138,12 @@ export class CompositeApiManager {
 
   /** Extract errors from composite results (non-2xx status codes) */
   extractErrors(results: CompositeResult[]): CompositeResult[] {
-    return results.filter(
-      (r) => r.httpStatusCode < 200 || r.httpStatusCode >= 300
-    );
+    return results.filter((r) => r.httpStatusCode < 200 || r.httpStatusCode >= 300);
   }
 
   /** Check if all results are successful */
   isAllSuccessful(results: CompositeResult[]): boolean {
-    return results.every(
-      (r) => r.httpStatusCode >= 200 && r.httpStatusCode < 300
-    );
+    return results.every((r) => r.httpStatusCode >= 200 && r.httpStatusCode < 300);
   }
 
   /** Generate a unique reference ID for a subrequest */
@@ -191,10 +183,7 @@ export class CompositeApiManager {
   }
 
   /** Split requests into batches of the given size */
-  private splitIntoBatches(
-    requests: CompositeRequest[],
-    batchSize: number
-  ): CompositeRequest[][] {
+  private splitIntoBatches(requests: CompositeRequest[], batchSize: number): CompositeRequest[][] {
     const batches: CompositeRequest[][] = [];
     for (let i = 0; i < requests.length; i += batchSize) {
       batches.push(requests.slice(i, i + batchSize));

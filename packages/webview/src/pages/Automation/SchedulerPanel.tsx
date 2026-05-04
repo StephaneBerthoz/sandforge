@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Clock, Plus, Trash2, Play, Pause, CheckCircle, XCircle, AlertTriangle,
+  Clock,
+  Plus,
+  Trash2,
+  Play,
+  Pause,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '../../theme';
 import { Button } from '../../components/ui/Button';
@@ -52,9 +59,12 @@ function formatRelativeTime(iso: string): string {
 /** Status icon for a run. */
 function runStatusIcon(status: ScheduledOperationRun['status']): React.ReactNode {
   switch (status) {
-    case 'success': return <CheckCircle className="w-4 h-4 text-green-400" />;
-    case 'failure': return <XCircle className="w-4 h-4 text-red-400" />;
-    case 'partial': return <AlertTriangle className="w-4 h-4 text-amber-400" />;
+    case 'success':
+      return <CheckCircle className="w-4 h-4 text-green-400" />;
+    case 'failure':
+      return <XCircle className="w-4 h-4 text-red-400" />;
+    case 'partial':
+      return <AlertTriangle className="w-4 h-4 text-amber-400" />;
   }
 }
 
@@ -82,7 +92,10 @@ const AddScheduleForm: React.FC<{
   };
 
   return (
-    <div className="rounded-lg border border-active bg-surface-2 p-4 flex flex-col gap-3" data-testid="add-schedule-form">
+    <div
+      className="rounded-lg border border-active bg-surface-2 p-4 flex flex-col gap-3"
+      data-testid="add-schedule-form"
+    >
       <div className="grid grid-cols-2 gap-3">
         {/* Operation type */}
         <div>
@@ -149,7 +162,9 @@ const AddScheduleForm: React.FC<{
               data-testid="select-day-of-week"
             >
               {DAY_LABELS.map((label, idx) => (
-                <option key={idx} value={idx}>{label}</option>
+                <option key={idx} value={idx}>
+                  {label}
+                </option>
               ))}
             </select>
           </div>
@@ -191,21 +206,18 @@ export const SchedulerPanel: React.FC = () => {
   const { t } = useTranslation();
   const [showAddForm, setShowAddForm] = useState(false);
 
-  const listQuery = useBridgeQuery<SchedulerListPayload>(
-    'scheduler:list',
-    undefined,
-    { responseType: 'scheduler:list:response' },
-  );
+  const listQuery = useBridgeQuery<SchedulerListPayload>('scheduler:list', undefined, {
+    responseType: 'scheduler:list:response',
+  });
 
   const upsertMutation = useBridgeMutation<{ success: boolean; schedule?: ScheduledOperation }>(
     'scheduler:upsert',
     { responseType: 'scheduler:upsert:response' },
   );
 
-  const deleteMutation = useBridgeMutation<{ success: boolean }>(
-    'scheduler:delete',
-    { responseType: 'scheduler:delete:response' },
-  );
+  const deleteMutation = useBridgeMutation<{ success: boolean }>('scheduler:delete', {
+    responseType: 'scheduler:delete:response',
+  });
 
   const toggleMutation = useBridgeMutation<{ success: boolean; schedule?: ScheduledOperation }>(
     'scheduler:toggle',
@@ -215,7 +227,9 @@ export const SchedulerPanel: React.FC = () => {
   const schedules = listQuery.data?.schedules ?? [];
   const history = listQuery.data?.history ?? [];
 
-  const handleAddSchedule = (schedule: Omit<ScheduledOperation, 'id' | 'lastRunAt' | 'nextRunAt'>) => {
+  const handleAddSchedule = (
+    schedule: Omit<ScheduledOperation, 'id' | 'lastRunAt' | 'nextRunAt'>,
+  ) => {
     const id = `sched-${Date.now()}`;
     upsertMutation.mutate({
       schedule: { ...schedule, id },
@@ -258,18 +272,21 @@ export const SchedulerPanel: React.FC = () => {
 
       {/* Add form */}
       {showAddForm && (
-        <AddScheduleForm
-          onSubmit={handleAddSchedule}
-          onCancel={() => setShowAddForm(false)}
-        />
+        <AddScheduleForm onSubmit={handleAddSchedule} onCancel={() => setShowAddForm(false)} />
       )}
 
       {/* Schedules list */}
       {schedules.length === 0 && !showAddForm ? (
-        <div className="flex flex-col items-center justify-center py-8 text-center" data-testid="scheduler-empty">
+        <div
+          className="flex flex-col items-center justify-center py-8 text-center"
+          data-testid="scheduler-empty"
+        >
           <Clock className="w-10 h-10 text-text-muted mb-3" />
           <p className="text-sm text-text-secondary">
-            {t('scheduler.emptyDescription', 'No scheduled operations. Click "Add Schedule" to create recurring backup, sync, or cleanup operations.')}
+            {t(
+              'scheduler.emptyDescription',
+              'No scheduled operations. Click "Add Schedule" to create recurring backup, sync, or cleanup operations.',
+            )}
           </p>
         </div>
       ) : (
@@ -289,10 +306,13 @@ export const SchedulerPanel: React.FC = () => {
                     {t(`scheduler.opTypes.${schedule.operationType}`, schedule.operationType)}
                   </Badge>
                   <span className="text-xs text-text-secondary">
-                    {t(`scheduler.frequencies.${schedule.frequency}`, schedule.frequency)} @ {schedule.time}
+                    {t(`scheduler.frequencies.${schedule.frequency}`, schedule.frequency)} @{' '}
+                    {schedule.time}
                   </span>
                   {schedule.frequency === 'weekly' && schedule.dayOfWeek !== undefined && (
-                    <span className="text-xs text-text-muted">({DAY_LABELS[schedule.dayOfWeek]})</span>
+                    <span className="text-xs text-text-muted">
+                      ({DAY_LABELS[schedule.dayOfWeek]})
+                    </span>
                   )}
                   {schedule.frequency === 'monthly' && schedule.dayOfMonth !== undefined && (
                     <span className="text-xs text-text-muted">
@@ -314,7 +334,11 @@ export const SchedulerPanel: React.FC = () => {
                   onClick={() => handleToggle(schedule.id, !schedule.enabled)}
                   data-testid={`toggle-${schedule.id}`}
                 >
-                  {schedule.enabled ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  {schedule.enabled ? (
+                    <Pause className="w-3.5 h-3.5" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5" />
+                  )}
                 </Button>
                 <Button
                   variant="ghost"
@@ -340,32 +364,51 @@ export const SchedulerPanel: React.FC = () => {
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-surface-2 text-text-secondary">
-                  <th className="px-3 py-2 text-left font-medium">{t('common.status', 'Status')}</th>
+                  <th className="px-3 py-2 text-left font-medium">
+                    {t('common.status', 'Status')}
+                  </th>
                   <th className="px-3 py-2 text-left font-medium">{t('common.type', 'Type')}</th>
-                  <th className="px-3 py-2 text-left font-medium">{t('scheduler.startedAt', 'Started')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t('scheduler.duration', 'Duration')}</th>
-                  <th className="px-3 py-2 text-right font-medium">{t('scheduler.records', 'Records')}</th>
+                  <th className="px-3 py-2 text-left font-medium">
+                    {t('scheduler.startedAt', 'Started')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('scheduler.duration', 'Duration')}
+                  </th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    {t('scheduler.records', 'Records')}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {history.slice(-10).reverse().map((run) => (
-                  <tr
-                    key={run.id}
-                    className="border-t border-subtle hover:bg-surface-2 transition-colors"
-                    data-testid={`history-${run.id}`}
-                  >
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1.5">
-                        {runStatusIcon(run.status)}
-                        <span className="text-text-primary capitalize">{run.status}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-text-secondary capitalize">{run.operationType}</td>
-                    <td className="px-3 py-2 text-text-secondary">{formatRelativeTime(run.startedAt)}</td>
-                    <td className="px-3 py-2 text-text-secondary text-right tabular-nums">{formatDuration(run.durationMs)}</td>
-                    <td className="px-3 py-2 text-text-secondary text-right tabular-nums">{run.recordsProcessed.toLocaleString()}</td>
-                  </tr>
-                ))}
+                {history
+                  .slice(-10)
+                  .reverse()
+                  .map((run) => (
+                    <tr
+                      key={run.id}
+                      className="border-t border-subtle hover:bg-surface-2 transition-colors"
+                      data-testid={`history-${run.id}`}
+                    >
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5">
+                          {runStatusIcon(run.status)}
+                          <span className="text-text-primary capitalize">{run.status}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-text-secondary capitalize">
+                        {run.operationType}
+                      </td>
+                      <td className="px-3 py-2 text-text-secondary">
+                        {formatRelativeTime(run.startedAt)}
+                      </td>
+                      <td className="px-3 py-2 text-text-secondary text-right tabular-nums">
+                        {formatDuration(run.durationMs)}
+                      </td>
+                      <td className="px-3 py-2 text-text-secondary text-right tabular-nums">
+                        {run.recordsProcessed.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>

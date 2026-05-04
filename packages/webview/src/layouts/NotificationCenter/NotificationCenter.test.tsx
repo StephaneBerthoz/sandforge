@@ -81,8 +81,12 @@ describe('NotificationCenter', () => {
   });
 
   it('should filter notifications by level when clicking tab', () => {
-    useNotificationStore.getState().addNotification({ level: 'info', title: 'Info notif', message: 'msg' });
-    useNotificationStore.getState().addNotification({ level: 'error', title: 'Error notif', message: 'msg' });
+    useNotificationStore
+      .getState()
+      .addNotification({ level: 'info', title: 'Info notif', message: 'msg' });
+    useNotificationStore
+      .getState()
+      .addNotification({ level: 'error', title: 'Error notif', message: 'msg' });
     render(<NotificationCenter open onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByTestId('filter-level-error'));
@@ -91,8 +95,12 @@ describe('NotificationCenter', () => {
   });
 
   it('should show all when "All" filter is clicked', () => {
-    useNotificationStore.getState().addNotification({ level: 'info', title: 'Info notif', message: 'msg' });
-    useNotificationStore.getState().addNotification({ level: 'error', title: 'Error notif', message: 'msg' });
+    useNotificationStore
+      .getState()
+      .addNotification({ level: 'info', title: 'Info notif', message: 'msg' });
+    useNotificationStore
+      .getState()
+      .addNotification({ level: 'error', title: 'Error notif', message: 'msg' });
     useNotificationStore.getState().setFilterLevel('error');
     render(<NotificationCenter open onClose={vi.fn()} />);
 
@@ -113,8 +121,12 @@ describe('NotificationCenter', () => {
   // ── Search ──
 
   it('should filter notifications by search query', () => {
-    useNotificationStore.getState().addNotification({ level: 'info', title: 'Deploy done', message: 'ok' });
-    useNotificationStore.getState().addNotification({ level: 'info', title: 'Sync failed', message: 'timeout' });
+    useNotificationStore
+      .getState()
+      .addNotification({ level: 'info', title: 'Deploy done', message: 'ok' });
+    useNotificationStore
+      .getState()
+      .addNotification({ level: 'info', title: 'Sync failed', message: 'timeout' });
     render(<NotificationCenter open onClose={vi.fn()} />);
 
     const search = screen.getByTestId('notification-search');
@@ -126,7 +138,9 @@ describe('NotificationCenter', () => {
   // ── Date grouping ──
 
   it('should show Today header for notifications from today', () => {
-    useNotificationStore.getState().addNotification({ level: 'info', title: 'Recent', message: 'msg' });
+    useNotificationStore
+      .getState()
+      .addNotification({ level: 'info', title: 'Recent', message: 'msg' });
     render(<NotificationCenter open onClose={vi.fn()} />);
     expect(screen.getByTestId('date-group-today')).toBeDefined();
     expect(screen.getByText('Today')).toBeDefined();
@@ -136,15 +150,17 @@ describe('NotificationCenter', () => {
     // Manually add a notification with yesterday's timestamp
     const yesterday = Date.now() - 86400000 * 2;
     useNotificationStore.setState({
-      notifications: [{
-        id: 'old-1',
-        level: 'info',
-        title: 'Old notif',
-        message: 'old msg',
-        timestamp: yesterday,
-        read: false,
-        category: 'system',
-      }],
+      notifications: [
+        {
+          id: 'old-1',
+          level: 'info',
+          title: 'Old notif',
+          message: 'old msg',
+          timestamp: yesterday,
+          read: false,
+          category: 'system',
+        },
+      ],
     });
     render(<NotificationCenter open onClose={vi.fn()} />);
     expect(screen.getByTestId('date-group-earlier')).toBeDefined();
@@ -154,7 +170,9 @@ describe('NotificationCenter', () => {
   // ── Empty state with active filters ──
 
   it('should show no matching message when filters yield zero results', () => {
-    useNotificationStore.getState().addNotification({ level: 'info', title: 'Info', message: 'msg' });
+    useNotificationStore
+      .getState()
+      .addNotification({ level: 'info', title: 'Info', message: 'msg' });
     useNotificationStore.getState().setFilterLevel('error');
     render(<NotificationCenter open onClose={vi.fn()} />);
     expect(screen.getByTestId('notification-empty-state')).toBeDefined();

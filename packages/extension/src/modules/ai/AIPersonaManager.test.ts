@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  AIPersonaManager,
-  type AIProvider,
-  type AIPersona,
-} from './AIPersonaManager';
+import { AIPersonaManager, type AIProvider, type AIPersona } from './AIPersonaManager';
 
 function createMockPersonaResponse(overrides?: Partial<AIPersona>): string {
   const persona: Omit<AIPersona, 'id'> = {

@@ -30,9 +30,9 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
   const { t } = useTranslation();
 
   const templateName = quickSeed.selectedTemplate
-    ? (quickSeed.selectedTemplate.name.startsWith('seed.')
+    ? quickSeed.selectedTemplate.name.startsWith('seed.')
       ? t(quickSeed.selectedTemplate.name)
-      : quickSeed.selectedTemplate.name)
+      : quickSeed.selectedTemplate.name
     : '';
 
   return (
@@ -53,7 +53,9 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
               title={t('seed.quickSeed.templateSelected', { name: templateName })}
               action={
                 <Badge variant="default">
-                  {t('seed.gallery.objects', { count: quickSeed.selectedTemplate?.objects.length ?? 0 })}
+                  {t('seed.gallery.objects', {
+                    count: quickSeed.selectedTemplate?.objects.length ?? 0,
+                  })}
                 </Badge>
               }
             />
@@ -113,7 +115,10 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
         <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="quick-seed-results">
           {quickSeed.executionResult ? (
             <>
-              <div className="flex items-center gap-3 text-xs" data-testid="quick-seed-result-summary">
+              <div
+                className="flex items-center gap-3 text-xs"
+                data-testid="quick-seed-result-summary"
+              >
                 <Badge variant={RESULTS_STATUS_VARIANT[quickSeed.executionResult.status]}>
                   {quickSeed.executionResult.status === 'success'
                     ? t('seed.complete')
@@ -122,15 +127,18 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                       : t('seed.failed')}
                 </Badge>
                 <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                  {t('seed.recordsCreated')}: <strong>{quickSeed.executionResult.totalRecordsCreated}</strong>
+                  {t('seed.recordsCreated')}:{' '}
+                  <strong>{quickSeed.executionResult.totalRecordsCreated}</strong>
                 </span>
                 {quickSeed.executionResult.totalRecordsFailed > 0 && (
                   <span className="text-[var(--vscode-errorForeground,#f48771)]">
-                    {t('seed.recordsFailed')}: <strong>{quickSeed.executionResult.totalRecordsFailed}</strong>
+                    {t('seed.recordsFailed')}:{' '}
+                    <strong>{quickSeed.executionResult.totalRecordsFailed}</strong>
                   </span>
                 )}
                 <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-                  {t('seed.executionTime')}: {(quickSeed.executionResult.duration / 1000).toFixed(1)}s
+                  {t('seed.executionTime')}:{' '}
+                  {(quickSeed.executionResult.duration / 1000).toFixed(1)}s
                 </span>
               </div>
 
@@ -148,7 +156,10 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                     <CardBody>
                       <div className="flex flex-col gap-1">
                         {obj.errors.map((err, i) => (
-                          <p key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">
+                          <p
+                            key={i}
+                            className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
+                          >
                             {err}
                           </p>
                         ))}

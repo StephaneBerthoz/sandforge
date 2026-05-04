@@ -59,10 +59,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
         const isSelected = backup.operationId === selectedBackupId;
         return (
           <div key={backup.operationId} data-testid={`restore-backup-${backup.operationId}`}>
-            <Card
-              hoverable
-              onClick={() => onSelectBackup?.(backup.operationId)}
-            >
+            <Card hoverable onClick={() => onSelectBackup?.(backup.operationId)}>
               <CardHeader
                 title={backup.configId}
                 subtitle={t('common.recordCount', { count: backup.totalRecords })}

@@ -43,7 +43,11 @@ describe('Tabs', () => {
   it('should switch tabs internally when onTabChange is not provided', () => {
     render(<Tabs tabs={tabs} />);
     fireEvent.click(screen.getByRole('tab', { name: 'Advanced' }));
-    expect(screen.getByRole('tab', { name: 'Advanced' }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByRole('tab', { name: 'General' }).getAttribute('aria-selected')).toBe('false');
+    expect(screen.getByRole('tab', { name: 'Advanced' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('tab', { name: 'General' }).getAttribute('aria-selected')).toBe(
+      'false',
+    );
   });
 });

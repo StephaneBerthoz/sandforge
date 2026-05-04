@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { CsvFieldMapper } from './CsvFieldMapper.js';
 import type { DescribeField } from './SchemaAnalyzer.js';
 
-function makeField(overrides: Partial<DescribeField> & { name: string; label: string; type: string }): DescribeField {
+function makeField(
+  overrides: Partial<DescribeField> & { name: string; label: string; type: string },
+): DescribeField {
   return {
     nillable: true,
     defaultValue: null,

@@ -30,9 +30,7 @@ describe('updateGraphNodeStatus', () => {
   });
 
   it('preserves progress when progress is undefined', () => {
-    const nodes = [
-      { objectApiName: 'Account', status: 'running', progress: 75, successCount: 0 },
-    ];
+    const nodes = [{ objectApiName: 'Account', status: 'running', progress: 75, successCount: 0 }];
     const result = updateGraphNodeStatus(nodes, 'Account', 'completed');
     expect(result[0]!.progress).toBe(75);
   });

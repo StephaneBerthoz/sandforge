@@ -193,7 +193,9 @@ function parseAIResponse(response: string): NL2SOQLResult {
   const parsed: unknown = JSON.parse(jsonContent);
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error('AI response is not a valid JSON object. The AI model returned an unexpected format — try rephrasing your query or check the AI provider configuration.');
+    throw new Error(
+      'AI response is not a valid JSON object. The AI model returned an unexpected format — try rephrasing your query or check the AI provider configuration.',
+    );
   }
 
   const obj = parsed as Record<string, unknown>;

@@ -19,11 +19,7 @@ export interface CsvPreviewProps {
  * DataTable with column headers from the CSV file. Displays a row
  * count summary below the table.
  */
-export const CsvPreview: React.FC<CsvPreviewProps> = ({
-  headers,
-  rows,
-  totalRowCount,
-}) => {
+export const CsvPreview: React.FC<CsvPreviewProps> = ({ headers, rows, totalRowCount }) => {
   const { t } = useTranslation();
 
   const columns = useMemo((): DataTableColumn<Record<string, string>>[] => {
@@ -42,12 +38,7 @@ export const CsvPreview: React.FC<CsvPreviewProps> = ({
   }, [headers]);
 
   if (rows.length === 0) {
-    return (
-      <EmptyState
-        title={t('seed.csv.preview.noData')}
-        module="seed"
-      />
-    );
+    return <EmptyState title={t('seed.csv.preview.noData')} module="seed" />;
   }
 
   return (

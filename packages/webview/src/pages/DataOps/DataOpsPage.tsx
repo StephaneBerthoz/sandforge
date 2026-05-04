@@ -46,23 +46,19 @@ export const DataOpsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   /** Bridge query: load saved backups. */
-  const backupsQuery = useBridgeQuery<{ backups: BackupResult[] }>(
-    'backup:list',
-    undefined,
-    { responseType: 'backup:list:result' },
-  );
+  const backupsQuery = useBridgeQuery<{ backups: BackupResult[] }>('backup:list', undefined, {
+    responseType: 'backup:list:result',
+  });
 
   /** Bridge mutation: create a backup. */
-  const backupMutation = useBridgeMutation<Record<string, unknown>>(
-    'backup:execute',
-    { responseType: 'dataops:backup:response' },
-  );
+  const backupMutation = useBridgeMutation<Record<string, unknown>>('backup:execute', {
+    responseType: 'dataops:backup:response',
+  });
 
   /** Bridge mutation: anonymize data. */
-  const anonymizeMutation = useBridgeMutation<Record<string, unknown>>(
-    'dataops:anonymize',
-    { responseType: 'dataops:anonymize:response' },
-  );
+  const anonymizeMutation = useBridgeMutation<Record<string, unknown>>('dataops:anonymize', {
+    responseType: 'dataops:anonymize:response',
+  });
 
   /** Bridge query: load anonymization templates. */
   const templatesQuery = useBridgeQuery<{ templates: AnonymizationTemplate[] }>(
@@ -76,12 +72,25 @@ export const DataOpsPage: React.FC = () => {
 
   /** Show error notifications from bridge hooks. */
   useEffect(() => {
-    const bridgeError = backupsQuery.error ?? backupMutation.error ?? anonymizeMutation.error ?? templatesQuery.error;
+    const bridgeError =
+      backupsQuery.error ?? backupMutation.error ?? anonymizeMutation.error ?? templatesQuery.error;
     if (bridgeError) {
       setError(bridgeError);
-      addNotification({ level: 'error', title: t('dataops.title'), message: bridgeError, autoDismissMs: 5000 });
+      addNotification({
+        level: 'error',
+        title: t('dataops.title'),
+        message: bridgeError,
+        autoDismissMs: 5000,
+      });
     }
-  }, [backupsQuery.error, backupMutation.error, anonymizeMutation.error, templatesQuery.error, addNotification, t]);
+  }, [
+    backupsQuery.error,
+    backupMutation.error,
+    anonymizeMutation.error,
+    templatesQuery.error,
+    addNotification,
+    t,
+  ]);
 
   const handleCreateBackup = () => {
     const firstOrg = orgs[0];
@@ -125,21 +134,13 @@ export const DataOpsPage: React.FC = () => {
     );
   }
 
-  const recordsProcessed = backups.reduce(
-    (sum, b) => sum + b.totalRecords,
-    0,
-  );
+  const recordsProcessed = backups.reduce((sum, b) => sum + b.totalRecords, 0);
   const failedObjects = backups.reduce(
     (sum, b) => sum + b.objectResults.filter((r) => r.status === 'failure').length,
     0,
   );
-  const totalObjects = backups.reduce(
-    (sum, b) => sum + b.objectResults.length,
-    0,
-  );
-  const errorRate = totalObjects > 0
-    ? ((failedObjects / totalObjects) * 100).toFixed(1)
-    : '0.0';
+  const totalObjects = backups.reduce((sum, b) => sum + b.objectResults.length, 0);
+  const errorRate = totalObjects > 0 ? ((failedObjects / totalObjects) * 100).toFixed(1) : '0.0';
   const templateCount = templatesQuery.data?.templates?.length ?? 0;
 
   return (
@@ -150,18 +151,19 @@ export const DataOpsPage: React.FC = () => {
       initial="hidden"
       animate="visible"
     >
-      <PageHeader
-        title={t('dataops.title')}
-        subtitle={t('dataops.selectOrg')}
-        icon="tools"
-      />
+      <PageHeader title={t('dataops.title')} subtitle={t('dataops.selectOrg')} icon="tools" />
 
       {error && (
         <ErrorBanner message={error} onDismiss={() => setError(null)} data-testid="dataops-error" />
       )}
 
       {/* KPI summary row */}
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" data-testid="dataops-kpi-row">
+      <motion.div
+        variants={staggerContainer}
+        initial="hidden"
+        animate="visible"
+        data-testid="dataops-kpi-row"
+      >
         <BentoGrid columns={3} gap="md">
           <motion.div variants={slideUp}>
             <KPICard
@@ -204,10 +206,7 @@ export const DataOpsPage: React.FC = () => {
           )}
 
           {activeTab === 'backup' && !backupsQuery.loading && (
-            <BackupPanel
-              backups={backups}
-              onCreate={handleCreateBackup}
-            />
+            <BackupPanel backups={backups} onCreate={handleCreateBackup} />
           )}
 
           {activeTab === 'restore' && (
@@ -229,21 +228,11 @@ export const DataOpsPage: React.FC = () => {
             />
           )}
 
-          {activeTab === 'gdpr' && (
-            <GDPRPanel />
-          )}
+          {activeTab === 'gdpr' && <GDPRPanel />}
 
-          {activeTab === 'cleanup' && (
-            <CleanupPanel
-              recommendations={[]}
-            />
-          )}
+          {activeTab === 'cleanup' && <CleanupPanel recommendations={[]} />}
 
-          {activeTab === 'quality' && (
-            <QualityDashboard
-              results={[]}
-            />
-          )}
+          {activeTab === 'quality' && <QualityDashboard results={[]} />}
         </div>
       </BentoTile>
     </motion.div>

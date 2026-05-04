@@ -43,10 +43,9 @@ describe('useErrorNotification', () => {
   });
 
   it('should add a new notification when error changes', () => {
-    const { rerender } = renderHook(
-      ({ error }) => useErrorNotification(error, 'Seed'),
-      { initialProps: { error: 'Error 1' as string | null } },
-    );
+    const { rerender } = renderHook(({ error }) => useErrorNotification(error, 'Seed'), {
+      initialProps: { error: 'Error 1' as string | null },
+    });
 
     rerender({ error: 'Error 2' });
 
@@ -55,10 +54,9 @@ describe('useErrorNotification', () => {
   });
 
   it('should not re-add notification when error stays the same', () => {
-    const { rerender } = renderHook(
-      ({ error }) => useErrorNotification(error, 'Seed'),
-      { initialProps: { error: 'Same error' as string | null } },
-    );
+    const { rerender } = renderHook(({ error }) => useErrorNotification(error, 'Seed'), {
+      initialProps: { error: 'Same error' as string | null },
+    });
 
     rerender({ error: 'Same error' });
 

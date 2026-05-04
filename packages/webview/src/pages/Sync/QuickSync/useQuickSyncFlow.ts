@@ -78,11 +78,23 @@ const INITIAL_DRAFT: QuickSyncDraft = {
  * and persists draft state across webview reloads.
  */
 export function useQuickSyncFlow(): QuickSyncFlowActions {
-  const [draft, setDraft] = useWebviewPersistedState<QuickSyncDraft>('quickSyncDraft', INITIAL_DRAFT);
+  const [draft, setDraft] = useWebviewPersistedState<QuickSyncDraft>(
+    'quickSyncDraft',
+    INITIAL_DRAFT,
+  );
   const [step, setStep] = useWebviewPersistedState<QuickSyncStep>('quickSyncStep', 'orgs');
-  const [preview, setPreview] = useWebviewPersistedState<QuickSyncPreview | null>('quickSyncPreview', null);
-  const [result, setResult] = useWebviewPersistedState<SyncExecutionResult | null>('quickSyncResult', null);
-  const [isExecuting, setIsExecuting] = useWebviewPersistedState<boolean>('quickSyncExecuting', false);
+  const [preview, setPreview] = useWebviewPersistedState<QuickSyncPreview | null>(
+    'quickSyncPreview',
+    null,
+  );
+  const [result, setResult] = useWebviewPersistedState<SyncExecutionResult | null>(
+    'quickSyncResult',
+    null,
+  );
+  const [isExecuting, setIsExecuting] = useWebviewPersistedState<boolean>(
+    'quickSyncExecuting',
+    false,
+  );
   const [error, setError] = useWebviewPersistedState<string | null>('quickSyncError', null);
 
   const previewMutation = useBridgeMutation<QuickSyncPreview>('quicksync:preview');
@@ -111,41 +123,57 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     }
   }, [executeMutation.data, executeMutation.error, setResult, setIsExecuting, setStep, setError]);
 
-  const setSourceOrg = useCallback((orgId: string) => {
-    setDraft({ ...draft, sourceOrgId: orgId });
-    setError(null);
-  }, [draft, setDraft, setError]);
+  const setSourceOrg = useCallback(
+    (orgId: string) => {
+      setDraft({ ...draft, sourceOrgId: orgId });
+      setError(null);
+    },
+    [draft, setDraft, setError],
+  );
 
-  const setTargetOrg = useCallback((orgId: string) => {
-    setDraft({ ...draft, targetOrgId: orgId });
-    setError(null);
-  }, [draft, setDraft, setError]);
+  const setTargetOrg = useCallback(
+    (orgId: string) => {
+      setDraft({ ...draft, targetOrgId: orgId });
+      setError(null);
+    },
+    [draft, setDraft, setError],
+  );
 
-  const addObject = useCallback((apiName: string) => {
-    if (!draft.selectedObjects.includes(apiName)) {
-      setDraft({ ...draft, selectedObjects: [...draft.selectedObjects, apiName] });
-    }
-  }, [draft, setDraft]);
+  const addObject = useCallback(
+    (apiName: string) => {
+      if (!draft.selectedObjects.includes(apiName)) {
+        setDraft({ ...draft, selectedObjects: [...draft.selectedObjects, apiName] });
+      }
+    },
+    [draft, setDraft],
+  );
 
-  const removeObject = useCallback((apiName: string) => {
-    setDraft({
-      ...draft,
-      selectedObjects: draft.selectedObjects.filter((o) => o !== apiName),
-      parentObjects: draft.parentObjects.filter((o) => o !== apiName),
-    });
-  }, [draft, setDraft]);
-
-  const addParentObject = useCallback((apiName: string) => {
-    if (!draft.parentObjects.includes(apiName) && !draft.selectedObjects.includes(apiName)) {
+  const removeObject = useCallback(
+    (apiName: string) => {
       setDraft({
         ...draft,
-        parentObjects: [...draft.parentObjects, apiName],
-        selectedObjects: [...draft.selectedObjects, apiName],
+        selectedObjects: draft.selectedObjects.filter((o) => o !== apiName),
+        parentObjects: draft.parentObjects.filter((o) => o !== apiName),
       });
-    }
-  }, [draft, setDraft]);
+    },
+    [draft, setDraft],
+  );
 
-  const canGoToObjects = draft.sourceOrgId !== '' && draft.targetOrgId !== '' && draft.sourceOrgId !== draft.targetOrgId;
+  const addParentObject = useCallback(
+    (apiName: string) => {
+      if (!draft.parentObjects.includes(apiName) && !draft.selectedObjects.includes(apiName)) {
+        setDraft({
+          ...draft,
+          parentObjects: [...draft.parentObjects, apiName],
+          selectedObjects: [...draft.selectedObjects, apiName],
+        });
+      }
+    },
+    [draft, setDraft],
+  );
+
+  const canGoToObjects =
+    draft.sourceOrgId !== '' && draft.targetOrgId !== '' && draft.sourceOrgId !== draft.targetOrgId;
   const canGoToPreview = draft.selectedObjects.length > 0;
 
   const goToObjects = useCallback(() => {
@@ -189,7 +217,16 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     setError(null);
     previewMutation.reset();
     executeMutation.reset();
-  }, [setDraft, setStep, setPreview, setResult, setIsExecuting, setError, previewMutation, executeMutation]);
+  }, [
+    setDraft,
+    setStep,
+    setPreview,
+    setResult,
+    setIsExecuting,
+    setError,
+    previewMutation,
+    executeMutation,
+  ]);
 
   const state: QuickSyncFlowState = {
     step,

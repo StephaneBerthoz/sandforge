@@ -110,10 +110,7 @@ describe('CloneObjectSelector', () => {
     render(
       <CloneObjectSelector
         sourceObjects={sourceObjects}
-        selectedObjects={[
-          { objectApiName: 'Account' },
-          { objectApiName: 'Contact' },
-        ]}
+        selectedObjects={[{ objectApiName: 'Account' }, { objectApiName: 'Contact' }]}
         onObjectToggle={vi.fn()}
         onWhereClauseChange={vi.fn()}
       />,

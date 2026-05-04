@@ -257,7 +257,13 @@ describe('syncSettingsSchema', () => {
   });
 
   it('should accept all valid conflict strategies', () => {
-    for (const strategy of ['source_wins', 'target_wins', 'newest_wins', 'manual', 'merge'] as const) {
+    for (const strategy of [
+      'source_wins',
+      'target_wins',
+      'newest_wins',
+      'manual',
+      'merge',
+    ] as const) {
       const result = syncSettingsSchema.parse({ defaultConflictStrategy: strategy });
       expect(result.defaultConflictStrategy).toBe(strategy);
     }
@@ -297,9 +303,11 @@ describe('securitySettingsSchema', () => {
   });
 
   it('should reject invalid operations', () => {
-    expect(() => securitySettingsSchema.parse({
-      allowedOperationsOnProd: ['delete'],
-    })).toThrow();
+    expect(() =>
+      securitySettingsSchema.parse({
+        allowedOperationsOnProd: ['delete'],
+      }),
+    ).toThrow();
   });
 
   it('should accept overriding all security defaults', () => {

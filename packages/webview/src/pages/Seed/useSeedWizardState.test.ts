@@ -43,7 +43,17 @@ vi.mock('../../stores/useNotificationStore', () => ({
 const mockT = (key: string) => key;
 
 const mockOrgs = [
-  { id: 'org-1', alias: 'dev1', username: 'user@dev1.com', instanceUrl: 'https://dev1.salesforce.com', orgType: 'sandbox' as const, status: 'connected' as const, safetyTier: 'low' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
+  {
+    id: 'org-1',
+    alias: 'dev1',
+    username: 'user@dev1.com',
+    instanceUrl: 'https://dev1.salesforce.com',
+    orgType: 'sandbox' as const,
+    status: 'connected' as const,
+    safetyTier: 'low' as const,
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
 ];
 
 describe('useSeedWizardState', () => {

@@ -49,12 +49,7 @@ export const pipelineTriggerSchema = z.object({
 });
 
 /** Pipeline variable value type */
-export const pipelineVariableTypeEnum = z.enum([
-  'string',
-  'number',
-  'boolean',
-  'secret',
-]);
+export const pipelineVariableTypeEnum = z.enum(['string', 'number', 'boolean', 'secret']);
 
 /** A pipeline variable definition */
 export const pipelineVariableSchema = z.object({

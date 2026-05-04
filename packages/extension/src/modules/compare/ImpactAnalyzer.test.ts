@@ -6,7 +6,7 @@ function createItem(
   componentType: MetadataComponentType,
   fullName: string,
   status: CompareItem['status'],
-  severity: CompareItem['severity'] = 'info'
+  severity: CompareItem['severity'] = 'info',
 ): CompareItem {
   return {
     componentType,
@@ -126,7 +126,7 @@ describe('ImpactAnalyzer', () => {
       const result = analyzer.analyze(items);
 
       expect(result.recommendations).toContain(
-        'Run all Apex tests in the target org before deploying.'
+        'Run all Apex tests in the target org before deploying.',
       );
     });
 
@@ -135,7 +135,7 @@ describe('ImpactAnalyzer', () => {
       const result = analyzer.analyze(items);
 
       expect(result.recommendations).toContain(
-        'Review breaking changes carefully before deployment.'
+        'Review breaking changes carefully before deployment.',
       );
     });
 
@@ -144,7 +144,7 @@ describe('ImpactAnalyzer', () => {
       const result = analyzer.analyze(items);
 
       expect(result.recommendations).toContain(
-        'Verify that removed components are not referenced elsewhere.'
+        'Verify that removed components are not referenced elsewhere.',
       );
     });
 
@@ -153,7 +153,7 @@ describe('ImpactAnalyzer', () => {
       const result = analyzer.analyze(items);
 
       expect(result.recommendations).toContain(
-        'Validate permission changes with the security team.'
+        'Validate permission changes with the security team.',
       );
     });
 
@@ -165,9 +165,7 @@ describe('ImpactAnalyzer', () => {
 
       const result = analyzer.analyze(items);
 
-      expect(result.recommendations).toContain(
-        'Consider splitting into smaller deployments.'
-      );
+      expect(result.recommendations).toContain('Consider splitting into smaller deployments.');
     });
 
     it('should recommend staging for high risk deployments', () => {
@@ -178,9 +176,7 @@ describe('ImpactAnalyzer', () => {
 
       const result = analyzer.analyze(items);
 
-      expect(result.recommendations).toContain(
-        'Consider deploying to a staging sandbox first.'
-      );
+      expect(result.recommendations).toContain('Consider deploying to a staging sandbox first.');
     });
 
     it('should return empty recommendations for safe changes', () => {

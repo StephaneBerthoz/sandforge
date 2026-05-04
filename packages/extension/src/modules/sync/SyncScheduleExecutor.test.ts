@@ -124,11 +124,13 @@ describe('SyncScheduleExecutor', () => {
     });
 
     it('should preserve lastRunAt and lastResult when updating existing schedule', () => {
-      executor.upsert(createScheduleEntry({
-        id: 'sched-1',
-        lastRunAt: undefined,
-        lastResult: undefined,
-      }));
+      executor.upsert(
+        createScheduleEntry({
+          id: 'sched-1',
+          lastRunAt: undefined,
+          lastResult: undefined,
+        }),
+      );
 
       const schedule = executor.getSchedule('sched-1')!;
       schedule.lastRunAt = '2026-03-26T09:00:00Z';
@@ -254,9 +256,7 @@ describe('SyncScheduleExecutor', () => {
 
       // Should execute exactly once despite 3 hours of missed ticks
       expect(deps.onExecute).toHaveBeenCalledTimes(1);
-      expect(deps.log).toHaveBeenCalledWith(
-        expect.stringContaining('sleep-wake detected'),
-      );
+      expect(deps.log).toHaveBeenCalledWith(expect.stringContaining('sleep-wake detected'));
     });
   });
 

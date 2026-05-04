@@ -26,10 +26,7 @@ describe('MigrationScript', () => {
     it('should call executeAnonymous with org ID and script', async () => {
       await service.execute('System.debug("hello");', 'org-1');
 
-      expect(deps.executeAnonymous).toHaveBeenCalledWith(
-        'org-1',
-        'System.debug("hello");'
-      );
+      expect(deps.executeAnonymous).toHaveBeenCalledWith('org-1', 'System.debug("hello");');
     });
 
     it('should return success for a compiled and successful script', async () => {
@@ -106,10 +103,7 @@ describe('MigrationScript', () => {
     it('should trim the script before executing', async () => {
       await service.execute('  System.debug("test");  ', 'org-1');
 
-      expect(deps.executeAnonymous).toHaveBeenCalledWith(
-        'org-1',
-        'System.debug("test");'
-      );
+      expect(deps.executeAnonymous).toHaveBeenCalledWith('org-1', 'System.debug("test");');
     });
 
     it('should handle missing logs in response', async () => {

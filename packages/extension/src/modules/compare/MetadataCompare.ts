@@ -4,7 +4,7 @@ import type { DiffEngine } from './DiffEngine';
 /** Function signature for fetching metadata from a Salesforce org */
 export type FetchMetadataFn = (
   orgId: string,
-  componentType: MetadataComponentType
+  componentType: MetadataComponentType,
 ) => Promise<Map<string, string>>;
 
 /**
@@ -28,7 +28,7 @@ export class MetadataCompare {
   async compare(
     sourceOrgId: string,
     targetOrgId: string,
-    types: MetadataComponentType[]
+    types: MetadataComponentType[],
   ): Promise<CompareItem[]> {
     const allItems: CompareItem[] = [];
 

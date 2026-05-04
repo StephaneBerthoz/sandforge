@@ -61,14 +61,19 @@ export const Step5SetVolumes: React.FC<Step5SetVolumesProps> = ({
               min={1}
               max={10000}
               value={vol.batchSize}
-              onChange={(e) => onChangeBatchSize(vol.objectApiName, parseInt(e.target.value, 10) || 200)}
+              onChange={(e) =>
+                onChangeBatchSize(vol.objectApiName, parseInt(e.target.value, 10) || 200)
+              }
               data-testid={`batch-${vol.objectApiName}`}
             />
           </React.Fragment>
         ))}
       </div>
 
-      <div className="text-xs text-[var(--vscode-descriptionForeground,#868686)]" data-testid="total-records">
+      <div
+        className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="total-records"
+      >
         {t('seed.totalRecords')}: {totalRecords}
       </div>
     </div>

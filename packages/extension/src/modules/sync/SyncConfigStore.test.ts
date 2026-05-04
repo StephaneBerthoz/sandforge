@@ -81,11 +81,7 @@ describe('SyncConfigStore', () => {
     it('should store with the correct key prefix and category', () => {
       const config = createSyncConfig();
       store.save(config);
-      expect(configStore.set).toHaveBeenCalledWith(
-        'sync:config:cfg-1',
-        config,
-        'syncConfigs',
-      );
+      expect(configStore.set).toHaveBeenCalledWith('sync:config:cfg-1', config, 'syncConfigs');
     });
 
     it('should return undefined for non-existent config', () => {

@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security (autonomous-improvement Round 1 — 2026-05-02)
+
+- **UUID hardening sweep across 11 modules**: extends the audit C3/L1 fix
+  beyond the 3 originally-touched files. Replaces the hand-rolled
+  `'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, …Math.random…)`
+  pattern (and the segments-loop variant) with `globalThis.crypto.randomUUID()`
+  in `PipelineVersioning`, `PipelineOrchestrator`, `PipelineMarketplace`,
+  `PipelineBuilder`, `ApprovalGate`, `core/grappe/GrappePartitioner`,
+  `migration/UniversalImporter`, `migration/SfdmuImporter`,
+  `migration/GearsetImporter`, `core/telemetry/TelemetryService.generateBatchId`,
+  and `core/audit/AuditTrailService.generateId`. Removes birthday-paradox
+  collision risk on long-running pipelines / approval flows / partition
+  graphs / import batches.
+- **`packages/shared/src/utils/string-utils.generateId`** uses the first 8
+  hex chars of `crypto.randomUUID()` instead of `Math.random().toString(36)`.
+  Public format `{base36-ts}-{8hex}` preserved.
+- **`MessageBroker.nextControlId`** drops the unreachable Math.random
+  fallback. Engines block already pins `node>=20` and the VS Code webview
+  exposes `globalThis.crypto.randomUUID` — the runtime feature-detect was
+  dead code.
+
+### Fixed (test regressions surfaced post-audit)
+
+- **`extension.test.ts`** mock context now exposes
+  `extension.packageJSON = { version: '1.2.5' }`. The audit Sprint 1 C4
+  fix added a `context.extension.packageJSON.version` read in `activate()`
+  but did not update the test mock, leaving 6 `extension.test.ts` cases
+  failing with `TypeError: Cannot read properties of undefined`.
+- **`providers/WebviewPanelManager.test.ts`** nonce regex broadened from
+  `[A-Za-z0-9]{32}` to `[A-Za-z0-9_-]{32}`. The audit C3 fix moved nonces
+  to base64url which uses `-` and `_`, but the test assertion was not
+  updated.
+- **`pages/Monitor/MonitorPage.test.tsx`**: 2 NARROW NO-BREAK SPACE
+  (U+202F) characters at lines 342, 343 inside a regex character class
+  were tripping eslint `no-irregular-whitespace`. Replaced with U+0020.
+
+### Fixed (resource hygiene)
+
+- **`SalesforceAdapter.sleep` AbortSignal listener leak**: the abort
+  callback was registered with `{ once: true }` so it self-removed on
+  abort, but stayed bound to the signal forever on the resolve path.
+  Long-lived shared signals (e.g. one per pipeline run) accumulated one
+  bound listener per `sleep()` call. Now removes the listener explicitly
+  from inside the timer callback before resolving. Surfaced by
+  `pnpm audit:disposables`.
+
+### Performance
+
+- **`QuickSyncObjectStep`**: the `suggestions` array fallback
+  `suggestionsQuery.data ?? []` was creating a fresh `[]` reference on
+  every render, propagating into the downstream `availableForSearch`
+  `useMemo` and re-running it each render. Wrapped in `useMemo` so the
+  fallback is stable. Closes one of the 7 `react-hooks/exhaustive-deps`
+  warnings flagged by `pnpm -r lint`.
+
+### Security (devDep CVE chain — Round 2)
+
+- **`pnpm.overrides`**: forces `picomatch ≥ 4.0.4` (closes ReDoS
+  GHSA-c2c7-rcm5-vvqj, transitive via `knip` → `fast-glob` →
+  `micromatch` → `picomatch`) and `lodash ≥ 4.18.0` (closes code
+  injection GHSA-r5fr-rjxr-66jc, transitive via `@vscode/vsce` →
+  `@secretlint`). Both are devDep-only — they don't ship in the
+  marketplace VSIX — but `pnpm audit --audit-level high` flagged them
+  on every CI run. Resolves 6 of 17 high-severity findings (34 → 28
+  total).
+
+### CI / Tooling
+
+- **`scripts/audit-disposables.ts`** now `process.exit(1)` when
+  orphans > 0 and is wired into `pnpm validate`. CI (`.github/workflows/ci.yml`
+  runs `pnpm validate`) will now fail PRs that introduce a listener /
+  timer leak without a disposable sink.
+- **`test/FIXTURES-README.md`** removed (Phase 2 planning artifact —
+  described `test/helpers/sf-mock.ts` and other paths that never got
+  created; actual mocks live colocated with their consumers).
+
+### Chore
+
+- **Workspace versions synced to 1.2.5**: root `package.json` was at 1.2.4
+  while the marketplace artifact (`packages/extension/package.json`) was
+  at 1.2.5. `packages/shared` and `packages/webview` also bumped for
+  consistency.
+- **`packages/webview` drops unused `zod` dependency** (knip + grep
+  confirm zero `from 'zod'` imports webview-side; schema validation
+  happens extension-side via the bridge).
+- **`.gitignore`** now excludes `.omc/` (transient session state from the
+  oh-my-claudecode tooling, was generating untracked-file noise at every
+  status check) and `*.bak` / `*.bak.*` (prevents recurrence of the
+  stale `CLAUDE.md.bak.<unix-ts>` files the cross-cutting audit had to
+  remove manually).
+- **`AUDIT.md`** prepended a deprecation banner — the v2.0.0 / 4 600-test
+  numbers in the body are from 2026-02-26 and predate the public v1.2.5
+  baseline. New audits live in `.planning/audit-YYYY-MM-DD-*.md`.
+- **`SECURITY.md`** (new): responsible disclosure flow for the
+  marketplace extension, in-scope/out-of-scope surfaces, SLA expectations.
+- **`scripts/audit-disposables.ts`**: `stored` heuristic regex now
+  recognizes the `Map.set(key, [dispA, dispB])` sink pattern. Closes a
+  false positive on `WebviewPanelManager.openPanel` (disposables ARE
+  tracked via `panelSubscriptions` and disposed in `onDidDispose`).
+  Audit now reports 0 orphans.
+
 ### Security (post-audit hardening — 2026-05-02)
 
 - **CSP nonce now uses `crypto.randomBytes(24).toString('base64url')`** instead of

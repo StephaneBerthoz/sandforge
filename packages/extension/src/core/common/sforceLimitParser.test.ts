@@ -66,36 +66,22 @@ describe('checkApiLimits', () => {
   });
 
   it('should return parsed info for normal usage', () => {
-    const result = checkApiLimits(
-      { apiUsage: { used: 100, limit: 100000 } },
-      'test-operation',
-    );
+    const result = checkApiLimits({ apiUsage: { used: 100, limit: 100000 } }, 'test-operation');
     expect(result?.usagePercent).toBe(0);
   });
 
   it('should return parsed info at warning threshold', () => {
-    const result = checkApiLimits(
-      { apiUsage: { used: 80000, limit: 100000 } },
-      'bulk-query',
-    );
+    const result = checkApiLimits({ apiUsage: { used: 80000, limit: 100000 } }, 'bulk-query');
     expect(result?.usagePercent).toBe(80);
   });
 
   it('should return parsed info at critical threshold', () => {
-    const result = checkApiLimits(
-      { apiUsage: { used: 96000, limit: 100000 } },
-      'bulk-insert',
-    );
+    const result = checkApiLimits({ apiUsage: { used: 96000, limit: 100000 } }, 'bulk-insert');
     expect(result?.usagePercent).toBe(96);
   });
 
   it('should accept custom thresholds', () => {
-    const result = checkApiLimits(
-      { apiUsage: { used: 50000, limit: 100000 } },
-      'custom',
-      40,
-      60,
-    );
+    const result = checkApiLimits({ apiUsage: { used: 50000, limit: 100000 } }, 'custom', 40, 60);
     expect(result?.usagePercent).toBe(50);
   });
 });

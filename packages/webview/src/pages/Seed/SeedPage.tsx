@@ -62,43 +62,46 @@ export const SeedPage: React.FC = () => {
   const [configSkipped, setConfigSkipped] = useState(false);
   const prevStepRef = useRef(state.currentStep);
 
-  const handleSelectTemplate = (template: SeedTemplate, customizedCounts: Record<string, number>) => {
+  const handleSelectTemplate = (
+    template: SeedTemplate,
+    customizedCounts: Record<string, number>,
+  ) => {
     quickSeed.startQuickSeed(template, customizedCounts);
   };
 
   /** Handle persona selection from the PersonaGallery. Stores persona and switches to wizard. */
-  const handlePersonaSelected = useCallback((persona: PersonaMsg) => {
-    state.setSelectedPersona(persona);
-    setSeedMode('ai-scratch');
-  }, [state]);
+  const handlePersonaSelected = useCallback(
+    (persona: PersonaMsg) => {
+      state.setSelectedPersona(persona);
+      setSeedMode('ai-scratch');
+    },
+    [state],
+  );
 
   /**
    * Custom step change handler that implements adaptive auto-advance.
    * When moving from Select (0) to Configure (1), if there are fewer than
    * AUTO_ADVANCE_THRESHOLD objects, skip Configure and go directly to Execute (2).
    */
-  const handleStepChange = useCallback((nextStep: number) => {
-    const movingForwardFromSelect = prevStepRef.current === 0 && nextStep === 1;
-    if (movingForwardFromSelect && state.selectedObjects.length < AUTO_ADVANCE_THRESHOLD) {
-      setConfigSkipped(true);
-      state.setCurrentStep(2);
-    } else {
-      if (nextStep === 1) {
-        setConfigSkipped(false);
+  const handleStepChange = useCallback(
+    (nextStep: number) => {
+      const movingForwardFromSelect = prevStepRef.current === 0 && nextStep === 1;
+      if (movingForwardFromSelect && state.selectedObjects.length < AUTO_ADVANCE_THRESHOLD) {
+        setConfigSkipped(true);
+        state.setCurrentStep(2);
+      } else {
+        if (nextStep === 1) {
+          setConfigSkipped(false);
+        }
+        state.setCurrentStep(nextStep);
       }
-      state.setCurrentStep(nextStep);
-    }
-    prevStepRef.current = nextStep;
-  }, [state]);
+      prevStepRef.current = nextStep;
+    },
+    [state],
+  );
 
   if (orgs.length === 0) {
-    return (
-      <EmptyState
-        icon="database"
-        title={t('seed.title')}
-        description={t('org.noOrgs')}
-      />
-    );
+    return <EmptyState icon="database" title={t('seed.title')} description={t('org.noOrgs')} />;
   }
 
   /* Determine page subtitle based on mode */
@@ -113,7 +116,10 @@ export const SeedPage: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]" data-testid="seed-page">
+    <div
+      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
+      data-testid="seed-page"
+    >
       <PageHeader
         title={t('seed.title')}
         subtitle={getPageSubtitle()}
@@ -131,7 +137,11 @@ export const SeedPage: React.FC = () => {
       />
 
       {state.error && (
-        <ErrorBanner message={state.error} onDismiss={() => state.setError(null)} data-testid="seed-error" />
+        <ErrorBanner
+          message={state.error}
+          onDismiss={() => state.setError(null)}
+          data-testid="seed-error"
+        />
       )}
 
       {/* Back navigation button */}
@@ -202,14 +212,10 @@ export const SeedPage: React.FC = () => {
       )}
 
       {/* ----- CSV UPLOAD MODE ----- */}
-      {seedMode === 'csv' && (
-        <CsvUploadWizard onBack={() => setSeedMode('select')} />
-      )}
+      {seedMode === 'csv' && <CsvUploadWizard onBack={() => setSeedMode('select')} />}
 
       {/* ----- CLONE MODE ----- */}
-      {seedMode === 'clone' && (
-        <CloneWizard onBack={() => setSeedMode('select')} />
-      )}
+      {seedMode === 'clone' && <CloneWizard onBack={() => setSeedMode('select')} />}
 
       {/* ----- AI GENERATE MODE: Fork selection ----- */}
       {seedMode === 'ai' && quickSeed.phase === 'idle' && (
@@ -245,9 +251,7 @@ export const SeedPage: React.FC = () => {
       )}
 
       {/* ----- AI PERSONA MODE ----- */}
-      {seedMode === 'ai-persona' && (
-        <PersonaGallery onPersonaSelected={handlePersonaSelected} />
-      )}
+      {seedMode === 'ai-persona' && <PersonaGallery onPersonaSelected={handlePersonaSelected} />}
 
       {/* ----- AI SCRATCH MODE (existing wizard behavior) ----- */}
       {seedMode === 'ai-scratch' && (
@@ -265,7 +269,9 @@ export const SeedPage: React.FC = () => {
                   titleKey="onboarding.seedFirstStepTitle"
                   descKey="onboarding.seedFirstStepDesc"
                   actionKey="onboarding.startQuickSeed"
-                  onAction={() => { /* Gallery is right below */ }}
+                  onAction={() => {
+                    /* Gallery is right below */
+                  }}
                 />
               )}
 
@@ -287,9 +293,15 @@ export const SeedPage: React.FC = () => {
               >
                 {/* STEP 1: SELECT */}
                 {state.currentStep === 0 && (
-                  <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-select-content">
+                  <div
+                    className="flex flex-col gap-[var(--sf-space-3)]"
+                    data-testid="seed-step-select-content"
+                  >
                     <div className="flex items-center gap-1.5">
-                      <InfoTooltip id="help.seed.selectObjects" content={t('help.seed.selectObjects')} />
+                      <InfoTooltip
+                        id="help.seed.selectObjects"
+                        content={t('help.seed.selectObjects')}
+                      />
                     </div>
                     {/* Org selector */}
                     <Select
@@ -305,9 +317,12 @@ export const SeedPage: React.FC = () => {
                     />
 
                     {/* Object multi-select with inline volume */}
-                    {state.selectedOrgId && (
-                      state.loadingObjects ? (
-                        <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="seed-objects-skeleton">
+                    {state.selectedOrgId &&
+                      (state.loadingObjects ? (
+                        <div
+                          className="flex flex-col gap-[var(--sf-space-2)]"
+                          data-testid="seed-objects-skeleton"
+                        >
                           <Skeleton variant="text" width="30%" height="1em" />
                           <Skeleton variant="rect" height="120px" />
                           <Skeleton variant="text" width="50%" height="1em" />
@@ -328,12 +343,19 @@ export const SeedPage: React.FC = () => {
                               </span>
                               {state.selectedObjects.map((obj) => (
                                 <div key={obj} className="flex items-center gap-2 text-xs">
-                                  <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">{obj}</span>
+                                  <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                                    {obj}
+                                  </span>
                                   <Input
                                     type="number"
                                     min={1}
                                     value={state.volumes[obj]?.count ?? 100}
-                                    onChange={(e) => state.handleChangeVolume(obj, parseInt(e.target.value, 10) || 0)}
+                                    onChange={(e) =>
+                                      state.handleChangeVolume(
+                                        obj,
+                                        parseInt(e.target.value, 10) || 0,
+                                      )
+                                    }
                                     className="w-24"
                                     data-testid={`volume-${obj}`}
                                   />
@@ -360,11 +382,17 @@ export const SeedPage: React.FC = () => {
                                       {r.objectName}
                                     </span>
                                     <div className="flex flex-wrap gap-1">
-                                      {r.piiFields.map((f: PIIObjectResult['piiFields'][number]) => (
-                                        <Badge key={`${r.objectName}-${f.fieldName}`} variant="warning">
-                                          {f.fieldName} ({f.piiType} -- {Math.round(f.confidence * 100)}%)
-                                        </Badge>
-                                      ))}
+                                      {r.piiFields.map(
+                                        (f: PIIObjectResult['piiFields'][number]) => (
+                                          <Badge
+                                            key={`${r.objectName}-${f.fieldName}`}
+                                            variant="warning"
+                                          >
+                                            {f.fieldName} ({f.piiType} --{' '}
+                                            {Math.round(f.confidence * 100)}%)
+                                          </Badge>
+                                        ),
+                                      )}
                                     </div>
                                   </div>
                                 ))}
@@ -411,7 +439,9 @@ export const SeedPage: React.FC = () => {
                                 </pre>
                                 <button
                                   className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => navigator.clipboard.writeText(state.nl2soql.data?.soql ?? '')}
+                                  onClick={() =>
+                                    navigator.clipboard.writeText(state.nl2soql.data?.soql ?? '')
+                                  }
                                   data-testid="nl2soql-copy"
                                 >
                                   {t('common.copy')}
@@ -423,34 +453,53 @@ export const SeedPage: React.FC = () => {
                                 {state.nl2soql.data.explanation}
                               </span>
                             )}
-                            {(state.nl2soql.error ?? (state.nl2soql.data && !state.nl2soql.data.success ? state.nl2soql.data.error : null)) && (
-                              <span className="text-xs text-[var(--vscode-errorForeground,#f48771)]" role="alert" data-testid="nl2soql-error">
-                                {state.nl2soql.error ?? state.nl2soql.data?.error ?? t('seed.nl2soqlError')}
+                            {(state.nl2soql.error ??
+                              (state.nl2soql.data && !state.nl2soql.data.success
+                                ? state.nl2soql.data.error
+                                : null)) && (
+                              <span
+                                className="text-xs text-[var(--vscode-errorForeground,#f48771)]"
+                                role="alert"
+                                data-testid="nl2soql-error"
+                              >
+                                {state.nl2soql.error ??
+                                  state.nl2soql.data?.error ??
+                                  t('seed.nl2soqlError')}
                               </span>
                             )}
                           </div>
                         </>
-                      )
-                    )}
+                      ))}
                   </div>
                 )}
 
                 {/* STEP 2: CONFIGURE */}
                 {state.currentStep === 1 && (
-                  <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-configure-content">
+                  <div
+                    className="flex flex-col gap-[var(--sf-space-3)]"
+                    data-testid="seed-step-configure-content"
+                  >
                     <div className="flex items-center gap-1.5">
-                      <InfoTooltip id="help.seed.configureFields" content={t('help.seed.configureFields')} />
+                      <InfoTooltip
+                        id="help.seed.configureFields"
+                        content={t('help.seed.configureFields')}
+                      />
                     </div>
                     {/* Collapsible field tree per object */}
                     {state.piiLoading && (
-                      <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="pii-scan-loading">
+                      <div
+                        className="flex flex-col gap-[var(--sf-space-2)]"
+                        data-testid="pii-scan-loading"
+                      >
                         <Skeleton variant="text" width="40%" height="1em" />
                         <Skeleton variant="rect" height="80px" />
                       </div>
                     )}
 
                     <Step3ConfigureFields
-                      objectConfigs={state.fieldConfigs.filter((c) => state.selectedObjects.includes(c.objectApiName))}
+                      objectConfigs={state.fieldConfigs.filter((c) =>
+                        state.selectedObjects.includes(c.objectApiName),
+                      )}
                       onChangeRule={state.handleChangeFieldRule}
                       onChangeConfig={state.handleChangeFieldConfig}
                     />
@@ -461,7 +510,10 @@ export const SeedPage: React.FC = () => {
                         {
                           title: t('seed.advancedSettings'),
                           content: (
-                            <div className="flex flex-col gap-3" data-testid="seed-advanced-settings">
+                            <div
+                              className="flex flex-col gap-3"
+                              data-testid="seed-advanced-settings"
+                            >
                               {/* Batch size per object */}
                               <div className="flex flex-col gap-1">
                                 <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
@@ -469,13 +521,20 @@ export const SeedPage: React.FC = () => {
                                 </span>
                                 {state.selectedObjects.map((obj) => (
                                   <div key={obj} className="flex items-center gap-2 text-xs">
-                                    <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">{obj}</span>
+                                    <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                                      {obj}
+                                    </span>
                                     <Input
                                       type="number"
                                       min={1}
                                       max={10000}
                                       value={state.volumes[obj]?.batchSize ?? 200}
-                                      onChange={(e) => state.handleChangeBatchSize(obj, parseInt(e.target.value, 10) || 200)}
+                                      onChange={(e) =>
+                                        state.handleChangeBatchSize(
+                                          obj,
+                                          parseInt(e.target.value, 10) || 200,
+                                        )
+                                      }
                                       className="w-24"
                                       data-testid={`batch-${obj}`}
                                     />
@@ -495,9 +554,13 @@ export const SeedPage: React.FC = () => {
                                 )}
                                 {state.relations.map((rel, i) => (
                                   <div key={i} className="flex items-center gap-2 text-xs">
-                                    <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">{rel.childObject}.{rel.childField}</span>
+                                    <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                                      {rel.childObject}.{rel.childField}
+                                    </span>
                                     <Badge variant="default">{'\u2192'}</Badge>
-                                    <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">{rel.parentObject}.{rel.parentField}</span>
+                                    <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                                      {rel.parentObject}.{rel.parentField}
+                                    </span>
                                     <button
                                       className="text-[var(--vscode-errorForeground,#f48771)] hover:opacity-70 px-1"
                                       onClick={() => state.handleRemoveRelation(i)}
@@ -526,11 +589,16 @@ export const SeedPage: React.FC = () => {
                                     .filter((r: PIIObjectResult) => r.piiFields.length > 0)
                                     .map((r: PIIObjectResult) => (
                                       <div key={r.objectName} className="flex flex-wrap gap-1">
-                                        {r.piiFields.map((f: PIIObjectResult['piiFields'][number]) => (
-                                          <Badge key={`${r.objectName}-${f.fieldName}`} variant="warning">
-                                            {f.fieldName} ({f.piiType})
-                                          </Badge>
-                                        ))}
+                                        {r.piiFields.map(
+                                          (f: PIIObjectResult['piiFields'][number]) => (
+                                            <Badge
+                                              key={`${r.objectName}-${f.fieldName}`}
+                                              variant="warning"
+                                            >
+                                              {f.fieldName} ({f.piiType})
+                                            </Badge>
+                                          ),
+                                        )}
                                       </div>
                                     ))}
                                 </div>
@@ -581,7 +649,10 @@ export const SeedPage: React.FC = () => {
 
                 {/* STEP 4: RESULTS */}
                 {state.currentStep === 3 && (
-                  <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-results-content">
+                  <div
+                    className="flex flex-col gap-[var(--sf-space-3)]"
+                    data-testid="seed-step-results-content"
+                  >
                     {!state.executionResult ? (
                       <div className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
                         {t('common.noData')}
@@ -589,7 +660,10 @@ export const SeedPage: React.FC = () => {
                     ) : (
                       <>
                         {/* Summary table */}
-                        <div className="flex items-center gap-3 text-xs" data-testid="result-summary">
+                        <div
+                          className="flex items-center gap-3 text-xs"
+                          data-testid="result-summary"
+                        >
                           <Badge variant={RESULTS_STATUS_VARIANT[state.executionResult.status]}>
                             {state.executionResult.status === 'success'
                               ? t('seed.complete')
@@ -598,15 +672,18 @@ export const SeedPage: React.FC = () => {
                                 : t('seed.failed')}
                           </Badge>
                           <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                            {t('seed.recordsCreated')}: <strong>{state.executionResult.totalRecordsCreated}</strong>
+                            {t('seed.recordsCreated')}:{' '}
+                            <strong>{state.executionResult.totalRecordsCreated}</strong>
                           </span>
                           {state.executionResult.totalRecordsFailed > 0 && (
                             <span className="text-[var(--vscode-errorForeground,#f48771)]">
-                              {t('seed.recordsFailed')}: <strong>{state.executionResult.totalRecordsFailed}</strong>
+                              {t('seed.recordsFailed')}:{' '}
+                              <strong>{state.executionResult.totalRecordsFailed}</strong>
                             </span>
                           )}
                           <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-                            {t('seed.executionTime')}: {(state.executionResult.duration / 1000).toFixed(1)}s
+                            {t('seed.executionTime')}:{' '}
+                            {(state.executionResult.duration / 1000).toFixed(1)}s
                           </span>
                         </div>
 
@@ -625,7 +702,10 @@ export const SeedPage: React.FC = () => {
                               <CardBody>
                                 <div className="flex flex-col gap-1">
                                   {obj.errors.map((err, i) => (
-                                    <p key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">
+                                    <p
+                                      key={i}
+                                      className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
+                                    >
                                       {err}
                                     </p>
                                   ))}

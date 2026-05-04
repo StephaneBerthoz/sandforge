@@ -31,7 +31,10 @@ export const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, classN
   };
 
   return (
-    <div className={cn('flex border-b border-[var(--vscode-panel-border,#3c3c3c)]', className)} role="tablist">
+    <div
+      className={cn('flex border-b border-[var(--vscode-panel-border,#3c3c3c)]', className)}
+      role="tablist"
+    >
       {tabs.map((tab) => (
         <button
           key={tab.id}

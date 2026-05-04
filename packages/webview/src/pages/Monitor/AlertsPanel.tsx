@@ -102,7 +102,10 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
     <Card className={cn('border-0 bg-transparent shadow-none', className)}>
       <CardHeader
         title={t('monitor.alerts')}
-        subtitle={t('monitor.activeAlertCount', { count: activeAlerts.length, defaultValue: '{{count}} active' })}
+        subtitle={t('monitor.activeAlertCount', {
+          count: activeAlerts.length,
+          defaultValue: '{{count}} active',
+        })}
       />
       <CardBody className="flex flex-col gap-2 max-h-60 overflow-y-auto">
         {activeAlerts.length === 0 ? (
@@ -118,8 +121,10 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
                 'bg-[var(--vscode-editorWidget-background,#252526)]',
                 'border border-[var(--vscode-panel-border,#3c3c3c)]',
                 alert.severity === 'critical' && 'border-l-[var(--vscode-errorForeground,#f48771)]',
-                alert.severity === 'warning' && 'border-l-[var(--vscode-editorWarning-foreground,#cca700)]',
-                alert.severity === 'info' && 'border-l-[var(--vscode-editorInfo-foreground,#3794ff)]',
+                alert.severity === 'warning' &&
+                  'border-l-[var(--vscode-editorWarning-foreground,#cca700)]',
+                alert.severity === 'info' &&
+                  'border-l-[var(--vscode-editorInfo-foreground,#3794ff)]',
               )}
               data-testid={`alert-${alert.id}`}
             >
@@ -128,7 +133,11 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
                 <div className="flex items-center gap-2">
                   <Badge variant={severityVariant[alert.severity]}>{alert.severity}</Badge>
                   <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                    {new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(alert.triggeredAt))}
+                    {new Intl.DateTimeFormat(undefined, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    }).format(new Date(alert.triggeredAt))}
                   </span>
                 </div>
                 <p className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] mt-1">

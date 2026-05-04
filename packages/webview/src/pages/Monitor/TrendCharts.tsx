@@ -136,11 +136,7 @@ const PERIOD_I18N: Record<PeriodOption, { key: string; defaultValue: string }> =
 };
 
 /** Pure SVG trend charts for monitoring data visualization. */
-export const TrendCharts: React.FC<TrendChartsProps> = ({
-  series,
-  className,
-  onPeriodChange,
-}) => {
+export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className, onPeriodChange }) => {
   const { t } = useTranslation();
   const [activeSeriesId, setActiveSeriesId] = React.useState(series[0]?.id ?? '');
   const [activePeriod, setActivePeriod] = React.useState<PeriodOption>('24h');
@@ -213,12 +209,9 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({
                     fontSize: 'var(--sf-font-size-xs)',
                     borderRadius: 'var(--sf-radius-sm)',
                     border: '1px solid var(--sf-border)',
-                    backgroundColor:
-                      activePeriod === period ? 'var(--sf-accent)' : 'transparent',
+                    backgroundColor: activePeriod === period ? 'var(--sf-accent)' : 'transparent',
                     color:
-                      activePeriod === period
-                        ? 'var(--sf-bg-card)'
-                        : 'var(--sf-text-secondary)',
+                      activePeriod === period ? 'var(--sf-bg-card)' : 'var(--sf-text-secondary)',
                     cursor: 'pointer',
                   }}
                 >

@@ -1,7 +1,4 @@
-import type {
-  PreCheckConfig,
-  PreCheckItem,
-} from '@sandforge/shared';
+import type { PreCheckConfig, PreCheckItem } from '@sandforge/shared';
 import { randomUUID } from 'crypto';
 
 /** Data integrity information for the operation */
@@ -46,7 +43,7 @@ export interface ExternalIdFieldInfo {
 /** Dependency: fetches data integrity information for the operation */
 export type FetchDataInfoFn = (
   orgId: string,
-  operationConfig: Record<string, unknown>
+  operationConfig: Record<string, unknown>,
 ) => Promise<DataIntegrityInfo>;
 
 /**
@@ -62,10 +59,7 @@ export class DataIntegrityCheck {
 
   /** Run all data integrity checks */
   async check(config: PreCheckConfig): Promise<PreCheckItem[]> {
-    const info = await this.fetchDataInfo(
-      config.targetOrgId,
-      config.operationConfig
-    );
+    const info = await this.fetchDataInfo(config.targetOrgId, config.operationConfig);
     const items: PreCheckItem[] = [];
 
     items.push(...this.checkLookupTargets(info.lookupTargets));

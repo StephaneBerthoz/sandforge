@@ -1,6 +1,8 @@
 import type { BaseMessage } from '@sandforge/shared';
 import type {
-  AINL2SOQLRequest, AIResolveErrorRequest, AIPersonasRequest,
+  AINL2SOQLRequest,
+  AIResolveErrorRequest,
+  AIPersonasRequest,
   AIGeneratePipelineRequest,
 } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
@@ -89,13 +91,16 @@ export class AIToolsHandler implements DomainHandler {
       };
       const result = await this.aiModules.nl2soql.generateSOQL(query, schemaContext);
       const response = buildResponse(this.deps, msg, 'ai:nl2soql:response', {
-        success: true, soql: result.soql, explanation: result.explanation,
+        success: true,
+        soql: result.soql,
+        explanation: result.explanation,
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:nl2soql: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:nl2soql:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }
@@ -106,7 +111,9 @@ export class AIToolsHandler implements DomainHandler {
     const { errorMessage, errorCode, module, context } = (msg as AIResolveErrorRequest).payload;
     try {
       if (!this.aiModules?.errorResolver) {
-        throw new Error('AI not configured. Set your API key in Settings > AI to enable this feature.');
+        throw new Error(
+          'AI not configured. Set your API key in Settings > AI to enable this feature.',
+        );
       }
       const result = await this.aiModules.errorResolver.resolveError(
         { errorCode: errorCode ?? 'UNKNOWN', message: errorMessage },
@@ -114,13 +121,19 @@ export class AIToolsHandler implements DomainHandler {
       );
       const suggestedFix = result.suggestions[0]?.description ?? result.explanation;
       const response = buildResponse(this.deps, msg, 'ai:resolve-error:response', {
-        success: true, resolution: { explanation: result.explanation, suggestedFix, confidence: result.confidence },
+        success: true,
+        resolution: {
+          explanation: result.explanation,
+          suggestedFix,
+          confidence: result.confidence,
+        },
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:resolve-error: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:resolve-error:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }
@@ -131,37 +144,56 @@ export class AIToolsHandler implements DomainHandler {
     const { action, description } = (msg as AIPersonasRequest).payload;
     try {
       if (!this.aiModules?.personaManager) {
-        throw new Error('AI not configured. Set your API key in Settings > AI to enable this feature.');
+        throw new Error(
+          'AI not configured. Set your API key in Settings > AI to enable this feature.',
+        );
       }
       if (action === 'list') {
         const builtIn = this.aiModules.personaManager.getBuiltInPersonas();
         const custom = this.aiModules.personaManager.getCustomPersonas();
-        const personas = [...builtIn, ...custom].map((p: { id: string; name: string; description: string }) => ({ id: p.id, name: p.name, description: p.description }));
+        const personas = [...builtIn, ...custom].map(
+          (p: { id: string; name: string; description: string }) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+          }),
+        );
         const response = buildResponse(this.deps, msg, 'ai:personas:response', {
-          success: true, personas,
+          success: true,
+          personas,
         });
         this.deps.broker.postToWebview(response);
       } else if (action === 'create' && description) {
         const aiAssistant = this.getAIAssistant();
         const aiProvider = async (prompt: string): Promise<string> => {
-          if (!aiAssistant) throw new Error('AI not configured. Set your API key in Settings > AI to enable this feature.');
+          if (!aiAssistant)
+            throw new Error(
+              'AI not configured. Set your API key in Settings > AI to enable this feature.',
+            );
           const conv = aiAssistant.createConversation('persona-gen');
           const result = await aiAssistant.chat(conv.id, prompt);
           aiAssistant.deleteConversation(conv.id);
           return result.content;
         };
-        const persona = await this.aiModules.personaManager.createCustomPersona(description, aiProvider);
+        const persona = await this.aiModules.personaManager.createCustomPersona(
+          description,
+          aiProvider,
+        );
         const response = buildResponse(this.deps, msg, 'ai:personas:response', {
-          success: true, personas: [{ id: persona.id, name: persona.name, description: persona.description }],
+          success: true,
+          personas: [{ id: persona.id, name: persona.name, description: persona.description }],
         });
         this.deps.broker.postToWebview(response);
       } else {
-        throw new Error('Invalid action or missing description. Provide a valid action ("list" or "create") and a description when creating a persona.');
+        throw new Error(
+          'Invalid action or missing description. Provide a valid action ("list" or "create") and a description when creating a persona.',
+        );
       }
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:personas: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:personas:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }
@@ -172,21 +204,32 @@ export class AIToolsHandler implements DomainHandler {
     const { description, orgIds } = (msg as AIGeneratePipelineRequest).payload;
     try {
       if (!this.aiModules?.pipelineGenerator) {
-        throw new Error('AI not configured. Set your API key in Settings > AI to enable this feature.');
+        throw new Error(
+          'AI not configured. Set your API key in Settings > AI to enable this feature.',
+        );
       }
       const availableOrgs = (orgIds ?? []).map((id: string) => {
         const org = this.deps.orgManager.getOrg(id);
-        return { orgId: id, alias: org?.alias ?? id, type: (org?.orgType ?? 'sandbox') as 'production' | 'sandbox' | 'developer' | 'scratch' };
+        return {
+          orgId: id,
+          alias: org?.alias ?? id,
+          type: (org?.orgType ?? 'sandbox') as 'production' | 'sandbox' | 'developer' | 'scratch',
+        };
       });
-      const result = await this.aiModules.pipelineGenerator.generatePipeline(description, availableOrgs);
+      const result = await this.aiModules.pipelineGenerator.generatePipeline(
+        description,
+        availableOrgs,
+      );
       const response = buildResponse(this.deps, msg, 'ai:generate-pipeline:response', {
-        success: true, pipeline: result as unknown as Record<string, unknown>,
+        success: true,
+        pipeline: result as unknown as Record<string, unknown>,
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:generate-pipeline: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:generate-pipeline:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }

@@ -29,9 +29,7 @@ export class HealthCheck {
 
   /** Aggregate all health signals into an OrgHealthStatus */
   async computeHealth(orgId: string): Promise<OrgHealthStatus> {
-    const signals = await Promise.all(
-      this.providers.map((provider) => provider(orgId))
-    );
+    const signals = await Promise.all(this.providers.map((provider) => provider(orgId)));
 
     const score = HealthCheck.computeScore(signals);
     const overall = HealthCheck.statusFromScore(score);

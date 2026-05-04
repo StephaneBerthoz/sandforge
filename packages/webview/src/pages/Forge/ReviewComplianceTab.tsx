@@ -83,10 +83,7 @@ export const ReviewComplianceTab: React.FC = () => {
       </div>
 
       {framework === 'none' && (
-        <p
-          data-testid="no-compliance"
-          className="text-xs text-text-muted py-4"
-        >
+        <p data-testid="no-compliance" className="text-xs text-text-muted py-4">
           {t(
             'forge.review.noCompliance',
             'No compliance framework selected. Select one to generate a report.',
@@ -95,22 +92,13 @@ export const ReviewComplianceTab: React.FC = () => {
       )}
 
       {framework !== 'none' && loading && !complianceReport && (
-        <p
-          data-testid="compliance-loading"
-          className="text-xs text-text-muted py-4"
-        >
-          {t(
-            'forge.review.complianceLoading',
-            'Analyzing compliance...',
-          )}
+        <p data-testid="compliance-loading" className="text-xs text-text-muted py-4">
+          {t('forge.review.complianceLoading', 'Analyzing compliance...')}
         </p>
       )}
 
       {framework !== 'none' && !loading && !complianceReport && (
-        <p
-          data-testid="compliance-waiting"
-          className="text-xs text-text-muted py-4"
-        >
+        <p data-testid="compliance-waiting" className="text-xs text-text-muted py-4">
           {t(
             'forge.review.complianceWaiting',
             'Select a framework and execute to generate compliance report.',
@@ -119,14 +107,10 @@ export const ReviewComplianceTab: React.FC = () => {
       )}
 
       {complianceReport && (
-        <div
-          data-testid="compliance-report"
-          className="rounded-lg border border-subtle p-3"
-        >
+        <div data-testid="compliance-report" className="rounded-lg border border-subtle p-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-text-primary">
-              {t('forge.review.complianceStatus', 'Status')}:{' '}
-              {complianceReport.overallStatus}
+              {t('forge.review.complianceStatus', 'Status')}: {complianceReport.overallStatus}
             </span>
             <span
               className={`text-[10px] px-2 py-0.5 rounded ${

@@ -10,7 +10,12 @@ let mockApiUsageLoading = false;
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'monitor:api-usage') {
-      return { data: mockApiUsageData, loading: mockApiUsageLoading, error: null, refetch: vi.fn() };
+      return {
+        data: mockApiUsageData,
+        loading: mockApiUsageLoading,
+        error: null,
+        refetch: vi.fn(),
+      };
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -57,9 +62,7 @@ describe('ApiUsagePanel', () => {
   it('shows warning badge for categories at 80% or above', () => {
     mockApiUsageData = {
       success: true,
-      categories: [
-        { category: 'DailyApiRequests', used: 12000, max: 15000, usedPercent: 85 },
-      ],
+      categories: [{ category: 'DailyApiRequests', used: 12000, max: 15000, usedPercent: 85 }],
     };
     render(<ApiUsagePanel />);
 
@@ -70,9 +73,7 @@ describe('ApiUsagePanel', () => {
   it('shows critical badge for categories at 95% or above', () => {
     mockApiUsageData = {
       success: true,
-      categories: [
-        { category: 'DailyBulkApiRequests', used: 9600, max: 10000, usedPercent: 96 },
-      ],
+      categories: [{ category: 'DailyBulkApiRequests', used: 9600, max: 10000, usedPercent: 96 }],
     };
     render(<ApiUsagePanel />);
 

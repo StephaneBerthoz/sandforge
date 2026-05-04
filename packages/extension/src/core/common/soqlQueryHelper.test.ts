@@ -17,11 +17,7 @@ function createMockConnection(): {
   };
 }
 
-function makeQueryResult<T>(
-  records: T[],
-  done: boolean,
-  nextRecordsUrl?: string,
-): QueryResult<T> {
+function makeQueryResult<T>(records: T[], done: boolean, nextRecordsUrl?: string): QueryResult<T> {
   return {
     done,
     totalSize: records.length,
@@ -48,9 +44,7 @@ describe('soqlQueryHelper', () => {
       );
 
       expect(result).toEqual(records);
-      expect(mockConn.query).toHaveBeenCalledWith(
-        'SELECT Id, Name FROM Account',
-      );
+      expect(mockConn.query).toHaveBeenCalledWith('SELECT Id, Name FROM Account');
       expect(mockConn.queryMore).not.toHaveBeenCalled();
     });
 
@@ -63,9 +57,7 @@ describe('soqlQueryHelper', () => {
         makeQueryResult(page1, false, '/services/data/v58.0/query/next1'),
       );
       mockConn.queryMore
-        .mockResolvedValueOnce(
-          makeQueryResult(page2, false, '/services/data/v58.0/query/next2'),
-        )
+        .mockResolvedValueOnce(makeQueryResult(page2, false, '/services/data/v58.0/query/next2'))
         .mockResolvedValueOnce(makeQueryResult(page3, true));
 
       const result = await queryAll<TestRecord>(
@@ -76,12 +68,8 @@ describe('soqlQueryHelper', () => {
       expect(result).toEqual([...page1, ...page2, ...page3]);
       expect(result).toHaveLength(5);
       expect(mockConn.queryMore).toHaveBeenCalledTimes(2);
-      expect(mockConn.queryMore).toHaveBeenCalledWith(
-        '/services/data/v58.0/query/next1',
-      );
-      expect(mockConn.queryMore).toHaveBeenCalledWith(
-        '/services/data/v58.0/query/next2',
-      );
+      expect(mockConn.queryMore).toHaveBeenCalledWith('/services/data/v58.0/query/next1');
+      expect(mockConn.queryMore).toHaveBeenCalledWith('/services/data/v58.0/query/next2');
     });
 
     it('should return empty array when no records are found', async () => {
@@ -112,24 +100,16 @@ describe('soqlQueryHelper', () => {
       mockConn.query.mockRejectedValue(new Error('INVALID_SESSION_ID'));
 
       await expect(
-        queryAll<TestRecord>(
-          mockConn as unknown as Connection,
-          'SELECT Id FROM Account',
-        ),
+        queryAll<TestRecord>(mockConn as unknown as Connection, 'SELECT Id FROM Account'),
       ).rejects.toThrow('INVALID_SESSION_ID');
     });
 
     it('should propagate queryMore errors', async () => {
-      mockConn.query.mockResolvedValue(
-        makeQueryResult([{ Id: '001' }], false, '/next'),
-      );
+      mockConn.query.mockResolvedValue(makeQueryResult([{ Id: '001' }], false, '/next'));
       mockConn.queryMore.mockRejectedValue(new Error('CONNECTION_RESET'));
 
       await expect(
-        queryAll<TestRecord>(
-          mockConn as unknown as Connection,
-          'SELECT Id FROM Account',
-        ),
+        queryAll<TestRecord>(mockConn as unknown as Connection, 'SELECT Id FROM Account'),
       ).rejects.toThrow('CONNECTION_RESET');
     });
   });
@@ -151,12 +131,8 @@ describe('soqlQueryHelper', () => {
 
     it('should fallback to describe when FIELDS(ALL) is not supported', async () => {
       mockConn.query
-        .mockRejectedValueOnce(
-          new Error('FIELDS(ALL) is not supported in this org'),
-        )
-        .mockResolvedValueOnce(
-          makeQueryResult([{ Id: '001', Name: 'Acme' }], true),
-        );
+        .mockRejectedValueOnce(new Error('FIELDS(ALL) is not supported in this org'))
+        .mockResolvedValueOnce(makeQueryResult([{ Id: '001', Name: 'Acme' }], true));
 
       mockConn.describe.mockResolvedValue({
         fields: [
@@ -186,9 +162,7 @@ describe('soqlQueryHelper', () => {
     it('should fallback to describe with only standard fields for FIELDS(STANDARD)', async () => {
       mockConn.query
         .mockRejectedValueOnce(new Error('MALFORMED_QUERY'))
-        .mockResolvedValueOnce(
-          makeQueryResult([{ Id: '001', Name: 'Acme' }], true),
-        );
+        .mockResolvedValueOnce(makeQueryResult([{ Id: '001', Name: 'Acme' }], true));
 
       mockConn.describe.mockResolvedValue({
         fields: [
@@ -233,9 +207,7 @@ describe('soqlQueryHelper', () => {
 
     it('should detect "not supported" errors and trigger fallback', async () => {
       mockConn.query
-        .mockRejectedValueOnce(
-          new Error('Feature not supported for this org type'),
-        )
+        .mockRejectedValueOnce(new Error('Feature not supported for this org type'))
         .mockResolvedValueOnce(makeQueryResult([{ Id: '001' }], true));
 
       mockConn.describe.mockResolvedValue({
@@ -252,9 +224,7 @@ describe('soqlQueryHelper', () => {
     });
 
     it('should rethrow non-FIELDS-related errors without fallback', async () => {
-      mockConn.query.mockRejectedValue(
-        new Error('INSUFFICIENT_ACCESS: cannot query this object'),
-      );
+      mockConn.query.mockRejectedValue(new Error('INSUFFICIENT_ACCESS: cannot query this object'));
 
       await expect(
         queryWithFieldsFallback<TestRecord>(
@@ -300,12 +270,8 @@ describe('soqlQueryHelper', () => {
     });
 
     it('should propagate errors from describe', async () => {
-      mockConn.query.mockRejectedValue(
-        new Error('MALFORMED_QUERY: FIELDS(ALL)'),
-      );
-      mockConn.describe.mockRejectedValue(
-        new Error('NO_ACCESS: cannot describe Account'),
-      );
+      mockConn.query.mockRejectedValue(new Error('MALFORMED_QUERY: FIELDS(ALL)'));
+      mockConn.describe.mockRejectedValue(new Error('NO_ACCESS: cannot describe Account'));
 
       await expect(
         queryWithFieldsFallback<TestRecord>(

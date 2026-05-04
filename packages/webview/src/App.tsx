@@ -51,7 +51,9 @@ const AppInner: React.FC = () => {
       const target = event.target as HTMLElement;
       if (
         target.textContent?.includes('SandForge') &&
-        (target.tagName === 'H1' || target.tagName === 'SPAN' || target.closest('[data-testid="app-logo"]'))
+        (target.tagName === 'H1' ||
+          target.tagName === 'SPAN' ||
+          target.closest('[data-testid="app-logo"]'))
       ) {
         logoClickCount.current += 1;
         if (logoClickTimer.current) {

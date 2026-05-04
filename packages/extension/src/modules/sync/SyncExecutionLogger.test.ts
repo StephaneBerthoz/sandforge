@@ -65,10 +65,7 @@ describe('SyncExecutionLogger', () => {
   beforeEach(() => {
     mockStore = createMockHistoryStore();
     idCounter = 0;
-    logger = new SyncExecutionLogger(
-      mockStore,
-      () => `generated-${++idCounter}`,
-    );
+    logger = new SyncExecutionLogger(mockStore, () => `generated-${++idCounter}`);
   });
 
   describe('logExecution', () => {

@@ -10,10 +10,7 @@ export interface CdcEvent {
 }
 
 /** Function that subscribes to a CDC channel and returns an unsubscribe function */
-export type CdcSubscribeFn = (
-  channel: string,
-  handler: (event: CdcEvent) => void
-) => () => void;
+export type CdcSubscribeFn = (channel: string, handler: (event: CdcEvent) => void) => () => void;
 
 /** Maximum number of events stored in the circular buffer */
 const MAX_EVENTS = 200;

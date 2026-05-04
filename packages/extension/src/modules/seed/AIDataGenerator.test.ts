@@ -17,9 +17,9 @@ describe('AIDataGenerator', () => {
   let generator: AIDataGenerator;
 
   beforeEach(() => {
-    callAI = vi.fn<CallAIFn>().mockResolvedValue(
-      JSON.stringify([{ Name: 'Acme Corp' }, { Name: 'Globex Inc' }])
-    );
+    callAI = vi
+      .fn<CallAIFn>()
+      .mockResolvedValue(JSON.stringify([{ Name: 'Acme Corp' }, { Name: 'Globex Inc' }]));
     generator = new AIDataGenerator(callAI);
   });
 
@@ -45,7 +45,7 @@ describe('AIDataGenerator', () => {
 
     it('should truncate results to requested count', async () => {
       vi.mocked(callAI).mockResolvedValue(
-        JSON.stringify([{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }])
+        JSON.stringify([{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }]),
       );
       const result = await generator.generate([createFieldRule()], 2);
       expect(result).toHaveLength(2);
@@ -96,14 +96,16 @@ describe('AIDataGenerator', () => {
       vi.mocked(callAI).mockRejectedValue(new Error('AI service unavailable'));
 
       await expect(generator.generate([createFieldRule()], 1)).rejects.toThrow(
-        'AI service unavailable'
+        'AI service unavailable',
       );
     });
   });
 
   describe('buildPrompt', () => {
     it('should include field descriptions', () => {
-      const rules = [createFieldRule({ fieldApiName: 'Email', config: { aiPrompt: 'business email' } })];
+      const rules = [
+        createFieldRule({ fieldApiName: 'Email', config: { aiPrompt: 'business email' } }),
+      ];
       const prompt = buildPrompt(rules, 5);
 
       expect(prompt).toContain('Email');
@@ -112,10 +114,12 @@ describe('AIDataGenerator', () => {
     });
 
     it('should include range constraints when present', () => {
-      const rules = [createFieldRule({
-        fieldApiName: 'Revenue',
-        config: { minValue: 1000, maxValue: 50000 },
-      })];
+      const rules = [
+        createFieldRule({
+          fieldApiName: 'Revenue',
+          config: { minValue: 1000, maxValue: 50000 },
+        }),
+      ];
       const prompt = buildPrompt(rules, 3);
 
       expect(prompt).toContain('1000');
@@ -123,10 +127,12 @@ describe('AIDataGenerator', () => {
     });
 
     it('should include length constraints when present', () => {
-      const rules = [createFieldRule({
-        fieldApiName: 'Code',
-        config: { minLength: 3, maxLength: 10 },
-      })];
+      const rules = [
+        createFieldRule({
+          fieldApiName: 'Code',
+          config: { minLength: 3, maxLength: 10 },
+        }),
+      ];
       const prompt = buildPrompt(rules, 2);
 
       expect(prompt).toContain('3');

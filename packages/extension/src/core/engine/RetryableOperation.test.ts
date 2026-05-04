@@ -39,10 +39,7 @@ describe('RetryableOperation', () => {
         retryConfig: { maxRetries: 3, initialDelay: 100, jitter: false },
       });
       const sfErr = createSfError('UNABLE_TO_LOCK_ROW');
-      const fn = vi
-        .fn()
-        .mockRejectedValueOnce(sfErr)
-        .mockResolvedValue('recovered');
+      const fn = vi.fn().mockRejectedValueOnce(sfErr).mockResolvedValue('recovered');
 
       const promise = op.execute(fn);
       await vi.runAllTimersAsync();
@@ -75,10 +72,7 @@ describe('RetryableOperation', () => {
         onRetry,
       });
       const sfErr = createSfError('UNABLE_TO_LOCK_ROW');
-      const fn = vi
-        .fn()
-        .mockRejectedValueOnce(sfErr)
-        .mockResolvedValue('ok');
+      const fn = vi.fn().mockRejectedValueOnce(sfErr).mockResolvedValue('ok');
 
       const promise = op.execute(fn);
       await vi.runAllTimersAsync();
@@ -124,7 +118,7 @@ describe('RetryableOperation', () => {
       ];
 
       const fn = vi
-        .fn<[typeof records], Promise<BatchResult<typeof records[0]>>>()
+        .fn<[typeof records], Promise<BatchResult<(typeof records)[0]>>>()
         .mockImplementationOnce(async (batch) => ({
           successes: [batch[0]],
           failures: [
@@ -156,9 +150,7 @@ describe('RetryableOperation', () => {
       const records = [{ id: '1' }];
       const fn = vi.fn().mockResolvedValue({
         successes: [],
-        failures: [
-          { record: records[0], error: createSfError('UNABLE_TO_LOCK_ROW') },
-        ],
+        failures: [{ record: records[0], error: createSfError('UNABLE_TO_LOCK_ROW') }],
       });
 
       const promise = op.executeBatch(records, fn);

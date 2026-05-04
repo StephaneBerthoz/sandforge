@@ -120,11 +120,7 @@ export class FakerFallback {
   /**
    * Generate a value using the specified faker method, using instance locale data.
    */
-  private generateByMethodInstance(
-    method: string,
-    index: number,
-    range: NumberRange,
-  ): unknown {
+  private generateByMethodInstance(method: string, index: number, range: NumberRange): unknown {
     switch (method) {
       case 'name':
         return this.generateName(index);
@@ -187,8 +183,12 @@ export class FakerFallback {
   }
 
   private generateEmail(index: number): string {
-    const first = this.generateFirstName(index).toLowerCase().replace(/[^a-z]/g, '');
-    const last = this.generateLastName(index).toLowerCase().replace(/[^a-z]/g, '');
+    const first = this.generateFirstName(index)
+      .toLowerCase()
+      .replace(/[^a-z]/g, '');
+    const last = this.generateLastName(index)
+      .toLowerCase()
+      .replace(/[^a-z]/g, '');
     const domain = this.localeData.emailDomains[index % this.localeData.emailDomains.length];
     return `${first}.${last}${index}@${domain}`;
   }
@@ -267,11 +267,9 @@ function generateSentence(index: number): string {
 }
 
 function generateParagraph(index: number): string {
-  return [
-    generateSentence(index),
-    generateSentence(index + 1),
-    generateSentence(index + 2),
-  ].join(' ');
+  return [generateSentence(index), generateSentence(index + 1), generateSentence(index + 2)].join(
+    ' ',
+  );
 }
 
 function generateUUID(index: number): string {

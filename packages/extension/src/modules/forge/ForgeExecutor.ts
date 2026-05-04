@@ -262,7 +262,10 @@ export interface ForgeExecutorDeps {
   /** Optional batch strategy for splitting inserts into batches. */
   batchStrategy?: ForgeBatchStrategyService;
   /** Optional anonymization function applied before insert. */
-  anonymize?: (records: Record<string, unknown>[], objectApiName: string) => Record<string, unknown>[];
+  anonymize?: (
+    records: Record<string, unknown>[],
+    objectApiName: string,
+  ) => Record<string, unknown>[];
 }
 
 /** Progress event emitted during execution. */
@@ -371,7 +374,9 @@ export class ForgeExecutor {
    */
   private async waitIfPaused(): Promise<void> {
     if (this.isAborted) {
-      throw new Error('Forge execution was aborted by user request. No further batches will be processed.');
+      throw new Error(
+        'Forge execution was aborted by user request. No further batches will be processed.',
+      );
     }
     if (!this.isPaused) {
       return;
@@ -380,7 +385,9 @@ export class ForgeExecutor {
       this.pauseResolve = resolve;
     });
     if (this.isAborted) {
-      throw new Error('Forge execution was aborted while paused. No further batches will be processed.');
+      throw new Error(
+        'Forge execution was aborted while paused. No further batches will be processed.',
+      );
     }
   }
 
@@ -410,7 +417,8 @@ export class ForgeExecutor {
     const scopeCache = isScoped ? new RecordScopeCache() : null;
     const scopedBuilder = isScoped ? new ScopedSoqlBuilder() : null;
     const recordTypeMappings = options?.recordTypeMappings;
-    const recordTypeMapper = recordTypeMappings && recordTypeMappings.length > 0 ? new RecordTypeMapper() : null;
+    const recordTypeMapper =
+      recordTypeMappings && recordTypeMappings.length > 0 ? new RecordTypeMapper() : null;
     // Per-object opt-in field exclusions and owner mapping. Keyed by SObject
     // API name. Lookups happen at most once per node (case-sensitive).
     const fieldExclusions = options?.fieldExclusions ?? {};
@@ -506,7 +514,12 @@ export class ForgeExecutor {
               stage: 'scope',
               failedCount: 0,
               attemptedCount: 0,
-              samples: [{ recordSummary: '(node-level skip)', messages: [`Object is not createable on target org`] }],
+              samples: [
+                {
+                  recordSummary: '(node-level skip)',
+                  messages: [`Object is not createable on target org`],
+                },
+              ],
             });
             onProgress({
               objectName: node.objectApiName,
@@ -524,10 +537,14 @@ export class ForgeExecutor {
             stage: 'scope',
             failedCount: 0,
             attemptedCount: 0,
-            samples: [{
-              recordSummary: '(target describe failed)',
-              messages: [`isObjectCreatable check failed: ${err instanceof Error ? err.message : String(err)}`],
-            }],
+            samples: [
+              {
+                recordSummary: '(target describe failed)',
+                messages: [
+                  `isObjectCreatable check failed: ${err instanceof Error ? err.message : String(err)}`,
+                ],
+              },
+            ],
           });
         }
       }
@@ -690,7 +707,9 @@ export class ForgeExecutor {
         if (!dryRun) {
           try {
             const targetFields = await this.deps.describeFields(targetOrgId, node.objectApiName);
-            targetCreatableSet = new Set(targetFields.filter((f) => f.createable).map((f) => f.name));
+            targetCreatableSet = new Set(
+              targetFields.filter((f) => f.createable).map((f) => f.name),
+            );
             // Collect picklist value whitelists for cross-org strip.
             const pmap = new Map<string, Set<string>>();
             for (const f of targetFields) {
@@ -709,10 +728,12 @@ export class ForgeExecutor {
               stage: 'scope',
               failedCount: 0,
               attemptedCount: 0,
-              samples: [{
-                recordSummary: '(target describe failed — falling back to source schema)',
-                messages: [err instanceof Error ? err.message : String(err)],
-              }],
+              samples: [
+                {
+                  recordSummary: '(target describe failed — falling back to source schema)',
+                  messages: [err instanceof Error ? err.message : String(err)],
+                },
+              ],
             });
           }
         }
@@ -957,18 +978,10 @@ export class ForgeExecutor {
           await this.waitIfPaused();
 
           const batch = remappedRecords.slice(b * batchSize, (b + 1) * batchSize);
-          const results = upsertField && this.deps.upsertRecords
-            ? await this.deps.upsertRecords(
-                targetOrgId,
-                node.objectApiName,
-                upsertField,
-                batch,
-              )
-            : await this.deps.insertRecords(
-                targetOrgId,
-                node.objectApiName,
-                batch,
-              );
+          const results =
+            upsertField && this.deps.upsertRecords
+              ? await this.deps.upsertRecords(targetOrgId, node.objectApiName, upsertField, batch)
+              : await this.deps.insertRecords(targetOrgId, node.objectApiName, batch);
 
           // Step 4: Register new IDs for this batch + capture failure samples.
           // Use filteredRecords (post required-FK skip) for the source-ID
@@ -994,7 +1007,8 @@ export class ForgeExecutor {
               // Wave 2 v3 — record nullified FKs so pass 2 can patch them
               // once the parent target is in the IdRemapper.
               if (built && built.nullifiedFks.length > 0) {
-                const sourceId = typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
+                const sourceId =
+                  typeof built.source['Id'] === 'string' ? built.source['Id'] : undefined;
                 for (const nf of built.nullifiedFks) {
                   pendingFkUpdates.push({
                     objectApiName: node.objectApiName,
@@ -1023,7 +1037,9 @@ export class ForgeExecutor {
               if (nodeErrorSamples.length < 3) {
                 nodeErrorSamples.push({
                   recordSummary: summarizeRecordForError(batch[i]),
-                  messages: [`No result returned for record (API truncated batch: ${actual}/${expected})`],
+                  messages: [
+                    `No result returned for record (API truncated batch: ${actual}/${expected})`,
+                  ],
                 });
               }
             }
@@ -1063,9 +1079,10 @@ export class ForgeExecutor {
             objectName: node.objectApiName,
             status: 'error',
             progress: 100,
-            message: nodeSuccess === 0
-              ? `Failed all ${node.objectApiName} records`
-              : `${nodeFailure}/${total} ${node.objectApiName} records failed (>50%) — children will be skipped`,
+            message:
+              nodeSuccess === 0
+                ? `Failed all ${node.objectApiName} records`
+                : `${nodeFailure}/${total} ${node.objectApiName} records failed (>50%) — children will be skipped`,
           });
         } else {
           onProgress({
@@ -1083,7 +1100,9 @@ export class ForgeExecutor {
           stage: 'query',
           failedCount: node.recordCount,
           attemptedCount: node.recordCount,
-          samples: [{ recordSummary: '(stage failed before insert)', messages: [extractErrorMessage(err)] }],
+          samples: [
+            { recordSummary: '(stage failed before insert)', messages: [extractErrorMessage(err)] },
+          ],
         });
         onProgress({
           objectName: node.objectApiName,
@@ -1110,7 +1129,9 @@ export class ForgeExecutor {
           if (unresolved.length < 3) {
             unresolved.push({
               recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}=<source ${upd.sourceRefId}>`,
-              messages: [`Cycle FK '${upd.fieldName}' could not be resolved — referenced parent (source ${upd.sourceRefId}) was not cloned`],
+              messages: [
+                `Cycle FK '${upd.fieldName}' could not be resolved — referenced parent (source ${upd.sourceRefId}) was not cloned`,
+              ],
             });
           }
           continue;
@@ -1134,7 +1155,9 @@ export class ForgeExecutor {
           if (unresolved.length < 3) {
             unresolved.push({
               recordSummary: `${upd.objectApiName} source=${upd.sourceId ?? '?'} target=${upd.newId} ${upd.fieldName}`,
-              messages: [`Conflicting cycle FK update for ${upd.fieldName}: ${String(previousValue)} vs ${newRefId}`],
+              messages: [
+                `Conflicting cycle FK update for ${upd.fieldName}: ${String(previousValue)} vs ${newRefId}`,
+              ],
             });
           }
           continue;
@@ -1326,7 +1349,9 @@ export class ForgeExecutor {
       );
     }
     const sourceCreatable = new Set(fields.filter((f) => f.createable).map((f) => f.name));
-    const effectiveCreatable = targetCreatable ? intersect(sourceCreatable, targetCreatable) : sourceCreatable;
+    const effectiveCreatable = targetCreatable
+      ? intersect(sourceCreatable, targetCreatable)
+      : sourceCreatable;
 
     const r = records[0];
     const cleaned: Record<string, unknown> = {};
@@ -1345,9 +1370,10 @@ export class ForgeExecutor {
       }
       cleaned[key] = value;
     }
-    const payload = recordTypeMapper && recordTypeMappings
-      ? recordTypeMapper.apply([cleaned], recordTypeMappings)[0]
-      : cleaned;
+    const payload =
+      recordTypeMapper && recordTypeMappings
+        ? recordTypeMapper.apply([cleaned], recordTypeMappings)[0]
+        : cleaned;
     const result = await this.deps.insertRecords(targetOrgId, parentObject, [payload]);
     if (!result[0] || !result[0].success) return null;
     return result[0].id;
@@ -1377,8 +1403,7 @@ function summarizeRecordForError(record: Record<string, unknown>): string {
       } catch {
         str = '<unserializable>';
       }
-    }
-    else str = String(v);
+    } else str = String(v);
     parts.push(`${k}=${str}`);
   }
   return parts.join(' ') || '(empty)';
@@ -1456,10 +1481,7 @@ interface NullifiedFk {
  * The error surfaces to the UI so the user can either include the root
  * or drop scoped mode.
  */
-function bringRootToFront(
-  nodes: ForgeGraphNode[],
-  rootObjectApiName: string,
-): ForgeGraphNode[] {
+function bringRootToFront(nodes: ForgeGraphNode[], rootObjectApiName: string): ForgeGraphNode[] {
   const rootIndex = nodes.findIndex((n) => n.objectApiName === rootObjectApiName);
   if (rootIndex < 0) {
     throw new Error(
@@ -1488,9 +1510,7 @@ function bringRootToFront(
  * where the given object is the targetObject.
  */
 function getParentObjects(objectApiName: string, graph: ForgeGraph): string[] {
-  return graph.edges
-    .filter((e) => e.targetObject === objectApiName)
-    .map((e) => e.sourceObject);
+  return graph.edges.filter((e) => e.targetObject === objectApiName).map((e) => e.sourceObject);
 }
 
 /**

@@ -3,7 +3,7 @@ import type { TranslationRecord } from '../../types.js';
 export const seed: TranslationRecord = {
   title: 'Generer des donnees',
   selectOrg: "Selectionner l'org cible",
-  selectOrgDesc: 'Choisissez l\'org ou les donnees seront generees',
+  selectOrgDesc: "Choisissez l'org ou les donnees seront generees",
   selectObjects: 'Selectionner les objets',
   selectObjectsDesc: 'Choisissez les objets a alimenter en donnees',
   configureFields: 'Configurer les champs',
@@ -86,19 +86,23 @@ export const seed: TranslationRecord = {
   nl2soqlError: 'Generation SOQL echouee. Verifiez votre cle API dans Parametres > IA.',
   piiScanning: 'Analyse des champs PII en cours...',
   piiWarningTitle: 'Champs PII detectes',
-  piiWarningHint: 'Envisagez de masquer ou exclure ces champs pour eviter d\'exposer des donnees personnelles dans votre sandbox.',
+  piiWarningHint:
+    "Envisagez de masquer ou exclure ces champs pour eviter d'exposer des donnees personnelles dans votre sandbox.",
   templates: {
     salesCloudStarter: {
       name: 'Sales Cloud - Demarrage',
-      description: 'Modele pre-construit pour Sales Cloud avec Comptes, Contacts, Opportunites, Produits et Catalogues de prix. Inclut la chaine complete d\'integrite referentielle pour les lignes d\'opportunite.',
+      description:
+        "Modele pre-construit pour Sales Cloud avec Comptes, Contacts, Opportunites, Produits et Catalogues de prix. Inclut la chaine complete d'integrite referentielle pour les lignes d'opportunite.",
     },
     serviceCloudStarter: {
       name: 'Service Cloud - Demarrage',
-      description: 'Modele pre-construit pour Service Cloud avec Comptes, Contacts, Requetes, Commentaires de requete et articles Knowledge.',
+      description:
+        'Modele pre-construit pour Service Cloud avec Comptes, Contacts, Requetes, Commentaires de requete et articles Knowledge.',
     },
     minimalDemo: {
       name: 'Demo minimale',
-      description: 'Modele de demo leger avec seulement Comptes, Contacts et Opportunites. Ideal pour les demos rapides et les tests.',
+      description:
+        'Modele de demo leger avec seulement Comptes, Contacts et Opportunites. Ideal pour les demos rapides et les tests.',
     },
   },
   clone: {
@@ -123,7 +127,8 @@ export const seed: TranslationRecord = {
       insertOrder: "Ordre d'insertion",
       recordCounts: "Nombre d'enregistrements",
       sampleRecords: "Exemples d'enregistrements",
-      largeWarning: 'Ce clonage concerne plus de 10 000 enregistrements. Cela peut prendre plusieurs minutes.',
+      largeWarning:
+        'Ce clonage concerne plus de 10 000 enregistrements. Cela peut prendre plusieurs minutes.',
       execute: 'Executer le clonage',
     },
     results: {

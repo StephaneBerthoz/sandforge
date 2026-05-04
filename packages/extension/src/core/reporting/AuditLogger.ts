@@ -40,7 +40,7 @@ export class AuditLogger {
     action: AuditAction,
     module: string,
     details: Record<string, unknown>,
-    orgId?: string
+    orgId?: string,
   ): AuditLogEntry {
     const entry: AuditLogEntry = {
       id: randomUUID(),
@@ -123,7 +123,7 @@ export class AuditLogger {
    */
   on<K extends keyof AuditLoggerEvents>(
     event: K,
-    listener: (...args: AuditLoggerEvents[K]) => void
+    listener: (...args: AuditLoggerEvents[K]) => void,
   ): void {
     this.emitter.on(event, listener as (...args: unknown[]) => void);
   }
@@ -135,7 +135,7 @@ export class AuditLogger {
    */
   off<K extends keyof AuditLoggerEvents>(
     event: K,
-    listener: (...args: AuditLoggerEvents[K]) => void
+    listener: (...args: AuditLoggerEvents[K]) => void,
   ): void {
     this.emitter.off(event, listener as (...args: unknown[]) => void);
   }

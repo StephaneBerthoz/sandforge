@@ -29,9 +29,12 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 /** Returns badge variant based on session type. */
 function sessionTypeVariant(type: string): BadgeVariant {
   switch (type) {
-    case 'UI': return 'info';
-    case 'API': return 'warning';
-    default: return 'default';
+    case 'UI':
+      return 'info';
+    case 'API':
+      return 'warning';
+    default:
+      return 'default';
   }
 }
 
@@ -56,7 +59,10 @@ export const SessionsPanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="sessions-panel-loading">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="sessions-panel-loading"
+      >
         <Skeleton variant="rect" height="200px" />
       </div>
     );
@@ -64,7 +70,10 @@ export const SessionsPanel: React.FC = () => {
 
   if (sessions.length === 0) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="sessions-panel-empty">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="sessions-panel-empty"
+      >
         <div className="flex items-center gap-2 mb-3">
           <Users className="w-4 h-4 text-text-secondary" />
           <h3 className="text-sm font-semibold text-text-primary">
@@ -87,7 +96,10 @@ export const SessionsPanel: React.FC = () => {
           {t('monitor.sessions.title', 'Active Sessions')}
         </h3>
         <Badge variant="info">
-          {t('monitor.sessions.activeUsers', '{{count}} active user(s)').replace('{{count}}', String(activeUserCount))}
+          {t('monitor.sessions.activeUsers', '{{count}} active user(s)').replace(
+            '{{count}}',
+            String(activeUserCount),
+          )}
         </Badge>
       </div>
 
@@ -111,9 +123,7 @@ export const SessionsPanel: React.FC = () => {
               {session.username}
             </span>
             <span className="w-20 shrink-0">
-              <Badge variant={sessionTypeVariant(session.sessionType)}>
-                {session.sessionType}
-              </Badge>
+              <Badge variant={sessionTypeVariant(session.sessionType)}>{session.sessionType}</Badge>
             </span>
             <span className="text-[11px] tabular-nums text-text-muted w-28 shrink-0">
               {dateFormatter.format(new Date(session.loginTime))}

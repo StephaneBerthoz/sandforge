@@ -107,11 +107,11 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           >
             {i18n.t('errorBoundary.title', 'Something went wrong')}
           </h2>
-          <p
-            className="text-sm mb-6"
-            style={{ color: 'var(--sf-text-secondary, #A3A3A3)' }}
-          >
-            {i18n.t('errorBoundary.description', 'SandForge encountered an unexpected error. You can try recovering or copy the error details for a bug report.')}
+          <p className="text-sm mb-6" style={{ color: 'var(--sf-text-secondary, #A3A3A3)' }}>
+            {i18n.t(
+              'errorBoundary.description',
+              'SandForge encountered an unexpected error. You can try recovering or copy the error details for a bug report.',
+            )}
           </p>
 
           {/* Error message */}
@@ -151,7 +151,9 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
               data-testid="error-copy-btn"
             >
               <Copy className="w-4 h-4" />
-              {copied ? i18n.t('errorBoundary.copied', 'Copied!') : i18n.t('errorBoundary.copyError', 'Copy Error')}
+              {copied
+                ? i18n.t('errorBoundary.copied', 'Copied!')
+                : i18n.t('errorBoundary.copyError', 'Copy Error')}
             </button>
           </div>
         </div>

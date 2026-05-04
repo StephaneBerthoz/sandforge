@@ -45,11 +45,7 @@ describe('CliRunner', () => {
 
   describe('run — sync command', () => {
     it('should execute the sync command successfully', async () => {
-      const result = await runner.run([
-        'sync',
-        '--config',
-        './sync/prod-to-dev.json',
-      ]);
+      const result = await runner.run(['sync', '--config', './sync/prod-to-dev.json']);
 
       expect(result.exitCode).toBe(CliExitCode.Success);
       const parsed = JSON.parse(result.output) as Record<string, unknown>;
@@ -59,12 +55,7 @@ describe('CliRunner', () => {
     });
 
     it('should handle dry-run flag for sync', async () => {
-      const result = await runner.run([
-        'sync',
-        '--config',
-        './sync/prod-to-dev.json',
-        '--dry-run',
-      ]);
+      const result = await runner.run(['sync', '--config', './sync/prod-to-dev.json', '--dry-run']);
 
       expect(result.exitCode).toBe(CliExitCode.Success);
       const parsed = JSON.parse(result.output) as Record<string, unknown>;
@@ -75,13 +66,7 @@ describe('CliRunner', () => {
 
   describe('run — compare command', () => {
     it('should execute the compare command with warnings exit code', async () => {
-      const result = await runner.run([
-        'compare',
-        '--source',
-        'prod',
-        '--target',
-        'uat',
-      ]);
+      const result = await runner.run(['compare', '--source', 'prod', '--target', 'uat']);
 
       expect(result.exitCode).toBe(CliExitCode.Warnings);
       const parsed = JSON.parse(result.output) as Record<string, unknown>;
@@ -92,13 +77,7 @@ describe('CliRunner', () => {
 
   describe('run — backup command', () => {
     it('should execute the backup command successfully', async () => {
-      const result = await runner.run([
-        'backup',
-        '--org',
-        'prod',
-        '--objects',
-        'Account,Contact',
-      ]);
+      const result = await runner.run(['backup', '--org', 'prod', '--objects', 'Account,Contact']);
 
       expect(result.exitCode).toBe(CliExitCode.Success);
       const parsed = JSON.parse(result.output) as Record<string, unknown>;
@@ -109,12 +88,7 @@ describe('CliRunner', () => {
 
   describe('run — pipeline command', () => {
     it('should execute the pipeline run command successfully', async () => {
-      const result = await runner.run([
-        'pipeline',
-        'run',
-        '--config',
-        './pipelines/nightly.json',
-      ]);
+      const result = await runner.run(['pipeline', 'run', '--config', './pipelines/nightly.json']);
 
       expect(result.exitCode).toBe(CliExitCode.Success);
       const parsed = JSON.parse(result.output) as Record<string, unknown>;
@@ -123,11 +97,7 @@ describe('CliRunner', () => {
     });
 
     it('should fail when pipeline is missing sub-command', async () => {
-      const result = await runner.run([
-        'pipeline',
-        '--config',
-        './pipelines/nightly.json',
-      ]);
+      const result = await runner.run(['pipeline', '--config', './pipelines/nightly.json']);
 
       expect(result.exitCode).toBe(CliExitCode.Failure);
     });
@@ -135,13 +105,7 @@ describe('CliRunner', () => {
 
   describe('run — anonymize command', () => {
     it('should execute the anonymize command successfully', async () => {
-      const result = await runner.run([
-        'anonymize',
-        '--org',
-        'uat',
-        '--template',
-        'rgpd-france',
-      ]);
+      const result = await runner.run(['anonymize', '--org', 'uat', '--template', 'rgpd-france']);
 
       expect(result.exitCode).toBe(CliExitCode.Success);
       const parsed = JSON.parse(result.output) as Record<string, unknown>;
@@ -163,12 +127,7 @@ describe('CliRunner', () => {
 
   describe('run — grappe command', () => {
     it('should execute the grappe status command successfully', async () => {
-      const result = await runner.run([
-        'grappe',
-        'status',
-        '--operation-id',
-        'abc123',
-      ]);
+      const result = await runner.run(['grappe', 'status', '--operation-id', 'abc123']);
 
       expect(result.exitCode).toBe(CliExitCode.Success);
       const parsed = JSON.parse(result.output) as Record<string, unknown>;
@@ -180,13 +139,7 @@ describe('CliRunner', () => {
 
   describe('run — format option', () => {
     it('should output in table format when --format table', async () => {
-      const result = await runner.run([
-        'health',
-        '--org',
-        'prod',
-        '--format',
-        'table',
-      ]);
+      const result = await runner.run(['health', '--org', 'prod', '--format', 'table']);
 
       expect(result.format).toBe('table');
       expect(result.output).toContain('|');
@@ -194,26 +147,14 @@ describe('CliRunner', () => {
     });
 
     it('should output in CSV format when --format csv', async () => {
-      const result = await runner.run([
-        'health',
-        '--org',
-        'prod',
-        '--format',
-        'csv',
-      ]);
+      const result = await runner.run(['health', '--org', 'prod', '--format', 'csv']);
 
       expect(result.format).toBe('csv');
       expect(result.output).toContain(',');
     });
 
     it('should output in HTML format when --format html', async () => {
-      const result = await runner.run([
-        'health',
-        '--org',
-        'prod',
-        '--format',
-        'html',
-      ]);
+      const result = await runner.run(['health', '--org', 'prod', '--format', 'html']);
 
       expect(result.format).toBe('html');
       expect(result.output).toContain('<!DOCTYPE html>');
@@ -297,13 +238,7 @@ describe('CliRunner', () => {
     });
 
     it('should set outputPath to null when --output is not provided', async () => {
-      const result = await runner.run([
-        'seed',
-        '--template',
-        './t.json',
-        '--org',
-        'dev1',
-      ]);
+      const result = await runner.run(['seed', '--template', './t.json', '--org', 'dev1']);
 
       const parsed = JSON.parse(result.output) as Record<string, unknown>;
       expect(parsed['outputPath']).toBeNull();

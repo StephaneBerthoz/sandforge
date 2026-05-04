@@ -97,7 +97,9 @@ describe('MessageRouter', () => {
       };
       broker.registerPanel(mockPanel as never);
 
-      const messageCallback = mockPanel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = mockPanel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
 
       messageCallback(createMessage('org:list'));
       expect(orgHandler).toHaveBeenCalledOnce();
@@ -135,7 +137,9 @@ describe('MessageRouter', () => {
       };
       broker.registerPanel(mockPanel as never);
 
-      const messageCallback = mockPanel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = mockPanel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:list'));
 
       expect(handler).not.toHaveBeenCalled();

@@ -11,17 +11,17 @@ function makeLimit(name: string, max: number, usedPercent: number): ApiLimit {
 }
 
 /** Helper to create a mock TrendStorage with controlled responses. */
-function makeMockTrendStorage(
-  trendMap: Record<string, Partial<TrendData>>,
-): TrendStorage {
+function makeMockTrendStorage(trendMap: Record<string, Partial<TrendData>>): TrendStorage {
   return {
-    getTrendData: vi.fn(((_orgId: string, limitName: string): TrendData => ({
-      limitName,
-      direction: 'stable',
-      changePercent: 0,
-      sparklineData: [],
-      ...trendMap[limitName],
-    })) as TrendStorage['getTrendData']),
+    getTrendData: vi.fn(
+      ((_orgId: string, limitName: string): TrendData => ({
+        limitName,
+        direction: 'stable',
+        changePercent: 0,
+        sparklineData: [],
+        ...trendMap[limitName],
+      })) as TrendStorage['getTrendData'],
+    ),
     record: vi.fn(),
     getHistory: vi.fn().mockReturnValue([]),
     purge: vi.fn(),
@@ -156,7 +156,9 @@ describe('UnifiedHealthScorer', () => {
       trendStorage: mockTrendStorage,
     };
     const reportWithTrend = scorer.calculate(inputWithTrend);
-    const scoreWithTrend = reportWithTrend.factors.find((f) => f.name === 'DailyApiRequests')!.score;
+    const scoreWithTrend = reportWithTrend.factors.find(
+      (f) => f.name === 'DailyApiRequests',
+    )!.score;
 
     // The score with degrading trend should be lower
     expect(scoreWithTrend).toBeLessThan(scoreNoTrend);
@@ -195,10 +197,7 @@ describe('UnifiedHealthScorer', () => {
 
   it('should skip metadata/coverage/security dimensions when data is missing', () => {
     const input: UnifiedHealthInput = {
-      limits: [
-        makeLimit('DailyApiRequests', 15000, 20),
-        makeLimit('DataStorageMB', 500, 10),
-      ],
+      limits: [makeLimit('DailyApiRequests', 15000, 20), makeLimit('DataStorageMB', 500, 10)],
       orgId: 'org-1',
     };
     const report = scorer.calculate(input);
@@ -272,8 +271,17 @@ describe('UnifiedHealthScorer', () => {
       ],
       orgId: 'org-1',
       codeCoverage: 0,
-      metadataCounts: makeMetadataCounts({ customObjectCount: 600, customFieldCount: 3000, apexClassCount: 1500 }),
-      securitySettings: makeSecuritySettings({ mfaEnabled: false, passwordMinLength: 4, passwordComplexity: false, ipRestrictions: false }),
+      metadataCounts: makeMetadataCounts({
+        customObjectCount: 600,
+        customFieldCount: 3000,
+        apexClassCount: 1500,
+      }),
+      securitySettings: makeSecuritySettings({
+        mfaEnabled: false,
+        passwordMinLength: 4,
+        passwordComplexity: false,
+        ipRestrictions: false,
+      }),
     };
     const reportHigh = scorer.calculate(inputHigh);
     expect(reportHigh.overallScore).toBeGreaterThanOrEqual(0);
@@ -282,10 +290,7 @@ describe('UnifiedHealthScorer', () => {
 
   it('should generate recommendations for unhealthy factors', () => {
     const input: UnifiedHealthInput = {
-      limits: [
-        makeLimit('DailyApiRequests', 15000, 85),
-        makeLimit('DataStorageMB', 500, 92),
-      ],
+      limits: [makeLimit('DailyApiRequests', 15000, 85), makeLimit('DataStorageMB', 500, 92)],
       orgId: 'org-1',
     };
     const report = scorer.calculate(input);
@@ -319,7 +324,9 @@ describe('UnifiedHealthScorer', () => {
     };
     const reportAllOpt = scorer.calculate(inputAllOpt);
     const limitsWeightAllOpt = reportAllOpt.factors
-      .filter((f) => f.category !== 'metadata' && f.category !== 'coverage' && f.category !== 'security')
+      .filter(
+        (f) => f.category !== 'metadata' && f.category !== 'coverage' && f.category !== 'security',
+      )
       .reduce((sum, f) => sum + f.weight, 0);
 
     // Limit weights should be smaller when optional dimensions are present
@@ -357,10 +364,7 @@ describe('UnifiedHealthScorer', () => {
 
     // Critical
     const criticalInput: UnifiedHealthInput = {
-      limits: [
-        makeLimit('DailyApiRequests', 15000, 96),
-        makeLimit('DataStorageMB', 500, 95),
-      ],
+      limits: [makeLimit('DailyApiRequests', 15000, 96), makeLimit('DataStorageMB', 500, 95)],
       orgId: 'org-1',
     };
     expect(scorer.calculate(criticalInput).summary).toContain('Critical');
@@ -368,10 +372,7 @@ describe('UnifiedHealthScorer', () => {
 
   it('should include extra limits with remaining weight', () => {
     const input: UnifiedHealthInput = {
-      limits: [
-        makeLimit('DailyApiRequests', 15000, 20),
-        makeLimit('SomeOtherLimit', 5000, 60),
-      ],
+      limits: [makeLimit('DailyApiRequests', 15000, 20), makeLimit('SomeOtherLimit', 5000, 60)],
       orgId: 'org-1',
     };
     const report = scorer.calculate(input);

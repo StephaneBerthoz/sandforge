@@ -18,8 +18,7 @@ export interface ChipProps {
 }
 
 const variantClasses: Record<ChipVariant, string> = {
-  default:
-    'bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#fff)]',
+  default: 'bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#fff)]',
   primary: 'bg-blue-700 text-blue-100',
   success: 'bg-emerald-700 text-emerald-100',
   warning: 'bg-amber-700 text-amber-100',
@@ -56,7 +55,13 @@ export const Chip: React.FC<ChipProps> = ({
           className="inline-flex items-center justify-center rounded-full hover:opacity-80 transition-opacity"
           onClick={onRemove}
         >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg
+            className="w-3 h-3"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>

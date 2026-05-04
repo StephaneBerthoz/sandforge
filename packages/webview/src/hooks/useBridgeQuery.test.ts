@@ -44,9 +44,7 @@ describe('useBridgeQuery', () => {
   });
 
   it('should send a message on mount and set loading to true', () => {
-    const { result } = renderHook(() =>
-      useBridgeQuery<{ orgs: string[] }>('org:list'),
-    );
+    const { result } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
 
     expect(result.current.loading).toBe(true);
     expect(result.current.data).toBeNull();
@@ -59,9 +57,7 @@ describe('useBridgeQuery', () => {
   });
 
   it('should populate data when a matching response arrives', () => {
-    const { result } = renderHook(() =>
-      useBridgeQuery<{ orgs: string[] }>('org:list'),
-    );
+    const { result } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
 
     act(() => {
       simulateResponse('org:list:response', { orgs: ['org-1', 'org-2'] });
@@ -73,9 +69,7 @@ describe('useBridgeQuery', () => {
   });
 
   it('should ignore non-matching response types', () => {
-    const { result } = renderHook(() =>
-      useBridgeQuery<{ orgs: string[] }>('org:list'),
-    );
+    const { result } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
 
     act(() => {
       simulateResponse('settings:response', { settings: {} });
@@ -99,16 +93,12 @@ describe('useBridgeQuery', () => {
     });
 
     expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBe(
-      "Bridge query 'org:list' timed out after 5000ms",
-    );
+    expect(result.current.error).toBe("Bridge query 'org:list' timed out after 5000ms");
     expect(result.current.data).toBeNull();
   });
 
   it('should support manual refetch', () => {
-    const { result } = renderHook(() =>
-      useBridgeQuery<{ orgs: string[] }>('org:list'),
-    );
+    const { result } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
 
     // First response
     act(() => {
@@ -184,13 +174,13 @@ describe('useBridgeQuery', () => {
   });
 
   it('should send payload when provided', () => {
-    renderHook(() =>
-      useBridgeQuery<{ orgs: string[] }>('org:list', { filter: 'sandbox' }),
-    );
+    renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list', { filter: 'sandbox' }));
 
-    const envelope = mockPostMessage.mock.calls[0][0] as { payload: BaseMessage & {
-      payload: { filter: string };
-    } };
+    const envelope = mockPostMessage.mock.calls[0][0] as {
+      payload: BaseMessage & {
+        payload: { filter: string };
+      };
+    };
     const sentMsg = envelope.payload;
     expect(sentMsg.type).toBe('org:list');
     expect(sentMsg.payload).toEqual({ filter: 'sandbox' });
@@ -200,9 +190,7 @@ describe('useBridgeQuery', () => {
     const addSpy = vi.spyOn(window, 'addEventListener');
     const removeSpy = vi.spyOn(window, 'removeEventListener');
 
-    const { unmount } = renderHook(() =>
-      useBridgeQuery<{ orgs: string[] }>('org:list'),
-    );
+    const { unmount } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
 
     expect(addSpy).toHaveBeenCalledWith('message', expect.any(Function));
 
@@ -215,9 +203,7 @@ describe('useBridgeQuery', () => {
   });
 
   it('should not update state after unmount', () => {
-    const { result, unmount } = renderHook(() =>
-      useBridgeQuery<{ orgs: string[] }>('org:list'),
-    );
+    const { result, unmount } = renderHook(() => useBridgeQuery<{ orgs: string[] }>('org:list'));
 
     unmount();
 

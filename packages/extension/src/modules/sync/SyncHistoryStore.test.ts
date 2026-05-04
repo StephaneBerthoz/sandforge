@@ -114,7 +114,12 @@ describe('SyncHistoryStore', () => {
     it('should cap at 500 entries and evict the oldest', () => {
       for (let i = 0; i < 501; i++) {
         const padded = String(i).padStart(4, '0');
-        store.save(createHistoryEntry(`e-${padded}`, `2026-01-01T${padded.slice(0, 2)}:${padded.slice(2)}:00Z`));
+        store.save(
+          createHistoryEntry(
+            `e-${padded}`,
+            `2026-01-01T${padded.slice(0, 2)}:${padded.slice(2)}:00Z`,
+          ),
+        );
       }
 
       const list = store.list();

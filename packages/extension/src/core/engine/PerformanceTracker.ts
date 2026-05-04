@@ -57,9 +57,7 @@ export class PerformanceTracker {
     metrics.endTime = Date.now();
     metrics.durationMs = metrics.endTime - metrics.startTime;
     metrics.recordsPerSecond =
-      metrics.durationMs > 0
-        ? (metrics.totalRecords / metrics.durationMs) * 1000
-        : 0;
+      metrics.durationMs > 0 ? (metrics.totalRecords / metrics.durationMs) * 1000 : 0;
 
     this.activeOperations.delete(operationId);
     this.addToHistory(metrics);

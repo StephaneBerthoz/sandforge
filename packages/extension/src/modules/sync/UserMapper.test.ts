@@ -93,9 +93,7 @@ describe('UserMapper', () => {
     });
 
     it('should handle multiple user fields', () => {
-      const records = [
-        { Name: 'Acme', OwnerId: 'src-1', CreatedById: 'src-2' },
-      ];
+      const records = [{ Name: 'Acme', OwnerId: 'src-1', CreatedById: 'src-2' }];
       const mappings: UserMapping[] = [
         { sourceId: 'src-1', targetId: 'tgt-1', username: 'admin@test.com' },
         { sourceId: 'src-2', targetId: 'tgt-2', username: 'user@test.com' },

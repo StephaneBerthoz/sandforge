@@ -88,7 +88,8 @@ describe('SYNC_ACCOUNT_HIERARCHY', () => {
   });
 
   it('should have correct insert order chain: Account(0) -> Contact(1) -> Opportunity(2) -> Task(3) -> Note(4)', () => {
-    const find = (name: string) => SYNC_ACCOUNT_HIERARCHY.objects.find((o) => o.objectApiName === name);
+    const find = (name: string) =>
+      SYNC_ACCOUNT_HIERARCHY.objects.find((o) => o.objectApiName === name);
     expect(find('Account')?.insertOrder).toBe(0);
     expect(find('Contact')?.insertOrder).toBe(1);
     expect(find('Opportunity')?.insertOrder).toBe(2);
@@ -104,7 +105,9 @@ describe('SYNC_ACCOUNT_HIERARCHY', () => {
 
   it('should use i18n keys for name and description', () => {
     expect(SYNC_ACCOUNT_HIERARCHY.nameKey).toBe('sync.templates.accountHierarchy.name');
-    expect(SYNC_ACCOUNT_HIERARCHY.descriptionKey).toBe('sync.templates.accountHierarchy.description');
+    expect(SYNC_ACCOUNT_HIERARCHY.descriptionKey).toBe(
+      'sync.templates.accountHierarchy.description',
+    );
   });
 
   it('should include prebuilt tag', () => {
@@ -182,7 +185,8 @@ describe('SYNC_CASES_ATTACHMENTS', () => {
   });
 
   it('should have correct insert order chain: Account(0) -> Contact(1) -> Case(2) -> CaseComment(3) -> Attachment(4)', () => {
-    const find = (name: string) => SYNC_CASES_ATTACHMENTS.objects.find((o) => o.objectApiName === name);
+    const find = (name: string) =>
+      SYNC_CASES_ATTACHMENTS.objects.find((o) => o.objectApiName === name);
     expect(find('Account')?.insertOrder).toBe(0);
     expect(find('Contact')?.insertOrder).toBe(1);
     expect(find('Case')?.insertOrder).toBe(2);
@@ -192,7 +196,9 @@ describe('SYNC_CASES_ATTACHMENTS', () => {
 
   it('should use i18n keys for name and description', () => {
     expect(SYNC_CASES_ATTACHMENTS.nameKey).toBe('sync.templates.casesAttachments.name');
-    expect(SYNC_CASES_ATTACHMENTS.descriptionKey).toBe('sync.templates.casesAttachments.description');
+    expect(SYNC_CASES_ATTACHMENTS.descriptionKey).toBe(
+      'sync.templates.casesAttachments.description',
+    );
   });
 
   it('should have Attachment with batchSize 100', () => {

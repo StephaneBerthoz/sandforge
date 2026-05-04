@@ -107,9 +107,7 @@ describe('TokenRefresher', () => {
     });
 
     it('should return false when refresh fails', async () => {
-      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(
-        new Error('Refresh failed')
-      );
+      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(new Error('Refresh failed'));
       refresher.setExecutor(executor);
 
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
@@ -120,9 +118,7 @@ describe('TokenRefresher', () => {
     });
 
     it('should track consecutive failures', async () => {
-      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(
-        new Error('Refresh failed')
-      );
+      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(new Error('Refresh failed'));
       refresher.setExecutor(executor);
 
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
@@ -158,9 +154,7 @@ describe('TokenRefresher', () => {
 
   describe('circuit breaker', () => {
     it('should trigger disconnect after 3 consecutive failures', async () => {
-      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(
-        new Error('Refresh failed')
-      );
+      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(new Error('Refresh failed'));
       const disconnectHandler = vi.fn();
 
       refresher.setExecutor(executor);
@@ -178,9 +172,7 @@ describe('TokenRefresher', () => {
     });
 
     it('should not trigger disconnect before 3 failures', async () => {
-      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(
-        new Error('Refresh failed')
-      );
+      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(new Error('Refresh failed'));
       const disconnectHandler = vi.fn();
 
       refresher.setExecutor(executor);
@@ -223,9 +215,7 @@ describe('TokenRefresher', () => {
 
     it('should support custom max failures', async () => {
       const customRefresher = new TokenRefresher(5 * 60 * 1000, 2);
-      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(
-        new Error('Refresh failed')
-      );
+      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(new Error('Refresh failed'));
       const disconnectHandler = vi.fn();
 
       customRefresher.setExecutor(executor);
@@ -259,14 +249,12 @@ describe('TokenRefresher', () => {
       await refresher.refreshNow('org-1');
 
       expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'token:refreshed', orgId: 'org-1' })
+        expect.objectContaining({ type: 'token:refreshed', orgId: 'org-1' }),
       );
     });
 
     it('should emit token:failed on failure', async () => {
-      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(
-        new Error('Refresh failed')
-      );
+      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(new Error('Refresh failed'));
       refresher.setExecutor(executor);
 
       const listener: TokenEventListener = vi.fn();
@@ -277,14 +265,12 @@ describe('TokenRefresher', () => {
       await refresher.refreshNow('org-1');
 
       expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'token:failed', orgId: 'org-1' })
+        expect.objectContaining({ type: 'token:failed', orgId: 'org-1' }),
       );
     });
 
     it('should emit token:expired and token:circuitOpen when circuit trips', async () => {
-      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(
-        new Error('Refresh failed')
-      );
+      const executor: TokenRefreshExecutor = vi.fn().mockRejectedValue(new Error('Refresh failed'));
       refresher.setExecutor(executor);
 
       const listener: TokenEventListener = vi.fn();

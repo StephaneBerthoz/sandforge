@@ -149,7 +149,9 @@ describe('ErrorResolver', () => {
 
       const resolution = await resolver.resolveError(error, largeContext);
 
-      const batchSuggestions = resolution.suggestions.filter((s) => s.action === 'reduce_batch_size');
+      const batchSuggestions = resolution.suggestions.filter(
+        (s) => s.action === 'reduce_batch_size',
+      );
       expect(batchSuggestions.length).toBeGreaterThanOrEqual(1);
       const contextualSuggestion = batchSuggestions.find((s) => s.description.includes('500'));
       expect(contextualSuggestion).toBeDefined();

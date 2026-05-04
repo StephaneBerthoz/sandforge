@@ -50,7 +50,13 @@ describe('Input', () => {
 
   it('should forward ref', () => {
     let inputEl: HTMLInputElement | null = null;
-    render(<Input ref={(el) => { inputEl = el; }} />);
+    render(
+      <Input
+        ref={(el) => {
+          inputEl = el;
+        }}
+      />,
+    );
     expect(inputEl).toBeInstanceOf(HTMLInputElement);
   });
 });

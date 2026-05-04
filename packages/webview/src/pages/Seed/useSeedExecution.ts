@@ -39,10 +39,9 @@ export function useSeedExecution(
   const [executionResult, setExecutionResult] = useState<SeedExecutionResult | undefined>();
   const [executionCompletedStep, setExecutionCompletedStep] = useState<number | null>(null);
 
-  const executeSeedMutation = useBridgeMutation<SeedExecutionResult>(
-    'seed:execute',
-    { responseType: 'seed:execute:response' },
-  );
+  const executeSeedMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
+    responseType: 'seed:execute:response',
+  });
 
   const isRunning = executeSeedMutation.loading;
 
@@ -58,7 +57,12 @@ export function useSeedExecution(
   useEffect(() => {
     const bridgeError = executeSeedMutation.error;
     if (bridgeError) {
-      addNotification({ level: 'error', title: t('seed.title'), message: bridgeError, autoDismissMs: 5000 });
+      addNotification({
+        level: 'error',
+        title: t('seed.title'),
+        message: bridgeError,
+        autoDismissMs: 5000,
+      });
     }
   }, [executeSeedMutation.error, addNotification, t]);
 
@@ -100,13 +104,15 @@ export function useSeedExecution(
 
   const objectProgress: ObjectProgress[] = useMemo(
     () =>
-      selectedObjects.map((o): ObjectProgress => ({
-        objectApiName: o,
-        total: volumes[o]?.count ?? 100,
-        completed: 0,
-        failed: 0,
-        status: isRunning ? 'running' : 'pending',
-      })),
+      selectedObjects.map(
+        (o): ObjectProgress => ({
+          objectApiName: o,
+          total: volumes[o]?.count ?? 100,
+          completed: 0,
+          failed: 0,
+          status: isRunning ? 'running' : 'pending',
+        }),
+      ),
     [selectedObjects, volumes, isRunning],
   );
 

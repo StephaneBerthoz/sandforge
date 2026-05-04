@@ -12,7 +12,9 @@ describe('Toast', () => {
   });
 
   it('should render title and message', () => {
-    render(<Toast id="1" level="info" title="Info" message="Something happened" onDismiss={vi.fn()} />);
+    render(
+      <Toast id="1" level="info" title="Info" message="Something happened" onDismiss={vi.fn()} />,
+    );
     expect(screen.getByText('Info')).toBeDefined();
     expect(screen.getByText('Something happened')).toBeDefined();
   });
@@ -31,7 +33,16 @@ describe('Toast', () => {
 
   it('should auto-dismiss after specified time', () => {
     const onDismiss = vi.fn();
-    render(<Toast id="t2" level="info" title="Auto" message="Bye" onDismiss={onDismiss} autoDismissMs={3000} />);
+    render(
+      <Toast
+        id="t2"
+        level="info"
+        title="Auto"
+        message="Bye"
+        onDismiss={onDismiss}
+        autoDismissMs={3000}
+      />,
+    );
     expect(onDismiss).not.toHaveBeenCalled();
     act(() => {
       vi.advanceTimersByTime(3000);

@@ -64,9 +64,12 @@ describe('OrgEditDialog', () => {
     render(<OrgEditDialog {...defaultProps} onSave={onSave} />);
     fireEvent.change(screen.getByTestId('edit-alias-input'), { target: { value: 'New Name' } });
     fireEvent.click(screen.getByText('Save'));
-    expect(onSave).toHaveBeenCalledWith('org-1', expect.objectContaining({
-      alias: 'New Name',
-    }));
+    expect(onSave).toHaveBeenCalledWith(
+      'org-1',
+      expect.objectContaining({
+        alias: 'New Name',
+      }),
+    );
   });
 
   it('should call onClose when Cancel is clicked', () => {

@@ -39,9 +39,10 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const avgScore = results.length > 0
-    ? Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length)
-    : 0;
+  const avgScore =
+    results.length > 0
+      ? Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length)
+      : 0;
 
   return (
     <div className="flex flex-col gap-3" data-testid="quality-dashboard">
@@ -78,37 +79,40 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
       )}
 
       {results.map((result) => (
-        <div key={`${result.orgId}-${result.objectApiName}`} data-testid={`quality-${result.objectApiName}`}>
-        <Card>
-          <CardHeader
-            title={result.objectApiName}
-            subtitle={t('common.recordCount', { count: result.totalRecords })}
-            action={<Badge variant={scoreVariant(result.score)}>{result.score}%</Badge>}
-          />
-          <CardBody>
-            <div className="flex flex-col gap-2">
-              {result.rules.map((rule) => (
-                <div key={rule.fieldApiName + rule.ruleType} className="flex items-center gap-2">
-                  <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-24">
-                    {t(RULE_LABELS[rule.ruleType])}
-                  </span>
-                  <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-16">
-                    {rule.fieldApiName}
-                  </span>
-                  <ProgressBar
-                    value={rule.passRate}
-                    variant={scoreVariant(rule.passRate)}
-                    size="sm"
-                    className="flex-1"
-                  />
-                  <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-12 text-right">
-                    {Math.round(rule.passRate)}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </CardBody>
-        </Card>
+        <div
+          key={`${result.orgId}-${result.objectApiName}`}
+          data-testid={`quality-${result.objectApiName}`}
+        >
+          <Card>
+            <CardHeader
+              title={result.objectApiName}
+              subtitle={t('common.recordCount', { count: result.totalRecords })}
+              action={<Badge variant={scoreVariant(result.score)}>{result.score}%</Badge>}
+            />
+            <CardBody>
+              <div className="flex flex-col gap-2">
+                {result.rules.map((rule) => (
+                  <div key={rule.fieldApiName + rule.ruleType} className="flex items-center gap-2">
+                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-24">
+                      {t(RULE_LABELS[rule.ruleType])}
+                    </span>
+                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-16">
+                      {rule.fieldApiName}
+                    </span>
+                    <ProgressBar
+                      value={rule.passRate}
+                      variant={scoreVariant(rule.passRate)}
+                      size="sm"
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-12 text-right">
+                      {Math.round(rule.passRate)}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
         </div>
       ))}
     </div>

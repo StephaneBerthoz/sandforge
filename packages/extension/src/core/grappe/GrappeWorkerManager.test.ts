@@ -2,9 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GrappeWorkerManager } from './GrappeWorkerManager';
 import type { GrappePartition, GrappeResult } from '@sandforge/shared';
 
-function createPartition(
-  overrides: Partial<GrappePartition> = {}
-): GrappePartition {
+function createPartition(overrides: Partial<GrappePartition> = {}): GrappePartition {
   return {
     id: 'partition-001',
     index: 0,
@@ -26,9 +24,7 @@ function createPartition(
   };
 }
 
-function createResult(
-  overrides: Partial<GrappeResult> = {}
-): GrappeResult {
+function createResult(overrides: Partial<GrappeResult> = {}): GrappeResult {
   return {
     grappeId: 'partition-001',
     status: 'success',
@@ -91,9 +87,9 @@ describe('GrappeWorkerManager', () => {
       manager.createWorkers(1);
       manager.assignPartition(createPartition());
 
-      expect(() =>
-        manager.assignPartition(createPartition({ id: 'p2' }))
-      ).toThrow('No available workers to assign partition');
+      expect(() => manager.assignPartition(createPartition({ id: 'p2' }))).toThrow(
+        'No available workers to assign partition',
+      );
     });
   });
 
@@ -111,9 +107,7 @@ describe('GrappeWorkerManager', () => {
 
     it('should throw for a non-existent worker', () => {
       manager.createWorkers(1);
-      expect(() => manager.releaseWorker(99)).toThrow(
-        'Worker 99 does not exist'
-      );
+      expect(() => manager.releaseWorker(99)).toThrow('Worker 99 does not exist');
     });
   });
 
@@ -129,9 +123,7 @@ describe('GrappeWorkerManager', () => {
 
     it('should throw for a non-existent worker', () => {
       manager.createWorkers(1);
-      expect(() => manager.getWorkerStatus(5)).toThrow(
-        'Worker 5 does not exist'
-      );
+      expect(() => manager.getWorkerStatus(5)).toThrow('Worker 5 does not exist');
     });
   });
 
@@ -190,9 +182,9 @@ describe('GrappeWorkerManager', () => {
       const processFn = vi.fn<(records: string[]) => Promise<GrappeResult>>();
       processFn.mockRejectedValue(new Error('Processing failed'));
 
-      await expect(
-        manager.processPartition(0, partition, processFn)
-      ).rejects.toThrow('Processing failed');
+      await expect(manager.processPartition(0, partition, processFn)).rejects.toThrow(
+        'Processing failed',
+      );
 
       expect(manager.getWorkerStatus(0).active).toBe(false);
     });
@@ -202,9 +194,9 @@ describe('GrappeWorkerManager', () => {
       const partition = createPartition();
       const processFn = vi.fn<(records: string[]) => Promise<GrappeResult>>();
 
-      await expect(
-        manager.processPartition(99, partition, processFn)
-      ).rejects.toThrow('Worker 99 does not exist');
+      await expect(manager.processPartition(99, partition, processFn)).rejects.toThrow(
+        'Worker 99 does not exist',
+      );
     });
   });
 });

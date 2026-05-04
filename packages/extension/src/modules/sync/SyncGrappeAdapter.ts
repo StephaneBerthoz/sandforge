@@ -18,7 +18,7 @@ export class SyncGrappeAdapter {
    */
   partition(
     config: SyncConfig,
-    records: Map<string, Record<string, unknown>[]>
+    records: Map<string, Record<string, unknown>[]>,
   ): GrappePartition[] {
     const partitions: GrappePartition[] = [];
     let globalIndex = 0;
@@ -33,9 +33,7 @@ export class SyncGrappeAdapter {
       const chunks = splitIntoChunks(objectRecords, chunkSize);
 
       for (const chunk of chunks) {
-        const recordIds = chunk
-          .map((r) => String(r.Id ?? ''))
-          .filter((id) => id.length > 0);
+        const recordIds = chunk.map((r) => String(r.Id ?? '')).filter((id) => id.length > 0);
 
         partitions.push({
           id: `partition-${globalIndex}`,
@@ -122,10 +120,7 @@ function splitIntoChunks<T>(items: T[], chunkSize: number): T[][] {
  * Build partition dependency list based on insert order.
  * Partitions for objects with lower insert order are dependencies.
  */
-function buildDependencies(
-  insertOrder: number,
-  existingPartitions: GrappePartition[]
-): string[] {
+function buildDependencies(insertOrder: number, existingPartitions: GrappePartition[]): string[] {
   if (insertOrder <= 1) {
     return [];
   }

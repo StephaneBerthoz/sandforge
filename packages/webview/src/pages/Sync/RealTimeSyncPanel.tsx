@@ -36,10 +36,7 @@ export const RealTimeSyncPanel: React.FC<RealTimeSyncPanelProps> = ({
   const isStreaming = status === 'syncing' || status === 'paused';
 
   return (
-    <div
-      className="flex flex-col gap-[var(--sf-space-4)] h-full"
-      data-testid="realtime-sync-panel"
-    >
+    <div className="flex flex-col gap-[var(--sf-space-4)] h-full" data-testid="realtime-sync-panel">
       <CDCSubscriptionPanel availableObjects={availableObjects} />
       <details open={isStreaming} data-testid="cdc-metrics-section">
         <summary className="cursor-pointer text-sm font-medium text-[var(--sf-text)] mb-2">

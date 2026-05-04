@@ -30,12 +30,7 @@ let gradientIdCounter = 0;
  * Convert data points to a smooth SVG path using catmull-rom to bezier conversion.
  * Points are scaled to fit within the given dimensions with padding.
  */
-function buildSmoothPath(
-  data: number[],
-  width: number,
-  height: number,
-  padding: number,
-): string {
+function buildSmoothPath(data: number[], width: number, height: number, padding: number): string {
   if (data.length < 2) return '';
 
   const minVal = 0;
@@ -138,12 +133,7 @@ export const Sparkline: React.FC<SparklineProps> = ({
         role="img"
         aria-label="Sparkline chart"
       >
-        <circle
-          cx={cx}
-          cy={cy}
-          r={strokeWidth}
-          fill={color}
-        />
+        <circle cx={cx} cy={cy} r={strokeWidth} fill={color} />
       </svg>
     );
   }
@@ -205,10 +195,7 @@ export const Sparkline: React.FC<SparklineProps> = ({
       )}
 
       {/* Fill area */}
-      <path
-        d={fillPath}
-        fill={`url(#${gradientId})`}
-      />
+      <path d={fillPath} fill={`url(#${gradientId})`} />
 
       {/* Line */}
       <path

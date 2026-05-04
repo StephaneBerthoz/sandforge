@@ -6,14 +6,11 @@ import type {
 } from '@sandforge/shared';
 
 /**
- * Generates a RFC4122 v4-compliant UUID.
+ * Generates a RFC4122 v4 UUID via the platform crypto primitive.
  * Used internally to assign unique identifiers to pipeline entities.
  */
 function generateId(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
-  });
+  return globalThis.crypto.randomUUID();
 }
 
 /**
@@ -50,10 +47,7 @@ export class PipelineBuilder {
    * @param step - Step definition without an ID (one will be generated)
    * @returns Updated pipeline with the new step appended
    */
-  addStep(
-    pipeline: PipelineDefinition,
-    step: Omit<PipelineStep, 'id'>
-  ): PipelineDefinition {
+  addStep(pipeline: PipelineDefinition, step: Omit<PipelineStep, 'id'>): PipelineDefinition {
     const newStep: PipelineStep = { ...step, id: generateId() };
     return {
       ...pipeline,
@@ -83,11 +77,7 @@ export class PipelineBuilder {
    * @param newIndex - Zero-based target index
    * @returns Updated pipeline with the step at the new position
    */
-  moveStep(
-    pipeline: PipelineDefinition,
-    stepId: string,
-    newIndex: number
-  ): PipelineDefinition {
+  moveStep(pipeline: PipelineDefinition, stepId: string, newIndex: number): PipelineDefinition {
     const steps = [...pipeline.steps];
     const currentIndex = steps.findIndex((s) => s.id === stepId);
     if (currentIndex === -1) {
@@ -111,7 +101,7 @@ export class PipelineBuilder {
    */
   addTrigger(
     pipeline: PipelineDefinition,
-    trigger: Omit<PipelineTrigger, 'id'>
+    trigger: Omit<PipelineTrigger, 'id'>,
   ): PipelineDefinition {
     const newTrigger: PipelineTrigger = { ...trigger, id: generateId() };
     return {
@@ -127,10 +117,7 @@ export class PipelineBuilder {
    * @param triggerId - ID of the trigger to remove
    * @returns Updated pipeline without the specified trigger
    */
-  removeTrigger(
-    pipeline: PipelineDefinition,
-    triggerId: string
-  ): PipelineDefinition {
+  removeTrigger(pipeline: PipelineDefinition, triggerId: string): PipelineDefinition {
     return {
       ...pipeline,
       triggers: pipeline.triggers.filter((t) => t.id !== triggerId),
@@ -144,10 +131,7 @@ export class PipelineBuilder {
    * @param variable - Variable definition
    * @returns Updated pipeline with the new variable appended
    */
-  addVariable(
-    pipeline: PipelineDefinition,
-    variable: PipelineVariable
-  ): PipelineDefinition {
+  addVariable(pipeline: PipelineDefinition, variable: PipelineVariable): PipelineDefinition {
     return {
       ...pipeline,
       variables: [...pipeline.variables, variable],
@@ -183,12 +167,24 @@ export class PipelineBuilder {
         errors.push(`Step must have a name (step ID: ${step.id})`);
       }
 
-      if (step.onSuccess && !stepIds.has(step.onSuccess) && !pipeline.steps.some((s) => s.id === step.onSuccess)) {
-        errors.push(`Step "${step.name}" references non-existent onSuccess step: ${step.onSuccess}`);
+      if (
+        step.onSuccess &&
+        !stepIds.has(step.onSuccess) &&
+        !pipeline.steps.some((s) => s.id === step.onSuccess)
+      ) {
+        errors.push(
+          `Step "${step.name}" references non-existent onSuccess step: ${step.onSuccess}`,
+        );
       }
 
-      if (step.onFailure && !stepIds.has(step.onFailure) && !pipeline.steps.some((s) => s.id === step.onFailure)) {
-        errors.push(`Step "${step.name}" references non-existent onFailure step: ${step.onFailure}`);
+      if (
+        step.onFailure &&
+        !stepIds.has(step.onFailure) &&
+        !pipeline.steps.some((s) => s.id === step.onFailure)
+      ) {
+        errors.push(
+          `Step "${step.name}" references non-existent onFailure step: ${step.onFailure}`,
+        );
       }
     }
 

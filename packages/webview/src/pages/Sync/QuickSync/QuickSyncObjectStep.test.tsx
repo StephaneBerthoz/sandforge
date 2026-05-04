@@ -9,7 +9,12 @@ import { QuickSyncObjectStep } from './QuickSyncObjectStep';
 const mockSuggestions = [
   { objectApiName: 'Account', label: 'Account', isAvailable: true, isAlreadySelected: false },
   { objectApiName: 'Contact', label: 'Contact', isAvailable: true, isAlreadySelected: false },
-  { objectApiName: 'Opportunity', label: 'Opportunity', isAvailable: true, isAlreadySelected: false },
+  {
+    objectApiName: 'Opportunity',
+    label: 'Opportunity',
+    isAvailable: true,
+    isAlreadySelected: false,
+  },
   { objectApiName: 'Lead', label: 'Lead', isAvailable: true, isAlreadySelected: false },
   { objectApiName: 'Case', label: 'Case', isAvailable: false, isAlreadySelected: false },
 ];
@@ -71,12 +76,7 @@ describe('QuickSyncObjectStep', () => {
   });
 
   it('shows selected objects as removable badges', () => {
-    render(
-      <QuickSyncObjectStep
-        {...defaultProps}
-        selectedObjects={['Account', 'Contact']}
-      />,
-    );
+    render(<QuickSyncObjectStep {...defaultProps} selectedObjects={['Account', 'Contact']} />);
 
     const selectedArea = screen.getByTestId('quick-sync-selected-objects');
     expect(selectedArea).toBeDefined();

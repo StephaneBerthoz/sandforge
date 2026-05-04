@@ -45,7 +45,12 @@ export interface AlertCondition {
 }
 
 /** Notification channel type */
-export type NotificationChannel = 'toast' | 'vscode_notification' | 'status_bar' | 'sound' | 'webhook';
+export type NotificationChannel =
+  | 'toast'
+  | 'vscode_notification'
+  | 'status_bar'
+  | 'sound'
+  | 'webhook';
 
 /** Triggered alert instance */
 export interface AlertInstance {

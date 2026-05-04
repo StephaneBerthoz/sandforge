@@ -10,7 +10,12 @@ let mockDeploymentLoading = false;
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'monitor:deployments') {
-      return { data: mockDeploymentData, loading: mockDeploymentLoading, error: null, refetch: vi.fn() };
+      return {
+        data: mockDeploymentData,
+        loading: mockDeploymentLoading,
+        error: null,
+        refetch: vi.fn(),
+      };
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },

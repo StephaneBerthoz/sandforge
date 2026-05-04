@@ -15,7 +15,9 @@ export interface ObjectProgressPanelProps {
 }
 
 /** Map object state to ProgressBar variant. */
-function stateToVariant(state: ObjectProgress['state']): 'default' | 'success' | 'warning' | 'error' {
+function stateToVariant(
+  state: ObjectProgress['state'],
+): 'default' | 'success' | 'warning' | 'error' {
   switch (state) {
     case 'complete':
       return 'success';
@@ -86,15 +88,13 @@ export const ObjectProgressPanel: React.FC<ObjectProgressPanelProps> = ({
             {t('execution.overallProgress', 'Overall Progress')}
           </span>
           <span className="text-xs text-[var(--vscode-descriptionForeground)]">
-            {t('execution.elapsed', { time: formatElapsed(progress.elapsedMs), defaultValue: 'Elapsed: {{time}}' })}
+            {t('execution.elapsed', {
+              time: formatElapsed(progress.elapsedMs),
+              defaultValue: 'Elapsed: {{time}}',
+            })}
           </span>
         </div>
-        <ProgressBar
-          value={progress.overallPercent}
-          max={100}
-          showPercent
-          variant="default"
-        />
+        <ProgressBar value={progress.overallPercent} max={100} showPercent variant="default" />
       </div>
 
       {/* Per-object progress rows */}
@@ -125,7 +125,10 @@ export const ObjectProgressPanel: React.FC<ObjectProgressPanelProps> = ({
               </span>
               {obj.recordsFailed > 0 && (
                 <span className="text-red-400" data-testid="failed-count">
-                  {t('execution.failedRecords', { count: obj.recordsFailed, defaultValue: '{{count}} failed' })}
+                  {t('execution.failedRecords', {
+                    count: obj.recordsFailed,
+                    defaultValue: '{{count}} failed',
+                  })}
                 </span>
               )}
             </div>

@@ -4,7 +4,7 @@ import type { SeedObjectConfig } from '@sandforge/shared';
 
 function createObject(
   name: string,
-  references: Array<{ field: string; target: string }> = []
+  references: Array<{ field: string; target: string }> = [],
 ): SeedObjectConfig {
   return {
     objectApiName: name,
@@ -90,10 +90,7 @@ describe('ReferenceLinker', () => {
     });
 
     it('should handle objects with no dependencies', () => {
-      const objects = [
-        createObject('Account'),
-        createObject('Lead'),
-      ];
+      const objects = [createObject('Account'), createObject('Lead')];
 
       const sorted = linker.resolveInsertOrder(objects);
       expect(sorted).toHaveLength(2);
@@ -123,9 +120,7 @@ describe('ReferenceLinker', () => {
     });
 
     it('should handle self-referencing objects without crashing', () => {
-      const objects = [
-        createObject('Account', [{ field: 'ParentId', target: 'Account' }]),
-      ];
+      const objects = [createObject('Account', [{ field: 'ParentId', target: 'Account' }])];
 
       expect(() => linker.resolveInsertOrder(objects)).toThrow('Circular dependency');
     });
@@ -154,9 +149,7 @@ describe('ReferenceLinker', () => {
     });
 
     it('should handle references to objects not in the list', () => {
-      const objects = [
-        createObject('Contact', [{ field: 'AccountId', target: 'Account' }]),
-      ];
+      const objects = [createObject('Contact', [{ field: 'AccountId', target: 'Account' }])];
 
       const sorted = linker.resolveInsertOrder(objects);
       expect(sorted).toHaveLength(1);

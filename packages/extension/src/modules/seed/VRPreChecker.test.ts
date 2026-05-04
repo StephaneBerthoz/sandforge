@@ -32,9 +32,7 @@ describe('VRPreChecker', () => {
         errorMessage: 'Email required',
       });
       const conn: VRConnection = {
-        queryValidationRules: vi.fn()
-          .mockResolvedValueOnce([rule1])
-          .mockResolvedValueOnce([rule2]),
+        queryValidationRules: vi.fn().mockResolvedValueOnce([rule1]).mockResolvedValueOnce([rule2]),
       };
       const results = await checker.checkAll(conn, ['Account', 'Contact']);
       expect(results).toHaveLength(2);

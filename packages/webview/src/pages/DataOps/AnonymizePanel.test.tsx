@@ -10,7 +10,12 @@ const templates: AnonymizationTemplate[] = [
     name: 'GDPR Template',
     description: 'Anonymize PII for GDPR compliance',
     rules: [
-      { objectApiName: 'Contact', fieldApiName: 'Email', method: 'mask', config: { maskChar: '*' } },
+      {
+        objectApiName: 'Contact',
+        fieldApiName: 'Email',
+        method: 'mask',
+        config: { maskChar: '*' },
+      },
       { objectApiName: 'Contact', fieldApiName: 'Phone', method: 'fake', config: {} },
     ],
     complianceFramework: 'gdpr',
@@ -61,14 +66,18 @@ describe('AnonymizePanel', () => {
 
   it('should call onPreview when preview clicked', () => {
     const onPreview = vi.fn();
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onPreview={onPreview} />);
+    render(
+      <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onPreview={onPreview} />,
+    );
     fireEvent.click(screen.getByTestId('preview-btn'));
     expect(onPreview).toHaveBeenCalledWith('tpl-1');
   });
 
   it('should show preview data table', () => {
     const previewData = [{ Name: 'J***', Email: '***@***.com' }];
-    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" previewData={previewData} />);
+    render(
+      <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" previewData={previewData} />,
+    );
     expect(screen.getByTestId('preview-data')).toBeDefined();
     expect(screen.getByText('J***')).toBeDefined();
   });

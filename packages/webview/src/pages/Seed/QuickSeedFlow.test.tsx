@@ -16,8 +16,22 @@ const mockTemplate: SeedTemplate = {
   version: 1,
   strategy: 'faker',
   objects: [
-    { objectApiName: 'Account', recordCount: 50, fieldRules: [], excludedFields: [], insertOrder: 0, batchSize: 200 },
-    { objectApiName: 'Contact', recordCount: 100, fieldRules: [], excludedFields: [], insertOrder: 1, batchSize: 200 },
+    {
+      objectApiName: 'Account',
+      recordCount: 50,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder: 0,
+      batchSize: 200,
+    },
+    {
+      objectApiName: 'Contact',
+      recordCount: 100,
+      fieldRules: [],
+      excludedFields: [],
+      insertOrder: 1,
+      batchSize: 200,
+    },
   ],
   tags: ['prebuilt', 'demo'],
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -25,7 +39,17 @@ const mockTemplate: SeedTemplate = {
 };
 
 const mockOrgs: SalesforceOrg[] = [
-  { id: 'org-1', alias: 'dev1', username: 'user@dev1.com', instanceUrl: 'https://dev1.sf.com', orgType: 'sandbox', status: 'connected', safetyTier: 'low', apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
+  {
+    id: 'org-1',
+    alias: 'dev1',
+    username: 'user@dev1.com',
+    instanceUrl: 'https://dev1.sf.com',
+    orgType: 'sandbox',
+    status: 'connected',
+    safetyTier: 'low',
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
 ];
 
 const mockExecutionResult: SeedExecutionResult = {

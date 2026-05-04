@@ -23,7 +23,6 @@ const statusBadgeVariant: Record<string, BadgeVariant> = {
   refreshing: 'info',
 };
 
-
 /** Status indicator dot color. */
 const statusDotColor: Record<string, string> = {
   connected: 'bg-emerald-400',
@@ -56,16 +55,15 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       onClick={() => onSelect(org.id)}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter') onSelect(org.id); }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onSelect(org.id);
+      }}
       data-testid={`org-card-${org.id}`}
     >
       {/* Row 1: Env badge + alias + status */}
       <div className="flex items-center gap-2">
         <span
-          className={cn(
-            'px-2 py-0.5 text-[10px] font-bold rounded border shrink-0',
-            typeStyle,
-          )}
+          className={cn('px-2 py-0.5 text-[10px] font-bold rounded border shrink-0', typeStyle)}
           data-testid={`org-type-badge-${org.id}`}
         >
           {envLabel}
@@ -74,7 +72,9 @@ export const OrgCard: React.FC<OrgCardProps> = ({
           {org.alias}
         </span>
         <div className="flex items-center gap-1.5 shrink-0">
-          <span className={cn('w-2 h-2 rounded-full', statusDotColor[org.status] ?? 'bg-gray-400')} />
+          <span
+            className={cn('w-2 h-2 rounded-full', statusDotColor[org.status] ?? 'bg-gray-400')}
+          />
           <Badge variant={statusBadgeVariant[org.status] ?? 'default'}>
             {t(`org.status_${org.status}`)}
           </Badge>
@@ -106,13 +106,19 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       <div className="mt-2 flex gap-2 justify-end">
         <button
           className="text-xs text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline"
-          onClick={(e) => { e.stopPropagation(); onEdit(org); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit(org);
+          }}
         >
           {t('common.edit')}
         </button>
         <button
           className="text-xs text-[var(--vscode-errorForeground,#f48771)] hover:underline"
-          onClick={(e) => { e.stopPropagation(); onDisconnect(org.id); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDisconnect(org.id);
+          }}
         >
           {t('org.disconnect')}
         </button>

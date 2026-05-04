@@ -92,15 +92,7 @@ describe('ReviewAnonymizationTab', () => {
 
   it('should render 7 category rows', () => {
     render(<ReviewAnonymizationTab />);
-    const categories = [
-      'email',
-      'phone',
-      'name',
-      'address',
-      'ssn_id',
-      'financial',
-      'other',
-    ];
+    const categories = ['email', 'phone', 'name', 'address', 'ssn_id', 'financial', 'other'];
     for (const cat of categories) {
       expect(screen.getByTestId(`anon-row-${cat}`)).toBeDefined();
     }

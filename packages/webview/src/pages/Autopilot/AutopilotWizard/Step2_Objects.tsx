@@ -33,9 +33,7 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
     if (!filter.trim()) return availableObjects;
     const lower = filter.toLowerCase();
     return availableObjects.filter(
-      (o) =>
-        o.apiName.toLowerCase().includes(lower) ||
-        o.label.toLowerCase().includes(lower),
+      (o) => o.apiName.toLowerCase().includes(lower) || o.label.toLowerCase().includes(lower),
     );
   }, [availableObjects, filter]);
 
@@ -107,7 +105,10 @@ export const Step2Objects: React.FC<Step2ObjectsProps> = ({
       </div>
 
       <div className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('autopilot.step2.selectedCount', { count: selectedObjects.length, total: availableObjects.length })}
+        {t('autopilot.step2.selectedCount', {
+          count: selectedObjects.length,
+          total: availableObjects.length,
+        })}
       </div>
     </div>
   );

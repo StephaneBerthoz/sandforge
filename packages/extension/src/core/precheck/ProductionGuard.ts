@@ -90,7 +90,7 @@ export class ProductionGuard {
     const isOverridden = this.isProductionOverridden(request.orgId);
 
     warnings.push(
-      `Production operation: ${request.operation} on ${request.objectName} (${request.recordCount} records)`
+      `Production operation: ${request.operation} on ${request.objectName} (${request.recordCount} records)`,
     );
 
     if (isDestructive && !isOverridden) {
@@ -107,9 +107,7 @@ export class ProductionGuard {
     const requiresApproval = request.recordCount > PRODUCTION_APPROVAL_THRESHOLD;
 
     if (isDestructive && isOverridden) {
-      warnings.push(
-        'Production override is active — destructive operation permitted'
-      );
+      warnings.push('Production override is active — destructive operation permitted');
     }
 
     return {
@@ -130,14 +128,12 @@ export class ProductionGuard {
 
     if (isDestructive) {
       warnings.push(
-        `Destructive operation (${request.operation}) on staging org — confirmation required`
+        `Destructive operation (${request.operation}) on staging org — confirmation required`,
       );
     }
 
     if (request.recordCount > STAGING_CONFIRMATION_THRESHOLD) {
-      warnings.push(
-        `Large volume operation: ${request.recordCount} records on staging`
-      );
+      warnings.push(`Large volume operation: ${request.recordCount} records on staging`);
     }
 
     return {
@@ -155,7 +151,7 @@ export class ProductionGuard {
 
     if (request.recordCount > DEV_WARNING_THRESHOLD) {
       warnings.push(
-        `Large volume operation: ${request.recordCount} records on ${request.orgTier} org`
+        `Large volume operation: ${request.recordCount} records on ${request.orgTier} org`,
       );
     }
 

@@ -11,7 +11,10 @@ import type { TFunction } from 'i18next';
 vi.mock('papaparse', () => ({
   default: {
     parse: vi.fn((input: string, opts?: { preview?: number }) => {
-      const lines = input.replace(/^\uFEFF/, '').split('\n').filter(Boolean);
+      const lines = input
+        .replace(/^\uFEFF/, '')
+        .split('\n')
+        .filter(Boolean);
       const headerLine = lines[0] ?? '';
       const fields = headerLine.split(',');
       const dataLines = lines.slice(1);

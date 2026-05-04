@@ -48,15 +48,11 @@ export class ProblemAnalyzer {
 
       if (diff.severity === 'breaking') {
         breakingChangeCount++;
-        problems.push(
-          createBreakingProblem(this.generateId(), diff)
-        );
+        problems.push(createBreakingProblem(this.generateId(), diff));
       }
 
       if (diff.severity === 'warning') {
-        problems.push(
-          createWarningProblem(this.generateId(), diff)
-        );
+        problems.push(createWarningProblem(this.generateId(), diff));
       }
 
       if (diff.status === 'modified' && diff.fieldDiffs && diff.fieldDiffs.length > 0) {
@@ -105,7 +101,7 @@ function createWarningProblem(id: string, diff: CompareItem): Problem {
 /** Detect contextual problems specific to certain component types */
 function detectContextualProblem(
   generateId: GenerateProblemIdFn,
-  diff: CompareItem
+  diff: CompareItem,
 ): Problem | undefined {
   if (diff.status === 'removed' && diff.componentType === 'CustomField') {
     return {

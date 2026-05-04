@@ -40,10 +40,7 @@ describe('AnonymizationEngine', () => {
 
     it('should handle multiple rules', () => {
       const records = [{ Email: 'test@example.com', Phone: '555-1234' }];
-      const rules: DataOpsAnonymizationRule[] = [
-        createMaskRule('Email'),
-        createMaskRule('Phone'),
-      ];
+      const rules: DataOpsAnonymizationRule[] = [createMaskRule('Email'), createMaskRule('Phone')];
 
       const result = engine.anonymize(records, rules);
 

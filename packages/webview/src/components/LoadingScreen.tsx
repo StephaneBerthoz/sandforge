@@ -18,11 +18,7 @@ export interface LoadingScreenProps {
  * Shows the SandForge logo, a progress bar with smooth transitions,
  * and a step label describing the current loading phase.
  */
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({
-  progress,
-  step,
-  className,
-}) => {
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({ progress, step, className }) => {
   const { t } = useTranslation();
   const clampedProgress = Math.min(100, Math.max(0, progress));
 

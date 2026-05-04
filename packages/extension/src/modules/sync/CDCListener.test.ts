@@ -38,9 +38,7 @@ function createMockClient(
   };
 }
 
-function createValidCDCPayload(
-  overrides?: Record<string, unknown>,
-): Record<string, unknown> {
+function createValidCDCPayload(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     replayId: 42,
     ChangeEventHeader: {
@@ -306,9 +304,7 @@ describe('CDCListener', () => {
       expect(failingFactory.mock.calls.length).toBeLessThanOrEqual(3);
 
       const maxReconnectError = errorHandler.mock.calls.find(
-        (call) =>
-          call[0] instanceof Error &&
-          call[0].message.includes('Max reconnect attempts'),
+        (call) => call[0] instanceof Error && call[0].message.includes('Max reconnect attempts'),
       );
       expect(maxReconnectError).toBeDefined();
     });
@@ -325,14 +321,9 @@ describe('CDCListener', () => {
     });
 
     it('should not reconnect after stop is called', async () => {
-      const failingFactory = vi
-        .fn()
-        .mockRejectedValue(new Error('Connection failed'));
+      const failingFactory = vi.fn().mockRejectedValue(new Error('Connection failed'));
 
-      listener = new CDCListener(
-        createConfig({ baseReconnectDelayMs: 10 }),
-        failingFactory,
-      );
+      listener = new CDCListener(createConfig({ baseReconnectDelayMs: 10 }), failingFactory);
       listener.onError(vi.fn());
 
       await listener.start();
@@ -419,10 +410,7 @@ describe('CDCListener', () => {
         save: vi.fn().mockResolvedValue(undefined),
       };
 
-      listener = new CDCListener(
-        createConfig({ replayIdPersister: persister }),
-        factory,
-      );
+      listener = new CDCListener(createConfig({ replayIdPersister: persister }), factory);
 
       await listener.start();
 
@@ -438,16 +426,14 @@ describe('CDCListener', () => {
 
     it('should use minimum of loaded replay IDs', async () => {
       const persister: ReplayIdPersister = {
-        load: vi.fn()
+        load: vi
+          .fn()
           .mockResolvedValueOnce(100) // Account
-          .mockResolvedValueOnce(50),  // Contact
+          .mockResolvedValueOnce(50), // Contact
         save: vi.fn().mockResolvedValue(undefined),
       };
 
-      listener = new CDCListener(
-        createConfig({ replayIdPersister: persister }),
-        factory,
-      );
+      listener = new CDCListener(createConfig({ replayIdPersister: persister }), factory);
 
       await listener.start();
 
@@ -470,10 +456,7 @@ describe('CDCListener', () => {
       });
       factory = vi.fn().mockResolvedValue(mockClient);
 
-      listener = new CDCListener(
-        createConfig({ replayIdPersister: persister }),
-        factory,
-      );
+      listener = new CDCListener(createConfig({ replayIdPersister: persister }), factory);
       listener.onEvent(vi.fn());
       await listener.start();
 

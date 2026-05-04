@@ -31,9 +31,14 @@ function getInitials(name: string): string {
 /** Generates a deterministic background color from a name. */
 function getColorFromName(name: string): string {
   const colors = [
-    'bg-blue-600', 'bg-emerald-600', 'bg-amber-600',
-    'bg-purple-600', 'bg-rose-600', 'bg-cyan-600',
-    'bg-indigo-600', 'bg-teal-600',
+    'bg-blue-600',
+    'bg-emerald-600',
+    'bg-amber-600',
+    'bg-purple-600',
+    'bg-rose-600',
+    'bg-cyan-600',
+    'bg-indigo-600',
+    'bg-teal-600',
   ];
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
@@ -45,18 +50,16 @@ function getColorFromName(name: string): string {
 /** Avatar displaying an image or colored initials. */
 export const Avatar: React.FC<AvatarProps> = ({ name, src, size = 'md', className }) => {
   const initials = name ? getInitials(name) : '?';
-  const bgColor = name ? getColorFromName(name) : 'bg-[var(--vscode-descriptionForeground,#868686)]';
+  const bgColor = name
+    ? getColorFromName(name)
+    : 'bg-[var(--vscode-descriptionForeground,#868686)]';
 
   if (src) {
     return (
       <img
         src={src}
         alt={name ?? 'Avatar'}
-        className={cn(
-          'rounded-full object-cover',
-          sizeClasses[size],
-          className,
-        )}
+        className={cn('rounded-full object-cover', sizeClasses[size], className)}
       />
     );
   }

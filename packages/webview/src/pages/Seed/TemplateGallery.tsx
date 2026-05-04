@@ -59,7 +59,10 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
       {error && <ErrorBanner message={error} data-testid="gallery-error" />}
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="gallery-skeleton">
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+          data-testid="gallery-skeleton"
+        >
           <Skeleton variant="rect" height="180px" />
           <Skeleton variant="rect" height="180px" />
           <Skeleton variant="rect" height="180px" />

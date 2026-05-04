@@ -1,9 +1,4 @@
-import type {
-  SyncConfig,
-  SyncObjectConfig,
-  DeltaResult,
-  ConflictRecord,
-} from '@sandforge/shared';
+import type { SyncConfig, SyncObjectConfig, DeltaResult, ConflictRecord } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 
 /** Impact analysis result for a single object. */
@@ -55,10 +50,7 @@ export class SyncAnalyzer {
   /**
    * Perform a full impact analysis of a sync configuration.
    */
-  async analyze(
-    conn: SyncAnalyzerConnection,
-    config: SyncConfig,
-  ): Promise<SyncImpactAnalysis> {
+  async analyze(conn: SyncAnalyzerConnection, config: SyncConfig): Promise<SyncImpactAnalysis> {
     const objectAnalyses: ObjectImpactAnalysis[] = [];
     const warnings: string[] = [];
 
@@ -131,7 +123,8 @@ export class SyncAnalyzer {
     const delta: DeltaResult = {
       objectApiName: objConfig.objectApiName,
       newRecords: objConfig.operation === 'insert' ? sourceCount : 0,
-      modifiedRecords: objConfig.operation === 'update' || objConfig.operation === 'upsert' ? sourceCount : 0,
+      modifiedRecords:
+        objConfig.operation === 'update' || objConfig.operation === 'upsert' ? sourceCount : 0,
       deletedRecords: objConfig.operation === 'delete' ? sourceCount : 0,
       unchangedRecords: 0,
       lastSyncTimestamp: undefined,

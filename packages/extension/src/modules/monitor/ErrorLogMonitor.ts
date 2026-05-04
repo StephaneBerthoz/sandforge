@@ -10,10 +10,7 @@ export interface ErrorLogEntry {
 }
 
 /** Function signature for querying Salesforce error logs */
-export type QueryErrorsFn = (
-  orgId: string,
-  since: string
-) => Promise<ErrorLogEntry[]>;
+export type QueryErrorsFn = (orgId: string, since: string) => Promise<ErrorLogEntry[]>;
 
 /**
  * Tracks recent errors from Salesforce debug/error logs.

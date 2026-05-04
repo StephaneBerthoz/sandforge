@@ -5,9 +5,7 @@ describe('QuickSyncPreviewEstimator', () => {
   const estimator = new QuickSyncPreviewEstimator();
 
   it('computes correct estimation for a single object with exact batch multiple', () => {
-    const preview = estimator.estimate([
-      { objectApiName: 'Account', count: 400 },
-    ]);
+    const preview = estimator.estimate([{ objectApiName: 'Account', count: 400 }]);
 
     expect(preview.objects).toHaveLength(1);
     expect(preview.objects[0].estimatedApiCalls).toBe(2); // 400 / 200 = 2
@@ -31,9 +29,7 @@ describe('QuickSyncPreviewEstimator', () => {
   });
 
   it('returns zero API calls for zero records', () => {
-    const preview = estimator.estimate([
-      { objectApiName: 'Account', count: 0 },
-    ]);
+    const preview = estimator.estimate([{ objectApiName: 'Account', count: 0 }]);
 
     expect(preview.objects[0].estimatedApiCalls).toBe(0);
     expect(preview.totalRecords).toBe(0);
@@ -63,11 +59,7 @@ describe('QuickSyncPreviewEstimator', () => {
   });
 
   it('uses custom batch size for estimation', () => {
-    const preview = estimator.estimate(
-      [{ objectApiName: 'Account', count: 500 }],
-      new Set(),
-      100,
-    );
+    const preview = estimator.estimate([{ objectApiName: 'Account', count: 500 }], new Set(), 100);
 
     expect(preview.objects[0].estimatedApiCalls).toBe(5); // 500 / 100
   });

@@ -22,7 +22,11 @@ export function useSeedVolumes(): SeedVolumesState {
   const handleChangeVolume = useCallback((objectApiName: string, count: number) => {
     setVolumes((prev) => ({
       ...prev,
-      [objectApiName]: { ...prev[objectApiName], count, batchSize: prev[objectApiName]?.batchSize ?? 200 },
+      [objectApiName]: {
+        ...prev[objectApiName],
+        count,
+        batchSize: prev[objectApiName]?.batchSize ?? 200,
+      },
     }));
   }, []);
 

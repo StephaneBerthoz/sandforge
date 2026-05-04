@@ -33,7 +33,9 @@ vi.mock('../../stores/useForgeStore', () => {
   const store = Object.assign(
     (selector: (state: Record<string, unknown>) => unknown) =>
       selector({
-        get templates() { return mockTemplates; },
+        get templates() {
+          return mockTemplates;
+        },
         setConfig: (...args: unknown[]) => mockSetConfig(...args),
         setPhase: (...args: unknown[]) => mockSetPhase(...args),
       }),
@@ -52,7 +54,9 @@ vi.mock('../../components/ui/DangerConfirm', () => ({
   DangerConfirm: ({ open, onConfirm }: { open: boolean; onConfirm: () => void }) =>
     open ? (
       <div data-testid="danger-confirm-mock">
-        <button data-testid="danger-confirm-ok" onClick={onConfirm}>Confirm</button>
+        <button data-testid="danger-confirm-ok" onClick={onConfirm}>
+          Confirm
+        </button>
       </div>
     ) : null,
 }));

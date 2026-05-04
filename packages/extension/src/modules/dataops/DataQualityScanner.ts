@@ -51,10 +51,7 @@ export class DataQualityScanner {
    * @param field - The field name to evaluate
    * @returns A DataQualityRuleResult for the completeness check
    */
-  checkCompleteness(
-    records: Record<string, unknown>[],
-    field: string,
-  ): DataQualityRuleResult {
+  checkCompleteness(records: Record<string, unknown>[], field: string): DataQualityRuleResult {
     let passed = 0;
     let failed = 0;
     const sampleFailures: string[] = [];
@@ -66,9 +63,7 @@ export class DataQualityScanner {
       } else {
         failed += 1;
         if (sampleFailures.length < 5) {
-          sampleFailures.push(
-            `Record missing value for ${field}`,
-          );
+          sampleFailures.push(`Record missing value for ${field}`);
         }
       }
     }
@@ -90,10 +85,7 @@ export class DataQualityScanner {
    * @param field - The field name to evaluate
    * @returns A DataQualityRuleResult for the uniqueness check
    */
-  checkUniqueness(
-    records: Record<string, unknown>[],
-    field: string,
-  ): DataQualityRuleResult {
+  checkUniqueness(records: Record<string, unknown>[], field: string): DataQualityRuleResult {
     const valueCounts = new Map<string, number>();
     const sampleFailures: string[] = [];
 
@@ -111,9 +103,7 @@ export class DataQualityScanner {
       } else {
         failed += count;
         if (sampleFailures.length < 5) {
-          sampleFailures.push(
-            `Duplicate value '${value}' appears ${count} times in ${field}`,
-          );
+          sampleFailures.push(`Duplicate value '${value}' appears ${count} times in ${field}`);
         }
       }
     }
@@ -160,9 +150,7 @@ export class DataQualityScanner {
       } else {
         failed += 1;
         if (sampleFailures.length < 5) {
-          sampleFailures.push(
-            `Value '${str}' in ${field} does not match pattern`,
-          );
+          sampleFailures.push(`Value '${str}' in ${field} does not match pattern`);
         }
       }
     }
@@ -189,10 +177,7 @@ export class DataQualityScanner {
       return 100;
     }
 
-    const totalPassRate = results.reduce(
-      (sum, r) => sum + r.passRate,
-      0,
-    );
+    const totalPassRate = results.reduce((sum, r) => sum + r.passRate, 0);
 
     return Math.round((totalPassRate / results.length) * 100);
   }
@@ -227,10 +212,7 @@ export class DataQualityScanner {
     }
   }
 
-  private checkRange(
-    records: Record<string, unknown>[],
-    field: string,
-  ): DataQualityRuleResult {
+  private checkRange(records: Record<string, unknown>[], field: string): DataQualityRuleResult {
     let passed = 0;
     let failed = 0;
     const sampleFailures: string[] = [];
@@ -242,9 +224,7 @@ export class DataQualityScanner {
       } else {
         failed += 1;
         if (sampleFailures.length < 5) {
-          sampleFailures.push(
-            `Value '${String(value)}' in ${field} is not a valid number`,
-          );
+          sampleFailures.push(`Value '${String(value)}' in ${field} is not a valid number`);
         }
       }
     }
@@ -275,9 +255,7 @@ export class DataQualityScanner {
       } else {
         failed += 1;
         if (sampleFailures.length < 5) {
-          sampleFailures.push(
-            `Missing reference in ${field}`,
-          );
+          sampleFailures.push(`Missing reference in ${field}`);
         }
       }
     }
@@ -316,9 +294,7 @@ export class DataQualityScanner {
         const value = record[field];
         failed += 1;
         if (sampleFailures.length < 5) {
-          sampleFailures.push(
-            `Inconsistent type '${typeof value}' in ${field}`,
-          );
+          sampleFailures.push(`Inconsistent type '${typeof value}' in ${field}`);
         }
       }
     }
@@ -334,10 +310,7 @@ export class DataQualityScanner {
     };
   }
 
-  private checkFreshness(
-    records: Record<string, unknown>[],
-    field: string,
-  ): DataQualityRuleResult {
+  private checkFreshness(records: Record<string, unknown>[], field: string): DataQualityRuleResult {
     let passed = 0;
     let failed = 0;
     const sampleFailures: string[] = [];
@@ -352,17 +325,13 @@ export class DataQualityScanner {
         } else {
           failed += 1;
           if (sampleFailures.length < 5) {
-            sampleFailures.push(
-              `Value '${value}' in ${field} is stale or invalid date`,
-            );
+            sampleFailures.push(`Value '${value}' in ${field} is stale or invalid date`);
           }
         }
       } else {
         failed += 1;
         if (sampleFailures.length < 5) {
-          sampleFailures.push(
-            `Non-string value in ${field} cannot be evaluated for freshness`,
-          );
+          sampleFailures.push(`Non-string value in ${field} cannot be evaluated for freshness`);
         }
       }
     }

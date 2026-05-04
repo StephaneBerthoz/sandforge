@@ -18,7 +18,10 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
-function createMsg(type: string, payload: Record<string, unknown> = {}): BaseMessage & { payload: Record<string, unknown> } {
+function createMsg(
+  type: string,
+  payload: Record<string, unknown> = {},
+): BaseMessage & { payload: Record<string, unknown> } {
   return { id: 'req-77', type, timestamp: Date.now(), payload };
 }
 
@@ -36,7 +39,9 @@ describe('MigrationHandler', () => {
   });
 
   it('handles migration:import error when no file reader with correlationId', async () => {
-    const result = await handler.handle(createMsg('migration:import', { filePath: '/tmp/config.json' }));
+    const result = await handler.handle(
+      createMsg('migration:import', { filePath: '/tmp/config.json' }),
+    );
     expect(result).toBe(true);
 
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -47,7 +52,9 @@ describe('MigrationHandler', () => {
   });
 
   it('handles migration:import-sfdmu error when no file reader with correlationId', async () => {
-    const result = await handler.handle(createMsg('migration:import-sfdmu', { filePath: '/tmp/export.json' }));
+    const result = await handler.handle(
+      createMsg('migration:import-sfdmu', { filePath: '/tmp/export.json' }),
+    );
     expect(result).toBe(true);
 
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];

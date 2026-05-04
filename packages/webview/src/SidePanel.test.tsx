@@ -167,7 +167,12 @@ describe('SidePanel', () => {
   });
 
   it('opens org dropdown when clicking org badge with connected orgs', () => {
-    const org2: SalesforceOrg = { ...mockOrg, id: 'org-2', alias: 'QA Sandbox', username: 'qa@test.com' };
+    const org2: SalesforceOrg = {
+      ...mockOrg,
+      id: 'org-2',
+      alias: 'QA Sandbox',
+      username: 'qa@test.com',
+    };
     useOrgStore.setState({ orgs: [mockOrg, org2], selectedOrgId: 'org-1' });
     render(<SidePanel />);
     fireEvent.click(screen.getByTestId('sidepanel-org'));

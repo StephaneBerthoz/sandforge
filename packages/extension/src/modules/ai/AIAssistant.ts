@@ -170,7 +170,8 @@ export class AIAssistant {
     this.stats.totalOutputTokens += result.tokenCount;
     this.stats.totalCalls += 1;
     this.stats.averageLatencyMs =
-      (this.stats.averageLatencyMs * (this.stats.totalCalls - 1) + durationMs) / this.stats.totalCalls;
+      (this.stats.averageLatencyMs * (this.stats.totalCalls - 1) + durationMs) /
+      this.stats.totalCalls;
 
     return assistantMsg;
   }

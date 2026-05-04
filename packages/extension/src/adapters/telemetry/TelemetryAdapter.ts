@@ -128,7 +128,11 @@ export class TelemetryAdapter {
   }
 
   /** Add a Sentry breadcrumb (no-op if Sentry disabled). */
-  addBreadcrumb(message: string, category?: string, level: 'info' | 'warning' | 'error' = 'info'): void {
+  addBreadcrumb(
+    message: string,
+    category?: string,
+    level: 'info' | 'warning' | 'error' = 'info',
+  ): void {
     if (!this.sentryEnabled || !this.sentryModule) {
       return;
     }
@@ -166,7 +170,9 @@ export class TelemetryAdapter {
     if (!vscode.env.isTelemetryEnabled) {
       return false;
     }
-    const level = vscode.workspace.getConfiguration('telemetry').get<string>('telemetryLevel', 'all');
+    const level = vscode.workspace
+      .getConfiguration('telemetry')
+      .get<string>('telemetryLevel', 'all');
     return level !== 'off' && level !== 'crash';
   }
 
@@ -183,7 +189,8 @@ export class TelemetryAdapter {
       release: this.opts.release,
       environment: 'extension-host',
       tracesSampleRate: 0,
-      beforeSend: (event: unknown) => stripSensitiveFields(event as Parameters<typeof stripSensitiveFields>[0]),
+      beforeSend: (event: unknown) =>
+        stripSensitiveFields(event as Parameters<typeof stripSensitiveFields>[0]),
     });
     this.sentryModule = Sentry;
     this.sentryEnabled = true;
@@ -221,7 +228,9 @@ function loadSentryNode(): SentryModule | null {
 }
 
 /** Strip sensitive keys from a map in-place, returning a new object. */
-function sanitiseExtras(extras: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+function sanitiseExtras(
+  extras: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
   if (!extras) {
     return extras;
   }
@@ -237,9 +246,9 @@ function sanitiseExtras(extras: Record<string, unknown> | undefined): Record<str
 }
 
 /** Sentry `beforeSend` — strip sensitive fields from `contexts` and `extra`. */
-export function stripSensitiveFields<T extends { contexts?: Record<string, unknown>; extra?: Record<string, unknown> }>(
-  event: T
-): T {
+export function stripSensitiveFields<
+  T extends { contexts?: Record<string, unknown>; extra?: Record<string, unknown> },
+>(event: T): T {
   if (event.extra) {
     event.extra = sanitiseRecord(event.extra);
   }

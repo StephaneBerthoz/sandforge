@@ -18,7 +18,12 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
  * Mock VirtualList to render all items directly (jsdom has no layout engine).
  */
 vi.mock('../../components/ui/VirtualList', () => ({
-  VirtualList: <T,>({ items, renderItem, keyExtractor, emptyMessage }: {
+  VirtualList: <T,>({
+    items,
+    renderItem,
+    keyExtractor,
+    emptyMessage,
+  }: {
     items: T[];
     renderItem: (item: T, index: number) => React.ReactNode;
     keyExtractor: (item: T, index: number) => string;
@@ -65,10 +70,12 @@ describe('CDCEventFeed', () => {
   });
 
   it('should render event rows with correct data', () => {
-    useCDCLiveStore.getState().pushEvents([
-      makeMockEvent(1, { objectApiName: 'Account', changeType: 'CREATE' }),
-      makeMockEvent(2, { objectApiName: 'Contact', changeType: 'UPDATE' }),
-    ]);
+    useCDCLiveStore
+      .getState()
+      .pushEvents([
+        makeMockEvent(1, { objectApiName: 'Account', changeType: 'CREATE' }),
+        makeMockEvent(2, { objectApiName: 'Contact', changeType: 'UPDATE' }),
+      ]);
 
     render(<CDCEventFeed />);
     expect(screen.getByTestId('cdc-event-row-0')).toBeDefined();
@@ -78,10 +85,12 @@ describe('CDCEventFeed', () => {
   });
 
   it('should render change type badges with correct variants', () => {
-    useCDCLiveStore.getState().pushEvents([
-      makeMockEvent(1, { changeType: 'CREATE' }),
-      makeMockEvent(2, { changeType: 'DELETE' }),
-    ]);
+    useCDCLiveStore
+      .getState()
+      .pushEvents([
+        makeMockEvent(1, { changeType: 'CREATE' }),
+        makeMockEvent(2, { changeType: 'DELETE' }),
+      ]);
 
     render(<CDCEventFeed />);
     expect(screen.getByText('Create')).toBeDefined();
@@ -89,9 +98,7 @@ describe('CDCEventFeed', () => {
   });
 
   it('should render applied status indicator as checkmark for applied events', () => {
-    useCDCLiveStore.getState().pushEvents([
-      makeMockEvent(1, { applied: true }),
-    ]);
+    useCDCLiveStore.getState().pushEvents([makeMockEvent(1, { applied: true })]);
 
     render(<CDCEventFeed />);
     const row = screen.getByTestId('cdc-event-row-0');
@@ -100,9 +107,7 @@ describe('CDCEventFeed', () => {
   });
 
   it('should render error status indicator for events with errors', () => {
-    useCDCLiveStore.getState().pushEvents([
-      makeMockEvent(1, { error: 'Insert failed' }),
-    ]);
+    useCDCLiveStore.getState().pushEvents([makeMockEvent(1, { error: 'Insert failed' })]);
 
     render(<CDCEventFeed />);
     const row = screen.getByTestId('cdc-event-row-0');
@@ -111,11 +116,7 @@ describe('CDCEventFeed', () => {
   });
 
   it('should show event count in footer', () => {
-    useCDCLiveStore.getState().pushEvents([
-      makeMockEvent(1),
-      makeMockEvent(2),
-      makeMockEvent(3),
-    ]);
+    useCDCLiveStore.getState().pushEvents([makeMockEvent(1), makeMockEvent(2), makeMockEvent(3)]);
 
     render(<CDCEventFeed />);
     const countEl = screen.getByTestId('cdc-event-count');

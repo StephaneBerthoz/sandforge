@@ -1,7 +1,4 @@
-import type {
-  BackPressureConfig,
-  BackPressureLevel,
-} from '@sandforge/shared';
+import type { BackPressureConfig, BackPressureLevel } from '@sandforge/shared';
 
 /** Delay constants for throttling in milliseconds */
 const WARNING_DELAY_MS = 500;
@@ -37,10 +34,7 @@ export class BackPressureManager {
       return 'normal';
     }
 
-    if (
-      queueDepth >= this.config.maxQueueDepth ||
-      apiUsagePercent >= this.config.highWaterMark
-    ) {
+    if (queueDepth >= this.config.maxQueueDepth || apiUsagePercent >= this.config.highWaterMark) {
       this.currentLevel = 'critical';
       return 'critical';
     }
@@ -66,9 +60,7 @@ export class BackPressureManager {
     if (!this.config.enabled) {
       return false;
     }
-    return (
-      this.currentLevel === 'critical' && this.config.strategy === 'pause'
-    );
+    return this.currentLevel === 'critical' && this.config.strategy === 'pause';
   }
 
   /**

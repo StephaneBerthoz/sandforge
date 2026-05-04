@@ -99,7 +99,7 @@ describe('EncryptionManager', () => {
       const tooShort = Buffer.alloc(10).toString('base64');
 
       expect(() => manager.decrypt(tooShort)).toThrow(
-        'Encrypted data is too short to contain IV and auth tag'
+        'Encrypted data is too short to contain IV and auth tag',
       );
     });
 

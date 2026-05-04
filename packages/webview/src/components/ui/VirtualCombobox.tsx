@@ -136,9 +136,7 @@ export function VirtualCombobox({
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
-          setHighlightedIndex((prev) =>
-            prev < filteredOptions.length - 1 ? prev + 1 : prev,
-          );
+          setHighlightedIndex((prev) => (prev < filteredOptions.length - 1 ? prev + 1 : prev));
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -315,9 +313,7 @@ export function VirtualCombobox({
                     >
                       {multiple && (
                         <span className="mr-2 flex-shrink-0" style={{ width: '16px' }}>
-                          {isSelected && (
-                            <Icon name="check" className="text-[var(--sf-accent)]" />
-                          )}
+                          {isSelected && <Icon name="check" className="text-[var(--sf-accent)]" />}
                         </span>
                       )}
                       <div className="flex flex-col overflow-hidden">
@@ -336,7 +332,10 @@ export function VirtualCombobox({
                         )}
                       </div>
                       {!multiple && isSelected && (
-                        <Icon name="check" className="ml-auto flex-shrink-0 text-[var(--sf-accent)]" />
+                        <Icon
+                          name="check"
+                          className="ml-auto flex-shrink-0 text-[var(--sf-accent)]"
+                        />
                       )}
                     </div>
                   );

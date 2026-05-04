@@ -29,10 +29,7 @@ export const SyncTemplatePicker: React.FC<SyncTemplatePickerProps> = ({ onApply,
     >
       {PREBUILT_SYNC_TEMPLATES.map((template) => (
         <Card key={template.templateId} data-testid={`sync-template-card-${template.templateId}`}>
-          <CardHeader
-            title={t(template.nameKey)}
-            subtitle={t(template.descriptionKey)}
-          />
+          <CardHeader title={t(template.nameKey)} subtitle={t(template.descriptionKey)} />
           <CardBody className="flex flex-col gap-2">
             <div className="flex flex-wrap gap-1">
               <Badge variant="info">

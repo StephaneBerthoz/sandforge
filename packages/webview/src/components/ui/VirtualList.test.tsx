@@ -76,13 +76,7 @@ describe('VirtualList', () => {
   });
 
   it('should render default empty message when no emptyMessage prop', () => {
-    render(
-      <VirtualList
-        items={[]}
-        renderItem={() => <span />}
-        keyExtractor={() => ''}
-      />,
-    );
+    render(<VirtualList items={[]} renderItem={() => <span />} keyExtractor={() => ''} />);
     expect(screen.getByText('No items')).toBeDefined();
   });
 

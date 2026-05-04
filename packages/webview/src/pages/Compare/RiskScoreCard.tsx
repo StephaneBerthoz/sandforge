@@ -147,9 +147,15 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
               }}
               data-testid="risk-summary-counts"
             >
-              <Badge variant="success">{summary.added} {t('compare.added', 'added')}</Badge>
-              <Badge variant="error">{summary.removed} {t('compare.removed', 'removed')}</Badge>
-              <Badge variant="warning">{summary.modified} {t('compare.modified', 'modified')}</Badge>
+              <Badge variant="success">
+                {summary.added} {t('compare.added', 'added')}
+              </Badge>
+              <Badge variant="error">
+                {summary.removed} {t('compare.removed', 'removed')}
+              </Badge>
+              <Badge variant="warning">
+                {summary.modified} {t('compare.modified', 'modified')}
+              </Badge>
             </div>
 
             {/* Risk breakdown */}

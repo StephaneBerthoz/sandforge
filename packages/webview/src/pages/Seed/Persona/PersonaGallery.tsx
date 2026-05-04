@@ -89,7 +89,10 @@ export const PersonaGallery: React.FC<PersonaGalleryProps> = ({ onPersonaSelecte
 
       {/* Loading state: skeleton cards */}
       {hook.loading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="persona-gallery-loading">
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+          data-testid="persona-gallery-loading"
+        >
           {[1, 2, 3].map((n) => (
             <Skeleton key={n} variant="rect" height="160px" />
           ))}
@@ -99,7 +102,10 @@ export const PersonaGallery: React.FC<PersonaGalleryProps> = ({ onPersonaSelecte
       {/* Persona cards grid */}
       {!hook.loading && (
         <div className="relative">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="persona-grid">
+          <div
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+            data-testid="persona-grid"
+          >
             {hook.personas.map((persona) => (
               <PersonaCard
                 key={persona.id}
@@ -151,7 +157,10 @@ export const PersonaGallery: React.FC<PersonaGalleryProps> = ({ onPersonaSelecte
 
           {/* Preview popover - rendered as overlay within the gallery area */}
           {hook.previewedPersona && (
-            <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30" data-testid="preview-overlay">
+            <div
+              className="fixed inset-0 z-40 flex items-center justify-center bg-black/30"
+              data-testid="preview-overlay"
+            >
               <PersonaPreviewPopover
                 persona={hook.previewedPersona}
                 sampleRecords={hook.generateSampleRecords(hook.previewedPersona)}

@@ -89,13 +89,23 @@ describe('AuditTrailService', () => {
   describe('list', () => {
     it('should return all entries without filter', () => {
       service.log({ operationType: 'sync', description: 'A', durationMs: 100, status: 'success' });
-      service.log({ operationType: 'backup', description: 'B', durationMs: 200, status: 'failure' });
+      service.log({
+        operationType: 'backup',
+        description: 'B',
+        durationMs: 200,
+        status: 'failure',
+      });
       expect(service.list()).toHaveLength(2);
     });
 
     it('should filter by operation type', () => {
       service.log({ operationType: 'sync', description: 'A', durationMs: 100, status: 'success' });
-      service.log({ operationType: 'backup', description: 'B', durationMs: 200, status: 'success' });
+      service.log({
+        operationType: 'backup',
+        description: 'B',
+        durationMs: 200,
+        status: 'success',
+      });
       const filtered = service.list({ operationType: 'sync' });
       expect(filtered).toHaveLength(1);
       expect(filtered[0].operationType).toBe('sync');
@@ -109,21 +119,48 @@ describe('AuditTrailService', () => {
     });
 
     it('should filter by orgId', () => {
-      service.log({ operationType: 'sync', description: 'A', orgId: 'org-1', durationMs: 100, status: 'success' });
-      service.log({ operationType: 'sync', description: 'B', orgId: 'org-2', durationMs: 200, status: 'success' });
+      service.log({
+        operationType: 'sync',
+        description: 'A',
+        orgId: 'org-1',
+        durationMs: 100,
+        status: 'success',
+      });
+      service.log({
+        operationType: 'sync',
+        description: 'B',
+        orgId: 'org-2',
+        durationMs: 200,
+        status: 'success',
+      });
       const filtered = service.list({ orgId: 'org-1' });
       expect(filtered).toHaveLength(1);
     });
 
     it('should filter by search text (case-insensitive)', () => {
-      service.log({ operationType: 'sync', description: 'Synced Account records', durationMs: 100, status: 'success' });
-      service.log({ operationType: 'backup', description: 'Backed up Contact', durationMs: 200, status: 'success' });
+      service.log({
+        operationType: 'sync',
+        description: 'Synced Account records',
+        durationMs: 100,
+        status: 'success',
+      });
+      service.log({
+        operationType: 'backup',
+        description: 'Backed up Contact',
+        durationMs: 200,
+        status: 'success',
+      });
       const filtered = service.list({ search: 'account' });
       expect(filtered).toHaveLength(1);
     });
 
     it('should filter by date range', () => {
-      const entry1 = service.log({ operationType: 'sync', description: 'A', durationMs: 100, status: 'success' });
+      const entry1 = service.log({
+        operationType: 'sync',
+        description: 'A',
+        durationMs: 100,
+        status: 'success',
+      });
       const entries = service.list({ startDate: entry1.timestamp, endDate: entry1.timestamp });
       expect(entries.length).toBeGreaterThanOrEqual(0);
     });
@@ -131,7 +168,12 @@ describe('AuditTrailService', () => {
 
   describe('getById', () => {
     it('should return entry by id', () => {
-      const entry = service.log({ operationType: 'sync', description: 'Test', durationMs: 100, status: 'success' });
+      const entry = service.log({
+        operationType: 'sync',
+        description: 'Test',
+        durationMs: 100,
+        status: 'success',
+      });
       expect(service.getById(entry.id)).toBeDefined();
       expect(service.getById(entry.id)!.description).toBe('Test');
     });
@@ -163,7 +205,12 @@ describe('AuditTrailService', () => {
 
   describe('export', () => {
     it('should export as JSON', () => {
-      service.log({ operationType: 'sync', description: 'Test', durationMs: 100, status: 'success' });
+      service.log({
+        operationType: 'sync',
+        description: 'Test',
+        durationMs: 100,
+        status: 'success',
+      });
       const json = service.export({ format: 'json' });
       const parsed = JSON.parse(json);
       expect(Array.isArray(parsed)).toBe(true);
@@ -171,7 +218,12 @@ describe('AuditTrailService', () => {
     });
 
     it('should export as CSV', () => {
-      service.log({ operationType: 'sync', description: 'Test', durationMs: 100, status: 'success' });
+      service.log({
+        operationType: 'sync',
+        description: 'Test',
+        durationMs: 100,
+        status: 'success',
+      });
       const csv = service.export({ format: 'csv' });
       const lines = csv.split('\n');
       expect(lines[0]).toContain('id,operationType');
@@ -180,7 +232,12 @@ describe('AuditTrailService', () => {
 
     it('should apply filter during export', () => {
       service.log({ operationType: 'sync', description: 'A', durationMs: 100, status: 'success' });
-      service.log({ operationType: 'backup', description: 'B', durationMs: 200, status: 'failure' });
+      service.log({
+        operationType: 'backup',
+        description: 'B',
+        durationMs: 200,
+        status: 'failure',
+      });
       const json = service.export({ format: 'json', filter: { operationType: 'sync' } });
       const parsed = JSON.parse(json);
       expect(parsed).toHaveLength(1);
@@ -220,7 +277,12 @@ describe('AuditTrailService', () => {
   describe('rotation', () => {
     it('should keep entries within max limit', () => {
       for (let i = 0; i < 1005; i++) {
-        service.log({ operationType: 'sync', description: `Entry ${i}`, durationMs: 10, status: 'success' });
+        service.log({
+          operationType: 'sync',
+          description: `Entry ${i}`,
+          durationMs: 10,
+          status: 'success',
+        });
       }
       expect(service.count()).toBeLessThanOrEqual(1000);
     });

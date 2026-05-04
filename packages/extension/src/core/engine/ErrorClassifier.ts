@@ -1,7 +1,4 @@
-import {
-  SF_ERROR_CLASSIFICATIONS,
-  getErrorClassification,
-} from '@sandforge/shared';
+import { SF_ERROR_CLASSIFICATIONS, getErrorClassification } from '@sandforge/shared';
 import type {
   ErrorClassification,
   SalesforceApiError,
@@ -24,10 +21,7 @@ export class ErrorClassifier {
   /** Classify a single Salesforce error */
   classify(error: SalesforceApiError): ClassifiedError {
     const classification = getErrorClassification(error.statusCode);
-    const suggestedAction = this.getSuggestedAction(
-      error.statusCode,
-      classification
-    );
+    const suggestedAction = this.getSuggestedAction(error.statusCode, classification);
 
     return {
       originalError: error,
@@ -63,8 +57,7 @@ export class ErrorClassifier {
       if (c.classification.retryable) retryableCount++;
       const cat = c.classification.category ?? 'unknown';
       byCategory[cat] = (byCategory[cat] ?? 0) + 1;
-      byErrorCode[c.originalError.statusCode] =
-        (byErrorCode[c.originalError.statusCode] ?? 0) + 1;
+      byErrorCode[c.originalError.statusCode] = (byErrorCode[c.originalError.statusCode] ?? 0) + 1;
     }
 
     const summary: ErrorSummary = {
@@ -97,10 +90,7 @@ export class ErrorClassifier {
     return Object.keys(SF_ERROR_CLASSIFICATIONS).length;
   }
 
-  private getSuggestedAction(
-    errorCode: string,
-    classification: ErrorClassification
-  ): string {
+  private getSuggestedAction(errorCode: string, classification: ErrorClassification): string {
     if (classification.suggestUpsert) {
       return 'Consider using upsert with external ID';
     }

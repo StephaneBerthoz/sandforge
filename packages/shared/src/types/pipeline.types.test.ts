@@ -71,9 +71,7 @@ describe('ExecutionStep', () => {
 });
 
 describe('PipelineOptions', () => {
-  function createOptions(
-    overrides: Partial<PipelineOptions> = {},
-  ): PipelineOptions {
+  function createOptions(overrides: Partial<PipelineOptions> = {}): PipelineOptions {
     return {
       apiMode: 'auto',
       grappeMode: false,

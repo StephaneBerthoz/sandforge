@@ -60,10 +60,7 @@ function sendResolveMessage(
 }
 
 /** Insert conflicts into array with deduplication and FIFO eviction at MAX_CONFLICTS. */
-function insertConflicts(
-  existing: UIConflict[],
-  incoming: UIConflict[],
-): UIConflict[] {
+function insertConflicts(existing: UIConflict[], incoming: UIConflict[]): UIConflict[] {
   const ids = new Set(existing.map((c) => c.id));
   const merged = [...existing];
 
@@ -82,77 +79,73 @@ function insertConflicts(
 }
 
 /** Zustand store for managing conflict resolution state in the WebView. */
-export const useConflictStore = create<ConflictStoreState & ConflictStoreActions>(
-  (set, get) => ({
-    conflicts: [],
-    selectedConflictId: null,
-    filterObject: null,
-    filterType: null,
+export const useConflictStore = create<ConflictStoreState & ConflictStoreActions>((set, get) => ({
+  conflicts: [],
+  selectedConflictId: null,
+  filterObject: null,
+  filterType: null,
 
-    addConflict(conflict: UIConflict): void {
-      set({ conflicts: insertConflicts(get().conflicts, [conflict]) });
-    },
+  addConflict(conflict: UIConflict): void {
+    set({ conflicts: insertConflicts(get().conflicts, [conflict]) });
+  },
 
-    addConflicts(conflicts: UIConflict[]): void {
-      set({ conflicts: insertConflicts(get().conflicts, conflicts) });
-    },
+  addConflicts(conflicts: UIConflict[]): void {
+    set({ conflicts: insertConflicts(get().conflicts, conflicts) });
+  },
 
-    selectConflict(id: string | null): void {
-      set({ selectedConflictId: id });
-    },
+  selectConflict(id: string | null): void {
+    set({ selectedConflictId: id });
+  },
 
-    setFilterObject(objectApiName: string | null): void {
-      set({ filterObject: objectApiName });
-    },
+  setFilterObject(objectApiName: string | null): void {
+    set({ filterObject: objectApiName });
+  },
 
-    setFilterType(type: string | null): void {
-      set({ filterType: type });
-    },
+  setFilterType(type: string | null): void {
+    set({ filterType: type });
+  },
 
-    resolveConflict(
-      id: string,
-      resolution: ConflictStrategy,
-      fieldResolutions?: Record<string, FieldResolution>,
-    ): void {
-      set({
-        conflicts: get().conflicts.map((c) =>
-          c.id === id
-            ? { ...c, resolved: true, resolution, fieldResolutions }
-            : c,
-        ),
-      });
-      sendResolveMessage(id, resolution, fieldResolutions);
-    },
+  resolveConflict(
+    id: string,
+    resolution: ConflictStrategy,
+    fieldResolutions?: Record<string, FieldResolution>,
+  ): void {
+    set({
+      conflicts: get().conflicts.map((c) =>
+        c.id === id ? { ...c, resolved: true, resolution, fieldResolutions } : c,
+      ),
+    });
+    sendResolveMessage(id, resolution, fieldResolutions);
+  },
 
-    resolveAllSource(): void {
-      const unresolved = get().conflicts.filter((c) => !c.resolved);
-      set({
-        conflicts: get().conflicts.map((c) =>
-          c.resolved ? c : { ...c, resolved: true, resolution: 'source_wins' as ConflictStrategy },
-        ),
-      });
-      for (const conflict of unresolved) {
-        sendResolveMessage(conflict.id, 'source_wins');
-      }
-    },
+  resolveAllSource(): void {
+    const unresolved = get().conflicts.filter((c) => !c.resolved);
+    set({
+      conflicts: get().conflicts.map((c) =>
+        c.resolved ? c : { ...c, resolved: true, resolution: 'source_wins' as ConflictStrategy },
+      ),
+    });
+    for (const conflict of unresolved) {
+      sendResolveMessage(conflict.id, 'source_wins');
+    }
+  },
 
-    resolveAllTarget(): void {
-      const unresolved = get().conflicts.filter((c) => !c.resolved);
-      set({
-        conflicts: get().conflicts.map((c) =>
-          c.resolved ? c : { ...c, resolved: true, resolution: 'target_wins' as ConflictStrategy },
-        ),
-      });
-      for (const conflict of unresolved) {
-        sendResolveMessage(conflict.id, 'target_wins');
-      }
-    },
+  resolveAllTarget(): void {
+    const unresolved = get().conflicts.filter((c) => !c.resolved);
+    set({
+      conflicts: get().conflicts.map((c) =>
+        c.resolved ? c : { ...c, resolved: true, resolution: 'target_wins' as ConflictStrategy },
+      ),
+    });
+    for (const conflict of unresolved) {
+      sendResolveMessage(conflict.id, 'target_wins');
+    }
+  },
 
-    clearResolved(): void {
-      set({ conflicts: get().conflicts.filter((c) => !c.resolved) });
-    },
-  }),
-);
+  clearResolved(): void {
+    set({ conflicts: get().conflicts.filter((c) => !c.resolved) });
+  },
+}));
 
 /**
  * Compute the count of unresolved conflicts.

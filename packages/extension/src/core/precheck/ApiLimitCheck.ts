@@ -17,9 +17,9 @@ export interface ApiLimitData {
 export type FetchLimitsFn = (orgId: string) => Promise<ApiLimitData>;
 
 /** Threshold boundaries for limit severity classification */
-const BLOCKER_THRESHOLD = 0.10;
-const ERROR_THRESHOLD = 0.20;
-const WARNING_THRESHOLD = 0.40;
+const BLOCKER_THRESHOLD = 0.1;
+const ERROR_THRESHOLD = 0.2;
+const WARNING_THRESHOLD = 0.4;
 
 /**
  * Checks API call limits including daily requests remaining,
@@ -59,7 +59,7 @@ export class ApiLimitCheck {
   /** Check daily API request availability */
   private checkDailyApiRequests(
     limits: { current: number; max: number },
-    estimated: number
+    estimated: number,
   ): PreCheckItem {
     const remaining = limits.max - limits.current;
     const remainingPercent = remaining / limits.max;
@@ -90,9 +90,7 @@ export class ApiLimitCheck {
   }
 
   /** Check concurrent API request capacity */
-  private checkConcurrentRequests(
-    limits: { current: number; max: number }
-  ): PreCheckItem {
+  private checkConcurrentRequests(limits: { current: number; max: number }): PreCheckItem {
     const remaining = limits.max - limits.current;
     const remainingPercent = remaining / limits.max;
     const severity = this.classifySeverity(remainingPercent, remaining > 0);
@@ -112,18 +110,17 @@ export class ApiLimitCheck {
       description: 'Checks available concurrent API request slots',
       severity,
       passed: remaining > 0,
-      message: remaining > 0
-        ? `Concurrent API slots available: ${remaining} of ${limits.max}`
-        : `No concurrent API slots available (${limits.current}/${limits.max} in use)`,
+      message:
+        remaining > 0
+          ? `Concurrent API slots available: ${remaining} of ${limits.max}`
+          : `No concurrent API slots available (${limits.current}/${limits.max} in use)`,
       details: detail as unknown as Record<string, unknown>,
       autoFixable: false,
     };
   }
 
   /** Check Bulk API job slot availability */
-  private checkBulkApiJobSlots(
-    limits: { current: number; max: number }
-  ): PreCheckItem {
+  private checkBulkApiJobSlots(limits: { current: number; max: number }): PreCheckItem {
     const remaining = limits.max - limits.current;
     const remainingPercent = remaining / limits.max;
     const severity = this.classifySeverity(remainingPercent, remaining > 0);
@@ -143,9 +140,10 @@ export class ApiLimitCheck {
       description: 'Checks available Bulk API job slots',
       severity,
       passed: remaining > 0,
-      message: remaining > 0
-        ? `Bulk API job slots available: ${remaining} of ${limits.max}`
-        : `No Bulk API job slots available (${limits.current}/${limits.max} in use)`,
+      message:
+        remaining > 0
+          ? `Bulk API job slots available: ${remaining} of ${limits.max}`
+          : `No Bulk API job slots available (${limits.current}/${limits.max} in use)`,
       details: detail as unknown as Record<string, unknown>,
       autoFixable: false,
     };

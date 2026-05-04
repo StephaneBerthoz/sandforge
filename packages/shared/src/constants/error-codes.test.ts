@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  SF_ERROR_CLASSIFICATIONS,
-  getErrorClassification,
-} from './error-codes.js';
+import { SF_ERROR_CLASSIFICATIONS, getErrorClassification } from './error-codes.js';
 
 describe('SF_ERROR_CLASSIFICATIONS', () => {
   it('should have at least 10 error codes defined', () => {

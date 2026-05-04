@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BaseMessage, AutopilotGraph as AutopilotGraphType, AutopilotNodeStatus, ExecutionPlan } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  AutopilotGraph as AutopilotGraphType,
+  AutopilotNodeStatus,
+  ExecutionPlan,
+} from '@sandforge/shared';
 import { useAutopilotStore } from '../../stores/useAutopilotStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -17,7 +22,11 @@ import { useGrappeStore } from '../../stores/useGrappeStore';
 const AutopilotGrappePanel: React.FC = () => {
   const { active, operationId } = useGrappeStore();
   if (!active && !operationId) return null;
-  return <div className="px-4 py-2"><GrappeProgressPanel /></div>;
+  return (
+    <div className="px-4 py-2">
+      <GrappeProgressPanel />
+    </div>
+  );
 };
 
 /** Main Autopilot page layout. */
@@ -43,37 +52,53 @@ export const AutopilotPage: React.FC = () => {
     },
   );
 
-  useMessageListener<BaseMessage & { payload: { nodeId: string; objectName: string; status: string; wave: number; recordCount?: number; failureCount?: number; error?: string } }>(
-    'autopilot:node-progress',
-    (msg) => {
-      const store = useAutopilotStore.getState();
-      const statusMap: Record<string, AutopilotNodeStatus> = {
-        processing: 'extracting',
-        completed: 'completed',
-        failed: 'failed',
+  useMessageListener<
+    BaseMessage & {
+      payload: {
+        nodeId: string;
+        objectName: string;
+        status: string;
+        wave: number;
+        recordCount?: number;
+        failureCount?: number;
+        error?: string;
       };
-      const mappedStatus = statusMap[msg.payload.status] ?? 'pending';
-      store.updateNodeStatus(msg.payload.objectName, mappedStatus);
-      if (msg.payload.recordCount !== undefined) {
-        store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
-      }
-      store.updateLiveStats({ currentWave: msg.payload.wave });
-    },
-  );
+    }
+  >('autopilot:node-progress', (msg) => {
+    const store = useAutopilotStore.getState();
+    const statusMap: Record<string, AutopilotNodeStatus> = {
+      processing: 'extracting',
+      completed: 'completed',
+      failed: 'failed',
+    };
+    const mappedStatus = statusMap[msg.payload.status] ?? 'pending';
+    store.updateNodeStatus(msg.payload.objectName, mappedStatus);
+    if (msg.payload.recordCount !== undefined) {
+      store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
+    }
+    store.updateLiveStats({ currentWave: msg.payload.wave });
+  });
 
-  useMessageListener<BaseMessage & { payload: { totalRecords: number; totalSuccessCount: number; totalFailureCount: number; totalElapsedMs: number; totalApiCalls: number } }>(
-    'autopilot:completed',
-    (msg) => {
-      useAutopilotStore.getState().setExecutionStatus('completed');
-      useAutopilotStore.getState().setStep('completed');
-      useAutopilotStore.getState().updateLiveStats({
-        recordsProcessed: msg.payload.totalSuccessCount,
-        recordsTotal: msg.payload.totalRecords,
-        apiCallsUsed: msg.payload.totalApiCalls,
-        elapsedMs: msg.payload.totalElapsedMs,
-      });
-    },
-  );
+  useMessageListener<
+    BaseMessage & {
+      payload: {
+        totalRecords: number;
+        totalSuccessCount: number;
+        totalFailureCount: number;
+        totalElapsedMs: number;
+        totalApiCalls: number;
+      };
+    }
+  >('autopilot:completed', (msg) => {
+    useAutopilotStore.getState().setExecutionStatus('completed');
+    useAutopilotStore.getState().setStep('completed');
+    useAutopilotStore.getState().updateLiveStats({
+      recordsProcessed: msg.payload.totalSuccessCount,
+      recordsTotal: msg.payload.totalRecords,
+      apiCallsUsed: msg.payload.totalApiCalls,
+      elapsedMs: msg.payload.totalElapsedMs,
+    });
+  });
 
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
@@ -91,7 +116,8 @@ export const AutopilotPage: React.FC = () => {
     );
   }
 
-  const isWizardStep = step === 'connect' || step === 'objects' || step === 'compliance' || step === 'review';
+  const isWizardStep =
+    step === 'connect' || step === 'objects' || step === 'compliance' || step === 'review';
   const isExecutionStep = step === 'executing' || step === 'completed';
 
   if (showReport) {
@@ -146,7 +172,10 @@ export const AutopilotPage: React.FC = () => {
         <AutopilotGrappePanel />
         {/* Split view: graph placeholder (left 60%) + control panel (right 40%) */}
         <div className="flex flex-1 overflow-hidden">
-          <div className="w-[60%] overflow-hidden border-r border-[var(--vscode-panel-border,#3c3c3c)]" data-testid="autopilot-graph-area">
+          <div
+            className="w-[60%] overflow-hidden border-r border-[var(--vscode-panel-border,#3c3c3c)]"
+            data-testid="autopilot-graph-area"
+          >
             <AutopilotGraph />
           </div>
           <div className="w-[40%] overflow-hidden">

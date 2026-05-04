@@ -162,7 +162,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ badges = {} }) => {
         aria-label={t(item.labelKey)}
         title={t(item.labelKey)}
       >
-        <span className="shrink-0 w-5 flex items-center justify-center">{renderIcon(item.icon)}</span>
+        <span className="shrink-0 w-5 flex items-center justify-center">
+          {renderIcon(item.icon)}
+        </span>
         {!collapsed && (
           <>
             <span className="flex-1 truncate">{t(item.labelKey)}</span>
@@ -285,10 +287,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ badges = {} }) => {
                   </div>
                 ))
               ) : (
-                <span
-                  className="text-xs text-text-muted"
-                  data-testid="sidebar-no-recent-ops"
-                >
+                <span className="text-xs text-text-muted" data-testid="sidebar-no-recent-ops">
                   {t('home.noRecentOps')}
                 </span>
               )}

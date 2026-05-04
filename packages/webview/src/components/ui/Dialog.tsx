@@ -68,16 +68,19 @@ export const Dialog: React.FC<DialogProps> = ({
       }}
     >
       <div className="p-4" role="document">
-        <h2 id={titleId} className="text-base font-semibold mb-1">{title}</h2>
+        <h2 id={titleId} className="text-base font-semibold mb-1">
+          {title}
+        </h2>
         {description && (
-          <p id={descId} className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mb-3">
+          <p
+            id={descId}
+            className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mb-3"
+          >
             {description}
           </p>
         )}
         <div className="mt-2">{children}</div>
-        {footer && (
-          <div className="mt-4 flex justify-end gap-2">{footer}</div>
-        )}
+        {footer && <div className="mt-4 flex justify-end gap-2">{footer}</div>}
       </div>
     </dialog>
   );

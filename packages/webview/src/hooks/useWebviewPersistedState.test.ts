@@ -66,7 +66,13 @@ describe('useWebviewPersistedState', () => {
 
   it('should persist complex objects', () => {
     const complex = { step: 2, items: ['a', 'b'], nested: { flag: true } };
-    const { result } = renderHook(() => useWebviewPersistedState('draft', { step: 0, items: [] as string[], nested: { flag: false } }));
+    const { result } = renderHook(() =>
+      useWebviewPersistedState('draft', {
+        step: 0,
+        items: [] as string[],
+        nested: { flag: false },
+      }),
+    );
 
     act(() => {
       result.current[1](complex);

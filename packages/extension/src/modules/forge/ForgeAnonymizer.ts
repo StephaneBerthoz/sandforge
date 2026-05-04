@@ -37,8 +37,10 @@ export class ForgeAnonymizer {
     // Match by field name patterns
     const lowerName = fieldName.toLowerCase();
     if (lowerName.includes('email')) return 'email';
-    if (lowerName.includes('phone') || lowerName.includes('fax') || lowerName.includes('mobile')) return 'phone';
-    if (lowerName.includes('firstname') || lowerName.includes('lastname') || lowerName === 'name') return 'name';
+    if (lowerName.includes('phone') || lowerName.includes('fax') || lowerName.includes('mobile'))
+      return 'phone';
+    if (lowerName.includes('firstname') || lowerName.includes('lastname') || lowerName === 'name')
+      return 'name';
     if (
       lowerName.includes('street') ||
       lowerName.includes('address') ||

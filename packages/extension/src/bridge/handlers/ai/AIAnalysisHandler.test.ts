@@ -31,7 +31,10 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
-function createMsg(type: string, payload: Record<string, unknown> = {}): BaseMessage & { payload: Record<string, unknown> } {
+function createMsg(
+  type: string,
+  payload: Record<string, unknown> = {},
+): BaseMessage & { payload: Record<string, unknown> } {
   return { id: 'msg-1', type, timestamp: Date.now(), payload };
 }
 
@@ -50,7 +53,9 @@ describe('AIAnalysisHandler', () => {
   });
 
   it('handles ai:anomaly-scan without modules by sending error with correlationId', async () => {
-    const result = await handler.handle(createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account' }));
+    const result = await handler.handle(
+      createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account' }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:anomaly-scan:response');
@@ -62,13 +67,17 @@ describe('AIAnalysisHandler', () => {
     const mockModules: Partial<AIModules> = {
       anomalyDetector: {
         detectAnomalies: vi.fn().mockReturnValue({
-          anomalies: [{ field: 'Name', type: 'null', description: 'Many nulls', severity: 'medium' }],
+          anomalies: [
+            { field: 'Name', type: 'null', description: 'Many nulls', severity: 'medium' },
+          ],
         }),
       } as unknown as AIModules['anomalyDetector'],
     };
     handler.setAIModules(mockModules as AIModules);
 
-    const result = await handler.handle(createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account', sampleSize: 100 }));
+    const result = await handler.handle(
+      createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account', sampleSize: 100 }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:anomaly-scan:response');
@@ -88,12 +97,18 @@ describe('AIAnalysisHandler', () => {
   it('handles ai:suggestions with modules', async () => {
     const mockModules: Partial<AIModules> = {
       smartSuggestions: {
-        suggest: vi.fn().mockResolvedValue([{ title: 'Use Bulk API', description: 'Faster', action: 'enable-bulk' }]),
+        suggest: vi
+          .fn()
+          .mockResolvedValue([
+            { title: 'Use Bulk API', description: 'Faster', action: 'enable-bulk' },
+          ]),
       } as unknown as AIModules['smartSuggestions'],
     };
     handler.setAIModules(mockModules as AIModules);
 
-    const result = await handler.handle(createMsg('ai:suggestions', { module: 'seed', context: {} }));
+    const result = await handler.handle(
+      createMsg('ai:suggestions', { module: 'seed', context: {} }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:suggestions:response');
@@ -121,7 +136,9 @@ describe('AIAnalysisHandler', () => {
     };
     handler.setAIModules(mockModules as AIModules);
 
-    const result = await handler.handle(createMsg('ai:schema-advice', { orgId: 'org1', objectNames: ['Account'] }));
+    const result = await handler.handle(
+      createMsg('ai:schema-advice', { orgId: 'org1', objectNames: ['Account'] }),
+    );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('ai:schema-advice:response');

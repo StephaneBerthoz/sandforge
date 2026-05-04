@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import type { GeneratedReport, AnalyticsTimeSeries, AuditLogEntry, DataLineageGraph } from '@sandforge/shared';
+import type {
+  GeneratedReport,
+  AnalyticsTimeSeries,
+  AuditLogEntry,
+  DataLineageGraph,
+} from '@sandforge/shared';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Tabs } from '../../components/ui/Tabs';
@@ -45,17 +50,14 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const [selectedReportId, setSelectedReportId] = useState<string | undefined>();
 
   /** Bridge query: load reports list. */
-  const reportsQuery = useBridgeQuery<{ reports: GeneratedReport[] }>(
-    'reports:list',
-    undefined,
-    { responseType: 'reports:list:result' },
-  );
+  const reportsQuery = useBridgeQuery<{ reports: GeneratedReport[] }>('reports:list', undefined, {
+    responseType: 'reports:list:result',
+  });
 
   /** Bridge mutation: export a report. */
-  const exportMutation = useBridgeMutation<{ url: string }>(
-    'reports:export',
-    { responseType: 'reports:export:result' },
-  );
+  const exportMutation = useBridgeMutation<{ url: string }>('reports:export', {
+    responseType: 'reports:export:result',
+  });
 
   // Suppress unused variable warning for export mutation data
   void exportMutation;
@@ -100,9 +102,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       initial="hidden"
       animate="visible"
     >
-      <h1 className="text-lg font-bold text-text-primary">
-        {t('reports.title')}
-      </h1>
+      <h1 className="text-lg font-bold text-text-primary">{t('reports.title')}</h1>
 
       {reportsQuery.error && (
         <ErrorBanner message={reportsQuery.error} data-testid="reports-error" />
@@ -119,7 +119,12 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       )}
 
       {/* KPI summary row */}
-      <motion.div variants={staggerContainer} initial="hidden" animate="visible" data-testid="reports-kpi-row">
+      <motion.div
+        variants={staggerContainer}
+        initial="hidden"
+        animate="visible"
+        data-testid="reports-kpi-row"
+      >
         <BentoGrid columns={4} gap="md">
           <motion.div variants={slideUp}>
             <KPICard
@@ -184,12 +189,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
                     errorTimeSeries={errorTimeSeries}
                   />
                 )}
-                {tab.id === 'audit' && (
-                  <AuditTrailViewer entries={auditEntries} />
-                )}
-                {tab.id === 'lineage' && (
-                  <LineageGraph lineage={lineageData} />
-                )}
+                {tab.id === 'audit' && <AuditTrailViewer entries={auditEntries} />}
+                {tab.id === 'lineage' && <LineageGraph lineage={lineageData} />}
               </div>
             )}
           </div>

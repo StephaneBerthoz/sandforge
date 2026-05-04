@@ -60,10 +60,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
         <h3 className="text-lg font-bold text-text-primary">{node.objectApiName}</h3>
         <span
           data-testid="node-status-badge"
-          className={cn(
-            'rounded-full px-2 py-0.5 text-xs font-medium',
-            statusColors[node.status],
-          )}
+          className={cn('rounded-full px-2 py-0.5 text-xs font-medium', statusColors[node.status])}
         >
           {node.status}
         </span>
@@ -81,9 +78,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
 
       {/* Include toggle */}
       <motion.div variants={slideUp} className="flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">
-          {t('forge.includeNode')}
-        </span>
+        <span className="text-sm font-medium text-text-primary">{t('forge.includeNode')}</span>
         <button
           type="button"
           data-testid="node-include-toggle"
@@ -115,7 +110,10 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
           </div>
           <ul className="flex flex-col gap-1" data-testid="pii-fields-list">
             {node.piiFields.map((field) => (
-              <li key={field} className="flex items-center justify-between rounded bg-surface-1 px-2 py-1.5 text-sm">
+              <li
+                key={field}
+                className="flex items-center justify-between rounded bg-surface-1 px-2 py-1.5 text-sm"
+              >
                 <span className="text-text-primary">{field}</span>
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <span className="text-xs text-text-secondary">{t('forge.anonymize')}</span>

@@ -22,9 +22,10 @@ export const forge: TranslationRecord = {
   pause: 'Pause',
   abort: 'Abort',
   recordIdPlaceholder: 'Enter a Salesforce Record ID (e.g. 001xx000003DGbZ)',
-  soqlPlaceholder: 'SELECT Id FROM Account WHERE Industry = \'Technology\'',
+  soqlPlaceholder: "SELECT Id FROM Account WHERE Industry = 'Technology'",
   noTemplates: 'No templates saved yet.',
-  aiPlaceholder: 'Describe the data you need (e.g. "All accounts with their contacts and opportunities")...',
+  aiPlaceholder:
+    'Describe the data you need (e.g. "All accounts with their contacts and opportunities")...',
   depthDirect: 'Direct only',
   depthFull: 'Full tree',
   depthCustom: 'Custom depth',
@@ -69,7 +70,8 @@ export const forge: TranslationRecord = {
   'review.cycles': 'Cycle Resolutions',
   'review.category': 'Category',
   'review.method': 'Method',
-  'review.anonymizationDesc': '{count} PII fields detected. Configure anonymization method per category.',
+  'review.anonymizationDesc':
+    '{count} PII fields detected. Configure anonymization method per category.',
   'review.framework': 'Framework',
   'review.noCompliance': 'No compliance framework selected. Select one to generate a report.',
   'review.complianceLoading': 'Select a framework and execute to generate compliance report.',
@@ -145,22 +147,23 @@ export const forge: TranslationRecord = {
       action: 'Increase the depth or add the referenced parent manually to the scope.',
     },
     invalidPicklist: {
-      explanation:
-        "The source picklist value doesn't exist in the target sandbox (config drift).",
+      explanation: "The source picklist value doesn't exist in the target sandbox (config drift).",
       action:
         'Align the picklists via Salesforce Setup or let the auto-strip handle it (silent skip).',
     },
     invalidFieldForInsert: {
       explanation:
         'A field cannot be set on insert (auto-computed, FLS, or missing from the target schema).',
-      action: 'Check field-level security (FLS) on your target profile, or align the source/target schemas.',
+      action:
+        'Check field-level security (FLS) on your target profile, or align the source/target schemas.',
     },
     fieldIntegrity: {
       explanation: 'Salesforce integrity constraint violated: {{detail}}.',
       action: 'Read the detail — Salesforce usually names the offending field or business rule.',
     },
     cannotInsertEntity: {
-      explanation: "This table is read-only (audit/history/system). Salesforce won't accept the insert.",
+      explanation:
+        "This table is read-only (audit/history/system). Salesforce won't accept the insert.",
       action: 'This object is now skipped automatically by scope (isObjectCreatable).',
     },
     insufficientAccess: {
@@ -190,11 +193,13 @@ export const forge: TranslationRecord = {
     },
     outOfScope: {
       explanation: 'This object has no path to the root record — no parent in scope.',
-      action: 'Add this object manually via custom SOQL, or ignore (likely isolated reference data).',
+      action:
+        'Add this object manually via custom SOQL, or ignore (likely isolated reference data).',
     },
     unknown: {
       explanation: '{{detail}}',
-      action: 'Consult the Salesforce docs on this error code or report the raw message to support.',
+      action:
+        'Consult the Salesforce docs on this error code or report the raw message to support.',
     },
   },
 };

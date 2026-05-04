@@ -1,7 +1,19 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { Copy, Save, RotateCcw, Download, RefreshCw, ChevronUp, ChevronDown, ChevronRight, FileText, AlertTriangle, Lightbulb } from 'lucide-react';
+import {
+  Copy,
+  Save,
+  RotateCcw,
+  Download,
+  RefreshCw,
+  ChevronUp,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  AlertTriangle,
+  Lightbulb,
+} from 'lucide-react';
 import type { ForgeExecutionError } from '@sandforge/shared';
 import { translateForgeError } from './forgeErrorTranslator';
 import { KPICard } from '../../components/ui/KPICard';
@@ -54,10 +66,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showLogs, setShowLogs] = useState(false);
 
-  const inserted = useMemo(
-    () => nodes.reduce((sum, n) => sum + n.successCount, 0),
-    [nodes],
-  );
+  const inserted = useMemo(() => nodes.reduce((sum, n) => sum + n.successCount, 0), [nodes]);
 
   const skipped = useMemo(
     () => nodes.filter((n) => n.status === 'skipped').reduce((sum, n) => sum + n.recordCount, 0),
@@ -82,10 +91,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
     [nodes],
   );
 
-  const failedNodes = useMemo(
-    () => nodes.filter((n) => n.status === 'error'),
-    [nodes],
-  );
+  const failedNodes = useMemo(() => nodes.filter((n) => n.status === 'error'), [nodes]);
 
   /** Sorted and filtered nodes for the results table. */
   const sortedFilteredNodes = useMemo(() => {
@@ -136,7 +142,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
     for (const node of nodes) {
       const errorText = node.errors.length > 0 ? node.errors.join(', ') : '-';
-      lines.push(`| ${node.objectApiName} | ${String(node.recordCount)} | ${node.status} | ${errorText} |`);
+      lines.push(
+        `| ${node.objectApiName} | ${String(node.recordCount)} | ${node.status} | ${errorText} |`,
+      );
     }
 
     return lines.join('\n');
@@ -150,14 +158,24 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   /** Placeholder for save-as-template action. */
   const handleSaveTemplate = useCallback(() => {
-    addNotification({ level: 'info', title: t('forge.saveTemplate'), message: 'Coming soon', autoDismissMs: 3000 });
+    addNotification({
+      level: 'info',
+      title: t('forge.saveTemplate'),
+      message: 'Coming soon',
+      autoDismissMs: 3000,
+    });
   }, [addNotification, t]);
 
   /** Serialize result to JSON and copy to clipboard. */
   const handleExportJson = useCallback(async () => {
     const json = JSON.stringify(result, null, 2);
     await navigator.clipboard.writeText(json);
-    addNotification({ level: 'success', title: t('forge.exportJson'), message: t('forge.exportJson'), autoDismissMs: 3000 });
+    addNotification({
+      level: 'success',
+      title: t('forge.exportJson'),
+      message: t('forge.exportJson'),
+      autoDismissMs: 3000,
+    });
   }, [result, addNotification, t]);
 
   /** Retry only failed nodes by resetting them and going back to execution. */
@@ -167,7 +185,14 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       ...graph,
       nodes: graph.nodes.map((n) =>
         n.status === 'error'
-          ? { ...n, status: 'idle' as const, progress: 0, errors: [], successCount: 0, failureCount: 0 }
+          ? {
+              ...n,
+              status: 'idle' as const,
+              progress: 0,
+              errors: [],
+              successCount: 0,
+              failureCount: 0,
+            }
           : n,
       ),
     };
@@ -189,24 +214,14 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         animate="visible"
         className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
       >
-        <KPICard
-          icon="check"
-          label={t('forge.inserted')}
-          value={inserted}
-          variant="success"
-        />
+        <KPICard icon="check" label={t('forge.inserted')} value={inserted} variant="success" />
         <KPICard
           icon="debug-step-over"
           label={t('forge.skipped')}
           value={skipped}
           variant="warning"
         />
-        <KPICard
-          icon="arrow-swap"
-          label={t('forge.idRemaps')}
-          value={idRemaps}
-          variant="default"
-        />
+        <KPICard icon="arrow-swap" label={t('forge.idRemaps')} value={idRemaps} variant="default" />
         <KPICard
           icon="trophy"
           label={t('forge.successRate')}
@@ -231,10 +246,16 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       {result && (
         <div className="flex items-center gap-4 text-sm text-text-secondary">
           <span data-testid="forge-results-duration">
-            {t('forge.executionDuration')}: <strong className="text-text-primary">{formatElapsed(Math.round(result.duration / 1000))}</strong>
+            {t('forge.executionDuration')}:{' '}
+            <strong className="text-text-primary">
+              {formatElapsed(Math.round(result.duration / 1000))}
+            </strong>
           </span>
           <span data-testid="forge-results-timestamp">
-            {t('forge.executionTimestamp')}: <strong className="text-text-primary">{new Date(result.timestamp).toLocaleString()}</strong>
+            {t('forge.executionTimestamp')}:{' '}
+            <strong className="text-text-primary">
+              {new Date(result.timestamp).toLocaleString()}
+            </strong>
           </span>
         </div>
       )}
@@ -260,10 +281,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </select>
         </div>
         <div className="overflow-x-auto rounded-lg border border-subtle bg-surface-1">
-          <table
-            className="w-full text-sm"
-            data-testid="forge-results-table"
-          >
+          <table className="w-full text-sm" data-testid="forge-results-table">
             <thead>
               <tr className="border-b border-subtle text-left text-text-secondary">
                 <th
@@ -272,7 +290,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                   onClick={() => handleSort('objectApiName')}
                 >
                   {t('forge.object')}
-                  {sortField === 'objectApiName' && (sortDir === 'asc' ? <ChevronUp size={12} className="inline ml-1" /> : <ChevronDown size={12} className="inline ml-1" />)}
+                  {sortField === 'objectApiName' &&
+                    (sortDir === 'asc' ? (
+                      <ChevronUp size={12} className="inline ml-1" />
+                    ) : (
+                      <ChevronDown size={12} className="inline ml-1" />
+                    ))}
                 </th>
                 <th
                   className="px-4 py-2 font-medium cursor-pointer hover:text-text-primary select-none"
@@ -280,7 +303,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                   onClick={() => handleSort('recordCount')}
                 >
                   {t('forge.records')}
-                  {sortField === 'recordCount' && (sortDir === 'asc' ? <ChevronUp size={12} className="inline ml-1" /> : <ChevronDown size={12} className="inline ml-1" />)}
+                  {sortField === 'recordCount' &&
+                    (sortDir === 'asc' ? (
+                      <ChevronUp size={12} className="inline ml-1" />
+                    ) : (
+                      <ChevronDown size={12} className="inline ml-1" />
+                    ))}
                 </th>
                 <th
                   className="px-4 py-2 font-medium cursor-pointer hover:text-text-primary select-none"
@@ -288,7 +316,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                   onClick={() => handleSort('status')}
                 >
                   {t('forge.status')}
-                  {sortField === 'status' && (sortDir === 'asc' ? <ChevronUp size={12} className="inline ml-1" /> : <ChevronDown size={12} className="inline ml-1" />)}
+                  {sortField === 'status' &&
+                    (sortDir === 'asc' ? (
+                      <ChevronUp size={12} className="inline ml-1" />
+                    ) : (
+                      <ChevronDown size={12} className="inline ml-1" />
+                    ))}
                 </th>
                 <th className="px-4 py-2 font-medium">{t('forge.errors')}</th>
               </tr>
@@ -300,12 +333,8 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
                   data-testid="forge-results-row"
                   className="border-b border-subtle last:border-b-0"
                 >
-                  <td className="px-4 py-2 font-mono text-text-primary">
-                    {node.objectApiName}
-                  </td>
-                  <td className="px-4 py-2 tabular-nums text-text-primary">
-                    {node.recordCount}
-                  </td>
+                  <td className="px-4 py-2 font-mono text-text-primary">{node.objectApiName}</td>
+                  <td className="px-4 py-2 tabular-nums text-text-primary">{node.recordCount}</td>
                   <td className="px-4 py-2">
                     <span
                       className={cn(
@@ -327,9 +356,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       </motion.div>
 
       {/* Structured execution errors (Wave 2.6 — grouped by object/stage) */}
-      {result?.errors && result.errors.length > 0 && (
-        <ForgeErrorsPanel errors={result.errors} />
-      )}
+      {result?.errors && result.errors.length > 0 && <ForgeErrorsPanel errors={result.errors} />}
 
       {/* Collapsible execution logs */}
       {logs.length > 0 && (
@@ -340,7 +367,10 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             onClick={() => setShowLogs((prev) => !prev)}
             className="flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors mb-2"
           >
-            <ChevronRight size={14} className={cn('transition-transform', showLogs && 'rotate-90')} />
+            <ChevronRight
+              size={14}
+              className={cn('transition-transform', showLogs && 'rotate-90')}
+            />
             <FileText size={14} />
             {showLogs ? t('forge.hideLogs') : t('forge.showLogs')}
             <span className="text-text-muted">({String(logs.length)})</span>
@@ -356,7 +386,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       )}
 
       {/* Actions row */}
-      <motion.div variants={slideUp} initial="hidden" animate="visible" className="flex flex-wrap items-center gap-3">
+      <motion.div
+        variants={slideUp}
+        initial="hidden"
+        animate="visible"
+        className="flex flex-wrap items-center gap-3"
+      >
         <Button
           variant="secondary"
           size="md"
@@ -455,7 +490,8 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
           {t('forge.errorsPanel.title', { defaultValue: 'Execution errors' })}
         </h3>
         <span className="text-xs text-text-muted ml-auto tabular-nums">
-          {errors.length} {t('forge.object', { defaultValue: 'objects' })} · {totals} {t('forge.records', { defaultValue: 'records' })}
+          {errors.length} {t('forge.object', { defaultValue: 'objects' })} · {totals}{' '}
+          {t('forge.records', { defaultValue: 'records' })}
         </span>
       </div>
       <ul className="divide-y divide-red-500/10">
@@ -476,11 +512,17 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                   className={cn('transition-transform shrink-0', isOpen && 'rotate-90')}
                 />
                 <span className="font-mono text-text-primary truncate">{err.objectApiName}</span>
-                <span className={cn('inline-block rounded-full px-2 py-0.5 text-xs font-medium', stage.cls)}>
+                <span
+                  className={cn(
+                    'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
+                    stage.cls,
+                  )}
+                >
                   {stage.label}
                 </span>
                 <span className="ml-auto text-xs text-text-secondary tabular-nums">
-                  {err.failedCount}{err.attemptedCount > 0 ? `/${err.attemptedCount}` : ''}
+                  {err.failedCount}
+                  {err.attemptedCount > 0 ? `/${err.attemptedCount}` : ''}
                 </span>
               </button>
               {isOpen && err.samples.length > 0 && (
@@ -504,13 +546,19 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                                   data-testid="forge-error-translation"
                                   className={cn(
                                     'ml-4 px-2 py-1 rounded border text-text-primary',
-                                    translated.severity === 'error' && 'border-red-500/30 bg-red-500/5',
-                                    translated.severity === 'warning' && 'border-yellow-500/30 bg-yellow-500/5',
-                                    translated.severity === 'info' && 'border-blue-500/30 bg-blue-500/5',
+                                    translated.severity === 'error' &&
+                                      'border-red-500/30 bg-red-500/5',
+                                    translated.severity === 'warning' &&
+                                      'border-yellow-500/30 bg-yellow-500/5',
+                                    translated.severity === 'info' &&
+                                      'border-blue-500/30 bg-blue-500/5',
                                   )}
                                 >
                                   <div className="flex items-start gap-1.5">
-                                    <Lightbulb size={12} className="mt-0.5 shrink-0 text-yellow-400" />
+                                    <Lightbulb
+                                      size={12}
+                                      className="mt-0.5 shrink-0 text-yellow-400"
+                                    />
                                     <div>
                                       <div className="text-text-primary">
                                         {t(translated.explanationKey, translated.vars ?? {})}

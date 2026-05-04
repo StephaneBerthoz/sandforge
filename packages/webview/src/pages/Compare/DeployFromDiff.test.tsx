@@ -6,14 +6,22 @@ import { DeployFromDiff } from './DeployFromDiff';
 
 const mockSuggestion: DeploymentSuggestion = {
   components: [
-    { componentType: 'ApexClass', fullName: 'AccountController', action: 'deploy', reason: 'Modified' },
-    { componentType: 'CustomField', fullName: 'Account.NewField__c', action: 'deploy', reason: 'Added' },
+    {
+      componentType: 'ApexClass',
+      fullName: 'AccountController',
+      action: 'deploy',
+      reason: 'Modified',
+    },
+    {
+      componentType: 'CustomField',
+      fullName: 'Account.NewField__c',
+      action: 'deploy',
+      reason: 'Added',
+    },
     { componentType: 'Flow', fullName: 'OldFlow', action: 'skip', reason: 'Risky' },
   ],
   estimatedDuration: 30000,
-  risks: [
-    { component: 'AccountController', risk: 'medium', description: 'Has active triggers' },
-  ],
+  risks: [{ component: 'AccountController', risk: 'medium', description: 'Has active triggers' }],
   order: ['AccountController', 'Account.NewField__c'],
 };
 

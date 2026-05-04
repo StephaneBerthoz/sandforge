@@ -156,13 +156,15 @@ describe('SyncAnalyzer', () => {
 
   it('should track mapping and transform counts', async () => {
     const config = makeConfig({
-      objects: [makeObjConfig({
-        fieldMappings: [
-          { sourceField: 'A', targetField: 'A', type: 'direct' },
-          { sourceField: 'B', targetField: 'B', type: 'direct' },
-        ],
-        transformRules: [{ type: 'uppercase', config: {} }],
-      })],
+      objects: [
+        makeObjConfig({
+          fieldMappings: [
+            { sourceField: 'A', targetField: 'A', type: 'direct' },
+            { sourceField: 'B', targetField: 'B', type: 'direct' },
+          ],
+          transformRules: [{ type: 'uppercase', config: {} }],
+        }),
+      ],
     });
     const result = await analyzer.analyze(makeConn(), config);
     expect(result.objects[0].mappingCount).toBe(2);

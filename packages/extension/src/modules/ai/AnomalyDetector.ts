@@ -86,7 +86,8 @@ export class AnomalyDetector {
 
     const totalAffected = anomalies.reduce((sum, a) => sum + a.affectedRecords, 0);
     const maxPossible = sample.records.length * sample.fields.length;
-    const score = maxPossible > 0 ? Math.min(100, Math.round((totalAffected / maxPossible) * 100)) : 0;
+    const score =
+      maxPossible > 0 ? Math.min(100, Math.round((totalAffected / maxPossible) * 100)) : 0;
 
     return {
       objectName,

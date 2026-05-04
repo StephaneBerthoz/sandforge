@@ -50,7 +50,13 @@ type FrequencyPreset = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'custom';
 /** Day-of-week labels. */
 const DAYS_OF_WEEK = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
 const DAYS_CRON_MAP: Record<string, string> = {
-  MON: '1', TUE: '2', WED: '3', THU: '4', FRI: '5', SAT: '6', SUN: '0',
+  MON: '1',
+  TUE: '2',
+  WED: '3',
+  THU: '4',
+  FRI: '5',
+  SAT: '6',
+  SUN: '0',
 };
 
 /**
@@ -60,12 +66,23 @@ const DAYS_CRON_MAP: Record<string, string> = {
 function getTimezones(): string[] {
   try {
     if (typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl) {
-      return (Intl as unknown as { supportedValuesOf: (key: string) => string[] }).supportedValuesOf('timeZone');
+      return (
+        Intl as unknown as { supportedValuesOf: (key: string) => string[] }
+      ).supportedValuesOf('timeZone');
     }
   } catch {
     // fallback below
   }
-  return ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo'];
+  return [
+    'UTC',
+    'America/New_York',
+    'America/Chicago',
+    'America/Denver',
+    'America/Los_Angeles',
+    'Europe/London',
+    'Europe/Paris',
+    'Asia/Tokyo',
+  ];
 }
 
 /** Get the user's local timezone. */
@@ -97,10 +114,13 @@ export function cronToHuman(cron: string): string {
     return 'Every hour';
   }
   if (dayOfWeek !== '*' && dayOfMonth === '*' && month === '*') {
-    const dayNames = dayOfWeek.split(',').map((d) => {
-      const entry = Object.entries(DAYS_CRON_MAP).find(([, v]) => v === d);
-      return entry ? entry[0] : d;
-    }).join(', ');
+    const dayNames = dayOfWeek
+      .split(',')
+      .map((d) => {
+        const entry = Object.entries(DAYS_CRON_MAP).find(([, v]) => v === d);
+        return entry ? entry[0] : d;
+      })
+      .join(', ');
     return `Every ${dayNames} at ${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
   }
   if (dayOfMonth !== '*' && month === '*' && dayOfWeek === '*') {
@@ -132,7 +152,9 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
   // Form state
   const [name, setName] = useState(initialName);
   const [configId, setConfigId] = useState(initialConfigId || (configs[0]?.id ?? ''));
-  const [mode, setMode] = useState<'simple' | 'advanced'>(initialCron && !isSimpleCron(initialCron) ? 'advanced' : 'simple');
+  const [mode, setMode] = useState<'simple' | 'advanced'>(
+    initialCron && !isSimpleCron(initialCron) ? 'advanced' : 'simple',
+  );
   const [timezone, setTimezone] = useState(initialTimezone ?? getLocalTimezone());
   const [maxRetries, setMaxRetries] = useState(initialMaxRetries);
   const [notifyOnComplete, setNotifyOnComplete] = useState(initialNotifyOnComplete);
@@ -143,7 +165,9 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
   const [preset, setPreset] = useState<FrequencyPreset>('daily');
   const [hour, setHour] = useState(initialCron ? parseCronHour(initialCron) : 9);
   const [minute, setMinute] = useState(initialCron ? parseCronMinute(initialCron) : 0);
-  const [dayOfWeek, setDayOfWeek] = useState<string[]>(initialCron ? parseCronDayOfWeek(initialCron) : ['MON']);
+  const [dayOfWeek, setDayOfWeek] = useState<string[]>(
+    initialCron ? parseCronDayOfWeek(initialCron) : ['MON'],
+  );
   const [dayOfMonth, setDayOfMonth] = useState(initialCron ? parseCronDayOfMonth(initialCron) : 1);
 
   // Advanced mode state
@@ -175,20 +199,33 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
   const currentCron = mode === 'simple' ? buildSimpleCron() : rawCron;
 
-  const handleSubmit = useCallback((e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit({
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      onSubmit({
+        name,
+        cron: currentCron,
+        timezone,
+        configId,
+        maxRetries,
+        notifyOnComplete,
+        notifyOnFailure,
+      });
+    },
+    [
       name,
-      cron: currentCron,
+      currentCron,
       timezone,
       configId,
       maxRetries,
       notifyOnComplete,
       notifyOnFailure,
-    });
-  }, [name, currentCron, timezone, configId, maxRetries, notifyOnComplete, notifyOnFailure, onSubmit]);
+      onSubmit,
+    ],
+  );
 
-  const inputClass = 'w-full px-2 py-1 text-xs rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] focus:outline-none focus:border-[var(--vscode-focusBorder)]';
+  const inputClass =
+    'w-full px-2 py-1 text-xs rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] focus:outline-none focus:border-[var(--vscode-focusBorder)]';
   const labelClass = 'text-[10px] font-semibold text-[var(--vscode-editor-foreground)] mb-1';
 
   return (
@@ -225,7 +262,9 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           data-testid="config-selector"
         >
           {configs.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
           ))}
         </select>
       </div>
@@ -274,17 +313,31 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
             <div className="flex gap-[var(--sf-space-2)]">
               <div>
                 <label className={labelClass}>{t('sync.schedules.hour')}</label>
-                <select className={inputClass} value={hour} onChange={(e) => setHour(Number(e.target.value))} data-testid="hour-selector">
+                <select
+                  className={inputClass}
+                  value={hour}
+                  onChange={(e) => setHour(Number(e.target.value))}
+                  data-testid="hour-selector"
+                >
                   {Array.from({ length: 24 }, (_, i) => (
-                    <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
+                    <option key={i} value={i}>
+                      {String(i).padStart(2, '0')}
+                    </option>
                   ))}
                 </select>
               </div>
               <div>
                 <label className={labelClass}>{t('sync.schedules.minute')}</label>
-                <select className={inputClass} value={minute} onChange={(e) => setMinute(Number(e.target.value))} data-testid="minute-selector">
+                <select
+                  className={inputClass}
+                  value={minute}
+                  onChange={(e) => setMinute(Number(e.target.value))}
+                  data-testid="minute-selector"
+                >
                   {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
-                    <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
+                    <option key={m} value={m}>
+                      {String(m).padStart(2, '0')}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -300,9 +353,10 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                   <button
                     key={day}
                     type="button"
-                    className={`text-[10px] px-2 py-1 rounded ${dayOfWeek.includes(day)
-                      ? 'bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)]'
-                      : 'bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)]'
+                    className={`text-[10px] px-2 py-1 rounded ${
+                      dayOfWeek.includes(day)
+                        ? 'bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)]'
+                        : 'bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)]'
                     }`}
                     onClick={() => {
                       setDayOfWeek((prev) =>
@@ -322,9 +376,16 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           {preset === 'monthly' && (
             <div>
               <label className={labelClass}>{t('sync.schedules.dayOfMonth')}</label>
-              <select className={inputClass} value={dayOfMonth} onChange={(e) => setDayOfMonth(Number(e.target.value))} data-testid="day-of-month-selector">
+              <select
+                className={inputClass}
+                value={dayOfMonth}
+                onChange={(e) => setDayOfMonth(Number(e.target.value))}
+                data-testid="day-of-month-selector"
+              >
                 {Array.from({ length: 28 }, (_, i) => (
-                  <option key={i + 1} value={i + 1}>{i + 1}</option>
+                  <option key={i + 1} value={i + 1}>
+                    {i + 1}
+                  </option>
                 ))}
               </select>
             </div>
@@ -368,7 +429,9 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           data-testid="timezone-selector"
         >
           {filteredTimezones.map((tz) => (
-            <option key={tz} value={tz}>{tz}</option>
+            <option key={tz} value={tz}>
+              {tz}
+            </option>
           ))}
         </select>
       </div>
@@ -411,7 +474,10 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       </div>
 
       {/* Preview */}
-      <div className="text-[10px] text-[var(--vscode-descriptionForeground)] bg-[var(--vscode-editor-background)] rounded p-2" data-testid="cron-preview">
+      <div
+        className="text-[10px] text-[var(--vscode-descriptionForeground)] bg-[var(--vscode-editor-background)] rounded p-2"
+        data-testid="cron-preview"
+      >
         <span className="font-semibold">{t('sync.schedules.preview')}:</span>{' '}
         {cronToHuman(currentCron)}
       </div>

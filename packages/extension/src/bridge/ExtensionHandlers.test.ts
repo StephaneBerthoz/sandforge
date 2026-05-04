@@ -79,7 +79,10 @@ function createTestImportResult(overrides: Partial<SfdxImportResult> = {}): Sfdx
   };
 }
 
-function msg(type: string, payload?: Record<string, unknown>): BaseMessage & { payload?: Record<string, unknown> } {
+function msg(
+  type: string,
+  payload?: Record<string, unknown>,
+): BaseMessage & { payload?: Record<string, unknown> } {
   return {
     id: 'test-1',
     type,
@@ -190,7 +193,9 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('org:connect', { orgId: '', authMethod: 'sfdx_import' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & { payload: { level: string; message: string } };
+      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & {
+        payload: { level: string; message: string };
+      };
       expect(notification).toBeDefined();
       expect(notification.payload.level).toBe('error');
       expect(notification.payload.message).toContain('not found');
@@ -202,7 +207,9 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('org:connect', { orgId: '', authMethod: 'sfdx_import' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & { payload: { level: string } };
+      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & {
+        payload: { level: string };
+      };
       expect(notification.payload.level).toBe('warning');
     });
   });
@@ -212,7 +219,9 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('org:connect', { orgId: '', authMethod: 'usernamePassword' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & { payload: { level: string } };
+      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & {
+        payload: { level: string };
+      };
       expect(notification.payload.level).toBe('error');
     });
 
@@ -240,14 +249,16 @@ describe('ExtensionHandlers', () => {
         username: 'admin@test.com',
       });
 
-      broker['dispatch'](msg('org:connect', {
-        orgId: '',
-        authMethod: 'usernamePassword',
-        username: 'admin@test.com',
-        password: 'secret',
-        loginUrl: 'https://login.salesforce.com',
-        alias: 'my-sandbox',
-      }));
+      broker['dispatch'](
+        msg('org:connect', {
+          orgId: '',
+          authMethod: 'usernamePassword',
+          username: 'admin@test.com',
+          password: 'secret',
+          loginUrl: 'https://login.salesforce.com',
+          alias: 'my-sandbox',
+        }),
+      );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
 
       expect(orgManager.getAllOrgs()).toHaveLength(1);
@@ -267,12 +278,14 @@ describe('ExtensionHandlers', () => {
       const importResult = createTestImportResult();
       (sfdxBridge.listOrgs as ReturnType<typeof vi.fn>).mockResolvedValue([importResult]);
 
-      broker['dispatch'](msg('org:connect', {
-        orgId: '',
-        authMethod: 'oauth_web',
-        alias: 'my-org',
-        loginUrl: 'https://login.salesforce.com',
-      }));
+      broker['dispatch'](
+        msg('org:connect', {
+          orgId: '',
+          authMethod: 'oauth_web',
+          alias: 'my-org',
+          loginUrl: 'https://login.salesforce.com',
+        }),
+      );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       expect(sfdxBridge.loginWeb).toHaveBeenCalledWith('my-org', 'https://login.salesforce.com');
@@ -285,7 +298,9 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('org:connect', { orgId: '', authMethod: 'oauth_web' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & { payload: { level: string } };
+      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & {
+        payload: { level: string };
+      };
       expect(notification.payload.level).toBe('error');
     });
   });
@@ -295,7 +310,9 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('org:connect', { orgId: '', authMethod: 'jwt' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & { payload: { level: string; message: string } };
+      const notification = posted.find((p) => p.type === 'notification') as BaseMessage & {
+        payload: { level: string; message: string };
+      };
       expect(notification.payload.level).toBe('warning');
       expect(notification.payload.message).toContain('not yet supported');
     });
@@ -336,7 +353,9 @@ describe('ExtensionHandlers', () => {
 
       expect(posted).toHaveLength(1);
       expect(posted[0].type).toBe('settings:response');
-      const payload = (posted[0] as BaseMessage & { payload: { settings: Record<string, unknown> } }).payload;
+      const payload = (
+        posted[0] as BaseMessage & { payload: { settings: Record<string, unknown> } }
+      ).payload;
       expect(payload.settings['theme']).toBe('dark');
     });
   });
@@ -378,14 +397,20 @@ describe('ExtensionHandlers', () => {
 
       const dataMsg = posted.find((p) => p.type === 'monitor:data');
       expect(dataMsg).toBeDefined();
-      const payload = (dataMsg as BaseMessage & { payload: { limits: unknown[]; jobs: unknown[]; healthScore: number } }).payload;
+      const payload = (
+        dataMsg as BaseMessage & {
+          payload: { limits: unknown[]; jobs: unknown[]; healthScore: number };
+        }
+      ).payload;
       expect(payload.limits).toHaveLength(2);
       expect(payload.jobs).toHaveLength(1);
       expect(typeof payload.healthScore).toBe('number');
     });
 
     it('should send monitor:error on connection failure', async () => {
-      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Connection failed'));
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Connection failed'),
+      );
 
       broker['dispatch'](msg('monitor:start', { orgId: 'org-1' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
@@ -437,13 +462,16 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'seed:describe-global:response');
       expect(response).toBeDefined();
-      const payload = (response as BaseMessage & { payload: { objects: { apiName: string }[] } }).payload;
+      const payload = (response as BaseMessage & { payload: { objects: { apiName: string }[] } })
+        .payload;
       expect(payload.objects).toHaveLength(2);
       expect(payload.objects[0].apiName).toBe('Account');
     });
 
     it('should send seed:error on failure', async () => {
-      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Auth failed'));
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Auth failed'),
+      );
 
       broker['dispatch'](msg('seed:describe-global', { orgId: 'org-1' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
@@ -459,9 +487,39 @@ describe('ExtensionHandlers', () => {
         describe: vi.fn().mockResolvedValue({
           label: 'Account',
           fields: [
-            { name: 'Name', label: 'Account Name', type: 'string', createable: true, nillable: false, defaultedOnCreate: false, picklistValues: [], referenceTo: [], length: 255 },
-            { name: 'Id', label: 'Record ID', type: 'id', createable: false, nillable: false, defaultedOnCreate: true, picklistValues: [], referenceTo: [], length: 18 },
-            { name: 'Industry', label: 'Industry', type: 'picklist', createable: true, nillable: true, defaultedOnCreate: false, picklistValues: [{ value: 'Tech' }, { value: 'Finance' }], referenceTo: [], length: 40 },
+            {
+              name: 'Name',
+              label: 'Account Name',
+              type: 'string',
+              createable: true,
+              nillable: false,
+              defaultedOnCreate: false,
+              picklistValues: [],
+              referenceTo: [],
+              length: 255,
+            },
+            {
+              name: 'Id',
+              label: 'Record ID',
+              type: 'id',
+              createable: false,
+              nillable: false,
+              defaultedOnCreate: true,
+              picklistValues: [],
+              referenceTo: [],
+              length: 18,
+            },
+            {
+              name: 'Industry',
+              label: 'Industry',
+              type: 'picklist',
+              createable: true,
+              nillable: true,
+              defaultedOnCreate: false,
+              picklistValues: [{ value: 'Tech' }, { value: 'Finance' }],
+              referenceTo: [],
+              length: 40,
+            },
           ],
         }),
       };
@@ -472,7 +530,14 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'seed:describe-object:response');
       expect(response).toBeDefined();
-      const payload = (response as BaseMessage & { payload: { objectApiName: string; fields: { fieldApiName: string; picklistValues: string[] }[] } }).payload;
+      const payload = (
+        response as BaseMessage & {
+          payload: {
+            objectApiName: string;
+            fields: { fieldApiName: string; picklistValues: string[] }[];
+          };
+        }
+      ).payload;
       expect(payload.objectApiName).toBe('Account');
       expect(payload.fields).toHaveLength(2); // Id is not createable
       expect(payload.fields[1].picklistValues).toEqual(['Tech', 'Finance']);
@@ -505,7 +570,9 @@ describe('ExtensionHandlers', () => {
     });
 
     it('should send sync:error on failure', async () => {
-      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Auth failed'));
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Auth failed'),
+      );
 
       broker['dispatch'](msg('sync:describe-global', { orgId: 'org-1' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
@@ -528,12 +595,22 @@ describe('ExtensionHandlers', () => {
       };
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
 
-      broker['dispatch'](msg('sync:describe-fields', { sourceOrgId: 'org-1', targetOrgId: 'org-2', objectApiName: 'Account' }));
+      broker['dispatch'](
+        msg('sync:describe-fields', {
+          sourceOrgId: 'org-1',
+          targetOrgId: 'org-2',
+          objectApiName: 'Account',
+        }),
+      );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       const response = posted.find((p) => p.type === 'sync:describe-fields:response');
       expect(response).toBeDefined();
-      const payload = (response as BaseMessage & { payload: { sourceFields: { apiName: string }[]; targetFields: { apiName: string }[] } }).payload;
+      const payload = (
+        response as BaseMessage & {
+          payload: { sourceFields: { apiName: string }[]; targetFields: { apiName: string }[] };
+        }
+      ).payload;
       expect(payload.sourceFields).toHaveLength(2);
       expect(payload.targetFields).toHaveLength(2);
       expect(payload.sourceFields[0].apiName).toBe('Name');
@@ -542,7 +619,10 @@ describe('ExtensionHandlers', () => {
 
   describe('dataops:backup', () => {
     it('should export records and send response', async () => {
-      const mockRecords = Array.from({ length: 42 }, (_, i) => ({ Id: `001${i}`, Name: `Acct ${i}` }));
+      const mockRecords = Array.from({ length: 42 }, (_, i) => ({
+        Id: `001${i}`,
+        Name: `Acct ${i}`,
+      }));
       const mockConnection = {
         query: vi.fn().mockResolvedValue({ records: mockRecords, totalSize: 42 }),
       };
@@ -553,7 +633,14 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'dataops:backup:response');
       expect(response).toBeDefined();
-      const payload = (response as BaseMessage & { payload: { objects: Array<{ objectApiName: string; recordCount: number }>; totalRecords: number } }).payload;
+      const payload = (
+        response as BaseMessage & {
+          payload: {
+            objects: Array<{ objectApiName: string; recordCount: number }>;
+            totalRecords: number;
+          };
+        }
+      ).payload;
       expect(payload.objects).toHaveLength(1);
       expect(payload.objects[0].recordCount).toBe(42);
       expect(payload.totalRecords).toBe(42);
@@ -578,9 +665,13 @@ describe('ExtensionHandlers', () => {
 
   describe('compare:start', () => {
     it('should send compare:error on failure', async () => {
-      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Connection failed'));
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('Connection failed'),
+      );
 
-      broker['dispatch'](msg('compare:start', { sourceOrgId: 'org-1', targetOrgId: 'org-2', types: ['ApexClass'] }));
+      broker['dispatch'](
+        msg('compare:start', { sourceOrgId: 'org-1', targetOrgId: 'org-2', types: ['ApexClass'] }),
+      );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       const errMsg = posted.find((p) => p.type === 'compare:error');
@@ -592,11 +683,29 @@ describe('ExtensionHandlers', () => {
 
   describe('pipeline:run', () => {
     it('should execute pipeline and send response', async () => {
-      broker['dispatch'](msg('pipeline:run', { pipeline: { id: 'p1', name: 'Test', description: '', steps: [], triggers: [], variables: [], tags: [], version: 1, createdAt: '', updatedAt: '' }, variables: {} }));
+      broker['dispatch'](
+        msg('pipeline:run', {
+          pipeline: {
+            id: 'p1',
+            name: 'Test',
+            description: '',
+            steps: [],
+            triggers: [],
+            variables: [],
+            tags: [],
+            version: 1,
+            createdAt: '',
+            updatedAt: '',
+          },
+          variables: {},
+        }),
+      );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
 
       // Pipeline execution should produce a response (empty steps = immediate completion)
-      const response = posted.find((p) => p.type === 'pipeline:run:response' || p.type === 'pipeline:error');
+      const response = posted.find(
+        (p) => p.type === 'pipeline:run:response' || p.type === 'pipeline:error',
+      );
       expect(response).toBeDefined();
     });
   });
@@ -636,7 +745,9 @@ describe('ExtensionHandlers', () => {
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
 
       // Should fail since org is not connected - sends operation:started then operation:failed + dataops:error
-      const errorMsg = posted.find((p) => p.type === 'dataops:error' || p.type === 'operation:failed');
+      const errorMsg = posted.find(
+        (p) => p.type === 'dataops:error' || p.type === 'operation:failed',
+      );
       expect(errorMsg).toBeDefined();
     });
   });
@@ -667,7 +778,8 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'monitor:abort-job:response');
       expect(response).toBeDefined();
-      const payload = (response as BaseMessage & { payload: { success: boolean; jobId: string } }).payload;
+      const payload = (response as BaseMessage & { payload: { success: boolean; jobId: string } })
+        .payload;
       expect(payload.success).toBe(true);
       expect(payload.jobId).toBe('7071x000001');
     });
@@ -697,7 +809,9 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'ai:status:response');
       expect(response).toBeDefined();
-      const payload = (response as BaseMessage & { payload: { enabled: boolean; provider: string } }).payload;
+      const payload = (
+        response as BaseMessage & { payload: { enabled: boolean; provider: string } }
+      ).payload;
       expect(payload.enabled).toBe(false);
       expect(payload.provider).toBe('none');
     });
@@ -709,7 +823,9 @@ describe('ExtensionHandlers', () => {
 
       expect(posted).toHaveLength(1);
       expect(posted[0].type).toBe('pipeline:templates:response');
-      const payload = (posted[0] as BaseMessage & { payload: { templates: Array<{ id: string; name: string }> } }).payload;
+      const payload = (
+        posted[0] as BaseMessage & { payload: { templates: Array<{ id: string; name: string }> } }
+      ).payload;
       expect(payload.templates.length).toBeGreaterThanOrEqual(3);
       expect(payload.templates[0].name).toBe('Sandbox Refresh');
       expect(payload.templates[1].name).toBe('Data Migration Dry Run');
@@ -723,7 +839,11 @@ describe('ExtensionHandlers', () => {
 
       expect(posted).toHaveLength(1);
       expect(posted[0].type).toBe('dataops:anonymization-templates:response');
-      const payload = (posted[0] as BaseMessage & { payload: { templates: Array<{ id: string; complianceFramework: string }> } }).payload;
+      const payload = (
+        posted[0] as BaseMessage & {
+          payload: { templates: Array<{ id: string; complianceFramework: string }> };
+        }
+      ).payload;
       expect(payload.templates.length).toBeGreaterThanOrEqual(4);
       expect(payload.templates.find((t) => t.complianceFramework === 'gdpr')).toBeDefined();
       expect(payload.templates.find((t) => t.complianceFramework === 'ccpa')).toBeDefined();
@@ -740,13 +860,18 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('dataops:rollback', { orgId: 'org1', operationId: 'nonexistent-op' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const errMsg = posted.find(p => p.type === 'dataops:error') as BaseMessage & { payload: { message: string } };
+      const errMsg = posted.find((p) => p.type === 'dataops:error') as BaseMessage & {
+        payload: { message: string };
+      };
       expect(errMsg).toBeDefined();
       expect(errMsg.payload.message).toContain('No backup found');
     });
 
     it('should restore records from backup when backup exists', async () => {
-      const upsertResults = [{ success: true, id: 'rec1' }, { success: true, id: 'rec2' }];
+      const upsertResults = [
+        { success: true, id: 'rec1' },
+        { success: true, id: 'rec2' },
+      ];
       const mockUpsert = vi.fn().mockResolvedValue(upsertResults);
       const mockConn = {
         identity: vi.fn().mockResolvedValue({}),
@@ -764,7 +889,23 @@ describe('ExtensionHandlers', () => {
           deletable: true,
           queryable: true,
           fields: [
-            { name: 'Name', label: 'Name', type: 'string', length: 255, nillable: false, createable: true, updateable: true, externalId: false, referenceTo: [], relationshipName: null, picklistValues: [], defaultValue: null, calculated: false, autoNumber: false, unique: false },
+            {
+              name: 'Name',
+              label: 'Name',
+              type: 'string',
+              length: 255,
+              nillable: false,
+              createable: true,
+              updateable: true,
+              externalId: false,
+              referenceTo: [],
+              relationshipName: null,
+              picklistValues: [],
+              defaultValue: null,
+              calculated: false,
+              autoNumber: false,
+              unique: false,
+            },
           ],
           recordTypeInfos: [],
           childRelationships: [],
@@ -774,17 +915,25 @@ describe('ExtensionHandlers', () => {
 
       // Seed backup data into configStore
       const backupKey = 'backup:op-123';
-      configStore.set(backupKey, {
-        operationId: 'op-123',
-        orgId: 'org1',
-        objects: [{ objectApiName: 'Account', recordCount: 2 }],
-        totalRecords: 2,
-        timestamp: new Date().toISOString(),
-      }, 'backups');
-      configStore.set(`${backupKey}:Account`, [
-        { Id: 'rec1', Name: 'Acme', attributes: { type: 'Account' } },
-        { Id: 'rec2', Name: 'Test', attributes: { type: 'Account' } },
-      ], 'backups');
+      configStore.set(
+        backupKey,
+        {
+          operationId: 'op-123',
+          orgId: 'org1',
+          objects: [{ objectApiName: 'Account', recordCount: 2 }],
+          totalRecords: 2,
+          timestamp: new Date().toISOString(),
+        },
+        'backups',
+      );
+      configStore.set(
+        `${backupKey}:Account`,
+        [
+          { Id: 'rec1', Name: 'Acme', attributes: { type: 'Account' } },
+          { Id: 'rec2', Name: 'Test', attributes: { type: 'Account' } },
+        ],
+        'backups',
+      );
 
       // Verify configStore setup
       expect(configStore.get(backupKey)).toBeDefined();
@@ -793,16 +942,18 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('dataops:rollback', { orgId: 'org1', operationId: 'op-123' }));
 
       // The handler is async and dispatched fire-and-forget — we need to flush microtasks
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise((resolve) => setTimeout(resolve, 50));
       // Then wait for the full chain
       await vi.waitFor(() => logs.length >= 2, { timeout: 5000 });
 
-      const errLog = logs.find(l => l.includes('[ERR]'));
+      const errLog = logs.find((l) => l.includes('[ERR]'));
       if (errLog) {
         expect.fail(`Rollback error: ${errLog}`);
       }
 
-      const response = posted.find(p => p.type === 'dataops:rollback:response') as BaseMessage & { payload: { status: string; totalRestored: number } };
+      const response = posted.find((p) => p.type === 'dataops:rollback:response') as BaseMessage & {
+        payload: { status: string; totalRestored: number };
+      };
       expect(response).toBeDefined();
       expect(response.payload.status).toBe('success');
       expect(response.payload.totalRestored).toBe(2);
@@ -811,10 +962,14 @@ describe('ExtensionHandlers', () => {
 
   describe('SOQL injection prevention', () => {
     it('should reject invalid object names in seed:describe-object', async () => {
-      broker['dispatch'](msg('seed:describe-object', { orgId: 'org1', objectApiName: 'Account; DROP TABLE' }));
+      broker['dispatch'](
+        msg('seed:describe-object', { orgId: 'org1', objectApiName: 'Account; DROP TABLE' }),
+      );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const errMsg = posted.find(p => p.type === 'seed:error') as BaseMessage & { payload: { message: string } };
+      const errMsg = posted.find((p) => p.type === 'seed:error') as BaseMessage & {
+        payload: { message: string };
+      };
       expect(errMsg).toBeDefined();
       expect(errMsg.payload.message).toContain('Invalid Salesforce object API name');
     });
@@ -824,7 +979,17 @@ describe('ExtensionHandlers', () => {
         identity: vi.fn().mockResolvedValue({}),
         describe: vi.fn().mockResolvedValue({
           label: 'Account',
-          fields: [{ name: 'Name', label: 'Name', type: 'string', nillable: false, defaultedOnCreate: false, createable: true, length: 255 }],
+          fields: [
+            {
+              name: 'Name',
+              label: 'Name',
+              type: 'string',
+              nillable: false,
+              defaultedOnCreate: false,
+              createable: true,
+              length: 255,
+            },
+          ],
         }),
       };
       vi.mocked(getJsforceConnection).mockResolvedValue(mockConn as never);
@@ -832,8 +997,8 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('seed:describe-object', { orgId: 'org1', objectApiName: 'Account' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 3000 });
 
-      const response = posted.find(p => p.type === 'seed:describe-object:response');
-      const errResponse = posted.find(p => p.type === 'seed:error');
+      const response = posted.find((p) => p.type === 'seed:describe-object:response');
+      const errResponse = posted.find((p) => p.type === 'seed:error');
       // Either we get a successful response or no error about invalid name
       expect(response ?? errResponse).toBeDefined();
       if (response) {
@@ -841,7 +1006,9 @@ describe('ExtensionHandlers', () => {
       }
       if (errResponse) {
         // If error, it should NOT be about SOQL injection
-        expect((errResponse as BaseMessage & { payload: { message: string } }).payload.message).not.toContain('Invalid Salesforce object API name');
+        expect(
+          (errResponse as BaseMessage & { payload: { message: string } }).payload.message,
+        ).not.toContain('Invalid Salesforce object API name');
       }
     });
   });
@@ -876,7 +1043,12 @@ describe('ExtensionHandlers', () => {
       const guard = new ProductionGuard();
       handlers.setInfraServices({
         productionGuard: guard,
-        performanceTracker: { start: vi.fn(), update: vi.fn(), complete: vi.fn(), stop: vi.fn() } as never,
+        performanceTracker: {
+          start: vi.fn(),
+          update: vi.fn(),
+          complete: vi.fn(),
+          stop: vi.fn(),
+        } as never,
         offlineManager: { isOffline: vi.fn().mockReturnValue(false) } as never,
         piiDetector: { detectPII: vi.fn() } as never,
       });
@@ -886,7 +1058,7 @@ describe('ExtensionHandlers', () => {
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       // Verify the guard was called — the operation should proceed (insert is allowed on production, just needs confirmation)
-      expect(logs.some(l => l.includes('[RX] seed:execute'))).toBe(true);
+      expect(logs.some((l) => l.includes('[RX] seed:execute'))).toBe(true);
     });
   });
 });

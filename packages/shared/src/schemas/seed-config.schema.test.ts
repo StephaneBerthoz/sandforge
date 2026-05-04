@@ -99,11 +99,15 @@ describe('seedConfigSchema', () => {
   });
 
   it('should reject name exceeding 255 characters', () => {
-    expect(() => seedConfigSchema.parse({ ...createValidSeedConfig(), name: 'x'.repeat(256) })).toThrow();
+    expect(() =>
+      seedConfigSchema.parse({ ...createValidSeedConfig(), name: 'x'.repeat(256) }),
+    ).toThrow();
   });
 
   it('should reject invalid strategy', () => {
-    expect(() => seedConfigSchema.parse({ ...createValidSeedConfig(), strategy: 'invalid' })).toThrow();
+    expect(() =>
+      seedConfigSchema.parse({ ...createValidSeedConfig(), strategy: 'invalid' }),
+    ).toThrow();
   });
 
   it('should reject empty objects array', () => {
@@ -209,8 +213,16 @@ describe('fieldRuleSchema', () => {
 
   it('should accept all valid rule types', () => {
     const ruleTypes = [
-      'static', 'random', 'sequence', 'formula', 'reference',
-      'picklist_random', 'ai_generate', 'faker', 'regex', 'from_csv',
+      'static',
+      'random',
+      'sequence',
+      'formula',
+      'reference',
+      'picklist_random',
+      'ai_generate',
+      'faker',
+      'regex',
+      'from_csv',
     ] as const;
 
     for (const ruleType of ruleTypes) {

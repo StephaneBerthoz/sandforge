@@ -39,7 +39,12 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
           {t('seed.selectObjectsDesc')}
         </p>
         {onSmartSuggest && (
-          <Button variant="secondary" size="sm" onClick={onSmartSuggest} data-testid="smart-suggest-btn">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onSmartSuggest}
+            data-testid="smart-suggest-btn"
+          >
             {t('seed.smartSuggest')}
           </Button>
         )}
@@ -55,7 +60,8 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
                 'flex items-center gap-2 px-3 py-2 rounded text-left text-xs',
                 'border border-[var(--vscode-panel-border,#3c3c3c)]',
                 'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
-                isSelected && 'border-[var(--vscode-focusBorder,#007fd4)] bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
+                isSelected &&
+                  'border-[var(--vscode-focusBorder,#007fd4)] bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
               )}
               onClick={() => onToggle(obj.apiName)}
               role="checkbox"
@@ -79,7 +85,9 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
                 {obj.apiName}
               </span>
               {obj.dependencies.length > 0 && (
-                <Badge variant="default">{obj.dependencies.length} {t('seed.dependencies').toLowerCase()}</Badge>
+                <Badge variant="default">
+                  {obj.dependencies.length} {t('seed.dependencies').toLowerCase()}
+                </Badge>
               )}
             </button>
           );

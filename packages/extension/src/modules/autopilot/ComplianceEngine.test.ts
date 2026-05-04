@@ -1,18 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createHash } from 'node:crypto';
 
-import type {
-  PIIFieldDetection,
-  AnonymizationOverride,
-  ApiName,
-} from '@sandforge/shared';
+import type { PIIFieldDetection, AnonymizationOverride, ApiName } from '@sandforge/shared';
 
 import { ComplianceEngine } from './ComplianceEngine.js';
 
 /** Helper to create a PII detection fixture. */
-function makePiiDetection(
-  overrides: Partial<PIIFieldDetection> = {},
-): PIIFieldDetection {
+function makePiiDetection(overrides: Partial<PIIFieldDetection> = {}): PIIFieldDetection {
   return {
     objectApiName: 'Contact' as ApiName,
     fieldApiName: 'Email',
@@ -61,9 +55,7 @@ describe('ComplianceEngine', () => {
   // ─── 2. CCPA profile ──────────────────────────────────────────
 
   it('should load correct CCPA rules', () => {
-    const detections: PIIFieldDetection[] = [
-      makePiiDetection({ piiCategory: 'PII' }),
-    ];
+    const detections: PIIFieldDetection[] = [makePiiDetection({ piiCategory: 'PII' })];
 
     const profile = engine.buildProfile('ccpa', detections);
     expect(profile.rules.length).toBe(3);
@@ -247,9 +239,7 @@ describe('ComplianceEngine', () => {
     expect(report.id).toBeTruthy();
     expect(report.generatedAt).toBeTruthy();
 
-    const contactEntry = report.entries.find(
-      (e) => e.objectApiName === 'Contact',
-    );
+    const contactEntry = report.entries.find((e) => e.objectApiName === 'Contact');
     expect(contactEntry?.recordsAnonymized).toBe(500);
     expect(contactEntry?.ruleApplied).toBe('gdpr-01');
   });
@@ -257,31 +247,15 @@ describe('ComplianceEngine', () => {
   // ─── 10. Report checksum consistency ──────────────────────────
 
   it('should produce consistent checksum for identical inputs', () => {
-    const detections: PIIFieldDetection[] = [
-      makePiiDetection({ piiCategory: 'PII' }),
-    ];
+    const detections: PIIFieldDetection[] = [makePiiDetection({ piiCategory: 'PII' })];
 
     const profile = engine.buildProfile('gdpr', detections);
     const rules = engine.generateRules(profile);
     const recordCounts = new Map<ApiName, number>();
     recordCounts.set('Contact' as ApiName, 100);
 
-    const report1 = engine.generateReport(
-      profile,
-      rules,
-      recordCounts,
-      'src',
-      'tgt',
-      50,
-    );
-    const report2 = engine.generateReport(
-      profile,
-      rules,
-      recordCounts,
-      'src',
-      'tgt',
-      50,
-    );
+    const report1 = engine.generateReport(profile, rules, recordCounts, 'src', 'tgt', 50);
+    const report2 = engine.generateReport(profile, rules, recordCounts, 'src', 'tgt', 50);
 
     // Checksums should match because entries are identical
     expect(report1.checksumSha256).toBe(report2.checksumSha256);
@@ -347,14 +321,7 @@ describe('ComplianceEngine', () => {
     const rules = engine.generateRules(profile);
     const recordCounts = new Map<ApiName, number>();
 
-    const report = engine.generateReport(
-      profile,
-      rules,
-      recordCounts,
-      'src',
-      'tgt',
-      100,
-    );
+    const report = engine.generateReport(profile, rules, recordCounts, 'src', 'tgt', 100);
 
     expect(report.entries).toEqual([]);
     expect(report.objectSummaries).toEqual([]);
@@ -368,9 +335,7 @@ describe('ComplianceEngine', () => {
   // ─── Additional: custom framework ─────────────────────────────
 
   it('should handle custom framework with no built-in rules', () => {
-    const detections: PIIFieldDetection[] = [
-      makePiiDetection({ suggestedMethod: 'redact' }),
-    ];
+    const detections: PIIFieldDetection[] = [makePiiDetection({ suggestedMethod: 'redact' })];
 
     const profile = engine.buildProfile('custom', detections);
     expect(profile.rules.length).toBe(0);
@@ -408,19 +373,10 @@ describe('ComplianceEngine', () => {
     const recordCounts = new Map<ApiName, number>();
     recordCounts.set('Contact' as ApiName, 100);
 
-    const report = engine.generateReport(
-      profile,
-      rules,
-      recordCounts,
-      'src',
-      'tgt',
-      50,
-    );
+    const report = engine.generateReport(profile, rules, recordCounts, 'src', 'tgt', 50);
 
     // Contact has 2 PII detections but only 1 rule (Email was skipped)
-    const contactSummary = report.objectSummaries.find(
-      (s) => s.objectApiName === 'Contact',
-    );
+    const contactSummary = report.objectSummaries.find((s) => s.objectApiName === 'Contact');
     expect(contactSummary?.status).toBe('partial');
     expect(report.overallStatus).toBe('partial');
   });

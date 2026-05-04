@@ -67,13 +67,15 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Review validation rules',
-        description: 'Check the validation rules on the target object and ensure the data meets all criteria.',
+        description:
+          'Check the validation rules on the target object and ensure the data meets all criteria.',
         probability: 0.9,
         action: 'review_validation_rules',
       },
       {
         title: 'Temporarily deactivate rule',
-        description: 'If loading test data, consider temporarily deactivating the validation rule in the sandbox.',
+        description:
+          'If loading test data, consider temporarily deactivating the validation rule in the sandbox.',
         probability: 0.6,
       },
     ],
@@ -99,7 +101,8 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
       },
       {
         title: 'Check owner assignment',
-        description: 'If changing record ownership, ensure the new owner has the correct role/profile.',
+        description:
+          'If changing record ownership, ensure the new owner has the correct role/profile.',
         probability: 0.5,
       },
     ],
@@ -114,13 +117,15 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Check unique fields',
-        description: 'Identify which field has a duplicate value and either update the existing record or use a unique value.',
+        description:
+          'Identify which field has a duplicate value and either update the existing record or use a unique value.',
         probability: 0.9,
         action: 'check_duplicates',
       },
       {
         title: 'Review duplicate rules',
-        description: 'Check if a duplicate rule is active that might be matching on field combinations.',
+        description:
+          'Check if a duplicate rule is active that might be matching on field combinations.',
         probability: 0.6,
       },
     ],
@@ -163,15 +168,14 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
       },
       {
         title: 'Use a Long Text Area',
-        description: 'If longer content is required, consider using a Long Text Area field instead.',
+        description:
+          'If longer content is required, consider using a Long Text Area field instead.',
         probability: 0.3,
       },
     ],
     autoFixable: true,
     autoFixAction: 'truncate_fields',
-    relatedDocs: [
-      'https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm',
-    ],
+    relatedDocs: ['https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm'],
   },
   INVALID_CROSS_REFERENCE_KEY: {
     explanation:
@@ -179,13 +183,15 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Verify reference IDs',
-        description: 'Ensure all lookup field values point to existing records of the correct object type.',
+        description:
+          'Ensure all lookup field values point to existing records of the correct object type.',
         probability: 0.9,
         action: 'verify_references',
       },
       {
         title: 'Check insertion order',
-        description: 'When inserting related records, ensure parent records are created before children.',
+        description:
+          'When inserting related records, ensure parent records are created before children.',
         probability: 0.7,
       },
     ],
@@ -221,7 +227,8 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Remove child references first',
-        description: 'Delete or reparent child records that reference this record before attempting deletion.',
+        description:
+          'Delete or reparent child records that reference this record before attempting deletion.',
         probability: 0.8,
         action: 'remove_child_references',
       },
@@ -254,7 +261,8 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
       },
       {
         title: 'Reorder records',
-        description: 'Sort records by ID before processing to reduce cross-transaction lock conflicts.',
+        description:
+          'Sort records by ID before processing to reduce cross-transaction lock conflicts.',
         probability: 0.5,
       },
     ],
@@ -276,7 +284,8 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
       },
       {
         title: 'Reduce API calls',
-        description: 'Use Bulk API or Composite API to consolidate multiple operations into fewer requests.',
+        description:
+          'Use Bulk API or Composite API to consolidate multiple operations into fewer requests.',
         probability: 0.7,
         action: 'use_bulk_api',
       },
@@ -298,7 +307,8 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Check Apex triggers',
-        description: 'Review triggers on the object for unhandled exceptions or recursive behavior.',
+        description:
+          'Review triggers on the object for unhandled exceptions or recursive behavior.',
         probability: 0.8,
       },
       {
@@ -318,15 +328,14 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Validate field values',
-        description: 'Ensure all field values match the expected type and are within allowed ranges.',
+        description:
+          'Ensure all field values match the expected type and are within allowed ranges.',
         probability: 0.9,
         action: 'validate_fields',
       },
     ],
     autoFixable: false,
-    relatedDocs: [
-      'https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm',
-    ],
+    relatedDocs: ['https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm'],
   },
   INVALID_FIELD_FOR_INSERT_UPDATE: {
     explanation:
@@ -334,7 +343,8 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Remove read-only fields',
-        description: 'Exclude formula fields, auto-number fields, and other non-writable fields from the payload.',
+        description:
+          'Exclude formula fields, auto-number fields, and other non-writable fields from the payload.',
         probability: 0.95,
         action: 'remove_readonly_fields',
       },
@@ -357,9 +367,7 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
       },
     ],
     autoFixable: false,
-    relatedDocs: [
-      'https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm',
-    ],
+    relatedDocs: ['https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm'],
   },
   STORAGE_LIMIT_EXCEEDED: {
     explanation:
@@ -367,7 +375,8 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Free up storage',
-        description: 'Delete old records, empty the Recycle Bin, or archive data to reduce storage usage.',
+        description:
+          'Delete old records, empty the Recycle Bin, or archive data to reduce storage usage.',
         probability: 0.8,
       },
       {
@@ -378,9 +387,7 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
       },
     ],
     autoFixable: false,
-    relatedDocs: [
-      'https://help.salesforce.com/s/articleView?id=sf.admin_monitorresources.htm',
-    ],
+    relatedDocs: ['https://help.salesforce.com/s/articleView?id=sf.admin_monitorresources.htm'],
   },
   INVALID_TYPE: {
     explanation:
@@ -447,16 +454,15 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Adjust numeric values',
-        description: 'Ensure numeric values fit within the field precision (total digits) and scale (decimal places).',
+        description:
+          'Ensure numeric values fit within the field precision (total digits) and scale (decimal places).',
         probability: 0.95,
         action: 'fix_numeric_values',
       },
     ],
     autoFixable: true,
     autoFixAction: 'fix_numeric_values',
-    relatedDocs: [
-      'https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm',
-    ],
+    relatedDocs: ['https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm'],
   },
   INVALID_EMAIL_ADDRESS: {
     explanation:
@@ -464,16 +470,15 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Fix email format',
-        description: 'Ensure all email fields contain valid email addresses in the format user@domain.com.',
+        description:
+          'Ensure all email fields contain valid email addresses in the format user@domain.com.',
         probability: 0.95,
         action: 'fix_email_format',
       },
     ],
     autoFixable: true,
     autoFixAction: 'fix_email_format',
-    relatedDocs: [
-      'https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm',
-    ],
+    relatedDocs: ['https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm'],
   },
   LIMIT_EXCEEDED: {
     explanation:
@@ -487,7 +492,8 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
       },
       {
         title: 'Use Bulk API',
-        description: 'Switch to Bulk API 2.0 for large data volumes to avoid per-transaction limits.',
+        description:
+          'Switch to Bulk API 2.0 for large data volumes to avoid per-transaction limits.',
         probability: 0.7,
         action: 'use_bulk_api',
       },
@@ -539,14 +545,13 @@ const KNOWLEDGE_BASE: Record<string, KnowledgeBaseEntry> = {
     suggestions: [
       {
         title: 'Check lookup filters',
-        description: 'Review the lookup filter on the field and ensure the referenced record meets all criteria.',
+        description:
+          'Review the lookup filter on the field and ensure the referenced record meets all criteria.',
         probability: 0.9,
       },
     ],
     autoFixable: false,
-    relatedDocs: [
-      'https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm',
-    ],
+    relatedDocs: ['https://developer.salesforce.com/docs/atlas.en-us.api.meta/api/field_types.htm'],
   },
   CIRCULAR_DEPENDENCY: {
     explanation:
@@ -651,7 +656,10 @@ export class ErrorResolver {
     return sorted[0].resolution;
   }
 
-  private async resolveWithAI(error: SalesforceError, context: OperationContext): Promise<ErrorResolution> {
+  private async resolveWithAI(
+    error: SalesforceError,
+    context: OperationContext,
+  ): Promise<ErrorResolution> {
     const prompt = buildAIPrompt(error, context);
     const raw = await this.provider(prompt);
     return parseAIResolution(raw);
@@ -752,7 +760,9 @@ function buildAIPrompt(error: SalesforceError, context: OperationContext): strin
   lines.push('Respond with ONLY a JSON object in this exact format (no markdown, no extra text):');
   lines.push('{');
   lines.push('  "explanation": "Clear explanation of the error",');
-  lines.push('  "suggestions": [{ "title": "...", "description": "...", "probability": 0.0-1.0, "action": "optional_action" }],');
+  lines.push(
+    '  "suggestions": [{ "title": "...", "description": "...", "probability": 0.0-1.0, "action": "optional_action" }],',
+  );
   lines.push('  "autoFixable": true/false,');
   lines.push('  "autoFixAction": "optional_action_name",');
   lines.push('  "confidence": 0.0-1.0,');
@@ -772,12 +782,15 @@ function parseAIResolution(response: string): ErrorResolution {
   const parsed: unknown = JSON.parse(jsonContent);
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error('AI response is not a valid JSON object. The AI model returned an unexpected format — try again or check the AI provider configuration.');
+    throw new Error(
+      'AI response is not a valid JSON object. The AI model returned an unexpected format — try again or check the AI provider configuration.',
+    );
   }
 
   const obj = parsed as Record<string, unknown>;
 
-  const explanation = typeof obj['explanation'] === 'string' ? obj['explanation'] : 'Unable to determine root cause.';
+  const explanation =
+    typeof obj['explanation'] === 'string' ? obj['explanation'] : 'Unable to determine root cause.';
   const autoFixable = typeof obj['autoFixable'] === 'boolean' ? obj['autoFixable'] : false;
   const autoFixAction = typeof obj['autoFixAction'] === 'string' ? obj['autoFixAction'] : undefined;
   const confidence = typeof obj['confidence'] === 'number' ? obj['confidence'] : 0.5;

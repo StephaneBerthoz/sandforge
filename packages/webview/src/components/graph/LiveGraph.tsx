@@ -40,7 +40,10 @@ const NODE_HEIGHT = 140;
  * the edges pointing to it. Returns 'master-detail' if any incoming edge
  * is master-detail, 'lookup' if only lookups, null if no incoming edges.
  */
-function getEdgeTypeForNode(objectApiName: string, edges: ForgeGraphEdge[]): 'master-detail' | 'lookup' | null {
+function getEdgeTypeForNode(
+  objectApiName: string,
+  edges: ForgeGraphEdge[],
+): 'master-detail' | 'lookup' | null {
   const incomingEdges = edges.filter((e) => e.targetObject === objectApiName);
   if (incomingEdges.length === 0) return null;
   return incomingEdges.some((e) => e.type === 'master-detail') ? 'master-detail' : 'lookup';
@@ -133,13 +136,24 @@ function buildFlowEdges(graph: ForgeGraph): Edge<AnimatedEdgeData>[] {
  * React Flow visualisation with custom nodes, animated edges,
  * minimap, controls, and auto-layout.
  */
-export const LiveGraph: React.FC<LiveGraphProps> = ({ graph, onNodeClick, onIncludeToggle, className }) => {
+export const LiveGraph: React.FC<LiveGraphProps> = ({
+  graph,
+  onNodeClick,
+  onIncludeToggle,
+  className,
+}) => {
   const { t } = useTranslation();
 
   /** Stable key that changes only when graph topology changes. */
   const topologyKey = useMemo(() => {
-    const nodeNames = graph.nodes.map((n) => n.objectApiName).sort().join(',');
-    const edgeKeys = graph.edges.map((e) => `${e.sourceObject}->${e.targetObject}`).sort().join(',');
+    const nodeNames = graph.nodes
+      .map((n) => n.objectApiName)
+      .sort()
+      .join(',');
+    const edgeKeys = graph.edges
+      .map((e) => `${e.sourceObject}->${e.targetObject}`)
+      .sort()
+      .join(',');
     return `${nodeNames}|${edgeKeys}`;
   }, [graph.nodes, graph.edges]);
 

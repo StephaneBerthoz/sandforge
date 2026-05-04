@@ -8,17 +8,12 @@ export interface SandboxRefreshEvent {
 }
 
 /** Function signature for querying sandbox refresh status */
-export type QuerySandboxesFn = (
-  orgId: string
-) => Promise<SandboxRefreshEvent[]>;
+export type QuerySandboxesFn = (orgId: string) => Promise<SandboxRefreshEvent[]>;
 
 /** Callback invoked when a new refresh event is detected */
 export type RefreshDetectedFn = (event: SandboxRefreshEvent) => void;
 
-const IN_PROGRESS_STATUSES = new Set<SandboxRefreshEvent['status']>([
-  'Pending',
-  'Processing',
-]);
+const IN_PROGRESS_STATUSES = new Set<SandboxRefreshEvent['status']>(['Pending', 'Processing']);
 
 /**
  * Tracks sandbox refresh events in Salesforce.
@@ -32,10 +27,7 @@ export class SandboxRefreshTracker {
   private readonly refreshCache: Map<string, SandboxRefreshEvent[]> = new Map();
   private readonly knownRefreshIds: Set<string> = new Set();
 
-  constructor(
-    querySandboxes: QuerySandboxesFn,
-    onRefreshDetected?: RefreshDetectedFn
-  ) {
+  constructor(querySandboxes: QuerySandboxesFn, onRefreshDetected?: RefreshDetectedFn) {
     this.querySandboxes = querySandboxes;
     this.onRefreshDetected = onRefreshDetected;
   }

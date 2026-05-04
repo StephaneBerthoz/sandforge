@@ -14,9 +14,7 @@ export const ComplianceReport: React.FC = () => {
   const piiDetected = rules.length;
   const piiAnonymized = graph
     ? rules.filter((r) =>
-        graph.nodes.find(
-          (n) => n.objectApiName === r.objectApiName && n.status === 'completed',
-        ),
+        graph.nodes.find((n) => n.objectApiName === r.objectApiName && n.status === 'completed'),
       ).length
     : 0;
 
@@ -31,9 +29,8 @@ export const ComplianceReport: React.FC = () => {
           : 'partial';
 
   /** Map framework type to display label. */
-  const frameworkLabel = framework === 'none'
-    ? t('autopilot.step3.none')
-    : t(`autopilot.step3.${framework}`);
+  const frameworkLabel =
+    framework === 'none' ? t('autopilot.step3.none') : t(`autopilot.step3.${framework}`);
 
   /** Export rules as JSON. */
   const handleExportJson = useCallback((): void => {
@@ -81,7 +78,10 @@ export const ComplianceReport: React.FC = () => {
           <span className="text-[10px] uppercase tracking-wider text-[var(--vscode-descriptionForeground,#868686)]">
             {t('autopilot.report.framework')}
           </span>
-          <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]" data-testid="report-framework">
+          <span
+            className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]"
+            data-testid="report-framework"
+          >
             {frameworkLabel}
           </span>
         </div>
@@ -89,7 +89,10 @@ export const ComplianceReport: React.FC = () => {
           <span className="text-[10px] uppercase tracking-wider text-[var(--vscode-descriptionForeground,#868686)]">
             {t('autopilot.report.status')}
           </span>
-          <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]" data-testid="report-status">
+          <span
+            className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]"
+            data-testid="report-status"
+          >
             {t(`autopilot.report.${overallStatus}`)}
           </span>
         </div>
@@ -126,7 +129,10 @@ export const ComplianceReport: React.FC = () => {
           <tbody>
             {rules.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-4 text-center text-[var(--vscode-descriptionForeground,#868686)]">
+                <td
+                  colSpan={5}
+                  className="py-4 text-center text-[var(--vscode-descriptionForeground,#868686)]"
+                >
                   {t('common.noData')}
                 </td>
               </tr>
@@ -136,11 +142,21 @@ export const ComplianceReport: React.FC = () => {
                   key={`${rule.objectApiName}-${rule.fieldApiName}`}
                   className="border-t border-[var(--vscode-panel-border,#3c3c3c)]"
                 >
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">{rule.objectApiName}</td>
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">{rule.fieldApiName}</td>
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">{rule.piiCategory}</td>
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">{rule.method}</td>
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">{rule.method}</td>
+                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    {rule.objectApiName}
+                  </td>
+                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    {rule.fieldApiName}
+                  </td>
+                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    {rule.piiCategory}
+                  </td>
+                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    {rule.method}
+                  </td>
+                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    {rule.method}
+                  </td>
                 </tr>
               ))
             )}

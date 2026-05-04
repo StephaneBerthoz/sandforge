@@ -51,23 +51,29 @@ describe('FsAdapter', () => {
 
   describe('path traversal guards', () => {
     it('readFile refuses a relative path that escapes via ../', async () => {
-      await expect(adapter.readFile('../../etc/passwd', root)).rejects.toThrow(/escapes workspace root/);
+      await expect(adapter.readFile('../../etc/passwd', root)).rejects.toThrow(
+        /escapes workspace root/,
+      );
       expect(telemetry.addBreadcrumb).toHaveBeenCalledWith(
         expect.stringContaining('fs-path-traversal'),
         'fs',
-        'error'
+        'error',
       );
     });
 
     it('readFile refuses a backslash-style traversal on Windows-like input', async () => {
       await expect(adapter.readFile('..\\..\\Windows\\System32\\config', root)).rejects.toThrow(
-        /escapes workspace root/
+        /escapes workspace root/,
       );
     });
 
     it('writeFile refuses an absolute path that escapes the root', async () => {
-      const outside = path.isAbsolute('/tmp/attack.txt') ? '/tmp/attack.txt' : 'C:\\temp\\attack.txt';
-      await expect(adapter.writeFile(outside, 'leak', root)).rejects.toThrow(/escapes workspace root/);
+      const outside = path.isAbsolute('/tmp/attack.txt')
+        ? '/tmp/attack.txt'
+        : 'C:\\temp\\attack.txt';
+      await expect(adapter.writeFile(outside, 'leak', root)).rejects.toThrow(
+        /escapes workspace root/,
+      );
       // file must NOT have been created
       await expect(fs.access(outside)).rejects.toThrow();
     });
@@ -108,7 +114,7 @@ describe('FsAdapter', () => {
       expect(telemetry.addBreadcrumb).toHaveBeenCalledWith(
         expect.stringContaining('fs-error'),
         'fs',
-        'error'
+        'error',
       );
     });
   });

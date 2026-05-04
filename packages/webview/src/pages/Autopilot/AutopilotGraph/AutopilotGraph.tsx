@@ -2,7 +2,10 @@ import React, { useMemo, useCallback, useState } from 'react';
 import ReactFlow, { Background, MiniMap, ReactFlowProvider } from 'reactflow';
 import type { Node, Edge } from 'reactflow';
 import 'reactflow/dist/style.css';
-import type { AutopilotNode as AutopilotNodeType, AutopilotEdge as AutopilotEdgeType } from '@sandforge/shared';
+import type {
+  AutopilotNode as AutopilotNodeType,
+  AutopilotEdge as AutopilotEdgeType,
+} from '@sandforge/shared';
 import { ObjectNode } from './ObjectNode';
 import type { ObjectNodeData } from './ObjectNode';
 import { RelationEdge } from './RelationEdge';
@@ -140,44 +143,44 @@ export const AutopilotGraph: React.FC = () => {
 
   return (
     <ReactFlowProvider>
-    <div data-testid="autopilot-graph" className="relative h-full w-full">
-      <ReactFlow
-        nodes={rfNodes}
-        edges={rfEdges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodeClick={handleNodeClick}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.2}
-        maxZoom={2}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background color="#333" gap={20} />
-        {minimapVisible && (
-          <MiniMap
-            nodeColor={(node) => {
-              const status = (node.data as ObjectNodeData | undefined)?.status ?? 'pending';
-              const colors: Record<string, string> = {
-                pending: '#6b7280',
-                queued: '#9ca3af',
-                extracting: '#3b82f6',
-                anonymizing: '#a855f7',
-                loading: '#22c55e',
-                completed: '#16a34a',
-                failed: '#ef4444',
-                skipped: '#d1d5db',
-              };
-              return colors[status] ?? '#6b7280';
-            }}
-            maskColor="rgba(0,0,0,0.6)"
-            className="!bg-[var(--vscode-editor-background,#1e1e1e)]"
-          />
-        )}
-      </ReactFlow>
-      <GraphLegend />
-      <GraphControls minimapVisible={minimapVisible} onToggleMinimap={handleToggleMinimap} />
-    </div>
+      <div data-testid="autopilot-graph" className="relative h-full w-full">
+        <ReactFlow
+          nodes={rfNodes}
+          edges={rfEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodeClick={handleNodeClick}
+          fitView
+          fitViewOptions={{ padding: 0.2 }}
+          minZoom={0.2}
+          maxZoom={2}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="#333" gap={20} />
+          {minimapVisible && (
+            <MiniMap
+              nodeColor={(node) => {
+                const status = (node.data as ObjectNodeData | undefined)?.status ?? 'pending';
+                const colors: Record<string, string> = {
+                  pending: '#6b7280',
+                  queued: '#9ca3af',
+                  extracting: '#3b82f6',
+                  anonymizing: '#a855f7',
+                  loading: '#22c55e',
+                  completed: '#16a34a',
+                  failed: '#ef4444',
+                  skipped: '#d1d5db',
+                };
+                return colors[status] ?? '#6b7280';
+              }}
+              maskColor="rgba(0,0,0,0.6)"
+              className="!bg-[var(--vscode-editor-background,#1e1e1e)]"
+            />
+          )}
+        </ReactFlow>
+        <GraphLegend />
+        <GraphControls minimapVisible={minimapVisible} onToggleMinimap={handleToggleMinimap} />
+      </div>
     </ReactFlowProvider>
   );
 };

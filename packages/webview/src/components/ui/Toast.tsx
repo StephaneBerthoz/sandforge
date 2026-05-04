@@ -62,7 +62,9 @@ export const Toast: React.FC<ToastProps> = ({
       <span className="shrink-0 text-sm font-bold">{levelIcons[level]}</span>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold">{title}</p>
-        <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">{message}</p>
+        <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">
+          {message}
+        </p>
         {actions && actions.length > 0 && (
           <div className="flex gap-2 mt-2">
             {actions.map((action) => (

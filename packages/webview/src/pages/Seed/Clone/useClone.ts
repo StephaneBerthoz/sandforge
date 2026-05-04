@@ -19,12 +19,7 @@ export interface SourceObjectInfo {
 }
 
 /** Execution status for the clone pipeline. */
-export type CloneExecutionStatus =
-  | 'idle'
-  | 'previewing'
-  | 'executing'
-  | 'complete'
-  | 'error';
+export type CloneExecutionStatus = 'idle' | 'previewing' | 'executing' | 'complete' | 'error';
 
 /** Return type for the useClone hook. */
 export interface UseCloneReturn {
@@ -95,7 +90,11 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
   /* ------------------------------------------------------------------ */
   /* Sync mutation results into local state                              */
   /* ------------------------------------------------------------------ */
-  if (describeMutation.data && sourceObjects.length === 0 && describeMutation.data.objects.length > 0) {
+  if (
+    describeMutation.data &&
+    sourceObjects.length === 0 &&
+    describeMutation.data.objects.length > 0
+  ) {
     setSourceObjects(
       describeMutation.data.objects.map((o) => ({ name: o.apiName, label: o.label })),
     );
@@ -159,18 +158,13 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
   }, []);
 
   /** Update the WHERE clause for a specific selected object. */
-  const handleWhereClauseChange = useCallback(
-    (objectApiName: string, whereClause: string) => {
-      setSelectedObjects((prev) =>
-        prev.map((o) =>
-          o.objectApiName === objectApiName
-            ? { ...o, whereClause: whereClause || undefined }
-            : o,
-        ),
-      );
-    },
-    [],
-  );
+  const handleWhereClauseChange = useCallback((objectApiName: string, whereClause: string) => {
+    setSelectedObjects((prev) =>
+      prev.map((o) =>
+        o.objectApiName === objectApiName ? { ...o, whereClause: whereClause || undefined } : o,
+      ),
+    );
+  }, []);
 
   /** Request a preview of the clone operation. */
   const handlePreview = useCallback(() => {

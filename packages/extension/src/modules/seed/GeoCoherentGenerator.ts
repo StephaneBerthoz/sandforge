@@ -36,9 +36,9 @@ export const GEO_DATA: Record<SupportedLocale, readonly AddressTuple[]> = {
   fr_FR: [
     { city: 'Paris', state: 'Ile-de-France', country: 'France', zipCode: '75001' },
     { city: 'Lyon', state: 'Auvergne-Rhone-Alpes', country: 'France', zipCode: '69001' },
-    { city: 'Marseille', state: 'Provence-Alpes-Cote d\'Azur', country: 'France', zipCode: '13001' },
+    { city: 'Marseille', state: "Provence-Alpes-Cote d'Azur", country: 'France', zipCode: '13001' },
     { city: 'Toulouse', state: 'Occitanie', country: 'France', zipCode: '31000' },
-    { city: 'Nice', state: 'Provence-Alpes-Cote d\'Azur', country: 'France', zipCode: '06000' },
+    { city: 'Nice', state: "Provence-Alpes-Cote d'Azur", country: 'France', zipCode: '06000' },
     { city: 'Bordeaux', state: 'Nouvelle-Aquitaine', country: 'France', zipCode: '33000' },
     { city: 'Strasbourg', state: 'Grand Est', country: 'France', zipCode: '67000' },
     { city: 'Nantes', state: 'Pays de la Loire', country: 'France', zipCode: '44000' },

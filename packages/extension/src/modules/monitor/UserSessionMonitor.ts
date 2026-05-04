@@ -8,9 +8,7 @@ export interface UserSessionInfo {
 }
 
 /** Function signature for querying active user sessions */
-export type QuerySessionsFn = (
-  orgId: string
-) => Promise<UserSessionInfo[]>;
+export type QuerySessionsFn = (orgId: string) => Promise<UserSessionInfo[]>;
 
 /**
  * Tracks active Salesforce user sessions.

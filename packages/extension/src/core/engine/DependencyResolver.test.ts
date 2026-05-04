@@ -5,7 +5,7 @@ import type { DependencyEdge } from './DependencyResolver';
 function createEdge(
   source: string,
   target: string,
-  overrides?: Partial<DependencyEdge>
+  overrides?: Partial<DependencyEdge>,
 ): DependencyEdge {
   return {
     source,
@@ -123,7 +123,7 @@ describe('DependencyResolver', () => {
         createEdge('Account', 'Account', {
           fieldApiName: 'ParentId',
           type: 'hierarchical',
-        })
+        }),
       );
 
       const result = resolver.resolve();
@@ -158,7 +158,7 @@ describe('DependencyResolver', () => {
       expect(result.topologicalOrder).toContain('B');
       expect(result.topologicalOrder).toContain('C');
       expect(result.topologicalOrder.indexOf('C')).toBeLessThan(
-        result.topologicalOrder.indexOf('A')
+        result.topologicalOrder.indexOf('A'),
       );
     });
 

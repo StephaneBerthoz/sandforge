@@ -148,7 +148,14 @@ export const FORGE_ANONYMIZATION_PRESETS: readonly ForgeAnonymizationPreset[] = 
     rules: [
       {
         objectApiName: 'Contact',
-        fieldNames: ['Email', 'Phone', 'MobilePhone', 'Birthdate', 'MailingStreet', 'MailingPostalCode'],
+        fieldNames: [
+          'Email',
+          'Phone',
+          'MobilePhone',
+          'Birthdate',
+          'MailingStreet',
+          'MailingPostalCode',
+        ],
       },
       {
         objectApiName: 'Account',
@@ -197,8 +204,6 @@ export const FORGE_ANONYMIZATION_PRESETS: readonly ForgeAnonymizationPreset[] = 
 ]);
 
 /** Lookup helper used by the wizard selector. */
-export function findForgeAnonymizationPreset(
-  id: string,
-): ForgeAnonymizationPreset | undefined {
+export function findForgeAnonymizationPreset(id: string): ForgeAnonymizationPreset | undefined {
   return FORGE_ANONYMIZATION_PRESETS.find((p) => p.id === id);
 }

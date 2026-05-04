@@ -8,8 +8,14 @@ export interface ScriptResult {
 /** Function to execute anonymous Apex in a Salesforce org */
 export type ExecuteAnonymousFn = (
   orgId: string,
-  script: string
-) => Promise<{ compiled: boolean; success: boolean; compileProblem?: string; exceptionMessage?: string; logs?: string }>;
+  script: string,
+) => Promise<{
+  compiled: boolean;
+  success: boolean;
+  compileProblem?: string;
+  exceptionMessage?: string;
+  logs?: string;
+}>;
 
 /** Dependencies required by MigrationScript */
 export interface MigrationScriptDeps {

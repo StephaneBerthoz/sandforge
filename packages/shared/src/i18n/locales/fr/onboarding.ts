@@ -12,7 +12,8 @@ export const onboarding: TranslationRecord = {
   getStarted: 'Commencer',
   skipOnboarding: 'Passer',
   connectOrg: 'Connecter une Org',
-  aiOptional: 'Les fonctionnalites IA sont optionnelles. Vous pouvez les configurer plus tard dans les Parametres.',
+  aiOptional:
+    'Les fonctionnalites IA sont optionnelles. Vous pouvez les configurer plus tard dans les Parametres.',
   finishTitle: 'Vous etes pret !',
   finishDesc: 'Commencez a explorer SandForge et forgez vos sandboxes en toute confiance.',
   openMonitor: 'Ouvrir le Moniteur',

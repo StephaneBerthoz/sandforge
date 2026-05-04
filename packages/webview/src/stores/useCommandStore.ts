@@ -43,10 +43,7 @@ export const useCommandStore = create<CommandState>((set) => ({
   toggle: () => set((s) => ({ open: !s.open })),
   registerItems: (items) =>
     set((s) => ({
-      items: [
-        ...s.items.filter((i) => !items.some((n) => n.id === i.id)),
-        ...items,
-      ],
+      items: [...s.items.filter((i) => !items.some((n) => n.id === i.id)), ...items],
     })),
   removeItems: (ids) =>
     set((s) => ({

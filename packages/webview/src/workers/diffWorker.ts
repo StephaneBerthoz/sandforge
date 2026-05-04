@@ -60,7 +60,7 @@ export function computeDiff(input: DiffInput): DiffResult {
 
 function buildKeyMap(
   records: Array<Record<string, unknown>>,
-  keyField: string
+  keyField: string,
 ): Map<string, Record<string, unknown>> {
   const map = new Map<string, Record<string, unknown>>();
   for (const record of records) {
@@ -73,7 +73,7 @@ function buildKeyMap(
 function computeFieldChanges(
   source: Record<string, unknown>,
   target: Record<string, unknown>,
-  keyField: string
+  keyField: string,
 ): Record<string, { old: unknown; new: unknown }> {
   const changes: Record<string, { old: unknown; new: unknown }> = {};
   const allFields = new Set([...Object.keys(source), ...Object.keys(target)]);

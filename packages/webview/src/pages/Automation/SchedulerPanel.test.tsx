@@ -108,7 +108,13 @@ describe('SchedulerPanel', () => {
   it('should call delete when delete button clicked', () => {
     mockQueryData.mockReturnValue({
       schedules: [
-        { id: 'sched-1', operationType: 'backup', frequency: 'daily', time: '02:00', enabled: true },
+        {
+          id: 'sched-1',
+          operationType: 'backup',
+          frequency: 'daily',
+          time: '02:00',
+          enabled: true,
+        },
       ],
       history: [],
     });
@@ -121,7 +127,13 @@ describe('SchedulerPanel', () => {
   it('should call toggle when toggle button clicked', () => {
     mockQueryData.mockReturnValue({
       schedules: [
-        { id: 'sched-1', operationType: 'backup', frequency: 'daily', time: '02:00', enabled: true },
+        {
+          id: 'sched-1',
+          operationType: 'backup',
+          frequency: 'daily',
+          time: '02:00',
+          enabled: true,
+        },
       ],
       history: [],
     });

@@ -1,8 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  SfdmuImporter,
-  sfdmuExportSchema,
-} from './SfdmuImporter';
+import { SfdmuImporter, sfdmuExportSchema } from './SfdmuImporter';
 import type { FileReader, SfdmuExport } from './SfdmuImporter';
 
 function createMockFileReader(content: string): FileReader {
@@ -21,9 +18,7 @@ function createRealisticSfdmuExport(): SfdmuExport {
         objectName: 'Account',
         master: true,
         excludedFields: ['OwnerId', 'CreatedDate'],
-        fieldMapping: [
-          { sourceField: 'BillingCity', targetField: 'ShippingCity' },
-        ],
+        fieldMapping: [{ sourceField: 'BillingCity', targetField: 'ShippingCity' }],
         valuesMapping: [
           { fieldName: 'Industry', rawValue: 'Tech', mappedValue: 'Technology' },
           { fieldName: 'Industry', rawValue: 'Fin', mappedValue: 'Financial Services' },
@@ -204,9 +199,7 @@ describe('SfdmuImporter', () => {
             objectName: 'Account',
             master: true,
             excludedFields: [],
-            fieldMapping: [
-              { sourceField: 'Name', targetField: 'Name' },
-            ],
+            fieldMapping: [{ sourceField: 'Name', targetField: 'Name' }],
             valuesMapping: [],
             deleteOldData: false,
             updateWithMockData: false,
@@ -261,9 +254,7 @@ describe('SfdmuImporter', () => {
       const edges = importer.extractDependencies(exportData);
 
       expect(edges.length).toBeGreaterThanOrEqual(1);
-      const accountContactEdge = edges.find(
-        (e) => e.parent === 'Account' && e.child === 'Contact'
-      );
+      const accountContactEdge = edges.find((e) => e.parent === 'Account' && e.child === 'Contact');
       expect(accountContactEdge).toBeDefined();
       expect(accountContactEdge?.field).toBe('Account');
     });
@@ -357,22 +348,26 @@ describe('SfdmuImporter', () => {
 
     it('should reject invalid operation', () => {
       const result = sfdmuExportSchema.safeParse({
-        objects: [{
-          query: 'SELECT Id FROM Account',
-          operation: 'InvalidOp',
-          objectName: 'Account',
-        }],
+        objects: [
+          {
+            query: 'SELECT Id FROM Account',
+            operation: 'InvalidOp',
+            objectName: 'Account',
+          },
+        ],
       });
       expect(result.success).toBe(false);
     });
 
     it('should apply defaults for optional fields', () => {
       const data = {
-        objects: [{
-          query: 'SELECT Id FROM Account',
-          operation: 'Upsert',
-          objectName: 'Account',
-        }],
+        objects: [
+          {
+            query: 'SELECT Id FROM Account',
+            operation: 'Upsert',
+            objectName: 'Account',
+          },
+        ],
       };
       const result = sfdmuExportSchema.parse(data);
       expect(result.objects[0].excludedFields).toEqual([]);

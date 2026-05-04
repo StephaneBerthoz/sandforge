@@ -50,7 +50,14 @@ describe('sendHandlerError', () => {
 
   it('sends provided code and retryable values in payload', () => {
     const deps = createMockDeps();
-    sendHandlerError(deps, 'forge:plan', 'forge:plan:error', new Error('timed out'), 'TIMEOUT', true);
+    sendHandlerError(
+      deps,
+      'forge:plan',
+      'forge:plan:error',
+      new Error('timed out'),
+      'TIMEOUT',
+      true,
+    );
 
     const posted = deps.broker.postToWebview.mock.calls[0][0] as {
       payload: { message: string; code: string; retryable: boolean };
@@ -61,7 +68,13 @@ describe('sendHandlerError', () => {
 
   it('sends retryable=false default when only code is provided', () => {
     const deps = createMockDeps();
-    sendHandlerError(deps, 'forge:execute', 'forge:execute:error', new Error('broken'), 'EXECUTE_ERROR');
+    sendHandlerError(
+      deps,
+      'forge:execute',
+      'forge:execute:error',
+      new Error('broken'),
+      'EXECUTE_ERROR',
+    );
 
     const posted = deps.broker.postToWebview.mock.calls[0][0] as {
       payload: { message: string; code: string; retryable: boolean };

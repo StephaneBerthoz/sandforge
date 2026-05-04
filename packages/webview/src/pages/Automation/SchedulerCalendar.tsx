@@ -24,18 +24,14 @@ export interface SchedulerCalendarProps {
  * Scheduler is a planned feature (v1.2). The component renders with a
  * "Coming Soon" badge and all interactive controls disabled.
  */
-export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({
-  scheduled = [],
-}) => {
+export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled = [] }) => {
   const { t } = useTranslation();
 
   if (scheduled.length === 0) {
     return (
       <div className="relative" data-testid="scheduler-calendar">
         <span data-testid="scheduler-coming-soon">
-          <Badge variant="info">
-            {t('scheduler.comingSoon')}
-          </Badge>
+          <Badge variant="info">{t('scheduler.comingSoon')}</Badge>
         </span>
         <div className="opacity-50 pointer-events-none mt-2">
           <EmptyState
@@ -51,9 +47,7 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({
   return (
     <div className="relative" data-testid="scheduler-calendar">
       <span data-testid="scheduler-coming-soon">
-        <Badge variant="info">
-          {t('scheduler.comingSoon')}
-        </Badge>
+        <Badge variant="info">{t('scheduler.comingSoon')}</Badge>
       </span>
       <div className="opacity-50 pointer-events-none mt-2">
         <div className="flex flex-col gap-3">
@@ -76,10 +70,14 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({
                   <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
                     <span>{t('automation.triggerTypes.' + item.trigger.type)}</span>
                     {item.nextFireTime && (
-                      <span>{t('automation.nextRun')}: {item.nextFireTime}</span>
+                      <span>
+                        {t('automation.nextRun')}: {item.nextFireTime}
+                      </span>
                     )}
                     {item.trigger.config.timezone && (
-                      <span>{t('automation.timezone')}: {item.trigger.config.timezone}</span>
+                      <span>
+                        {t('automation.timezone')}: {item.trigger.config.timezone}
+                      </span>
                     )}
                   </div>
                 </CardBody>

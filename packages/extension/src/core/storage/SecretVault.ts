@@ -18,7 +18,11 @@ export class SecretVault {
   private prefix: string;
   private logWarning?: (msg: string) => void;
 
-  constructor(storage: SecretStorageAdapter, prefix: string = 'sandforge', logWarning?: (msg: string) => void) {
+  constructor(
+    storage: SecretStorageAdapter,
+    prefix: string = 'sandforge',
+    logWarning?: (msg: string) => void,
+  ) {
     this.storage = storage;
     this.prefix = prefix;
     this.logWarning = logWarning;

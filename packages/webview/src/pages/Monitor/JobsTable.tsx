@@ -52,9 +52,8 @@ function groupJobs(jobs: JobDisplayInfo[]): JobGroup[] {
   return Array.from(groups.entries()).map(([className, classJobs]) => {
     const completed = classJobs.filter((j) => j.status === 'Completed');
     const failed = classJobs.filter((j) => j.status === 'Failed');
-    const successRate = classJobs.length > 0
-      ? Math.round((completed.length / classJobs.length) * 100)
-      : 0;
+    const successRate =
+      classJobs.length > 0 ? Math.round((completed.length / classJobs.length) * 100) : 0;
 
     return {
       className,
@@ -89,7 +88,17 @@ function filterJobs(jobs: JobDisplayInfo[], filter: JobFilter): JobDisplayInfo[]
  */
 /** Export jobs to CSV and trigger download via data URI. */
 function exportJobsCsv(jobs: JobDisplayInfo[], filename: string): void {
-  const headers = ['ID', 'Status', 'Type', 'Object', 'Total Records', 'Processed', 'Failed', 'Created By', 'Created Date'];
+  const headers = [
+    'ID',
+    'Status',
+    'Type',
+    'Object',
+    'Total Records',
+    'Processed',
+    'Failed',
+    'Created By',
+    'Created Date',
+  ];
   const rows = jobs.map((j) => [
     j.id,
     j.status,
@@ -101,7 +110,9 @@ function exportJobsCsv(jobs: JobDisplayInfo[], filename: string): void {
     j.createdBy ?? '',
     j.createdDate,
   ]);
-  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
+  const csv = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(','))
+    .join('\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -119,9 +130,7 @@ export const JobsTable: React.FC<JobsTableProps> = ({ jobs, className }) => {
   const filteredJobs = useMemo(() => filterJobs(jobs, filter), [jobs, filter]);
   const groups = useMemo(() => groupJobs(filteredJobs), [filteredJobs]);
 
-  const activeCount = jobs.filter(
-    (j) => j.status === 'Processing' || j.status === 'Queued',
-  ).length;
+  const activeCount = jobs.filter((j) => j.status === 'Processing' || j.status === 'Queued').length;
 
   const handleExportCsv = useCallback(() => {
     const date = new Date().toISOString().slice(0, 10);
@@ -215,7 +224,10 @@ export const JobsTable: React.FC<JobsTableProps> = ({ jobs, className }) => {
             {t('monitor.noJobs', 'No recent jobs')}
           </p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sf-space-2)' }} data-testid="job-groups">
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sf-space-2)' }}
+            data-testid="job-groups"
+          >
             {groups.map((group) => {
               const isExpanded = expandedGroups.has(group.className);
               return (
@@ -250,16 +262,34 @@ export const JobsTable: React.FC<JobsTableProps> = ({ jobs, className }) => {
                       className={`codicon codicon-${isExpanded ? 'chevron-down' : 'chevron-right'}`}
                       aria-hidden="true"
                     />
-                    <span className="codicon codicon-symbol-method" aria-hidden="true" style={{ color: 'var(--sf-accent)' }} />
-                    <span style={{ fontWeight: 600, flex: 1, textAlign: 'left' }}>{group.className}</span>
-                    <span style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-text-secondary)' }}>
+                    <span
+                      className="codicon codicon-symbol-method"
+                      aria-hidden="true"
+                      style={{ color: 'var(--sf-accent)' }}
+                    />
+                    <span style={{ fontWeight: 600, flex: 1, textAlign: 'left' }}>
+                      {group.className}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 'var(--sf-font-size-xs)',
+                        color: 'var(--sf-text-secondary)',
+                      }}
+                    >
                       {group.totalRuns} {t('monitor.runs', 'runs')}
                     </span>
-                    <span style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-text-secondary)' }}>
+                    <span
+                      style={{
+                        fontSize: 'var(--sf-font-size-xs)',
+                        color: 'var(--sf-text-secondary)',
+                      }}
+                    >
                       {group.successRate}% {t('monitor.success', 'success')}
                     </span>
                     {group.failedCount > 0 && (
-                      <Badge variant="error">{group.failedCount} {t('monitor.failed', 'failed')}</Badge>
+                      <Badge variant="error">
+                        {group.failedCount} {t('monitor.failed', 'failed')}
+                      </Badge>
                     )}
                   </button>
 
@@ -287,21 +317,39 @@ export const JobsTable: React.FC<JobsTableProps> = ({ jobs, className }) => {
                           <span style={{ color: 'var(--sf-text-secondary)', minWidth: '80px' }}>
                             {job.objectType ?? '-'}
                           </span>
-                          <span style={{ flex: 1, color: 'var(--sf-text-primary)', fontFamily: 'monospace' }}>
+                          <span
+                            style={{
+                              flex: 1,
+                              color: 'var(--sf-text-primary)',
+                              fontFamily: 'monospace',
+                            }}
+                          >
                             {job.totalRecords !== undefined
                               ? `${formatNumber(job.processedRecords ?? 0)} / ${formatNumber(job.totalRecords)}`
                               : '-'}
                             {(job.failedRecords ?? 0) > 0 && (
-                              <span style={{ color: 'var(--sf-error)', marginLeft: 'var(--sf-space-1)' }}>
+                              <span
+                                style={{
+                                  color: 'var(--sf-error)',
+                                  marginLeft: 'var(--sf-space-1)',
+                                }}
+                              >
                                 ({job.failedRecords} err)
                               </span>
                             )}
                           </span>
-                          <span style={{ color: 'var(--sf-text-muted)' }}>
-                            {job.createdBy}
-                          </span>
-                          <span style={{ color: 'var(--sf-text-muted)', minWidth: '120px', textAlign: 'right' }}>
-                            {new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(job.createdDate))}
+                          <span style={{ color: 'var(--sf-text-muted)' }}>{job.createdBy}</span>
+                          <span
+                            style={{
+                              color: 'var(--sf-text-muted)',
+                              minWidth: '120px',
+                              textAlign: 'right',
+                            }}
+                          >
+                            {new Intl.DateTimeFormat(undefined, {
+                              dateStyle: 'short',
+                              timeStyle: 'short',
+                            }).format(new Date(job.createdDate))}
                           </span>
                         </div>
                       ))}

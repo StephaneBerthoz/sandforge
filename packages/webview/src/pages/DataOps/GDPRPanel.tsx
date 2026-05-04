@@ -58,20 +58,28 @@ export interface GDPRPanelProps {
 /** Badge variant for DSR status. */
 function statusBadge(status: DSRStatusUI): BadgeVariant {
   switch (status) {
-    case 'completed': return 'success';
-    case 'in_progress': return 'info';
-    case 'rejected': return 'error';
-    default: return 'warning';
+    case 'completed':
+      return 'success';
+    case 'in_progress':
+      return 'info';
+    case 'rejected':
+      return 'error';
+    default:
+      return 'warning';
   }
 }
 
 /** Badge variant for DSR type. */
 function typeBadge(type: DSRTypeUI): BadgeVariant {
   switch (type) {
-    case 'erasure': return 'error';
-    case 'access': return 'info';
-    case 'portability': return 'info';
-    default: return 'default';
+    case 'erasure':
+      return 'error';
+    case 'access':
+      return 'info';
+    case 'portability':
+      return 'info';
+    default:
+      return 'default';
   }
 }
 
@@ -108,10 +116,7 @@ export const GDPRPanel: React.FC<GDPRPanelProps> = ({
   };
 
   return (
-    <div
-      className={cn('flex flex-col gap-4', className)}
-      data-testid="gdpr-panel"
-    >
+    <div className={cn('flex flex-col gap-4', className)} data-testid="gdpr-panel">
       {/* Compliance Summary */}
       {complianceSummary && (
         <div data-testid="compliance-summary">
@@ -147,7 +152,12 @@ export const GDPRPanel: React.FC<GDPRPanelProps> = ({
             >
               <span
                 className="text-sm font-bold"
-                style={{ color: complianceSummary.overdue > 0 ? 'var(--sf-error, #EF4444)' : 'var(--sf-text-primary, #d4d4d4)' }}
+                style={{
+                  color:
+                    complianceSummary.overdue > 0
+                      ? 'var(--sf-error, #EF4444)'
+                      : 'var(--sf-text-primary, #d4d4d4)',
+                }}
               >
                 {complianceSummary.overdue}
               </span>
@@ -157,8 +167,12 @@ export const GDPRPanel: React.FC<GDPRPanelProps> = ({
             </div>
           </div>
           {complianceSummary.averageResolutionDays > 0 && (
-            <div className="text-[10px] text-[var(--sf-text-muted,#868686)] mt-1" data-testid="avg-resolution">
-              {t('dataops.avgResolution', 'Avg. resolution')}: {complianceSummary.averageResolutionDays} {t('dataops.days', 'days')}
+            <div
+              className="text-[10px] text-[var(--sf-text-muted,#868686)] mt-1"
+              data-testid="avg-resolution"
+            >
+              {t('dataops.avgResolution', 'Avg. resolution')}:{' '}
+              {complianceSummary.averageResolutionDays} {t('dataops.days', 'days')}
             </div>
           )}
         </div>
@@ -228,7 +242,10 @@ export const GDPRPanel: React.FC<GDPRPanelProps> = ({
           {t('dataops.dsrList', 'Data Subject Requests')} ({dsrs.length})
         </h3>
         {dsrs.length === 0 ? (
-          <div className="text-xs text-[var(--sf-text-muted,#868686)] py-4 text-center" data-testid="no-dsrs">
+          <div
+            className="text-xs text-[var(--sf-text-muted,#868686)] py-4 text-center"
+            data-testid="no-dsrs"
+          >
             {t('dataops.noDSR', 'No data subject requests')}
           </div>
         ) : (
@@ -248,13 +265,13 @@ export const GDPRPanel: React.FC<GDPRPanelProps> = ({
                 <span className="text-[var(--sf-text-primary,#d4d4d4)]">
                   {dsr.subjectName || dsr.subjectEmail}
                 </span>
-                <span className="text-[var(--sf-text-muted,#868686)]">
-                  {dsr.subjectEmail}
-                </span>
+                <span className="text-[var(--sf-text-muted,#868686)]">{dsr.subjectEmail}</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-[var(--sf-text-muted,#868686)]">
-                  {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(dsr.dueDate))}
+                  {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(
+                    new Date(dsr.dueDate),
+                  )}
                 </span>
                 <span data-testid={`dsr-status-${dsr.id}`}>
                   <Badge variant={statusBadge(dsr.status)}>{dsr.status}</Badge>
@@ -318,7 +335,10 @@ export const GDPRPanel: React.FC<GDPRPanelProps> = ({
             ))}
           </div>
         ) : (
-          <div className="text-xs text-[var(--sf-text-muted,#868686)] py-2 text-center" data-testid="no-pii">
+          <div
+            className="text-xs text-[var(--sf-text-muted,#868686)] py-2 text-center"
+            data-testid="no-pii"
+          >
             {t('dataops.noPII', 'No PII fields detected. Run a scan to check.')}
           </div>
         )}

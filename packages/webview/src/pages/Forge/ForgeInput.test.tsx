@@ -46,8 +46,21 @@ vi.mock('../../stores/useNotificationStore', () => ({
 }));
 
 vi.mock('../../components/ui/DangerConfirm', () => ({
-  DangerConfirm: ({ open, onConfirm, title }: { open: boolean; onConfirm: () => void; title: string }) =>
-    open ? <div data-testid="danger-confirm"><span>{title}</span><button onClick={onConfirm}>Confirm</button></div> : null,
+  DangerConfirm: ({
+    open,
+    onConfirm,
+    title,
+  }: {
+    open: boolean;
+    onConfirm: () => void;
+    title: string;
+  }) =>
+    open ? (
+      <div data-testid="danger-confirm">
+        <span>{title}</span>
+        <button onClick={onConfirm}>Confirm</button>
+      </div>
+    ) : null,
 }));
 
 vi.mock('../../stores/useOrgStore', () => ({
@@ -189,7 +202,9 @@ describe('ForgeInput', () => {
 
     const recordInput = screen.getByTestId('forge-input-record') as HTMLInputElement;
     fireEvent.change(recordInput, {
-      target: { value: 'https://myorg.lightning.force.com/lightning/r/Account/001XXXXXXXXXXXXXXX/view' },
+      target: {
+        value: 'https://myorg.lightning.force.com/lightning/r/Account/001XXXXXXXXXXXXXXX/view',
+      },
     });
 
     // Source is auto-selected; set target
@@ -321,7 +336,9 @@ describe('ForgeInput', () => {
   it('should show record-mode preview placeholder on record tab', () => {
     render(<ForgeInput />);
     // On the record tab with a source org auto-selected, the placeholder should show recordIdPlaceholder text
-    const previewArea = document.querySelector('[data-testid="forge-input"] .rounded-lg.border-dashed');
+    const previewArea = document.querySelector(
+      '[data-testid="forge-input"] .rounded-lg.border-dashed',
+    );
     expect(previewArea).toBeDefined();
     // Should NOT show SOQL/AI/Template hints when on the record tab
     expect(previewArea?.textContent).not.toContain('SOQL');

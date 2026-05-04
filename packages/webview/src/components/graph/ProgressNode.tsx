@@ -74,9 +74,20 @@ function StatusIcon({ status }: { status: ForgeNodeStatus }): React.ReactElement
  */
 export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) => {
   const {
-    objectApiName, recordCount, fieldCount, createableFieldCount,
-    estimatedSizeMB, status, progress, included, hasPII, piiCount,
-    errorCount, edgeType, onSelect, onIncludeToggle,
+    objectApiName,
+    recordCount,
+    fieldCount,
+    createableFieldCount,
+    estimatedSizeMB,
+    status,
+    progress,
+    included,
+    hasPII,
+    piiCount,
+    errorCount,
+    edgeType,
+    onSelect,
+    onIncludeToggle,
   } = data;
 
   const handleClick = useCallback(() => {
@@ -138,7 +149,9 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
               data-testid="edge-type-badge"
               className={cn(
                 'text-[9px] font-bold px-1 rounded',
-                edgeType === 'master-detail' ? 'bg-forge/20 text-forge' : 'bg-text-muted/20 text-text-muted',
+                edgeType === 'master-detail'
+                  ? 'bg-forge/20 text-forge'
+                  : 'bg-text-muted/20 text-text-muted',
               )}
             >
               {edgeType === 'master-detail' ? 'MD' : 'LK'}
@@ -156,7 +169,9 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
 
       {/* Fields: total vs createable */}
       <div className="mt-0.5 text-[10px] text-text-muted">
-        <span>{fieldCount} fields ({createableFieldCount} cloneable)</span>
+        <span>
+          {fieldCount} fields ({createableFieldCount} cloneable)
+        </span>
       </div>
 
       {/* Progress bar */}
@@ -174,14 +189,20 @@ export const ProgressNode: React.FC<NodeProps<ProgressNodeData>> = ({ data }) =>
       <div className="mt-1.5 flex items-center justify-between">
         <div className="flex items-center gap-1">
           {hasPII && (
-            <span data-testid="pii-badge" className="flex items-center gap-0.5 text-[9px] text-orange-400">
+            <span
+              data-testid="pii-badge"
+              className="flex items-center gap-0.5 text-[9px] text-orange-400"
+            >
               <Shield className="h-2.5 w-2.5" />
               {piiCount} PII
             </span>
           )}
         </div>
         {errorCount > 0 && (
-          <span data-testid="error-badge" className="flex items-center gap-0.5 text-[9px] text-red-400">
+          <span
+            data-testid="error-badge"
+            className="flex items-center gap-0.5 text-[9px] text-red-400"
+          >
             <AlertTriangle className="h-2.5 w-2.5" />
             {errorCount}
           </span>

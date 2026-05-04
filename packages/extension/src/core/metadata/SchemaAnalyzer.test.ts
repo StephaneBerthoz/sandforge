@@ -102,10 +102,24 @@ describe('SchemaAnalyzer', () => {
 
     it('should detect record types', () => {
       const recordTypes: RecordTypeInfo[] = [
-        { recordTypeId: '012000000000001', name: 'Standard', developerName: 'Standard', active: true, defaultRecordTypeMapping: true },
-        { recordTypeId: '012000000000002', name: 'Custom', developerName: 'Custom', active: true, defaultRecordTypeMapping: false },
+        {
+          recordTypeId: '012000000000001',
+          name: 'Standard',
+          developerName: 'Standard',
+          active: true,
+          defaultRecordTypeMapping: true,
+        },
+        {
+          recordTypeId: '012000000000002',
+          name: 'Custom',
+          developerName: 'Custom',
+          active: true,
+          defaultRecordTypeMapping: false,
+        },
       ];
-      const describe = createMockObjectDescribe('Account', [createMockField()], { recordTypeInfos: recordTypes });
+      const describe = createMockObjectDescribe('Account', [createMockField()], {
+        recordTypeInfos: recordTypes,
+      });
 
       const analysis = analyzer.analyzeObject(describe);
 

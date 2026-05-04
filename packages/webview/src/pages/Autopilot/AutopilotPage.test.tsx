@@ -79,8 +79,7 @@ let mockOrgState: Record<string, unknown> = {
 };
 
 vi.mock('../../stores/useOrgStore', () => ({
-  useOrgStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector(mockOrgState),
+  useOrgStore: (selector: (state: Record<string, unknown>) => unknown) => selector(mockOrgState),
 }));
 
 const mockNavigate = vi.fn();
@@ -92,7 +91,17 @@ vi.mock('../../stores/useAppStore', () => ({
 describe('AutopilotPage', () => {
   beforeEach(() => {
     mockOrgState = {
-      orgs: [{ id: 'org-1', alias: 'DevSandbox', username: 'dev@test.com', instanceUrl: 'https://dev.salesforce.com', status: 'connected', orgType: 'sandbox', safetyTier: 'safe' }],
+      orgs: [
+        {
+          id: 'org-1',
+          alias: 'DevSandbox',
+          username: 'dev@test.com',
+          instanceUrl: 'https://dev.salesforce.com',
+          status: 'connected',
+          orgType: 'sandbox',
+          safetyTier: 'safe',
+        },
+      ],
       selectedOrgId: 'org-1',
     };
     mockNavigate.mockClear();
