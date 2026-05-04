@@ -17,6 +17,7 @@
   "config.language.description": "Display language",
   "config.telemetry.description": "Enable anonymous usage telemetry",
   "config.monitor.autoRefreshInterval.description": "Auto-refresh interval in seconds for the Monitor dashboard",
+  "config.monitor.persistTimeSeries.description": "Persist Monitor time-series data to disk (~5 min flush, 7-day retention, ~500 KB/org). Off by default.",
   "config.seed.defaultBatchSize.description": "Default batch size for Seed data operations",
   "config.sync.defaultBatchSize.description": "Default batch size for Sync data operations",
   "config.sync.maxConcurrentOps.description": "Maximum concurrent sync operations",
