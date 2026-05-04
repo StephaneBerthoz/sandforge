@@ -46,10 +46,7 @@ export class BatchOptimizer {
    * Calculate the optimal batch size for a given object profile,
    * optionally using historical execution data.
    */
-  calculateOptimalBatchSize(
-    profile: ObjectProfile,
-    history?: BatchHistory[]
-  ): BatchRecommendation {
+  calculateOptimalBatchSize(profile: ObjectProfile, history?: BatchHistory[]): BatchRecommendation {
     let size = BASE_BATCH_SIZE;
     const reasons: string[] = [];
     let penaltyCount = 0;

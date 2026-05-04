@@ -217,10 +217,7 @@ export class ExtensionHandlers {
    * @param orchestrator - The ForgeOrchestrator instance.
    * @param services - Optional additional Forge v2 services.
    */
-  setForgeOrchestrator(
-    orchestrator: ForgeOrchestrator,
-    services?: ForgeServices,
-  ): void {
+  setForgeOrchestrator(orchestrator: ForgeOrchestrator, services?: ForgeServices): void {
     this.forgeHandler.setForgeOrchestrator(orchestrator, services);
   }
 
@@ -233,7 +230,9 @@ export class ExtensionHandlers {
   registerAll(router: MessageRouter): void {
     const route = (types: string[], handler: DomainHandler) => {
       for (const type of types) {
-        router.route(type, (msg) => { handler.handle(msg); });
+        router.route(type, (msg) => {
+          handler.handle(msg);
+        });
       }
     };
 
@@ -241,13 +240,22 @@ export class ExtensionHandlers {
     route(['org:list', 'org:connect', 'org:disconnect'], this.orgHandler);
 
     // Settings & infrastructure
-    route([
-      'settings:get', 'settings:update',
-      'onboarding:complete', 'onboarding:reset', 'hint:dismiss',
-      'plugins:list', 'plugins:load', 'plugins:unload',
-      'telemetry:status', 'telemetry:toggle',
-      'connectivity:status',
-    ], this.settingsHandler);
+    route(
+      [
+        'settings:get',
+        'settings:update',
+        'onboarding:complete',
+        'onboarding:reset',
+        'hint:dismiss',
+        'plugins:list',
+        'plugins:load',
+        'plugins:unload',
+        'telemetry:status',
+        'telemetry:toggle',
+        'connectivity:status',
+      ],
+      this.settingsHandler,
+    );
 
     // Seed
     route(['seed:execute', 'seed:describe-global', 'seed:describe-object'], this.seedHandler);
@@ -256,76 +264,157 @@ export class ExtensionHandlers {
     route(['sync:execute', 'sync:describe-global', 'sync:describe-fields'], this.syncHandler);
 
     // Quick Sync
-    route([
-      'quicksync:suggest-objects', 'quicksync:detect-relationships',
-      'quicksync:preview', 'quicksync:execute',
-    ], this.quickSyncHandler);
+    route(
+      [
+        'quicksync:suggest-objects',
+        'quicksync:detect-relationships',
+        'quicksync:preview',
+        'quicksync:execute',
+      ],
+      this.quickSyncHandler,
+    );
 
     // Monitor
-    route([
-      'monitor:refresh', 'monitor:start', 'monitor:trends', 'monitor:abort-job',
-      'monitor:live-operations', 'monitor:health-score',
-      'monitor:storage', 'monitor:deployments', 'monitor:api-usage',
-      'monitor:error-logs', 'monitor:sessions', 'monitor:apex-insights', 'monitor:sandbox-refresh',
-    ], this.monitorHandler);
+    route(
+      [
+        'monitor:refresh',
+        'monitor:start',
+        'monitor:trends',
+        'monitor:abort-job',
+        'monitor:live-operations',
+        'monitor:health-score',
+        'monitor:storage',
+        'monitor:deployments',
+        'monitor:api-usage',
+        'monitor:error-logs',
+        'monitor:sessions',
+        'monitor:apex-insights',
+        'monitor:sandbox-refresh',
+      ],
+      this.monitorHandler,
+    );
 
     // Governance
-    route([
-      'governance:policies:list', 'governance:policy:get',
-      'governance:policy:save', 'governance:policy:delete',
-      'governance:policies:export', 'governance:policies:import',
-      'governance:evaluate', 'governance:templates',
-    ], this.governanceHandler);
+    route(
+      [
+        'governance:policies:list',
+        'governance:policy:get',
+        'governance:policy:save',
+        'governance:policy:delete',
+        'governance:policies:export',
+        'governance:policies:import',
+        'governance:evaluate',
+        'governance:templates',
+      ],
+      this.governanceHandler,
+    );
 
     // Compare
-    route(['compare:execute', 'compare:start', 'compare:permissions', 'compare:snapshots', 'compare:drift'], this.compareHandler);
+    route(
+      [
+        'compare:execute',
+        'compare:start',
+        'compare:permissions',
+        'compare:snapshots',
+        'compare:drift',
+      ],
+      this.compareHandler,
+    );
 
     // DataOps
-    route([
-      'backup:execute', 'dataops:backup', 'dataops:rollback',
-      'dataops:anonymize', 'dataops:anonymization-templates',
-      'dataops:masking-templates-by-object',
-      'precheck:pii-scan',
-    ], this.dataOpsHandler);
+    route(
+      [
+        'backup:execute',
+        'dataops:backup',
+        'dataops:rollback',
+        'dataops:anonymize',
+        'dataops:anonymization-templates',
+        'dataops:masking-templates-by-object',
+        'precheck:pii-scan',
+      ],
+      this.dataOpsHandler,
+    );
 
     // Automation
-    route([
-      'pipeline:run', 'pipeline:execute', 'pipeline:templates',
-      'pipeline:list', 'pipeline:history', 'pipeline:save',
-      'operation:cancel', 'operation:pause', 'operation:resume',
-      'marketplace:list', 'marketplace:install',
-    ], this.automationHandler);
+    route(
+      [
+        'pipeline:run',
+        'pipeline:execute',
+        'pipeline:templates',
+        'pipeline:list',
+        'pipeline:history',
+        'pipeline:save',
+        'operation:cancel',
+        'operation:pause',
+        'operation:resume',
+        'marketplace:list',
+        'marketplace:install',
+      ],
+      this.automationHandler,
+    );
 
     // AI
-    route([
-      'ai:chat', 'ai:conversation:create', 'ai:conversation:load',
-      'ai:conversation:delete', 'ai:status', 'ai:save-key',
-      'ai:nl2soql', 'ai:resolve-error', 'ai:personas',
-      'ai:anomaly-scan', 'ai:suggestions', 'ai:generate-pipeline',
-      'ai:schema-advice',
-    ], this.aiHandler);
+    route(
+      [
+        'ai:chat',
+        'ai:conversation:create',
+        'ai:conversation:load',
+        'ai:conversation:delete',
+        'ai:status',
+        'ai:save-key',
+        'ai:nl2soql',
+        'ai:resolve-error',
+        'ai:personas',
+        'ai:anomaly-scan',
+        'ai:suggestions',
+        'ai:generate-pipeline',
+        'ai:schema-advice',
+      ],
+      this.aiHandler,
+    );
 
     // Autopilot
-    route([
-      'autopilot:scan-schema', 'autopilot:generate-plan',
-      'autopilot:execute', 'autopilot:pause', 'autopilot:resume',
-      'autopilot:skip-node', 'autopilot:compliance-report',
-    ], this.autopilotHandler);
+    route(
+      [
+        'autopilot:scan-schema',
+        'autopilot:generate-plan',
+        'autopilot:execute',
+        'autopilot:pause',
+        'autopilot:resume',
+        'autopilot:skip-node',
+        'autopilot:compliance-report',
+      ],
+      this.autopilotHandler,
+    );
 
     // Forge
-    route([
-      'forge:preview', 'forge:discover', 'forge:execute',
-      'forge:pause', 'forge:resume', 'forge:abort',
-      'forge:templates:list', 'forge:templates:save', 'forge:templates:delete',
-      'forge:history:list', 'forge:plan:request',
-      'forge:compliance:request', 'forge:metadata-diff:request',
-    ], this.forgeHandler);
+    route(
+      [
+        'forge:preview',
+        'forge:discover',
+        'forge:execute',
+        'forge:pause',
+        'forge:resume',
+        'forge:abort',
+        'forge:templates:list',
+        'forge:templates:save',
+        'forge:templates:delete',
+        'forge:history:list',
+        'forge:plan:request',
+        'forge:compliance:request',
+        'forge:metadata-diff:request',
+      ],
+      this.forgeHandler,
+    );
 
     // Migration
     route(['migration:import', 'migration:import-sfdmu'], this.migrationHandler);
 
     // Config profiles
-    route(['config:export', 'config:import', 'config:categories', 'config:validate'], this.configHandler);
+    route(
+      ['config:export', 'config:import', 'config:categories', 'config:validate'],
+      this.configHandler,
+    );
 
     // Cache management
     route(['cache:invalidate-all', 'cache:get-stats'], this.cacheHandler);
@@ -339,10 +428,20 @@ export class ExtensionHandlers {
     }
 
     // No-op handlers for ghost features (Scheduler v1.2, RealTime CDC v2.0)
-    route([
-      'scheduler:list', 'scheduler:upsert', 'scheduler:delete', 'scheduler:toggle',
-      'realtime:start', 'realtime:stop', 'realtime:status', 'realtime:metrics', 'realtime:resolve-conflict',
-    ], this.noOpHandler);
+    route(
+      [
+        'scheduler:list',
+        'scheduler:upsert',
+        'scheduler:delete',
+        'scheduler:toggle',
+        'realtime:start',
+        'realtime:stop',
+        'realtime:status',
+        'realtime:metrics',
+        'realtime:resolve-conflict',
+      ],
+      this.noOpHandler,
+    );
 
     // Bridge protocol-mismatch reload (Plan 01-04-11). Triggered by the
     // ProtocolMismatchBanner in the webview when the user clicks "Reload".

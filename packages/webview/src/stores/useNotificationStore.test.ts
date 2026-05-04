@@ -233,9 +233,15 @@ describe('useNotificationStore', () => {
   });
 
   it('should combine level and category filters', () => {
-    getState().addNotification(createInput({ level: 'error', category: 'sync', title: 'Sync error' }));
-    getState().addNotification(createInput({ level: 'error', category: 'seed', title: 'Seed error' }));
-    getState().addNotification(createInput({ level: 'info', category: 'sync', title: 'Sync info' }));
+    getState().addNotification(
+      createInput({ level: 'error', category: 'sync', title: 'Sync error' }),
+    );
+    getState().addNotification(
+      createInput({ level: 'error', category: 'seed', title: 'Seed error' }),
+    );
+    getState().addNotification(
+      createInput({ level: 'info', category: 'sync', title: 'Sync info' }),
+    );
     getState().setFilterLevel('error');
     getState().setFilterCategory('sync');
     const filtered = selectFilteredNotifications(getState());

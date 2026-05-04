@@ -35,9 +35,7 @@ export class RetryStrategy {
 
   /** Calculate the delay for a given attempt number (0-based) */
   calculateDelay(attempt: number): number {
-    const baseDelay =
-      this.config.initialDelay *
-      Math.pow(this.config.backoffMultiplier, attempt);
+    const baseDelay = this.config.initialDelay * Math.pow(this.config.backoffMultiplier, attempt);
     const capped = Math.min(baseDelay, this.config.maxDelay);
     if (!this.config.jitter) return capped;
     const half = capped / 2;
@@ -54,8 +52,7 @@ export class RetryStrategy {
         const result = await fn();
         return { success: true, result, attempts: attempt + 1, totalDelay };
       } catch (err) {
-        lastError =
-          err instanceof Error ? err : new Error(String(err));
+        lastError = err instanceof Error ? err : new Error(String(err));
         if (attempt < this.config.maxRetries) {
           const delay = this.calculateDelay(attempt);
           totalDelay += delay;

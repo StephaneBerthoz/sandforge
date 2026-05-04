@@ -84,9 +84,7 @@ describe('sync.types', () => {
           { sourceField: 'Name', targetField: 'Name', type: 'direct' },
           { sourceField: 'Industry', targetField: 'Sector__c', type: 'rename' },
         ],
-        transformRules: [
-          { type: 'uppercase', config: {} },
-        ],
+        transformRules: [{ type: 'uppercase', config: {} }],
         excludedFields: ['CreatedDate', 'LastModifiedDate'],
         addOnFields: [
           { fieldApiName: 'SyncSource__c', value: 'SandForge', overwriteExisting: true },

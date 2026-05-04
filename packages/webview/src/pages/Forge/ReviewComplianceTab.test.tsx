@@ -57,9 +57,7 @@ vi.mock('../../bridge/messageHelpers', () => ({
 
 /* ---- Helpers ---- */
 
-const makeReport = (
-  overrides: Partial<ComplianceReport> = {},
-): ComplianceReport => ({
+const makeReport = (overrides: Partial<ComplianceReport> = {}): ComplianceReport => ({
   id: 'rpt-001',
   framework: 'gdpr',
   generatedAt: '2026-03-11T10:00:00Z',

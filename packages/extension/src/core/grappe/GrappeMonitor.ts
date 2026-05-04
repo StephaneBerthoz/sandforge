@@ -34,8 +34,7 @@ export class GrappeMonitor {
   private operationId: string | undefined;
   private partitionStatuses: Map<string, GrappeStatus> = new Map();
   private partitionProgress: Map<string, GrappeProgress> = new Map();
-  private listeners: Map<GrappeMonitorEventType, Set<GrappeMonitorListener>> =
-    new Map();
+  private listeners: Map<GrappeMonitorEventType, Set<GrappeMonitorListener>> = new Map();
   private monitoring = false;
 
   /**
@@ -96,7 +95,7 @@ export class GrappeMonitor {
     partitions: GrappePartition[],
     workers: GrappeWorkerStatus[],
     backPressureLevel: BackPressureLevel,
-    apiUsage: number
+    apiUsage: number,
   ): GrappeOperationStatus {
     const overallProgress = this.computeOverallProgress(partitions);
     const elapsedMs = this.getElapsedMs(partitions);
@@ -121,10 +120,7 @@ export class GrappeMonitor {
    * @param elapsedMs - Milliseconds elapsed since operation start
    * @returns Estimated milliseconds remaining, or 0 if already complete
    */
-  getEstimatedTimeRemaining(
-    progress: GrappeProgress,
-    elapsedMs: number
-  ): number {
+  getEstimatedTimeRemaining(progress: GrappeProgress, elapsedMs: number): number {
     if (progress.percentage >= 100) {
       return 0;
     }
@@ -191,9 +187,7 @@ export class GrappeMonitor {
   /**
    * Compute aggregated progress from all partition progress data.
    */
-  private computeOverallProgress(
-    partitions: GrappePartition[]
-  ): GrappeProgress {
+  private computeOverallProgress(partitions: GrappePartition[]): GrappeProgress {
     let processedRecords = 0;
     let totalRecords = 0;
     let successCount = 0;
@@ -201,8 +195,7 @@ export class GrappeMonitor {
     let totalRecordsPerSecond = 0;
 
     for (const partition of partitions) {
-      const progress =
-        this.partitionProgress.get(partition.id) ?? partition.progress;
+      const progress = this.partitionProgress.get(partition.id) ?? partition.progress;
       processedRecords += progress.processedRecords;
       totalRecords += progress.totalRecords;
       successCount += progress.successCount;
@@ -210,8 +203,7 @@ export class GrappeMonitor {
       totalRecordsPerSecond += progress.recordsPerSecond;
     }
 
-    const percentage =
-      totalRecords > 0 ? (processedRecords / totalRecords) * 100 : 0;
+    const percentage = totalRecords > 0 ? (processedRecords / totalRecords) * 100 : 0;
 
     return {
       processedRecords,

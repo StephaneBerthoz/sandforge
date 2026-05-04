@@ -9,7 +9,12 @@ describe('RelationshipDetector', () => {
     { name: 'Id', type: 'id', referenceTo: [], relationshipName: null },
     { name: 'Name', type: 'string', referenceTo: [], relationshipName: null },
     { name: 'AccountId', type: 'reference', referenceTo: ['Account'], relationshipName: 'Account' },
-    { name: 'OwnerId', type: 'reference', referenceTo: ['User', 'Group'], relationshipName: 'Owner' },
+    {
+      name: 'OwnerId',
+      type: 'reference',
+      referenceTo: ['User', 'Group'],
+      relationshipName: 'Owner',
+    },
     { name: 'Amount', type: 'currency', referenceTo: [], relationshipName: null },
   ];
 
@@ -33,12 +38,7 @@ describe('RelationshipDetector', () => {
       { name: 'ParentId', type: 'reference', referenceTo: ['Account'], relationshipName: 'Parent' },
     ];
 
-    const suggestions = detector.detect(
-      'Account',
-      accountFields,
-      [],
-      ['Account'],
-    );
+    const suggestions = detector.detect('Account', accountFields, [], ['Account']);
 
     expect(suggestions).toHaveLength(0);
   });

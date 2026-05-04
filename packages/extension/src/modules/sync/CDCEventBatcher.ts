@@ -65,9 +65,7 @@ export class CDCEventBatcher {
     }
 
     const events: CDCEvent[] = [];
-    const start = this.count < this.capacity
-      ? 0
-      : this.writeIndex;
+    const start = this.count < this.capacity ? 0 : this.writeIndex;
     for (let i = 0; i < this.count; i++) {
       const idx = (start + i) % this.capacity;
       const event = this.buffer[idx];

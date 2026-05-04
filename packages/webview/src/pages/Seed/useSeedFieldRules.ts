@@ -41,9 +41,18 @@ export interface SeedFieldRulesState {
   /** Per-object field configurations. */
   fieldConfigs: ObjectFieldConfig[];
   /** Change the generation rule type for a specific field. */
-  handleChangeFieldRule: (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => void;
+  handleChangeFieldRule: (
+    objectApiName: string,
+    fieldApiName: string,
+    ruleType: FieldRuleType,
+  ) => void;
   /** Change a configuration parameter for a specific field rule. */
-  handleChangeFieldConfig: (objectApiName: string, fieldApiName: string, key: string, value: string) => void;
+  handleChangeFieldConfig: (
+    objectApiName: string,
+    fieldApiName: string,
+    key: string,
+    value: string,
+  ) => void;
   /**
    * Apply a persona's data patterns to field configs.
    * For each field matching a key in persona.dataPatterns, sets the rule type
@@ -81,16 +90,24 @@ export function useSeedFieldRules(
     const fieldConfig: ObjectFieldConfig = {
       objectApiName,
       objectLabel,
-      fields: fields.map((f: DescribedField): FieldConfig => ({
-        fieldApiName: f.fieldApiName,
-        label: f.label,
-        type: f.type,
-        required: f.required,
-        ruleType: f.referenceTo.length > 0 ? 'reference' : f.type === 'picklist' ? 'picklist_random' : 'faker',
-        config: f.referenceTo.length > 0
-          ? { referenceObject: f.referenceTo[0], referenceField: 'Id' }
-          : {},
-      })),
+      fields: fields.map(
+        (f: DescribedField): FieldConfig => ({
+          fieldApiName: f.fieldApiName,
+          label: f.label,
+          type: f.type,
+          required: f.required,
+          ruleType:
+            f.referenceTo.length > 0
+              ? 'reference'
+              : f.type === 'picklist'
+                ? 'picklist_random'
+                : 'faker',
+          config:
+            f.referenceTo.length > 0
+              ? { referenceObject: f.referenceTo[0], referenceField: 'Id' }
+              : {},
+        }),
+      ),
     };
 
     setFieldConfigs((prev) => {
@@ -120,20 +137,23 @@ export function useSeedFieldRules(
     }
   }, [currentStep, selectedOrgId, selectedObjects, fieldConfigs, describeFieldsMutate]);
 
-  const handleChangeFieldRule = useCallback((objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => {
-    setFieldConfigs((prev) =>
-      prev.map((obj) =>
-        obj.objectApiName === objectApiName
-          ? {
-              ...obj,
-              fields: obj.fields.map((f) =>
-                f.fieldApiName === fieldApiName ? { ...f, ruleType, config: {} } : f,
-              ),
-            }
-          : obj,
-      ),
-    );
-  }, []);
+  const handleChangeFieldRule = useCallback(
+    (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => {
+      setFieldConfigs((prev) =>
+        prev.map((obj) =>
+          obj.objectApiName === objectApiName
+            ? {
+                ...obj,
+                fields: obj.fields.map((f) =>
+                  f.fieldApiName === fieldApiName ? { ...f, ruleType, config: {} } : f,
+                ),
+              }
+            : obj,
+        ),
+      );
+    },
+    [],
+  );
 
   const handleChangeFieldConfig = useCallback(
     (objectApiName: string, fieldApiName: string, key: string, value: string) => {
@@ -143,7 +163,9 @@ export function useSeedFieldRules(
             ? {
                 ...obj,
                 fields: obj.fields.map((f) =>
-                  f.fieldApiName === fieldApiName ? { ...f, config: { ...f.config, [key]: value } } : f,
+                  f.fieldApiName === fieldApiName
+                    ? { ...f, config: { ...f.config, [key]: value } }
+                    : f,
                 ),
               }
             : obj,
@@ -160,7 +182,8 @@ export function useSeedFieldRules(
       prev.map((obj) => ({
         ...obj,
         fields: obj.fields.map((field) => {
-          const pattern: PersonaFieldPatternMsg | undefined = persona.dataPatterns[field.fieldApiName];
+          const pattern: PersonaFieldPatternMsg | undefined =
+            persona.dataPatterns[field.fieldApiName];
           if (!pattern) return field;
 
           const ruleType = mapGeneratorToRuleType(pattern.generator);

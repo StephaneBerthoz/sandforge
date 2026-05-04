@@ -36,7 +36,10 @@ describe('Domain schemas — valid / invalid samples', () => {
   });
 
   it('SeedMessageSchema accepts seed:execute and rejects bogus type', () => {
-    const valid = { ...baseFields('seed:execute'), payload: { templateId: 't1', orgId: 'o1', dryRun: false } };
+    const valid = {
+      ...baseFields('seed:execute'),
+      payload: { templateId: 't1', orgId: 'o1', dryRun: false },
+    };
     expect(SeedMessageSchema.safeParse(valid).success).toBe(true);
     expect(SeedMessageSchema.safeParse(baseFields('seed:bogus')).success).toBe(false);
   });
@@ -57,7 +60,9 @@ describe('Domain schemas — valid / invalid samples', () => {
     // Phase 03 Plan 03-01 — bridge envelope for the MetricBus variants.
     expect(MonitorMessageSchema.safeParse(baseFields('monitor:metric')).success).toBe(true);
     expect(MonitorMessageSchema.safeParse(baseFields('monitor:metrics:batch')).success).toBe(true);
-    expect(MonitorMessageSchema.safeParse(baseFields('monitor:metric:subscribe')).success).toBe(true);
+    expect(MonitorMessageSchema.safeParse(baseFields('monitor:metric:subscribe')).success).toBe(
+      true,
+    );
   });
 
   it('MonitorMessageSchema validates a complete monitor:metric envelope round-trip', () => {
@@ -124,8 +129,12 @@ describe('Domain schemas — valid / invalid samples', () => {
   });
 
   it('SmartActionMessageSchema accepts smart-action:analyze and rejects unknown', () => {
-    expect(SmartActionMessageSchema.safeParse(baseFields('smart-action:analyze')).success).toBe(true);
-    expect(SmartActionMessageSchema.safeParse(baseFields('smart-action:bogus')).success).toBe(false);
+    expect(SmartActionMessageSchema.safeParse(baseFields('smart-action:analyze')).success).toBe(
+      true,
+    );
+    expect(SmartActionMessageSchema.safeParse(baseFields('smart-action:bogus')).success).toBe(
+      false,
+    );
   });
 });
 

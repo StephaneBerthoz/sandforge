@@ -3,9 +3,7 @@ import { GrappePartitioner, generateId } from './GrappePartitioner';
 import type { RecordMetadata } from './GrappePartitioner';
 import type { GrappeConfig } from '@sandforge/shared';
 
-function createConfig(
-  overrides: Partial<GrappeConfig> = {}
-): GrappeConfig {
+function createConfig(overrides: Partial<GrappeConfig> = {}): GrappeConfig {
   return {
     enabled: true,
     autoActivateThreshold: 1000,
@@ -36,9 +34,7 @@ describe('GrappePartitioner', () => {
   describe('generateId', () => {
     it('should generate a UUID-like string', () => {
       const id = generateId();
-      expect(id).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-      );
+      expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     });
 
     it('should generate unique IDs', () => {
@@ -115,10 +111,7 @@ describe('GrappePartitioner', () => {
       partitioner.setMetadata(metadata);
 
       const config = createConfig({ strategy: 'by_record_type' });
-      const partitions = partitioner.partition(
-        ['r1', 'r2', 'r3', 'r4'],
-        config
-      );
+      const partitions = partitioner.partition(['r1', 'r2', 'r3', 'r4'], config);
 
       expect(partitions).toHaveLength(2);
       const allRecords = partitions.flatMap((p) => p.records).sort();
@@ -179,9 +172,7 @@ describe('GrappePartitioner', () => {
       const first = partitioner.partition(records, config);
       const second = partitioner.partition(records, config);
 
-      expect(first.map((p) => p.records)).toEqual(
-        second.map((p) => p.records)
-      );
+      expect(first.map((p) => p.records)).toEqual(second.map((p) => p.records));
     });
   });
 
@@ -199,10 +190,7 @@ describe('GrappePartitioner', () => {
         strategy: 'by_date_range',
         grappeSize: 2,
       });
-      const partitions = partitioner.partition(
-        ['r1', 'r2', 'r3', 'r4'],
-        config
-      );
+      const partitions = partitioner.partition(['r1', 'r2', 'r3', 'r4'], config);
 
       expect(partitions).toHaveLength(2);
       expect(partitions[0].records).toEqual(['r2', 'r3']);
@@ -222,10 +210,7 @@ describe('GrappePartitioner', () => {
         strategy: 'dependency_aware',
         grappeSize: 1,
       });
-      const partitions = partitioner.partition(
-        ['child', 'parent'],
-        config
-      );
+      const partitions = partitioner.partition(['child', 'parent'], config);
 
       const firstPartitionRecords = partitions[0].records;
       const secondPartitionRecords = partitions[1].records;
@@ -264,9 +249,7 @@ describe('GrappePartitioner', () => {
       });
       const partitions = partitioner.partition(['p1', 'c1'], config);
 
-      const childPartition = partitions.find((p) =>
-        p.records.includes('c1')
-      );
+      const childPartition = partitions.find((p) => p.records.includes('c1'));
       expect(childPartition?.dependencies).toContain('p1');
     });
   });

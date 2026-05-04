@@ -76,9 +76,7 @@ describe('SchemaAdvisor', () => {
     });
 
     const issues = advisor.analyzeObject(obj);
-    const naming = issues.find(
-      (i) => i.type === 'naming_convention' && i.fieldName === 'BadName',
-    );
+    const naming = issues.find((i) => i.type === 'naming_convention' && i.fieldName === 'BadName');
     expect(naming).toBeDefined();
     expect(naming?.description).toContain('__c');
   });
@@ -262,8 +260,20 @@ describe('SchemaAdvisor', () => {
   it('should generate recommendations from issues', () => {
     const issues: SchemaIssue[] = [
       { type: 'unused_field', objectName: 'A', fieldName: 'X', description: '', severity: 'low' },
-      { type: 'naming_convention', objectName: 'B', fieldName: 'Y', description: '', severity: 'low' },
-      { type: 'duplicate_field', objectName: 'C', fieldName: 'Z', description: '', severity: 'medium' },
+      {
+        type: 'naming_convention',
+        objectName: 'B',
+        fieldName: 'Y',
+        description: '',
+        severity: 'low',
+      },
+      {
+        type: 'duplicate_field',
+        objectName: 'C',
+        fieldName: 'Z',
+        description: '',
+        severity: 'medium',
+      },
       { type: 'missing_relationship', objectName: 'D', description: '', severity: 'high' },
     ];
 
@@ -271,7 +281,9 @@ describe('SchemaAdvisor', () => {
     expect(suggestions.length).toBe(4);
     expect(suggestions.some((s) => s.title.includes('unused'))).toBe(true);
     expect(suggestions.some((s) => s.title.includes('naming'))).toBe(true);
-    expect(suggestions.some((s) => s.title.includes('duplicate') || s.title.includes('Consolidate'))).toBe(true);
+    expect(
+      suggestions.some((s) => s.title.includes('duplicate') || s.title.includes('Consolidate')),
+    ).toBe(true);
     expect(suggestions.some((s) => s.title.includes('relationship'))).toBe(true);
   });
 
@@ -311,7 +323,12 @@ describe('SchemaAdvisor', () => {
         custom: false,
         recordCount: 200,
         fields: [
-          makeField({ apiName: 'AccountId', label: 'Account', custom: false, referenceTo: ['Account'] }),
+          makeField({
+            apiName: 'AccountId',
+            label: 'Account',
+            custom: false,
+            referenceTo: ['Account'],
+          }),
           makeField({ apiName: 'Status__c', label: 'Status', custom: true }),
         ],
       }),

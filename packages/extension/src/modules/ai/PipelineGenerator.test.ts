@@ -59,20 +59,14 @@ describe('PipelineGenerator', () => {
   // --- Org resolution ---
 
   it('should resolve org aliases in step config', async () => {
-    const pipeline = await generator.generatePipeline(
-      'sync from production to devbox',
-      testOrgs,
-    );
+    const pipeline = await generator.generatePipeline('sync from production to devbox', testOrgs);
     const syncStep = pipeline.steps.find((s) => s.type === 'sync');
     expect(syncStep?.config['sourceOrg']).toBe('production');
     expect(syncStep?.config['targetOrg']).toBe('devbox');
   });
 
   it('should assign single org when only one matches', async () => {
-    const pipeline = await generator.generatePipeline(
-      'seed data in devbox',
-      testOrgs,
-    );
+    const pipeline = await generator.generatePipeline('seed data in devbox', testOrgs);
     const seedStep = pipeline.steps.find((s) => s.type === 'seed');
     expect(seedStep?.config['org']).toBe('devbox');
   });
@@ -80,10 +74,7 @@ describe('PipelineGenerator', () => {
   // --- Salesforce object detection ---
 
   it('should detect Salesforce object names in description', async () => {
-    const pipeline = await generator.generatePipeline(
-      'sync account and contact records',
-      testOrgs,
-    );
+    const pipeline = await generator.generatePipeline('sync account and contact records', testOrgs);
     const syncStep = pipeline.steps.find((s) => s.type === 'sync');
     const objects = syncStep?.config['objects'] as string[];
     expect(objects).toContain('Account');
@@ -105,10 +96,7 @@ describe('PipelineGenerator', () => {
   // --- Trigger extraction ---
 
   it('should extract deployment trigger', async () => {
-    const pipeline = await generator.generatePipeline(
-      'sync data on deploy to devbox',
-      testOrgs,
-    );
+    const pipeline = await generator.generatePipeline('sync data on deploy to devbox', testOrgs);
     expect(pipeline.triggers).toContain('deployment_complete');
   });
 

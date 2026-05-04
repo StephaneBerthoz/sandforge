@@ -230,7 +230,14 @@ export interface ForgeTemplate {
 }
 
 /** PII category for anonymization UI grouping. */
-export type ForgeAnonymizationCategory = 'email' | 'phone' | 'name' | 'address' | 'ssn_id' | 'financial' | 'other';
+export type ForgeAnonymizationCategory =
+  | 'email'
+  | 'phone'
+  | 'name'
+  | 'address'
+  | 'ssn_id'
+  | 'financial'
+  | 'other';
 
 /** Batch strategy for an object during execution. */
 export type ForgeBatchStrategy = 'rest' | 'bulk' | 'auto';

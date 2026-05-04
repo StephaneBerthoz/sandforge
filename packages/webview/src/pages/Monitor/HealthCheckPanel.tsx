@@ -28,23 +28,32 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 });
 
 /** Returns badge variant based on health or status value. */
-function statusVariant(status: 'ok' | 'warning' | 'critical' | 'healthy' | 'degraded'): BadgeVariant {
+function statusVariant(
+  status: 'ok' | 'warning' | 'critical' | 'healthy' | 'degraded',
+): BadgeVariant {
   switch (status) {
     case 'ok':
-    case 'healthy': return 'success';
+    case 'healthy':
+      return 'success';
     case 'warning':
-    case 'degraded': return 'warning';
-    case 'critical': return 'error';
-    default: return 'default';
+    case 'degraded':
+      return 'warning';
+    case 'critical':
+      return 'error';
+    default:
+      return 'default';
   }
 }
 
 /** Returns human-readable label for overall health status. */
 function overallLabel(status: 'healthy' | 'degraded' | 'critical'): string {
   switch (status) {
-    case 'healthy': return 'Healthy';
-    case 'degraded': return 'Degraded';
-    case 'critical': return 'Critical';
+    case 'healthy':
+      return 'Healthy';
+    case 'degraded':
+      return 'Degraded';
+    case 'critical':
+      return 'Critical';
   }
 }
 
@@ -63,7 +72,10 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = ({ orgHealthSta
 
   if (!orgHealthStatus) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="health-check-panel-empty">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="health-check-panel-empty"
+      >
         <div className="flex items-center gap-2 mb-3">
           <Shield className="w-4 h-4 text-text-secondary" />
           <h3 className="text-sm font-semibold text-text-primary">
@@ -78,7 +90,10 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = ({ orgHealthSta
   }
 
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="health-check-panel">
+    <div
+      className="rounded-lg border border-subtle bg-surface-1 p-4"
+      data-testid="health-check-panel"
+    >
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <Shield className="w-4 h-4 text-text-secondary" />
@@ -86,7 +101,10 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = ({ orgHealthSta
           {t('monitor.healthCheck.title', 'Org Health Check')}
         </h3>
         <Badge variant={statusVariant(orgHealthStatus.overall)}>
-          {t(`monitor.healthCheck.${orgHealthStatus.overall}`, overallLabel(orgHealthStatus.overall))}
+          {t(
+            `monitor.healthCheck.${orgHealthStatus.overall}`,
+            overallLabel(orgHealthStatus.overall),
+          )}
         </Badge>
       </div>
 
@@ -139,7 +157,8 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = ({ orgHealthSta
 
       {/* Last checked */}
       <p className="text-[10px] text-text-muted">
-        {t('monitor.healthCheck.lastChecked', 'Last checked')}: {dateFormatter.format(new Date(orgHealthStatus.lastChecked))}
+        {t('monitor.healthCheck.lastChecked', 'Last checked')}:{' '}
+        {dateFormatter.format(new Date(orgHealthStatus.lastChecked))}
       </p>
     </div>
   );

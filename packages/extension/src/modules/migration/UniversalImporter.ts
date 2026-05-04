@@ -1,10 +1,5 @@
 import { z } from 'zod';
-import type {
-  SyncConfig,
-  SyncObjectConfig,
-  FieldMapping,
-  MappingType,
-} from '@sandforge/shared';
+import type { SyncConfig, SyncObjectConfig, FieldMapping, MappingType } from '@sandforge/shared';
 
 // ── Import Options Zod Schema ─────────────────────────────
 
@@ -82,11 +77,11 @@ export class UniversalImporter {
     const objectApiName = validatedOptions.objectApiName ?? inferObjectName(filePath);
     const columns = this.detectColumns(records);
     const filteredColumns = columns.filter(
-      (col) => !validatedOptions.excludeColumns.includes(col.name)
+      (col) => !validatedOptions.excludeColumns.includes(col.name),
     );
     const fieldMappings = this.buildFieldMappings(
       filteredColumns,
-      validatedOptions.fieldMappingOverrides
+      validatedOptions.fieldMappingOverrides,
     );
 
     return this.buildSyncConfig(objectApiName, fieldMappings, validatedOptions);
@@ -160,7 +155,7 @@ export class UniversalImporter {
   private parseContent(
     content: string,
     format: DetectedFormat,
-    delimiter: string
+    delimiter: string,
   ): Record<string, unknown>[] {
     if (format === 'json') {
       return this.parseJson(content);
@@ -245,7 +240,7 @@ export class UniversalImporter {
    */
   private buildFieldMappings(
     columns: DetectedColumn[],
-    overrides?: Record<string, string>
+    overrides?: Record<string, string>,
   ): FieldMapping[] {
     return columns.map((col) => {
       const targetField = overrides?.[col.name] ?? col.inferredSfField;
@@ -268,7 +263,7 @@ export class UniversalImporter {
   private buildSyncConfig(
     objectApiName: string,
     fieldMappings: FieldMapping[],
-    options: ImportOptions
+    options: ImportOptions,
   ): SyncConfig {
     const now = new Date().toISOString();
 
@@ -393,12 +388,8 @@ function mapColumnToSfField(columnName: string): string {
  * @param values - Sample values from the column
  * @returns Inferred type string
  */
-function inferValueType(
-  values: unknown[]
-): 'string' | 'number' | 'boolean' | 'date' | 'id' {
-  const nonEmpty = values.filter(
-    (v) => v !== null && v !== undefined && v !== ''
-  );
+function inferValueType(values: unknown[]): 'string' | 'number' | 'boolean' | 'date' | 'id' {
+  const nonEmpty = values.filter((v) => v !== null && v !== undefined && v !== '');
 
   if (nonEmpty.length === 0) {
     return 'string';
@@ -539,14 +530,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * @returns Generated ID string
  */
 function generateId(): string {
-  const segments = [8, 4, 4, 4, 12];
-  return segments
-    .map((len) => {
-      let segment = '';
-      for (let i = 0; i < len; i++) {
-        segment += Math.floor(Math.random() * 16).toString(16);
-      }
-      return segment;
-    })
-    .join('-');
+  return globalThis.crypto.randomUUID();
 }

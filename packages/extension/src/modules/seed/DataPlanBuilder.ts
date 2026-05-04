@@ -80,7 +80,7 @@ function extractDependencies(obj: SeedObjectConfig): string[] {
  */
 function generateSampleRecords(
   obj: SeedObjectConfig,
-  sampleCount: number
+  sampleCount: number,
 ): Record<string, unknown>[] {
   const count = Math.min(sampleCount, obj.recordCount);
   const records: Record<string, unknown>[] = [];
@@ -135,9 +135,7 @@ function generateSampleValue(rule: FieldRule, index: number): unknown {
  * Resolve the correct insert order using topological sort
  * based on reference dependencies between objects.
  */
-export function resolveInsertOrder(
-  objects: SeedObjectConfig[]
-): SeedObjectConfig[] {
+export function resolveInsertOrder(objects: SeedObjectConfig[]): SeedObjectConfig[] {
   const objectMap = new Map<string, SeedObjectConfig>();
   for (const obj of objects) {
     objectMap.set(obj.objectApiName, obj);

@@ -89,9 +89,7 @@ describe('I18nEngine', () => {
       engine.loadNamespace('seed', 'en', {
         completed: '{{count}} records in {{duration}}',
       });
-      expect(engine.t('seed.completed', { count: 42, duration: '3s' })).toBe(
-        '42 records in 3s'
-      );
+      expect(engine.t('seed.completed', { count: 42, duration: '3s' })).toBe('42 records in 3s');
     });
 
     it('should leave unmatched placeholders intact', () => {

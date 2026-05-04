@@ -42,7 +42,8 @@ export function useGlobalShortcuts(): void {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
       const target = e.target as HTMLElement;
-      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      const isInput =
+        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 
       /* ── Ctrl/Meta shortcuts (work even in inputs for Ctrl+Enter) ── */
       const ctrlOrMeta = e.ctrlKey || e.metaKey;

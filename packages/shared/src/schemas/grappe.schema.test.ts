@@ -67,8 +67,13 @@ describe('grappeConfigSchema', () => {
 
   it('should accept all valid partition strategies', () => {
     const strategies = [
-      'round_robin', 'by_record_type', 'by_parent',
-      'by_date_range', 'by_hash', 'by_volume', 'dependency_aware',
+      'round_robin',
+      'by_record_type',
+      'by_parent',
+      'by_date_range',
+      'by_hash',
+      'by_volume',
+      'dependency_aware',
     ] as const;
 
     for (const strategy of strategies) {

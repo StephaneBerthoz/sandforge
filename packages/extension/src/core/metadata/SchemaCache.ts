@@ -76,10 +76,7 @@ export class SchemaCache<T = unknown> {
 
     // Evict LRU entries until under memory limit
     if (trackBytes) {
-      while (
-        this.cache.size > 0 &&
-        this.currentBytes + entrySize > this.maxSizeBytes
-      ) {
+      while (this.cache.size > 0 && this.currentBytes + entrySize > this.maxSizeBytes) {
         this.evictLRU();
       }
     }

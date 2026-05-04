@@ -111,7 +111,10 @@ describe('useCDCLiveStore', () => {
     useCDCLiveStore.getState().startStream();
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as { type: string; payload: Record<string, unknown> };
+    const msg = mockPostMessage.mock.calls[0][0] as {
+      type: string;
+      payload: Record<string, unknown>;
+    };
     expect(msg.type).toBe('realtime:start');
     expect(msg.payload.sourceOrgId).toBe('org-src');
     expect(msg.payload.targetOrgId).toBe('org-tgt');
@@ -145,7 +148,12 @@ describe('useCDCLiveStore', () => {
 
   it('should forward realtime:conflict messages to useConflictStore', () => {
     // Reset conflict store
-    useConflictStore.setState({ conflicts: [], selectedConflictId: null, filterObject: null, filterType: null });
+    useConflictStore.setState({
+      conflicts: [],
+      selectedConflictId: null,
+      filterObject: null,
+      filterType: null,
+    });
 
     // Simulate a realtime:conflict message from the extension
     const conflictPayload = {

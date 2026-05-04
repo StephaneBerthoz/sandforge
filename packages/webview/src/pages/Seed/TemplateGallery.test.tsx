@@ -4,8 +4,16 @@ import '../../i18n';
 import { TemplateGallery } from './TemplateGallery';
 
 /* Polyfill dialog showModal/close for jsdom */
-HTMLDialogElement.prototype.showModal = HTMLDialogElement.prototype.showModal ?? function showModal(this: HTMLDialogElement) { this.setAttribute('open', ''); };
-HTMLDialogElement.prototype.close = HTMLDialogElement.prototype.close ?? function close(this: HTMLDialogElement) { this.removeAttribute('open'); };
+HTMLDialogElement.prototype.showModal =
+  HTMLDialogElement.prototype.showModal ??
+  function showModal(this: HTMLDialogElement) {
+    this.setAttribute('open', '');
+  };
+HTMLDialogElement.prototype.close =
+  HTMLDialogElement.prototype.close ??
+  function close(this: HTMLDialogElement) {
+    this.removeAttribute('open');
+  };
 import type { TemplateGalleryItem } from './useTemplateGallery';
 
 /* ------------------------------------------------------------------ */
@@ -29,8 +37,22 @@ const mockItems: TemplateGalleryItem[] = [
       version: 1,
       strategy: 'faker',
       objects: [
-        { objectApiName: 'Account', recordCount: 500, fieldRules: [], excludedFields: [], insertOrder: 0, batchSize: 200 },
-        { objectApiName: 'Contact', recordCount: 1000, fieldRules: [], excludedFields: [], insertOrder: 1, batchSize: 200 },
+        {
+          objectApiName: 'Account',
+          recordCount: 500,
+          fieldRules: [],
+          excludedFields: [],
+          insertOrder: 0,
+          batchSize: 200,
+        },
+        {
+          objectApiName: 'Contact',
+          recordCount: 1000,
+          fieldRules: [],
+          excludedFields: [],
+          insertOrder: 1,
+          batchSize: 200,
+        },
       ],
       tags: ['prebuilt', 'sales'],
       createdAt: '2026-01-01T00:00:00.000Z',

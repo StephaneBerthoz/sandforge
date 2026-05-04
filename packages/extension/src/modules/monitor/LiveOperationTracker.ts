@@ -53,7 +53,12 @@ export class LiveOperationTracker {
    * @param description - Short description of what the operation does.
    * @param totalRecords - Expected total records (0 if unknown).
    */
-  register(operationId: string, module: string, description: string, totalRecords: number = 0): void {
+  register(
+    operationId: string,
+    module: string,
+    description: string,
+    totalRecords: number = 0,
+  ): void {
     const op: LiveOperation = {
       operationId,
       module,

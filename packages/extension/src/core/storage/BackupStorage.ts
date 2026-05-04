@@ -53,7 +53,7 @@ export class BackupStorage {
     operationId: string,
     orgId: string,
     objects: BackupObjectInfo[],
-    records: Map<string, Record<string, unknown>[]>
+    records: Map<string, Record<string, unknown>[]>,
   ): Promise<void> {
     await this.ensureDir();
 
@@ -65,11 +65,7 @@ export class BackupStorage {
       totalRecords: objects.reduce((sum, obj) => sum + obj.recordCount, 0),
     };
 
-    await writeFile(
-      this.metaPath(operationId),
-      JSON.stringify(meta, null, 2),
-      'utf-8'
-    );
+    await writeFile(this.metaPath(operationId), JSON.stringify(meta, null, 2), 'utf-8');
 
     const writePromises: Promise<void>[] = [];
     for (const [objectApiName, objectRecords] of records) {
@@ -77,8 +73,8 @@ export class BackupStorage {
         writeFile(
           this.recordsPath(operationId, objectApiName),
           JSON.stringify(objectRecords, null, 2),
-          'utf-8'
-        )
+          'utf-8',
+        ),
       );
     }
 
@@ -107,13 +103,10 @@ export class BackupStorage {
    */
   async getBackupRecords(
     operationId: string,
-    objectApiName: string
+    objectApiName: string,
   ): Promise<Record<string, unknown>[]> {
     try {
-      const content = await readFile(
-        this.recordsPath(operationId, objectApiName),
-        'utf-8'
-      );
+      const content = await readFile(this.recordsPath(operationId, objectApiName), 'utf-8');
       return JSON.parse(content) as Record<string, unknown>[];
     } catch {
       return [];
@@ -131,10 +124,7 @@ export class BackupStorage {
 
       const readPromises = metaFiles.map(async (file) => {
         try {
-          const content = await readFile(
-            join(this.backupsDir, file),
-            'utf-8'
-          );
+          const content = await readFile(join(this.backupsDir, file), 'utf-8');
           return JSON.parse(content) as BackupMeta;
         } catch {
           return null;
@@ -162,9 +152,7 @@ export class BackupStorage {
       const matchingFiles = files.filter((f) => f.startsWith(prefix));
 
       await Promise.all(
-        matchingFiles.map((file) =>
-          rm(join(this.backupsDir, file), { force: true })
-        )
+        matchingFiles.map((file) => rm(join(this.backupsDir, file), { force: true })),
       );
     } catch {
       // Directory may not exist; nothing to delete
@@ -209,7 +197,7 @@ export class BackupStorage {
   /** Returns the file path for a backup's object record file */
   private recordsPath(operationId: string, objectApiName: string): string {
     return this.safePath(
-      `backup-${this.safeName(operationId)}.${this.safeName(objectApiName)}.json`
+      `backup-${this.safeName(operationId)}.${this.safeName(objectApiName)}.json`,
     );
   }
 }

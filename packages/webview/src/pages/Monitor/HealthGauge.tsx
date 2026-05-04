@@ -34,13 +34,24 @@ function gaugeLabel(value: number): string {
 }
 
 /** Converts polar coordinates to cartesian. */
-function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number): { x: number; y: number } {
+function polarToCartesian(
+  cx: number,
+  cy: number,
+  r: number,
+  angleDeg: number,
+): { x: number; y: number } {
   const rad = (angleDeg * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
 /** Builds an SVG arc path descriptor. */
-function describeArc(cx: number, cy: number, r: number, startAngle: number, endAngle: number): string {
+function describeArc(
+  cx: number,
+  cy: number,
+  r: number,
+  startAngle: number,
+  endAngle: number,
+): string {
   const start = polarToCartesian(cx, cy, r, startAngle);
   const end = polarToCartesian(cx, cy, r, endAngle);
   const largeArc = endAngle - startAngle > 180 ? 1 : 0;
@@ -52,11 +63,7 @@ function describeArc(cx: number, cy: number, r: number, startAngle: number, endA
  * Color zones: green (>80), amber (40-80), red (<40).
  * Animated fill via framer-motion.
  */
-export const HealthGauge: React.FC<HealthGaugeProps> = ({
-  value,
-  size = 120,
-  className,
-}) => {
+export const HealthGauge: React.FC<HealthGaugeProps> = ({ value, size = 120, className }) => {
   const clamped = Math.min(100, Math.max(0, Math.round(value)));
   const cx = size / 2;
   const cy = size / 2;
@@ -73,11 +80,7 @@ export const HealthGauge: React.FC<HealthGaugeProps> = ({
       className={cn('inline-flex flex-col items-center justify-center relative', className)}
       data-testid="health-gauge"
     >
-      <svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-      >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {/* Background arc */}
         <path
           d={bgArcPath}

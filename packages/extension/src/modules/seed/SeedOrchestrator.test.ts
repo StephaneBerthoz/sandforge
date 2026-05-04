@@ -18,10 +18,7 @@ function createMockDeps(): SeedOrchestratorDependencies {
       }),
     } as unknown as SeedOrchestratorDependencies['planBuilder'],
     fieldMapper: {
-      mapFields: vi.fn().mockResolvedValue([
-        { Name: 'Record 1' },
-        { Name: 'Record 2' },
-      ]),
+      mapFields: vi.fn().mockResolvedValue([{ Name: 'Record 1' }, { Name: 'Record 2' }]),
     } as unknown as SeedOrchestratorDependencies['fieldMapper'],
     referenceLinker: {
       resolveInsertOrder: vi.fn((objects: SeedTemplate['objects']) => objects),
@@ -46,9 +43,7 @@ function createTemplate(overrides?: Partial<SeedTemplate>): SeedTemplate {
       {
         objectApiName: 'Account',
         recordCount: 2,
-        fieldRules: [
-          { fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } },
-        ],
+        fieldRules: [{ fieldApiName: 'Name', ruleType: 'static', config: { staticValue: 'Test' } }],
         excludedFields: [],
         insertOrder: 0,
         batchSize: 200,
@@ -105,7 +100,7 @@ describe('SeedOrchestrator', () => {
         'org-1',
         'Account',
         [{ Name: 'Record 1' }, { Name: 'Record 2' }],
-        200
+        200,
       );
     });
 
@@ -157,7 +152,11 @@ describe('SeedOrchestrator', () => {
             objectApiName: 'Contact',
             recordCount: 1,
             fieldRules: [
-              { fieldApiName: 'AccountId', ruleType: 'reference', config: { referenceObject: 'Account' } },
+              {
+                fieldApiName: 'AccountId',
+                ruleType: 'reference',
+                config: { referenceObject: 'Account' },
+              },
             ],
             excludedFields: [],
             insertOrder: 1,

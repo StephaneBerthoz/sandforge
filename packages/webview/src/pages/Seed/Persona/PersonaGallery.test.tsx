@@ -19,7 +19,7 @@ const testPersonas: PersonaMsg[] = [
   {
     id: 'assureur-fr',
     name: 'Assureur francais',
-    description: 'Compagnie d\'assurance',
+    description: "Compagnie d'assurance",
     industry: 'Insurance',
     locale: 'fr-FR',
     dataPatterns: {
@@ -53,7 +53,13 @@ let mockHookReturn = {
   setCustomDescription: mockSetCustomDescription,
   createCustom: mockCreateCustom,
   generateSampleRecords: (_persona: PersonaMsg) =>
-    [{ Name: 'AXA' }, { Name: 'Mutuelle' }, { Name: 'Groupe' }, { Name: 'AXA' }, { Name: 'Mutuelle' }] as Record<string, string>[],
+    [
+      { Name: 'AXA' },
+      { Name: 'Mutuelle' },
+      { Name: 'Groupe' },
+      { Name: 'AXA' },
+      { Name: 'Mutuelle' },
+    ] as Record<string, string>[],
   refetch: mockRefetch,
 };
 
@@ -79,7 +85,13 @@ describe('PersonaGallery', () => {
       setCustomDescription: mockSetCustomDescription,
       createCustom: mockCreateCustom,
       generateSampleRecords: (_persona: PersonaMsg) =>
-        [{ Name: 'AXA' }, { Name: 'Mutuelle' }, { Name: 'Groupe' }, { Name: 'AXA' }, { Name: 'Mutuelle' }] as Record<string, string>[],
+        [
+          { Name: 'AXA' },
+          { Name: 'Mutuelle' },
+          { Name: 'Groupe' },
+          { Name: 'AXA' },
+          { Name: 'Mutuelle' },
+        ] as Record<string, string>[],
       refetch: mockRefetch,
     };
   });

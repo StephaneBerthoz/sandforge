@@ -33,12 +33,7 @@ describe('CliParser', () => {
     });
 
     it('should parse the sync command with dry-run flag', () => {
-      const result = parser.parse([
-        'sync',
-        '--config',
-        './sync/prod-to-dev.json',
-        '--dry-run',
-      ]);
+      const result = parser.parse(['sync', '--config', './sync/prod-to-dev.json', '--dry-run']);
       expect(result.command).toBe('sync');
       expect(result.options['config']).toBe('./sync/prod-to-dev.json');
       expect(result.flags).toContain('dry-run');
@@ -76,12 +71,7 @@ describe('CliParser', () => {
     });
 
     it('should parse the pipeline command with sub-command', () => {
-      const result = parser.parse([
-        'pipeline',
-        'run',
-        '--config',
-        './pipelines/nightly.json',
-      ]);
+      const result = parser.parse(['pipeline', 'run', '--config', './pipelines/nightly.json']);
       expect(result.command).toBe('pipeline');
       expect(result.subCommand).toBe('run');
       expect(result.options['config']).toBe('./pipelines/nightly.json');
@@ -103,25 +93,14 @@ describe('CliParser', () => {
     });
 
     it('should parse the grappe command with sub-command and operation-id', () => {
-      const result = parser.parse([
-        'grappe',
-        'status',
-        '--operation-id',
-        'abc123',
-      ]);
+      const result = parser.parse(['grappe', 'status', '--operation-id', 'abc123']);
       expect(result.command).toBe('grappe');
       expect(result.subCommand).toBe('status');
       expect(result.options['operation-id']).toBe('abc123');
     });
 
     it('should parse the health command with format option', () => {
-      const result = parser.parse([
-        'health',
-        '--org',
-        'prod',
-        '--format',
-        'json',
-      ]);
+      const result = parser.parse(['health', '--org', 'prod', '--format', 'json']);
       expect(result.command).toBe('health');
       expect(result.options['org']).toBe('prod');
       expect(result.options['format']).toBe('json');
@@ -182,9 +161,7 @@ describe('CliParser', () => {
       };
       const result = parser.validate(cmd);
       expect(result.valid).toBe(false);
-      expect(result.errors).toContainEqual(
-        expect.stringContaining('--template')
-      );
+      expect(result.errors).toContainEqual(expect.stringContaining('--template'));
     });
 
     it('should reject seed command missing --org', () => {
@@ -215,9 +192,7 @@ describe('CliParser', () => {
       };
       const result = parser.validate(cmd);
       expect(result.valid).toBe(false);
-      expect(result.errors).toContainEqual(
-        expect.stringContaining('--config')
-      );
+      expect(result.errors).toContainEqual(expect.stringContaining('--config'));
     });
 
     it('should validate a correct compare command', () => {
@@ -267,9 +242,7 @@ describe('CliParser', () => {
       };
       const result = parser.validate(cmd);
       expect(result.valid).toBe(false);
-      expect(result.errors).toContainEqual(
-        expect.stringContaining("sub-command 'run'")
-      );
+      expect(result.errors).toContainEqual(expect.stringContaining("sub-command 'run'"));
     });
 
     it('should reject pipeline command with wrong sub-command', () => {
@@ -281,9 +254,7 @@ describe('CliParser', () => {
       };
       const result = parser.validate(cmd);
       expect(result.valid).toBe(false);
-      expect(result.errors).toContainEqual(
-        expect.stringContaining("Unknown sub-command 'stop'")
-      );
+      expect(result.errors).toContainEqual(expect.stringContaining("Unknown sub-command 'stop'"));
     });
 
     it('should validate a correct anonymize command', () => {
@@ -332,9 +303,7 @@ describe('CliParser', () => {
       };
       const result = parser.validate(cmd);
       expect(result.valid).toBe(false);
-      expect(result.errors).toContainEqual(
-        expect.stringContaining("Unknown command: 'deploy'")
-      );
+      expect(result.errors).toContainEqual(expect.stringContaining("Unknown command: 'deploy'"));
     });
 
     it('should accept any command with --help flag', () => {
@@ -355,9 +324,7 @@ describe('CliParser', () => {
       };
       const result = parser.validate(cmd);
       expect(result.valid).toBe(false);
-      expect(result.errors).toContainEqual(
-        expect.stringContaining("Invalid format 'yaml'")
-      );
+      expect(result.errors).toContainEqual(expect.stringContaining("Invalid format 'yaml'"));
     });
 
     it('should accept valid format option', () => {

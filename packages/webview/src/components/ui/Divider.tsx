@@ -51,10 +51,7 @@ export const Divider: React.FC<DividerProps> = ({
     <div
       role="separator"
       aria-orientation="horizontal"
-      className={cn(
-        'h-px w-full bg-[var(--vscode-panel-border,#3c3c3c)]',
-        className,
-      )}
+      className={cn('h-px w-full bg-[var(--vscode-panel-border,#3c3c3c)]', className)}
     />
   );
 };

@@ -53,14 +53,26 @@ const defaultGraph: ForgeGraph = {
 };
 
 let mockGraph: ForgeGraph | null = defaultGraph;
-let mockConfig: { inputMode: string; depth: string; sourceOrgId: string; targetOrgId: string; anonymizePII: boolean; skipEmpty: boolean; batchSize: string } | null = null;
+let mockConfig: {
+  inputMode: string;
+  depth: string;
+  sourceOrgId: string;
+  targetOrgId: string;
+  anonymizePII: boolean;
+  skipEmpty: boolean;
+  batchSize: string;
+} | null = null;
 
 const mockSetGraph = vi.fn();
 
 vi.mock('../../stores/useForgeStore', () => {
   const defaultState = {
-    get graph() { return mockGraph; },
-    get config() { return mockConfig; },
+    get graph() {
+      return mockGraph;
+    },
+    get config() {
+      return mockConfig;
+    },
     phase: 'discovery' as const,
     templates: [],
     result: null,
@@ -96,16 +108,10 @@ vi.mock('../../hooks/useMessageBus', async () => {
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: ({ onNodeClick }: { onNodeClick?: (name: string) => void }) => (
     <div data-testid="live-graph">
-      <button
-        data-testid="mock-node-Account"
-        onClick={() => onNodeClick?.('Account')}
-      >
+      <button data-testid="mock-node-Account" onClick={() => onNodeClick?.('Account')}>
         Account
       </button>
-      <button
-        data-testid="mock-node-Contact"
-        onClick={() => onNodeClick?.('Contact')}
-      >
+      <button data-testid="mock-node-Contact" onClick={() => onNodeClick?.('Contact')}>
         Contact
       </button>
     </div>

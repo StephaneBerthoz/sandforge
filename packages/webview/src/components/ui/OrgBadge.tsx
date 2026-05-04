@@ -39,7 +39,10 @@ export const OrgBadge: React.FC<OrgBadgeProps> = ({
   className,
 }) => {
   const dotClass = statusColors[status] ?? statusColors.error;
-  const typeInfo = orgTypeConfig[orgType] ?? { label: orgType.slice(0, 3).toUpperCase(), bg: 'bg-[var(--sf-info)]' };
+  const typeInfo = orgTypeConfig[orgType] ?? {
+    label: orgType.slice(0, 3).toUpperCase(),
+    bg: 'bg-[var(--sf-info)]',
+  };
 
   /** Truncate instance URL to hostname only. */
   const truncatedUrl = instanceUrl

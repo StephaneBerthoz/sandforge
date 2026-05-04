@@ -2,12 +2,13 @@
  * Compliance types for audit reporting and regulatory framework enforcement.
  */
 
-import type { ISODateString, ApiName, ComplianceFrameworkType, AnonymizationMethod } from './common.types.js';
 import type {
-  AnonymizationOverride,
-  PIIFieldDetection,
-  PIICategory,
-} from './autopilot.types.js';
+  ISODateString,
+  ApiName,
+  ComplianceFrameworkType,
+  AnonymizationMethod,
+} from './common.types.js';
+import type { AnonymizationOverride, PIIFieldDetection, PIICategory } from './autopilot.types.js';
 
 /** A rule within a compliance profile */
 export interface ComplianceRule {

@@ -7,7 +7,12 @@ import type { SeedObjectInfo } from './Step2_SelectObjects';
 const objects: SeedObjectInfo[] = [
   { apiName: 'Account', label: 'Account', recordCount: 1000, dependencies: [] },
   { apiName: 'Contact', label: 'Contact', recordCount: 5000, dependencies: ['Account'] },
-  { apiName: 'Opportunity', label: 'Opportunity', recordCount: 200, dependencies: ['Account', 'Contact'] },
+  {
+    apiName: 'Opportunity',
+    label: 'Opportunity',
+    recordCount: 200,
+    dependencies: ['Account', 'Contact'],
+  },
 ];
 
 describe('Step2SelectObjects', () => {
@@ -31,7 +36,11 @@ describe('Step2SelectObjects', () => {
 
   it('should show selected state', () => {
     render(
-      <Step2SelectObjects availableObjects={objects} selectedObjects={['Account']} onToggle={vi.fn()} />,
+      <Step2SelectObjects
+        availableObjects={objects}
+        selectedObjects={['Account']}
+        onToggle={vi.fn()}
+      />,
     );
     expect(screen.getByTestId('obj-Account').getAttribute('aria-checked')).toBe('true');
     expect(screen.getByTestId('obj-Contact').getAttribute('aria-checked')).toBe('false');
@@ -60,9 +69,7 @@ describe('Step2SelectObjects', () => {
   });
 
   it('should show empty state when no objects', () => {
-    render(
-      <Step2SelectObjects availableObjects={[]} selectedObjects={[]} onToggle={vi.fn()} />,
-    );
+    render(<Step2SelectObjects availableObjects={[]} selectedObjects={[]} onToggle={vi.fn()} />);
     expect(screen.getByText('No objects selected')).toBeDefined();
   });
 

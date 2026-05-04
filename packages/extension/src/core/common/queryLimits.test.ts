@@ -1,9 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  getQueryLimits,
-  getDefaultQueryLimit,
-  resolveOrgTier,
-} from './queryLimits';
+import { getQueryLimits, getDefaultQueryLimit, resolveOrgTier } from './queryLimits';
 
 describe('queryLimits', () => {
   describe('getQueryLimits', () => {

@@ -30,11 +30,15 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
 /** Returns badge variant based on refresh status. */
 function statusVariant(status: string): BadgeVariant {
   switch (status) {
-    case 'Completed': return 'success';
+    case 'Completed':
+      return 'success';
     case 'Processing':
-    case 'Pending': return 'warning';
-    case 'Failed': return 'error';
-    default: return 'default';
+    case 'Pending':
+      return 'warning';
+    case 'Failed':
+      return 'error';
+    default:
+      return 'default';
   }
 }
 
@@ -59,7 +63,10 @@ export const RefreshPanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="refresh-panel-loading">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="refresh-panel-loading"
+      >
         <Skeleton variant="rect" height="200px" />
       </div>
     );
@@ -67,7 +74,10 @@ export const RefreshPanel: React.FC = () => {
 
   if (refreshes.length === 0) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="refresh-panel-empty">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="refresh-panel-empty"
+      >
         <div className="flex items-center gap-2 mb-3">
           <RefreshCcw className="w-4 h-4 text-text-secondary" />
           <h3 className="text-sm font-semibold text-text-primary">
@@ -111,9 +121,7 @@ export const RefreshPanel: React.FC = () => {
               {refresh.sandboxName}
             </span>
             <span className="shrink-0">
-              <Badge variant={statusVariant(refresh.status)}>
-                {refresh.status}
-              </Badge>
+              <Badge variant={statusVariant(refresh.status)}>{refresh.status}</Badge>
             </span>
             <span className="text-[11px] tabular-nums text-text-muted w-28 shrink-0">
               {dateFormatter.format(new Date(refresh.refreshDate))}

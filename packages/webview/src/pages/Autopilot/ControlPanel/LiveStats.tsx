@@ -7,7 +7,10 @@ import { formatDuration } from '../../../utils/formatters';
 const ProgressBar: React.FC<{ current: number; total: number }> = ({ current, total }) => {
   const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
   return (
-    <div className="w-full h-2 rounded bg-[var(--vscode-input-background,#3c3c3c)]" data-testid="progress-bar">
+    <div
+      className="w-full h-2 rounded bg-[var(--vscode-input-background,#3c3c3c)]"
+      data-testid="progress-bar"
+    >
       <div
         className="h-full rounded bg-[var(--vscode-progressBar-background,#0e70c0)] transition-all duration-300"
         style={{ width: `${pct}%` }}

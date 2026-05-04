@@ -68,18 +68,22 @@ describe('DataOpsHandler', () => {
 
       const mockGetConn = vi.mocked(getJsforceConnection);
       let resolveFirst: (() => void) | undefined;
-      const firstCallPromise = new Promise<void>((resolve) => { resolveFirst = resolve; });
+      const firstCallPromise = new Promise<void>((resolve) => {
+        resolveFirst = resolve;
+      });
 
       const mockConn = {
         query: vi.fn().mockResolvedValue({ records: [] }),
       };
 
       // First call hangs until we resolve it
-      mockGetConn.mockImplementationOnce(() =>
-        firstCallPromise.then(() => mockConn) as ReturnType<typeof getJsforceConnection>,
+      mockGetConn.mockImplementationOnce(
+        () => firstCallPromise.then(() => mockConn) as ReturnType<typeof getJsforceConnection>,
       );
 
-      const makeMsg = (id: string): BaseMessage & { payload: { orgId: string; objects: string[] } } => ({
+      const makeMsg = (
+        id: string,
+      ): BaseMessage & { payload: { orgId: string; objects: string[] } } => ({
         id,
         type: 'dataops:backup',
         timestamp: Date.now(),
@@ -111,7 +115,9 @@ describe('DataOpsHandler', () => {
         }),
       }));
 
-      const makeMsg = (orgId: string): BaseMessage & { payload: { orgId: string; objects: string[] } } => ({
+      const makeMsg = (
+        orgId: string,
+      ): BaseMessage & { payload: { orgId: string; objects: string[] } } => ({
         id: '1',
         type: 'dataops:backup',
         timestamp: Date.now(),
@@ -119,14 +125,12 @@ describe('DataOpsHandler', () => {
       });
 
       // Both should proceed without blocking
-      await Promise.all([
-        handler.handle(makeMsg('org-A')),
-        handler.handle(makeMsg('org-B')),
-      ]);
+      await Promise.all([handler.handle(makeMsg('org-A')), handler.handle(makeMsg('org-B'))]);
 
       // No warning should have been logged
-      const warnCalls = (deps.log as ReturnType<typeof vi.fn>).mock.calls
-        .filter((c: string[]) => c[0].includes('[WARN]'));
+      const warnCalls = (deps.log as ReturnType<typeof vi.fn>).mock.calls.filter((c: string[]) =>
+        c[0].includes('[WARN]'),
+      );
       expect(warnCalls).toHaveLength(0);
 
       vi.restoreAllMocks();
@@ -150,8 +154,9 @@ describe('DataOpsHandler', () => {
       // Second backup should NOT be blocked (lock was released in finally)
       await handler.handle(makeMsg());
 
-      const warnCalls = (deps.log as ReturnType<typeof vi.fn>).mock.calls
-        .filter((c: string[]) => c[0].includes('[WARN]'));
+      const warnCalls = (deps.log as ReturnType<typeof vi.fn>).mock.calls.filter((c: string[]) =>
+        c[0].includes('[WARN]'),
+      );
       expect(warnCalls).toHaveLength(0);
 
       vi.restoreAllMocks();

@@ -89,10 +89,7 @@ vi.mock('../../stores/useForgeStore', () => {
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: ({ onIncludeToggle }: { onIncludeToggle?: (name: string) => void }) => (
     <div data-testid="live-graph">
-      <button
-        data-testid="mock-toggle-Account"
-        onClick={() => onIncludeToggle?.('Account')}
-      >
+      <button data-testid="mock-toggle-Account" onClick={() => onIncludeToggle?.('Account')}>
         Toggle Account
       </button>
     </div>

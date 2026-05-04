@@ -19,9 +19,7 @@ export function useRetryManager(): {
   abort: (executionId: string, objectName?: string) => void;
   getCountdown: (nextRetryAt: number) => number;
 } {
-  const [statusMap, setStatusMap] = useState<Map<string, RetryStatus[]>>(
-    () => new Map(),
-  );
+  const [statusMap, setStatusMap] = useState<Map<string, RetryStatus[]>>(() => new Map());
   const [now, setNow] = useState<number>(() => Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sendMessage = useSendMessage();
@@ -49,8 +47,9 @@ export function useRetryManager(): {
     };
   }, [statusMap]);
 
-  useMessageListener<RetryStatusMessage>('execution:retry-status', useCallback(
-    (message: RetryStatusMessage) => {
+  useMessageListener<RetryStatusMessage>(
+    'execution:retry-status',
+    useCallback((message: RetryStatusMessage) => {
       const status = message.payload;
       setStatusMap((prev) => {
         const next = new Map(prev);
@@ -65,9 +64,8 @@ export function useRetryManager(): {
         }
         return next;
       });
-    },
-    [],
-  ));
+    }, []),
+  );
 
   const getRetryStatuses = useCallback(
     (executionId: string): RetryStatus[] => {

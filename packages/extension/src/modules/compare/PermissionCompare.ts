@@ -51,10 +51,7 @@ export class PermissionCompare {
    * Compare permissions between source and target orgs.
    * Produces CompareItems for each permission entry that differs.
    */
-  async compare(
-    sourceOrgId: string,
-    targetOrgId: string
-  ): Promise<CompareItem[]> {
+  async compare(sourceOrgId: string, targetOrgId: string): Promise<CompareItem[]> {
     const [sourcePerms, targetPerms] = await Promise.all([
       this.fetchPermissions(sourceOrgId),
       this.fetchPermissions(targetOrgId),
@@ -90,7 +87,7 @@ export class PermissionCompare {
    */
   buildPermissionMatrix(
     sourcePerms: PermissionEntry[],
-    targetPerms: PermissionEntry[]
+    targetPerms: PermissionEntry[],
   ): PermissionMatrixRow[] {
     const sourceObjects = aggregateObjectPermissions(sourcePerms);
     const targetObjects = aggregateObjectPermissions(targetPerms);
@@ -115,9 +112,7 @@ export class PermissionCompare {
 }
 
 /** Aggregate object permissions across multiple permission entries using OR logic */
-function aggregateObjectPermissions(
-  entries: PermissionEntry[]
-): Map<string, CrudPermissions> {
+function aggregateObjectPermissions(entries: PermissionEntry[]): Map<string, CrudPermissions> {
   const result = new Map<string, CrudPermissions>();
 
   for (const entry of entries) {
@@ -142,10 +137,7 @@ function aggregateObjectPermissions(
 }
 
 /** Check if two permission entries have any differences */
-function hasPermissionDifference(
-  source: PermissionEntry,
-  target: PermissionEntry
-): boolean {
+function hasPermissionDifference(source: PermissionEntry, target: PermissionEntry): boolean {
   const sourceObjKeys = Object.keys(source.objectPermissions);
   const targetObjKeys = Object.keys(target.objectPermissions);
   const allObjKeys = new Set([...sourceObjKeys, ...targetObjKeys]);
@@ -153,7 +145,12 @@ function hasPermissionDifference(
   for (const key of allObjKeys) {
     const s = source.objectPermissions[key] ?? DEFAULT_CRUD;
     const t = target.objectPermissions[key] ?? DEFAULT_CRUD;
-    if (s.create !== t.create || s.read !== t.read || s.update !== t.update || s.delete !== t.delete) {
+    if (
+      s.create !== t.create ||
+      s.read !== t.read ||
+      s.update !== t.update ||
+      s.delete !== t.delete
+    ) {
       return true;
     }
   }
@@ -174,7 +171,10 @@ function hasPermissionDifference(
 }
 
 /** Determine severity for permission changes */
-function determineSeverity(status: DiffStatus, permType: 'Profile' | 'PermissionSet'): CompareSeverity {
+function determineSeverity(
+  status: DiffStatus,
+  permType: 'Profile' | 'PermissionSet',
+): CompareSeverity {
   if (status === 'added' || status === 'unchanged') {
     return 'info';
   }
@@ -190,7 +190,7 @@ function createPermissionItem(
   permType: 'Profile' | 'PermissionSet',
   status: DiffStatus,
   source: PermissionEntry | undefined,
-  target: PermissionEntry | undefined
+  target: PermissionEntry | undefined,
 ): CompareItem {
   const componentType = permType === 'Profile' ? 'Profile' : 'PermissionSet';
   return {

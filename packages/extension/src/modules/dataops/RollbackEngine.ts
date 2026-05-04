@@ -1,7 +1,4 @@
-import type {
-  BackupResult,
-  OperationResult,
-} from '@sandforge/shared';
+import type { BackupResult, OperationResult } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Progress information for an active restore operation */
@@ -31,16 +28,11 @@ export class RollbackEngine {
   async restore(
     backup: BackupResult,
     targetOrgId: string,
-    insertFn: (
-      obj: string,
-      records: Record<string, unknown>[],
-    ) => Promise<number>,
+    insertFn: (obj: string, records: Record<string, unknown>[]) => Promise<number>,
   ): Promise<OperationResult> {
     this.cancelled = false;
     const startTime = Date.now();
-    const successObjects = backup.objectResults.filter(
-      (r) => r.status === 'success',
-    );
+    const successObjects = backup.objectResults.filter((r) => r.status === 'success');
 
     this.progress = { completed: 0, total: successObjects.length };
     const warnings: string[] = [];

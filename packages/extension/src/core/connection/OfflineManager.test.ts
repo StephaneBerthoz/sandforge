@@ -4,7 +4,10 @@ import type { QueuedOperation, OfflineEventListener, OperationExecutor } from '.
 import { ConfigStore } from '../storage/ConfigStore';
 import { InMemoryConfigStoreBackend } from '../storage/ConfigStoreBackend';
 
-function createOperation(id: string, overrides?: Partial<QueuedOperation>): Omit<QueuedOperation, 'queuedAt' | 'retryCount'> {
+function createOperation(
+  id: string,
+  overrides?: Partial<QueuedOperation>,
+): Omit<QueuedOperation, 'queuedAt' | 'retryCount'> {
   return {
     id,
     type: 'seed:execute',
@@ -83,7 +86,7 @@ describe('OfflineManager', () => {
           type: 'statusChanged',
           status: 'offline',
           previousStatus: 'online',
-        })
+        }),
       );
     });
 
@@ -105,7 +108,7 @@ describe('OfflineManager', () => {
 
       expect(manager.isOffline()).toBe(true);
       expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'statusChanged', status: 'offline' })
+        expect.objectContaining({ type: 'statusChanged', status: 'offline' }),
       );
     });
   });
@@ -228,9 +231,7 @@ describe('OfflineManager', () => {
 
       manager.enqueue(createOperation('op-1'));
 
-      expect(listener).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'operationQueued' })
-      );
+      expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: 'operationQueued' }));
     });
 
     it('should persist queue to store', () => {
@@ -246,9 +247,11 @@ describe('OfflineManager', () => {
   describe('queue drain', () => {
     it('should drain queue FIFO when coming back online', async () => {
       const executionOrder: string[] = [];
-      const executor: OperationExecutor = vi.fn().mockImplementation(async (op: QueuedOperation) => {
-        executionOrder.push(op.id);
-      });
+      const executor: OperationExecutor = vi
+        .fn()
+        .mockImplementation(async (op: QueuedOperation) => {
+          executionOrder.push(op.id);
+        });
 
       manager.setOperationExecutor(executor);
       manager.enqueue(createOperation('op-1'));
@@ -319,7 +322,10 @@ describe('OfflineManager', () => {
     it('should not drain if already draining', async () => {
       let resolveFirst: (() => void) | undefined;
       const executor: OperationExecutor = vi.fn().mockImplementation(
-        () => new Promise<void>((resolve) => { resolveFirst = resolve; })
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
       );
 
       manager.setOperationExecutor(executor);

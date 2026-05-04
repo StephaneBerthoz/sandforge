@@ -2,9 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ForgePlanGenerator } from './ForgePlanGenerator.js';
 import type { ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
 
-function makeNode(
-  overrides: Partial<ForgeGraphNode> & { objectApiName: string },
-): ForgeGraphNode {
+function makeNode(overrides: Partial<ForgeGraphNode> & { objectApiName: string }): ForgeGraphNode {
   return {
     recordCount: 100,
     fieldCount: 10,
@@ -25,10 +23,7 @@ function makeNode(
   };
 }
 
-function makeGraph(
-  nodes: ForgeGraphNode[],
-  edges: ForgeGraphEdge[] = [],
-): ForgeGraph {
+function makeGraph(nodes: ForgeGraphNode[], edges: ForgeGraphEdge[] = []): ForgeGraph {
   return {
     nodes,
     edges,
@@ -54,9 +49,7 @@ describe('ForgePlanGenerator', () => {
     });
 
     it('should create single wave for single object', () => {
-      const graph = makeGraph([
-        makeNode({ objectApiName: 'Account', level: 0, recordCount: 50 }),
-      ]);
+      const graph = makeGraph([makeNode({ objectApiName: 'Account', level: 0, recordCount: 50 })]);
       const plan = generator.generate(graph);
 
       expect(plan.waves).toHaveLength(1);
@@ -112,9 +105,24 @@ describe('ForgePlanGenerator', () => {
           makeNode({ objectApiName: 'OpportunityLineItem', level: 2, recordCount: 300 }),
         ],
         [
-          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
-          { sourceObject: 'Account', targetObject: 'Opportunity', relationshipName: 'Opportunities', type: 'lookup' },
-          { sourceObject: 'Opportunity', targetObject: 'OpportunityLineItem', relationshipName: 'OpportunityLineItems', type: 'master-detail' },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Opportunity',
+            relationshipName: 'Opportunities',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Opportunity',
+            targetObject: 'OpportunityLineItem',
+            relationshipName: 'OpportunityLineItems',
+            type: 'master-detail',
+          },
         ],
       );
       const plan = generator.generate(graph);
@@ -142,9 +150,7 @@ describe('ForgePlanGenerator', () => {
     });
 
     it('should return empty plan when all nodes excluded', () => {
-      const graph = makeGraph([
-        makeNode({ objectApiName: 'Account', level: 0, included: false }),
-      ]);
+      const graph = makeGraph([makeNode({ objectApiName: 'Account', level: 0, included: false })]);
       const plan = generator.generate(graph);
 
       expect(plan.waves).toEqual([]);
@@ -206,7 +212,12 @@ describe('ForgePlanGenerator', () => {
           makeNode({ objectApiName: 'Contact', level: 1, recordCount: 100, batchStrategy: 'rest' }),
         ],
         [
-          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
         ],
       );
       const plan = gen.generate(graph);
@@ -224,7 +235,12 @@ describe('ForgePlanGenerator', () => {
           makeNode({ objectApiName: 'Contact', level: 1 }),
         ],
         [
-          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
         ],
       );
       const plan = generator.generate(graph);
@@ -239,8 +255,18 @@ describe('ForgePlanGenerator', () => {
           makeNode({ objectApiName: 'Contact', level: 0 }),
         ],
         [
-          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
-          { sourceObject: 'Contact', targetObject: 'Account', relationshipName: 'Account', type: 'lookup' },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Account',
+            relationshipName: 'Account',
+            type: 'lookup',
+          },
         ],
       );
       const plan = generator.generate(graph);
@@ -252,10 +278,7 @@ describe('ForgePlanGenerator', () => {
 
     it('should use nullable_lookup strategy when cycle has lookup edges', () => {
       const graph = makeGraph(
-        [
-          makeNode({ objectApiName: 'A', level: 0 }),
-          makeNode({ objectApiName: 'B', level: 0 }),
-        ],
+        [makeNode({ objectApiName: 'A', level: 0 }), makeNode({ objectApiName: 'B', level: 0 })],
         [
           { sourceObject: 'A', targetObject: 'B', relationshipName: 'Bs', type: 'lookup' },
           { sourceObject: 'B', targetObject: 'A', relationshipName: 'As', type: 'lookup' },
@@ -268,10 +291,7 @@ describe('ForgePlanGenerator', () => {
 
     it('should use two_pass strategy when cycle has only master-detail edges', () => {
       const graph = makeGraph(
-        [
-          makeNode({ objectApiName: 'A', level: 0 }),
-          makeNode({ objectApiName: 'B', level: 0 }),
-        ],
+        [makeNode({ objectApiName: 'A', level: 0 }), makeNode({ objectApiName: 'B', level: 0 })],
         [
           { sourceObject: 'A', targetObject: 'B', relationshipName: 'Bs', type: 'master-detail' },
           { sourceObject: 'B', targetObject: 'A', relationshipName: 'As', type: 'master-detail' },

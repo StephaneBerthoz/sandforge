@@ -35,7 +35,9 @@ export const seedSettingsSchema = z.object({
 /** Sync module settings schema */
 export const syncSettingsSchema = z.object({
   defaultBatchSize: z.number().int().positive().default(200),
-  defaultConflictStrategy: z.enum(['source_wins', 'target_wins', 'newest_wins', 'manual', 'merge']).default('source_wins'),
+  defaultConflictStrategy: z
+    .enum(['source_wins', 'target_wins', 'newest_wins', 'manual', 'merge'])
+    .default('source_wins'),
   enableIncrementalTracking: z.boolean().default(true),
   maxConcurrentJobs: z.number().int().positive().default(3),
   defaultExternalIdField: z.string().default('Id'),
@@ -46,7 +48,9 @@ export const securitySettingsSchema = z.object({
   requireConfirmationForProduction: z.boolean().default(true),
   auditLogging: z.boolean().default(true),
   sensitiveDataDetection: z.boolean().default(true),
-  allowedOperationsOnProd: z.array(z.enum(['read', 'backup', 'compare'])).default(['read', 'backup', 'compare']),
+  allowedOperationsOnProd: z
+    .array(z.enum(['read', 'backup', 'compare']))
+    .default(['read', 'backup', 'compare']),
 });
 
 /** Monitor settings schema */

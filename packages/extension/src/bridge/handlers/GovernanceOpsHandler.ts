@@ -4,8 +4,15 @@ import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { GovernancePolicyStore } from '../../modules/monitor/GovernancePolicyStore.js';
-import { GovernanceEngine, GovernancePolicySchema } from '../../modules/monitor/GovernanceEngine.js';
-import type { GovernancePolicy, GovernanceEvaluationResult, MetricValues } from '../../modules/monitor/GovernanceEngine.js';
+import {
+  GovernanceEngine,
+  GovernancePolicySchema,
+} from '../../modules/monitor/GovernanceEngine.js';
+import type {
+  GovernancePolicy,
+  GovernanceEvaluationResult,
+  MetricValues,
+} from '../../modules/monitor/GovernanceEngine.js';
 import type { RawLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
 import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
 
@@ -110,7 +117,9 @@ export class GovernanceOpsHandler implements DomainHandler {
         createdAt: p.createdAt,
         updatedAt: p.updatedAt,
       }));
-      const response = buildResponse(this.deps, msg, 'governance:policies:result', { policies: summaries });
+      const response = buildResponse(this.deps, msg, 'governance:policies:result', {
+        policies: summaries,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:result');
     } catch (err: unknown) {
@@ -153,7 +162,9 @@ export class GovernanceOpsHandler implements DomainHandler {
         return;
       }
       this.store.save(parsed.data);
-      const response = buildResponse(this.deps, msg, 'governance:policy:save:response', { success: true });
+      const response = buildResponse(this.deps, msg, 'governance:policy:save:response', {
+        success: true,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:save:response');
     } catch (err: unknown) {
@@ -169,7 +180,9 @@ export class GovernanceOpsHandler implements DomainHandler {
     try {
       const payload = msg as BaseMessage & { payload: { policyId: string } };
       const success = this.store.delete(payload.payload.policyId);
-      const response = buildResponse(this.deps, msg, 'governance:policy:delete:response', { success });
+      const response = buildResponse(this.deps, msg, 'governance:policy:delete:response', {
+        success,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:delete:response');
     } catch (err: unknown) {
@@ -184,7 +197,9 @@ export class GovernanceOpsHandler implements DomainHandler {
   private handlePoliciesExport(msg: BaseMessage): void {
     try {
       const json = this.store.exportPolicies();
-      const response = buildResponse(this.deps, msg, 'governance:policies:export:response', { json });
+      const response = buildResponse(this.deps, msg, 'governance:policies:export:response', {
+        json,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:export:response');
     } catch (err: unknown) {
@@ -200,11 +215,19 @@ export class GovernanceOpsHandler implements DomainHandler {
     try {
       const payload = msg as BaseMessage & { payload: { json: string } };
       const count = this.store.importPolicies(payload.payload.json);
-      const response = buildResponse(this.deps, msg, 'governance:policies:import:response', { success: true, count });
+      const response = buildResponse(this.deps, msg, 'governance:policies:import:response', {
+        success: true,
+        count,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:import:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policies:import', 'governance:policies:import:response', err);
+      sendHandlerError(
+        this.deps,
+        'governance:policies:import',
+        'governance:policies:import:response',
+        err,
+      );
     }
   }
 
@@ -238,7 +261,9 @@ export class GovernanceOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const limitsRaw = await conn.request(`/services/data/${SF_API_VERSION}/limits`) as RawLimitsResponse;
+      const limitsRaw = (await conn.request(
+        `/services/data/${SF_API_VERSION}/limits`,
+      )) as RawLimitsResponse;
 
       const metrics: MetricValues = {};
       for (const [key, { Max, Remaining }] of Object.entries(limitsRaw)) {
@@ -259,7 +284,10 @@ export class GovernanceOpsHandler implements DomainHandler {
         }
       }
 
-      const response = buildResponse(this.deps, msg, 'governance:evaluate:response', { success: true, result });
+      const response = buildResponse(this.deps, msg, 'governance:evaluate:response', {
+        success: true,
+        result,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:evaluate:response');
     } catch (err: unknown) {
@@ -274,7 +302,9 @@ export class GovernanceOpsHandler implements DomainHandler {
   private handleTemplates(msg: BaseMessage): void {
     try {
       const templates = GovernancePolicyStore.getDefaultTemplates();
-      const response = buildResponse(this.deps, msg, 'governance:templates:response', { templates });
+      const response = buildResponse(this.deps, msg, 'governance:templates:response', {
+        templates,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:templates:response');
     } catch (err: unknown) {

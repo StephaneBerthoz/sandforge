@@ -60,7 +60,10 @@ export const ControlPanel: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-[var(--vscode-panel-border,#3c3c3c)]" data-testid="control-tabs">
+      <div
+        className="flex border-b border-[var(--vscode-panel-border,#3c3c3c)]"
+        data-testid="control-tabs"
+      >
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -87,7 +90,10 @@ export const ControlPanel: React.FC = () => {
 
       {/* Action Buttons */}
       {isExecuting && (
-        <div className="flex gap-2 px-4 py-3 border-t border-[var(--vscode-panel-border,#3c3c3c)]" data-testid="control-actions">
+        <div
+          className="flex gap-2 px-4 py-3 border-t border-[var(--vscode-panel-border,#3c3c3c)]"
+          data-testid="control-actions"
+        >
           <button
             className="flex-1 px-3 py-1.5 text-xs font-medium rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] transition-colors"
             onClick={handlePauseResume}

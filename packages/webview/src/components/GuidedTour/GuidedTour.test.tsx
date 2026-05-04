@@ -1,11 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import {
-  GuidedTour,
-  isTourCompleted,
-  markTourCompleted,
-  BUILT_IN_TOURS,
-} from './GuidedTour';
+import { GuidedTour, isTourCompleted, markTourCompleted, BUILT_IN_TOURS } from './GuidedTour';
 import type { TourStep } from './GuidedTour';
 
 vi.mock('react-i18next', () => ({
@@ -28,9 +23,15 @@ const localStorageMock = (() => {
   let store: Record<string, string> = {};
   return {
     getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => { store[key] = value; },
-    removeItem: (key: string): void => { delete store[key]; },
-    reset: (): void => { store = {}; },
+    setItem: (key: string, value: string): void => {
+      store[key] = value;
+    },
+    removeItem: (key: string): void => {
+      delete store[key];
+    },
+    reset: (): void => {
+      store = {};
+    },
   };
 })();
 Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
@@ -80,60 +81,35 @@ describe('GuidedTour', () => {
 
   it('should not render when isActive is false', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={false}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={false} />,
     );
     expect(screen.queryByTestId('guided-tour')).toBeNull();
   });
 
   it('should render when isActive is true', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     expect(screen.getByTestId('guided-tour')).toBeDefined();
   });
 
   it('should render the overlay', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     expect(screen.getByTestId('tour-overlay')).toBeDefined();
   });
 
   it('should render the spotlight on the target element', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     expect(screen.getByTestId('tour-spotlight')).toBeDefined();
   });
 
   it('should render the tooltip with step title and description', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     expect(screen.getByTestId('tour-tooltip')).toBeDefined();
     expect(screen.getByText('tour.step1Title')).toBeDefined();
@@ -142,12 +118,7 @@ describe('GuidedTour', () => {
 
   it('should display the step counter', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     const counter = screen.getByTestId('tour-step-counter');
     // The t mock replaces {{current}} and {{total}} in the key
@@ -159,12 +130,7 @@ describe('GuidedTour', () => {
 
   it('should navigate to the next step when Next is clicked', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     fireEvent.click(screen.getByTestId('tour-next'));
     expect(screen.getByText('tour.step2Title')).toBeDefined();
@@ -172,24 +138,14 @@ describe('GuidedTour', () => {
 
   it('should not show Previous button on first step', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     expect(screen.queryByTestId('tour-previous')).toBeNull();
   });
 
   it('should show Previous button on second step', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     fireEvent.click(screen.getByTestId('tour-next'));
     expect(screen.getByTestId('tour-previous')).toBeDefined();
@@ -197,12 +153,7 @@ describe('GuidedTour', () => {
 
   it('should navigate back when Previous is clicked', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     fireEvent.click(screen.getByTestId('tour-next'));
     expect(screen.getByText('tour.step2Title')).toBeDefined();
@@ -212,12 +163,7 @@ describe('GuidedTour', () => {
 
   it('should show Finish button on last step', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     fireEvent.click(screen.getByTestId('tour-next')); // step 1 -> 2
     fireEvent.click(screen.getByTestId('tour-next')); // step 2 -> 3
@@ -226,12 +172,7 @@ describe('GuidedTour', () => {
 
   it('should call onComplete and persist when Finish is clicked', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     fireEvent.click(screen.getByTestId('tour-next'));
     fireEvent.click(screen.getByTestId('tour-next'));
@@ -242,12 +183,7 @@ describe('GuidedTour', () => {
 
   it('should call onComplete and persist when Skip is clicked', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     fireEvent.click(screen.getByTestId('tour-skip'));
     expect(onComplete).toHaveBeenCalledOnce();
@@ -256,12 +192,7 @@ describe('GuidedTour', () => {
 
   it('should always render the Skip button', () => {
     render(
-      <GuidedTour
-        steps={MOCK_STEPS}
-        tourId="test-tour"
-        onComplete={onComplete}
-        isActive={true}
-      />,
+      <GuidedTour steps={MOCK_STEPS} tourId="test-tour" onComplete={onComplete} isActive={true} />,
     );
     expect(screen.getByTestId('tour-skip')).toBeDefined();
   });

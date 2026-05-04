@@ -26,7 +26,7 @@ export class CrossObjectConsistency {
    */
   validate(
     plan: SeedDataPlan,
-    generatedData: Map<string, Record<string, unknown>[]>
+    generatedData: Map<string, Record<string, unknown>[]>,
   ): ConsistencyResult {
     const issues: ConsistencyIssue[] = [];
 
@@ -42,13 +42,7 @@ export class CrossObjectConsistency {
         continue;
       }
 
-      validateReferenceLinks(
-        planObj.objectApiName,
-        records,
-        plan,
-        availableIds,
-        issues
-      );
+      validateReferenceLinks(planObj.objectApiName, records, plan, availableIds, issues);
     }
 
     return {
@@ -60,7 +54,7 @@ export class CrossObjectConsistency {
 
 /** Build a set of known IDs per object from generated data */
 function buildAvailableIdMap(
-  generatedData: Map<string, Record<string, unknown>[]>
+  generatedData: Map<string, Record<string, unknown>[]>,
 ): Map<string, Set<string>> {
   const idMap = new Map<string, Set<string>>();
 
@@ -83,7 +77,7 @@ function validateDependencyExists(
   sourceObject: string,
   targetObject: string,
   generatedData: Map<string, Record<string, unknown>[]>,
-  issues: ConsistencyIssue[]
+  issues: ConsistencyIssue[],
 ): void {
   const targetRecords = generatedData.get(targetObject);
   if (!targetRecords || targetRecords.length === 0) {
@@ -105,7 +99,7 @@ function validateReferenceLinks(
   records: Record<string, unknown>[],
   plan: SeedDataPlan,
   availableIds: Map<string, Set<string>>,
-  issues: ConsistencyIssue[]
+  issues: ConsistencyIssue[],
 ): void {
   const planObj = plan.objects.find((o) => o.objectApiName === objectName);
   if (!planObj) {
@@ -139,7 +133,7 @@ function validateReferenceLinks(
  */
 function findReferenceFieldsForTarget(
   record: Record<string, unknown>,
-  _targetObject: string
+  _targetObject: string,
 ): Array<[string, unknown]> {
   const candidates: Array<[string, unknown]> = [];
 

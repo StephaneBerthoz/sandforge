@@ -6,7 +6,11 @@ describe('CircuitBreaker', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
-    breaker = new CircuitBreaker({ failureThreshold: 3, resetTimeout: 10_000, halfOpenRequests: 1 });
+    breaker = new CircuitBreaker({
+      failureThreshold: 3,
+      resetTimeout: 10_000,
+      halfOpenRequests: 1,
+    });
   });
 
   afterEach(() => {

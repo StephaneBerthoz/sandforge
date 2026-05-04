@@ -8,7 +8,7 @@ function createItem(
   fullName: string,
   status: CompareItem['status'],
   severity: CompareItem['severity'] = 'info',
-  fieldDiffs?: CompareItem['fieldDiffs']
+  fieldDiffs?: CompareItem['fieldDiffs'],
 ): CompareItem {
   return {
     componentType,
@@ -101,9 +101,7 @@ describe('ProblemAnalyzer', () => {
       const diffs = [createItem('CustomField', 'Account.Legacy__c', 'removed', 'breaking')];
       const report = analyzer.analyze(diffs);
 
-      const dataLossProblem = report.problems.find((p) =>
-        p.description.includes('data loss')
-      );
+      const dataLossProblem = report.problems.find((p) => p.description.includes('data loss'));
       expect(dataLossProblem).toBeDefined();
       expect(dataLossProblem?.suggestion).toContain('Back up');
     });
@@ -113,7 +111,7 @@ describe('ProblemAnalyzer', () => {
       const report = analyzer.analyze(diffs);
 
       const flowProblem = report.problems.find((p) =>
-        p.description.includes('Active flow versions')
+        p.description.includes('Active flow versions'),
       );
       expect(flowProblem).toBeDefined();
       expect(flowProblem?.severity).toBe('info');
@@ -124,7 +122,7 @@ describe('ProblemAnalyzer', () => {
       const report = analyzer.analyze(diffs);
 
       const triggerProblem = report.problems.find((p) =>
-        p.description.includes('critical automation')
+        p.description.includes('critical automation'),
       );
       expect(triggerProblem).toBeDefined();
     });
@@ -167,7 +165,7 @@ describe('ProblemAnalyzer', () => {
       const report = analyzer.analyze(diffs);
 
       const nonContextual = report.problems.filter(
-        (p) => p.severity === 'breaking' || p.severity === 'warning'
+        (p) => p.severity === 'breaking' || p.severity === 'warning',
       );
       expect(nonContextual).toHaveLength(0);
     });

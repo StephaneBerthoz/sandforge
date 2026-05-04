@@ -49,7 +49,10 @@ const variantColorMap: Record<KPICardVariant, string> = {
  * Uses design system tokens for all colors and spacing.
  */
 /** Map trend direction to its Lucide icon component and color. */
-const trendIndicatorMap: Record<string, { icon: React.FC<React.SVGProps<SVGSVGElement>>; color: string }> = {
+const trendIndicatorMap: Record<
+  string,
+  { icon: React.FC<React.SVGProps<SVGSVGElement>>; color: string }
+> = {
   up: { icon: TrendingUp, color: 'var(--sf-error)' },
   down: { icon: TrendingDown, color: 'var(--sf-success)' },
   stable: { icon: Minus, color: 'var(--sf-text-muted)' },
@@ -77,19 +80,14 @@ export const KPICard: React.FC<KPICardProps> = ({
       variants={slideUp}
       initial="hidden"
       animate="visible"
-      className={cn(
-        'rounded-xl border border-subtle bg-surface-1 p-4',
-        className,
-      )}
+      className={cn('rounded-xl border border-subtle bg-surface-1 p-4', className)}
     >
       {/* Header row: icon + label + trend arrow */}
       <div className="mb-3 flex items-center gap-2">
         <span style={{ color: accentColor }}>
           <Icon name={icon} label={label} />
         </span>
-        <span className="text-sm font-medium text-text-secondary">
-          {label}
-        </span>
+        <span className="text-sm font-medium text-text-secondary">{label}</span>
         {trendIndicator && (
           <span
             data-testid="trend-arrow"
@@ -113,10 +111,7 @@ export const KPICard: React.FC<KPICardProps> = ({
 
       {/* Subtitle */}
       {subtitle && (
-        <div
-          data-testid="kpi-subtitle"
-          className="mt-1 text-sm text-text-secondary"
-        >
+        <div data-testid="kpi-subtitle" className="mt-1 text-sm text-text-secondary">
           {subtitle}
         </div>
       )}
@@ -124,20 +119,13 @@ export const KPICard: React.FC<KPICardProps> = ({
       {/* Progress bar */}
       {progress !== undefined && (
         <div className="mt-3">
-          <ProgressBar
-            value={progress}
-            variant={variant}
-            size="sm"
-          />
+          <ProgressBar value={progress} variant={variant} size="sm" />
         </div>
       )}
 
       {/* Trend warning */}
       {trendWarning && (
-        <div
-          data-testid="trend-warning"
-          className="mt-1 text-xs text-monitor"
-        >
+        <div data-testid="trend-warning" className="mt-1 text-xs text-monitor">
           {trendWarning}
         </div>
       )}

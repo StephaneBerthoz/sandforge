@@ -17,20 +17,37 @@ describe('CsvValidationPanel', () => {
   const errorResult: CsvValidationResult = {
     valid: false,
     errors: [
-      { row: 1, column: 'Email', field: 'Email__c', errorType: 'type_mismatch', message: 'Invalid email format', value: 'notanemail' },
-      { row: 2, column: 'Email', field: 'Email__c', errorType: 'type_mismatch', message: 'Invalid email format', value: 'bad' },
-      { row: 3, column: 'Name', field: 'Name', errorType: 'missing_required', message: 'Required field is empty', value: '' },
+      {
+        row: 1,
+        column: 'Email',
+        field: 'Email__c',
+        errorType: 'type_mismatch',
+        message: 'Invalid email format',
+        value: 'notanemail',
+      },
+      {
+        row: 2,
+        column: 'Email',
+        field: 'Email__c',
+        errorType: 'type_mismatch',
+        message: 'Invalid email format',
+        value: 'bad',
+      },
+      {
+        row: 3,
+        column: 'Name',
+        field: 'Name',
+        errorType: 'missing_required',
+        message: 'Required field is empty',
+        value: '',
+      },
     ],
     warningCount: 0,
   };
 
   it('should show success state when validation passes', () => {
     render(
-      <CsvValidationPanel
-        validationResult={validResult}
-        onBack={onBack}
-        onProceed={onProceed}
-      />,
+      <CsvValidationPanel validationResult={validResult} onBack={onBack} onProceed={onProceed} />,
     );
     expect(screen.getByTestId('validation-success')).toBeDefined();
     expect(screen.getByTestId('proceed-button')).toBeDefined();
@@ -38,11 +55,7 @@ describe('CsvValidationPanel', () => {
 
   it('should group errors by type in accordion sections', () => {
     render(
-      <CsvValidationPanel
-        validationResult={errorResult}
-        onBack={onBack}
-        onProceed={onProceed}
-      />,
+      <CsvValidationPanel validationResult={errorResult} onBack={onBack} onProceed={onProceed} />,
     );
     expect(screen.getByTestId('csv-validation-panel')).toBeDefined();
     expect(screen.getByTestId('validation-error-count')).toBeDefined();
@@ -55,11 +68,7 @@ describe('CsvValidationPanel', () => {
   it('should show "Proceed Anyway" only when error rate is low', () => {
     // errorResult has errors on rows 1,2,3 out of max row 3 = 100% error rate
     render(
-      <CsvValidationPanel
-        validationResult={errorResult}
-        onBack={onBack}
-        onProceed={onProceed}
-      />,
+      <CsvValidationPanel validationResult={errorResult} onBack={onBack} onProceed={onProceed} />,
     );
     // With 3 error rows out of 3 total = 100% error rate, should NOT show proceed anyway
     expect(screen.queryByTestId('proceed-anyway-button')).toBeNull();
@@ -69,7 +78,14 @@ describe('CsvValidationPanel', () => {
     const lowErrorResult: CsvValidationResult = {
       valid: false,
       errors: [
-        { row: 1, column: 'Name', field: 'Name', errorType: 'missing_required', message: 'Required', value: '' },
+        {
+          row: 1,
+          column: 'Name',
+          field: 'Name',
+          errorType: 'missing_required',
+          message: 'Required',
+          value: '',
+        },
       ],
       warningCount: 0,
     };
@@ -78,7 +94,14 @@ describe('CsvValidationPanel', () => {
     const bigDataError: CsvValidationResult = {
       valid: false,
       errors: [
-        { row: 5, column: 'Name', field: 'Name', errorType: 'missing_required', message: 'Required', value: '' },
+        {
+          row: 5,
+          column: 'Name',
+          field: 'Name',
+          errorType: 'missing_required',
+          message: 'Required',
+          value: '',
+        },
       ],
       warningCount: 0,
     };
@@ -86,11 +109,7 @@ describe('CsvValidationPanel', () => {
     void lowErrorResult;
 
     render(
-      <CsvValidationPanel
-        validationResult={bigDataError}
-        onBack={onBack}
-        onProceed={onProceed}
-      />,
+      <CsvValidationPanel validationResult={bigDataError} onBack={onBack} onProceed={onProceed} />,
     );
     // 1 error row out of max row 5 = 20% -- still over 10%
     expect(screen.queryByTestId('proceed-anyway-button')).toBeNull();
@@ -98,11 +117,7 @@ describe('CsvValidationPanel', () => {
 
   it('should call onBack when "Fix and Re-validate" is clicked', () => {
     render(
-      <CsvValidationPanel
-        validationResult={errorResult}
-        onBack={onBack}
-        onProceed={onProceed}
-      />,
+      <CsvValidationPanel validationResult={errorResult} onBack={onBack} onProceed={onProceed} />,
     );
     fireEvent.click(screen.getByTestId('back-button'));
     expect(onBack).toHaveBeenCalled();
@@ -110,11 +125,7 @@ describe('CsvValidationPanel', () => {
 
   it('should call onProceed when proceed button is clicked in success state', () => {
     render(
-      <CsvValidationPanel
-        validationResult={validResult}
-        onBack={onBack}
-        onProceed={onProceed}
-      />,
+      <CsvValidationPanel validationResult={validResult} onBack={onBack} onProceed={onProceed} />,
     );
     fireEvent.click(screen.getByTestId('proceed-button'));
     expect(onProceed).toHaveBeenCalled();

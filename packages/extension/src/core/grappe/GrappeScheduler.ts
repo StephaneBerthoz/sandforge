@@ -61,15 +61,9 @@ export class GrappeScheduler {
    * @param completed - Set of partition IDs that have already completed
    * @returns Partitions ready for execution
    */
-  getNextBatch(
-    partitions: GrappePartition[],
-    completed: Set<string>
-  ): GrappePartition[] {
+  getNextBatch(partitions: GrappePartition[], completed: Set<string>): GrappePartition[] {
     return partitions.filter(
-      (p) =>
-        p.status === 'pending' &&
-        !completed.has(p.id) &&
-        this.canExecute(p, completed)
+      (p) => p.status === 'pending' && !completed.has(p.id) && this.canExecute(p, completed),
     );
   }
 
@@ -80,10 +74,7 @@ export class GrappeScheduler {
    * @param completed - Set of completed partition IDs
    * @returns True if the partition's dependencies are satisfied
    */
-  canExecute(
-    partition: GrappePartition,
-    completed: Set<string>
-  ): boolean {
+  canExecute(partition: GrappePartition, completed: Set<string>): boolean {
     if (partition.dependencies.length === 0) {
       return true;
     }

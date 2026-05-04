@@ -36,7 +36,7 @@ vi.mock('../../../hooks/useBridgeMutation', () => ({
 const mockPersona: PersonaMsg = {
   id: 'assureur-fr',
   name: 'Assureur francais',
-  description: 'Compagnie d\'assurance francaise',
+  description: "Compagnie d'assurance francaise",
   industry: 'Insurance',
   locale: 'fr-FR',
   dataPatterns: {

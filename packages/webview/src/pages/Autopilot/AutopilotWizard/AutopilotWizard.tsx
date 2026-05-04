@@ -11,10 +11,26 @@ import { Step4Review } from './Step4_Review';
 
 /** Steps definition for the Autopilot wizard. */
 const AUTOPILOT_STEPS: WizardStep[] = [
-  { id: 'connect', labelKey: 'autopilot.step1.title', descriptionKey: 'autopilot.step1.description' },
-  { id: 'objects', labelKey: 'autopilot.step2.title', descriptionKey: 'autopilot.step2.description' },
-  { id: 'compliance', labelKey: 'autopilot.step3.title', descriptionKey: 'autopilot.step3.description' },
-  { id: 'review', labelKey: 'autopilot.step4.title', descriptionKey: 'autopilot.step4.description' },
+  {
+    id: 'connect',
+    labelKey: 'autopilot.step1.title',
+    descriptionKey: 'autopilot.step1.description',
+  },
+  {
+    id: 'objects',
+    labelKey: 'autopilot.step2.title',
+    descriptionKey: 'autopilot.step2.description',
+  },
+  {
+    id: 'compliance',
+    labelKey: 'autopilot.step3.title',
+    descriptionKey: 'autopilot.step3.description',
+  },
+  {
+    id: 'review',
+    labelKey: 'autopilot.step4.title',
+    descriptionKey: 'autopilot.step4.description',
+  },
 ];
 
 /** Available object info for selection. */

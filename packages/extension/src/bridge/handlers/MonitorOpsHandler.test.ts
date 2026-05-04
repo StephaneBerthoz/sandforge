@@ -114,7 +114,10 @@ describe('MonitorOpsHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { operations: unknown[] } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { operations: unknown[] };
+    };
     expect(response.type).toBe('monitor:live-operations:response');
     expect(response.correlationId).toBe('req-mon-2');
     expect(response.payload.operations).toEqual([]);
@@ -209,7 +212,9 @@ describe('MonitorOpsHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string };
+    };
     expect(response.type).toBe('monitor:error');
     expect(response.payload.message).toBe('connection failed');
   });
@@ -327,8 +332,24 @@ describe('MonitorOpsHandler', () => {
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
       mockQueryAll.mockResolvedValue([
-        { Id: 'log-1', Operation: 'Trigger', Status: 'Fatal Error', DurationMilliseconds: 100, LogLength: 500, StartTime: '2026-03-20T10:00:00Z', LogUser: { Username: 'admin@test.com' } },
-        { Id: 'log-2', Operation: 'VF Page', Status: 'Exception', DurationMilliseconds: 200, LogLength: 800, StartTime: '2026-03-20T11:00:00Z', LogUser: null },
+        {
+          Id: 'log-1',
+          Operation: 'Trigger',
+          Status: 'Fatal Error',
+          DurationMilliseconds: 100,
+          LogLength: 500,
+          StartTime: '2026-03-20T10:00:00Z',
+          LogUser: { Username: 'admin@test.com' },
+        },
+        {
+          Id: 'log-2',
+          Operation: 'VF Page',
+          Status: 'Exception',
+          DurationMilliseconds: 200,
+          LogLength: 800,
+          StartTime: '2026-03-20T11:00:00Z',
+          LogUser: null,
+        },
       ]);
 
       const msg: BaseMessage & { payload: { orgId: string } } = {
@@ -344,7 +365,15 @@ describe('MonitorOpsHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       expect(postToWebview).toHaveBeenCalledTimes(1);
 
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; errors: unknown[]; totalCount: number; errorsByType: unknown[] } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: {
+          success: boolean;
+          errors: unknown[];
+          totalCount: number;
+          errorsByType: unknown[];
+        };
+      };
       expect(response.type).toBe('monitor:error-logs:response');
       expect(response.correlationId).toBe('req-err-1');
       expect(response.payload.success).toBe(true);
@@ -368,7 +397,9 @@ describe('MonitorOpsHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       expect(postToWebview).toHaveBeenCalledTimes(1);
 
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { message: string };
+      };
       expect(response.type).toBe('monitor:error-logs:response');
       expect(response.payload.message).toContain('auth failed');
     });
@@ -383,9 +414,30 @@ describe('MonitorOpsHandler', () => {
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
       mockQueryAll.mockResolvedValue([
-        { Id: 'sess-1', UsersId: 'u-1', LoginType: 'Application', SessionType: 'UI', CreatedDate: '2026-03-20T09:00:00Z', SourceIp: '10.0.0.1' },
-        { Id: 'sess-2', UsersId: 'u-2', LoginType: 'API', SessionType: 'API', CreatedDate: '2026-03-20T09:30:00Z', SourceIp: '10.0.0.2' },
-        { Id: 'sess-3', UsersId: 'u-1', LoginType: 'Application', SessionType: 'UI', CreatedDate: '2026-03-20T10:00:00Z', SourceIp: '10.0.0.1' },
+        {
+          Id: 'sess-1',
+          UsersId: 'u-1',
+          LoginType: 'Application',
+          SessionType: 'UI',
+          CreatedDate: '2026-03-20T09:00:00Z',
+          SourceIp: '10.0.0.1',
+        },
+        {
+          Id: 'sess-2',
+          UsersId: 'u-2',
+          LoginType: 'API',
+          SessionType: 'API',
+          CreatedDate: '2026-03-20T09:30:00Z',
+          SourceIp: '10.0.0.2',
+        },
+        {
+          Id: 'sess-3',
+          UsersId: 'u-1',
+          LoginType: 'Application',
+          SessionType: 'UI',
+          CreatedDate: '2026-03-20T10:00:00Z',
+          SourceIp: '10.0.0.1',
+        },
       ]);
 
       const msg: BaseMessage & { payload: { orgId: string } } = {
@@ -399,7 +451,10 @@ describe('MonitorOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; sessions: unknown[]; activeUserCount: number } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean; sessions: unknown[]; activeUserCount: number };
+      };
       expect(response.type).toBe('monitor:sessions:response');
       expect(response.correlationId).toBe('req-sess-1');
       expect(response.payload.success).toBe(true);
@@ -417,8 +472,24 @@ describe('MonitorOpsHandler', () => {
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
       mockQueryAll.mockResolvedValue([
-        { Id: 'apex-1', Operation: 'BatchApex', Status: 'Success', DurationMilliseconds: 3000, LogLength: 50000, StartTime: '2026-03-20T08:00:00Z', LogUser: { Username: 'dev@test.com' } },
-        { Id: 'apex-2', Operation: 'Trigger', Status: 'Success', DurationMilliseconds: 6000, LogLength: 80000, StartTime: '2026-03-20T09:00:00Z', LogUser: { Username: 'admin@test.com' } },
+        {
+          Id: 'apex-1',
+          Operation: 'BatchApex',
+          Status: 'Success',
+          DurationMilliseconds: 3000,
+          LogLength: 50000,
+          StartTime: '2026-03-20T08:00:00Z',
+          LogUser: { Username: 'dev@test.com' },
+        },
+        {
+          Id: 'apex-2',
+          Operation: 'Trigger',
+          Status: 'Success',
+          DurationMilliseconds: 6000,
+          LogLength: 80000,
+          StartTime: '2026-03-20T09:00:00Z',
+          LogUser: { Username: 'admin@test.com' },
+        },
       ]);
 
       const msg: BaseMessage & { payload: { orgId: string } } = {
@@ -432,7 +503,10 @@ describe('MonitorOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; analyses: unknown[]; topIssues: unknown[] } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean; analyses: unknown[]; topIssues: unknown[] };
+      };
       expect(response.type).toBe('monitor:apex-insights:response');
       expect(response.correlationId).toBe('req-apex-1');
       expect(response.payload.success).toBe(true);
@@ -450,8 +524,20 @@ describe('MonitorOpsHandler', () => {
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
       mockQueryAll.mockResolvedValue([
-        { Id: 'sbx-1', SandboxName: 'dev1', Status: 'Processing', CreatedDate: '2026-03-20T07:00:00Z', Description: 'Production' },
-        { Id: 'sbx-2', SandboxName: 'qa1', Status: 'Completed', CreatedDate: '2026-03-19T12:00:00Z', Description: null },
+        {
+          Id: 'sbx-1',
+          SandboxName: 'dev1',
+          Status: 'Processing',
+          CreatedDate: '2026-03-20T07:00:00Z',
+          Description: 'Production',
+        },
+        {
+          Id: 'sbx-2',
+          SandboxName: 'qa1',
+          Status: 'Completed',
+          CreatedDate: '2026-03-19T12:00:00Z',
+          Description: null,
+        },
       ]);
 
       const msg: BaseMessage & { payload: { orgId: string } } = {
@@ -465,7 +551,10 @@ describe('MonitorOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; refreshes: unknown[]; inProgress: boolean } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean; refreshes: unknown[]; inProgress: boolean };
+      };
       expect(response.type).toBe('monitor:sandbox-refresh:response');
       expect(response.correlationId).toBe('req-sbx-1');
       expect(response.payload.success).toBe(true);
@@ -484,7 +573,12 @@ describe('MonitorOpsHandler', () => {
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
       mockQueryAll.mockResolvedValue([]);
 
-      const newTypes = ['monitor:error-logs', 'monitor:sessions', 'monitor:apex-insights', 'monitor:sandbox-refresh'];
+      const newTypes = [
+        'monitor:error-logs',
+        'monitor:sessions',
+        'monitor:apex-insights',
+        'monitor:sandbox-refresh',
+      ];
       for (const type of newTypes) {
         const msg: BaseMessage & { payload: { orgId: string } } = {
           id: `check-${type}`,
@@ -502,11 +596,21 @@ describe('MonitorOpsHandler', () => {
     it('handleRefresh includes orgHealthStatus in response', async () => {
       const fakeConn = {
         request: vi.fn().mockResolvedValue(FAKE_LIMITS),
-        identity: vi.fn().mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+        identity: vi
+          .fn()
+          .mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
         query: vi.fn().mockResolvedValue({
           totalSize: 10,
           done: true,
-          records: [{ Name: 'TestOrg', Id: '00Dtest', OrganizationType: 'Developer Edition', NamespacePrefix: null, CreatedDate: '2026-01-01' }],
+          records: [
+            {
+              Name: 'TestOrg',
+              Id: '00Dtest',
+              OrganizationType: 'Developer Edition',
+              NamespacePrefix: null,
+              CreatedDate: '2026-01-01',
+            },
+          ],
         }),
         version: '62.0',
         limitInfo: { apiUsage: { used: 100, limit: 15000 } },
@@ -514,7 +618,14 @@ describe('MonitorOpsHandler', () => {
       };
       mockGetJsforceConnection.mockResolvedValue(fakeConn);
       mockQueryAll.mockResolvedValue([
-        { Id: 'job1', JobType: 'BatchApex', Status: 'Completed', NumberOfErrors: 0, CreatedDate: '2026-03-20', CreatedById: 'user1' },
+        {
+          Id: 'job1',
+          JobType: 'BatchApex',
+          Status: 'Completed',
+          NumberOfErrors: 0,
+          CreatedDate: '2026-03-20',
+          CreatedById: 'user1',
+        },
       ]);
       (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
         alias: 'TestOrg',
@@ -534,7 +645,9 @@ describe('MonitorOpsHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       expect(postToWebview).toHaveBeenCalledTimes(1);
 
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { orgHealthStatus?: { orgId: string; overall: string } } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { orgHealthStatus?: { orgId: string; overall: string } };
+      };
       expect(response.type).toBe('monitor:data');
       expect(response.payload.orgHealthStatus).toBeDefined();
       expect(response.payload.orgHealthStatus?.orgId).toBe('org-health');
@@ -556,14 +669,31 @@ describe('MonitorOpsHandler', () => {
         query: vi.fn().mockResolvedValue({
           totalSize: 10,
           done: true,
-          records: [{ Name: 'TestOrg', Id: '00Dtest', OrganizationType: 'Developer Edition', NamespacePrefix: null, CreatedDate: '2026-01-01' }],
+          records: [
+            {
+              Name: 'TestOrg',
+              Id: '00Dtest',
+              OrganizationType: 'Developer Edition',
+              NamespacePrefix: null,
+              CreatedDate: '2026-01-01',
+            },
+          ],
         }),
         version: '62.0',
         limitInfo: { apiUsage: { used: 100, limit: 15000 } },
         sobject: vi.fn().mockReturnValue({ update: vi.fn().mockResolvedValue({}) }),
       });
       mockQueryAll.mockImplementation(() =>
-        Promise.resolve([{ Id: 'job1', JobType: 'BatchApex', Status: 'Completed', NumberOfErrors: 0, CreatedDate: '2026-03-20', CreatedById: 'user1' }]),
+        Promise.resolve([
+          {
+            Id: 'job1',
+            JobType: 'BatchApex',
+            Status: 'Completed',
+            NumberOfErrors: 0,
+            CreatedDate: '2026-03-20',
+            CreatedById: 'user1',
+          },
+        ]),
       );
     });
 
@@ -617,9 +747,7 @@ describe('MonitorOpsHandler', () => {
 
       // The constructor should have called configStore.set to persist default definitions
       const setCalls = (localDeps.configStore.set as ReturnType<typeof vi.fn>).mock.calls;
-      const defSaveCall = setCalls.find(
-        (c: unknown[]) => c[0] === 'alert:state:definitions',
-      );
+      const defSaveCall = setCalls.find((c: unknown[]) => c[0] === 'alert:state:definitions');
       expect(defSaveCall).toBeDefined();
     });
 
@@ -631,11 +759,21 @@ describe('MonitorOpsHandler', () => {
       };
       const fakeConn = {
         request: vi.fn().mockResolvedValue(highUsageLimits),
-        identity: vi.fn().mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+        identity: vi
+          .fn()
+          .mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
         query: vi.fn().mockResolvedValue({
           totalSize: 10,
           done: true,
-          records: [{ Name: 'TestOrg', Id: '00Dtest', OrganizationType: 'Developer Edition', NamespacePrefix: null, CreatedDate: '2026-01-01' }],
+          records: [
+            {
+              Name: 'TestOrg',
+              Id: '00Dtest',
+              OrganizationType: 'Developer Edition',
+              NamespacePrefix: null,
+              CreatedDate: '2026-01-01',
+            },
+          ],
         }),
         version: '62.0',
         limitInfo: { apiUsage: { used: 14250, limit: 15000 } },

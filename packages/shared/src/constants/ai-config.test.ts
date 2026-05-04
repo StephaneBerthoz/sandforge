@@ -40,7 +40,14 @@ describe('AI_CONFIG', () => {
   });
 
   it('should be a frozen (readonly) object', () => {
-    const keys = ['MODEL', 'TEMPERATURE', 'MAX_TOKENS', 'TIMEOUT_MS', 'BASE_URL', 'API_VERSION'] as const;
+    const keys = [
+      'MODEL',
+      'TEMPERATURE',
+      'MAX_TOKENS',
+      'TIMEOUT_MS',
+      'BASE_URL',
+      'API_VERSION',
+    ] as const;
     for (const key of keys) {
       expect(AI_CONFIG[key]).toBeDefined();
     }

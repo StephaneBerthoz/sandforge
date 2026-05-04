@@ -19,16 +19,21 @@ export interface NotificationCenterProps {
 }
 
 /** Level filter tabs configuration. */
-const LEVEL_TABS: Array<{ value: NotificationLevel | 'all'; labelKey: string; fallback: string }> = [
-  { value: 'all', labelKey: 'notifications.filterAll', fallback: 'All' },
-  { value: 'info', labelKey: 'notifications.filterInfo', fallback: 'Info' },
-  { value: 'success', labelKey: 'notifications.filterSuccess', fallback: 'Success' },
-  { value: 'warning', labelKey: 'notifications.filterWarning', fallback: 'Warning' },
-  { value: 'error', labelKey: 'notifications.filterError', fallback: 'Error' },
-];
+const LEVEL_TABS: Array<{ value: NotificationLevel | 'all'; labelKey: string; fallback: string }> =
+  [
+    { value: 'all', labelKey: 'notifications.filterAll', fallback: 'All' },
+    { value: 'info', labelKey: 'notifications.filterInfo', fallback: 'Info' },
+    { value: 'success', labelKey: 'notifications.filterSuccess', fallback: 'Success' },
+    { value: 'warning', labelKey: 'notifications.filterWarning', fallback: 'Warning' },
+    { value: 'error', labelKey: 'notifications.filterError', fallback: 'Error' },
+  ];
 
 /** Category filter options. */
-const CATEGORY_OPTIONS: Array<{ value: NotificationCategory | 'all'; labelKey: string; fallback: string }> = [
+const CATEGORY_OPTIONS: Array<{
+  value: NotificationCategory | 'all';
+  labelKey: string;
+  fallback: string;
+}> = [
   { value: 'all', labelKey: 'notifications.filterAll', fallback: 'All' },
   { value: 'sync', labelKey: 'notifications.categorySync', fallback: 'Sync' },
   { value: 'seed', labelKey: 'notifications.categorySeed', fallback: 'Seed' },

@@ -37,9 +37,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should pass safety tier for low tier sandbox', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ safetyTier: 'low' })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ safetyTier: 'low' }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -50,9 +50,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should warn for high safety tier', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ safetyTier: 'high' })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ safetyTier: 'high' }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -62,9 +62,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should error for critical safety tier', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ safetyTier: 'critical' })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ safetyTier: 'critical' }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -80,7 +80,7 @@ describe('SecurityCheck', () => {
           sensitiveFields: [
             { objectApiName: 'Contact', fieldApiName: 'SSN__c', sensitivityType: 'pii' },
           ],
-        })
+        }),
       );
 
       const checker = new SecurityCheck(fetchFn);
@@ -92,9 +92,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should pass when no sensitive fields', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ sensitiveFields: [] })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ sensitiveFields: [] }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -110,7 +110,7 @@ describe('SecurityCheck', () => {
           gdprFields: [
             { objectApiName: 'Contact', fieldApiName: 'Email', gdprClassification: 'personal' },
           ],
-        })
+        }),
       );
 
       const checker = new SecurityCheck(fetchFn);
@@ -127,7 +127,7 @@ describe('SecurityCheck', () => {
           gdprFields: [
             { objectApiName: 'Contact', fieldApiName: 'Email', gdprClassification: 'personal' },
           ],
-        })
+        }),
       );
 
       const checker = new SecurityCheck(fetchFn);
@@ -139,9 +139,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should require confirmation for production org', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ orgType: 'production', safetyTier: 'medium' })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ orgType: 'production', safetyTier: 'medium' }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -152,9 +152,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should require typed confirmation for critical production org', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ orgType: 'production', safetyTier: 'critical' })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ orgType: 'production', safetyTier: 'critical' }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -166,9 +166,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should not require production confirmation for sandbox', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ orgType: 'sandbox' })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ orgType: 'sandbox' }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -178,9 +178,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should pass production guard for non-production org', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ orgType: 'scratch' })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ orgType: 'scratch' }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -198,13 +198,15 @@ describe('SecurityCheck', () => {
           sensitiveFields: [
             { objectApiName: 'Contact', fieldApiName: 'SSN__c', sensitivityType: 'pii' },
           ],
-        })
+        }),
       );
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
 
-      const sensConfirm = result.confirmations.find((c) => c.title === 'Sensitive Data in Production');
+      const sensConfirm = result.confirmations.find(
+        (c) => c.title === 'Sensitive Data in Production',
+      );
       expect(sensConfirm).toBeDefined();
     });
 
@@ -214,7 +216,7 @@ describe('SecurityCheck', () => {
           sensitiveFields: [
             { objectApiName: 'Contact', fieldApiName: 'SSN__c', sensitivityType: 'pii' },
           ],
-        })
+        }),
       );
 
       const checker = new SecurityCheck(fetchFn);
@@ -239,9 +241,9 @@ describe('SecurityCheck', () => {
     });
 
     it('should mark all items as not autoFixable', async () => {
-      const fetchFn: FetchSecurityInfoFn = vi.fn().mockResolvedValue(
-        createSecurityInfo({ orgType: 'production', safetyTier: 'critical' })
-      );
+      const fetchFn: FetchSecurityInfoFn = vi
+        .fn()
+        .mockResolvedValue(createSecurityInfo({ orgType: 'production', safetyTier: 'critical' }));
 
       const checker = new SecurityCheck(fetchFn);
       const result = await checker.check(createConfig());
@@ -261,7 +263,7 @@ describe('SecurityCheck', () => {
           gdprFields: [
             { objectApiName: 'Contact', fieldApiName: 'Email', gdprClassification: 'personal' },
           ],
-        })
+        }),
       );
 
       const checker = new SecurityCheck(fetchFn);

@@ -49,13 +49,7 @@ export class EncryptionManager {
    */
   constructor(masterKey: string, salt: string) {
     this.config = DEFAULT_CONFIG;
-    this.key = pbkdf2Sync(
-      masterKey,
-      salt,
-      PBKDF2_ITERATIONS,
-      this.config.keyLength,
-      PBKDF2_DIGEST
-    );
+    this.key = pbkdf2Sync(masterKey, salt, PBKDF2_ITERATIONS, this.config.keyLength, PBKDF2_DIGEST);
   }
 
   /**
@@ -66,10 +60,7 @@ export class EncryptionManager {
     const iv = randomBytes(this.config.ivLength);
     const cipher = createCipheriv(ALGORITHM, this.key, iv);
 
-    const encrypted = Buffer.concat([
-      cipher.update(data, 'utf8'),
-      cipher.final(),
-    ]);
+    const encrypted = Buffer.concat([cipher.update(data, 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();
 
     const combined = Buffer.concat([iv, tag, encrypted]);
@@ -91,19 +82,14 @@ export class EncryptionManager {
     const iv = combined.subarray(0, this.config.ivLength);
     const tag = combined.subarray(
       this.config.ivLength,
-      this.config.ivLength + this.config.tagLength
+      this.config.ivLength + this.config.tagLength,
     );
-    const ciphertext = combined.subarray(
-      this.config.ivLength + this.config.tagLength
-    );
+    const ciphertext = combined.subarray(this.config.ivLength + this.config.tagLength);
 
     const decipher = createDecipheriv(ALGORITHM, this.key, iv);
     decipher.setAuthTag(tag);
 
-    const decrypted = Buffer.concat([
-      decipher.update(ciphertext),
-      decipher.final(),
-    ]);
+    const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
     return decrypted.toString('utf8');
   }

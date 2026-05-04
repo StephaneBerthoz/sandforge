@@ -127,7 +127,7 @@ describe('TelemetryAdapter', () => {
           dsn: 'https://foo@sentry.io/1',
           release: '1.3.0',
           environment: 'extension-host',
-        })
+        }),
       );
       expect(adapter.isEnabled()).toBe(true);
     });
@@ -161,7 +161,7 @@ describe('TelemetryAdapter', () => {
             nested: { refreshToken: 'rt-xyz' },
           },
         },
-        'sensitive payload'
+        'sensitive payload',
       );
 
       // Flush sync - pino destination `write` is invoked synchronously here.

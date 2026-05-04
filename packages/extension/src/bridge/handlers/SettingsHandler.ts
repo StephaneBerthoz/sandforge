@@ -4,8 +4,10 @@ import { buildResponse } from './HandlerTypes.js';
 import type { OnboardingService } from '../../core/onboarding/OnboardingService.js';
 import type { HintTracker } from '../../core/onboarding/HintTracker.js';
 import type {
-  HintDismissRequest, TelemetryToggleRequest,
-  PluginsLoadRequest, PluginsUnloadRequest,
+  HintDismissRequest,
+  TelemetryToggleRequest,
+  PluginsLoadRequest,
+  PluginsUnloadRequest,
 } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
@@ -143,7 +145,8 @@ export class SettingsHandler implements DomainHandler {
   private handlePluginsList(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const response = buildResponse(this.deps, msg, 'plugins:list:response', {
-      success: true, plugins: [] as unknown[],
+      success: true,
+      plugins: [] as unknown[],
     });
     this.deps.broker.postToWebview(response);
   }
@@ -160,7 +163,10 @@ export class SettingsHandler implements DomainHandler {
         },
         exists: async (fp: string) => {
           const fsModule = await import('fs/promises');
-          return fsModule.access(fp).then(() => true).catch(() => false);
+          return fsModule
+            .access(fp)
+            .then(() => true)
+            .catch(() => false);
         },
         readDir: async (dp: string) => {
           const fsModule = await import('fs/promises');
@@ -169,19 +175,23 @@ export class SettingsHandler implements DomainHandler {
       };
       const moduleLoader = {
         load: async (entrypoint: string) => {
-          return import(entrypoint) as Promise<import('../../core/plugins/PluginManager').SandForgePlugin>;
+          return import(entrypoint) as Promise<
+            import('../../core/plugins/PluginManager').SandForgePlugin
+          >;
         },
       };
       const pm = new PluginManager(fsImpl, moduleLoader, pluginPath);
       const loaded = await pm.loadPlugins();
       const response = buildResponse(this.deps, msg, 'plugins:load:response', {
-        success: true, loadedPlugins: loaded,
+        success: true,
+        loadedPlugins: loaded,
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       this.deps.log(`[ERR] plugins:load: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'plugins:load:response', {
-        success: false, error: extractErrorMessage(err),
+        success: false,
+        error: extractErrorMessage(err),
       });
       this.deps.broker.postToWebview(errResp);
     }
@@ -200,7 +210,9 @@ export class SettingsHandler implements DomainHandler {
   private handleTelemetryStatus(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const response = buildResponse(this.deps, msg, 'telemetry:status:response', {
-      enabled: false, eventCount: 0, bufferSize: 0,
+      enabled: false,
+      eventCount: 0,
+      bufferSize: 0,
     });
     this.deps.broker.postToWebview(response);
   }
@@ -209,7 +221,8 @@ export class SettingsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const { enabled } = (msg as TelemetryToggleRequest).payload;
     const response = buildResponse(this.deps, msg, 'telemetry:toggle:response', {
-      success: true, enabled,
+      success: true,
+      enabled,
     });
     this.deps.broker.postToWebview(response);
   }

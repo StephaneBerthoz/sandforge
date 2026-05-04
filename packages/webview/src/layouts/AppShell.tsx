@@ -45,10 +45,7 @@ export const AppShell: React.FC<AppShellProps> = ({ className }) => {
         </main>
         <StatusFooter />
       </div>
-      <NotificationCenter
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
+      <NotificationCenter open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
       <FloatingToasts />
       <KeyboardShortcuts />
     </div>

@@ -34,11 +34,15 @@ describe('PipelineVersioning', () => {
     });
 
     it('should store metadata (tag, annotation, createdBy)', () => {
-      const version = versioning.saveVersion('pipeline-1', { name: 'Test' }, {
-        tag: 'v1.0',
-        annotation: 'Initial release',
-        createdBy: 'alice',
-      });
+      const version = versioning.saveVersion(
+        'pipeline-1',
+        { name: 'Test' },
+        {
+          tag: 'v1.0',
+          annotation: 'Initial release',
+          createdBy: 'alice',
+        },
+      );
 
       expect(version.tag).toBe('v1.0');
       expect(version.annotation).toBe('Initial release');

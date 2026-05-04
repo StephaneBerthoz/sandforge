@@ -26,7 +26,15 @@ const sfdmuValuesMappingItemSchema = z.object({
 /** Schema for a single SFDMU ScriptObject */
 const sfdmuScriptObjectSchema = z.object({
   query: z.string().min(1),
-  operation: z.enum(['Insert', 'Update', 'Upsert', 'Delete', 'Readonly', 'DeleteSource', 'DeleteHierarchy']),
+  operation: z.enum([
+    'Insert',
+    'Update',
+    'Upsert',
+    'Delete',
+    'Readonly',
+    'DeleteSource',
+    'DeleteHierarchy',
+  ]),
   externalId: z.string().optional().default('Id'),
   objectName: z.string().min(1),
   master: z.boolean().optional().default(true),
@@ -255,7 +263,7 @@ export class SfdmuImporter {
  * @returns SandForge SyncOperation
  */
 function mapOperation(
-  operation: SfdmuScriptObject['operation']
+  operation: SfdmuScriptObject['operation'],
 ): 'insert' | 'update' | 'upsert' | 'delete' {
   const mapping: Record<string, 'insert' | 'update' | 'upsert' | 'delete'> = {
     Insert: 'insert',
@@ -314,14 +322,5 @@ function resolveRelationshipToObject(relationshipName: string): string {
  * @returns Generated ID string
  */
 function generateId(): string {
-  const segments = [8, 4, 4, 4, 12];
-  return segments
-    .map((len) => {
-      let segment = '';
-      for (let i = 0; i < len; i++) {
-        segment += Math.floor(Math.random() * 16).toString(16);
-      }
-      return segment;
-    })
-    .join('-');
+  return globalThis.crypto.randomUUID();
 }

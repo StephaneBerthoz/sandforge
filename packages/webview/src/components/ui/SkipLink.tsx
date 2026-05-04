@@ -14,10 +14,7 @@ export interface SkipLinkProps {
  * Hidden by default, becomes visible on focus (Tab key).
  * Conforms to WCAG 2.1 AA bypass blocks requirement (2.4.1).
  */
-export const SkipLink: React.FC<SkipLinkProps> = ({
-  targetId = 'main-content',
-  className,
-}) => {
+export const SkipLink: React.FC<SkipLinkProps> = ({ targetId = 'main-content', className }) => {
   const { t } = useTranslation();
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>): void => {

@@ -3,8 +3,13 @@ import type { DescribeField } from './SchemaAnalyzer.js';
 
 /** Set of field names that are never createable and should be excluded from mapping. */
 const NON_CREATEABLE_FIELDS = new Set([
-  'id', 'createddate', 'createdbyid', 'lastmodifieddate',
-  'lastmodifiedbyid', 'systemmodstamp', 'isdeleted',
+  'id',
+  'createddate',
+  'createdbyid',
+  'lastmodifieddate',
+  'lastmodifiedbyid',
+  'systemmodstamp',
+  'isdeleted',
 ]);
 
 /**
@@ -18,10 +23,7 @@ export class CsvFieldMapper {
    * Normalize a string for fuzzy matching: lowercase, strip underscores, spaces, and `__c` suffix.
    */
   private normalize(value: string): string {
-    return value
-      .toLowerCase()
-      .replace(/__c$/i, '')
-      .replace(/[_ ]/g, '');
+    return value.toLowerCase().replace(/__c$/i, '').replace(/[_ ]/g, '');
   }
 
   /**
@@ -58,7 +60,9 @@ export class CsvFieldMapper {
       // 3. Normalized match on name or label
       if (!matched) {
         matched = createableFields.find(
-          (f) => this.normalize(f.name) === headerNormalized || this.normalize(f.label) === headerNormalized,
+          (f) =>
+            this.normalize(f.name) === headerNormalized ||
+            this.normalize(f.label) === headerNormalized,
         );
       }
 

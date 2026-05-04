@@ -1,8 +1,19 @@
-import type { BaseMessage, ForgeExecutionResult, ForgeTemplate, ComplianceFrameworkType } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeExecutionResult,
+  ForgeTemplate,
+  ComplianceFrameworkType,
+} from '@sandforge/shared';
 import { forgeConfigSchema, forgeGraphSchema, forgeTemplateSchema } from '@sandforge/shared';
 import { z } from 'zod';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
-import { buildResponse, sendHandlerError, sendOperationStarted, sendOperationCompleted, sendOperationFailed } from './HandlerTypes.js';
+import {
+  buildResponse,
+  sendHandlerError,
+  sendOperationStarted,
+  sendOperationCompleted,
+  sendOperationFailed,
+} from './HandlerTypes.js';
 import { logger } from '../../logger.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -43,13 +54,27 @@ const metadataDiffRequestPayloadSchema = z.object({
   // RT-005: tightened from .max(500) to .max(100). 100 SObjects per diff
   // is already past any realistic UI use case; 500 enabled API-limit DoS
   // (500 source describes + 500 target describes = 1000 calls per request).
-  objectApiNames: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).max(80)).max(100),
+  objectApiNames: z
+    .array(
+      z
+        .string()
+        .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
+        .max(80),
+    )
+    .max(100),
 });
 const targetPreflightPayloadSchema = z.object({
   targetOrgId: orgIdSchema,
   // Reuse SObject regex; cap matches metadataDiff bound (100 objects per
   // request → 100 SELECT COUNT() round-trips, manageable in <30 s).
-  objectApiNames: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/).max(80)).max(100),
+  objectApiNames: z
+    .array(
+      z
+        .string()
+        .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
+        .max(80),
+    )
+    .max(100),
 });
 
 /**
@@ -114,7 +139,13 @@ function parsePayload<T>(
       .slice(0, 3)
       .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
       .join('; ');
-    sendHandlerError(deps, msg.type, responseType, new Error(`Invalid payload — ${summary}`), 'INVALID_PAYLOAD');
+    sendHandlerError(
+      deps,
+      msg.type,
+      responseType,
+      new Error(`Invalid payload — ${summary}`),
+      'INVALID_PAYLOAD',
+    );
     return null;
   }
   return result.data;
@@ -203,10 +234,7 @@ export class ForgeHandler implements DomainHandler {
    * @param orchestrator - The ForgeOrchestrator instance.
    * @param services - Optional additional Forge v2 services.
    */
-  setForgeOrchestrator(
-    orchestrator: ForgeOrchestrator,
-    services?: ForgeServices,
-  ): void {
+  setForgeOrchestrator(orchestrator: ForgeOrchestrator, services?: ForgeServices): void {
     this.orchestrator = orchestrator;
     if (services) {
       this.planGenerator = services.planGenerator;
@@ -301,16 +329,13 @@ export class ForgeHandler implements DomainHandler {
     const { recordId, orgId } = parsed;
 
     try {
-
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
 
       // Resolve object type from record ID key prefix
       const keyPrefix = recordId.substring(0, 3);
       const globalDesc = await conn.describeGlobal();
       checkApiLimits(conn.limitInfo, 'forge:preview describeGlobal');
-      const sobjectInfo = globalDesc.sobjects.find(
-        (s) => s.keyPrefix === keyPrefix,
-      );
+      const sobjectInfo = globalDesc.sobjects.find((s) => s.keyPrefix === keyPrefix);
 
       if (!sobjectInfo) {
         const errResponse = buildResponse(this.deps, msg, 'forge:preview:error', {
@@ -322,7 +347,8 @@ export class ForgeHandler implements DomainHandler {
 
       // Query the record with standard fields (with fallback for orgs not supporting FIELDS() syntax)
       const records = await queryWithFieldsFallback<Record<string, unknown>>(
-        conn, sobjectInfo.name,
+        conn,
+        sobjectInfo.name,
         `SELECT FIELDS(STANDARD) FROM ${sobjectInfo.name} WHERE Id = '${sanitizeSoqlValue(recordId)}' LIMIT 1`,
       );
       checkApiLimits(conn.limitInfo, `forge:preview query ${sobjectInfo.name}`);
@@ -377,7 +403,13 @@ export class ForgeHandler implements DomainHandler {
 
   private async handleDiscover(msg: BaseMessage): Promise<void> {
     if (!this.orchestrator) {
-      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', new Error('Forge module is not initialized'), 'NOT_INITIALIZED');
+      sendHandlerError(
+        this.deps,
+        'forge:discover',
+        'forge:discover:error',
+        new Error('Forge module is not initialized'),
+        'NOT_INITIALIZED',
+      );
       return;
     }
 
@@ -415,7 +447,14 @@ export class ForgeHandler implements DomainHandler {
       // the latest queue state before the error response arrives. Without
       // this, an abort mid-BFS leaves the wizard frozen on stale counts.
       throttledProgress.flush();
-      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', error, 'DISCOVER_ERROR', true);
+      sendHandlerError(
+        this.deps,
+        'forge:discover',
+        'forge:discover:error',
+        error,
+        'DISCOVER_ERROR',
+        true,
+      );
       sendOperationFailed(this.deps, operationId, String(error), true);
     } finally {
       this.discoverAbortController = null;
@@ -424,7 +463,13 @@ export class ForgeHandler implements DomainHandler {
 
   private async handleExecute(msg: BaseMessage): Promise<void> {
     if (!this.orchestrator) {
-      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', new Error('Forge module is not initialized'), 'NOT_INITIALIZED');
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        new Error('Forge module is not initialized'),
+        'NOT_INITIALIZED',
+      );
       return;
     }
 
@@ -439,7 +484,13 @@ export class ForgeHandler implements DomainHandler {
 
     if (this.dmlTracker.isDuplicate(forgeOpId)) {
       logger.warn('Duplicate forge execution detected', { operationId: forgeOpId });
-      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', new Error(`Duplicate forge operation: ${forgeOpId}`), 'DUPLICATE');
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        new Error(`Duplicate forge operation: ${forgeOpId}`),
+        'DUPLICATE',
+      );
       return;
     }
 
@@ -462,7 +513,12 @@ export class ForgeHandler implements DomainHandler {
       const status = (event as { status?: string }).status;
       if (status === 'done' || status === 'error') {
         throttledExecProgress.flush();
-        const progressMsg = buildResponse(this.deps, msg, 'forge:progress', event as unknown as Record<string, unknown>);
+        const progressMsg = buildResponse(
+          this.deps,
+          msg,
+          'forge:progress',
+          event as unknown as Record<string, unknown>,
+        );
         this.deps.broker.postToWebview(progressMsg);
         return;
       }
@@ -477,13 +533,23 @@ export class ForgeHandler implements DomainHandler {
       const history = [result, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY);
       this.saveHistory(history);
 
-      const response = buildResponse(this.deps, msg, 'forge:execute:response', { result, operationId });
+      const response = buildResponse(this.deps, msg, 'forge:execute:response', {
+        result,
+        operationId,
+      });
       this.deps.broker.postToWebview(response);
       this.dmlTracker.markCompleted(forgeOpId);
       sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
       this.dmlTracker.markFailed(forgeOpId);
-      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', error, 'EXECUTE_ERROR', true);
+      sendHandlerError(
+        this.deps,
+        'forge:execute',
+        'forge:execute:error',
+        error,
+        'EXECUTE_ERROR',
+        true,
+      );
       sendOperationFailed(this.deps, operationId, String(error), true);
     } finally {
       // CR-012: unsubscribe BEFORE flushing so the flush's terminal event
@@ -526,22 +592,36 @@ export class ForgeHandler implements DomainHandler {
   }
 
   private handleSaveTemplate(msg: BaseMessage): void {
-    const parsed = parsePayload(saveTemplatePayloadSchema, msg, 'forge:templates:save:error', this.deps);
+    const parsed = parsePayload(
+      saveTemplatePayloadSchema,
+      msg,
+      'forge:templates:save:error',
+      this.deps,
+    );
     if (!parsed) return;
     const { template } = parsed;
     const templates = [template, ...this.loadTemplates().filter((t) => t.id !== template.id)];
     this.saveTemplates(templates);
-    const response = buildResponse(this.deps, msg, 'forge:templates:save:response', { success: true });
+    const response = buildResponse(this.deps, msg, 'forge:templates:save:response', {
+      success: true,
+    });
     this.deps.broker.postToWebview(response);
   }
 
   private handleDeleteTemplate(msg: BaseMessage): void {
-    const parsed = parsePayload(deleteTemplatePayloadSchema, msg, 'forge:templates:delete:error', this.deps);
+    const parsed = parsePayload(
+      deleteTemplatePayloadSchema,
+      msg,
+      'forge:templates:delete:error',
+      this.deps,
+    );
     if (!parsed) return;
     const { templateId } = parsed;
     const templates = this.loadTemplates().filter((t) => t.id !== templateId);
     this.saveTemplates(templates);
-    const response = buildResponse(this.deps, msg, 'forge:templates:delete:response', { success: true });
+    const response = buildResponse(this.deps, msg, 'forge:templates:delete:response', {
+      success: true,
+    });
     this.deps.broker.postToWebview(response);
   }
 
@@ -554,7 +634,13 @@ export class ForgeHandler implements DomainHandler {
   /** Generate a forge execution plan from a graph. */
   private async handlePlanRequest(msg: BaseMessage): Promise<void> {
     if (!this.planGenerator) {
-      sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', new Error('Plan generator not configured'), 'NOT_INITIALIZED');
+      sendHandlerError(
+        this.deps,
+        'forge:plan',
+        'forge:plan:error',
+        new Error('Plan generator not configured'),
+        'NOT_INITIALIZED',
+      );
       return;
     }
     const parsed = parsePayload(planRequestPayloadSchema, msg, 'forge:plan:error', this.deps);
@@ -564,9 +650,8 @@ export class ForgeHandler implements DomainHandler {
     sendOperationStarted(this.deps, operationId, 'forge', 'Generating execution plan');
     try {
       logger.info('Forge plan generation started');
-      const plan = await new TimeoutManager(PLAN_TIMEOUT_MS).withTimeout(
-        'forge:plan',
-        () => Promise.resolve(this.planGenerator!.generate(graph)),
+      const plan = await new TimeoutManager(PLAN_TIMEOUT_MS).withTimeout('forge:plan', () =>
+        Promise.resolve(this.planGenerator!.generate(graph)),
       );
       const response = buildResponse(this.deps, msg, 'forge:plan:response', { plan });
       this.deps.broker.postToWebview(response);
@@ -574,7 +659,10 @@ export class ForgeHandler implements DomainHandler {
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
       sendHandlerError(
-        this.deps, 'forge:plan', 'forge:plan:error', error,
+        this.deps,
+        'forge:plan',
+        'forge:plan:error',
+        error,
         isTimeout ? 'TIMEOUT' : 'PLAN_ERROR',
         isTimeout,
       );
@@ -585,10 +673,21 @@ export class ForgeHandler implements DomainHandler {
   /** Generate a compliance report for a graph and framework. */
   private async handleComplianceRequest(msg: BaseMessage): Promise<void> {
     if (!this.complianceService) {
-      sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', new Error('Compliance service not configured'), 'NOT_INITIALIZED');
+      sendHandlerError(
+        this.deps,
+        'forge:compliance',
+        'forge:compliance:error',
+        new Error('Compliance service not configured'),
+        'NOT_INITIALIZED',
+      );
       return;
     }
-    const parsed = parsePayload(complianceRequestPayloadSchema, msg, 'forge:compliance:error', this.deps);
+    const parsed = parsePayload(
+      complianceRequestPayloadSchema,
+      msg,
+      'forge:compliance:error',
+      this.deps,
+    );
     if (!parsed) return;
     const { framework, graph, config } = parsed;
     const operationId = `forge-compliance-${this.deps.nextId()}`;
@@ -597,12 +696,15 @@ export class ForgeHandler implements DomainHandler {
       logger.info('Forge compliance report generation started');
       const report = await new TimeoutManager(COMPLIANCE_TIMEOUT_MS).withTimeout(
         'forge:compliance',
-        () => Promise.resolve(this.complianceService!.generate(
-          framework as ComplianceFrameworkType,
-          graph,
-          config.sourceOrgId,
-          config.targetOrgId,
-        )),
+        () =>
+          Promise.resolve(
+            this.complianceService!.generate(
+              framework as ComplianceFrameworkType,
+              graph,
+              config.sourceOrgId,
+              config.targetOrgId,
+            ),
+          ),
       );
       const response = buildResponse(this.deps, msg, 'forge:compliance:response', { report });
       this.deps.broker.postToWebview(response);
@@ -610,7 +712,10 @@ export class ForgeHandler implements DomainHandler {
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
       sendHandlerError(
-        this.deps, 'forge:compliance', 'forge:compliance:error', error,
+        this.deps,
+        'forge:compliance',
+        'forge:compliance:error',
+        error,
         isTimeout ? 'TIMEOUT' : 'COMPLIANCE_ERROR',
         isTimeout,
       );
@@ -628,14 +733,23 @@ export class ForgeHandler implements DomainHandler {
    * than failing the whole batch.
    */
   private async handleTargetPreflightRequest(msg: BaseMessage): Promise<void> {
-    const parsed = parsePayload(targetPreflightPayloadSchema, msg, 'forge:target-preflight:error', this.deps);
+    const parsed = parsePayload(
+      targetPreflightPayloadSchema,
+      msg,
+      'forge:target-preflight:error',
+      this.deps,
+    );
     if (!parsed) return;
     const { targetOrgId, objectApiNames } = parsed;
     const operationId = `forge-target-preflight-${this.deps.nextId()}`;
     sendOperationStarted(this.deps, operationId, 'forge', 'Counting existing rows on target');
     try {
       logger.info('Forge target preflight started', { count: objectApiNames.length });
-      const conn = await getJsforceConnection(targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
       const counts = await new TimeoutManager(TARGET_PREFLIGHT_TIMEOUT_MS).withTimeout(
         'forge:target-preflight',
         async () => {
@@ -662,7 +776,10 @@ export class ForgeHandler implements DomainHandler {
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
       sendHandlerError(
-        this.deps, 'forge:target-preflight', 'forge:target-preflight:error', error,
+        this.deps,
+        'forge:target-preflight',
+        'forge:target-preflight:error',
+        error,
         isTimeout ? 'TIMEOUT' : 'PREFLIGHT_ERROR',
         isTimeout,
       );
@@ -673,10 +790,21 @@ export class ForgeHandler implements DomainHandler {
   /** Compare metadata schemas between source and target orgs. */
   private async handleMetadataDiffRequest(msg: BaseMessage): Promise<void> {
     if (!this.metadataDiff) {
-      sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', new Error('Metadata diff service not configured'), 'NOT_INITIALIZED');
+      sendHandlerError(
+        this.deps,
+        'forge:metadata-diff',
+        'forge:metadata-diff:error',
+        new Error('Metadata diff service not configured'),
+        'NOT_INITIALIZED',
+      );
       return;
     }
-    const parsed = parsePayload(metadataDiffRequestPayloadSchema, msg, 'forge:metadata-diff:error', this.deps);
+    const parsed = parsePayload(
+      metadataDiffRequestPayloadSchema,
+      msg,
+      'forge:metadata-diff:error',
+      this.deps,
+    );
     if (!parsed) return;
     const { sourceOrgId, targetOrgId, objectApiNames } = parsed;
     const operationId = `forge-metadata-diff-${this.deps.nextId()}`;
@@ -693,7 +821,10 @@ export class ForgeHandler implements DomainHandler {
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
       sendHandlerError(
-        this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', error,
+        this.deps,
+        'forge:metadata-diff',
+        'forge:metadata-diff:error',
+        error,
         isTimeout ? 'TIMEOUT' : 'METADATA_DIFF_ERROR',
         isTimeout,
       );

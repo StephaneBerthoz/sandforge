@@ -41,21 +41,18 @@ export const SnapshotTimeline: React.FC<SnapshotTimelineProps> = ({
   );
 
   /** Toggle selection of a snapshot (max 2). */
-  const handleToggleSelect = useCallback(
-    (snapshotId: string) => {
-      setSelectedIds((prev) => {
-        if (prev.includes(snapshotId)) {
-          return prev.filter((id) => id !== snapshotId);
-        }
-        if (prev.length >= MAX_SELECTED) {
-          // Replace the oldest selection
-          return [prev[1], snapshotId];
-        }
-        return [...prev, snapshotId];
-      });
-    },
-    [],
-  );
+  const handleToggleSelect = useCallback((snapshotId: string) => {
+    setSelectedIds((prev) => {
+      if (prev.includes(snapshotId)) {
+        return prev.filter((id) => id !== snapshotId);
+      }
+      if (prev.length >= MAX_SELECTED) {
+        // Replace the oldest selection
+        return [prev[1], snapshotId];
+      }
+      return [...prev, snapshotId];
+    });
+  }, []);
 
   /** Handle compare button click. */
   const handleCompare = useCallback(() => {
@@ -83,7 +80,12 @@ export const SnapshotTimeline: React.FC<SnapshotTimelineProps> = ({
               </Button>
             )}
             {onCreateSnapshot && (
-              <Button variant="secondary" size="sm" onClick={onCreateSnapshot} data-testid="create-snapshot-btn">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onCreateSnapshot}
+                data-testid="create-snapshot-btn"
+              >
                 {t('compare.createSnapshot')}
               </Button>
             )}
@@ -139,7 +141,8 @@ export const SnapshotTimeline: React.FC<SnapshotTimelineProps> = ({
                         {formatDate(snapshot.createdAt)}
                       </span>
                       <div className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-                        {t('common.componentCount', { count: snapshot.componentCount })} &middot; {t('common.typeCount', { count: snapshot.componentTypes.length })}
+                        {t('common.componentCount', { count: snapshot.componentCount })} &middot;{' '}
+                        {t('common.typeCount', { count: snapshot.componentTypes.length })}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">

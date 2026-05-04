@@ -53,15 +53,12 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
   const allFieldsResolved = conflict.conflictFields.every((f) => fieldResolutions[f]);
 
   /** Set a field resolution choice. */
-  const pickField = useCallback(
-    (field: string, source: 'source' | 'target', value: unknown) => {
-      setFieldResolutions((prev) => ({
-        ...prev,
-        [field]: { value, source },
-      }));
-    },
-    [],
-  );
+  const pickField = useCallback((field: string, source: 'source' | 'target', value: unknown) => {
+    setFieldResolutions((prev) => ({
+      ...prev,
+      [field]: { value, source },
+    }));
+  }, []);
 
   /** Enter manual edit mode for a field. */
   const startManualEdit = useCallback(
@@ -243,7 +240,9 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                   )}
                   data-testid={`pick-manual-${field}`}
                 >
-                  {resolution?.source === 'manual' ? String(resolution.value) : t('sync.conflictResolution.manualEdit')}
+                  {resolution?.source === 'manual'
+                    ? String(resolution.value)
+                    : t('sync.conflictResolution.manualEdit')}
                 </button>
               )}
             </div>

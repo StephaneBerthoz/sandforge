@@ -68,9 +68,7 @@ export const TopBar: React.FC<TopBarProps> = ({ className, onNotificationsToggle
         </button>
         <div className="flex items-center gap-1.5" data-testid="app-logo">
           <Flame className="w-5 h-5 text-forge" />
-          <span className="text-sm font-bold text-text-primary font-display">
-            SandForge
-          </span>
+          <span className="text-sm font-bold text-text-primary font-display">SandForge</span>
         </div>
       </div>
 
@@ -120,10 +118,7 @@ export const TopBar: React.FC<TopBarProps> = ({ className, onNotificationsToggle
         >
           <Bell className="w-4 h-4" />
           {unreadCount > 0 && (
-            <Badge
-              variant="error"
-              className="absolute -top-1 -right-1 min-w-[16px] h-4 text-[9px]"
-            >
+            <Badge variant="error" className="absolute -top-1 -right-1 min-w-[16px] h-4 text-[9px]">
               {unreadCount}
             </Badge>
           )}

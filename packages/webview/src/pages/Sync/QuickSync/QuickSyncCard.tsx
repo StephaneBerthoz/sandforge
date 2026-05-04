@@ -19,10 +19,7 @@ export const QuickSyncCard: React.FC<QuickSyncCardProps> = ({ onStart }) => {
   const { t } = useTranslation();
 
   return (
-    <Card
-      className="border-[var(--vscode-focusBorder,#007fd4)]"
-      data-testid="quick-sync-card"
-    >
+    <Card className="border-[var(--vscode-focusBorder,#007fd4)]" data-testid="quick-sync-card">
       <CardBody>
         <div className="flex items-center gap-4">
           <span
@@ -37,12 +34,7 @@ export const QuickSyncCard: React.FC<QuickSyncCardProps> = ({ onStart }) => {
               {t('quickSync.subtitle')}
             </p>
           </div>
-          <Button
-            variant="primary"
-            size="md"
-            onClick={onStart}
-            data-testid="quick-sync-start-btn"
-          >
+          <Button variant="primary" size="md" onClick={onStart} data-testid="quick-sync-start-btn">
             {t('quickSync.start')}
           </Button>
         </div>

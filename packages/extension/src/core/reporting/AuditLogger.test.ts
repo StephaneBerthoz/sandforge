@@ -23,12 +23,7 @@ describe('AuditLogger', () => {
     });
 
     it('should include orgId when provided', () => {
-      const entry = logger.log(
-        'org_connect',
-        'connection',
-        { method: 'oauth' },
-        'org-abc'
-      );
+      const entry = logger.log('org_connect', 'connection', { method: 'oauth' }, 'org-abc');
 
       expect(entry.orgId).toBe('org-abc');
     });
@@ -202,9 +197,7 @@ describe('AuditLogger', () => {
       const csv = logger.exportEntries('csv');
       const lines = csv.split('\n');
 
-      expect(lines[0]).toBe(
-        'id,action,module,orgId,userId,details,timestamp,ipAddress'
-      );
+      expect(lines[0]).toBe('id,action,module,orgId,userId,details,timestamp,ipAddress');
       expect(lines).toHaveLength(2);
     });
 

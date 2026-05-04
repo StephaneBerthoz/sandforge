@@ -56,9 +56,7 @@ describe('CrossObjectConsistency', () => {
 
     it('should detect orphaned references', () => {
       const data = createGeneratedData();
-      data.set('Contact', [
-        { Id: '003A', Name: 'Alice', AccountId: 'INVALID_ID' },
-      ]);
+      data.set('Contact', [{ Id: '003A', Name: 'Alice', AccountId: 'INVALID_ID' }]);
 
       const result = checker.validate(createPlan(), data);
       expect(result.consistent).toBe(false);
@@ -68,9 +66,7 @@ describe('CrossObjectConsistency', () => {
 
     it('should detect missing dependency data', () => {
       const data = new Map<string, Record<string, unknown>[]>();
-      data.set('Contact', [
-        { Id: '003A', Name: 'Alice', AccountId: '001A' },
-      ]);
+      data.set('Contact', [{ Id: '003A', Name: 'Alice', AccountId: '001A' }]);
 
       const result = checker.validate(createPlan(), data);
       expect(result.consistent).toBe(false);
@@ -79,9 +75,7 @@ describe('CrossObjectConsistency', () => {
 
     it('should handle objects with no dependencies', () => {
       const plan: SeedDataPlan = {
-        objects: [
-          { objectApiName: 'Lead', recordCount: 5, sampleRecords: [], dependsOn: [] },
-        ],
+        objects: [{ objectApiName: 'Lead', recordCount: 5, sampleRecords: [], dependsOn: [] }],
         totalRecords: 5,
         estimatedApiCalls: 1,
         estimatedDuration: 150,
@@ -102,9 +96,7 @@ describe('CrossObjectConsistency', () => {
 
     it('should not flag RecordTypeId as an orphaned reference', () => {
       const plan: SeedDataPlan = {
-        objects: [
-          { objectApiName: 'Account', recordCount: 1, sampleRecords: [], dependsOn: [] },
-        ],
+        objects: [{ objectApiName: 'Account', recordCount: 1, sampleRecords: [], dependsOn: [] }],
         totalRecords: 1,
         estimatedApiCalls: 1,
         estimatedDuration: 150,
@@ -131,9 +123,7 @@ describe('CrossObjectConsistency', () => {
 
     it('should report correct source and target objects in issues', () => {
       const data = createGeneratedData();
-      data.set('Contact', [
-        { Id: '003A', Name: 'Alice', AccountId: 'INVALID' },
-      ]);
+      data.set('Contact', [{ Id: '003A', Name: 'Alice', AccountId: 'INVALID' }]);
 
       const result = checker.validate(createPlan(), data);
       expect(result.issues[0].sourceObject).toBe('Contact');

@@ -59,7 +59,7 @@ function findMatchingFields(
   record: Record<string, unknown>,
   normalizedQuery: string,
   fields: string[] | undefined,
-  caseSensitive: boolean
+  caseSensitive: boolean,
 ): string[] {
   const fieldsToSearch = fields ?? Object.keys(record);
   const matched: string[] = [];

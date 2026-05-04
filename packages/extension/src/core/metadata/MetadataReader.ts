@@ -111,7 +111,8 @@ export class MetadataReader {
     const describe = this.getDescribe(objectName);
     if (!describe) return [];
     return describe.fields.filter(
-      (f) => f.createable && !f.nillable && !f.autoNumber && !f.calculated && f.defaultValue === null,
+      (f) =>
+        f.createable && !f.nillable && !f.autoNumber && !f.calculated && f.defaultValue === null,
     );
   }
 

@@ -36,10 +36,9 @@ export const salesforceStatusCodeArb = fc.constantFrom(
 export const salesforceApiErrorArb: fc.Arbitrary<SalesforceApiError> = fc.record({
   statusCode: salesforceStatusCodeArb,
   message: fc.string({ minLength: 1, maxLength: 200 }),
-  fields: fc.option(
-    fc.array(fc.string({ minLength: 1, maxLength: 40 }), { maxLength: 5 }),
-    { nil: undefined },
-  ),
+  fields: fc.option(fc.array(fc.string({ minLength: 1, maxLength: 40 }), { maxLength: 5 }), {
+    nil: undefined,
+  }),
 });
 
 /** Arbitrary MetadataComponentType. Drives DiffEngine tests. */
@@ -56,13 +55,10 @@ export const metadataComponentTypeArb: fc.Arbitrary<MetadataComponentType> = fc.
 
 /** Arbitrary `Map<string, string>` with bounded size for DiffEngine. */
 export const componentMapArb: fc.Arbitrary<Map<string, string>> = fc
-  .array(
-    fc.tuple(
-      fc.string({ minLength: 1, maxLength: 50 }),
-      fc.string({ maxLength: 500 }),
-    ),
-    { minLength: 0, maxLength: 30 },
-  )
+  .array(fc.tuple(fc.string({ minLength: 1, maxLength: 50 }), fc.string({ maxLength: 500 })), {
+    minLength: 0,
+    maxLength: 30,
+  })
   .map((entries) => new Map(entries));
 
 /** Arbitrary ApiLimit entry (single governor limit measurement). */
@@ -101,9 +97,7 @@ export const limitsSnapshotArb: fc.Arbitrary<LimitsSnapshot> = fc.record({
 export const orderedSnapshotsArb: fc.Arbitrary<LimitsSnapshot[]> = fc
   .array(limitsSnapshotArb, { minLength: 2, maxLength: 20 })
   .map((arr) =>
-    [...arr].sort(
-      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-    ),
+    [...arr].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()),
   );
 
 /**

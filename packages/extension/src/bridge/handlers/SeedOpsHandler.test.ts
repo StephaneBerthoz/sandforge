@@ -110,7 +110,10 @@ describe('SeedOpsHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { objects: unknown[] } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { objects: unknown[] };
+    };
     expect(response.type).toBe('seed:describe-global:response');
     expect(response.correlationId).toBe('req-100');
     expect(response.payload.objects).toHaveLength(1);
@@ -122,7 +125,15 @@ describe('SeedOpsHandler', () => {
       describe: vi.fn().mockResolvedValue({
         label: 'Account',
         fields: [
-          { name: 'Name', label: 'Account Name', type: 'string', nillable: false, defaultedOnCreate: false, length: 255, createable: true },
+          {
+            name: 'Name',
+            label: 'Account Name',
+            type: 'string',
+            nillable: false,
+            defaultedOnCreate: false,
+            length: 255,
+            createable: true,
+          },
         ],
       }),
     } as never);
@@ -160,7 +171,9 @@ describe('SeedOpsHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string };
+    };
     expect(response.type).toBe('seed:error');
     expect(response.payload.message).toBe('connection failed');
   });
@@ -169,7 +182,9 @@ describe('SeedOpsHandler', () => {
     it('returns synthetic result when dryRun is true without performing inserts', async () => {
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
         id: 'req-dry-1',
         type: 'seed:execute',
         timestamp: Date.now(),
@@ -196,7 +211,9 @@ describe('SeedOpsHandler', () => {
     it('does not short-circuit when dryRun is false', async () => {
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
         id: 'req-dry-2',
         type: 'seed:execute',
         timestamp: Date.now(),
@@ -236,7 +253,9 @@ describe('SeedOpsHandler', () => {
       expect(describeGlobalFn).toHaveBeenCalledTimes(1);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { objects: unknown[] } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { objects: unknown[] };
+      };
       expect(response.type).toBe('seed:describe-global:response');
       expect(response.payload.objects).toHaveLength(1);
     });
@@ -245,7 +264,15 @@ describe('SeedOpsHandler', () => {
       const describeFn = vi.fn().mockResolvedValue({
         label: 'Account',
         fields: [
-          { name: 'Name', label: 'Name', type: 'string', nillable: false, defaultedOnCreate: false, length: 255, createable: true },
+          {
+            name: 'Name',
+            label: 'Name',
+            type: 'string',
+            nillable: false,
+            defaultedOnCreate: false,
+            length: 255,
+            createable: true,
+          },
         ],
       });
       mockGetConn.mockResolvedValue({ describe: describeFn } as never);
@@ -266,10 +293,11 @@ describe('SeedOpsHandler', () => {
     });
 
     it('sends TimeoutError to webview when describe-global times out', async () => {
-      const describeGlobalFn = vi.fn().mockImplementation(() =>
-        new Promise((_resolve) => {
-          /* never resolves -- simulates a hung API call */
-        }),
+      const describeGlobalFn = vi.fn().mockImplementation(
+        () =>
+          new Promise((_resolve) => {
+            /* never resolves -- simulates a hung API call */
+          }),
       );
       mockGetConn.mockResolvedValue({ describeGlobal: describeGlobalFn } as never);
 
@@ -291,10 +319,7 @@ describe('SeedOpsHandler', () => {
       // But since 5s is too long for a test, just verify the timeout wrapping
       // by checking that describeGlobal was called
       // (The actual timeout behavior is tested in TimeoutManager.test.ts)
-      await Promise.race([
-        handler.handle(msg),
-        new Promise((resolve) => setTimeout(resolve, 50)),
-      ]);
+      await Promise.race([handler.handle(msg), new Promise((resolve) => setTimeout(resolve, 50))]);
 
       expect(describeGlobalFn).toHaveBeenCalledTimes(1);
     });
@@ -427,7 +452,7 @@ describe('SeedOpsHandler', () => {
       // Should use bulkResult.successIds
       expect(source).toContain('bulkResult.successIds');
       // Should NOT contain the old synthetic pattern
-      expect(source).not.toContain("Array.from({ length: bulkResult.successCount }");
+      expect(source).not.toContain('Array.from({ length: bulkResult.successCount }');
     });
   });
 
@@ -438,7 +463,9 @@ describe('SeedOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
         id: 'bg-seed-1',
         type: 'seed:execute',
         timestamp: Date.now(),
@@ -459,7 +486,9 @@ describe('SeedOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & { payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean } } = {
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
         id: 'bg-seed-dry',
         type: 'seed:execute',
         timestamp: Date.now(),
@@ -514,7 +543,10 @@ describe('SeedOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; id: string } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean; id: string };
+      };
       expect(response.type).toBe('seed:template:save:response');
       expect(response.correlationId).toBe('req-tpl-save');
       expect(response.payload.success).toBe(true);
@@ -533,7 +565,16 @@ describe('SeedOpsHandler', () => {
             description: 'd1',
             version: 1,
             strategy: 'faker',
-            objects: [{ objectApiName: 'Account', recordCount: 10, fieldRules: [], excludedFields: [], insertOrder: 1, batchSize: 200 }],
+            objects: [
+              {
+                objectApiName: 'Account',
+                recordCount: 10,
+                fieldRules: [],
+                excludedFields: [],
+                insertOrder: 1,
+                batchSize: 200,
+              },
+            ],
             tags: ['a'],
           },
         },
@@ -551,7 +592,11 @@ describe('SeedOpsHandler', () => {
       const result = await handler.handle(msg);
       expect(result).toBe(true);
 
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { templates: Array<{ id: string; name: string; objectCount: number; totalRecords: number }> } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: {
+          templates: Array<{ id: string; name: string; objectCount: number; totalRecords: number }>;
+        };
+      };
       expect(response.type).toBe('seed:template:list:response');
       expect(response.payload.templates).toHaveLength(1);
       expect(response.payload.templates[0].name).toBe('T1');
@@ -571,7 +616,9 @@ describe('SeedOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { template: unknown } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { template: unknown };
+      };
       expect(response.type).toBe('seed:template:load:response');
       expect(response.payload.template).toBeNull();
     });
@@ -588,7 +635,9 @@ describe('SeedOpsHandler', () => {
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { success: boolean } };
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { success: boolean };
+      };
       expect(response.type).toBe('seed:template:delete:response');
       expect(response.payload.success).toBe(false);
     });

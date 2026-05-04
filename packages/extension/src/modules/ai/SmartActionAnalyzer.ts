@@ -41,10 +41,7 @@ export class SmartActionAnalyzer {
    * @param sourceOrgId - Optional source org for clone/sync analysis.
    * @returns A recommendation with action, confidence, and reason.
    */
-  async analyzeOrg(
-    targetOrgId: string,
-    sourceOrgId?: string,
-  ): Promise<SmartActionRecommendation> {
+  async analyzeOrg(targetOrgId: string, sourceOrgId?: string): Promise<SmartActionRecommendation> {
     const targetConn = await this.deps.getConnection(targetOrgId);
     const targetCounts = await this.queryRecordCounts(targetConn);
 

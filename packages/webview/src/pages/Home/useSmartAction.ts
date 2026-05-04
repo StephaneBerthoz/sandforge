@@ -41,10 +41,7 @@ export function useSmartAction(): SmartActionState {
   const navigate = useAppStore((s) => s.navigate);
   const [showConfirmation, setShowConfirmation] = useState(false);
 
-  const connectedOrgs = useMemo(
-    () => orgs.filter((o) => o.status === 'connected'),
-    [orgs],
-  );
+  const connectedOrgs = useMemo(() => orgs.filter((o) => o.status === 'connected'), [orgs]);
 
   const targetOrgId = connectedOrgs.length > 0 ? connectedOrgs[0].id : '';
   const sourceOrgId = connectedOrgs.length > 1 ? connectedOrgs[1].id : undefined;

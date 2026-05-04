@@ -89,7 +89,9 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
   const canGoNext = (): boolean => {
     switch (csv.step) {
       case 'upload':
-        return !!csv.file && !!csv.targetOrgId && !!csv.targetObjectApiName && csv.headers.length > 0;
+        return (
+          !!csv.file && !!csv.targetOrgId && !!csv.targetObjectApiName && csv.headers.length > 0
+        );
       case 'map':
         return csv.columnMappings.some((m) => m.sfFieldApiName !== '');
       case 'validate':
@@ -106,10 +108,11 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
     label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
   }));
 
-  const objectOptions = describeGlobal.data?.objects.map((obj) => ({
-    value: obj.apiName,
-    label: `${obj.label} (${obj.apiName})`,
-  })) ?? [];
+  const objectOptions =
+    describeGlobal.data?.objects.map((obj) => ({
+      value: obj.apiName,
+      label: `${obj.label} (${obj.apiName})`,
+    })) ?? [];
 
   return (
     <div className="flex flex-col gap-4" data-testid="csv-upload-wizard">
@@ -161,8 +164,8 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
               data-testid="csv-org-selector"
             />
 
-            {csv.targetOrgId && (
-              describeGlobal.loading ? (
+            {csv.targetOrgId &&
+              (describeGlobal.loading ? (
                 <Skeleton variant="rect" height="40px" />
               ) : (
                 <Select
@@ -175,8 +178,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
                   placeholder={t('seed.csv.wizard.selectObject')}
                   data-testid="csv-object-selector"
                 />
-              )
-            )}
+              ))}
 
             <FileDropZone
               onFileSelected={csv.handleFileSelected}
@@ -277,7 +279,10 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
                 {csv.executionResult.errors.length > 0 && (
                   <div className="flex flex-col gap-1 max-w-md">
                     {csv.executionResult.errors.slice(0, 5).map((err, i) => (
-                      <span key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">
+                      <span
+                        key={i}
+                        className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
+                      >
                         {err}
                       </span>
                     ))}
@@ -295,12 +300,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
       {/* Navigation bar */}
       <div className="flex justify-between items-center pt-2 border-t border-[var(--vscode-panel-border,#3c3c3c)]">
         <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onBack}
-            data-testid="csv-cancel-button"
-          >
+          <Button variant="secondary" size="sm" onClick={onBack} data-testid="csv-cancel-button">
             {t('seed.csv.wizard.cancel')}
           </Button>
           {csv.step !== 'upload' && csv.step !== 'execute' && (

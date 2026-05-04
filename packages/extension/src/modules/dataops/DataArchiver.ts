@@ -81,9 +81,7 @@ export class DataArchiver {
       };
     }
 
-    const ids = records
-      .map((r) => String(r['Id'] ?? r['id'] ?? ''))
-      .filter((id) => id.length > 0);
+    const ids = records.map((r) => String(r['Id'] ?? r['id'] ?? '')).filter((id) => id.length > 0);
 
     try {
       await deleteFn(ids);
@@ -113,10 +111,7 @@ export class DataArchiver {
     existingEntries.push(entry);
     this.archives.set(orgId, existingEntries);
 
-    const estimatedSize = records.reduce(
-      (acc, r) => acc + JSON.stringify(r).length,
-      0,
-    );
+    const estimatedSize = records.reduce((acc, r) => acc + JSON.stringify(r).length, 0);
     const currentSize = this.archiveSizes.get(orgId) ?? 0;
     this.archiveSizes.set(orgId, currentSize + estimatedSize);
 

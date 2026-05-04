@@ -55,9 +55,7 @@ export const StatusFooter: React.FC<StatusFooterProps> = ({
         </span>
       )}
       {apiUsagePercent !== undefined && (
-        <span title={t('status.apiUsage', 'API usage')}>
-          API: {apiUsagePercent}%
-        </span>
+        <span title={t('status.apiUsage', 'API usage')}>API: {apiUsagePercent}%</span>
       )}
       {activeJobs > 0 && (
         <span title={t('status.activeJobs', 'Active jobs')}>
@@ -69,7 +67,9 @@ export const StatusFooter: React.FC<StatusFooterProps> = ({
           {lastOpTime}
         </span>
       )}
-      <span className="ml-auto opacity-70">{t('common.versionLabel', { version: __APP_VERSION__ })}</span>
+      <span className="ml-auto opacity-70">
+        {t('common.versionLabel', { version: __APP_VERSION__ })}
+      </span>
     </footer>
   );
 };

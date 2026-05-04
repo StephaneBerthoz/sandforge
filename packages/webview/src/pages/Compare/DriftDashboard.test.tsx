@@ -105,7 +105,9 @@ describe('DriftDashboard', () => {
   it('should show lastModifiedBy when available', () => {
     render(<DriftDashboard drift={mockDrift} />);
     expect(screen.getByTestId('drift-modified-by-AccountHandler')).toBeDefined();
-    expect(screen.getByTestId('drift-modified-by-AccountHandler').textContent).toBe('admin@test.com');
+    expect(screen.getByTestId('drift-modified-by-AccountHandler').textContent).toBe(
+      'admin@test.com',
+    );
   });
 
   it('should show lastModifiedDate when available', () => {

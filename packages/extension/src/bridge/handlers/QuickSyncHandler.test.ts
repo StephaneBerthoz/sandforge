@@ -69,7 +69,13 @@ describe('QuickSyncHandler', () => {
     expect(postToWebview).toHaveBeenCalled();
 
     const response = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { suggestions: Array<{ objectApiName: string; isAvailable: boolean; isAlreadySelected: boolean }> };
+      payload: {
+        suggestions: Array<{
+          objectApiName: string;
+          isAvailable: boolean;
+          isAlreadySelected: boolean;
+        }>;
+      };
     };
     expect(response.type).toBe('quicksync:suggest-objects:response');
     expect(response.correlationId).toBe('req-suggest');
@@ -86,7 +92,9 @@ describe('QuickSyncHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; selectedObjects: string[]; parentObjects: string[] } } = {
+    const msg: BaseMessage & {
+      payload: { sourceOrgId: string; selectedObjects: string[]; parentObjects: string[] };
+    } = {
       id: 'req-preview',
       type: 'quicksync:preview',
       timestamp: Date.now(),
@@ -102,7 +110,13 @@ describe('QuickSyncHandler', () => {
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     const response = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { preview: { totalRecords: number; totalApiCalls: number; objects: Array<{ objectApiName: string }> } };
+      payload: {
+        preview: {
+          totalRecords: number;
+          totalApiCalls: number;
+          objects: Array<{ objectApiName: string }>;
+        };
+      };
     };
     expect(response.type).toBe('quicksync:preview:response');
     expect(response.payload.preview.totalRecords).toBe(250);
@@ -124,7 +138,16 @@ describe('QuickSyncHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { config: { sourceOrgId: string; targetOrgId: string; selectedObjects: string[]; parentObjects: string[] } } } = {
+    const msg: BaseMessage & {
+      payload: {
+        config: {
+          sourceOrgId: string;
+          targetOrgId: string;
+          selectedObjects: string[];
+          parentObjects: string[];
+        };
+      };
+    } = {
       id: 'req-execute',
       type: 'quicksync:execute',
       timestamp: Date.now(),
@@ -164,7 +187,9 @@ describe('QuickSyncHandler', () => {
   });
 
   it('handles quicksync:execute with invalid config and sends error', async () => {
-    const msg: BaseMessage & { payload: { config: { sourceOrgId: string; targetOrgId: string; selectedObjects: never[] } } } = {
+    const msg: BaseMessage & {
+      payload: { config: { sourceOrgId: string; targetOrgId: string; selectedObjects: never[] } };
+    } = {
       id: 'req-execute-invalid',
       type: 'quicksync:execute',
       timestamp: Date.now(),
@@ -191,7 +216,12 @@ describe('QuickSyncHandler', () => {
     mockGetConn.mockResolvedValue({
       describe: vi.fn().mockResolvedValue({
         fields: [
-          { name: 'AccountId', type: 'reference', referenceTo: ['Account'], relationshipName: 'Account' },
+          {
+            name: 'AccountId',
+            type: 'reference',
+            referenceTo: ['Account'],
+            relationshipName: 'Account',
+          },
           { name: 'Name', type: 'string', referenceTo: [], relationshipName: null },
         ],
       }),
@@ -199,7 +229,12 @@ describe('QuickSyncHandler', () => {
     } as never);
 
     const msg: BaseMessage & {
-      payload: { orgId: string; objectApiName: string; alreadySelected: string[]; availableObjects: string[] };
+      payload: {
+        orgId: string;
+        objectApiName: string;
+        alreadySelected: string[];
+        availableObjects: string[];
+      };
     } = {
       id: 'req-detect',
       type: 'quicksync:detect-relationships',

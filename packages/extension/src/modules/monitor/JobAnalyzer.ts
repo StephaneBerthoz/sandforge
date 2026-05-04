@@ -27,9 +27,7 @@ function groupByClass(jobs: AsyncApexJob[]): Map<string, AsyncApexJob[]> {
 /** Calculate duration for a job in milliseconds */
 function jobDurationMs(job: AsyncApexJob): number {
   const start = new Date(job.createdDate).getTime();
-  const end = job.completedDate
-    ? new Date(job.completedDate).getTime()
-    : Date.now();
+  const end = job.completedDate ? new Date(job.completedDate).getTime() : Date.now();
   return end - start;
 }
 
@@ -61,9 +59,7 @@ export class JobAnalyzer {
     for (const [className, classJobs] of grouped) {
       const failedJobs = classJobs.filter((j) => j.status === 'Failed');
       if (failedJobs.length >= FREQUENT_FAILURE_THRESHOLD) {
-        const errorMessages = failedJobs
-          .map((j) => j.extendedStatus)
-          .filter(Boolean) as string[];
+        const errorMessages = failedJobs.map((j) => j.extendedStatus).filter(Boolean) as string[];
         const mostCommonError = this.findMostCommon(errorMessages) ?? 'Unknown error';
 
         insights.push({
@@ -83,21 +79,15 @@ export class JobAnalyzer {
   /** Detect jobs that take longer than 5 minutes */
   private detectLongRunning(jobs: AsyncApexJob[]): JobInsight[] {
     const insights: JobInsight[] = [];
-    const completedJobs = jobs.filter(
-      (j) => j.status === 'Completed' && j.completedDate,
-    );
+    const completedJobs = jobs.filter((j) => j.status === 'Completed' && j.completedDate);
 
     const grouped = groupByClass(completedJobs);
 
     for (const [className, classJobs] of grouped) {
-      const longJobs = classJobs.filter(
-        (j) => jobDurationMs(j) > LONG_RUNNING_THRESHOLD_MS,
-      );
+      const longJobs = classJobs.filter((j) => jobDurationMs(j) > LONG_RUNNING_THRESHOLD_MS);
       if (longJobs.length > 0) {
-        const avgDuration = longJobs.reduce(
-          (sum, j) => sum + jobDurationMs(j),
-          0,
-        ) / longJobs.length;
+        const avgDuration =
+          longJobs.reduce((sum, j) => sum + jobDurationMs(j), 0) / longJobs.length;
         const avgMinutes = Math.round(avgDuration / 60_000);
 
         insights.push({
@@ -120,9 +110,7 @@ export class JobAnalyzer {
     const grouped = groupByClass(jobs);
 
     for (const [className, classJobs] of grouped) {
-      const highConsumerJobs = classJobs.filter(
-        (j) => j.totalJobItems > HIGH_CONSUMER_THRESHOLD,
-      );
+      const highConsumerJobs = classJobs.filter((j) => j.totalJobItems > HIGH_CONSUMER_THRESHOLD);
       if (highConsumerJobs.length > 0) {
         const maxItems = Math.max(...highConsumerJobs.map((j) => j.totalJobItems));
 
@@ -148,7 +136,7 @@ export class JobAnalyzer {
     for (const job of processingJobs) {
       const duration = jobDurationMs(job);
       if (duration > STUCK_THRESHOLD_MS) {
-        const hours = Math.round(duration / (60 * 60 * 1000) * 10) / 10;
+        const hours = Math.round((duration / (60 * 60 * 1000)) * 10) / 10;
 
         insights.push({
           type: 'stuck' as JobInsightType,

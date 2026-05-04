@@ -79,9 +79,10 @@ export class AlertStateStore {
     }
 
     const combined = [...existing, ...newEntries];
-    const trimmed = combined.length > MAX_HISTORY_SIZE
-      ? combined.slice(combined.length - MAX_HISTORY_SIZE)
-      : combined;
+    const trimmed =
+      combined.length > MAX_HISTORY_SIZE
+        ? combined.slice(combined.length - MAX_HISTORY_SIZE)
+        : combined;
 
     this.configStore.set(`${ALERT_PREFIX}history`, trimmed, ALERT_CATEGORY);
   }

@@ -1,8 +1,4 @@
-import type {
-  PreCheckConfig,
-  PreCheckItem,
-  PermissionCheckDetail,
-} from '@sandforge/shared';
+import type { PreCheckConfig, PreCheckItem, PermissionCheckDetail } from '@sandforge/shared';
 import { randomUUID } from 'crypto';
 
 /** Raw permission data returned by the fetch function */
@@ -16,7 +12,7 @@ export interface PermissionData {
 /** Dependency: fetches permission data for a given org and objects */
 export type FetchPermissionsFn = (
   orgId: string,
-  operationConfig: Record<string, unknown>
+  operationConfig: Record<string, unknown>,
 ) => Promise<PermissionData>;
 
 /**
@@ -32,10 +28,7 @@ export class PermissionCheck {
 
   /** Run all permission checks against the target org */
   async check(config: PreCheckConfig): Promise<PreCheckItem[]> {
-    const data = await this.fetchPermissions(
-      config.targetOrgId,
-      config.operationConfig
-    );
+    const data = await this.fetchPermissions(config.targetOrgId, config.operationConfig);
     const items: PreCheckItem[] = [];
 
     for (const objPerm of data.objectPermissions) {
@@ -72,7 +65,10 @@ export class PermissionCheck {
       message: crudPassed
         ? `All CRUD permissions granted on ${objectApiName}`
         : `Missing CRUD permissions on ${objectApiName}: ${missingCrud.join(', ')}`,
-      details: { objectApiName, crudPermissions, missingCrud } as unknown as Record<string, unknown>,
+      details: { objectApiName, crudPermissions, missingCrud } as unknown as Record<
+        string,
+        unknown
+      >,
       autoFixable: false,
     });
 

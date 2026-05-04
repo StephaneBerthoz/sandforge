@@ -14,9 +14,8 @@ export const ComplianceStatus: React.FC = () => {
   const totalNodes = graph?.nodes.length ?? 0;
 
   /** Map framework type to i18n key. */
-  const frameworkLabel = framework === 'none'
-    ? t('autopilot.step3.none')
-    : t(`autopilot.step3.${framework}`);
+  const frameworkLabel =
+    framework === 'none' ? t('autopilot.step3.none') : t(`autopilot.step3.${framework}`);
 
   return (
     <div className="flex flex-col gap-3" data-testid="compliance-status">

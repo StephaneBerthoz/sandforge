@@ -37,10 +37,14 @@ interface ApexInsightsData {
 /** Returns badge variant based on issue severity. */
 function severityVariant(severity: string): BadgeVariant {
   switch (severity) {
-    case 'critical': return 'error';
-    case 'warning': return 'warning';
-    case 'info': return 'info';
-    default: return 'default';
+    case 'critical':
+      return 'error';
+    case 'warning':
+      return 'warning';
+    case 'info':
+      return 'info';
+    default:
+      return 'default';
   }
 }
 
@@ -65,7 +69,10 @@ export const ApexInsightsPanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="apex-insights-panel-loading">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="apex-insights-panel-loading"
+      >
         <Skeleton variant="rect" height="200px" />
       </div>
     );
@@ -73,7 +80,10 @@ export const ApexInsightsPanel: React.FC = () => {
 
   if (analyses.length === 0) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="apex-insights-panel-empty">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="apex-insights-panel-empty"
+      >
         <div className="flex items-center gap-2 mb-3">
           <FileCode className="w-4 h-4 text-text-secondary" />
           <h3 className="text-sm font-semibold text-text-primary">
@@ -88,7 +98,10 @@ export const ApexInsightsPanel: React.FC = () => {
   }
 
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="apex-insights-panel">
+    <div
+      className="rounded-lg border border-subtle bg-surface-1 p-4"
+      data-testid="apex-insights-panel"
+    >
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <FileCode className="w-4 h-4 text-text-secondary" />
@@ -107,12 +120,8 @@ export const ApexInsightsPanel: React.FC = () => {
               className="flex items-start gap-2 px-2 py-1.5 rounded bg-surface-2"
               data-testid={`apex-issue-${idx}`}
             >
-              <Badge variant={severityVariant(issue.severity)}>
-                {issue.severity}
-              </Badge>
-              <span className="text-xs text-text-secondary flex-1">
-                {issue.message}
-              </span>
+              <Badge variant={severityVariant(issue.severity)}>{issue.severity}</Badge>
+              <span className="text-xs text-text-secondary flex-1">{issue.message}</span>
             </div>
           ))}
         </div>
@@ -125,7 +134,9 @@ export const ApexInsightsPanel: React.FC = () => {
       {/* Analysis table header */}
       <div className="flex items-center gap-3 px-2 py-1 text-[10px] text-text-muted font-medium uppercase tracking-wider border-b border-subtle mb-1">
         <span className="w-20 shrink-0">{t('monitor.apexInsights.logId', 'Log ID')}</span>
-        <span className="w-16 shrink-0 text-right">{t('monitor.apexInsights.duration', 'Duration')}</span>
+        <span className="w-16 shrink-0 text-right">
+          {t('monitor.apexInsights.duration', 'Duration')}
+        </span>
         <span className="flex-1">{t('monitor.apexInsights.soql', 'SOQL')}</span>
         <span className="w-12 text-right">{t('monitor.apexInsights.dml', 'DML')}</span>
         <span className="w-16 text-right">{t('monitor.apexInsights.heap', 'Heap')}</span>

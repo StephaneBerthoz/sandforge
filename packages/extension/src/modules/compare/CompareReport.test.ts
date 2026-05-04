@@ -21,7 +21,7 @@ function createItem(
   componentType: CompareItem['componentType'],
   fullName: string,
   status: CompareItem['status'],
-  severity: CompareItem['severity'] = 'info'
+  severity: CompareItem['severity'] = 'info',
 ): CompareItem {
   return {
     componentType,

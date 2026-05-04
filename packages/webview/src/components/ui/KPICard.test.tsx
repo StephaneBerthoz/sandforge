@@ -62,17 +62,13 @@ describe('KPICard', () => {
   });
 
   it('should apply variant accent color to icon wrapper', () => {
-    const { container } = render(
-      <KPICard icon="error" label="Errors" value={5} variant="error" />,
-    );
+    const { container } = render(<KPICard icon="error" label="Errors" value={5} variant="error" />);
     const iconWrapper = container.querySelector('[data-testid="icon-error"]')?.parentElement;
     expect(iconWrapper?.style.color).toBe('var(--sf-error)');
   });
 
   it('should pass variant to ProgressBar', () => {
-    render(
-      <KPICard icon="warning" label="Warnings" value={3} progress={75} variant="warning" />,
-    );
+    render(<KPICard icon="warning" label="Warnings" value={3} progress={75} variant="warning" />);
     const progressbar = screen.getByRole('progressbar');
     expect(progressbar).toBeDefined();
   });
@@ -144,7 +140,13 @@ describe('KPICard', () => {
 
   it('should use accentColor prop over variant color', () => {
     const { container } = render(
-      <KPICard icon="dashboard" label="Test" value={0} variant="error" accentColor="var(--custom-accent)" />,
+      <KPICard
+        icon="dashboard"
+        label="Test"
+        value={0}
+        variant="error"
+        accentColor="var(--custom-accent)"
+      />,
     );
     const iconWrapper = container.querySelector('[data-testid="icon-dashboard"]')?.parentElement;
     expect(iconWrapper?.style.color).toBe('var(--custom-accent)');

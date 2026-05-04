@@ -11,7 +11,7 @@ export class SelfReferenceHandler {
    */
   sortForInsert(
     records: Record<string, unknown>[],
-    selfRefField: string
+    selfRefField: string,
   ): Record<string, unknown>[] {
     const idField = 'Id';
     const recordById = new Map<string, Record<string, unknown>>();
@@ -78,7 +78,7 @@ export class SelfReferenceHandler {
   remapIds(
     records: Record<string, unknown>[],
     selfRefField: string,
-    idMap: Map<string, string>
+    idMap: Map<string, string>,
   ): Record<string, unknown>[] {
     return records.map((record) => {
       const parentId = record[selfRefField];

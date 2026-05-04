@@ -10,8 +10,16 @@ import type { StorageObjectEntry } from '@sandforge/shared';
 
 /** Color palette for the donut chart slices. */
 const SLICE_COLORS = [
-  '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EF4444',
-  '#06B6D4', '#EC4899', '#14B8A6', '#F97316', '#6366F1',
+  '#3B82F6',
+  '#10B981',
+  '#F59E0B',
+  '#8B5CF6',
+  '#EF4444',
+  '#06B6D4',
+  '#EC4899',
+  '#14B8A6',
+  '#F97316',
+  '#6366F1',
 ];
 
 /** Response shape from monitor:storage. */
@@ -48,7 +56,10 @@ export const StorageBreakdownPanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="storage-panel-loading">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="storage-panel-loading"
+      >
         <Skeleton variant="rect" height="200px" />
       </div>
     );
@@ -56,10 +67,15 @@ export const StorageBreakdownPanel: React.FC = () => {
 
   if (objects.length === 0) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="storage-panel-empty">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="storage-panel-empty"
+      >
         <div className="flex items-center gap-2 mb-3">
           <Database className="w-4 h-4 text-text-secondary" />
-          <h3 className="text-sm font-semibold text-text-primary">{t('monitor.storage.title', 'Storage Breakdown')}</h3>
+          <h3 className="text-sm font-semibold text-text-primary">
+            {t('monitor.storage.title', 'Storage Breakdown')}
+          </h3>
         </div>
         <p className="text-xs text-text-muted text-center py-6">
           {t('monitor.storage.empty', 'No object storage data available')}
@@ -72,7 +88,9 @@ export const StorageBreakdownPanel: React.FC = () => {
     <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="storage-panel">
       <div className="flex items-center gap-2 mb-3">
         <Database className="w-4 h-4 text-text-secondary" />
-        <h3 className="text-sm font-semibold text-text-primary">{t('monitor.storage.title', 'Storage Breakdown')}</h3>
+        <h3 className="text-sm font-semibold text-text-primary">
+          {t('monitor.storage.title', 'Storage Breakdown')}
+        </h3>
         <span className="text-xs text-text-muted ml-auto">
           {formatNumber(totalRecords)} {t('monitor.storage.totalRecords', 'total records')}
         </span>
@@ -96,7 +114,11 @@ export const StorageBreakdownPanel: React.FC = () => {
               ))}
             </Pie>
             <Tooltip
-              contentStyle={{ backgroundColor: 'var(--vscode-editor-background, #1e1e1e)', border: '1px solid var(--vscode-panel-border, #3c3c3c)', borderRadius: '6px' }}
+              contentStyle={{
+                backgroundColor: 'var(--vscode-editor-background, #1e1e1e)',
+                border: '1px solid var(--vscode-panel-border, #3c3c3c)',
+                borderRadius: '6px',
+              }}
               itemStyle={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
               formatter={(value: number) => formatNumber(value)}
             />
@@ -119,7 +141,9 @@ export const StorageBreakdownPanel: React.FC = () => {
                 style={{ backgroundColor: idx < 10 ? SLICE_COLORS[idx] : '#6B7280' }}
               />
               <span className="text-text-primary flex-1 truncate font-medium">{obj.label}</span>
-              <span className="text-text-secondary tabular-nums w-20 text-right">{formatNumber(obj.recordCount)}</span>
+              <span className="text-text-secondary tabular-nums w-20 text-right">
+                {formatNumber(obj.recordCount)}
+              </span>
               <span className="text-text-muted tabular-nums w-12 text-right">{pct}%</span>
             </div>
           );

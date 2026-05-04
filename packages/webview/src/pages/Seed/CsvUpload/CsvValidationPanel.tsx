@@ -114,7 +114,10 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
             </div>
           ))}
           {remaining > 0 && (
-            <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] py-1" data-testid={`more-errors-${errorType}`}>
+            <span
+              className="text-xs text-[var(--vscode-descriptionForeground,#868686)] py-1"
+              data-testid={`more-errors-${errorType}`}
+            >
               {t('seed.csv.validation.andMore', { count: remaining })}
             </span>
           )}
@@ -128,7 +131,10 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
       {/* Error summary */}
       <div className="flex items-center gap-2">
         <AlertTriangle className="w-5 h-5 text-[var(--vscode-errorForeground,#f48771)]" />
-        <span className="text-sm font-medium text-[var(--vscode-errorForeground,#f48771)]" data-testid="validation-error-count">
+        <span
+          className="text-sm font-medium text-[var(--vscode-errorForeground,#f48771)]"
+          data-testid="validation-error-count"
+        >
           {t('seed.csv.validation.errors', { count: validationResult.errors.length })}
         </span>
       </div>
@@ -143,7 +149,12 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
         </Button>
         {canProceedAnyway && (
           <div className="flex flex-col gap-1">
-            <Button variant="primary" size="sm" onClick={onProceed} data-testid="proceed-anyway-button">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onProceed}
+              data-testid="proceed-anyway-button"
+            >
               {t('seed.csv.validation.proceedAnyway')}
             </Button>
             <span className="text-[10px] text-amber-400">

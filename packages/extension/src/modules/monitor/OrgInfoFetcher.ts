@@ -14,10 +14,7 @@ export class OrgInfoFetcher {
   }
 
   /** Fetch org info, returning cached data if still fresh. */
-  async fetch(
-    orgId: string,
-    conn: OrgInfoConnection,
-  ): Promise<OrgInfo> {
+  async fetch(orgId: string, conn: OrgInfoConnection): Promise<OrgInfo> {
     const cached = this.cache.get(orgId);
     if (cached && Date.now() - cached.fetchedAt < this.cacheTtlMs) {
       return cached.data;
@@ -30,7 +27,7 @@ export class OrgInfoFetcher {
         conn.queryCount('SELECT COUNT() FROM User WHERE IsActive = true'),
         conn.queryCount("SELECT COUNT() FROM EntityDefinition WHERE QualifiedApiName LIKE '%__c'"),
         conn.queryCount('SELECT COUNT() FROM ApexClass'),
-        conn.queryCount("SELECT COUNT() FROM FlowDefinitionView WHERE IsActive = true"),
+        conn.queryCount('SELECT COUNT() FROM FlowDefinitionView WHERE IsActive = true'),
       ]);
 
     const info: OrgInfo = {

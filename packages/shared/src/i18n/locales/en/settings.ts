@@ -55,7 +55,8 @@ export const settings: TranslationRecord = {
   aiApiKey: 'Anthropic API Key',
   aiKeyConfigured: 'Key configured (hidden)',
   aiKeySaved: 'API key saved. Reload the window to activate AI features.',
-  aiHint: 'Your API key is stored securely in VSCode Secret Storage. It is used for NL2SOQL, Smart Suggestions, and other AI features.',
+  aiHint:
+    'Your API key is stored securely in VSCode Secret Storage. It is used for NL2SOQL, Smart Suggestions, and other AI features.',
   plugins: 'Plugins',
   pluginEnabled: 'Enabled',
   pluginDisabled: 'Disabled',

@@ -34,7 +34,9 @@ describe('SyncTemplatePicker', () => {
     const onApply = vi.fn();
     render(<SyncTemplatePicker onApply={onApply} />);
 
-    const firstButton = screen.getByTestId(`sync-template-apply-${PREBUILT_SYNC_TEMPLATES[0].templateId}`);
+    const firstButton = screen.getByTestId(
+      `sync-template-apply-${PREBUILT_SYNC_TEMPLATES[0].templateId}`,
+    );
     fireEvent.click(firstButton);
 
     expect(onApply).toHaveBeenCalledTimes(1);

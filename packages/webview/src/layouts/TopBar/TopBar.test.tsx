@@ -78,8 +78,22 @@ describe('TopBar', () => {
   it('should show unread badge when notifications exist', () => {
     useNotificationStore.setState({
       notifications: [
-        { id: 'n1', level: 'info', title: 'Test', message: 'msg', timestamp: Date.now(), read: false },
-        { id: 'n2', level: 'info', title: 'Test2', message: 'msg2', timestamp: Date.now(), read: false },
+        {
+          id: 'n1',
+          level: 'info',
+          title: 'Test',
+          message: 'msg',
+          timestamp: Date.now(),
+          read: false,
+        },
+        {
+          id: 'n2',
+          level: 'info',
+          title: 'Test2',
+          message: 'msg2',
+          timestamp: Date.now(),
+          read: false,
+        },
       ],
     });
     render(<TopBar />);
@@ -90,7 +104,14 @@ describe('TopBar', () => {
   it('should not show badge when unread count is 0', () => {
     useNotificationStore.setState({
       notifications: [
-        { id: 'n1', level: 'info', title: 'Test', message: 'msg', timestamp: Date.now(), read: true },
+        {
+          id: 'n1',
+          level: 'info',
+          title: 'Test',
+          message: 'msg',
+          timestamp: Date.now(),
+          read: true,
+        },
       ],
     });
     render(<TopBar />);

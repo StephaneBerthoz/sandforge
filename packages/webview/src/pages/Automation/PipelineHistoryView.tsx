@@ -12,7 +12,10 @@ export interface PipelineHistoryViewProps {
   onSelectRun?: (runId: string) => void;
 }
 
-const STATUS_VARIANT: Record<PipelineRunStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
+const STATUS_VARIANT: Record<
+  PipelineRunStatus,
+  'default' | 'success' | 'warning' | 'error' | 'info'
+> = {
   idle: 'default',
   queued: 'info',
   running: 'info',
@@ -50,26 +53,35 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
       </h3>
       {entries.map((entry) => (
         <div key={entry.runId} data-testid={`history-${entry.runId}`}>
-        <Card
-          hoverable
-          onClick={() => onSelectRun?.(entry.runId)}
-        >
-          <CardHeader
-            title={entry.pipelineName}
-            subtitle={entry.startTime}
-            action={<Badge variant={STATUS_VARIANT[entry.status]}>{t(`automation.runStatuses.${entry.status}`)}</Badge>}
-          />
-          <CardBody>
-            <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-              <span>{t('automation.triggeredBy')}: {t(`automation.triggerTypes.${entry.triggeredBy}`)}</span>
-              <span>{t('automation.duration')}: {formatDuration(entry.duration)}</span>
-              <span>{entry.stepCount} {t('automation.steps')}</span>
-              {entry.errorCount > 0 && (
-                <span className="text-red-400">{entry.errorCount} {t('automation.errors')}</span>
-              )}
-            </div>
-          </CardBody>
-        </Card>
+          <Card hoverable onClick={() => onSelectRun?.(entry.runId)}>
+            <CardHeader
+              title={entry.pipelineName}
+              subtitle={entry.startTime}
+              action={
+                <Badge variant={STATUS_VARIANT[entry.status]}>
+                  {t(`automation.runStatuses.${entry.status}`)}
+                </Badge>
+              }
+            />
+            <CardBody>
+              <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                <span>
+                  {t('automation.triggeredBy')}: {t(`automation.triggerTypes.${entry.triggeredBy}`)}
+                </span>
+                <span>
+                  {t('automation.duration')}: {formatDuration(entry.duration)}
+                </span>
+                <span>
+                  {entry.stepCount} {t('automation.steps')}
+                </span>
+                {entry.errorCount > 0 && (
+                  <span className="text-red-400">
+                    {entry.errorCount} {t('automation.errors')}
+                  </span>
+                )}
+              </div>
+            </CardBody>
+          </Card>
         </div>
       ))}
     </div>

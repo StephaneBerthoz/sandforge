@@ -91,9 +91,24 @@ describe('PipelineBuilder', () => {
   describe('moveStep', () => {
     it('should move a step to the specified index', () => {
       let pipeline = builder.create('Test', 'Desc');
-      pipeline = builder.addStep(pipeline, { name: 'A', type: 'seed', config: {}, continueOnError: false });
-      pipeline = builder.addStep(pipeline, { name: 'B', type: 'sync', config: {}, continueOnError: false });
-      pipeline = builder.addStep(pipeline, { name: 'C', type: 'backup', config: {}, continueOnError: false });
+      pipeline = builder.addStep(pipeline, {
+        name: 'A',
+        type: 'seed',
+        config: {},
+        continueOnError: false,
+      });
+      pipeline = builder.addStep(pipeline, {
+        name: 'B',
+        type: 'sync',
+        config: {},
+        continueOnError: false,
+      });
+      pipeline = builder.addStep(pipeline, {
+        name: 'C',
+        type: 'backup',
+        config: {},
+        continueOnError: false,
+      });
 
       const stepId = pipeline.steps[2].id;
       const updated = builder.moveStep(pipeline, stepId, 0);
@@ -174,7 +189,12 @@ describe('PipelineBuilder', () => {
 
     it('should return error for schedule trigger without cron', () => {
       let pipeline = builder.create('Test', 'Desc');
-      pipeline = builder.addStep(pipeline, { name: 'S1', type: 'seed', config: {}, continueOnError: false });
+      pipeline = builder.addStep(pipeline, {
+        name: 'S1',
+        type: 'seed',
+        config: {},
+        continueOnError: false,
+      });
       pipeline = builder.addTrigger(pipeline, { type: 'schedule', enabled: true, config: {} });
       const errors = builder.validate(pipeline);
 
@@ -183,7 +203,12 @@ describe('PipelineBuilder', () => {
 
     it('should return empty array for a valid pipeline', () => {
       let pipeline = builder.create('Valid', 'Valid pipeline');
-      pipeline = builder.addStep(pipeline, { name: 'Step', type: 'seed', config: {}, continueOnError: false });
+      pipeline = builder.addStep(pipeline, {
+        name: 'Step',
+        type: 'seed',
+        config: {},
+        continueOnError: false,
+      });
       const errors = builder.validate(pipeline);
 
       expect(errors).toHaveLength(0);
@@ -193,7 +218,12 @@ describe('PipelineBuilder', () => {
   describe('clone', () => {
     it('should produce a deep copy with new IDs', () => {
       let pipeline = builder.create('Original', 'Desc');
-      pipeline = builder.addStep(pipeline, { name: 'S1', type: 'seed', config: { key: 'val' }, continueOnError: false });
+      pipeline = builder.addStep(pipeline, {
+        name: 'S1',
+        type: 'seed',
+        config: { key: 'val' },
+        continueOnError: false,
+      });
       pipeline = builder.addTrigger(pipeline, { type: 'manual', enabled: true, config: {} });
 
       const cloned = builder.clone(pipeline);
@@ -207,8 +237,18 @@ describe('PipelineBuilder', () => {
 
     it('should remap onSuccess/onFailure references in cloned steps', () => {
       let pipeline = builder.create('Test', 'Desc');
-      pipeline = builder.addStep(pipeline, { name: 'S1', type: 'seed', config: {}, continueOnError: false });
-      pipeline = builder.addStep(pipeline, { name: 'S2', type: 'sync', config: {}, continueOnError: false });
+      pipeline = builder.addStep(pipeline, {
+        name: 'S1',
+        type: 'seed',
+        config: {},
+        continueOnError: false,
+      });
+      pipeline = builder.addStep(pipeline, {
+        name: 'S2',
+        type: 'sync',
+        config: {},
+        continueOnError: false,
+      });
 
       const s1Id = pipeline.steps[0].id;
       const s2Id = pipeline.steps[1].id;

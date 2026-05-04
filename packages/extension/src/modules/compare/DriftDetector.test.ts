@@ -7,7 +7,7 @@ function createSnapshot(
   id: string,
   orgId: string,
   types: MetadataComponentType[],
-  componentCount: number
+  componentCount: number,
 ): OrgSnapshot {
   return {
     id,

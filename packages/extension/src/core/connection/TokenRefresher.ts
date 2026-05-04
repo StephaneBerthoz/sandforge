@@ -1,5 +1,11 @@
 /** Status of a token refresh schedule */
-export type RefreshStatus = 'scheduled' | 'refreshing' | 'completed' | 'failed' | 'cancelled' | 'expired';
+export type RefreshStatus =
+  | 'scheduled'
+  | 'refreshing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'expired';
 
 /** Token refresh information for an org */
 export interface TokenRefreshInfo {
@@ -19,7 +25,11 @@ export type TokenRefreshExecutor = (orgId: string) => Promise<{
 }>;
 
 /** Event types emitted by TokenRefresher */
-export type TokenEventType = 'token:refreshed' | 'token:expired' | 'token:failed' | 'token:circuitOpen';
+export type TokenEventType =
+  | 'token:refreshed'
+  | 'token:expired'
+  | 'token:failed'
+  | 'token:circuitOpen';
 
 /** Token refresh event */
 export interface TokenEvent {
@@ -52,7 +62,10 @@ export class TokenRefresher {
   private readonly bufferMs: number;
   private readonly maxFailures: number;
 
-  constructor(bufferMs: number = TokenRefresher.DEFAULT_BUFFER_MS, maxFailures: number = TokenRefresher.MAX_CONSECUTIVE_FAILURES) {
+  constructor(
+    bufferMs: number = TokenRefresher.DEFAULT_BUFFER_MS,
+    maxFailures: number = TokenRefresher.MAX_CONSECUTIVE_FAILURES,
+  ) {
     this.bufferMs = bufferMs;
     this.maxFailures = maxFailures;
   }
@@ -216,7 +229,11 @@ export class TokenRefresher {
           info.status = 'expired';
         }
         this.emit({ type: 'token:expired', orgId, info: info ?? this.createDefaultInfo(orgId) });
-        this.emit({ type: 'token:circuitOpen', orgId, info: info ?? this.createDefaultInfo(orgId) });
+        this.emit({
+          type: 'token:circuitOpen',
+          orgId,
+          info: info ?? this.createDefaultInfo(orgId),
+        });
 
         if (this.disconnectHandler) {
           this.disconnectHandler(orgId);

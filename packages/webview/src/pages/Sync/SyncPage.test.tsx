@@ -8,8 +8,28 @@ import { SyncPage } from './SyncPage';
 import type { UIConflict } from '@sandforge/shared';
 
 const mockOrgs = [
-  { id: 'org-1', alias: 'dev1', username: 'user@dev1.com', instanceUrl: 'https://dev1.salesforce.com', orgType: 'sandbox' as const, status: 'connected' as const, safetyTier: 'low' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
-  { id: 'org-2', alias: 'dev2', username: 'user@dev2.com', instanceUrl: 'https://dev2.salesforce.com', orgType: 'sandbox' as const, status: 'connected' as const, safetyTier: 'low' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
+  {
+    id: 'org-1',
+    alias: 'dev1',
+    username: 'user@dev1.com',
+    instanceUrl: 'https://dev1.salesforce.com',
+    orgType: 'sandbox' as const,
+    status: 'connected' as const,
+    safetyTier: 'low' as const,
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'org-2',
+    alias: 'dev2',
+    username: 'user@dev2.com',
+    instanceUrl: 'https://dev2.salesforce.com',
+    orgType: 'sandbox' as const,
+    status: 'connected' as const,
+    safetyTier: 'low' as const,
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -68,7 +88,12 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
 }));
 
 vi.mock('../../components/ui/VirtualList', () => ({
-  VirtualList: <T,>({ items, renderItem, keyExtractor, emptyMessage }: {
+  VirtualList: <T,>({
+    items,
+    renderItem,
+    keyExtractor,
+    emptyMessage,
+  }: {
     items: T[];
     renderItem: (item: T, index: number) => React.ReactNode;
     keyExtractor: (item: T, index: number) => string;
@@ -104,7 +129,12 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 describe('SyncPage', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
-    useConflictStore.setState({ conflicts: [], selectedConflictId: null, filterObject: null, filterType: null });
+    useConflictStore.setState({
+      conflicts: [],
+      selectedConflictId: null,
+      filterObject: null,
+      filterType: null,
+    });
     mockObjectsRefetch.mockClear();
     mockFieldsMutate.mockClear();
     mockFieldsReset.mockClear();

@@ -33,19 +33,43 @@ describe('autopilot.types', () => {
 
   it('should support all AutopilotNodeStatus values', () => {
     const statuses: AutopilotNode['status'][] = [
-      'pending', 'queued', 'extracting', 'anonymizing', 'loading', 'completed', 'failed', 'skipped',
+      'pending',
+      'queued',
+      'extracting',
+      'anonymizing',
+      'loading',
+      'completed',
+      'failed',
+      'skipped',
     ];
     expect(statuses).toHaveLength(8);
   });
 
   it('should support all ComplianceFrameworkType values', () => {
-    const frameworks: ComplianceFrameworkType[] = ['gdpr', 'ccpa', 'hipaa', 'pci_dss', 'custom', 'none'];
+    const frameworks: ComplianceFrameworkType[] = [
+      'gdpr',
+      'ccpa',
+      'hipaa',
+      'pci_dss',
+      'custom',
+      'none',
+    ];
     expect(frameworks).toHaveLength(6);
   });
 
   it('should support all AnonymizationMethod values', () => {
     const methods: AnonymizationMethod[] = [
-      'fake', 'mask', 'hash', 'nullify', 'redact', 'shuffle', 'truncate', 'preserve_format', 'age_band', 'generalize', 'constant',
+      'fake',
+      'mask',
+      'hash',
+      'nullify',
+      'redact',
+      'shuffle',
+      'truncate',
+      'preserve_format',
+      'age_band',
+      'generalize',
+      'constant',
     ];
     expect(methods).toHaveLength(11);
   });
@@ -61,8 +85,17 @@ describe('autopilot.types', () => {
         totalPiiFields: 5,
         totalFieldsToAnonymize: 5,
         methodBreakdown: {
-          fake: 3, mask: 1, hash: 1, nullify: 0, redact: 0,
-          shuffle: 0, truncate: 0, preserve_format: 0, age_band: 0, generalize: 0, constant: 0,
+          fake: 3,
+          mask: 1,
+          hash: 1,
+          nullify: 0,
+          redact: 0,
+          shuffle: 0,
+          truncate: 0,
+          preserve_format: 0,
+          age_band: 0,
+          generalize: 0,
+          constant: 0,
         },
         objectsWithPii: ['Contact'],
       },

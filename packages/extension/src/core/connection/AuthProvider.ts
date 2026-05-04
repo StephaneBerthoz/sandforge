@@ -99,7 +99,9 @@ export class AuthProvider {
       Name: string;
       OrganizationType: string;
       IsSandbox: boolean;
-    }>(`SELECT Id, Name, OrganizationType, IsSandbox FROM Organization LIMIT ${DEFAULT_SOQL_LIMITS.singleRecord}`);
+    }>(
+      `SELECT Id, Name, OrganizationType, IsSandbox FROM Organization LIMIT ${DEFAULT_SOQL_LIMITS.singleRecord}`,
+    );
 
     const orgRecord = orgResult.records[0];
     return {

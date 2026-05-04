@@ -16,7 +16,10 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
 
   if (isLoading) {
     return (
-      <div className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]" data-testid="step-review-plan">
+      <div
+        className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="step-review-plan"
+      >
         {t('common.loading')}
       </div>
     );
@@ -24,7 +27,10 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
 
   if (!plan) {
     return (
-      <div className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]" data-testid="step-review-plan">
+      <div
+        className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="step-review-plan"
+      >
         {t('common.noData')}
       </div>
     );
@@ -45,11 +51,10 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
           {t('seed.estimatedApiCalls')}: <strong>{plan.estimatedApiCalls}</strong>
         </span>
         <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('seed.estimatedDuration')}: <strong>{Math.round(plan.estimatedDuration / 1000)}s</strong>
+          {t('seed.estimatedDuration')}:{' '}
+          <strong>{Math.round(plan.estimatedDuration / 1000)}s</strong>
         </span>
-        {plan.grappeRecommended && (
-          <Badge variant="warning">{t('seed.grappeRecommended')}</Badge>
-        )}
+        {plan.grappeRecommended && <Badge variant="warning">{t('seed.grappeRecommended')}</Badge>}
       </div>
 
       {/* Per-object details */}
@@ -67,7 +72,9 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
                   {t('seed.dependencies')}:
                 </span>
                 {obj.dependsOn.map((dep) => (
-                  <Badge key={dep} variant="default">{dep}</Badge>
+                  <Badge key={dep} variant="default">
+                    {dep}
+                  </Badge>
                 ))}
               </div>
             )}
@@ -92,7 +99,10 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
                     {obj.sampleRecords.map((rec, i) => (
                       <tr key={i} className="border-b border-[var(--vscode-panel-border,#3c3c3c)]">
                         {Object.values(rec).map((val, j) => (
-                          <td key={j} className="px-2 py-1 text-[var(--vscode-editor-foreground,#d4d4d4)] truncate max-w-[150px]">
+                          <td
+                            key={j}
+                            className="px-2 py-1 text-[var(--vscode-editor-foreground,#d4d4d4)] truncate max-w-[150px]"
+                          >
                             {String(val ?? '')}
                           </td>
                         ))}

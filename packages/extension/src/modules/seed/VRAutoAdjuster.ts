@@ -46,10 +46,7 @@ export class VRAutoAdjuster {
    * @param vrResults - Validation rule check results with field constraints
    * @returns Adjusted configs, adjustment log, and unresolved rules
    */
-  adjust(
-    configs: FieldGenerationConfig[],
-    vrResults: VRCheckResult[],
-  ): AdjustmentResult {
+  adjust(configs: FieldGenerationConfig[], vrResults: VRCheckResult[]): AdjustmentResult {
     // Create mutable copies of all configs
     const configMap = new Map<string, FieldGenerationConfig>();
     for (const config of configs) {
@@ -60,9 +57,7 @@ export class VRAutoAdjuster {
     const unresolvedRules: string[] = [];
 
     // Only process high and medium risk rules
-    const relevantResults = vrResults.filter(
-      (r) => r.risk === 'high' || r.risk === 'medium',
-    );
+    const relevantResults = vrResults.filter((r) => r.risk === 'high' || r.risk === 'medium');
 
     for (const vrResult of relevantResults) {
       for (const constraint of vrResult.fieldConstraints) {
@@ -220,7 +215,10 @@ export class VRAutoAdjuster {
 
     if (constraint.maxLength !== undefined) {
       // Use the more restrictive value
-      if (config.constraints.maxLength === undefined || constraint.maxLength < config.constraints.maxLength) {
+      if (
+        config.constraints.maxLength === undefined ||
+        constraint.maxLength < config.constraints.maxLength
+      ) {
         config.constraints.maxLength = constraint.maxLength;
         changed = true;
       }

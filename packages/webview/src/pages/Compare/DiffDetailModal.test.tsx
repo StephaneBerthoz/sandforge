@@ -58,7 +58,9 @@ describe('DiffDetailModal', () => {
   it('should show risk reasons', () => {
     render(<DiffDetailModal diff={sampleDiff} onClose={vi.fn()} />);
     expect(screen.getByTestId('diff-risk-reasons')).toBeDefined();
-    expect(screen.getByText('This is a breaking change that requires careful review.')).toBeDefined();
+    expect(
+      screen.getByText('This is a breaking change that requires careful review.'),
+    ).toBeDefined();
     expect(screen.getByText('Run all Apex tests in the target org.')).toBeDefined();
   });
 

@@ -114,7 +114,9 @@ export const DeployFromDiff: React.FC<DeployFromDiffProps> = ({
                     data-testid={`risk-${i}`}
                   >
                     <Badge variant={riskVariant[risk.risk]}>{risk.risk}</Badge>
-                    <span className="truncate">{risk.component}: {risk.description}</span>
+                    <span className="truncate">
+                      {risk.component}: {risk.description}
+                    </span>
                   </div>
                 ))}
               </div>

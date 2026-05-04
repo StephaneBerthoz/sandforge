@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { PipelineDefinition, PipelineStepType, TriggerType, PipelineHistoryEntry } from '@sandforge/shared';
+import type {
+  PipelineDefinition,
+  PipelineStepType,
+  TriggerType,
+  PipelineHistoryEntry,
+} from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
@@ -119,7 +124,9 @@ export function useAutomationPageData(): AutomationPageData {
   const [selectedStepId, setSelectedStepId] = useState<string>('');
 
   const pipelineGen = usePipelineGenerator();
-  const marketplaceList = useBridgeQuery<{ success: boolean; templates?: MarketplaceTemplate[] }>('marketplace:list');
+  const marketplaceList = useBridgeQuery<{ success: boolean; templates?: MarketplaceTemplate[] }>(
+    'marketplace:list',
+  );
 
   // Pipeline state
   const [pipeline, setPipeline] = useState<PipelineDefinition | undefined>();
@@ -136,16 +143,14 @@ export function useAutomationPageData(): AutomationPageData {
   );
 
   // Bridge mutation: execute a pipeline
-  const executeMutation = useBridgeMutation<Record<string, unknown>>(
-    'pipeline:execute',
-    { responseType: 'pipeline:run:response' },
-  );
+  const executeMutation = useBridgeMutation<Record<string, unknown>>('pipeline:execute', {
+    responseType: 'pipeline:run:response',
+  });
 
   // Bridge mutation: save a pipeline
-  const saveMutation = useBridgeMutation<Record<string, unknown>>(
-    'pipeline:save',
-    { responseType: 'pipeline:saved' },
-  );
+  const saveMutation = useBridgeMutation<Record<string, unknown>>('pipeline:save', {
+    responseType: 'pipeline:saved',
+  });
 
   // Bridge query: load pipeline templates
   const templatesQuery = useBridgeQuery<{ templates: Record<string, unknown>[] }>(
@@ -192,12 +197,30 @@ export function useAutomationPageData(): AutomationPageData {
 
   // Show error notifications from bridge hooks
   useEffect(() => {
-    const bridgeError = pipelinesQuery.error ?? executeMutation.error ?? saveMutation.error ?? templatesQuery.error ?? historyQuery.error;
+    const bridgeError =
+      pipelinesQuery.error ??
+      executeMutation.error ??
+      saveMutation.error ??
+      templatesQuery.error ??
+      historyQuery.error;
     if (bridgeError) {
       setError(bridgeError);
-      addNotification({ level: 'error', title: t('automation.title'), message: bridgeError, autoDismissMs: 5000 });
+      addNotification({
+        level: 'error',
+        title: t('automation.title'),
+        message: bridgeError,
+        autoDismissMs: 5000,
+      });
     }
-  }, [pipelinesQuery.error, executeMutation.error, saveMutation.error, templatesQuery.error, historyQuery.error, addNotification, t]);
+  }, [
+    pipelinesQuery.error,
+    executeMutation.error,
+    saveMutation.error,
+    templatesQuery.error,
+    historyQuery.error,
+    addNotification,
+    t,
+  ]);
 
   const handleCreatePipeline = () => {
     const newPipeline: PipelineDefinition = {
@@ -227,7 +250,12 @@ export function useAutomationPageData(): AutomationPageData {
   const handleSavePipeline = () => {
     if (!pipeline) return;
     saveMutation.mutate({ pipeline: pipeline as unknown as Record<string, unknown> });
-    addNotification({ level: 'success', title: t('automation.title'), message: t('automation.pipelineSaved'), autoDismissMs: 3000 });
+    addNotification({
+      level: 'success',
+      title: t('automation.title'),
+      message: t('automation.pipelineSaved'),
+      autoDismissMs: 3000,
+    });
   };
 
   const handleLoadPipeline = (p: PipelineDefinition) => {
@@ -250,7 +278,12 @@ export function useAutomationPageData(): AutomationPageData {
     };
     setPipeline(newPipeline);
     setActiveTab('canvas');
-    addNotification({ level: 'success', title: t('automation.marketplace'), message: t('automation.templateInstalled'), autoDismissMs: 3000 });
+    addNotification({
+      level: 'success',
+      title: t('automation.marketplace'),
+      message: t('automation.templateInstalled'),
+      autoDismissMs: 3000,
+    });
   };
 
   const handleAddStep = (type: PipelineStepType) => {
@@ -297,9 +330,7 @@ export function useAutomationPageData(): AutomationPageData {
     if (!pipeline) return;
     setPipeline({
       ...pipeline,
-      steps: pipeline.steps.map((s) =>
-        s.id === stepId ? { ...s, ...updates } : s,
-      ),
+      steps: pipeline.steps.map((s) => (s.id === stepId ? { ...s, ...updates } : s)),
       updatedAt: new Date().toISOString(),
     });
   };
@@ -317,9 +348,7 @@ export function useAutomationPageData(): AutomationPageData {
     if (!pipeline) return;
     setPipeline({
       ...pipeline,
-      triggers: pipeline.triggers.map((tr) =>
-        tr.id === triggerId ? { ...tr, enabled } : tr,
-      ),
+      triggers: pipeline.triggers.map((tr) => (tr.id === triggerId ? { ...tr, enabled } : tr)),
       updatedAt: new Date().toISOString(),
     });
   };

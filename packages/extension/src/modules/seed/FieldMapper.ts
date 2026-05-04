@@ -26,7 +26,7 @@ export class FieldMapper {
    */
   async mapFields(
     objectConfig: SeedObjectConfig,
-    existingIds: Map<string, string[]>
+    existingIds: Map<string, string[]>,
   ): Promise<Record<string, unknown>[]> {
     const { recordCount, fieldRules } = objectConfig;
 
@@ -37,16 +37,14 @@ export class FieldMapper {
     const aiRules = fieldRules.filter((r) => r.ruleType === 'ai_generate');
     const fakerRules = fieldRules.filter((r) => r.ruleType === 'faker');
     const otherRules = fieldRules.filter(
-      (r) => r.ruleType !== 'ai_generate' && r.ruleType !== 'faker'
+      (r) => r.ruleType !== 'ai_generate' && r.ruleType !== 'faker',
     );
 
-    const aiRecords = aiRules.length > 0
-      ? await this.deps.aiGenerator.generate(aiRules, recordCount)
-      : [];
+    const aiRecords =
+      aiRules.length > 0 ? await this.deps.aiGenerator.generate(aiRules, recordCount) : [];
 
-    const fakerRecords = fakerRules.length > 0
-      ? this.deps.fakerFallback.generate(fakerRules, recordCount)
-      : [];
+    const fakerRecords =
+      fakerRules.length > 0 ? this.deps.fakerFallback.generate(fakerRules, recordCount) : [];
 
     const records: Record<string, unknown>[] = [];
 
@@ -79,7 +77,7 @@ export class FieldMapper {
 export function generateValue(
   rule: FieldRule,
   index: number,
-  existingIds: Map<string, string[]>
+  existingIds: Map<string, string[]>,
 ): unknown {
   switch (rule.ruleType) {
     case 'static':
@@ -137,10 +135,7 @@ function generatePicklistValue(rule: FieldRule): unknown {
 }
 
 /** Resolve a reference to a random ID from the target object's created IDs */
-function generateReferenceValue(
-  rule: FieldRule,
-  existingIds: Map<string, string[]>
-): unknown {
+function generateReferenceValue(rule: FieldRule, existingIds: Map<string, string[]>): unknown {
   const targetObject = rule.config.referenceObject;
   if (!targetObject) {
     return null;

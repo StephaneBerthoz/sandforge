@@ -16,12 +16,13 @@ export interface CleanupPanelProps {
   isRunning?: boolean;
 }
 
-const RECOMMENDATION_VARIANT: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
-  archive: 'info',
-  delete: 'error',
-  compress: 'warning',
-  optimize: 'success',
-};
+const RECOMMENDATION_VARIANT: Record<string, 'default' | 'success' | 'warning' | 'error' | 'info'> =
+  {
+    archive: 'info',
+    delete: 'error',
+    compress: 'warning',
+    optimize: 'success',
+  };
 
 /** Panel for cleanup and storage optimization. */
 export const CleanupPanel: React.FC<CleanupPanelProps> = ({
@@ -45,7 +46,12 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({
           <Button variant="secondary" size="sm" onClick={onArchive} data-testid="archive-btn">
             {t('dataops.archive')}
           </Button>
-          <Button variant="secondary" size="sm" onClick={onMassDelete} data-testid="mass-delete-btn">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onMassDelete}
+            data-testid="mass-delete-btn"
+          >
             {t('dataops.massDelete')}
           </Button>
         </div>
@@ -60,41 +66,46 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({
       )}
 
       {recommendations.length > 0 && (
-        <div className="text-xs text-[var(--vscode-descriptionForeground,#868686)]" data-testid="savings-summary">
+        <div
+          className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+          data-testid="savings-summary"
+        >
           {t('dataops.storageSaved')}: {formatFileSize(totalSavings)}
         </div>
       )}
 
       {recommendations.map((rec) => (
         <div key={rec.objectApiName} data-testid={`rec-${rec.objectApiName}`}>
-        <Card>
-          <CardHeader
-            title={rec.objectApiName}
-            subtitle={`${t('common.recordCount', { count: rec.currentRecords })} · ${formatFileSize(rec.currentSize)}`}
-            action={
-              <Badge variant={RECOMMENDATION_VARIANT[rec.recommendation] ?? 'default'}>
-                {rec.recommendation}
-              </Badge>
-            }
-          />
-          <CardBody>
-            <div className="flex items-center justify-between">
-              <div className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                <p>{rec.reason}</p>
-                <p className="mt-1">{t('dataops.storageSaved')}: {formatFileSize(rec.estimatedSaving)}</p>
+          <Card>
+            <CardHeader
+              title={rec.objectApiName}
+              subtitle={`${t('common.recordCount', { count: rec.currentRecords })} · ${formatFileSize(rec.currentSize)}`}
+              action={
+                <Badge variant={RECOMMENDATION_VARIANT[rec.recommendation] ?? 'default'}>
+                  {rec.recommendation}
+                </Badge>
+              }
+            />
+            <CardBody>
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                  <p>{rec.reason}</p>
+                  <p className="mt-1">
+                    {t('dataops.storageSaved')}: {formatFileSize(rec.estimatedSaving)}
+                  </p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => onCleanup?.(rec.objectApiName, rec.recommendation)}
+                  disabled={isRunning}
+                  data-testid={`cleanup-${rec.objectApiName}`}
+                >
+                  {t('common.confirm')}
+                </Button>
               </div>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => onCleanup?.(rec.objectApiName, rec.recommendation)}
-                disabled={isRunning}
-                data-testid={`cleanup-${rec.objectApiName}`}
-              >
-                {t('common.confirm')}
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
+            </CardBody>
+          </Card>
         </div>
       ))}
     </div>

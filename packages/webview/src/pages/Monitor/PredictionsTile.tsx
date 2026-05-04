@@ -50,22 +50,14 @@ function formatHours(hours: number): string {
  * Tile displaying time-to-limit predictions for governor limits.
  * Color-coded by urgency: red (<2h), amber (<12h), green (>12h).
  */
-export const PredictionsTile: React.FC<PredictionsTileProps> = ({
-  predictions,
-  className,
-}) => {
+export const PredictionsTile: React.FC<PredictionsTileProps> = ({ predictions, className }) => {
   const { t } = useTranslation();
 
   /** Sort predictions by urgency (most urgent first). */
-  const sorted = [...predictions].sort(
-    (a, b) => a.estimatedHoursToLimit - b.estimatedHoursToLimit,
-  );
+  const sorted = [...predictions].sort((a, b) => a.estimatedHoursToLimit - b.estimatedHoursToLimit);
 
   return (
-    <div
-      className={cn('flex flex-col', className)}
-      data-testid="predictions-tile"
-    >
+    <div className={cn('flex flex-col', className)} data-testid="predictions-tile">
       <h3 className="text-sm font-semibold text-text-primary mb-3">
         {t('monitor.predictions', 'Time-to-Limit Predictions')}
       </h3>

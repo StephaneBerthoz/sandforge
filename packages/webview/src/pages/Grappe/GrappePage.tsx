@@ -50,9 +50,8 @@ export const GrappePage: React.FC = () => {
   const currentProcessed = active
     ? partitionList.reduce((sum, p) => sum + p.processedRecords, 0)
     : totalProcessed;
-  const overallProgress = totalRecords > 0
-    ? Math.round((currentProcessed / totalRecords) * 100)
-    : 0;
+  const overallProgress =
+    totalRecords > 0 ? Math.round((currentProcessed / totalRecords) * 100) : 0;
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-6xl mx-auto" data-testid="grappe-page">
@@ -63,9 +62,7 @@ export const GrappePage: React.FC = () => {
             <Network className="w-6 h-6 text-indigo-400" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-text-primary">
-              {t('nav.grappe', 'Grappe')}
-            </h1>
+            <h1 className="text-lg font-bold text-text-primary">{t('nav.grappe', 'Grappe')}</h1>
             <p className="text-xs text-text-secondary">
               {t('grappe.subtitle', 'Parallel execution engine for large-scale data operations')}
             </p>
@@ -86,7 +83,9 @@ export const GrappePage: React.FC = () => {
             <Layers className="w-5 h-5 text-indigo-400 shrink-0" />
             <div>
               <div className="text-lg font-bold text-text-primary">{totalPartitions}</div>
-              <div className="text-[10px] text-text-muted">{t('grappe.partitions', 'Partitions')}</div>
+              <div className="text-[10px] text-text-muted">
+                {t('grappe.partitions', 'Partitions')}
+              </div>
             </div>
           </CardBody>
         </Card>
@@ -94,8 +93,12 @@ export const GrappePage: React.FC = () => {
           <CardBody className="flex items-center gap-3 py-3">
             <Cpu className="w-5 h-5 text-cyan-400 shrink-0" />
             <div>
-              <div className="text-lg font-bold text-text-primary">{totalRecords.toLocaleString()}</div>
-              <div className="text-[10px] text-text-muted">{t('grappe.totalRecords', 'Records')}</div>
+              <div className="text-lg font-bold text-text-primary">
+                {totalRecords.toLocaleString()}
+              </div>
+              <div className="text-[10px] text-text-muted">
+                {t('grappe.totalRecords', 'Records')}
+              </div>
             </div>
           </CardBody>
         </Card>
@@ -106,7 +109,9 @@ export const GrappePage: React.FC = () => {
               <div className="text-lg font-bold text-text-primary">
                 {currentProcessed.toLocaleString()}
               </div>
-              <div className="text-[10px] text-text-muted">{t('grappe.processed', 'processed')}</div>
+              <div className="text-[10px] text-text-muted">
+                {t('grappe.processed', 'processed')}
+              </div>
             </div>
           </CardBody>
         </Card>
@@ -134,10 +139,10 @@ export const GrappePage: React.FC = () => {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Network className="w-4 h-4 text-indigo-400" />
-                  <Badge variant="info">{totalPartitions} {t('grappe.partitions', 'partitions')}</Badge>
-                  <span className="text-xs text-text-secondary">
-                    API: {apiUsagePercent}%
-                  </span>
+                  <Badge variant="info">
+                    {totalPartitions} {t('grappe.partitions', 'partitions')}
+                  </Badge>
+                  <span className="text-xs text-text-secondary">API: {apiUsagePercent}%</span>
                 </div>
                 <span className="text-xs tabular-nums text-text-secondary">
                   {currentProcessed.toLocaleString()} / {totalRecords.toLocaleString()}
@@ -167,7 +172,9 @@ export const GrappePage: React.FC = () => {
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {partitionList.map((p) => (
                     <div key={p.grappeId} className="flex items-center gap-2">
-                      <span className="text-[10px] text-text-muted w-20 truncate">{p.grappeId}</span>
+                      <span className="text-[10px] text-text-muted w-20 truncate">
+                        {p.grappeId}
+                      </span>
                       <div className="flex-1 h-1.5 rounded-full bg-surface-3 overflow-hidden">
                         <div
                           className="h-full rounded-full bg-indigo-400 transition-all"
@@ -196,7 +203,10 @@ export const GrappePage: React.FC = () => {
                 {t('grappe.emptyTitle', 'No Active Grappes')}
               </h2>
               <p className="text-xs text-text-secondary max-w-sm">
-                {t('grappe.emptyDesc', 'Grappe automatically activates when operations exceed the parallel threshold. Configure threshold in Settings or launch a Forge operation with large datasets.')}
+                {t(
+                  'grappe.emptyDesc',
+                  'Grappe automatically activates when operations exceed the parallel threshold. Configure threshold in Settings or launch a Forge operation with large datasets.',
+                )}
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -223,7 +233,10 @@ export const GrappePage: React.FC = () => {
                 {t('grappe.step1Title', 'Smart Partitioning')}
               </span>
               <span className="text-[10px] text-text-muted">
-                {t('grappe.step1Desc', 'Data is split into optimal partitions based on dependencies and size')}
+                {t(
+                  'grappe.step1Desc',
+                  'Data is split into optimal partitions based on dependencies and size',
+                )}
               </span>
             </div>
             <div className="flex flex-col items-center gap-2 text-center">
@@ -234,7 +247,10 @@ export const GrappePage: React.FC = () => {
                 {t('grappe.step2Title', 'Worker Pool')}
               </span>
               <span className="text-[10px] text-text-muted">
-                {t('grappe.step2Desc', 'Parallel workers process partitions with back-pressure control')}
+                {t(
+                  'grappe.step2Desc',
+                  'Parallel workers process partitions with back-pressure control',
+                )}
               </span>
             </div>
             <div className="flex flex-col items-center gap-2 text-center">

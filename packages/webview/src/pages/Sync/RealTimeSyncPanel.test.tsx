@@ -17,7 +17,12 @@ vi.mock('../../hooks/useVSCodeApi', () => ({
  * Mock VirtualList for jsdom (no layout engine).
  */
 vi.mock('../../components/ui/VirtualList', () => ({
-  VirtualList: <T,>({ items, renderItem, keyExtractor, emptyMessage }: {
+  VirtualList: <T,>({
+    items,
+    renderItem,
+    keyExtractor,
+    emptyMessage,
+  }: {
     items: T[];
     renderItem: (item: T, index: number) => React.ReactNode;
     keyExtractor: (item: T, index: number) => string;

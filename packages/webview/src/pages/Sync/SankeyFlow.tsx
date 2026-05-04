@@ -37,7 +37,13 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
 
   if (nodes.length === 0) {
     return (
-      <div className={cn('text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4', className)} data-testid="sankey-flow">
+      <div
+        className={cn(
+          'text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4',
+          className,
+        )}
+        data-testid="sankey-flow"
+      >
         {t('common.noData')}
       </div>
     );
@@ -59,7 +65,10 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
 
   const targetPositions = new Map<string, { x: number; y: number }>();
   targetNodes.forEach((n, i) => {
-    targetPositions.set(n.id, { x: width - padding - nodeWidth, y: padding + i * targetYScale + targetYScale / 2 });
+    targetPositions.set(n.id, {
+      x: width - padding - nodeWidth,
+      y: padding + i * targetYScale + targetYScale / 2,
+    });
   });
 
   return (
@@ -67,7 +76,12 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
       <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)] block mb-2">
         {t('sync.dataFlow')}
       </span>
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} data-testid="sankey-svg">
+      <svg
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
+        data-testid="sankey-svg"
+      >
         {/* Links */}
         {links.map((link, i) => {
           const src = sourcePositions.get(link.sourceId);

@@ -9,11 +9,16 @@ function pressKey(code: string): void {
 
 /** The full Konami Code sequence. */
 const KONAMI = [
-  'ArrowUp', 'ArrowUp',
-  'ArrowDown', 'ArrowDown',
-  'ArrowLeft', 'ArrowRight',
-  'ArrowLeft', 'ArrowRight',
-  'KeyB', 'KeyA',
+  'ArrowUp',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowLeft',
+  'ArrowRight',
+  'KeyB',
+  'KeyA',
 ];
 
 /** Presses each key in the sequence, wrapping each in act() so React state updates are processed. */

@@ -51,7 +51,10 @@ const EXACT_DATE_RANGES: Record<string, DateRange> = {
 /** Field name patterns for date ranges */
 const PATTERN_DATE_RANGES: Array<{ pattern: RegExp; range: DateRange }> = [
   { pattern: /^Birthdate$/i, range: { minDaysFromNow: -25550, maxDaysFromNow: -6570 } },
-  { pattern: /^(CreatedDate|LastModifiedDate)$/i, range: { minDaysFromNow: -365, maxDaysFromNow: 0 } },
+  {
+    pattern: /^(CreatedDate|LastModifiedDate)$/i,
+    range: { minDaysFromNow: -365, maxDaysFromNow: 0 },
+  },
   { pattern: /DueDate/i, range: { minDaysFromNow: 7, maxDaysFromNow: 90 } },
   { pattern: /StartDate/i, range: { minDaysFromNow: -30, maxDaysFromNow: 90 } },
   { pattern: /EndDate/i, range: { minDaysFromNow: 30, maxDaysFromNow: 365 } },

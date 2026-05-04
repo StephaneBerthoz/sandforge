@@ -117,20 +117,14 @@ describe('TeamSharingPanel', () => {
   });
 
   it('shows conflicts', () => {
-    const conflicts = [
-      { key: 'sync:mapping1', localValue: 'A', remoteValue: 'B' },
-    ];
+    const conflicts = [{ key: 'sync:mapping1', localValue: 'A', remoteValue: 'B' }];
     render(<TeamSharingPanel conflicts={conflicts} />);
     expect(screen.getByTestId('import-conflicts')).toBeTruthy();
     expect(screen.getByTestId('conflict-sync:mapping1')).toBeTruthy();
   });
 
   it('shows successful import result', () => {
-    render(
-      <TeamSharingPanel
-        importResult={{ success: true, keysImported: 5, keysSkipped: 2 }}
-      />,
-    );
+    render(<TeamSharingPanel importResult={{ success: true, keysImported: 5, keysSkipped: 2 }} />);
     expect(screen.getByTestId('import-result')).toBeTruthy();
     expect(screen.getByText('Imported 5 keys, skipped 2')).toBeTruthy();
   });

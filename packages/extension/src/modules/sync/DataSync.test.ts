@@ -46,12 +46,7 @@ describe('DataSync', () => {
 
       await dataSync.sync(config, records);
 
-      expect(deps.upsert).toHaveBeenCalledWith(
-        'Account',
-        'External_Id__c',
-        expect.any(Array),
-        200
-      );
+      expect(deps.upsert).toHaveBeenCalledWith('Account', 'External_Id__c', expect.any(Array), 200);
     });
 
     it('should call insert for insert operation', async () => {
@@ -84,27 +79,19 @@ describe('DataSync', () => {
     it('should apply field mappings before writing', async () => {
       const config = createConfig({
         operation: 'insert',
-        fieldMappings: [
-          { sourceField: 'Name', targetField: 'Account_Name__c', type: 'rename' },
-        ],
+        fieldMappings: [{ sourceField: 'Name', targetField: 'Account_Name__c', type: 'rename' }],
       });
       const records = [{ Name: 'Acme' }];
 
       await dataSync.sync(config, records);
 
-      expect(deps.insert).toHaveBeenCalledWith(
-        'Account',
-        [{ Account_Name__c: 'Acme' }],
-        200
-      );
+      expect(deps.insert).toHaveBeenCalledWith('Account', [{ Account_Name__c: 'Acme' }], 200);
     });
 
     it('should apply add-on fields', async () => {
       const config = createConfig({
         operation: 'insert',
-        addOnFields: [
-          { fieldApiName: 'Source__c', value: 'Migration', overwriteExisting: false },
-        ],
+        addOnFields: [{ fieldApiName: 'Source__c', value: 'Migration', overwriteExisting: false }],
       });
       const records = [{ Name: 'Acme' }];
 
@@ -122,10 +109,10 @@ describe('DataSync', () => {
       deps = createDeps({ insert: vi.fn().mockResolvedValue(outcomes) });
       dataSync = new DataSync(deps);
 
-      const result = await dataSync.sync(
-        createConfig({ operation: 'insert' }),
-        [{ Name: 'A' }, { Name: 'B' }]
-      );
+      const result = await dataSync.sync(createConfig({ operation: 'insert' }), [
+        { Name: 'A' },
+        { Name: 'B' },
+      ]);
 
       expect(result.success).toBe(2);
       expect(result.failed).toBe(0);
@@ -140,10 +127,10 @@ describe('DataSync', () => {
       deps = createDeps({ insert: vi.fn().mockResolvedValue(outcomes) });
       dataSync = new DataSync(deps);
 
-      const result = await dataSync.sync(
-        createConfig({ operation: 'insert' }),
-        [{ Name: 'A' }, { Name: 'B' }]
-      );
+      const result = await dataSync.sync(createConfig({ operation: 'insert' }), [
+        { Name: 'A' },
+        { Name: 'B' },
+      ]);
 
       expect(result.success).toBe(1);
       expect(result.failed).toBe(1);
@@ -172,12 +159,7 @@ describe('DataSync', () => {
 
       await dataSync.sync(config, records);
 
-      expect(deps.upsert).toHaveBeenCalledWith(
-        'Account',
-        'Id',
-        expect.any(Array),
-        200
-      );
+      expect(deps.upsert).toHaveBeenCalledWith('Account', 'Id', expect.any(Array), 200);
     });
 
     it('should pass through all records when no mappings defined', async () => {
@@ -194,10 +176,7 @@ describe('DataSync', () => {
       deps = createDeps({ insert: vi.fn().mockResolvedValue([]) });
       dataSync = new DataSync(deps);
 
-      const result = await dataSync.sync(
-        createConfig({ operation: 'insert' }),
-        []
-      );
+      const result = await dataSync.sync(createConfig({ operation: 'insert' }), []);
 
       expect(result.processed).toBe(0);
       expect(result.success).toBe(0);
@@ -207,7 +186,7 @@ describe('DataSync', () => {
     it('should set objectApiName and operation on result', async () => {
       const result = await dataSync.sync(
         createConfig({ objectApiName: 'Contact', operation: 'update' }),
-        [{ Id: '003', LastName: 'Smith' }]
+        [{ Id: '003', LastName: 'Smith' }],
       );
 
       expect(result.objectApiName).toBe('Contact');
@@ -223,10 +202,9 @@ describe('DataSync', () => {
       deps = createDeps({ targetFieldDescriptors: targetFields });
       dataSync = new DataSync(deps);
 
-      const result = await dataSync.sync(
-        createConfig({ operation: 'insert' }),
-        [{ Name: 'TooLongName' }]
-      );
+      const result = await dataSync.sync(createConfig({ operation: 'insert' }), [
+        { Name: 'TooLongName' },
+      ]);
 
       expect(result.failed).toBe(1);
       expect(result.success).toBe(0);
@@ -243,10 +221,7 @@ describe('DataSync', () => {
       deps = createDeps({ targetFieldDescriptors: targetFields });
       dataSync = new DataSync(deps);
 
-      const result = await dataSync.sync(
-        createConfig({ operation: 'insert' }),
-        [{ Name: 'Acme' }]
-      );
+      const result = await dataSync.sync(createConfig({ operation: 'insert' }), [{ Name: 'Acme' }]);
 
       expect(result.success).toBe(1);
       expect(result.failed).toBe(0);
@@ -257,10 +232,7 @@ describe('DataSync', () => {
       deps = createDeps();
       dataSync = new DataSync(deps);
 
-      const result = await dataSync.sync(
-        createConfig({ operation: 'insert' }),
-        [{ Name: 'Acme' }]
-      );
+      const result = await dataSync.sync(createConfig({ operation: 'insert' }), [{ Name: 'Acme' }]);
 
       expect(result.success).toBe(1);
       expect(deps.insert).toHaveBeenCalled();
@@ -273,10 +245,7 @@ describe('DataSync', () => {
       deps = createDeps({ targetFieldDescriptors: targetFields });
       dataSync = new DataSync(deps);
 
-      const result = await dataSync.sync(
-        createConfig({ operation: 'insert' }),
-        [{ Name: '' }]
-      );
+      const result = await dataSync.sync(createConfig({ operation: 'insert' }), [{ Name: '' }]);
 
       expect(result.failed).toBe(1);
       expect(result.errors[0]).toContain('Required field');
@@ -284,16 +253,13 @@ describe('DataSync', () => {
     });
 
     it('should validate boolean type mismatch', async () => {
-      const targetFields: TargetFieldDescriptor[] = [
-        { apiName: 'IsActive', type: 'boolean' },
-      ];
+      const targetFields: TargetFieldDescriptor[] = [{ apiName: 'IsActive', type: 'boolean' }];
       deps = createDeps({ targetFieldDescriptors: targetFields });
       dataSync = new DataSync(deps);
 
-      const result = await dataSync.sync(
-        createConfig({ operation: 'insert' }),
-        [{ IsActive: 'yes' }]
-      );
+      const result = await dataSync.sync(createConfig({ operation: 'insert' }), [
+        { IsActive: 'yes' },
+      ]);
 
       expect(result.failed).toBe(1);
       expect(result.errors[0]).toContain('boolean');

@@ -54,7 +54,7 @@ export class StorageCheck {
   private checkStorage(
     storage: { used: number; limit: number },
     estimatedImpact: number,
-    type: 'data' | 'file'
+    type: 'data' | 'file',
   ): PreCheckItem {
     const remaining = storage.limit - storage.used;
     const sufficient = remaining >= estimatedImpact;
@@ -90,7 +90,7 @@ export class StorageCheck {
   private classifySeverity(usagePercentAfter: number, sufficient: boolean): PreCheckSeverity {
     if (!sufficient) return 'blocker';
     if (usagePercentAfter > 0.95) return 'error';
-    if (usagePercentAfter > 0.80) return 'warning';
+    if (usagePercentAfter > 0.8) return 'warning';
     return 'info';
   }
 }

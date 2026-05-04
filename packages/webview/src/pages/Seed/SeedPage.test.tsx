@@ -5,8 +5,28 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { SeedPage } from './SeedPage';
 
 const mockOrgs = [
-  { id: 'org-1', alias: 'dev1', username: 'user@dev1.com', instanceUrl: 'https://dev1.salesforce.com', orgType: 'sandbox' as const, status: 'connected' as const, safetyTier: 'low' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
-  { id: 'org-2', alias: 'dev2', username: 'user@dev2.com', instanceUrl: 'https://dev2.salesforce.com', orgType: 'sandbox' as const, status: 'connected' as const, safetyTier: 'low' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
+  {
+    id: 'org-1',
+    alias: 'dev1',
+    username: 'user@dev1.com',
+    instanceUrl: 'https://dev1.salesforce.com',
+    orgType: 'sandbox' as const,
+    status: 'connected' as const,
+    safetyTier: 'low' as const,
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'org-2',
+    alias: 'dev2',
+    username: 'user@dev2.com',
+    instanceUrl: 'https://dev2.salesforce.com',
+    orgType: 'sandbox' as const,
+    status: 'connected' as const,
+    safetyTier: 'low' as const,
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -20,7 +40,9 @@ const mockExecuteSeedReset = vi.fn();
 
 /** Mutable query state for describe-global. */
 let mockDescribeGlobalState = {
-  data: null as { objects: Array<{ apiName: string; label: string; recordCount: number; dependencies: string[] }> } | null,
+  data: null as {
+    objects: Array<{ apiName: string; label: string; recordCount: number; dependencies: string[] }>;
+  } | null,
   loading: false,
   error: null as string | null,
   refetch: mockDescribeGlobalRefetch,
@@ -69,7 +91,19 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 vi.mock('./Persona/PersonaGallery', () => ({
   PersonaGallery: ({ onPersonaSelected }: { onPersonaSelected: (p: unknown) => void }) => (
     <div data-testid="persona-gallery">
-      <button data-testid="mock-persona-select" onClick={() => onPersonaSelected({ id: 'test', name: 'Test', description: 'Test', industry: 'tech', locale: 'en_US', dataPatterns: {} })}>
+      <button
+        data-testid="mock-persona-select"
+        onClick={() =>
+          onPersonaSelected({
+            id: 'test',
+            name: 'Test',
+            description: 'Test',
+            industry: 'tech',
+            locale: 'en_US',
+            dataPatterns: {},
+          })
+        }
+      >
         Select Persona
       </button>
     </div>
