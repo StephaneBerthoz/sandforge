@@ -50,7 +50,10 @@ export const ErrorLogsPanel: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="error-logs-panel-loading">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="error-logs-panel-loading"
+      >
         <Skeleton variant="rect" height="200px" />
       </div>
     );
@@ -58,7 +61,10 @@ export const ErrorLogsPanel: React.FC = () => {
 
   if (errors.length === 0) {
     return (
-      <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="error-logs-panel-empty">
+      <div
+        className="rounded-lg border border-subtle bg-surface-1 p-4"
+        data-testid="error-logs-panel-empty"
+      >
         <div className="flex items-center gap-2 mb-3">
           <AlertCircle className="w-4 h-4 text-text-secondary" />
           <h3 className="text-sm font-semibold text-text-primary">
@@ -73,7 +79,10 @@ export const ErrorLogsPanel: React.FC = () => {
   }
 
   return (
-    <div className="rounded-lg border border-subtle bg-surface-1 p-4" data-testid="error-logs-panel">
+    <div
+      className="rounded-lg border border-subtle bg-surface-1 p-4"
+      data-testid="error-logs-panel"
+    >
       {/* Header */}
       <div className="flex items-center gap-2 mb-3">
         <AlertCircle className="w-4 h-4 text-text-secondary" />
@@ -116,9 +125,7 @@ export const ErrorLogsPanel: React.FC = () => {
             <span className="w-24 shrink-0">
               <Badge variant="error">{error.errorType}</Badge>
             </span>
-            <span className="text-xs text-text-secondary flex-1 truncate">
-              {error.message}
-            </span>
+            <span className="text-xs text-text-secondary flex-1 truncate">{error.message}</span>
             {error.user && (
               <span className="text-[11px] text-text-muted w-20 text-right truncate">
                 {error.user}

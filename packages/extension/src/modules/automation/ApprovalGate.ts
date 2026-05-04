@@ -52,7 +52,7 @@ export class ApprovalGate {
     pipelineId: string,
     stepName: string,
     requestedBy: string,
-    config: ApprovalConfig
+    config: ApprovalConfig,
   ): ApprovalRequest {
     const request: ApprovalRequest = {
       id: generateId(),
@@ -182,9 +182,7 @@ export class ApprovalGate {
    * @returns Array of pending approval requests
    */
   getPendingRequests(): ApprovalRequest[] {
-    return [...this.requests.values()]
-      .filter((r) => r.status === 'pending')
-      .map((r) => ({ ...r }));
+    return [...this.requests.values()].filter((r) => r.status === 'pending').map((r) => ({ ...r }));
   }
 
   /**

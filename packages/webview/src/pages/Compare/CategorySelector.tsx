@@ -9,20 +9,34 @@ export const CATEGORY_GROUPS: Array<{
   labelKey: string;
   types: MetadataComponentType[];
 }> = [
-  { label: 'Data Model', labelKey: 'compare.catDataModel', types: ['CustomObject', 'CustomField', 'RecordType'] },
+  {
+    label: 'Data Model',
+    labelKey: 'compare.catDataModel',
+    types: ['CustomObject', 'CustomField', 'RecordType'],
+  },
   { label: 'Apex Code', labelKey: 'compare.catApexCode', types: ['ApexClass', 'ApexTrigger'] },
   { label: 'Lightning', labelKey: 'compare.catLightning', types: ['LightningComponentBundle'] },
-  { label: 'Automation', labelKey: 'compare.catAutomation', types: ['Flow', 'WorkflowRule', 'ValidationRule'] },
+  {
+    label: 'Automation',
+    labelKey: 'compare.catAutomation',
+    types: ['Flow', 'WorkflowRule', 'ValidationRule'],
+  },
   { label: 'Security', labelKey: 'compare.catSecurity', types: ['Profile', 'PermissionSet'] },
-  { label: 'Configuration', labelKey: 'compare.catConfiguration', types: ['Layout', 'CustomLabel', 'CustomMetadata', 'CustomSetting'] },
-  { label: 'Content', labelKey: 'compare.catContent', types: ['StaticResource', 'EmailTemplate', 'Report', 'Dashboard'] },
+  {
+    label: 'Configuration',
+    labelKey: 'compare.catConfiguration',
+    types: ['Layout', 'CustomLabel', 'CustomMetadata', 'CustomSetting'],
+  },
+  {
+    label: 'Content',
+    labelKey: 'compare.catContent',
+    types: ['StaticResource', 'EmailTemplate', 'Report', 'Dashboard'],
+  },
   { label: 'Other', labelKey: 'compare.catOther', types: ['Other'] },
 ];
 
 /** All available metadata component types for comparison (derived from groups). */
-export const ALL_COMPONENT_TYPES: MetadataComponentType[] = CATEGORY_GROUPS.flatMap(
-  (g) => g.types,
-);
+export const ALL_COMPONENT_TYPES: MetadataComponentType[] = CATEGORY_GROUPS.flatMap((g) => g.types);
 
 /** CategorySelector component props. */
 export interface CategorySelectorProps {

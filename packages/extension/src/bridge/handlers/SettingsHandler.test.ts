@@ -7,8 +7,12 @@ import { ConfigStore } from '../../core/storage/ConfigStore.js';
 
 class InMemoryBackend implements ConfigStoreBackend {
   private data: Record<string, ConfigEntry> = {};
-  getData(): Record<string, ConfigEntry> { return { ...this.data }; }
-  setData(data: Record<string, ConfigEntry>): void { this.data = { ...data }; }
+  getData(): Record<string, ConfigEntry> {
+    return { ...this.data };
+  }
+  setData(data: Record<string, ConfigEntry>): void {
+    this.data = { ...data };
+  }
 }
 
 function createMockDeps(store: ConfigStore): HandlerDeps {
@@ -26,7 +30,10 @@ function createMockDeps(store: ConfigStore): HandlerDeps {
   };
 }
 
-function createMsg(type: string, payload: Record<string, unknown> = {}): BaseMessage & { payload: Record<string, unknown> } {
+function createMsg(
+  type: string,
+  payload: Record<string, unknown> = {},
+): BaseMessage & { payload: Record<string, unknown> } {
   return { id: 'req-42', type, timestamp: Date.now(), payload };
 }
 

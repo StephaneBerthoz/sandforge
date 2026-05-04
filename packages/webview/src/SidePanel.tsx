@@ -2,9 +2,21 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 import {
-  Flame, Activity, ExternalLink, CheckCircle, XCircle, Loader,
-  Shield, Zap, Plug, Settings, HelpCircle, GitCompare, ChevronDown,
-  Star, ArrowRight,
+  Flame,
+  Activity,
+  ExternalLink,
+  CheckCircle,
+  XCircle,
+  Loader,
+  Shield,
+  Zap,
+  Plug,
+  Settings,
+  HelpCircle,
+  GitCompare,
+  ChevronDown,
+  Star,
+  ArrowRight,
 } from 'lucide-react';
 import { cn } from './theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
@@ -29,7 +41,6 @@ const StatusIcon: React.FC<{ status: RecentOp['status'] }> = ({ status }) => {
   }
 };
 
-
 /** Navigation item definition for the sidebar. */
 interface NavItem {
   id: string;
@@ -40,10 +51,30 @@ interface NavItem {
 
 /** Module navigation items. */
 const MODULE_ITEMS: NavItem[] = [
-  { id: 'monitor', labelKey: 'nav.monitor', icon: <Activity className="w-4 h-4" />, accent: 'text-blue-400' },
-  { id: 'compare', labelKey: 'nav.compare', icon: <GitCompare className="w-4 h-4" />, accent: 'text-purple-400' },
-  { id: 'dataops', labelKey: 'nav.dataops', icon: <Shield className="w-4 h-4" />, accent: 'text-yellow-400' },
-  { id: 'automation', labelKey: 'nav.automation', icon: <Zap className="w-4 h-4" />, accent: 'text-amber-400' },
+  {
+    id: 'monitor',
+    labelKey: 'nav.monitor',
+    icon: <Activity className="w-4 h-4" />,
+    accent: 'text-blue-400',
+  },
+  {
+    id: 'compare',
+    labelKey: 'nav.compare',
+    icon: <GitCompare className="w-4 h-4" />,
+    accent: 'text-purple-400',
+  },
+  {
+    id: 'dataops',
+    labelKey: 'nav.dataops',
+    icon: <Shield className="w-4 h-4" />,
+    accent: 'text-yellow-400',
+  },
+  {
+    id: 'automation',
+    labelKey: 'nav.automation',
+    icon: <Zap className="w-4 h-4" />,
+    accent: 'text-amber-400',
+  },
 ];
 
 /** Tool navigation items. */
@@ -205,10 +236,12 @@ export const SidePanel: React.FC = () => {
               {orgTypeLabel(selectedOrg, t)}
             </span>
           )}
-          <ChevronDown className={cn(
-            'w-3.5 h-3.5 text-text-muted transition-transform duration-200',
-            orgDropdownOpen && 'rotate-180',
-          )} />
+          <ChevronDown
+            className={cn(
+              'w-3.5 h-3.5 text-text-muted transition-transform duration-200',
+              orgDropdownOpen && 'rotate-180',
+            )}
+          />
         </button>
 
         {/* Org dropdown */}
@@ -232,7 +265,10 @@ export const SidePanel: React.FC = () => {
                       onClick={() => {
                         selectOrg(org.id);
                         setOrgDropdownOpen(false);
-                        vscodeApi.postMessage({ type: 'sidebar:selectOrg', payload: { orgId: org.id } });
+                        vscodeApi.postMessage({
+                          type: 'sidebar:selectOrg',
+                          payload: { orgId: org.id },
+                        });
                       }}
                       data-testid={`sidepanel-org-option-${org.id}`}
                     >
@@ -290,20 +326,26 @@ export const SidePanel: React.FC = () => {
           aria-label={metricsExpanded ? t('sidePanel.hideMetrics') : t('sidePanel.showMetrics')}
           data-testid="sidepanel-metrics-toggle"
         >
-          <ChevronDown className={cn(
-            'w-3 h-3 transition-transform duration-200',
-            !metricsExpanded && '-rotate-90',
-          )} />
+          <ChevronDown
+            className={cn(
+              'w-3 h-3 transition-transform duration-200',
+              !metricsExpanded && '-rotate-90',
+            )}
+          />
           {t('sidePanel.connectedOrgs', 'Orgs')} / {t('sidePanel.recentOps', 'Ops')}
         </button>
         {metricsExpanded && (
           <div className="grid grid-cols-2 gap-2" data-testid="sidepanel-metrics">
             <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-              <div className="text-[10px] text-text-muted uppercase tracking-wide">{t('sidePanel.connectedOrgs', 'Orgs')}</div>
+              <div className="text-[10px] text-text-muted uppercase tracking-wide">
+                {t('sidePanel.connectedOrgs', 'Orgs')}
+              </div>
               <div className="text-lg font-bold tabular-nums">{connectedCount}</div>
             </div>
             <div className="rounded-lg bg-surface-1 border border-subtle px-2.5 py-2 text-center">
-              <div className="text-[10px] text-text-muted uppercase tracking-wide">{t('sidePanel.recentOps', 'Ops')}</div>
+              <div className="text-[10px] text-text-muted uppercase tracking-wide">
+                {t('sidePanel.recentOps', 'Ops')}
+              </div>
               <div className="text-lg font-bold tabular-nums">{recentOpsCount}</div>
             </div>
           </div>
@@ -333,7 +375,9 @@ export const SidePanel: React.FC = () => {
             </div>
             <div className="text-left flex-1 min-w-0">
               <div className="text-sm font-bold text-orange-400">{t('sidePanel.forge')}</div>
-              <div className="text-[10px] text-text-muted leading-tight">{t('sidePanel.forgeDesc', 'Seed, sync & transform data')}</div>
+              <div className="text-[10px] text-text-muted leading-tight">
+                {t('sidePanel.forgeDesc', 'Seed, sync & transform data')}
+              </div>
             </div>
             <ArrowRight className="w-3.5 h-3.5 text-orange-400/40 group-hover:text-orange-400/80 group-hover:translate-x-0.5 transition-all shrink-0" />
           </button>
@@ -412,7 +456,11 @@ export const SidePanel: React.FC = () => {
                 )}
                 onClick={() => toggleFavorite(item.id)}
                 data-testid={`sidepanel-star-${item.id}`}
-                title={favorites.includes(item.id) ? t('sidePanel.unfavorite', 'Remove from favorites') : t('sidePanel.favorite', 'Add to favorites')}
+                title={
+                  favorites.includes(item.id)
+                    ? t('sidePanel.unfavorite', 'Remove from favorites')
+                    : t('sidePanel.favorite', 'Add to favorites')
+                }
               >
                 <Star className={cn('w-3 h-3', favorites.includes(item.id) && 'fill-current')} />
               </button>
@@ -465,10 +513,7 @@ export const SidePanel: React.FC = () => {
       {/* Last Operation */}
       {lastOp && !runningOp && (
         <div className="px-3 pt-3">
-          <div
-            className="rounded-lg bg-surface-1 px-3 py-2"
-            data-testid="sidepanel-last-op"
-          >
+          <div className="rounded-lg bg-surface-1 px-3 py-2" data-testid="sidepanel-last-op">
             <div className="text-[10px] text-text-muted mb-1">{t('sidePanel.lastOp')}</div>
             <div className="flex items-center gap-2">
               <StatusIcon status={lastOp.status} />

@@ -33,9 +33,7 @@ export class SeedTemplateManager {
   }
 
   /** Create a new seed template with auto-generated ID and timestamps */
-  create(
-    input: Omit<SeedTemplate, 'id' | 'createdAt' | 'updatedAt'>
-  ): SeedTemplate {
+  create(input: Omit<SeedTemplate, 'id' | 'createdAt' | 'updatedAt'>): SeedTemplate {
     const timestamp = this.now();
     const template: SeedTemplate = {
       ...input,
@@ -65,8 +63,8 @@ export class SeedTemplateManager {
 
   /** List all templates sorted by updatedAt descending */
   list(): SeedTemplate[] {
-    return Array.from(this.templates.values()).sort(
-      (a, b) => b.updatedAt.localeCompare(a.updatedAt)
+    return Array.from(this.templates.values()).sort((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt),
     );
   }
 

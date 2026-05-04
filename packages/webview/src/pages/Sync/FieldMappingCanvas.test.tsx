@@ -17,9 +17,7 @@ const targetFields: FieldInfo[] = [
   { apiName: 'Phone__c', label: 'Phone', type: 'String' },
 ];
 
-const mappings: FieldMapping[] = [
-  { sourceField: 'Name', targetField: 'Name', type: 'direct' },
-];
+const mappings: FieldMapping[] = [{ sourceField: 'Name', targetField: 'Name', type: 'direct' }];
 
 describe('FieldMappingCanvas', () => {
   it('should render the canvas', () => {

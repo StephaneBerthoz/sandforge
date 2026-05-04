@@ -17,10 +17,7 @@ const SECTION_LINES = [4, 3, 4, 3, 4];
  * Composite skeleton component that mimics a full panel or page section during loading.
  * Each section renders a title skeleton and several text lines.
  */
-export const SkeletonPanel: React.FC<SkeletonPanelProps> = ({
-  sections = 2,
-  className,
-}) => (
+export const SkeletonPanel: React.FC<SkeletonPanelProps> = ({ sections = 2, className }) => (
   <div
     className={cn('flex flex-col gap-6', className)}
     data-testid="skeleton-panel"

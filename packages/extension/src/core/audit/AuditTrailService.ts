@@ -31,8 +31,15 @@ export type AuditStatus = 'success' | 'failure' | 'partial';
 const AuditEntrySchema = z.object({
   id: z.string(),
   operationType: z.enum([
-    'seed', 'sync', 'backup', 'compare', 'dataops',
-    'pipeline', 'config', 'governance', 'other',
+    'seed',
+    'sync',
+    'backup',
+    'compare',
+    'dataops',
+    'pipeline',
+    'config',
+    'governance',
+    'other',
   ]),
   description: z.string(),
   orgId: z.string().optional(),
@@ -200,8 +207,16 @@ export class AuditTrailService {
    */
   static toCsv(entries: AuditEntry[]): string {
     const headers = [
-      'id', 'operationType', 'description', 'orgId', 'user',
-      'timestamp', 'durationMs', 'status', 'recordCount', 'error',
+      'id',
+      'operationType',
+      'description',
+      'orgId',
+      'user',
+      'timestamp',
+      'durationMs',
+      'status',
+      'recordCount',
+      'error',
     ];
     const lines = [headers.join(',')];
 

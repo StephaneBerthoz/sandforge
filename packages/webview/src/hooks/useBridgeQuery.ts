@@ -48,13 +48,12 @@ export function useBridgeQuery<T>(
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const skip = options?.skip ?? false;
 
-  const { listen, data, loading, error, setLoading, setError } =
-    useMessageResponse<T>({
-      requestType,
-      responseType,
-      timeoutMs,
-      requestLabel: 'query',
-    });
+  const { listen, data, loading, error, setLoading, setError } = useMessageResponse<T>({
+    requestType,
+    responseType,
+    timeoutMs,
+    requestLabel: 'query',
+  });
 
   // Stabilise sendMessage in a ref so it never triggers re-execution of the
   // query effect.  The underlying function identity may change when the
@@ -73,11 +72,14 @@ export function useBridgeQuery<T>(
     setLoading(true);
     setError(null);
 
-    const currentPayload = payloadKey ? JSON.parse(payloadKey) as Record<string, unknown> : undefined;
+    const currentPayload = payloadKey
+      ? (JSON.parse(payloadKey) as Record<string, unknown>)
+      : undefined;
 
-    const msg = currentPayload !== undefined
-      ? buildMessage<Record<string, unknown>>(requestType, currentPayload)
-      : buildMessage(requestType);
+    const msg =
+      currentPayload !== undefined
+        ? buildMessage<Record<string, unknown>>(requestType, currentPayload)
+        : buildMessage(requestType);
 
     sendRef.current(msg);
 

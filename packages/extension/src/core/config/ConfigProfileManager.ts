@@ -22,7 +22,9 @@ export const ConfigProfileSchema = z.object({
   version: z.string(),
   exportedAt: z.string(),
   exportedBy: z.string().optional(),
-  categories: z.array(z.enum(['syncMappings', 'forgePlans', 'pipelines', 'anonymizationTemplates', 'settings'])),
+  categories: z.array(
+    z.enum(['syncMappings', 'forgePlans', 'pipelines', 'anonymizationTemplates', 'settings']),
+  ),
   data: z.record(z.string(), z.unknown()),
 });
 
@@ -164,7 +166,9 @@ export class ConfigProfileManager {
         const expectedPrefix = CATEGORY_PREFIXES[category];
         for (const [key, value] of Object.entries(categoryData)) {
           if (!key.startsWith(expectedPrefix)) {
-            warnings.push(`Key "${key}" does not match expected prefix "${expectedPrefix}" for category "${category}", skipped.`);
+            warnings.push(
+              `Key "${key}" does not match expected prefix "${expectedPrefix}" for category "${category}", skipped.`,
+            );
             continue;
           }
           if (!overwrite && this.configStore.has(key)) {

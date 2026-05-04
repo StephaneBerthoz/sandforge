@@ -45,10 +45,7 @@ function makeNode(objectApiName: string, overrides?: Partial<ForgeGraphNode>): F
   };
 }
 
-function makeGraph(
-  nodes: ForgeGraphNode[],
-  edges: ForgeGraphEdge[] = [],
-): ForgeGraph {
+function makeGraph(nodes: ForgeGraphNode[], edges: ForgeGraphEdge[] = []): ForgeGraph {
   const totalRecords = nodes.reduce((s, n) => s + n.recordCount, 0);
   return {
     nodes,
@@ -96,14 +93,10 @@ describe('ForgeExecutor', () => {
       const graph = makeGraph([makeNode('Account')]);
       await executor.execute(graph, 'src', 'tgt', onProgress);
 
-      expect(deps.insertRecords).toHaveBeenCalledWith(
-        'tgt',
-        'Account',
-        [
-          { Name: 'Record 1' },
-          { Name: 'Record 2' },
-        ],
-      );
+      expect(deps.insertRecords).toHaveBeenCalledWith('tgt', 'Account', [
+        { Name: 'Record 1' },
+        { Name: 'Record 2' },
+      ]);
     });
   });
 
@@ -118,7 +111,14 @@ describe('ForgeExecutor', () => {
 
       const graph = makeGraph(
         [makeNode('Contact'), makeNode('Account')],
-        [{ sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' }],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+        ],
       );
 
       await executor.execute(graph, 'src', 'tgt', onProgress);
@@ -158,15 +158,22 @@ describe('ForgeExecutor', () => {
 
       const graph = makeGraph(
         [makeNode('Account', { recordCount: 1 }), makeNode('Contact', { recordCount: 1 })],
-        [{ sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' }],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+        ],
       );
 
       await executor.execute(graph, 'src', 'tgt', onProgress);
 
       // Second insertRecords call (Contact) should have remapped AccountId
-      const contactInsertCall = vi.mocked(deps.insertRecords).mock.calls.find(
-        (call) => call[1] === 'Contact',
-      );
+      const contactInsertCall = vi
+        .mocked(deps.insertRecords)
+        .mock.calls.find((call) => call[1] === 'Contact');
       expect(contactInsertCall).toBeDefined();
       const contactRecords = contactInsertCall![2];
       expect(contactRecords[0].AccountId).toBe('001NEWPARENT');
@@ -229,7 +236,14 @@ describe('ForgeExecutor', () => {
 
       const graph = makeGraph(
         [makeNode('Account'), makeNode('Contact')],
-        [{ sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' }],
+        [
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
+        ],
       );
 
       const summary = await executor.execute(graph, 'src', 'tgt', onProgress);
@@ -334,10 +348,7 @@ describe('ForgeExecutor', () => {
       await anonExecutor.execute(graph, 'src', 'tgt', onProgress);
 
       expect(anonymize).toHaveBeenCalledTimes(1);
-      expect(anonymize).toHaveBeenCalledWith(
-        expect.any(Array),
-        'Account',
-      );
+      expect(anonymize).toHaveBeenCalledWith(expect.any(Array), 'Account');
 
       // Verify inserted records have anonymized names
       const insertCall = vi.mocked(depsWithAnon.insertRecords).mock.calls[0];
@@ -425,7 +436,13 @@ describe('ForgeExecutor', () => {
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
         { name: 'Subject', queryable: true, createable: true, isReference: false },
-        { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+        {
+          name: 'AccountId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['Account'],
+        },
       ]);
 
       await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -440,10 +457,7 @@ describe('ForgeExecutor', () => {
     });
 
     it('should skip nodes that are out of scope', async () => {
-      const graph = makeGraph(
-        [makeNode('Case'), makeNode('Product2')],
-        [],
-      );
+      const graph = makeGraph([makeNode('Case'), makeNode('Product2')], []);
       vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID }]);
 
       const summary = await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -463,14 +477,25 @@ describe('ForgeExecutor', () => {
       const graph = makeGraph(
         [makeNode('Case'), makeNode('Account')],
         [
-          { sourceObject: 'Account', targetObject: 'Case', relationshipName: 'Account', type: 'lookup' },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Case',
+            relationshipName: 'Account',
+            type: 'lookup',
+          },
         ],
       );
       vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
         if (name === 'Case') {
           return [
             { name: 'Id', queryable: true, createable: false, isReference: false },
-            { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+            {
+              name: 'AccountId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Account'],
+            },
           ];
         }
         return [
@@ -505,8 +530,18 @@ describe('ForgeExecutor', () => {
         [makeNode('Case'), makeNode('Account')],
         // cycle: each references the other
         [
-          { sourceObject: 'Account', targetObject: 'Case', relationshipName: 'Account', type: 'lookup' },
-          { sourceObject: 'Case', targetObject: 'Account', relationshipName: 'Cases', type: 'lookup' },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Case',
+            relationshipName: 'Account',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Case',
+            targetObject: 'Account',
+            relationshipName: 'Cases',
+            type: 'lookup',
+          },
         ],
       );
       vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID }]);
@@ -528,9 +563,9 @@ describe('ForgeExecutor', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
 
     it('issues a pass-2 UPDATE for FKs nullified during pass-1 insert', async () => {
-      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([
-        { id: '001NEW1', success: true, errors: [] },
-      ]);
+      const updateRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+        .mockResolvedValue([{ id: '001NEW1', success: true, errors: [] }]);
       const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
       const cycleExecutor = new ForgeExecutor(depsCycle);
 
@@ -542,8 +577,18 @@ describe('ForgeExecutor', () => {
       const graph = makeGraph(
         [makeNode('Account'), makeNode('Contact')],
         [
-          { sourceObject: 'Contact', targetObject: 'Account', relationshipName: 'PrimaryContact', type: 'lookup' },
-          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Account',
+            relationshipName: 'PrimaryContact',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
         ],
       );
 
@@ -551,12 +596,24 @@ describe('ForgeExecutor', () => {
         if (name === 'Account') {
           return [
             { name: 'Id', queryable: true, createable: false, isReference: false },
-            { name: 'PrimaryContactId', queryable: true, createable: true, isReference: true, referenceTo: ['Contact'] },
+            {
+              name: 'PrimaryContactId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Contact'],
+            },
           ];
         }
         return [
           { name: 'Id', queryable: true, createable: false, isReference: false },
-          { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+          {
+            name: 'AccountId',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['Account'],
+          },
         ];
       });
       vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
@@ -582,7 +639,9 @@ describe('ForgeExecutor', () => {
     });
 
     it('does not call updateRecords when no FKs need patching', async () => {
-      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([]);
+      const updateRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+        .mockResolvedValue([]);
       const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
       const cycleExecutor = new ForgeExecutor(depsCycle);
 
@@ -598,9 +657,9 @@ describe('ForgeExecutor', () => {
     });
 
     it('coalesces multiple nullified FKs on the same record into a single UPDATE call', async () => {
-      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([
-        { id: '001NEW1', success: true, errors: [] },
-      ]);
+      const updateRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+        .mockResolvedValue([{ id: '001NEW1', success: true, errors: [] }]);
       const cycleExecutor = new ForgeExecutor({ ...deps, updateRecords });
 
       // Account has two FKs both pointing at Contact: PrimaryContactId AND
@@ -610,8 +669,18 @@ describe('ForgeExecutor', () => {
       const graph = makeGraph(
         [makeNode('Account'), makeNode('Contact')],
         [
-          { sourceObject: 'Contact', targetObject: 'Account', relationshipName: 'PrimaryContact', type: 'lookup' },
-          { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+          {
+            sourceObject: 'Contact',
+            targetObject: 'Account',
+            relationshipName: 'PrimaryContact',
+            type: 'lookup',
+          },
+          {
+            sourceObject: 'Account',
+            targetObject: 'Contact',
+            relationshipName: 'Contacts',
+            type: 'lookup',
+          },
         ],
       );
 
@@ -619,13 +688,31 @@ describe('ForgeExecutor', () => {
         if (name === 'Account') {
           return [
             { name: 'Id', queryable: true, createable: false, isReference: false },
-            { name: 'PrimaryContactId', queryable: true, createable: true, isReference: true, referenceTo: ['Contact'] },
-            { name: 'Backup_Contact__c', queryable: true, createable: true, isReference: true, referenceTo: ['Contact'] },
+            {
+              name: 'PrimaryContactId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Contact'],
+            },
+            {
+              name: 'Backup_Contact__c',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Contact'],
+            },
           ];
         }
         return [
           { name: 'Id', queryable: true, createable: false, isReference: false },
-          { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+          {
+            name: 'AccountId',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['Account'],
+          },
         ];
       });
       vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
@@ -656,14 +743,22 @@ describe('ForgeExecutor', () => {
     });
 
     it('reports unresolved cycle FKs in errors when target parent was never cloned', async () => {
-      const updateRecords = vi.fn<NonNullable<ForgeExecutorDeps['updateRecords']>>().mockResolvedValue([]);
+      const updateRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+        .mockResolvedValue([]);
       const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
       const cycleExecutor = new ForgeExecutor(depsCycle);
 
       const graph = makeGraph([makeNode('Account')]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'PrimaryContactId', queryable: true, createable: true, isReference: true, referenceTo: ['Contact'] },
+        {
+          name: 'PrimaryContactId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['Contact'],
+        },
       ]);
       vi.mocked(deps.queryRecords).mockResolvedValue([
         { Id: '001OLD1', PrimaryContactId: '003ORPHAN' },
@@ -685,9 +780,9 @@ describe('ForgeExecutor', () => {
     const ROOT_ID = '500AP00000fXeQsYAK';
 
     it('uses upsertRecords when upsertMode=auto and an externalId field exists', async () => {
-      const upsertRecords = vi.fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>().mockResolvedValue([
-        { id: '500NEW1', success: true, errors: [] },
-      ]);
+      const upsertRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
+        .mockResolvedValue([{ id: '500NEW1', success: true, errors: [] }]);
       const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
 
       const graph = makeGraph([makeNode('Case')]);
@@ -697,7 +792,13 @@ describe('ForgeExecutor', () => {
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
         { name: 'Subject', queryable: true, createable: true, isReference: false },
-        { name: 'ExternalKey__c', queryable: true, createable: true, isReference: false, externalId: true },
+        {
+          name: 'ExternalKey__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          externalId: true,
+        },
       ]);
 
       await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
@@ -714,7 +815,9 @@ describe('ForgeExecutor', () => {
     });
 
     it('falls back to insert when no externalId field is present', async () => {
-      const upsertRecords = vi.fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>().mockResolvedValue([]);
+      const upsertRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
+        .mockResolvedValue([]);
       const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
 
       const graph = makeGraph([makeNode('Case')]);
@@ -735,16 +838,22 @@ describe('ForgeExecutor', () => {
     });
 
     it('always inserts when upsertMode is undefined (back-compat)', async () => {
-      const upsertRecords = vi.fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>().mockResolvedValue([]);
+      const upsertRecords = vi
+        .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
+        .mockResolvedValue([]);
       const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
 
       const graph = makeGraph([makeNode('Case')]);
-      vi.mocked(deps.queryRecords).mockResolvedValue([
-        { Id: ROOT_ID, ExternalKey__c: 'KEY-001' },
-      ]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID, ExternalKey__c: 'KEY-001' }]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'ExternalKey__c', queryable: true, createable: true, isReference: false, externalId: true },
+        {
+          name: 'ExternalKey__c',
+          queryable: true,
+          createable: true,
+          isReference: false,
+          externalId: true,
+        },
       ]);
 
       await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
@@ -772,7 +881,14 @@ describe('ForgeExecutor', () => {
           return [
             { name: 'Id', queryable: true, createable: false, isReference: false },
             { name: 'Name', queryable: true, createable: true, isReference: false },
-            { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'], nillable: false },
+            {
+              name: 'AccountId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Account'],
+              nillable: false,
+            },
           ];
         }
         return [
@@ -781,8 +897,10 @@ describe('ForgeExecutor', () => {
         ];
       });
       vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {
-        if (soql.includes('FROM Asset')) return [{ Id: '02iOLD1', Name: 'BMW X6', AccountId: '001AP00ORPHAN12' }];
-        if (soql.includes('FROM Account')) return [{ Id: '001AP00ORPHAN12', Name: 'GAN ASSURANCES' }];
+        if (soql.includes('FROM Asset'))
+          return [{ Id: '02iOLD1', Name: 'BMW X6', AccountId: '001AP00ORPHAN12' }];
+        if (soql.includes('FROM Account'))
+          return [{ Id: '001AP00ORPHAN12', Name: 'GAN ASSURANCES' }];
         return [];
       });
       vi.mocked(deps.insertRecords).mockImplementation(async (_o, name) => {
@@ -801,12 +919,12 @@ describe('ForgeExecutor', () => {
         .mocked(deps.insertRecords)
         .mock.calls.find((c) => c[1] === 'Account');
       expect(accountInsert).toBeDefined();
-      const assetInsert = vi
-        .mocked(deps.insertRecords)
-        .mock.calls.find((c) => c[1] === 'Asset');
+      const assetInsert = vi.mocked(deps.insertRecords).mock.calls.find((c) => c[1] === 'Asset');
       expect(assetInsert).toBeDefined();
       expect(assetInsert![2][0].AccountId).toBe('001NEW_EXPANDED');
-      expect(summary.errors.find((e) => e.objectApiName === '__expandOrphanParents__')).toBeUndefined();
+      expect(
+        summary.errors.find((e) => e.objectApiName === '__expandOrphanParents__'),
+      ).toBeUndefined();
     });
 
     it('respects maxOrphanParentExpansions cap', async () => {
@@ -815,7 +933,14 @@ describe('ForgeExecutor', () => {
         if (name === 'Asset') {
           return [
             { name: 'Id', queryable: true, createable: false, isReference: false },
-            { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'], nillable: false },
+            {
+              name: 'AccountId',
+              queryable: true,
+              createable: true,
+              isReference: true,
+              referenceTo: ['Account'],
+              nillable: false,
+            },
           ];
         }
         return [{ name: 'Id', queryable: true, createable: false, isReference: false }];
@@ -855,7 +980,14 @@ describe('ForgeExecutor', () => {
       const graph = makeGraph([makeNode('Asset')]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'], nillable: false },
+        {
+          name: 'AccountId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['Account'],
+          nillable: false,
+        },
       ]);
       vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: '02iA', AccountId: '001ORPHAN' }]);
 
@@ -881,8 +1013,20 @@ describe('ForgeExecutor', () => {
       ]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'OwnerId', queryable: true, createable: true, isReference: true, referenceTo: ['User'] },
-        { name: 'AccountId', queryable: true, createable: true, isReference: true, referenceTo: ['Account'] },
+        {
+          name: 'OwnerId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['User'],
+        },
+        {
+          name: 'AccountId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['Account'],
+        },
       ]);
 
       await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -907,7 +1051,13 @@ describe('ForgeExecutor', () => {
       ]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'RecordTypeId', queryable: true, createable: true, isReference: true, referenceTo: ['RecordType'] },
+        {
+          name: 'RecordTypeId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['RecordType'],
+        },
       ]);
 
       await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -921,12 +1071,16 @@ describe('ForgeExecutor', () => {
 
     it('keeps original FK values when referenceFallback="keep"', async () => {
       const graph = makeGraph([makeNode('Case')]);
-      vi.mocked(deps.queryRecords).mockResolvedValue([
-        { Id: ROOT_ID, OwnerId: '005USER1' },
-      ]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID, OwnerId: '005USER1' }]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'OwnerId', queryable: true, createable: true, isReference: true, referenceTo: ['User'] },
+        {
+          name: 'OwnerId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['User'],
+        },
       ]);
 
       await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -941,12 +1095,16 @@ describe('ForgeExecutor', () => {
 
     it('legacy non-scoped mode defaults to "keep" — back-compat', async () => {
       const graph = makeGraph([makeNode('Case')]);
-      vi.mocked(deps.queryRecords).mockResolvedValue([
-        { Id: ROOT_ID, OwnerId: '005USER1' },
-      ]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID, OwnerId: '005USER1' }]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'OwnerId', queryable: true, createable: true, isReference: true, referenceTo: ['User'] },
+        {
+          name: 'OwnerId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['User'],
+        },
       ]);
 
       // No options → legacy mode
@@ -1008,7 +1166,13 @@ describe('ForgeExecutor', () => {
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
         { name: 'Name', queryable: true, createable: true, isReference: false },
-        { name: 'RecordTypeId', queryable: true, createable: true, isReference: true, referenceTo: ['RecordType'] },
+        {
+          name: 'RecordTypeId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['RecordType'],
+        },
       ]);
 
       await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -1025,12 +1189,16 @@ describe('ForgeExecutor', () => {
 
     it('leaves RecordTypeId unchanged when no mapping is provided', async () => {
       const graph = makeGraph([makeNode('Case')]);
-      vi.mocked(deps.queryRecords).mockResolvedValue([
-        { Id: ROOT_ID, RecordTypeId: SOURCE_RT },
-      ]);
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: ROOT_ID, RecordTypeId: SOURCE_RT }]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'RecordTypeId', queryable: true, createable: true, isReference: true, referenceTo: ['RecordType'] },
+        {
+          name: 'RecordTypeId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['RecordType'],
+        },
       ]);
 
       await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -1049,7 +1217,13 @@ describe('ForgeExecutor', () => {
       ]);
       vi.mocked(deps.describeFields).mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'RecordTypeId', queryable: true, createable: true, isReference: true, referenceTo: ['RecordType'] },
+        {
+          name: 'RecordTypeId',
+          queryable: true,
+          createable: true,
+          isReference: true,
+          referenceTo: ['RecordType'],
+        },
       ]);
 
       await executor.execute(graph, 'src', 'tgt', onProgress, {
@@ -1102,18 +1276,27 @@ describe('ForgeExecutor', () => {
       const graph = makeGraph(
         [makeNode('Case'), makeNode('CaseHistory')],
         [
-          { sourceObject: 'Case', targetObject: 'CaseHistory', relationshipName: 'Histories', type: 'lookup' },
+          {
+            sourceObject: 'Case',
+            targetObject: 'CaseHistory',
+            relationshipName: 'Histories',
+            type: 'lookup',
+          },
         ],
       );
       vi.mocked(deps.describeFields).mockImplementation(async (_o, name) => {
         if (name === 'Case') {
-          return [
-            { name: 'Id', queryable: true, createable: false, isReference: false },
-          ];
+          return [{ name: 'Id', queryable: true, createable: false, isReference: false }];
         }
         return [
           { name: 'Id', queryable: true, createable: false, isReference: false },
-          { name: 'CaseId', queryable: true, createable: true, isReference: true, referenceTo: ['Case'] },
+          {
+            name: 'CaseId',
+            queryable: true,
+            createable: true,
+            isReference: true,
+            referenceTo: ['Case'],
+          },
         ];
       });
       vi.mocked(deps.queryRecords).mockImplementation(async (_o, soql) => {

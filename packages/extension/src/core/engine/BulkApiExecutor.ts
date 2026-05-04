@@ -1,8 +1,4 @@
-import {
-  BulkApiManager,
-  type BulkJobInfo,
-  type BulkJobStatus,
-} from './BulkApiManager.js';
+import { BulkApiManager, type BulkJobInfo, type BulkJobStatus } from './BulkApiManager.js';
 import { SF_LIMITS } from '@sandforge/shared';
 
 /** Result of a bulk API execution */
@@ -173,8 +169,7 @@ export class BulkApiExecutor {
       }
     }
 
-    const finalState: BulkJobStatus =
-      status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
+    const finalState: BulkJobStatus = status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
     deps.bulkManager.updateJobState(jobId, finalState);
     deps.bulkManager.updateJobCounts(
       jobId,

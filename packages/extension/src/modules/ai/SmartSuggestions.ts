@@ -52,7 +52,8 @@ const MODULE_RULES: Record<string, ModuleRule[]> = {
       impact: 'high',
       confidence: 0.8,
       action: 'fix_template',
-      condition: (ctx) => typeof ctx['errorCount'] === 'number' && (ctx['errorCount'] as number) > 0,
+      condition: (ctx) =>
+        typeof ctx['errorCount'] === 'number' && (ctx['errorCount'] as number) > 0,
     },
     {
       title: 'Add required field defaults',
@@ -67,7 +68,8 @@ const MODULE_RULES: Record<string, ModuleRule[]> = {
   sync: [
     {
       title: 'Increase batch size',
-      description: 'Current batch size is low relative to record count. Increasing it may improve throughput.',
+      description:
+        'Current batch size is low relative to record count. Increasing it may improve throughput.',
       impact: 'medium',
       confidence: 0.75,
       action: 'increase_batch',
@@ -83,7 +85,8 @@ const MODULE_RULES: Record<string, ModuleRule[]> = {
       impact: 'high',
       confidence: 0.85,
       action: 'review_mapping',
-      condition: (ctx) => typeof ctx['typeMismatches'] === 'number' && (ctx['typeMismatches'] as number) > 0,
+      condition: (ctx) =>
+        typeof ctx['typeMismatches'] === 'number' && (ctx['typeMismatches'] as number) > 0,
     },
   ],
   monitor: [
@@ -93,7 +96,8 @@ const MODULE_RULES: Record<string, ModuleRule[]> = {
       impact: 'high',
       confidence: 0.95,
       action: 'resolve_alerts',
-      condition: (ctx) => typeof ctx['criticalAlerts'] === 'number' && (ctx['criticalAlerts'] as number) > 0,
+      condition: (ctx) =>
+        typeof ctx['criticalAlerts'] === 'number' && (ctx['criticalAlerts'] as number) > 0,
     },
     {
       title: 'Schedule off-peak operations',

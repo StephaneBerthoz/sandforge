@@ -20,7 +20,9 @@ function makeLimits(
   name: string,
   usedPercent: number,
 ): Array<{ name: string; max: number; remaining: number; usedPercent: number }> {
-  return [{ name, max: 15000, remaining: Math.round(15000 * (1 - usedPercent / 100)), usedPercent }];
+  return [
+    { name, max: 15000, remaining: Math.round(15000 * (1 - usedPercent / 100)), usedPercent },
+  ];
 }
 
 describe('trendUtils', () => {
@@ -185,7 +187,11 @@ describe('trendUtils', () => {
         makeSnapshot('org-1', '2026-01-01T00:00:00Z', makeLimits('DailyApiRequests', 10)),
         makeSnapshot('org-1', '2026-01-01T01:00:00Z', makeLimits('DailyApiRequests', 30)),
       ];
-      const result = computeTrendData({ limitName: 'DailyApiRequests', snapshots, predictTime: true });
+      const result = computeTrendData({
+        limitName: 'DailyApiRequests',
+        snapshots,
+        predictTime: true,
+      });
       expect(result.direction).toBe('up');
       expect(result.changePercent).toBe(20);
       expect(result.predictedTimeToLimit).toBeDefined();
@@ -208,7 +214,11 @@ describe('trendUtils', () => {
         makeSnapshot('org-1', '2026-01-01T00:00:00Z', makeLimits('DailyApiRequests', 80)),
         makeSnapshot('org-1', '2026-01-01T01:00:00Z', makeLimits('DailyApiRequests', 50)),
       ];
-      const result = computeTrendData({ limitName: 'DailyApiRequests', snapshots, predictTime: true });
+      const result = computeTrendData({
+        limitName: 'DailyApiRequests',
+        snapshots,
+        predictTime: true,
+      });
       expect(result.direction).toBe('down');
       expect(result.predictedTimeToLimit).toBeUndefined();
     });

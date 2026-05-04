@@ -2,9 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { TransformPipeline } from './TransformPipeline';
 import type { TransformRule, SyncObjectConfig } from '@sandforge/shared';
 
-function createObjectConfig(
-  overrides?: Partial<SyncObjectConfig>
-): SyncObjectConfig {
+function createObjectConfig(overrides?: Partial<SyncObjectConfig>): SyncObjectConfig {
   return {
     objectApiName: 'Account',
     operation: 'upsert',
@@ -42,23 +40,17 @@ describe('TransformPipeline', () => {
     });
 
     it('should apply truncate rule', () => {
-      const rules: TransformRule[] = [
-        { type: 'truncate', config: { length: 5 } },
-      ];
+      const rules: TransformRule[] = [{ type: 'truncate', config: { length: 5 } }];
       expect(pipeline.transform('hello world', rules)).toBe('hello');
     });
 
     it('should apply prefix rule', () => {
-      const rules: TransformRule[] = [
-        { type: 'prefix', config: { prefix: 'SF-' } },
-      ];
+      const rules: TransformRule[] = [{ type: 'prefix', config: { prefix: 'SF-' } }];
       expect(pipeline.transform('001', rules)).toBe('SF-001');
     });
 
     it('should apply suffix rule', () => {
-      const rules: TransformRule[] = [
-        { type: 'suffix', config: { suffix: '-v2' } },
-      ];
+      const rules: TransformRule[] = [{ type: 'suffix', config: { suffix: '-v2' } }];
       expect(pipeline.transform('item', rules)).toBe('item-v2');
     });
 
@@ -97,16 +89,12 @@ describe('TransformPipeline', () => {
     });
 
     it('should apply default_value when value is null', () => {
-      const rules: TransformRule[] = [
-        { type: 'default_value', config: { defaultValue: 'N/A' } },
-      ];
+      const rules: TransformRule[] = [{ type: 'default_value', config: { defaultValue: 'N/A' } }];
       expect(pipeline.transform(null, rules)).toBe('N/A');
     });
 
     it('should not apply default_value when value is present', () => {
-      const rules: TransformRule[] = [
-        { type: 'default_value', config: { defaultValue: 'N/A' } },
-      ];
+      const rules: TransformRule[] = [{ type: 'default_value', config: { defaultValue: 'N/A' } }];
       expect(pipeline.transform('Hello', rules)).toBe('Hello');
     });
 

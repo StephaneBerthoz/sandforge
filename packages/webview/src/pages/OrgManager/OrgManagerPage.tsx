@@ -1,9 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Plug, Download, Globe, Smartphone, Key, UserCircle,
-  Loader2, X,
-} from 'lucide-react';
+import { Plug, Download, Globe, Smartphone, Key, UserCircle, Loader2, X } from 'lucide-react';
 import type { SalesforceOrg, OrgSafetyTier, AuthMethod } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -40,11 +37,41 @@ interface AuthMethodCard {
 
 /** Available auth methods shown in the banner. */
 const AUTH_METHODS: AuthMethodCard[] = [
-  { method: 'sfdx_import', icon: <Download className="w-4 h-4" />, labelKey: 'auth.sfdxImport', descKey: 'auth.sfdxImportDesc', needsForm: false },
-  { method: 'oauth_web', icon: <Globe className="w-4 h-4" />, labelKey: 'auth.oauthWeb', descKey: 'auth.oauthWebDesc', needsForm: true },
-  { method: 'usernamePassword', icon: <UserCircle className="w-4 h-4" />, labelKey: 'auth.usernamePassword', descKey: 'auth.usernamePasswordDesc', needsForm: true },
-  { method: 'jwt', icon: <Key className="w-4 h-4" />, labelKey: 'auth.jwt', descKey: 'auth.jwtDesc', needsForm: false },
-  { method: 'oauth_device', icon: <Smartphone className="w-4 h-4" />, labelKey: 'auth.oauthDevice', descKey: 'auth.oauthDeviceDesc', needsForm: false },
+  {
+    method: 'sfdx_import',
+    icon: <Download className="w-4 h-4" />,
+    labelKey: 'auth.sfdxImport',
+    descKey: 'auth.sfdxImportDesc',
+    needsForm: false,
+  },
+  {
+    method: 'oauth_web',
+    icon: <Globe className="w-4 h-4" />,
+    labelKey: 'auth.oauthWeb',
+    descKey: 'auth.oauthWebDesc',
+    needsForm: true,
+  },
+  {
+    method: 'usernamePassword',
+    icon: <UserCircle className="w-4 h-4" />,
+    labelKey: 'auth.usernamePassword',
+    descKey: 'auth.usernamePasswordDesc',
+    needsForm: true,
+  },
+  {
+    method: 'jwt',
+    icon: <Key className="w-4 h-4" />,
+    labelKey: 'auth.jwt',
+    descKey: 'auth.jwtDesc',
+    needsForm: false,
+  },
+  {
+    method: 'oauth_device',
+    icon: <Smartphone className="w-4 h-4" />,
+    labelKey: 'auth.oauthDevice',
+    descKey: 'auth.oauthDeviceDesc',
+    needsForm: false,
+  },
 ];
 
 /** OrgManager page — list, connect, edit, disconnect orgs. */
@@ -263,7 +290,10 @@ export const OrgManagerPage: React.FC = () => {
               </span>
               <button
                 className="text-[var(--vscode-descriptionForeground,#868686)] hover:text-[var(--vscode-editor-foreground,#d4d4d4)] transition-colors"
-                onClick={() => { setActiveMethod(null); resetForm(); }}
+                onClick={() => {
+                  setActiveMethod(null);
+                  resetForm();
+                }}
                 data-testid="org-inline-close"
               >
                 <X className="w-4 h-4" />
@@ -323,7 +353,10 @@ export const OrgManagerPage: React.FC = () => {
                 </Button>
                 <Button
                   variant="ghost"
-                  onClick={() => { setActiveMethod(null); resetForm(); }}
+                  onClick={() => {
+                    setActiveMethod(null);
+                    resetForm();
+                  }}
                 >
                   {t('common.cancel')}
                 </Button>
@@ -360,10 +393,7 @@ export const OrgManagerPage: React.FC = () => {
       )}
 
       {orgs.length === 0 && !orgListQuery.loading ? (
-        <EmptyState
-          title={t('org.noOrgs')}
-          description={t('org.bannerEmpty')}
-        />
+        <EmptyState title={t('org.noOrgs')} description={t('org.bannerEmpty')} />
       ) : (
         <div className="grid gap-3">
           {orgs.map((org) => (

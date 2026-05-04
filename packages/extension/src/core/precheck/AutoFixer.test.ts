@@ -52,10 +52,7 @@ describe('AutoFixer', () => {
       };
 
       const fixer = new AutoFixer(handlers);
-      const result = await fixer.fix(
-        [createItem({ passed: true })],
-        createConfig()
-      );
+      const result = await fixer.fix([createItem({ passed: true })], createConfig());
 
       expect(result.fixed).toHaveLength(0);
       expect(result.failed).toHaveLength(0);
@@ -68,10 +65,7 @@ describe('AutoFixer', () => {
       };
 
       const fixer = new AutoFixer(handlers);
-      const result = await fixer.fix(
-        [createItem({ autoFixable: false })],
-        createConfig()
-      );
+      const result = await fixer.fix([createItem({ autoFixable: false })], createConfig());
 
       expect(result.fixed).toHaveLength(0);
       expect(result.failed).toHaveLength(0);

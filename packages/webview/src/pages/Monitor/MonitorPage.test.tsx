@@ -60,13 +60,28 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
     }
     // New panels — return empty data by default
     if (type === 'monitor:storage') {
-      return { data: { success: true, objects: [], totalRecords: 0 }, loading: false, error: null, refetch: vi.fn() };
+      return {
+        data: { success: true, objects: [], totalRecords: 0 },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
     }
     if (type === 'monitor:deployments') {
-      return { data: { success: true, deployments: [] }, loading: false, error: null, refetch: vi.fn() };
+      return {
+        data: { success: true, deployments: [] },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
     }
     if (type === 'monitor:api-usage') {
-      return { data: { success: true, categories: [] }, loading: false, error: null, refetch: vi.fn() };
+      return {
+        data: { success: true, categories: [] },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -712,12 +727,39 @@ describe('MonitorPage', () => {
       overallScore: 75,
       overallStatus: 'healthy' as const,
       factors: [
-        { name: 'DailyApiRequests', category: 'limits' as const, score: 50, weight: 0.2, status: 'warning' as const, detail: '80% used', recommendation: 'Review batch jobs.', trend: 'stable' as const },
-        { name: 'DataStorageMB', category: 'storage' as const, score: 100, weight: 0.2, status: 'healthy' as const, detail: '20% used', recommendation: 'No action needed.', trend: 'stable' as const },
+        {
+          name: 'DailyApiRequests',
+          category: 'limits' as const,
+          score: 50,
+          weight: 0.2,
+          status: 'warning' as const,
+          detail: '80% used',
+          recommendation: 'Review batch jobs.',
+          trend: 'stable' as const,
+        },
+        {
+          name: 'DataStorageMB',
+          category: 'storage' as const,
+          score: 100,
+          weight: 0.2,
+          status: 'healthy' as const,
+          detail: '20% used',
+          recommendation: 'No action needed.',
+          trend: 'stable' as const,
+        },
       ],
       summary: 'Your org is healthy but DailyApiRequests is trending up.',
       topRisks: [
-        { name: 'DailyApiRequests', category: 'limits' as const, score: 50, weight: 0.2, status: 'warning' as const, detail: '80% used', recommendation: 'Review batch jobs.', trend: 'stable' as const },
+        {
+          name: 'DailyApiRequests',
+          category: 'limits' as const,
+          score: 50,
+          weight: 0.2,
+          status: 'warning' as const,
+          detail: '80% used',
+          recommendation: 'Review batch jobs.',
+          trend: 'stable' as const,
+        },
       ],
     };
 

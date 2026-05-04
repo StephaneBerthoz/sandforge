@@ -32,7 +32,12 @@ describe('NoOpHandler', () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
 
-    for (const type of ['scheduler:list', 'scheduler:upsert', 'scheduler:delete', 'scheduler:toggle']) {
+    for (const type of [
+      'scheduler:list',
+      'scheduler:upsert',
+      'scheduler:delete',
+      'scheduler:toggle',
+    ]) {
       const msg: BaseMessage = { id: `req-${type}`, type, timestamp: Date.now() };
       expect(await handler.handle(msg)).toBe(true);
     }

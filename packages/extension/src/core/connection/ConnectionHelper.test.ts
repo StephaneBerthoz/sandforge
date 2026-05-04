@@ -111,8 +111,9 @@ describe('ConnectionHelper', () => {
       const orgManager = createMockOrgManager(undefined);
       const orgRegistry = createMockOrgRegistry();
 
-      await expect(getJsforceConnection('missing', orgRegistry, orgManager))
-        .rejects.toThrow('Org not found: missing');
+      await expect(getJsforceConnection('missing', orgRegistry, orgManager)).rejects.toThrow(
+        'Org not found: missing',
+      );
     });
 
     it('should throw when no credentials', async () => {
@@ -120,8 +121,9 @@ describe('ConnectionHelper', () => {
       const orgManager = createMockOrgManager(org);
       const orgRegistry = createMockOrgRegistry(undefined);
 
-      await expect(getJsforceConnection('org-1', orgRegistry, orgManager))
-        .rejects.toThrow('No credentials for org');
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        'No credentials for org',
+      );
     });
 
     it('should throw when accessToken is missing', async () => {
@@ -129,8 +131,9 @@ describe('ConnectionHelper', () => {
       const orgManager = createMockOrgManager(org);
       const orgRegistry = createMockOrgRegistry(makeCreds({ accessToken: undefined }));
 
-      await expect(getJsforceConnection('org-1', orgRegistry, orgManager))
-        .rejects.toThrow('No credentials for org');
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        'No credentials for org',
+      );
     });
 
     it('should refresh token when session expired', async () => {
@@ -149,9 +152,12 @@ describe('ConnectionHelper', () => {
       const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
 
       expect(conn).toBeDefined();
-      expect(orgRegistry.saveOrg).toHaveBeenCalledWith(org, expect.objectContaining({
-        accessToken: 'new-token-456',
-      }));
+      expect(orgRegistry.saveOrg).toHaveBeenCalledWith(
+        org,
+        expect.objectContaining({
+          accessToken: 'new-token-456',
+        }),
+      );
     });
 
     it('should throw when token refresh fails', async () => {
@@ -163,8 +169,9 @@ describe('ConnectionHelper', () => {
       mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
       mockExec.mockRejectedValueOnce(new Error('sf not found') as never);
 
-      await expect(getJsforceConnection('org-1', orgRegistry, orgManager))
-        .rejects.toThrow('Token expired for "test-org" and refresh failed');
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        'Token expired for "test-org" and refresh failed',
+      );
     });
 
     it('should reject malicious usernames to prevent command injection', async () => {
@@ -176,8 +183,9 @@ describe('ConnectionHelper', () => {
 
       mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
 
-      await expect(getJsforceConnection('org-1', orgRegistry, orgManager))
-        .rejects.toThrow('Invalid username format');
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        'Invalid username format',
+      );
     });
 
     it('should call exec with quoted username for valid usernames', async () => {
@@ -207,8 +215,9 @@ describe('ConnectionHelper', () => {
 
       mockIdentity.mockRejectedValueOnce(new Error('NETWORK_ERROR'));
 
-      await expect(getJsforceConnection('org-1', orgRegistry, orgManager))
-        .rejects.toThrow('Connection failed for "test-org": NETWORK_ERROR');
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        'Connection failed for "test-org": NETWORK_ERROR',
+      );
       expect(mockExec).not.toHaveBeenCalled();
     });
   });

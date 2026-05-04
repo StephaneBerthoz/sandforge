@@ -3,7 +3,9 @@ import { CsvValidator } from './CsvValidator.js';
 import type { CsvColumnMapping } from '@sandforge/shared';
 import type { DescribeField } from './SchemaAnalyzer.js';
 
-function makeField(overrides: Partial<DescribeField> & { name: string; type: string }): DescribeField {
+function makeField(
+  overrides: Partial<DescribeField> & { name: string; type: string },
+): DescribeField {
   return {
     label: overrides.name,
     nillable: true,
@@ -15,7 +17,12 @@ function makeField(overrides: Partial<DescribeField> & { name: string; type: str
   };
 }
 
-function makeMapping(csvHeader: string, sfFieldApiName: string, sfFieldType: string, sfFieldLength: number | null = null): CsvColumnMapping {
+function makeMapping(
+  csvHeader: string,
+  sfFieldApiName: string,
+  sfFieldType: string,
+  sfFieldLength: number | null = null,
+): CsvColumnMapping {
   return { csvHeader, sfFieldApiName, sfFieldType, sfFieldLength };
 }
 
@@ -45,7 +52,9 @@ describe('CsvValidator', () => {
   });
 
   it('detects missing required fields', () => {
-    const fields = [makeField({ name: 'Name', type: 'string', nillable: false, defaultValue: null })];
+    const fields = [
+      makeField({ name: 'Name', type: 'string', nillable: false, defaultValue: null }),
+    ];
     const mappings = [makeMapping('Name', 'Name', 'string')];
     const records = [{ Name: '' }];
 
@@ -65,11 +74,16 @@ describe('CsvValidator', () => {
   });
 
   it('detects invalid picklist values', () => {
-    const fields = [makeField({
-      name: 'Status',
-      type: 'picklist',
-      picklistValues: [{ value: 'Open', active: true }, { value: 'Closed', active: true }],
-    })];
+    const fields = [
+      makeField({
+        name: 'Status',
+        type: 'picklist',
+        picklistValues: [
+          { value: 'Open', active: true },
+          { value: 'Closed', active: true },
+        ],
+      }),
+    ];
     const mappings = [makeMapping('Status', 'Status', 'picklist')];
     const records = [{ Status: 'Invalid' }];
 

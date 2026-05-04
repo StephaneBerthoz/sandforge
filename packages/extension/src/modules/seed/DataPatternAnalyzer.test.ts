@@ -68,7 +68,9 @@ describe('DataPatternAnalyzer', () => {
     it('should suggest reference rule for reference fields', async () => {
       fetchSampleData = vi.fn<FetchSampleDataFn>().mockResolvedValue({
         records: [{ AccountId: '001A' }],
-        fields: [{ name: 'AccountId', type: 'reference', nillable: true, referenceTo: ['Account'] }],
+        fields: [
+          { name: 'AccountId', type: 'reference', nillable: true, referenceTo: ['Account'] },
+        ],
         totalCount: 50,
       });
       analyzer = new DataPatternAnalyzer(fetchSampleData);
@@ -80,7 +82,9 @@ describe('DataPatternAnalyzer', () => {
     it('should suggest picklist_random for picklist fields', async () => {
       fetchSampleData = vi.fn<FetchSampleDataFn>().mockResolvedValue({
         records: [{ Status: 'Open' }],
-        fields: [{ name: 'Status', type: 'picklist', nillable: false, picklistValues: ['Open', 'Closed'] }],
+        fields: [
+          { name: 'Status', type: 'picklist', nillable: false, picklistValues: ['Open', 'Closed'] },
+        ],
         totalCount: 50,
       });
       analyzer = new DataPatternAnalyzer(fetchSampleData);

@@ -1,5 +1,19 @@
-import type { BaseMessage, TrendData, OrgTrendPayload, StorageObjectEntry, DeploymentEntry, ApiUsageCategory, OrgHealthStatus, ApexLogEntry } from '@sandforge/shared';
-import { SF_API_VERSION, MONITOR_PERIOD_MAP, MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  TrendData,
+  OrgTrendPayload,
+  StorageObjectEntry,
+  DeploymentEntry,
+  ApiUsageCategory,
+  OrgHealthStatus,
+  ApexLogEntry,
+} from '@sandforge/shared';
+import {
+  SF_API_VERSION,
+  MONITOR_PERIOD_MAP,
+  MONITOR_KEY_LIMITS,
+  DEFAULT_SOQL_LIMITS,
+} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -59,7 +73,8 @@ export class MonitorOpsHandler implements DomainHandler {
   private readonly orgInfoFetcher = new OrgInfoFetcher();
   private readonly healthCalculator = new UnifiedHealthScorer();
   private liveOperationTracker?: LiveOperationTracker;
-  private readonly limitsCache: Map<string, { data: RawLimitsResponse; fetchedAt: number }> = new Map();
+  private readonly limitsCache: Map<string, { data: RawLimitsResponse; fetchedAt: number }> =
+    new Map();
   private static readonly LIMITS_CACHE_TTL_MS = 30_000;
   private readonly errorLogMonitor: ErrorLogMonitor;
   private readonly userSessionMonitor: UserSessionMonitor;
@@ -77,7 +92,7 @@ export class MonitorOpsHandler implements DomainHandler {
     this.alertStateStore = new AlertStateStore(deps.configStore);
     this.alertEngine = new AlertEngine((alert) => {
       deps.log(`[ALERT] ${alert.severity}: ${alert.message}`);
-      const level = alert.severity === 'critical' ? 'error' as const : 'warning' as const;
+      const level = alert.severity === 'critical' ? ('error' as const) : ('warning' as const);
       sendNotification(deps, level, 'Alert', alert.message);
       this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
     });
@@ -96,100 +111,166 @@ export class MonitorOpsHandler implements DomainHandler {
     const persistedAlerts = this.alertStateStore.loadAlerts();
     this.alertEngine.restoreAlerts(persistedAlerts);
 
-    this.errorLogMonitor = new ErrorLogMonitor(async (orgId: string, since: string): Promise<ErrorLogEntry[]> => {
-      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const records = await queryAll<{ Id: string; Operation: string; Status: string; DurationMilliseconds: number; LogLength: number; StartTime: string; LogUser: { Username: string } | null }>(
-        conn,
-        `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog WHERE Status != 'Success' AND StartTime > ${since} ORDER BY StartTime DESC LIMIT 50`,
-      );
-      checkApiLimits(conn.limitInfo, 'monitor:error-logs apexLog');
-      return records.map(r => ({
-        id: r.Id,
-        errorType: r.Status,
-        message: `${r.Operation} - ${r.Status}`,
-        timestamp: r.StartTime,
-        user: r.LogUser?.Username ?? undefined,
-        context: r.Operation,
-      }));
-    });
+    this.errorLogMonitor = new ErrorLogMonitor(
+      async (orgId: string, since: string): Promise<ErrorLogEntry[]> => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const records = await queryAll<{
+          Id: string;
+          Operation: string;
+          Status: string;
+          DurationMilliseconds: number;
+          LogLength: number;
+          StartTime: string;
+          LogUser: { Username: string } | null;
+        }>(
+          conn,
+          `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog WHERE Status != 'Success' AND StartTime > ${since} ORDER BY StartTime DESC LIMIT 50`,
+        );
+        checkApiLimits(conn.limitInfo, 'monitor:error-logs apexLog');
+        return records.map((r) => ({
+          id: r.Id,
+          errorType: r.Status,
+          message: `${r.Operation} - ${r.Status}`,
+          timestamp: r.StartTime,
+          user: r.LogUser?.Username ?? undefined,
+          context: r.Operation,
+        }));
+      },
+    );
 
-    this.userSessionMonitor = new UserSessionMonitor(async (orgId: string): Promise<UserSessionInfo[]> => {
-      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const records = await queryAll<{ Id: string; UsersId: string; LoginType: string; SessionType: string; CreatedDate: string; SourceIp: string }>(
-        conn,
-        'SELECT Id, UsersId, LoginType, SessionType, CreatedDate, SourceIp FROM AuthSession ORDER BY CreatedDate DESC LIMIT 100',
-      );
-      checkApiLimits(conn.limitInfo, 'monitor:sessions authSession');
-      return records.map(r => ({
-        userId: r.UsersId,
-        username: r.UsersId,
-        sessionType: r.SessionType ?? r.LoginType ?? 'Unknown',
-        loginTime: r.CreatedDate,
-        sourceIp: r.SourceIp ?? '',
-      }));
-    });
+    this.userSessionMonitor = new UserSessionMonitor(
+      async (orgId: string): Promise<UserSessionInfo[]> => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const records = await queryAll<{
+          Id: string;
+          UsersId: string;
+          LoginType: string;
+          SessionType: string;
+          CreatedDate: string;
+          SourceIp: string;
+        }>(
+          conn,
+          'SELECT Id, UsersId, LoginType, SessionType, CreatedDate, SourceIp FROM AuthSession ORDER BY CreatedDate DESC LIMIT 100',
+        );
+        checkApiLimits(conn.limitInfo, 'monitor:sessions authSession');
+        return records.map((r) => ({
+          userId: r.UsersId,
+          username: r.UsersId,
+          sessionType: r.SessionType ?? r.LoginType ?? 'Unknown',
+          loginTime: r.CreatedDate,
+          sourceIp: r.SourceIp ?? '',
+        }));
+      },
+    );
 
-    this.apexLogAnalyzer = new ApexLogAnalyzer(async (orgId: string, count: number): Promise<ApexLogEntry[]> => {
-      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const records = await queryAll<{ Id: string; Operation: string; Status: string; DurationMilliseconds: number; LogLength: number; StartTime: string; LogUser: { Username: string } | null }>(
-        conn,
-        `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog ORDER BY StartTime DESC LIMIT ${count}`,
-      );
-      checkApiLimits(conn.limitInfo, 'monitor:apex-insights apexLog');
-      return records.map(r => ({
-        id: r.Id,
-        operation: r.Operation ?? 'Unknown',
-        status: r.Status,
-        durationMs: r.DurationMilliseconds ?? 0,
-        logSize: r.LogLength ?? 0,
-        startTime: r.StartTime,
-        user: r.LogUser?.Username ?? 'Unknown',
-      }));
-    });
+    this.apexLogAnalyzer = new ApexLogAnalyzer(
+      async (orgId: string, count: number): Promise<ApexLogEntry[]> => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const records = await queryAll<{
+          Id: string;
+          Operation: string;
+          Status: string;
+          DurationMilliseconds: number;
+          LogLength: number;
+          StartTime: string;
+          LogUser: { Username: string } | null;
+        }>(
+          conn,
+          `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog ORDER BY StartTime DESC LIMIT ${count}`,
+        );
+        checkApiLimits(conn.limitInfo, 'monitor:apex-insights apexLog');
+        return records.map((r) => ({
+          id: r.Id,
+          operation: r.Operation ?? 'Unknown',
+          status: r.Status,
+          durationMs: r.DurationMilliseconds ?? 0,
+          logSize: r.LogLength ?? 0,
+          startTime: r.StartTime,
+          user: r.LogUser?.Username ?? 'Unknown',
+        }));
+      },
+    );
 
-    this.sandboxRefreshTracker = new SandboxRefreshTracker(async (orgId: string): Promise<SandboxRefreshEvent[]> => {
-      const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-      const records = await queryAll<{ Id: string; SandboxName: string; Status: string; CreatedDate: string; Description: string | null }>(
-        conn,
-        'SELECT Id, SandboxName, Status, CreatedDate, Description FROM SandboxProcess ORDER BY CreatedDate DESC LIMIT 20',
-      );
-      checkApiLimits(conn.limitInfo, 'monitor:sandbox-refresh sandboxProcess');
-      return records.map(r => ({
-        orgId,
-        sandboxName: r.SandboxName ?? 'Unknown',
-        refreshDate: r.CreatedDate,
-        status: (r.Status as SandboxRefreshEvent['status']) ?? 'Completed',
-        sourceOrg: r.Description ?? undefined,
-      }));
-    });
+    this.sandboxRefreshTracker = new SandboxRefreshTracker(
+      async (orgId: string): Promise<SandboxRefreshEvent[]> => {
+        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
+        const records = await queryAll<{
+          Id: string;
+          SandboxName: string;
+          Status: string;
+          CreatedDate: string;
+          Description: string | null;
+        }>(
+          conn,
+          'SELECT Id, SandboxName, Status, CreatedDate, Description FROM SandboxProcess ORDER BY CreatedDate DESC LIMIT 20',
+        );
+        checkApiLimits(conn.limitInfo, 'monitor:sandbox-refresh sandboxProcess');
+        return records.map((r) => ({
+          orgId,
+          sandboxName: r.SandboxName ?? 'Unknown',
+          refreshDate: r.CreatedDate,
+          status: (r.Status as SandboxRefreshEvent['status']) ?? 'Completed',
+          sourceOrg: r.Description ?? undefined,
+        }));
+      },
+    );
     // No onRefreshDetected callback -- see Pitfall 9 in research
 
     const apiLimitsProvider: HealthSignalProvider = async (orgId: string) => {
       try {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
         const limitsRaw = await this.getOrFetchLimits(orgId, conn);
-        const apiEntry = limitsRaw['DailyApiRequests'] as { Max: number; Remaining: number } | undefined;
-        const pct = apiEntry ? Math.round(((apiEntry.Max - apiEntry.Remaining) / apiEntry.Max) * 100) : 0;
-        const status = pct > 80 ? 'critical' as const : pct > 60 ? 'warning' as const : 'ok' as const;
+        const apiEntry = limitsRaw['DailyApiRequests'] as
+          | { Max: number; Remaining: number }
+          | undefined;
+        const pct = apiEntry
+          ? Math.round(((apiEntry.Max - apiEntry.Remaining) / apiEntry.Max) * 100)
+          : 0;
+        const status =
+          pct > 80 ? ('critical' as const) : pct > 60 ? ('warning' as const) : ('ok' as const);
         return { name: 'apiLimits', status, score: 100 - pct, message: `API usage at ${pct}%` };
-      } catch { return { name: 'apiLimits', status: 'ok' as const, score: 100, message: 'Unable to fetch limits' }; }
+      } catch {
+        return {
+          name: 'apiLimits',
+          status: 'ok' as const,
+          score: 100,
+          message: 'Unable to fetch limits',
+        };
+      }
     };
 
     const storageProvider: HealthSignalProvider = async (orgId: string) => {
       try {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
         const limitsRaw = await this.getOrFetchLimits(orgId, conn);
-        const storageEntry = limitsRaw['DataStorageMB'] as { Max: number; Remaining: number } | undefined;
-        const pct = storageEntry ? Math.round(((storageEntry.Max - storageEntry.Remaining) / storageEntry.Max) * 100) : 0;
-        const status = pct > 85 ? 'critical' as const : pct > 70 ? 'warning' as const : 'ok' as const;
+        const storageEntry = limitsRaw['DataStorageMB'] as
+          | { Max: number; Remaining: number }
+          | undefined;
+        const pct = storageEntry
+          ? Math.round(((storageEntry.Max - storageEntry.Remaining) / storageEntry.Max) * 100)
+          : 0;
+        const status =
+          pct > 85 ? ('critical' as const) : pct > 70 ? ('warning' as const) : ('ok' as const);
         return { name: 'storage', status, score: 100 - pct, message: `Storage usage at ${pct}%` };
-      } catch { return { name: 'storage', status: 'ok' as const, score: 100, message: 'Unable to fetch storage' }; }
+      } catch {
+        return {
+          name: 'storage',
+          status: 'ok' as const,
+          score: 100,
+          message: 'Unable to fetch storage',
+        };
+      }
     };
 
     const errorsProvider: HealthSignalProvider = async (orgId: string) => {
       const errorCount = this.errorLogMonitor.getErrorCount(orgId);
       const score = Math.max(0, 100 - errorCount * 5);
-      const status = errorCount > 10 ? 'critical' as const : errorCount > 3 ? 'warning' as const : 'ok' as const;
+      const status =
+        errorCount > 10
+          ? ('critical' as const)
+          : errorCount > 3
+            ? ('warning' as const)
+            : ('ok' as const);
       return { name: 'recentErrors', status, score, message: `${errorCount} recent errors` };
     };
 
@@ -197,7 +278,12 @@ export class MonitorOpsHandler implements DomainHandler {
       return { name: 'activeJobs', status: 'ok' as const, score: 90, message: 'Jobs nominal' };
     };
 
-    this.healthCheck = new HealthCheck([apiLimitsProvider, storageProvider, errorsProvider, jobsProvider]);
+    this.healthCheck = new HealthCheck([
+      apiLimitsProvider,
+      storageProvider,
+      errorsProvider,
+      jobsProvider,
+    ]);
   }
 
   /**
@@ -234,7 +320,9 @@ export class MonitorOpsHandler implements DomainHandler {
     if (cached && Date.now() - cached.fetchedAt < MonitorOpsHandler.LIMITS_CACHE_TTL_MS) {
       return cached.data;
     }
-    const data = await conn.request(`/services/data/${SF_API_VERSION}/limits`) as RawLimitsResponse;
+    const data = (await conn.request(
+      `/services/data/${SF_API_VERSION}/limits`,
+    )) as RawLimitsResponse;
     this.limitsCache.set(orgId, { data, fetchedAt: Date.now() });
     return data;
   }
@@ -305,7 +393,11 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       // 1. Get limits (uses shared 30s cache)
       const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
@@ -326,12 +418,19 @@ export class MonitorOpsHandler implements DomainHandler {
       }
 
       // 2. Get async jobs
-      const jobRecords = await queryAll<{ Id: string; JobType: string; Status: string; NumberOfErrors: number; CreatedDate: string; CreatedById: string }>(
+      const jobRecords = await queryAll<{
+        Id: string;
+        JobType: string;
+        Status: string;
+        NumberOfErrors: number;
+        CreatedDate: string;
+        CreatedById: string;
+      }>(
         conn,
         `SELECT Id, JobType, Status, NumberOfErrors, CreatedDate, CreatedById FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT ${DEFAULT_SOQL_LIMITS.monitorJobs}`,
       );
       checkApiLimits(conn.limitInfo, 'monitor:refresh asyncJobs');
-      const jobs = jobRecords.map(r => ({
+      const jobs = jobRecords.map((r) => ({
         id: r.Id,
         jobType: r.JobType ?? 'Unknown',
         status: r.Status,
@@ -360,14 +459,22 @@ export class MonitorOpsHandler implements DomainHandler {
           identity: async () => {
             const id = await conn.identity();
             return {
-              instanceName: (id as Record<string, unknown>).instance_name as string ?? '',
+              instanceName: ((id as Record<string, unknown>).instance_name as string) ?? '',
               apiVersion: conn.version ?? '62.0',
-              lastLoginDate: (id as Record<string, unknown>).last_login_date as string ?? new Date().toISOString(),
+              lastLoginDate:
+                ((id as Record<string, unknown>).last_login_date as string) ??
+                new Date().toISOString(),
             };
           },
           queryOrg: async () => {
             const org = this.deps.orgManager.getOrg(payload.orgId);
-            const orgRecords = await queryAll<{ Name: string; Id: string; OrganizationType: string; NamespacePrefix: string | null; CreatedDate: string }>(
+            const orgRecords = await queryAll<{
+              Name: string;
+              Id: string;
+              OrganizationType: string;
+              NamespacePrefix: string | null;
+              CreatedDate: string;
+            }>(
               conn,
               `SELECT Name, Id, OrganizationType, NamespacePrefix, CreatedDate FROM Organization LIMIT 1`,
             );
@@ -409,7 +516,16 @@ export class MonitorOpsHandler implements DomainHandler {
       }
 
       // 6. Send response
-      const response = buildResponse(this.deps, msg, 'monitor:data', { limits, jobs, healthScore, healthReport, trends, orgInfo, orgHealthStatus, lastUpdated: new Date().toISOString() });
+      const response = buildResponse(this.deps, msg, 'monitor:data', {
+        limits,
+        jobs,
+        healthScore,
+        healthReport,
+        trends,
+        orgInfo,
+        orgHealthStatus,
+        lastUpdated: new Date().toISOString(),
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -435,7 +551,12 @@ export class MonitorOpsHandler implements DomainHandler {
       periodLabel: periodStr,
     };
 
-    const response = buildResponse(this.deps, msg, 'monitor:trends:data', trendPayload as unknown as Record<string, unknown>);
+    const response = buildResponse(
+      this.deps,
+      msg,
+      'monitor:trends:data',
+      trendPayload as unknown as Record<string, unknown>,
+    );
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -443,7 +564,9 @@ export class MonitorOpsHandler implements DomainHandler {
   private handleLiveOperations(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const operations = this.liveOperationTracker?.getAll() ?? [];
-    const response = buildResponse(this.deps, msg, 'monitor:live-operations:response', { operations });
+    const response = buildResponse(this.deps, msg, 'monitor:live-operations:response', {
+      operations,
+    });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -457,7 +580,11 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
       const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       const limits = transformLimitsResponse(limitsRaw);
       const healthReport = this.healthCalculator.calculate({
@@ -499,7 +626,11 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       const entityRecords = await queryAll<{
         QualifiedApiName: string;
@@ -541,7 +672,11 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       const deployRecords = await queryAll<{
         Id: string;
@@ -588,18 +723,31 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
       const limitsRaw = await this.getOrFetchLimits(payload.orgId, conn);
       checkApiLimits(conn.limitInfo, 'monitor:api-usage limits');
 
       const apiCategories = [
-        'DailyApiRequests', 'DailyBulkApiRequests', 'DailyBulkV2QueryJobs',
-        'DailyBulkV2QueryFileStorageMB', 'DailyStreamingApiEvents',
-        'DailyGenericStreamingApiEvents', 'DailyDurableStreamingApiEvents',
-        'DailyAsyncApexExecutions', 'HourlyAsyncReportRuns',
-        'HourlyTimeBasedWorkflow', 'DailySoqlQueries',
-        'DailyWorkflowEmails', 'MassEmail', 'SingleEmail',
-        'HourlyPublishedPlatformEvents', 'DailyStandardVolumePlatformMessages',
+        'DailyApiRequests',
+        'DailyBulkApiRequests',
+        'DailyBulkV2QueryJobs',
+        'DailyBulkV2QueryFileStorageMB',
+        'DailyStreamingApiEvents',
+        'DailyGenericStreamingApiEvents',
+        'DailyDurableStreamingApiEvents',
+        'DailyAsyncApexExecutions',
+        'HourlyAsyncReportRuns',
+        'HourlyTimeBasedWorkflow',
+        'DailySoqlQueries',
+        'DailyWorkflowEmails',
+        'MassEmail',
+        'SingleEmail',
+        'HourlyPublishedPlatformEvents',
+        'DailyStandardVolumePlatformMessages',
       ];
 
       const categories: ApiUsageCategory[] = [];
@@ -630,16 +778,32 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { orgId: string; jobId: string } }).payload;
 
     try {
-      const conn = await getJsforceConnection(payload.orgId, this.deps.orgRegistry, this.deps.orgManager);
-      await conn.sobject('AsyncApexJob').update({ Id: payload.jobId, Status: 'Aborted' } as Record<string, unknown> & { Id: string });
+      const conn = await getJsforceConnection(
+        payload.orgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      await conn
+        .sobject('AsyncApexJob')
+        .update({ Id: payload.jobId, Status: 'Aborted' } as Record<string, unknown> & {
+          Id: string;
+        });
 
-      const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', { jobId: payload.jobId, success: true, message: 'Job abort requested.' });
+      const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', {
+        jobId: payload.jobId,
+        success: true,
+        message: 'Job abort requested.',
+      });
       this.deps.broker.postToWebview(response);
       sendNotification(this.deps, 'success', 'Monitor', `Job ${payload.jobId} abort requested.`);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] monitor:abort-job: ${message}`);
-      const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', { jobId: payload.jobId, success: false, message });
+      const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', {
+        jobId: payload.jobId,
+        success: false,
+        message,
+      });
       this.deps.broker.postToWebview(response);
       sendNotification(this.deps, 'error', 'Monitor', `Failed to abort job: ${message}`);
     }
@@ -739,7 +903,12 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:sandbox-refresh', 'monitor:sandbox-refresh:response', err);
+      sendHandlerError(
+        this.deps,
+        'monitor:sandbox-refresh',
+        'monitor:sandbox-refresh:response',
+        err,
+      );
     }
   }
 
@@ -765,7 +934,9 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { alertId: string } }).payload;
     this.alertEngine.acknowledgeAlert(payload.alertId);
     this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
-    const response = buildResponse(this.deps, msg, 'monitor:alert:acknowledge:response', { success: true });
+    const response = buildResponse(this.deps, msg, 'monitor:alert:acknowledge:response', {
+      success: true,
+    });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
@@ -779,7 +950,9 @@ export class MonitorOpsHandler implements DomainHandler {
     const payload = (msg as BaseMessage & { payload: { alertId: string } }).payload;
     this.alertEngine.dismissAlert(payload.alertId);
     this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
-    const response = buildResponse(this.deps, msg, 'monitor:alert:dismiss:response', { success: true });
+    const response = buildResponse(this.deps, msg, 'monitor:alert:dismiss:response', {
+      success: true,
+    });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }

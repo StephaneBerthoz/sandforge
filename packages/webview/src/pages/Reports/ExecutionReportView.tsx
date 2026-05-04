@@ -46,7 +46,11 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                 <Card
                   hoverable
                   onClick={() => onSelectReport?.(report.id)}
-                  className={selectedReportId === report.id ? 'ring-1 ring-[var(--vscode-focusBorder,#007fd4)]' : ''}
+                  className={
+                    selectedReportId === report.id
+                      ? 'ring-1 ring-[var(--vscode-focusBorder,#007fd4)]'
+                      : ''
+                  }
                 >
                   <CardBody>
                     <div className="flex items-center justify-between">
@@ -78,7 +82,8 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                       <Badge variant="default">{selectedReport.metadata.module}</Badge>
                       {selectedReport.metadata.recordCount !== undefined && (
                         <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-                          {selectedReport.metadata.recordCount} {t('reports.recordCount').toLowerCase()}
+                          {selectedReport.metadata.recordCount}{' '}
+                          {t('reports.recordCount').toLowerCase()}
                         </span>
                       )}
                       {selectedReport.metadata.duration !== undefined && (
@@ -95,14 +100,24 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                           {section.title}
                         </span>
                         {section.type === 'table' && Array.isArray(section.content['rows']) && (
-                          <div data-testid="report-table" className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-                            {(section.content['rows'] as Record<string, unknown>[]).map((row, ri) => (
-                              <div key={ri} className="flex gap-2 py-0.5 border-b border-[var(--vscode-panel-border,#3c3c3c)]">
-                                {Object.entries(row).map(([k, v]) => (
-                                  <span key={k}>{k}: {String(v as string)}</span>
-                                ))}
-                              </div>
-                            ))}
+                          <div
+                            data-testid="report-table"
+                            className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+                          >
+                            {(section.content['rows'] as Record<string, unknown>[]).map(
+                              (row, ri) => (
+                                <div
+                                  key={ri}
+                                  className="flex gap-2 py-0.5 border-b border-[var(--vscode-panel-border,#3c3c3c)]"
+                                >
+                                  {Object.entries(row).map(([k, v]) => (
+                                    <span key={k}>
+                                      {k}: {String(v as string)}
+                                    </span>
+                                  ))}
+                                </div>
+                              ),
+                            )}
                           </div>
                         )}
                         {section.type === 'text' && section.content['text'] != null && (
@@ -113,7 +128,9 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                         {section.type === 'summary' && (
                           <div className="flex flex-wrap gap-2">
                             {Object.entries(section.content).map(([k, v]) => (
-                              <Badge key={k} variant="default">{k}: {String(v)}</Badge>
+                              <Badge key={k} variant="default">
+                                {k}: {String(v)}
+                              </Badge>
                             ))}
                           </div>
                         )}

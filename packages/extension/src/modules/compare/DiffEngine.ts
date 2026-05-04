@@ -29,7 +29,7 @@ export class DiffEngine {
   diff(
     source: Map<string, string>,
     target: Map<string, string>,
-    componentType: MetadataComponentType
+    componentType: MetadataComponentType,
   ): CompareItem[] {
     const items: CompareItem[] = [];
     const allKeys = new Set([...source.keys(), ...target.keys()]);
@@ -39,20 +39,14 @@ export class DiffEngine {
       const targetValue = target.get(key);
 
       if (sourceValue !== undefined && targetValue === undefined) {
-        items.push(
-          DiffEngine.createItem(componentType, key, 'removed', sourceValue, undefined)
-        );
+        items.push(DiffEngine.createItem(componentType, key, 'removed', sourceValue, undefined));
       } else if (sourceValue === undefined && targetValue !== undefined) {
-        items.push(
-          DiffEngine.createItem(componentType, key, 'added', undefined, targetValue)
-        );
+        items.push(DiffEngine.createItem(componentType, key, 'added', undefined, targetValue));
       } else if (sourceValue !== targetValue) {
-        items.push(
-          DiffEngine.createItem(componentType, key, 'modified', sourceValue, targetValue)
-        );
+        items.push(DiffEngine.createItem(componentType, key, 'modified', sourceValue, targetValue));
       } else {
         items.push(
-          DiffEngine.createItem(componentType, key, 'unchanged', sourceValue, targetValue)
+          DiffEngine.createItem(componentType, key, 'unchanged', sourceValue, targetValue),
         );
       }
     }
@@ -64,15 +58,9 @@ export class DiffEngine {
    * Compare two flat objects field-by-field to produce field-level diffs.
    * Useful for comparing individual component properties.
    */
-  diffFields(
-    sourceObj: Record<string, string>,
-    targetObj: Record<string, string>
-  ): FieldDiff[] {
+  diffFields(sourceObj: Record<string, string>, targetObj: Record<string, string>): FieldDiff[] {
     const diffs: FieldDiff[] = [];
-    const allFields = new Set([
-      ...Object.keys(sourceObj),
-      ...Object.keys(targetObj),
-    ]);
+    const allFields = new Set([...Object.keys(sourceObj), ...Object.keys(targetObj)]);
 
     for (const fieldPath of allFields) {
       const sourceValue = sourceObj[fieldPath] ?? '';
@@ -142,7 +130,7 @@ export class DiffEngine {
   /** Determine the severity of a diff based on status and component type */
   static determineSeverity(
     status: DiffStatus,
-    componentType: MetadataComponentType
+    componentType: MetadataComponentType,
   ): CompareSeverity {
     if (status === 'unchanged' || status === 'added') {
       return 'info';
@@ -163,7 +151,7 @@ export class DiffEngine {
     fullName: string,
     status: DiffStatus,
     sourceValue: string | undefined,
-    targetValue: string | undefined
+    targetValue: string | undefined,
   ): CompareItem {
     return {
       componentType,

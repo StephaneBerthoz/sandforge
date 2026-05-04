@@ -164,10 +164,7 @@ export class SchemaScanner {
     );
 
     // Step 5: Count records on source org
-    const recordCounts = await this.countRecords(
-      sourceConn,
-      [...objectDescribes.keys()],
-    );
+    const recordCounts = await this.countRecords(sourceConn, [...objectDescribes.keys()]);
 
     return {
       objectDescribes,
@@ -215,9 +212,7 @@ export class SchemaScanner {
     const chunks = this.chunk(objectNames, this.maxConcurrent);
 
     for (const batch of chunks) {
-      const settled = await Promise.allSettled(
-        batch.map((name) => conn.describe(name)),
-      );
+      const settled = await Promise.allSettled(batch.map((name) => conn.describe(name)));
       for (const result of settled) {
         if (result.status === 'fulfilled') {
           results.set(result.value.name, result.value);
@@ -235,9 +230,7 @@ export class SchemaScanner {
    * @returns Array of referenced object API names.
    */
   private extractReferences(describe: ObjectDescribeResult): ApiName[] {
-    return describe.fields
-      .filter((f) => f.referenceTo.length > 0)
-      .flatMap((f) => f.referenceTo);
+    return describe.fields.filter((f) => f.referenceTo.length > 0).flatMap((f) => f.referenceTo);
   }
 
   /**

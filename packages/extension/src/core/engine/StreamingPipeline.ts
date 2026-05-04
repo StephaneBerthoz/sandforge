@@ -1,7 +1,4 @@
-import type {
-  StreamingChunkResult,
-  StreamingExecutionResult,
-} from '@sandforge/shared';
+import type { StreamingChunkResult, StreamingExecutionResult } from '@sandforge/shared';
 
 /** Maximum number of error messages to accumulate (prevents memory growth). */
 const MAX_ERRORS = 100;
@@ -14,9 +11,7 @@ export type OnChunkProgress = (
 ) => void;
 
 /** Function that processes a batch of records and returns a chunk result. */
-export type ChunkProcessFn = (
-  records: Record<string, unknown>[],
-) => Promise<StreamingChunkResult>;
+export type ChunkProcessFn = (records: Record<string, unknown>[]) => Promise<StreamingChunkResult>;
 
 /** Configuration for the streaming pipeline. */
 export interface StreamingPipelineConfig {
@@ -101,11 +96,7 @@ export class StreamingPipeline {
       }
 
       chunksProcessed++;
-      this.onChunkProgress?.(
-        chunksProcessed,
-        this.totalChunksHint ?? chunksProcessed,
-        result,
-      );
+      this.onChunkProgress?.(chunksProcessed, this.totalChunksHint ?? chunksProcessed, result);
     }
 
     return {

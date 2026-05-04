@@ -52,17 +52,12 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           {breadcrumb.map((segment, index) => (
             <React.Fragment key={index}>
               {index > 0 && (
-                <span
-                  aria-hidden="true"
-                  style={{ color: 'var(--sf-text-muted)' }}
-                >
+                <span aria-hidden="true" style={{ color: 'var(--sf-text-muted)' }}>
                   /
                 </span>
               )}
               <span
-                className={cn(
-                  index === breadcrumb.length - 1 && 'font-medium',
-                )}
+                className={cn(index === breadcrumb.length - 1 && 'font-medium')}
                 style={{
                   color:
                     index === breadcrumb.length - 1
@@ -80,13 +75,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       {/* Title row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center" style={{ gap: 'var(--sf-space-2)' }}>
-          {icon && (
-            <Icon
-              name={icon}
-              className="text-lg"
-              label={title}
-            />
-          )}
+          {icon && <Icon name={icon} className="text-lg" label={title} />}
           <div>
             <h1
               className="font-semibold"

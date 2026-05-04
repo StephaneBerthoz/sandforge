@@ -83,10 +83,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
     setActiveFilter(filterProp);
   }, [filterProp]);
 
-  const trimmedEntries = useMemo(
-    () => entries.slice(-maxEntries),
-    [entries, maxEntries],
-  );
+  const trimmedEntries = useMemo(() => entries.slice(-maxEntries), [entries, maxEntries]);
 
   const visibleEntries = useMemo(
     () => filterEntries(trimmedEntries, activeFilter),
@@ -155,7 +152,10 @@ export const LogStream: React.FC<LogStreamProps> = ({
             data-testid="logstream-copy-all"
             onClick={async () => {
               const text = visibleEntries
-                .map((e) => `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] ${e.message}`)
+                .map(
+                  (e) =>
+                    `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] ${e.message}`,
+                )
                 .join('\n');
               await navigator.clipboard.writeText(text);
             }}
@@ -170,7 +170,10 @@ export const LogStream: React.FC<LogStreamProps> = ({
             data-testid="logstream-export"
             onClick={() => {
               const text = visibleEntries
-                .map((e) => `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] ${e.message}`)
+                .map(
+                  (e) =>
+                    `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] ${e.message}`,
+                )
                 .join('\n');
               const blob = new Blob([text], { type: 'text/plain' });
               const url = URL.createObjectURL(blob);
@@ -208,9 +211,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
               data-testid="logstream-entry"
               className="flex items-baseline gap-2 py-0.5"
             >
-              <span className="text-text-muted shrink-0">
-                {formatTimestamp(entry.timestamp)}
-              </span>
+              <span className="text-text-muted shrink-0">{formatTimestamp(entry.timestamp)}</span>
               <span
                 className={cn(
                   'px-1 rounded text-[10px] uppercase font-medium shrink-0',
@@ -220,9 +221,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
               >
                 {entry.level}
               </span>
-              <span className={levelColorClasses[entry.level]}>
-                {entry.message}
-              </span>
+              <span className={levelColorClasses[entry.level]}>{entry.message}</span>
             </div>
           ))
         )}

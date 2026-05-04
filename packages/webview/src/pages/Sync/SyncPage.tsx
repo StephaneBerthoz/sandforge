@@ -1,6 +1,12 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { SyncDirection, SyncMode, ConflictStrategy, MappingType, FieldMapping } from '@sandforge/shared';
+import type {
+  SyncDirection,
+  SyncMode,
+  ConflictStrategy,
+  MappingType,
+  FieldMapping,
+} from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -56,10 +62,7 @@ const statusVariant: Record<string, BadgeVariant> = {
 };
 
 /** Build Sankey nodes from configured objects and field mappings. */
-function buildSankeyNodes(
-  entries: ObjectSetEntry[],
-  fieldMappings: FieldMapping[],
-): SankeyNode[] {
+function buildSankeyNodes(entries: ObjectSetEntry[], fieldMappings: FieldMapping[]): SankeyNode[] {
   if (entries.length === 0 && fieldMappings.length === 0) return [];
 
   const sourceNames = new Set<string>();
@@ -86,10 +89,7 @@ function buildSankeyNodes(
 }
 
 /** Build Sankey links from configured objects and field mappings. */
-function buildSankeyLinks(
-  entries: ObjectSetEntry[],
-  fieldMappings: FieldMapping[],
-): SankeyLink[] {
+function buildSankeyLinks(entries: ObjectSetEntry[], fieldMappings: FieldMapping[]): SankeyLink[] {
   if (entries.length === 0 && fieldMappings.length === 0) return [];
 
   const links: SankeyLink[] = [];
@@ -119,7 +119,11 @@ function buildSankeyLinks(
 const ConflictCountBadge: React.FC = () => {
   const count = useConflictStore((s) => s.conflicts.filter((c) => !c.resolved).length);
   if (count === 0) return null;
-  return <Badge variant="warning" data-testid="conflict-count-badge">{count}</Badge>;
+  return (
+    <Badge variant="warning" data-testid="conflict-count-badge">
+      {count}
+    </Badge>
+  );
 };
 
 /** Conflicts tab content — master/detail SplitView layout. */
@@ -137,7 +141,10 @@ const ConflictsTabContent: React.FC = () => {
         selectedConflict ? (
           <ConflictResolutionPanel conflict={selectedConflict} />
         ) : (
-          <div className="flex items-center justify-center h-full text-xs text-[var(--vscode-descriptionForeground)]" data-testid="conflict-placeholder">
+          <div
+            className="flex items-center justify-center h-full text-xs text-[var(--vscode-descriptionForeground)]"
+            data-testid="conflict-placeholder"
+          >
             {t('sync.conflictResolution.selectConflict')}
           </div>
         )
@@ -208,15 +215,14 @@ export const SyncPage: React.FC = () => {
 
   if (orgs.length < 2) {
     return (
-      <EmptyState
-        icon="sync"
-        title={t('sync.title')}
-        description={t('sync.selectOrgsDesc')}
-      />
+      <EmptyState icon="sync" title={t('sync.title')} description={t('sync.selectOrgsDesc')} />
     );
   }
 
-  const orgOptions = orgs.map((org) => ({ value: org.id, label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}` }));
+  const orgOptions = orgs.map((org) => ({
+    value: org.id,
+    label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
+  }));
   const directionOptions: { value: SyncDirection; label: string }[] = [
     { value: 'source_to_target', label: t('sync.directions.source_to_target') },
     { value: 'target_to_source', label: t('sync.directions.target_to_source') },
@@ -237,7 +243,10 @@ export const SyncPage: React.FC = () => {
   ];
 
   return (
-    <div className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]" data-testid="sync-page">
+    <div
+      className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
+      data-testid="sync-page"
+    >
       <PageHeader
         title={t('sync.title')}
         subtitle={t('sync.selectOrgsDesc')}
@@ -253,7 +262,10 @@ export const SyncPage: React.FC = () => {
               />
             )}
             {sourceOrg && targetOrg && (
-              <span className="codicon codicon-arrow-right text-[var(--sf-text-secondary)]" aria-hidden="true" />
+              <span
+                className="codicon codicon-arrow-right text-[var(--sf-text-secondary)]"
+                aria-hidden="true"
+              />
             )}
             {targetOrg && (
               <OrgBadge
@@ -267,12 +279,14 @@ export const SyncPage: React.FC = () => {
         }
       />
 
-      {error && (
-        <ErrorBanner message={error} onDismiss={clearError} data-testid="sync-error" />
-      )}
+      {error && <ErrorBanner message={error} onDismiss={clearError} data-testid="sync-error" />}
 
       {/* Tab navigation */}
-      <div className="flex gap-0 border-b border-[var(--vscode-panel-border)]" role="tablist" data-testid="sync-tabs">
+      <div
+        className="flex gap-0 border-b border-[var(--vscode-panel-border)]"
+        role="tablist"
+        data-testid="sync-tabs"
+      >
         {(['sync', 'history', 'schedules', 'realtime', 'conflicts'] as const).map((tab) => (
           <button
             key={tab}
@@ -332,225 +346,280 @@ export const SyncPage: React.FC = () => {
       )}
 
       {activeTab === 'sync' && !quickSyncActive && (
-      <SyncWizard
-        steps={SYNC_STEPS}
-        currentStep={currentStep}
-        onStepChange={setCurrentStep}
-        canGoNext={canGoNext()}
-        isFinished={isFinished}
-        onFinish={handleExecute}
-      >
-        {/* Step 0: Select orgs + Configure objects (merged) */}
-        {currentStep === 0 && (
-          <div className="flex flex-col gap-4" data-testid="sync-step-orgs">
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-              {t('sync.selectOrgsDesc')}
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select label={t('sync.source')} options={orgOptions} value={sourceOrgId} onChange={(e) => handleSourceOrgChange(e.target.value)} placeholder={t('sync.source')} />
-              <Select label={t('sync.target')} options={orgOptions} value={targetOrgId} onChange={(e) => handleTargetOrgChange(e.target.value)} placeholder={t('sync.target')} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Select label={t('sync.direction')} options={directionOptions} value={direction} onChange={(e) => setDirection(e.target.value as SyncDirection)} />
-              <Select label={t('sync.mode')} options={modeOptions} value={mode} onChange={(e) => setMode(e.target.value as SyncMode)} />
-              <Select label={t('sync.conflictStrategy')} options={conflictOptions} value={conflictStrategy} onChange={(e) => setConflictStrategy(e.target.value as ConflictStrategy)} />
-            </div>
-
-            {/* Template picker — only show when both orgs are selected */}
-            {sourceOrgId && targetOrgId && (
-              <details className="mt-2" data-testid="sync-template-section">
-                <summary className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)] cursor-pointer">
-                  {t('sync.templates.title')}
-                </summary>
-                <div className="mt-2">
-                  <SyncTemplatePicker onApply={handleApplyTemplate} />
-                </div>
-              </details>
-            )}
-
-            {/* Object set editor — inline in merged step */}
-            {sourceOrgId && (
-              objectsLoading ? (
-                <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="sync-objects-skeleton">
-                  <Skeleton variant="text" width="30%" height="1em" />
-                  <Skeleton variant="rect" height="140px" />
-                  <Skeleton variant="text" width="50%" height="1em" />
-                </div>
-              ) : (
-                <ObjectSetEditor
-                  entries={objectEntries}
-                  availableObjects={availableObjects}
-                  onAdd={handleAddObject}
-                  onRemove={handleRemoveObject}
-                  onChange={handleObjectChange}
-                />
-              )
-            )}
-          </div>
-        )}
-
-        {/* Step 1: Field mapping */}
-        {currentStep === 1 && fieldsLoading && (
-          <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="sync-fields-skeleton">
-            <Skeleton variant="text" width="25%" height="1em" />
-            <div className="grid grid-cols-2 gap-[var(--sf-space-4)]">
-              <Skeleton variant="rect" height="200px" />
-              <Skeleton variant="rect" height="200px" />
-            </div>
-          </div>
-        )}
-        {currentStep === 1 && !fieldsLoading && (
-          <div className="flex flex-col gap-4" data-testid="sync-step-field-mapping">
-            <FieldMapper
-              sourceFields={sourceFields.map((f) => f.apiName)}
-              targetFields={targetFields.map((f) => f.apiName)}
-              mappings={mappings.map((m): FieldMapperMapping => ({
-                sourceField: m.sourceField,
-                targetField: m.targetField,
-              }))}
-              onMappingChange={(fmMappings) => {
-                setMappings(fmMappings.map((fm) => ({
-                  sourceField: fm.sourceField,
-                  targetField: fm.targetField,
-                  type: 'direct' as MappingType,
-                })));
-              }}
-              onAutoMatch={() => {
-                const auto = sourceFields
-                  .filter((sf) => targetFields.some((tf) => tf.apiName === sf.apiName))
-                  .map((sf) => ({
-                    sourceField: sf.apiName,
-                    targetField: sf.apiName,
-                    type: 'direct' as MappingType,
-                  }));
-                setMappings(auto);
-              }}
-            />
-            <FieldMappingCanvas
-              sourceFields={sourceFields}
-              targetFields={targetFields}
-              mappings={mappings}
-              onAddMapping={handleAddMapping}
-              onRemoveMapping={handleRemoveMapping}
-              onChangeMappingType={handleMappingTypeChange}
-            />
-          </div>
-        )}
-
-        {/* Step 2: Transforms */}
-        {currentStep === 2 && (
-          <TransformBuilder
-            rules={transforms}
-            onAddRule={handleAddTransform}
-            onRemoveRule={handleRemoveTransform}
-            onChangeConfig={() => undefined}
-          />
-        )}
-
-        {/* Step 3: Review */}
-        {currentStep === 3 && (
-          <div className="flex flex-col gap-3" data-testid="sync-step-review">
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-              {t('sync.reviewDesc')}
-            </p>
-
-            {/* PII scan warnings */}
-            {piiWarnings.length > 0 && (
-              <Card data-testid="pii-warnings">
-                <CardHeader title={t('sync.piiWarningTitle', { defaultValue: 'PII Detected' })} />
-                <CardBody>
-                  {piiWarnings.map((w) => (
-                    <div key={w.objectName} className="text-xs mb-1">
-                      <span className="font-medium">{w.objectName}</span>
-                      {': '}
-                      {w.piiFields.map((f) => f.fieldName).join(', ')}
-                    </div>
-                  ))}
-                </CardBody>
-              </Card>
-            )}
-            <div className="flex gap-3 text-xs flex-wrap">
-              <Badge variant="default">{t(`sync.directions.${direction}`)}</Badge>
-              <Badge variant="default">{t(`sync.modes.${mode}`)}</Badge>
-              <Badge variant="default">{t(`sync.conflicts.${conflictStrategy}`)}</Badge>
-              <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {objectEntries.length} {t('sync.objectSet').toLowerCase()}
-              </span>
-              <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {mappings.length} {t('sync.fieldMapping').toLowerCase()}
-              </span>
-              <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {transforms.length} {t('sync.transforms').toLowerCase()}
-              </span>
-            </div>
-            <SankeyFlow
-              nodes={buildSankeyNodes(objectEntries, mappings)}
-              links={buildSankeyLinks(objectEntries, mappings)}
-            />
-          </div>
-        )}
-
-        {/* Step 4: Execute */}
-        {currentStep === 4 && (
-          <div className="flex flex-col gap-3" data-testid="sync-step-execute">
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-              {t('sync.executeDesc')}
-            </p>
-            <ProgressBar
-              value={overallPercent}
-              max={100}
-              label={isRunning ? t('sync.running') : `${Math.round(overallPercent)}%`}
-              showPercent
-              variant={overallPercent >= 100 ? 'success' : 'default'}
-            />
-            <div className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]" data-testid="sync-elapsed">
-              {(elapsedMs / 1000).toFixed(1)}s
-            </div>
-            <SyncGrappePanel />
-          </div>
-        )}
-
-        {/* Step 5: Results */}
-        {currentStep === 5 && (
-          <div className="flex flex-col gap-3" data-testid="sync-step-results">
-            {!result ? (
-              <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4">
-                {t('common.noData')}
+        <SyncWizard
+          steps={SYNC_STEPS}
+          currentStep={currentStep}
+          onStepChange={setCurrentStep}
+          canGoNext={canGoNext()}
+          isFinished={isFinished}
+          onFinish={handleExecute}
+        >
+          {/* Step 0: Select orgs + Configure objects (merged) */}
+          {currentStep === 0 && (
+            <div className="flex flex-col gap-4" data-testid="sync-step-orgs">
+              <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                {t('sync.selectOrgsDesc')}
               </p>
-            ) : (
-              <>
-                <div className="flex items-center gap-3 text-xs" data-testid="sync-result-summary">
-                  <Badge variant={statusVariant[result.status]}>
-                    {result.status === 'success' ? t('sync.complete') : result.status === 'partial' ? t('sync.partial') : t('sync.failed')}
-                  </Badge>
-                  <span>{t('sync.totalProcessed')}: <strong>{result.totalProcessed}</strong></span>
-                  <span>{t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong></span>
-                  {result.totalFailed > 0 && (
-                    <span className="text-[var(--vscode-errorForeground,#f48771)]">
-                      {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
-                    </span>
-                  )}
-                </div>
-                {result.objectResults.map((obj) => (
-                  <Card key={obj.objectApiName}>
-                    <CardHeader
-                      title={obj.objectApiName}
-                      subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
-                    />
-                    {obj.errors.length > 0 && (
-                      <CardBody>
-                        {obj.errors.map((err, i) => (
-                          <p key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">{err}</p>
-                        ))}
-                      </CardBody>
-                    )}
-                  </Card>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Select
+                  label={t('sync.source')}
+                  options={orgOptions}
+                  value={sourceOrgId}
+                  onChange={(e) => handleSourceOrgChange(e.target.value)}
+                  placeholder={t('sync.source')}
+                />
+                <Select
+                  label={t('sync.target')}
+                  options={orgOptions}
+                  value={targetOrgId}
+                  onChange={(e) => handleTargetOrgChange(e.target.value)}
+                  placeholder={t('sync.target')}
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Select
+                  label={t('sync.direction')}
+                  options={directionOptions}
+                  value={direction}
+                  onChange={(e) => setDirection(e.target.value as SyncDirection)}
+                />
+                <Select
+                  label={t('sync.mode')}
+                  options={modeOptions}
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as SyncMode)}
+                />
+                <Select
+                  label={t('sync.conflictStrategy')}
+                  options={conflictOptions}
+                  value={conflictStrategy}
+                  onChange={(e) => setConflictStrategy(e.target.value as ConflictStrategy)}
+                />
+              </div>
+
+              {/* Template picker — only show when both orgs are selected */}
+              {sourceOrgId && targetOrgId && (
+                <details className="mt-2" data-testid="sync-template-section">
+                  <summary className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)] cursor-pointer">
+                    {t('sync.templates.title')}
+                  </summary>
+                  <div className="mt-2">
+                    <SyncTemplatePicker onApply={handleApplyTemplate} />
+                  </div>
+                </details>
+              )}
+
+              {/* Object set editor — inline in merged step */}
+              {sourceOrgId &&
+                (objectsLoading ? (
+                  <div
+                    className="flex flex-col gap-[var(--sf-space-3)]"
+                    data-testid="sync-objects-skeleton"
+                  >
+                    <Skeleton variant="text" width="30%" height="1em" />
+                    <Skeleton variant="rect" height="140px" />
+                    <Skeleton variant="text" width="50%" height="1em" />
+                  </div>
+                ) : (
+                  <ObjectSetEditor
+                    entries={objectEntries}
+                    availableObjects={availableObjects}
+                    onAdd={handleAddObject}
+                    onRemove={handleRemoveObject}
+                    onChange={handleObjectChange}
+                  />
                 ))}
-              </>
-            )}
-          </div>
-        )}
-      </SyncWizard>
+            </div>
+          )}
+
+          {/* Step 1: Field mapping */}
+          {currentStep === 1 && fieldsLoading && (
+            <div
+              className="flex flex-col gap-[var(--sf-space-3)]"
+              data-testid="sync-fields-skeleton"
+            >
+              <Skeleton variant="text" width="25%" height="1em" />
+              <div className="grid grid-cols-2 gap-[var(--sf-space-4)]">
+                <Skeleton variant="rect" height="200px" />
+                <Skeleton variant="rect" height="200px" />
+              </div>
+            </div>
+          )}
+          {currentStep === 1 && !fieldsLoading && (
+            <div className="flex flex-col gap-4" data-testid="sync-step-field-mapping">
+              <FieldMapper
+                sourceFields={sourceFields.map((f) => f.apiName)}
+                targetFields={targetFields.map((f) => f.apiName)}
+                mappings={mappings.map(
+                  (m): FieldMapperMapping => ({
+                    sourceField: m.sourceField,
+                    targetField: m.targetField,
+                  }),
+                )}
+                onMappingChange={(fmMappings) => {
+                  setMappings(
+                    fmMappings.map((fm) => ({
+                      sourceField: fm.sourceField,
+                      targetField: fm.targetField,
+                      type: 'direct' as MappingType,
+                    })),
+                  );
+                }}
+                onAutoMatch={() => {
+                  const auto = sourceFields
+                    .filter((sf) => targetFields.some((tf) => tf.apiName === sf.apiName))
+                    .map((sf) => ({
+                      sourceField: sf.apiName,
+                      targetField: sf.apiName,
+                      type: 'direct' as MappingType,
+                    }));
+                  setMappings(auto);
+                }}
+              />
+              <FieldMappingCanvas
+                sourceFields={sourceFields}
+                targetFields={targetFields}
+                mappings={mappings}
+                onAddMapping={handleAddMapping}
+                onRemoveMapping={handleRemoveMapping}
+                onChangeMappingType={handleMappingTypeChange}
+              />
+            </div>
+          )}
+
+          {/* Step 2: Transforms */}
+          {currentStep === 2 && (
+            <TransformBuilder
+              rules={transforms}
+              onAddRule={handleAddTransform}
+              onRemoveRule={handleRemoveTransform}
+              onChangeConfig={() => undefined}
+            />
+          )}
+
+          {/* Step 3: Review */}
+          {currentStep === 3 && (
+            <div className="flex flex-col gap-3" data-testid="sync-step-review">
+              <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                {t('sync.reviewDesc')}
+              </p>
+
+              {/* PII scan warnings */}
+              {piiWarnings.length > 0 && (
+                <Card data-testid="pii-warnings">
+                  <CardHeader title={t('sync.piiWarningTitle', { defaultValue: 'PII Detected' })} />
+                  <CardBody>
+                    {piiWarnings.map((w) => (
+                      <div key={w.objectName} className="text-xs mb-1">
+                        <span className="font-medium">{w.objectName}</span>
+                        {': '}
+                        {w.piiFields.map((f) => f.fieldName).join(', ')}
+                      </div>
+                    ))}
+                  </CardBody>
+                </Card>
+              )}
+              <div className="flex gap-3 text-xs flex-wrap">
+                <Badge variant="default">{t(`sync.directions.${direction}`)}</Badge>
+                <Badge variant="default">{t(`sync.modes.${mode}`)}</Badge>
+                <Badge variant="default">{t(`sync.conflicts.${conflictStrategy}`)}</Badge>
+                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  {objectEntries.length} {t('sync.objectSet').toLowerCase()}
+                </span>
+                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  {mappings.length} {t('sync.fieldMapping').toLowerCase()}
+                </span>
+                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  {transforms.length} {t('sync.transforms').toLowerCase()}
+                </span>
+              </div>
+              <SankeyFlow
+                nodes={buildSankeyNodes(objectEntries, mappings)}
+                links={buildSankeyLinks(objectEntries, mappings)}
+              />
+            </div>
+          )}
+
+          {/* Step 4: Execute */}
+          {currentStep === 4 && (
+            <div className="flex flex-col gap-3" data-testid="sync-step-execute">
+              <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                {t('sync.executeDesc')}
+              </p>
+              <ProgressBar
+                value={overallPercent}
+                max={100}
+                label={isRunning ? t('sync.running') : `${Math.round(overallPercent)}%`}
+                showPercent
+                variant={overallPercent >= 100 ? 'success' : 'default'}
+              />
+              <div
+                className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+                data-testid="sync-elapsed"
+              >
+                {(elapsedMs / 1000).toFixed(1)}s
+              </div>
+              <SyncGrappePanel />
+            </div>
+          )}
+
+          {/* Step 5: Results */}
+          {currentStep === 5 && (
+            <div className="flex flex-col gap-3" data-testid="sync-step-results">
+              {!result ? (
+                <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4">
+                  {t('common.noData')}
+                </p>
+              ) : (
+                <>
+                  <div
+                    className="flex items-center gap-3 text-xs"
+                    data-testid="sync-result-summary"
+                  >
+                    <Badge variant={statusVariant[result.status]}>
+                      {result.status === 'success'
+                        ? t('sync.complete')
+                        : result.status === 'partial'
+                          ? t('sync.partial')
+                          : t('sync.failed')}
+                    </Badge>
+                    <span>
+                      {t('sync.totalProcessed')}: <strong>{result.totalProcessed}</strong>
+                    </span>
+                    <span>
+                      {t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong>
+                    </span>
+                    {result.totalFailed > 0 && (
+                      <span className="text-[var(--vscode-errorForeground,#f48771)]">
+                        {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
+                      </span>
+                    )}
+                  </div>
+                  {result.objectResults.map((obj) => (
+                    <Card key={obj.objectApiName}>
+                      <CardHeader
+                        title={obj.objectApiName}
+                        subtitle={`${t(`sync.operations.${obj.operation}`)} — ${obj.success}/${obj.processed}`}
+                      />
+                      {obj.errors.length > 0 && (
+                        <CardBody>
+                          {obj.errors.map((err, i) => (
+                            <p
+                              key={i}
+                              className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
+                            >
+                              {err}
+                            </p>
+                          ))}
+                        </CardBody>
+                      )}
+                    </Card>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </SyncWizard>
       )}
       {/* End of sync tab content */}
     </div>

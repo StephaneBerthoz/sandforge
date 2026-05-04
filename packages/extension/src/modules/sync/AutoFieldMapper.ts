@@ -36,10 +36,7 @@ export class AutoFieldMapper {
    * Generate auto-mapping suggestions between source and target fields.
    * Returns suggestions sorted by confidence (highest first).
    */
-  suggest(
-    sourceFields: AutoMapFieldInfo[],
-    targetFields: AutoMapFieldInfo[],
-  ): AutoMapSuggestion[] {
+  suggest(sourceFields: AutoMapFieldInfo[], targetFields: AutoMapFieldInfo[]): AutoMapSuggestion[] {
     const suggestions: AutoMapSuggestion[] = [];
     const usedTargets = new Set<string>();
 
@@ -81,10 +78,7 @@ export class AutoFieldMapper {
   /**
    * Compute match score between a source and target field.
    */
-  private computeScore(
-    source: AutoMapFieldInfo,
-    target: AutoMapFieldInfo,
-  ): AutoMapSuggestion {
+  private computeScore(source: AutoMapFieldInfo, target: AutoMapFieldInfo): AutoMapSuggestion {
     // Strategy 1: Exact API name match
     if (source.apiName === target.apiName) {
       return {
@@ -149,11 +143,7 @@ export class AutoFieldMapper {
 
   /** Normalize API name: lowercase, strip __c/__r suffixes, remove underscores. */
   private normalize(name: string): string {
-    return name
-      .replace(/__c$/i, '')
-      .replace(/__r$/i, '')
-      .replace(/_/g, '')
-      .toLowerCase();
+    return name.replace(/__c$/i, '').replace(/__r$/i, '').replace(/_/g, '').toLowerCase();
   }
 
   /** Compute string similarity (Dice coefficient). */

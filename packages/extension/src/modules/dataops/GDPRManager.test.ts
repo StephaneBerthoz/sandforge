@@ -31,7 +31,9 @@ describe('GDPRManager', () => {
     const dsr = manager.createDSR('access', 'a@b.com', 'A');
     const requestDate = new Date(dsr.requestDate);
     const dueDate = new Date(dsr.dueDate);
-    const diffDays = Math.round((dueDate.getTime() - requestDate.getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = Math.round(
+      (dueDate.getTime() - requestDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
     expect(diffDays).toBe(30);
   });
 
@@ -130,9 +132,9 @@ describe('GDPRManager', () => {
         { apiName: 'FirstName', label: 'First Name', type: 'String' },
         { apiName: 'LastName', label: 'Last Name', type: 'String' },
       ]),
-      queryRecordsByEmail: vi.fn().mockResolvedValue([
-        { Id: '003xx0001', Email: 'john@example.com', FirstName: 'John' },
-      ]),
+      queryRecordsByEmail: vi
+        .fn()
+        .mockResolvedValue([{ Id: '003xx0001', Email: 'john@example.com', FirstName: 'John' }]),
     });
 
     const plan = await m.buildErasurePlan(conn, 'org-1', dsr);
@@ -150,9 +152,7 @@ describe('GDPRManager', () => {
         { apiName: 'Email', label: 'Email', type: 'String' },
         { apiName: 'FirstName', label: 'First Name', type: 'String' },
       ]),
-      queryRecordsByEmail: vi.fn().mockResolvedValue([
-        { Id: '001xx', Email: 'john@example.com' },
-      ]),
+      queryRecordsByEmail: vi.fn().mockResolvedValue([{ Id: '001xx', Email: 'john@example.com' }]),
     });
 
     const plan = await m.buildErasurePlan(conn, 'org-1', dsr);

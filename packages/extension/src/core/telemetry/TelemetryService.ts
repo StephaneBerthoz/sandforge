@@ -5,9 +5,21 @@ import { z } from 'zod';
 /** Schema for a telemetry event */
 export const telemetryEventSchema = z.object({
   eventName: z.string().min(1),
-  module: z.enum(['seed', 'sync', 'monitor', 'compare', 'dataops', 'automation', 'migration', 'plugins']),
+  module: z.enum([
+    'seed',
+    'sync',
+    'monitor',
+    'compare',
+    'dataops',
+    'automation',
+    'migration',
+    'plugins',
+  ]),
   action: z.string().min(1),
-  properties: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().default({}),
+  properties: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+    .optional()
+    .default({}),
   duration: z.number().nonnegative().optional(),
   recordCount: z.number().int().nonnegative().optional(),
   errorType: z.string().optional(),
@@ -91,7 +103,7 @@ export class TelemetryService {
     storage: TelemetryStorage,
     sender: TelemetrySender,
     extensionVersion: string,
-    batchSize: number = 50
+    batchSize: number = 50,
   ) {
     this.storage = storage;
     this.sender = sender;

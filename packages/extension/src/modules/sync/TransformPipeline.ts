@@ -31,7 +31,7 @@ export class TransformPipeline {
    */
   transformRecord(
     record: Record<string, unknown>,
-    objectConfig: SyncObjectConfig
+    objectConfig: SyncObjectConfig,
   ): Record<string, unknown> {
     const result: Record<string, unknown> = { ...record };
 
@@ -129,11 +129,7 @@ const RULE_HANDLERS: Record<TransformRuleType, RuleHandler> = {
 /**
  * Apply a single transform rule to a value.
  */
-function applyRule(
-  value: unknown,
-  type: TransformRuleType,
-  config: TransformRuleConfig
-): unknown {
+function applyRule(value: unknown, type: TransformRuleType, config: TransformRuleConfig): unknown {
   const handler = RULE_HANDLERS[type];
   return handler(value, config);
 }
@@ -152,10 +148,7 @@ function formatDate(dateStr: string, format: string): string {
   const month = (date.getMonth() + 1).toString().padStart(2, '0');
   const day = date.getDate().toString().padStart(2, '0');
 
-  return format
-    .replace('YYYY', year)
-    .replace('MM', month)
-    .replace('DD', day);
+  return format.replace('YYYY', year).replace('MM', month).replace('DD', day);
 }
 
 /**

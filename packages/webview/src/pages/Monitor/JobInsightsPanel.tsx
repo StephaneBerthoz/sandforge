@@ -89,15 +89,23 @@ export const JobInsightsPanel: React.FC<JobInsightsPanelProps> = ({
           aria-hidden="true"
           style={{ color: 'var(--sf-text-secondary)' }}
         />
-        <span className="codicon codicon-warning" aria-hidden="true" style={{ color: 'var(--sf-warning)' }} />
+        <span
+          className="codicon codicon-warning"
+          aria-hidden="true"
+          style={{ color: 'var(--sf-warning)' }}
+        />
         <span>
           {insights.length} {t('monitor.alertsCount', 'alert(s)')}
         </span>
         {criticalCount > 0 && (
-          <Badge variant="error">{criticalCount} {t('monitor.critical', 'critical')}</Badge>
+          <Badge variant="error">
+            {criticalCount} {t('monitor.critical', 'critical')}
+          </Badge>
         )}
         {warningCount > 0 && (
-          <Badge variant="warning">{warningCount} {t('monitor.warnings', 'warning(s)')}</Badge>
+          <Badge variant="warning">
+            {warningCount} {t('monitor.warnings', 'warning(s)')}
+          </Badge>
         )}
       </button>
 
@@ -123,21 +131,46 @@ export const JobInsightsPanel: React.FC<JobInsightsPanelProps> = ({
                 borderLeft: `3px solid ${severityBorderColor[insight.severity]}`,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sf-space-2)', marginBottom: 'var(--sf-space-1)' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--sf-space-2)',
+                  marginBottom: 'var(--sf-space-1)',
+                }}
+              >
                 <span
                   className={`codicon codicon-${severityIcon[insight.severity]}`}
                   aria-hidden="true"
                   style={{ color: severityBorderColor[insight.severity] }}
                 />
                 <Badge variant={severityBadge[insight.severity]}>{insight.severity}</Badge>
-                <span style={{ fontSize: 'var(--sf-font-size-sm)', fontWeight: 600, color: 'var(--sf-text-primary)' }}>
+                <span
+                  style={{
+                    fontSize: 'var(--sf-font-size-sm)',
+                    fontWeight: 600,
+                    color: 'var(--sf-text-primary)',
+                  }}
+                >
                   {insight.title}
                 </span>
               </div>
-              <p style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-text-secondary)', margin: '0 0 var(--sf-space-1)' }}>
+              <p
+                style={{
+                  fontSize: 'var(--sf-font-size-xs)',
+                  color: 'var(--sf-text-secondary)',
+                  margin: '0 0 var(--sf-space-1)',
+                }}
+              >
                 {insight.detail}
               </p>
-              <p style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-info, #3B82F6)', margin: 0 }}>
+              <p
+                style={{
+                  fontSize: 'var(--sf-font-size-xs)',
+                  color: 'var(--sf-info, #3B82F6)',
+                  margin: 0,
+                }}
+              >
                 {insight.recommendation}
               </p>
               {insight.type === 'stuck' && onAbortJob && insight.affectedJobs.length > 0 && (
@@ -148,7 +181,11 @@ export const JobInsightsPanel: React.FC<JobInsightsPanelProps> = ({
                     onClick={() => onAbortJob(insight.affectedJobs[0])}
                     data-testid={`abort-job-${insight.affectedJobs[0]}`}
                   >
-                    <span className="codicon codicon-debug-stop" aria-hidden="true" style={{ marginRight: 'var(--sf-space-1)' }} />
+                    <span
+                      className="codicon codicon-debug-stop"
+                      aria-hidden="true"
+                      style={{ marginRight: 'var(--sf-space-1)' }}
+                    />
                     {t('monitor.abortJob', 'Abort Job')}
                   </Button>
                 </div>

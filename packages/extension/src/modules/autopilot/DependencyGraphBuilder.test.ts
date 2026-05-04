@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  DependencyGraphBuilder,
-  type GraphObjectDescribe,
-} from './DependencyGraphBuilder.js';
+import { DependencyGraphBuilder, type GraphObjectDescribe } from './DependencyGraphBuilder.js';
 
 /** Helper: create a simple describe with optional reference fields. */
 function makeDescribe(
@@ -69,9 +66,7 @@ describe('DependencyGraphBuilder', () => {
   });
 
   it('should handle single object — 1 node at level 0', () => {
-    const describes = new Map<string, GraphObjectDescribe>([
-      ['Account', makeDescribe('Account')],
-    ]);
+    const describes = new Map<string, GraphObjectDescribe>([['Account', makeDescribe('Account')]]);
     const recordCounts = new Map([['Account', 100]]);
 
     const graph = builder.build(describes, recordCounts);
@@ -90,18 +85,8 @@ describe('DependencyGraphBuilder', () => {
     // Edges: A->B (B.AccountId references A), B->C (C.ParentId references B)
     const describes = new Map<string, GraphObjectDescribe>([
       ['Account', makeDescribe('Account')],
-      [
-        'Contact',
-        makeDescribe('Contact', [
-          { fieldName: 'AccountId', referenceTo: ['Account'] },
-        ]),
-      ],
-      [
-        'Case',
-        makeDescribe('Case', [
-          { fieldName: 'ContactId', referenceTo: ['Contact'] },
-        ]),
-      ],
+      ['Contact', makeDescribe('Contact', [{ fieldName: 'AccountId', referenceTo: ['Account'] }])],
+      ['Case', makeDescribe('Case', [{ fieldName: 'ContactId', referenceTo: ['Contact'] }])],
     ]);
     const recordCounts = new Map([
       ['Account', 10],
@@ -132,12 +117,7 @@ describe('DependencyGraphBuilder', () => {
 
   it('should detect self-referencing object — two_pass strategy', () => {
     const describes = new Map<string, GraphObjectDescribe>([
-      [
-        'Account',
-        makeDescribe('Account', [
-          { fieldName: 'ParentId', referenceTo: ['Account'] },
-        ]),
-      ],
+      ['Account', makeDescribe('Account', [{ fieldName: 'ParentId', referenceTo: ['Account'] }])],
     ]);
     const recordCounts = new Map([['Account', 50]]);
 
@@ -194,21 +174,15 @@ describe('DependencyGraphBuilder', () => {
     const describes = new Map<string, GraphObjectDescribe>([
       [
         'ObjA',
-        makeDescribe('ObjA', [
-          { fieldName: 'ObjCId', referenceTo: ['ObjC'], nillable: true },
-        ]),
+        makeDescribe('ObjA', [{ fieldName: 'ObjCId', referenceTo: ['ObjC'], nillable: true }]),
       ],
       [
         'ObjB',
-        makeDescribe('ObjB', [
-          { fieldName: 'ObjAId', referenceTo: ['ObjA'], nillable: true },
-        ]),
+        makeDescribe('ObjB', [{ fieldName: 'ObjAId', referenceTo: ['ObjA'], nillable: true }]),
       ],
       [
         'ObjC',
-        makeDescribe('ObjC', [
-          { fieldName: 'ObjBId', referenceTo: ['ObjB'], nillable: true },
-        ]),
+        makeDescribe('ObjC', [{ fieldName: 'ObjBId', referenceTo: ['ObjB'], nillable: true }]),
       ],
     ]);
     const recordCounts = new Map([
@@ -251,9 +225,7 @@ describe('DependencyGraphBuilder', () => {
     const graph = builder.build(describes, recordCounts);
 
     // Should create 2 polymorphic edges
-    const polyEdges = graph.edges.filter(
-      (e) => e.relationshipType === 'polymorphic',
-    );
+    const polyEdges = graph.edges.filter((e) => e.relationshipType === 'polymorphic');
     expect(polyEdges).toHaveLength(2);
     expect(polyEdges.every((e) => e.to === 'Task')).toBe(true);
     expect(polyEdges.every((e) => e.fieldApiName === 'WhatId')).toBe(true);
@@ -297,9 +269,7 @@ describe('DependencyGraphBuilder', () => {
       ['User', makeDescribe('User')],
       [
         'Case',
-        makeDescribe('Case', [
-          { fieldName: 'OwnerId', referenceTo: ['User'], nillable: true },
-        ]),
+        makeDescribe('Case', [{ fieldName: 'OwnerId', referenceTo: ['User'], nillable: true }]),
       ],
       [
         'Account',
@@ -340,8 +310,7 @@ describe('DependencyGraphBuilder', () => {
 
     // Cycle between Account and Contact should be detected
     const mutualCycle = graph.cycles.find(
-      (c) =>
-        c.objects.includes('Account') && c.objects.includes('Contact'),
+      (c) => c.objects.includes('Account') && c.objects.includes('Contact'),
     );
     expect(mutualCycle).toBeDefined();
   });
@@ -360,12 +329,8 @@ describe('DependencyGraphBuilder', () => {
 
     const graph = builder.build(describes, recordCounts, 200);
 
-    const accountNode = graph.nodes.find(
-      (n) => n.objectApiName === 'Account',
-    );
-    const contactNode = graph.nodes.find(
-      (n) => n.objectApiName === 'Contact',
-    );
+    const accountNode = graph.nodes.find((n) => n.objectApiName === 'Account');
+    const contactNode = graph.nodes.find((n) => n.objectApiName === 'Contact');
     const leadNode = graph.nodes.find((n) => n.objectApiName === 'Lead');
 
     // 0 records -> 0 API calls
@@ -413,9 +378,7 @@ describe('DependencyGraphBuilder', () => {
   });
 
   it('should set correct default values on nodes', () => {
-    const describes = new Map<string, GraphObjectDescribe>([
-      ['Account', makeDescribe('Account')],
-    ]);
+    const describes = new Map<string, GraphObjectDescribe>([['Account', makeDescribe('Account')]]);
     const recordCounts = new Map([['Account', 42]]);
 
     const graph = builder.build(describes, recordCounts);
@@ -435,12 +398,7 @@ describe('DependencyGraphBuilder', () => {
   it('should ignore references to objects not in the graph', () => {
     // Contact references Account, but Account is not in the describes
     const describes = new Map<string, GraphObjectDescribe>([
-      [
-        'Contact',
-        makeDescribe('Contact', [
-          { fieldName: 'AccountId', referenceTo: ['Account'] },
-        ]),
-      ],
+      ['Contact', makeDescribe('Contact', [{ fieldName: 'AccountId', referenceTo: ['Account'] }])],
     ]);
     const recordCounts = new Map([['Contact', 10]]);
 
@@ -452,9 +410,7 @@ describe('DependencyGraphBuilder', () => {
   });
 
   it('should handle missing record count as 0', () => {
-    const describes = new Map<string, GraphObjectDescribe>([
-      ['Account', makeDescribe('Account')],
-    ]);
+    const describes = new Map<string, GraphObjectDescribe>([['Account', makeDescribe('Account')]]);
     // No record count for Account
     const recordCounts = new Map<string, number>();
 

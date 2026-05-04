@@ -47,9 +47,7 @@ describe('ApexInsightsPanel', () => {
           dmlStatements: 12,
           heapUsed: 65000,
           cpuTime: 800,
-          issues: [
-            { type: 'N+1', severity: 'warning', message: 'SOQL inside loop' },
-          ],
+          issues: [{ type: 'N+1', severity: 'warning', message: 'SOQL inside loop' }],
         },
         {
           logId: 'log-002-ghijkl',
@@ -61,9 +59,7 @@ describe('ApexInsightsPanel', () => {
           issues: [],
         },
       ],
-      topIssues: [
-        { type: 'N+1', severity: 'warning', message: 'SOQL inside loop' },
-      ],
+      topIssues: [{ type: 'N+1', severity: 'warning', message: 'SOQL inside loop' }],
     };
     render(<ApexInsightsPanel />);
 

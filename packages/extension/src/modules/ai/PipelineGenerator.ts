@@ -155,10 +155,7 @@ export class PipelineGenerator {
     return suggestions;
   }
 
-  private extractSteps(
-    normalizedDesc: string,
-    availableOrgs: OrgInfo[],
-  ): GeneratedPipelineStep[] {
+  private extractSteps(normalizedDesc: string, availableOrgs: OrgInfo[]): GeneratedPipelineStep[] {
     const steps: GeneratedPipelineStep[] = [];
     const words = normalizedDesc.split(/\s+/);
     const detectedTypes = new Set<string>();
@@ -210,9 +207,20 @@ export class PipelineGenerator {
 
   private extractSalesforceObjects(description: string): string[] {
     const commonObjects = [
-      'account', 'contact', 'lead', 'opportunity', 'case',
-      'task', 'event', 'user', 'campaign', 'product',
-      'order', 'contract', 'asset', 'solution',
+      'account',
+      'contact',
+      'lead',
+      'opportunity',
+      'case',
+      'task',
+      'event',
+      'user',
+      'campaign',
+      'product',
+      'order',
+      'contract',
+      'asset',
+      'solution',
     ];
 
     return commonObjects
@@ -261,9 +269,7 @@ export class PipelineGenerator {
     description: string,
     availableOrgs: OrgInfo[],
   ): Promise<GeneratedPipeline> {
-    const orgList = availableOrgs
-      .map((o) => `${o.alias} (${o.type}, ID: ${o.orgId})`)
-      .join('\n');
+    const orgList = availableOrgs.map((o) => `${o.alias} (${o.type}, ID: ${o.orgId})`).join('\n');
 
     const prompt = `Generate a SandForge pipeline from this description:\n"${description}"\n\nAvailable orgs:\n${orgList}\n\nReturn JSON with: name, description, steps (array of {name, type, config, description}), schedule (optional cron), triggers (optional array).`;
 
@@ -306,9 +312,10 @@ export class PipelineGenerator {
       .map((item) => ({
         name: item['name'] as string,
         type: item['type'] as string,
-        config: typeof item['config'] === 'object' && item['config'] !== null
-          ? (item['config'] as Record<string, unknown>)
-          : {},
+        config:
+          typeof item['config'] === 'object' && item['config'] !== null
+            ? (item['config'] as Record<string, unknown>)
+            : {},
         description: typeof item['description'] === 'string' ? (item['description'] as string) : '',
       }));
   }

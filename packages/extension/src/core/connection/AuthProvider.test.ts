@@ -108,9 +108,7 @@ describe('AuthProvider', () => {
     });
 
     it('should require username and password for usernamePassword method', async () => {
-      const result = await provider.authenticate(
-        createCredentials({ method: 'usernamePassword' }),
-      );
+      const result = await provider.authenticate(createCredentials({ method: 'usernamePassword' }));
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Username and password are required');
@@ -193,12 +191,14 @@ describe('AuthProvider', () => {
         display_name: 'Admin User',
       });
       __mockQuery.mockResolvedValueOnce({
-        records: [{
-          Id: '00D1',
-          Name: 'Test Org',
-          OrganizationType: 'Developer Edition',
-          IsSandbox: false,
-        }],
+        records: [
+          {
+            Id: '00D1',
+            Name: 'Test Org',
+            OrganizationType: 'Developer Edition',
+            IsSandbox: false,
+          },
+        ],
       });
 
       const result = await provider.validateConnection('token-1', 'https://test.sf.com');

@@ -8,13 +8,23 @@ const scheduled: ScheduledPipeline[] = [
   {
     pipelineId: 'pipe-1',
     pipelineName: 'Daily Backup',
-    trigger: { id: 't1', type: 'schedule', enabled: true, config: { cron: '0 0 * * *', timezone: 'UTC' } },
+    trigger: {
+      id: 't1',
+      type: 'schedule',
+      enabled: true,
+      config: { cron: '0 0 * * *', timezone: 'UTC' },
+    },
     nextFireTime: '2026-02-21T00:00:00Z',
   },
   {
     pipelineId: 'pipe-2',
     pipelineName: 'Weekly Sync',
-    trigger: { id: 't2', type: 'schedule', enabled: false, config: { cron: '0 0 * * 0', timezone: 'US/Pacific' } },
+    trigger: {
+      id: 't2',
+      type: 'schedule',
+      enabled: false,
+      config: { cron: '0 0 * * 0', timezone: 'US/Pacific' },
+    },
   },
 ];
 

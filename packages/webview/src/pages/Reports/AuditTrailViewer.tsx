@@ -13,7 +13,9 @@ export interface AuditTrailViewerProps {
 }
 
 /** Color mapping for audit action categories. */
-function getActionVariant(action: AuditAction): 'default' | 'success' | 'warning' | 'error' | 'info' {
+function getActionVariant(
+  action: AuditAction,
+): 'default' | 'success' | 'warning' | 'error' | 'info' {
   if (action.includes('execute') || action === 'pipeline_run') return 'info';
   if (action.includes('create')) return 'success';
   if (action.includes('delete') || action === 'org_disconnect') return 'error';
@@ -22,10 +24,7 @@ function getActionVariant(action: AuditAction): 'default' | 'success' | 'warning
 }
 
 /** Viewer for audit trail with filters. */
-export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
-  entries,
-  className,
-}) => {
+export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({ entries, className }) => {
   const { t } = useTranslation();
   const [actionFilter, setActionFilter] = useState<string>('');
   const [moduleFilter, setModuleFilter] = useState<string>('');
@@ -103,7 +102,9 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({
                     {Object.keys(entry.details).length > 0 && (
                       <div className="mt-1 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
                         {Object.entries(entry.details).map(([k, v]) => (
-                          <span key={k} className="mr-2">{k}: {String(v)}</span>
+                          <span key={k} className="mr-2">
+                            {k}: {String(v)}
+                          </span>
                         ))}
                       </div>
                     )}

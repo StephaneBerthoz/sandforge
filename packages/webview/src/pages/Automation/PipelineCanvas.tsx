@@ -73,7 +73,9 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
               onClick={() => onSelectStep?.(step.id)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter') onSelectStep?.(step.id); }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onSelectStep?.(step.id);
+              }}
               data-testid={`canvas-step-${step.id}`}
             >
               <div className={`w-2 h-2 rounded-full ${colorClass}`} />
@@ -87,7 +89,10 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
               {onRemoveStep && (
                 <button
                   className="text-xs text-[var(--vscode-descriptionForeground,#868686)] hover:text-red-400 ml-auto"
-                  onClick={(e) => { e.stopPropagation(); onRemoveStep(step.id); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveStep(step.id);
+                  }}
                   aria-label={t('common.delete')}
                   data-testid={`remove-step-${step.id}`}
                 >

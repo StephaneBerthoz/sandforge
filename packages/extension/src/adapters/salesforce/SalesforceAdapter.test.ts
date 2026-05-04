@@ -46,7 +46,7 @@ describe('SalesforceAdapter', () => {
           await sleep(20);
           inFlight -= 1;
           return i;
-        })
+        }),
       );
 
       const results = await Promise.all(tasks);
@@ -103,7 +103,10 @@ describe('SalesforceAdapter', () => {
         attemptTimes.push(Date.now());
         attempt += 1;
         if (attempt === 1) {
-          const err = Object.assign(new Error('rate-limited'), { statusCode: 429, retryAfter: 0.2 });
+          const err = Object.assign(new Error('rate-limited'), {
+            statusCode: 429,
+            retryAfter: 0.2,
+          });
           throw err;
         }
         return 'ok';
@@ -155,7 +158,9 @@ describe('SalesforceAdapter', () => {
       controller.abort(new Error('user-cancelled'));
 
       const fn = vi.fn(async () => 'should-not-run');
-      await expect(adapter.withLimit(fn, { signal: controller.signal })).rejects.toThrow(/user-cancelled|aborted/);
+      await expect(adapter.withLimit(fn, { signal: controller.signal })).rejects.toThrow(
+        /user-cancelled|aborted/,
+      );
       expect(fn).not.toHaveBeenCalled();
     });
 
@@ -178,7 +183,9 @@ describe('SalesforceAdapter', () => {
         throw err;
       });
 
-      await expect(adapter.withLimit(fn, { signal: controller.signal })).rejects.toThrow(/stop|aborted/);
+      await expect(adapter.withLimit(fn, { signal: controller.signal })).rejects.toThrow(
+        /stop|aborted/,
+      );
       expect(attempt).toBeLessThan(5);
     });
   });
@@ -212,7 +219,7 @@ describe('SalesforceAdapter', () => {
       expect(telemetry.addBreadcrumb).toHaveBeenCalledWith(
         expect.stringContaining('api-usage-high'),
         'salesforce',
-        'warning'
+        'warning',
       );
     });
 

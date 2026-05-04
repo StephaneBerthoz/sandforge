@@ -43,32 +43,86 @@ export class PersonaRegistry {
   private readonly personas = new Map<string, AnonymizedPersona>();
 
   private readonly firstNames = [
-    'Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey',
-    'Riley', 'Quinn', 'Avery', 'Parker', 'Reese',
-    'Dakota', 'Skyler', 'Sage', 'River', 'Hayden',
-    'Emery', 'Finley', 'Blake', 'Charlie', 'Drew',
+    'Alex',
+    'Jordan',
+    'Taylor',
+    'Morgan',
+    'Casey',
+    'Riley',
+    'Quinn',
+    'Avery',
+    'Parker',
+    'Reese',
+    'Dakota',
+    'Skyler',
+    'Sage',
+    'River',
+    'Hayden',
+    'Emery',
+    'Finley',
+    'Blake',
+    'Charlie',
+    'Drew',
   ];
 
   private readonly lastNames = [
-    'Smith', 'Johnson', 'Williams', 'Brown', 'Jones',
-    'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez',
-    'Anderson', 'Taylor', 'Thomas', 'Moore', 'Jackson',
-    'Martin', 'Lee', 'White', 'Harris', 'Clark',
+    'Smith',
+    'Johnson',
+    'Williams',
+    'Brown',
+    'Jones',
+    'Garcia',
+    'Miller',
+    'Davis',
+    'Rodriguez',
+    'Martinez',
+    'Anderson',
+    'Taylor',
+    'Thomas',
+    'Moore',
+    'Jackson',
+    'Martin',
+    'Lee',
+    'White',
+    'Harris',
+    'Clark',
   ];
 
   private readonly cities = [
-    'Springfield', 'Riverside', 'Fairview', 'Greenville', 'Franklin',
-    'Clinton', 'Madison', 'Georgetown', 'Arlington', 'Salem',
+    'Springfield',
+    'Riverside',
+    'Fairview',
+    'Greenville',
+    'Franklin',
+    'Clinton',
+    'Madison',
+    'Georgetown',
+    'Arlington',
+    'Salem',
   ];
 
   private readonly streets = [
-    'Main St', 'Oak Ave', 'Elm St', 'Park Dr',
-    'Cedar Ln', 'Pine Rd', 'Maple Way', 'Lake Blvd',
+    'Main St',
+    'Oak Ave',
+    'Elm St',
+    'Park Dr',
+    'Cedar Ln',
+    'Pine Rd',
+    'Maple Way',
+    'Lake Blvd',
   ];
 
   private readonly companies = [
-    'Acme Corp', 'Global Tech', 'Sunrise Inc', 'Horizon Ltd', 'Evergreen Co',
-    'Summit Group', 'Atlas Partners', 'Apex Solutions', 'Nova Industries', 'Pinnacle LLC',
+    'Acme Corp',
+    'Global Tech',
+    'Sunrise Inc',
+    'Horizon Ltd',
+    'Evergreen Co',
+    'Summit Group',
+    'Atlas Partners',
+    'Apex Solutions',
+    'Nova Industries',
+    'Pinnacle LLC',
   ];
 
   /**
@@ -152,7 +206,7 @@ export class SmartAnonymizer {
     rules: AnonymizationRule[],
     objectApiName: ApiName,
   ): Record<string, unknown>[] {
-    const objectRules = rules.filter(r => r.objectApiName === objectApiName);
+    const objectRules = rules.filter((r) => r.objectApiName === objectApiName);
     if (objectRules.length === 0) {
       return records;
     }
@@ -249,7 +303,7 @@ export class SmartAnonymizer {
     const chars = value.split('');
     let seed = this.simpleHash(value);
     for (let i = chars.length - 1; i > 0; i--) {
-      seed = ((seed * 1664525 + 1013904223) & 0x7fffffff);
+      seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
       const j = seed % (i + 1);
       [chars[i], chars[j]] = [chars[j], chars[i]];
     }
@@ -270,8 +324,8 @@ export class SmartAnonymizer {
     let seed = this.simpleHash(value);
     return value
       .split('')
-      .map(ch => {
-        seed = ((seed * 1664525 + 1013904223) & 0x7fffffff);
+      .map((ch) => {
+        seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
         if (/[0-9]/.test(ch)) {
           return String(seed % 10);
         }

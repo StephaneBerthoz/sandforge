@@ -73,7 +73,9 @@ describe('OrgConnectDialog', () => {
     fireEvent.change(selects[0], { target: { value: 'usernamePassword' } });
 
     fireEvent.change(screen.getByPlaceholderText('my-sandbox'), { target: { value: 'my-dev' } });
-    fireEvent.change(screen.getByPlaceholderText('admin@example.com'), { target: { value: 'admin@test.com' } });
+    fireEvent.change(screen.getByPlaceholderText('admin@example.com'), {
+      target: { value: 'admin@test.com' },
+    });
     fireEvent.change(screen.getByTestId('password-input'), { target: { value: 'secret' } });
 
     const buttons = screen.getAllByText('Connect Org');

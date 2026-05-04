@@ -1,8 +1,5 @@
 import { createHash, randomBytes } from 'crypto';
-import type {
-  DataOpsAnonymizationRule,
-  ComplianceFrameworkType,
-} from '@sandforge/shared';
+import type { DataOpsAnonymizationRule, ComplianceFrameworkType } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
 
 /** Data Subject Request type. */
@@ -58,9 +55,17 @@ export interface ErasurePlanObject {
 
 /** Connection abstraction for GDPR operations. */
 export interface GDPRConnection {
-  queryRecordsByEmail(orgId: string, objectName: string, emailField: string, email: string): Promise<Record<string, unknown>[]>;
+  queryRecordsByEmail(
+    orgId: string,
+    objectName: string,
+    emailField: string,
+    email: string,
+  ): Promise<Record<string, unknown>[]>;
   queryRecordCount(orgId: string, soql: string): Promise<number>;
-  describeFields(orgId: string, objectName: string): Promise<Array<{ apiName: string; label: string; type: string }>>;
+  describeFields(
+    orgId: string,
+    objectName: string,
+  ): Promise<Array<{ apiName: string; label: string; type: string }>>;
 }
 
 /** PII field name patterns mapped to categories. */
@@ -80,9 +85,7 @@ const PII_PATTERNS: Array<{ pattern: RegExp; category: string }> = [
 ];
 
 /** Standard objects likely containing personal data. */
-const PERSONAL_DATA_OBJECTS = [
-  'Contact', 'Lead', 'Person', 'User', 'Account', 'Case',
-];
+const PERSONAL_DATA_OBJECTS = ['Contact', 'Lead', 'Person', 'User', 'Account', 'Case'];
 
 /** GDPR response deadline in days. */
 const GDPR_DEADLINE_DAYS = 30;
@@ -113,11 +116,7 @@ export class GDPRManager {
    * @param subjectName - The data subject's name (will be hashed before storage)
    * @returns The newly created DSR (with hashed PII)
    */
-  createDSR(
-    type: DSRType,
-    subjectEmail: string,
-    subjectName: string,
-  ): DataSubjectRequest {
+  createDSR(type: DSRType, subjectEmail: string, subjectName: string): DataSubjectRequest {
     this.requestCounter += 1;
     const id = `dsr-${Date.now()}-${this.requestCounter}`;
     const now = new Date();
@@ -249,9 +248,7 @@ export class GDPRManager {
     for (const objName of PERSONAL_DATA_OBJECTS) {
       try {
         const fields = await conn.describeFields(orgId, objName);
-        const emailField = fields.find((f) =>
-          f.apiName.toLowerCase().includes('email'),
-        );
+        const emailField = fields.find((f) => f.apiName.toLowerCase().includes('email'));
 
         if (!emailField) continue;
 
@@ -264,9 +261,7 @@ export class GDPRManager {
 
         if (records.length === 0) continue;
 
-        const recordIds = records
-          .map((r) => String(r['Id'] ?? ''))
-          .filter((id) => id.length > 0);
+        const recordIds = records.map((r) => String(r['Id'] ?? '')).filter((id) => id.length > 0);
 
         // Determine PII fields for anonymization
         const piiFields = fields

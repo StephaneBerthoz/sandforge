@@ -81,20 +81,15 @@ export function DataTable<T extends Record<string, unknown>>({
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleSort = useCallback(
-    (column: DataTableColumn<T>) => {
-      if (!column.sortable) return;
-      setSort((prev) => {
-        if (prev?.key === column.key) {
-          return prev.direction === 'asc'
-            ? { key: column.key, direction: 'desc' }
-            : null;
-        }
-        return { key: column.key, direction: 'asc' };
-      });
-    },
-    [],
-  );
+  const handleSort = useCallback((column: DataTableColumn<T>) => {
+    if (!column.sortable) return;
+    setSort((prev) => {
+      if (prev?.key === column.key) {
+        return prev.direction === 'asc' ? { key: column.key, direction: 'desc' } : null;
+      }
+      return { key: column.key, direction: 'asc' };
+    });
+  }, []);
 
   const sortedData = useMemo(() => {
     if (!sort) return data;
@@ -159,12 +154,7 @@ export function DataTable<T extends Record<string, unknown>>({
 
   const renderHeader = () => (
     <thead>
-      <tr
-        className={cn(
-          'bg-[var(--sf-bg-secondary)]',
-          stickyHeader && 'sticky top-0 z-10',
-        )}
-      >
+      <tr className={cn('bg-[var(--sf-bg-secondary)]', stickyHeader && 'sticky top-0 z-10')}>
         {columns.map((col) => (
           <th
             key={col.key}
@@ -237,10 +227,7 @@ export function DataTable<T extends Record<string, unknown>>({
           style={{ maxHeight, overflowY: 'auto' }}
         >
           {sortedData.length === 0 ? (
-            <table
-              className="w-full border-collapse"
-              style={{ fontSize: 'var(--sf-font-size)' }}
-            >
+            <table className="w-full border-collapse" style={{ fontSize: 'var(--sf-font-size)' }}>
               <tbody>{renderEmptyRow()}</tbody>
             </table>
           ) : (
@@ -251,14 +238,8 @@ export function DataTable<T extends Record<string, unknown>>({
                 position: 'relative',
               }}
             >
-              <table
-                className="w-full border-collapse"
-                style={{ fontSize: 'var(--sf-font-size)' }}
-              >
-                <tbody
-                  ref={tbodyRef}
-                  onKeyDown={handleTableKeyDown}
-                >
+              <table className="w-full border-collapse" style={{ fontSize: 'var(--sf-font-size)' }}>
+                <tbody ref={tbodyRef} onKeyDown={handleTableKeyDown}>
                   {virtualizer.getVirtualItems().map((virtualItem) => {
                     const row = sortedData[virtualItem.index];
                     const rowIndex = virtualItem.index;
@@ -303,9 +284,7 @@ export function DataTable<T extends Record<string, unknown>>({
                               color: 'var(--sf-text-primary)',
                             }}
                           >
-                            {col.render
-                              ? col.render(row, rowIndex)
-                              : String(row[col.key] ?? '')}
+                            {col.render ? col.render(row, rowIndex) : String(row[col.key] ?? '')}
                           </td>
                         ))}
                       </tr>
@@ -323,7 +302,10 @@ export function DataTable<T extends Record<string, unknown>>({
   return (
     <div
       data-testid="data-table"
-      className={cn('overflow-auto rounded-[var(--sf-radius-md)] border border-[var(--sf-border)]', className)}
+      className={cn(
+        'overflow-auto rounded-[var(--sf-radius-md)] border border-[var(--sf-border)]',
+        className,
+      )}
     >
       <table
         className="w-full border-collapse"
@@ -338,52 +320,48 @@ export function DataTable<T extends Record<string, unknown>>({
           initial="hidden"
           animate="visible"
         >
-          {sortedData.length === 0 ? (
-            renderEmptyRow()
-          ) : (
-            sortedData.map((row, rowIndex) => (
-              <motion.tr
-                key={keyExtractor(row, rowIndex)}
-                variants={fadeIn}
-                className={cn(
-                  'transition-colors hover:bg-[var(--sf-bg-hover)]',
-                  onRowClick && 'cursor-pointer',
-                  striped && rowIndex % 2 === 1 && 'bg-[var(--sf-bg-secondary)]',
-                  focusedRow === rowIndex && 'ring-1 ring-[var(--sf-accent)] outline-none',
-                )}
-                style={{
-                  transitionDuration: 'var(--sf-transition-fast)',
-                }}
-                onClick={() => {
-                  setFocusedRow(rowIndex);
-                  onRowClick?.(row, rowIndex);
-                }}
-                onFocus={() => setFocusedRow(rowIndex)}
-                tabIndex={rowIndex === 0 ? 0 : -1}
-                aria-selected={focusedRow === rowIndex}
-                aria-rowindex={rowIndex + 2}
-                data-testid={`table-row-${rowIndex}`}
-              >
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className={cn(
-                      'border-b border-[var(--sf-border-subtle)]',
-                      alignClass(col.align),
-                    )}
-                    style={{
-                      padding: 'var(--sf-space-2) var(--sf-space-3)',
-                      color: 'var(--sf-text-primary)',
-                    }}
-                  >
-                    {col.render
-                      ? col.render(row, rowIndex)
-                      : String(row[col.key] ?? '')}
-                  </td>
-                ))}
-              </motion.tr>
-            ))
-          )}
+          {sortedData.length === 0
+            ? renderEmptyRow()
+            : sortedData.map((row, rowIndex) => (
+                <motion.tr
+                  key={keyExtractor(row, rowIndex)}
+                  variants={fadeIn}
+                  className={cn(
+                    'transition-colors hover:bg-[var(--sf-bg-hover)]',
+                    onRowClick && 'cursor-pointer',
+                    striped && rowIndex % 2 === 1 && 'bg-[var(--sf-bg-secondary)]',
+                    focusedRow === rowIndex && 'ring-1 ring-[var(--sf-accent)] outline-none',
+                  )}
+                  style={{
+                    transitionDuration: 'var(--sf-transition-fast)',
+                  }}
+                  onClick={() => {
+                    setFocusedRow(rowIndex);
+                    onRowClick?.(row, rowIndex);
+                  }}
+                  onFocus={() => setFocusedRow(rowIndex)}
+                  tabIndex={rowIndex === 0 ? 0 : -1}
+                  aria-selected={focusedRow === rowIndex}
+                  aria-rowindex={rowIndex + 2}
+                  data-testid={`table-row-${rowIndex}`}
+                >
+                  {columns.map((col) => (
+                    <td
+                      key={col.key}
+                      className={cn(
+                        'border-b border-[var(--sf-border-subtle)]',
+                        alignClass(col.align),
+                      )}
+                      style={{
+                        padding: 'var(--sf-space-2) var(--sf-space-3)',
+                        color: 'var(--sf-text-primary)',
+                      }}
+                    >
+                      {col.render ? col.render(row, rowIndex) : String(row[col.key] ?? '')}
+                    </td>
+                  ))}
+                </motion.tr>
+              ))}
         </motion.tbody>
       </table>
     </div>

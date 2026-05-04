@@ -4,7 +4,10 @@ import { buildMessage } from '../bridge/messageHelpers';
 import { getVscodeApi } from '../hooks/useVSCodeApi';
 
 /** Fields required to create or update a schedule (server computes nextRunAt, lastRunAt, lastResult). */
-export type SyncScheduleUpsertPayload = Omit<SyncScheduleEntry, 'nextRunAt' | 'lastRunAt' | 'lastResult'>;
+export type SyncScheduleUpsertPayload = Omit<
+  SyncScheduleEntry,
+  'nextRunAt' | 'lastRunAt' | 'lastResult'
+>;
 
 /** State and actions for the sync schedule management panel. */
 export interface SyncScheduleState {
@@ -28,7 +31,12 @@ export interface SyncScheduleState {
 
 /** Type guard for messages with a type field. */
 function isTypedMessage(msg: unknown): msg is { type: string; payload?: Record<string, unknown> } {
-  return typeof msg === 'object' && msg !== null && 'type' in msg && typeof (msg as Record<string, unknown>).type === 'string';
+  return (
+    typeof msg === 'object' &&
+    msg !== null &&
+    'type' in msg &&
+    typeof (msg as Record<string, unknown>).type === 'string'
+  );
 }
 
 /** Zustand store for managing sync schedules. */
@@ -84,9 +92,7 @@ export const useSyncScheduleStore = create<SyncScheduleState>((set) => ({
         const enabled = payload?.enabled as boolean | undefined;
         if (toggledId !== undefined && enabled !== undefined) {
           set((state) => ({
-            schedules: state.schedules.map((s) =>
-              s.id === toggledId ? { ...s, enabled } : s,
-            ),
+            schedules: state.schedules.map((s) => (s.id === toggledId ? { ...s, enabled } : s)),
           }));
         }
         break;

@@ -84,8 +84,6 @@ describe('CacheHandler', () => {
 
     await handler.handle(buildMsg('cache:invalidate-all'));
 
-    expect(deps.log).toHaveBeenCalledWith(
-      '[CacheHandler] Invalidated all caches',
-    );
+    expect(deps.log).toHaveBeenCalledWith('[CacheHandler] Invalidated all caches');
   });
 });

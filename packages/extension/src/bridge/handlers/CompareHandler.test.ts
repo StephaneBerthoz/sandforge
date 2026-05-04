@@ -82,7 +82,9 @@ describe('CompareHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; types: string[] } } = {
+    const msg: BaseMessage & {
+      payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
+    } = {
       id: 'req-cmp-1',
       type: 'compare:execute',
       timestamp: Date.now(),
@@ -108,7 +110,9 @@ describe('CompareHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; types: string[] } } = {
+    const msg: BaseMessage & {
+      payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
+    } = {
       id: 'req-cmp-legacy',
       type: 'compare:start',
       timestamp: Date.now(),
@@ -127,7 +131,9 @@ describe('CompareHandler', () => {
   it('error path sends typed error response', async () => {
     mockGetConn.mockRejectedValue(new Error('connection failed'));
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; types: string[] } } = {
+    const msg: BaseMessage & {
+      payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
+    } = {
       id: 'req-cmp-err',
       type: 'compare:execute',
       timestamp: Date.now(),
@@ -139,7 +145,9 @@ describe('CompareHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string };
+    };
     expect(response.type).toBe('compare:error');
     expect(response.payload.message).toBe('connection failed');
   });
@@ -163,7 +171,10 @@ describe('CompareHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { permissions: Record<string, unknown> } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { permissions: Record<string, unknown> };
+    };
     expect(response.type).toBe('compare:permissions:response');
     expect(response.correlationId).toBe('req-cmp-perm');
     expect(response.payload.permissions).toBeDefined();
@@ -193,7 +204,16 @@ describe('CompareHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { snapshot: { source: Record<string, unknown>; target: Record<string, unknown>; diff: Record<string, unknown> } } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: {
+        snapshot: {
+          source: Record<string, unknown>;
+          target: Record<string, unknown>;
+          diff: Record<string, unknown>;
+        };
+      };
+    };
     expect(response.type).toBe('compare:snapshots:response');
     expect(response.correlationId).toBe('req-cmp-snap');
     expect(response.payload.snapshot.source).toBeDefined();
@@ -204,7 +224,15 @@ describe('CompareHandler', () => {
   it('handles compare:drift with response type and correlationId', async () => {
     mockGetConn.mockResolvedValue({
       query: vi.fn().mockResolvedValue({
-        records: [{ Name: 'TestOrg', LanguageLocaleKey: 'en_US', DefaultLocaleSidKey: 'en_US', TimeZoneSidKey: 'America/Los_Angeles', FiscalYearStartMonth: '1' }],
+        records: [
+          {
+            Name: 'TestOrg',
+            LanguageLocaleKey: 'en_US',
+            DefaultLocaleSidKey: 'en_US',
+            TimeZoneSidKey: 'America/Los_Angeles',
+            FiscalYearStartMonth: '1',
+          },
+        ],
         totalSize: 1,
         done: true,
       }),
@@ -224,7 +252,10 @@ describe('CompareHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { drift: { items: unknown[]; driftCount: number; matchCount: number } } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { drift: { items: unknown[]; driftCount: number; matchCount: number } };
+    };
     expect(response.type).toBe('compare:drift:response');
     expect(response.correlationId).toBe('req-cmp-drift');
     expect(response.payload.drift.items).toBeDefined();
@@ -247,7 +278,9 @@ describe('CompareHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string };
+    };
     expect(response.type).toBe('compare:error');
     expect(response.payload.message).toBe('perm connection failed');
   });

@@ -43,11 +43,7 @@ function MockReactFlow({
   return (
     <div data-testid="react-flow-mock">
       {nodes.map((n) => (
-        <div
-          key={n.id}
-          data-testid={`rf-node-${n.id}`}
-          onClick={(e) => onNodeClick?.(e, n)}
-        >
+        <div key={n.id} data-testid={`rf-node-${n.id}`} onClick={(e) => onNodeClick?.(e, n)}>
           {n.data.objectApiName}
         </div>
       ))}

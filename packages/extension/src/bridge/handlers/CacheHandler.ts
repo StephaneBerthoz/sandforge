@@ -4,10 +4,7 @@ import { buildResponse } from './HandlerTypes.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
 
 /** Message types handled by CacheHandler. */
-const CACHE_TYPES = new Set([
-  'cache:invalidate-all',
-  'cache:get-stats',
-]);
+const CACHE_TYPES = new Set(['cache:invalidate-all', 'cache:get-stats']);
 
 /**
  * Domain handler for cache management messages.

@@ -146,7 +146,9 @@ describe('GDPRPanel', () => {
     const onCreate = vi.fn();
     render(<GDPRPanel onCreateDSR={onCreate} />);
 
-    fireEvent.change(screen.getByTestId('dsr-email-input'), { target: { value: 'test@example.com' } });
+    fireEvent.change(screen.getByTestId('dsr-email-input'), {
+      target: { value: 'test@example.com' },
+    });
     fireEvent.change(screen.getByTestId('dsr-name-input'), { target: { value: 'Test User' } });
     fireEvent.click(screen.getByTestId('create-dsr-btn'));
 

@@ -61,9 +61,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
             placeholder={t('seed.clone.sourcePicker.selectSource')}
             data-testid="clone-source-select"
           />
-          {loading && (
-            <Skeleton variant="text" width="60%" height="1em" />
-          )}
+          {loading && <Skeleton variant="text" width="60%" height="1em" />}
           {selectedSourceOrg && (
             <OrgBadge
               alias={selectedSourceOrg.alias || selectedSourceOrg.username}
@@ -80,10 +78,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
           data-testid="clone-direction-arrow"
           aria-label={t('seed.clone.sourcePicker.direction')}
         >
-          <ArrowRight
-            size={24}
-            className="text-[var(--vscode-focusBorder,#007fd4)]"
-          />
+          <ArrowRight size={24} className="text-[var(--vscode-focusBorder,#007fd4)]" />
         </div>
 
         {/* Target org column (read-only) */}
@@ -108,9 +103,7 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
       {/* Same-org warning (defensive) */}
       {sourceOrgId && sourceOrgId === targetOrgId && (
         <span data-testid="clone-same-org-warning">
-          <Badge variant="warning">
-            {t('seed.clone.sourcePicker.sameOrgWarning')}
-          </Badge>
+          <Badge variant="warning">{t('seed.clone.sourcePicker.sameOrgWarning')}</Badge>
         </span>
       )}
     </div>

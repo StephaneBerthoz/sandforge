@@ -6,7 +6,7 @@ function createItem(
   componentType: MetadataComponentType,
   fullName: string,
   status: CompareItem['status'],
-  deployable = true
+  deployable = true,
 ): CompareItem {
   return {
     componentType,

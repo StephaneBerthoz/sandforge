@@ -10,10 +10,7 @@ export interface FieldDescribe {
 }
 
 /** Function to describe an object's fields in an org */
-export type DescribeFn = (
-  orgId: string,
-  objectName: string
-) => Promise<FieldDescribe[]>;
+export type DescribeFn = (orgId: string, objectName: string) => Promise<FieldDescribe[]>;
 
 /** Dependencies required by ExternalIdManager */
 export interface ExternalIdManagerDeps {
@@ -47,11 +44,7 @@ export class ExternalIdManager {
    * Verify that a field exists on the object and is marked as an external ID.
    * Returns true if the field is valid for upsert operations, false otherwise.
    */
-  async ensureExternalId(
-    orgId: string,
-    objectName: string,
-    fieldName: string
-  ): Promise<boolean> {
+  async ensureExternalId(orgId: string, objectName: string, fieldName: string): Promise<boolean> {
     if (fieldName === 'Id') {
       return true;
     }

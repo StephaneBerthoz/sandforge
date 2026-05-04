@@ -25,7 +25,7 @@ export class AIDataGenerator {
   async generate(
     fieldRules: FieldRule[],
     count: number,
-    persona?: string
+    persona?: string,
   ): Promise<Record<string, unknown>[]> {
     if (count <= 0 || fieldRules.length === 0) {
       return [];
@@ -51,11 +51,7 @@ export class AIDataGenerator {
  * Build a structured prompt describing the fields and desired output format.
  * Includes persona context when provided.
  */
-export function buildPrompt(
-  fieldRules: FieldRule[],
-  count: number,
-  persona?: string
-): string {
+export function buildPrompt(fieldRules: FieldRule[], count: number, persona?: string): string {
   const fieldDescriptions = fieldRules.map((rule) => {
     const parts = [`- ${rule.fieldApiName} (${rule.ruleType})`];
     if (rule.config.aiPrompt) {
@@ -98,7 +94,7 @@ export function parseAIResponse(response: string): Record<string, unknown>[] {
   if (Array.isArray(parsed)) {
     return parsed.filter(
       (item): item is Record<string, unknown> =>
-        typeof item === 'object' && item !== null && !Array.isArray(item)
+        typeof item === 'object' && item !== null && !Array.isArray(item),
     );
   }
 

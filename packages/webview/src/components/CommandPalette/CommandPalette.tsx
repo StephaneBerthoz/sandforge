@@ -99,16 +99,16 @@ export const CommandPalette: React.FC = () => {
 
   /** Build and register navigation + action items on mount. */
   useEffect(() => {
-    const navItems: CommandItem[] = ALL_ROUTES
-      .filter((r) => r !== 'welcome')
-      .map((route: ModuleRoute) => ({
+    const navItems: CommandItem[] = ALL_ROUTES.filter((r) => r !== 'welcome').map(
+      (route: ModuleRoute) => ({
         id: `nav-${route}`,
         label: t(ROUTE_LABEL_KEYS[route] ?? `nav.${route}`),
         group: 'navigate' as const,
         icon: ROUTE_ICONS[route] ?? 'file',
         action: () => navigate(route),
         keywords: [route],
-      }));
+      }),
+    );
 
     const actionItems: CommandItem[] = [
       {

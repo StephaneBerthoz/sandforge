@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  fnv1aHash,
-  shortHash,
-  checksum,
-  verifyChecksum,
-} from './hash-utils.js';
+import { fnv1aHash, shortHash, checksum, verifyChecksum } from './hash-utils.js';
 
 describe('fnv1aHash', () => {
   it('should return a number', () => {
@@ -23,7 +18,7 @@ describe('fnv1aHash', () => {
   it('should return a positive 32-bit integer', () => {
     const hash = fnv1aHash('some string');
     expect(hash).toBeGreaterThanOrEqual(0);
-    expect(hash).toBeLessThanOrEqual(0xFFFFFFFF);
+    expect(hash).toBeLessThanOrEqual(0xffffffff);
   });
 
   it('should handle empty string', () => {
@@ -36,7 +31,7 @@ describe('fnv1aHash', () => {
     const longStr = 'a'.repeat(10_000);
     const hash = fnv1aHash(longStr);
     expect(hash).toBeGreaterThanOrEqual(0);
-    expect(hash).toBeLessThanOrEqual(0xFFFFFFFF);
+    expect(hash).toBeLessThanOrEqual(0xffffffff);
   });
 
   it('should be sensitive to single character changes', () => {

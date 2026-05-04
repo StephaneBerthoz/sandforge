@@ -19,7 +19,7 @@ export interface DriftResult {
 /** Function signature for fetching component names for a snapshot */
 export type FetchComponentNamesFn = (
   snapshotId: string,
-  componentType: MetadataComponentType
+  componentType: MetadataComponentType,
 ) => string[];
 
 /**
@@ -39,26 +39,15 @@ export class DriftDetector {
    * Detect drift between a baseline and current snapshot.
    * Returns a DriftResult with a list of drifted components and a score.
    */
-  detect(
-    orgId: string,
-    baseline: OrgSnapshot,
-    current: OrgSnapshot
-  ): DriftResult {
+  detect(orgId: string, baseline: OrgSnapshot, current: OrgSnapshot): DriftResult {
     const now = new Date().toISOString();
     const driftedComponents: DriftedComponent[] = [];
 
-    const allTypes = new Set([
-      ...baseline.componentTypes,
-      ...current.componentTypes,
-    ]);
+    const allTypes = new Set([...baseline.componentTypes, ...current.componentTypes]);
 
     for (const componentType of allTypes) {
-      const baselineNames = new Set(
-        this.fetchComponentNames(baseline.id, componentType)
-      );
-      const currentNames = new Set(
-        this.fetchComponentNames(current.id, componentType)
-      );
+      const baselineNames = new Set(this.fetchComponentNames(baseline.id, componentType));
+      const currentNames = new Set(this.fetchComponentNames(current.id, componentType));
 
       for (const name of currentNames) {
         if (!baselineNames.has(name)) {
@@ -84,10 +73,7 @@ export class DriftDetector {
     }
 
     const totalBaseline = Math.max(baseline.componentCount, 1);
-    const driftScore = Math.min(
-      100,
-      Math.round((driftedComponents.length / totalBaseline) * 100)
-    );
+    const driftScore = Math.min(100, Math.round((driftedComponents.length / totalBaseline) * 100));
 
     return {
       orgId,

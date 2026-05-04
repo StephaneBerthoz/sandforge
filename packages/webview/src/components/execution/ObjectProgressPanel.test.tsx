@@ -7,11 +7,12 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       if (typeof opts === 'string') return opts;
-      if (opts?.defaultValue) return String(opts.defaultValue)
-        .replace('{{time}}', String(opts.time ?? ''))
-        .replace('{{processed}}', String(opts.processed ?? ''))
-        .replace('{{total}}', String(opts.total ?? ''))
-        .replace('{{count}}', String(opts.count ?? ''));
+      if (opts?.defaultValue)
+        return String(opts.defaultValue)
+          .replace('{{time}}', String(opts.time ?? ''))
+          .replace('{{processed}}', String(opts.processed ?? ''))
+          .replace('{{total}}', String(opts.total ?? ''))
+          .replace('{{count}}', String(opts.count ?? ''));
       return key;
     },
   }),
@@ -53,16 +54,18 @@ describe('ObjectProgressPanel', () => {
     act(() => {
       dispatchProgress({
         executionId: 'exec-1',
-        objects: [{
-          objectName: 'Account',
-          jobId: 'job-1',
-          operation: 'insert',
-          recordsProcessed: 50,
-          recordsFailed: 0,
-          totalRecords: 100,
-          state: 'processing',
-          startedAt: Date.now(),
-        }],
+        objects: [
+          {
+            objectName: 'Account',
+            jobId: 'job-1',
+            operation: 'insert',
+            recordsProcessed: 50,
+            recordsFailed: 0,
+            totalRecords: 100,
+            state: 'processing',
+            startedAt: Date.now(),
+          },
+        ],
         overallPercent: 50,
         elapsedMs: 30000,
       });
@@ -122,16 +125,18 @@ describe('ObjectProgressPanel', () => {
     act(() => {
       dispatchProgress({
         executionId: 'exec-1',
-        objects: [{
-          objectName: 'Lead',
-          jobId: 'job-1',
-          operation: 'insert',
-          recordsProcessed: 0,
-          recordsFailed: 0,
-          totalRecords: 50,
-          state: 'queued',
-          startedAt: Date.now(),
-        }],
+        objects: [
+          {
+            objectName: 'Lead',
+            jobId: 'job-1',
+            operation: 'insert',
+            recordsProcessed: 0,
+            recordsFailed: 0,
+            totalRecords: 50,
+            state: 'queued',
+            startedAt: Date.now(),
+          },
+        ],
         overallPercent: 0,
         elapsedMs: 1000,
       });
@@ -147,16 +152,18 @@ describe('ObjectProgressPanel', () => {
     act(() => {
       dispatchProgress({
         executionId: 'exec-1',
-        objects: [{
-          objectName: 'Account',
-          jobId: 'job-1',
-          operation: 'insert',
-          recordsProcessed: 90,
-          recordsFailed: 10,
-          totalRecords: 100,
-          state: 'failed',
-          startedAt: Date.now(),
-        }],
+        objects: [
+          {
+            objectName: 'Account',
+            jobId: 'job-1',
+            operation: 'insert',
+            recordsProcessed: 90,
+            recordsFailed: 10,
+            totalRecords: 100,
+            state: 'failed',
+            startedAt: Date.now(),
+          },
+        ],
         overallPercent: 90,
         elapsedMs: 5000,
       });
@@ -174,16 +181,18 @@ describe('ObjectProgressPanel', () => {
     act(() => {
       dispatchProgress({
         executionId: 'exec-1',
-        objects: [{
-          objectName: 'Account',
-          jobId: 'job-1',
-          operation: 'insert',
-          recordsProcessed: 25,
-          recordsFailed: 0,
-          totalRecords: 100,
-          state: 'processing',
-          startedAt: Date.now(),
-        }],
+        objects: [
+          {
+            objectName: 'Account',
+            jobId: 'job-1',
+            operation: 'insert',
+            recordsProcessed: 25,
+            recordsFailed: 0,
+            totalRecords: 100,
+            state: 'processing',
+            startedAt: Date.now(),
+          },
+        ],
         overallPercent: 25,
         elapsedMs: 2000,
       });
@@ -195,16 +204,18 @@ describe('ObjectProgressPanel', () => {
     act(() => {
       dispatchProgress({
         executionId: 'exec-1',
-        objects: [{
-          objectName: 'Account',
-          jobId: 'job-1',
-          operation: 'insert',
-          recordsProcessed: 75,
-          recordsFailed: 0,
-          totalRecords: 100,
-          state: 'processing',
-          startedAt: Date.now(),
-        }],
+        objects: [
+          {
+            objectName: 'Account',
+            jobId: 'job-1',
+            operation: 'insert',
+            recordsProcessed: 75,
+            recordsFailed: 0,
+            totalRecords: 100,
+            state: 'processing',
+            startedAt: Date.now(),
+          },
+        ],
         overallPercent: 75,
         elapsedMs: 8000,
       });

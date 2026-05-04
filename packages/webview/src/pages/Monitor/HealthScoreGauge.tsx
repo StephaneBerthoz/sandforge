@@ -76,13 +76,15 @@ export const HealthScoreGauge: React.FC<HealthScoreGaugeProps> = ({
         className="absolute flex flex-col items-center justify-center"
         style={{ width: config.size, height: config.size }}
       >
-        <span className={cn('font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]', config.textSize)}>
+        <span
+          className={cn(
+            'font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]',
+            config.textSize,
+          )}
+        >
           {clamped}
         </span>
-        <span
-          className={cn('font-medium', config.labelSize)}
-          style={{ color }}
-        >
+        <span className={cn('font-medium', config.labelSize)} style={{ color }}>
           {label}
         </span>
       </div>

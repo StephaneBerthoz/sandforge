@@ -18,7 +18,7 @@ export interface PerformanceMetrics {
 /** Dependency: fetches performance metrics for the org */
 export type FetchPerformanceMetricsFn = (
   orgId: string,
-  operationConfig: Record<string, unknown>
+  operationConfig: Record<string, unknown>,
 ) => Promise<PerformanceMetrics>;
 
 /** Grappe recommendation threshold: use grappe mode above this record count */
@@ -43,10 +43,7 @@ export class PerformanceCheck {
 
   /** Run performance checks and return advisory items */
   async check(config: PreCheckConfig): Promise<PreCheckItem[]> {
-    const metrics = await this.fetchMetrics(
-      config.targetOrgId,
-      config.operationConfig
-    );
+    const metrics = await this.fetchMetrics(config.targetOrgId, config.operationConfig);
     const estimations = this.computeEstimations(config, metrics);
     const items: PreCheckItem[] = [];
 
@@ -59,24 +56,21 @@ export class PerformanceCheck {
   }
 
   /** Compute full performance estimations for the operation */
-  estimatePerformance(
-    config: PreCheckConfig,
-    metrics: PerformanceMetrics
-  ): PreCheckEstimations {
+  estimatePerformance(config: PreCheckConfig, metrics: PerformanceMetrics): PreCheckEstimations {
     return this.computeEstimations(config, metrics);
   }
 
   /** Internal: compute estimations from config and metrics */
   private computeEstimations(
     config: PreCheckConfig,
-    metrics: PerformanceMetrics
+    metrics: PerformanceMetrics,
   ): PreCheckEstimations {
     const recordCount = metrics.recordCount;
     const batchSize = (config.operationConfig['batchSize'] as number) ?? 200;
     const batches = Math.ceil(recordCount / batchSize);
     const triggerMultiplier = metrics.hasComplexTriggers ? 2.5 : 1.0;
     const timePerBatch = (metrics.avgResponseTimeMs + metrics.networkLatencyMs) * triggerMultiplier;
-    const duration = BASE_OVERHEAD_MS + (batches * timePerBatch);
+    const duration = BASE_OVERHEAD_MS + batches * timePerBatch;
     const apiCalls = batches + 5;
     const avgRecordSizeKb = (config.operationConfig['avgRecordSizeKb'] as number) ?? 2;
     const dataStorageImpact = (recordCount * avgRecordSizeKb) / 1024;
@@ -103,7 +97,7 @@ export class PerformanceCheck {
   /** Compute optimal grappe configuration based on data volume and metrics */
   private computeOptimalGrappeConfig(
     recordCount: number,
-    metrics: PerformanceMetrics
+    metrics: PerformanceMetrics,
   ): GrappeConfig {
     const maxWorkers = Math.min(Math.ceil(recordCount / 5_000), 8);
     const grappeSize = Math.ceil(recordCount / maxWorkers);
@@ -162,7 +156,8 @@ export class PerformanceCheck {
   private checkBatchSize(config: PreCheckConfig, metrics: PerformanceMetrics): PreCheckItem {
     const batchSize = (config.operationConfig['batchSize'] as number) ?? 200;
     const recommendedSize = metrics.hasComplexTriggers ? 200 : 2_000;
-    const isOptimal = batchSize <= MAX_BATCH_SIZE && Math.abs(batchSize - recommendedSize) < recommendedSize;
+    const isOptimal =
+      batchSize <= MAX_BATCH_SIZE && Math.abs(batchSize - recommendedSize) < recommendedSize;
 
     return {
       id: randomUUID(),
@@ -174,7 +169,11 @@ export class PerformanceCheck {
       message: isOptimal
         ? `Batch size ${batchSize} is appropriate`
         : `Batch size ${batchSize} may not be optimal — recommended: ${recommendedSize}`,
-      details: { configuredBatchSize: batchSize, recommendedSize, hasComplexTriggers: metrics.hasComplexTriggers },
+      details: {
+        configuredBatchSize: batchSize,
+        recommendedSize,
+        hasComplexTriggers: metrics.hasComplexTriggers,
+      },
       autoFixable: false,
     };
   }
@@ -182,7 +181,7 @@ export class PerformanceCheck {
   /** Check if grappe mode should be recommended */
   private checkGrappeRecommendation(
     estimations: PreCheckEstimations,
-    metrics: PerformanceMetrics
+    metrics: PerformanceMetrics,
   ): PreCheckItem {
     const recommended = estimations.grappeRecommendation;
 

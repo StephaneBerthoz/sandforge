@@ -38,16 +38,19 @@ async function refreshTokenViaCli(username: string): Promise<string> {
   }
   const { exec } = await import('child_process');
   const { promisify } = await import('util');
-  const { stdout } = await promisify(exec)(
-    `sf org display -u "${username}" --json`,
-    { maxBuffer: MAX_BUFFER, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } },
-  );
+  const { stdout } = await promisify(exec)(`sf org display -u "${username}" --json`, {
+    maxBuffer: MAX_BUFFER,
+    windowsHide: true,
+    env: { ...process.env, NO_COLOR: '1' },
+  });
 
   // eslint-disable-next-line no-control-regex -- Intentional ANSI escape code stripping
   const stripped = stdout.replace(/\u001b\[[0-9;]*m/g, '');
   const start = stripped.search(/[{[]/);
   if (start === -1) {
-    throw new Error('Failed to parse "sf org display" output: no JSON found. Ensure Salesforce CLI (sf) is installed and the org is authenticated.');
+    throw new Error(
+      'Failed to parse "sf org display" output: no JSON found. Ensure Salesforce CLI (sf) is installed and the org is authenticated.',
+    );
   }
 
   const parsed = JSON.parse(stripped.slice(start)) as {
@@ -55,7 +58,9 @@ async function refreshTokenViaCli(username: string): Promise<string> {
   };
 
   if (!parsed.result?.accessToken) {
-    throw new Error('No accessToken returned by "sf org display". The org session may have expired — try re-authenticating with "sf org login".');
+    throw new Error(
+      'No accessToken returned by "sf org display". The org session may have expired — try re-authenticating with "sf org login".',
+    );
   }
 
   return parsed.result.accessToken;
@@ -109,7 +114,7 @@ export async function getJsforceConnection(
   if (!circuitBreaker.acquirePermit()) {
     throw new Error(
       `Circuit breaker is open for Salesforce API calls. ` +
-      `Too many recent failures — retries paused. Try again shortly.`,
+        `Too many recent failures — retries paused. Try again shortly.`,
     );
   }
 
@@ -155,7 +160,7 @@ export async function getJsforceConnection(
         const refreshMsg = extractErrorMessage(refreshErr);
         throw new Error(
           `Token expired for "${org.alias}" and refresh failed: ${refreshMsg}. ` +
-          'Try disconnecting and re-importing the org.',
+            'Try disconnecting and re-importing the org.',
         );
       }
     }

@@ -78,7 +78,10 @@ describe('useConflictStore', () => {
     expect(state.conflicts[0].resolution).toBe('source_wins');
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as { type: string; payload: Record<string, unknown> };
+    const msg = mockPostMessage.mock.calls[0][0] as {
+      type: string;
+      payload: Record<string, unknown>;
+    };
     expect(msg.type).toBe('realtime:resolve-conflict');
     expect(msg.payload.conflictId).toBe(conflict.id);
     expect(msg.payload.resolution).toBe('source_wins');

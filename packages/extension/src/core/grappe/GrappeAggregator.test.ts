@@ -1,14 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { GrappeAggregator } from './GrappeAggregator';
-import type {
-  GrappePartition,
-  GrappeProgress,
-  GrappeResult,
-} from '@sandforge/shared';
+import type { GrappePartition, GrappeProgress, GrappeResult } from '@sandforge/shared';
 
-function createResult(
-  overrides: Partial<GrappeResult> = {}
-): GrappeResult {
+function createResult(overrides: Partial<GrappeResult> = {}): GrappeResult {
   return {
     grappeId: 'partition-001',
     status: 'success',
@@ -21,9 +15,7 @@ function createResult(
   };
 }
 
-function createPartition(
-  overrides: Partial<GrappePartition> = {}
-): GrappePartition {
+function createPartition(overrides: Partial<GrappePartition> = {}): GrappePartition {
   const progress: GrappeProgress = {
     processedRecords: 5,
     totalRecords: 10,
@@ -65,16 +57,14 @@ describe('GrappeAggregator', () => {
 
   describe('aggregate', () => {
     it('should aggregate multiple successful results', () => {
-      aggregator.addResult(
-        createResult({ processedRecords: 10, successCount: 10, duration: 100 })
-      );
+      aggregator.addResult(createResult({ processedRecords: 10, successCount: 10, duration: 100 }));
       aggregator.addResult(
         createResult({
           grappeId: 'p2',
           processedRecords: 5,
           successCount: 5,
           duration: 200,
-        })
+        }),
       );
 
       const result = aggregator.aggregate('op-001');
@@ -97,7 +87,7 @@ describe('GrappeAggregator', () => {
           status: 'failure',
           failureCount: 5,
           successCount: 0,
-        })
+        }),
       );
 
       const result = aggregator.aggregate('op-002');
@@ -108,9 +98,7 @@ describe('GrappeAggregator', () => {
     });
 
     it('should count partial results as completed', () => {
-      aggregator.addResult(
-        createResult({ status: 'partial', successCount: 7, failureCount: 3 })
-      );
+      aggregator.addResult(createResult({ status: 'partial', successCount: 7, failureCount: 3 }));
 
       const result = aggregator.aggregate('op-003');
 

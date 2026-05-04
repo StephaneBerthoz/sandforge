@@ -2,7 +2,17 @@ import type { SalesforceOrg } from '@sandforge/shared';
 import type { TFunction } from 'i18next';
 
 /** Environment tags recognized for org type resolution. */
-const ENV_TAGS = ['UAT', 'PREPROD', 'PRE-PROD', 'DEV', 'QA', 'SIT', 'STAGING', 'HOTFIX', 'INT'] as const;
+const ENV_TAGS = [
+  'UAT',
+  'PREPROD',
+  'PRE-PROD',
+  'DEV',
+  'QA',
+  'SIT',
+  'STAGING',
+  'HOTFIX',
+  'INT',
+] as const;
 
 /**
  * Derive a short display label for an org based on its type, tags, and sandbox info.

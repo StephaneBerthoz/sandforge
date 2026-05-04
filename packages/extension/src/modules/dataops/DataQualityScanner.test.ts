@@ -28,10 +28,7 @@ describe('DataQualityScanner', () => {
     it('should run multiple rule types', () => {
       const records = [{ Name: 'Alice', Email: 'alice@test.com' }];
 
-      const result = scanner.scan('org-1', 'Contact', records, [
-        'completeness',
-        'uniqueness',
-      ]);
+      const result = scanner.scan('org-1', 'Contact', records, ['completeness', 'uniqueness']);
 
       expect(result.rules.length).toBeGreaterThanOrEqual(2);
     });
@@ -47,11 +44,7 @@ describe('DataQualityScanner', () => {
 
   describe('checkCompleteness', () => {
     it('should count filled fields as passed', () => {
-      const records = [
-        { Name: 'Alice' },
-        { Name: 'Bob' },
-        { Name: '' },
-      ];
+      const records = [{ Name: 'Alice' }, { Name: 'Bob' }, { Name: '' }];
 
       const result = scanner.checkCompleteness(records, 'Name');
 
@@ -79,11 +72,7 @@ describe('DataQualityScanner', () => {
 
   describe('checkUniqueness', () => {
     it('should detect duplicate values', () => {
-      const records = [
-        { Email: 'a@b.com' },
-        { Email: 'a@b.com' },
-        { Email: 'c@d.com' },
-      ];
+      const records = [{ Email: 'a@b.com' }, { Email: 'a@b.com' }, { Email: 'c@d.com' }];
 
       const result = scanner.checkUniqueness(records, 'Email');
 
@@ -92,10 +81,7 @@ describe('DataQualityScanner', () => {
     });
 
     it('should return full pass rate when all values are unique', () => {
-      const records = [
-        { Email: 'a@b.com' },
-        { Email: 'c@d.com' },
-      ];
+      const records = [{ Email: 'a@b.com' }, { Email: 'c@d.com' }];
 
       const result = scanner.checkUniqueness(records, 'Email');
 
@@ -105,11 +91,7 @@ describe('DataQualityScanner', () => {
 
   describe('checkFormat', () => {
     it('should validate records against a regex pattern', () => {
-      const records = [
-        { Code: 'ABC-123' },
-        { Code: 'invalid' },
-        { Code: 'DEF-456' },
-      ];
+      const records = [{ Code: 'ABC-123' }, { Code: 'invalid' }, { Code: 'DEF-456' }];
 
       const result = scanner.checkFormat(records, 'Code', /^[A-Z]{3}-\d{3}$/);
 

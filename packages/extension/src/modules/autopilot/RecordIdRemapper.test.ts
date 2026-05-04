@@ -73,9 +73,7 @@ describe('RecordIdRemapper', () => {
       },
     ];
 
-    const records: Record<string, unknown>[] = [
-      { Id: '003xx0001', AccountId: '001xx9999' },
-    ];
+    const records: Record<string, unknown>[] = [{ Id: '003xx0001', AccountId: '001xx9999' }];
 
     const result = remapper.remapRecords(records, edges, 'Contact');
 
@@ -160,9 +158,7 @@ describe('RecordIdRemapper', () => {
       },
     ];
 
-    const records: Record<string, unknown>[] = [
-      { Id: '003xx0001', AccountId: '001xx9999' },
-    ];
+    const records: Record<string, unknown>[] = [{ Id: '003xx0001', AccountId: '001xx9999' }];
 
     const result = remapper.remapRecords(records, edges, 'Contact');
 
@@ -188,9 +184,7 @@ describe('RecordIdRemapper', () => {
       ['001xx0001', '001yy0001'],
       ['001xx0002', '001yy0002'],
     ]);
-    remapper.registerMappings('Contact', [
-      ['003xx0001', '003yy0001'],
-    ]);
+    remapper.registerMappings('Contact', [['003xx0001', '003yy0001']]);
 
     expect(remapper.totalMappings).toBe(3);
   });

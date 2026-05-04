@@ -3,7 +3,13 @@
  * Covers dependency graph, execution plan, PII detection, and anonymization.
  */
 
-import type { ISODateString, ApiName, ComplianceFrameworkType, AnonymizationMethod, BaseAnonymizationRule } from './common.types.js';
+import type {
+  ISODateString,
+  ApiName,
+  ComplianceFrameworkType,
+  AnonymizationMethod,
+  BaseAnonymizationRule,
+} from './common.types.js';
 
 /** Status of an autopilot node during execution */
 export type AutopilotNodeStatus =

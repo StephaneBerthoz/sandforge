@@ -63,7 +63,9 @@ describe('OrgInfoFetcher', () => {
       (c: string[]) => c[0],
     );
     expect(calls).toContain('SELECT COUNT() FROM User WHERE IsActive = true');
-    expect(calls).toContain("SELECT COUNT() FROM EntityDefinition WHERE QualifiedApiName LIKE '%__c'");
+    expect(calls).toContain(
+      "SELECT COUNT() FROM EntityDefinition WHERE QualifiedApiName LIKE '%__c'",
+    );
     expect(calls).toContain('SELECT COUNT() FROM ApexClass');
     expect(calls).toContain('SELECT COUNT() FROM FlowDefinitionView WHERE IsActive = true');
   });

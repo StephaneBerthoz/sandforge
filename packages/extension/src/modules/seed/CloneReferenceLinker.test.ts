@@ -19,10 +19,7 @@ describe('CloneReferenceLinker', () => {
   describe('resolveInsertOrder', () => {
     it('sorts a linear chain correctly (parent before child)', () => {
       // Account -> Contact -> Case (Contact.AccountId -> Account, Case.ContactId -> Contact)
-      const edges = [
-        edge('Account', 'Contact', 'AccountId'),
-        edge('Contact', 'Case', 'ContactId'),
-      ];
+      const edges = [edge('Account', 'Contact', 'AccountId'), edge('Contact', 'Case', 'ContactId')];
       const result = linker.resolveInsertOrder(['Case', 'Contact', 'Account'], edges);
       expect(result.indexOf('Account')).toBeLessThan(result.indexOf('Contact'));
       expect(result.indexOf('Contact')).toBeLessThan(result.indexOf('Case'));
@@ -37,11 +34,7 @@ describe('CloneReferenceLinker', () => {
 
     it('throws on cycle detection', () => {
       // A -> B -> C -> A (cycle)
-      const edges = [
-        edge('A', 'B', 'AId'),
-        edge('B', 'C', 'BId'),
-        edge('C', 'A', 'CId'),
-      ];
+      const edges = [edge('A', 'B', 'AId'), edge('B', 'C', 'BId'), edge('C', 'A', 'CId')];
       expect(() => linker.resolveInsertOrder(['A', 'B', 'C'], edges)).toThrow('Cycle detected');
     });
 
@@ -77,18 +70,24 @@ describe('CloneReferenceLinker', () => {
   describe('buildEdgesFromDescribe', () => {
     it('creates edges for reference fields pointing to objects in the set', () => {
       const describes = new Map<string, DescribeSObjectResultLike>([
-        ['Contact', {
-          fields: [
-            { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
-            { name: 'Name', type: 'string' },
-          ],
-        }],
-        ['Account', {
-          fields: [
-            { name: 'ParentId', type: 'reference', referenceTo: ['Account'] },
-            { name: 'Name', type: 'string' },
-          ],
-        }],
+        [
+          'Contact',
+          {
+            fields: [
+              { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+              { name: 'Name', type: 'string' },
+            ],
+          },
+        ],
+        [
+          'Account',
+          {
+            fields: [
+              { name: 'ParentId', type: 'reference', referenceTo: ['Account'] },
+              { name: 'Name', type: 'string' },
+            ],
+          },
+        ],
       ]);
 
       const edges = linker.buildEdgesFromDescribe(['Account', 'Contact'], describes);
@@ -105,12 +104,15 @@ describe('CloneReferenceLinker', () => {
 
     it('ignores reference fields pointing to objects outside the set', () => {
       const describes = new Map<string, DescribeSObjectResultLike>([
-        ['Contact', {
-          fields: [
-            { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
-            { name: 'OwnerId', type: 'reference', referenceTo: ['User'] },
-          ],
-        }],
+        [
+          'Contact',
+          {
+            fields: [
+              { name: 'AccountId', type: 'reference', referenceTo: ['Account'] },
+              { name: 'OwnerId', type: 'reference', referenceTo: ['User'] },
+            ],
+          },
+        ],
       ]);
 
       // Only Contact in the set, Account not included

@@ -85,9 +85,7 @@ export const ForgeTemplates: React.FC<ForgeTemplatesProps> = ({ className }) => 
               variants={slideUp}
               className={cn(
                 'flex items-center justify-between rounded-lg border px-4 py-3',
-                isBuiltin
-                  ? 'border-forge/30 bg-forge/5'
-                  : 'border-subtle bg-surface-1',
+                isBuiltin ? 'border-forge/30 bg-forge/5' : 'border-subtle bg-surface-1',
               )}
               data-testid={isBuiltin ? 'forge-template-builtin' : 'forge-template-row'}
             >

@@ -16,7 +16,11 @@ const mockExec = vi.mocked(exec);
 function makeSfOrgListOutput(
   nonScratchOrgs: Record<string, unknown>[] = [],
   scratchOrgs: Record<string, unknown>[] = [],
-  extra?: { sandboxes?: Record<string, unknown>[]; other?: Record<string, unknown>[]; devHubs?: Record<string, unknown>[] },
+  extra?: {
+    sandboxes?: Record<string, unknown>[];
+    other?: Record<string, unknown>[];
+    devHubs?: Record<string, unknown>[];
+  },
 ): string {
   return JSON.stringify({
     result: { nonScratchOrgs, scratchOrgs, ...extra },
@@ -38,7 +42,10 @@ describe('SfdxBridge', () => {
       const result = await bridge.isCliAvailable();
 
       expect(result).toBe(true);
-      expect(mockExec).toHaveBeenCalledWith('sf --version', expect.objectContaining({ maxBuffer: 10 * 1024 * 1024, windowsHide: true }));
+      expect(mockExec).toHaveBeenCalledWith(
+        'sf --version',
+        expect.objectContaining({ maxBuffer: 10 * 1024 * 1024, windowsHide: true }),
+      );
     });
 
     it('should return false when sf CLI is not found', async () => {
@@ -98,7 +105,11 @@ describe('SfdxBridge', () => {
 
       expect(mockExec).toHaveBeenCalledWith(
         'sf org list --json',
-        expect.objectContaining({ timeout: 30_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true }),
+        expect.objectContaining({
+          timeout: 30_000,
+          maxBuffer: 10 * 1024 * 1024,
+          windowsHide: true,
+        }),
       );
     });
 
@@ -286,7 +297,10 @@ describe('SfdxBridge', () => {
     });
 
     it('should throw meaningful error when stdout contains no JSON', async () => {
-      mockExec.mockResolvedValueOnce({ stdout: 'Error: something went wrong\nNo JSON here', stderr: '' } as never);
+      mockExec.mockResolvedValueOnce({
+        stdout: 'Error: something went wrong\nNo JSON here',
+        stderr: '',
+      } as never);
 
       await expect(bridge.listOrgs()).rejects.toThrow('No JSON found in output');
     });
@@ -306,7 +320,11 @@ describe('SfdxBridge', () => {
           connectedStatus: 'Connected',
         },
       ]);
-      const err = new Error('Command failed: sf org list --json') as Error & { stdout: string; stderr: string; code: number };
+      const err = new Error('Command failed: sf org list --json') as Error & {
+        stdout: string;
+        stderr: string;
+        code: number;
+      };
       err.stdout = output;
       err.stderr = '';
       err.code = 1;
@@ -336,7 +354,11 @@ describe('SfdxBridge', () => {
 
       expect(mockExec).toHaveBeenCalledWith(
         'sf org login web --instance-url https://login.salesforce.com --alias my-org',
-        expect.objectContaining({ timeout: 120_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true }),
+        expect.objectContaining({
+          timeout: 120_000,
+          maxBuffer: 10 * 1024 * 1024,
+          windowsHide: true,
+        }),
       );
     });
 
@@ -347,7 +369,11 @@ describe('SfdxBridge', () => {
 
       expect(mockExec).toHaveBeenCalledWith(
         'sf org login web --instance-url https://test.salesforce.com',
-        expect.objectContaining({ timeout: 120_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true }),
+        expect.objectContaining({
+          timeout: 120_000,
+          maxBuffer: 10 * 1024 * 1024,
+          windowsHide: true,
+        }),
       );
     });
   });

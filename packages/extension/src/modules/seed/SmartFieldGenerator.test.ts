@@ -140,7 +140,11 @@ describe('SmartFieldGenerator', () => {
   });
 
   it('should match email pattern from field name', () => {
-    const field = makeField({ apiName: 'PersonalEmail__c', label: 'Personal Email', type: 'string' });
+    const field = makeField({
+      apiName: 'PersonalEmail__c',
+      label: 'Personal Email',
+      type: 'string',
+    });
     const config = generator.suggestForField(field);
     expect(config.generationMode).toBe('faker');
     expect(config.fakerMethod).toBe('email');
@@ -258,9 +262,7 @@ describe('SmartFieldGenerator', () => {
     });
 
     it('should pass objectApiName through suggestConfigs', () => {
-      const fields = [
-        makeField({ apiName: 'Amount', label: 'Amount', type: 'currency' }),
-      ];
+      const fields = [makeField({ apiName: 'Amount', label: 'Amount', type: 'currency' })];
       const configs = generator.suggestConfigs(fields, 'Opportunity');
       expect(configs[0].constraints.min).toBe(5000);
       expect(configs[0].constraints.max).toBe(500000);
@@ -291,7 +293,11 @@ describe('SmartFieldGenerator', () => {
     });
 
     it('should recognize ShippingState field name', () => {
-      const field = makeField({ apiName: 'ShippingState', label: 'Shipping State', type: 'string' });
+      const field = makeField({
+        apiName: 'ShippingState',
+        label: 'Shipping State',
+        type: 'string',
+      });
       const config = generator.suggestForField(field);
       expect(config.generationMode).toBe('faker');
       expect(config.fakerMethod).toBe('state');
@@ -314,7 +320,13 @@ describe('SmartFieldGenerator', () => {
         picklistValues: ['Draft', 'Review', 'Approved', 'Rejected', 'Archived'],
       });
       const config = generator.suggestForField(field);
-      expect(config.constraints.picklistValues).toEqual(['Draft', 'Review', 'Approved', 'Rejected', 'Archived']);
+      expect(config.constraints.picklistValues).toEqual([
+        'Draft',
+        'Review',
+        'Approved',
+        'Rejected',
+        'Archived',
+      ]);
     });
 
     it('should pass all 20 picklist values without truncation', () => {

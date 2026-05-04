@@ -10,7 +10,12 @@ vi.mock('framer-motion', () => ({
     tbody: 'tbody',
     tr: ({ children, ...props }: Record<string, unknown>) => {
       const { variants, initial, animate, exit, whileHover, transition, ...rest } = props;
-      void variants; void initial; void animate; void exit; void whileHover; void transition;
+      void variants;
+      void initial;
+      void animate;
+      void exit;
+      void whileHover;
+      void transition;
       return <tr {...rest}>{children as React.ReactNode}</tr>;
     },
   },
@@ -35,9 +40,7 @@ const mockRows: Record<string, string>[] = [
 
 describe('CsvPreview', () => {
   it('should render DataTable with correct columns and data', () => {
-    render(
-      <CsvPreview headers={mockHeaders} rows={mockRows} totalRowCount={100} />,
-    );
+    render(<CsvPreview headers={mockHeaders} rows={mockRows} totalRowCount={100} />);
     expect(screen.getByTestId('csv-preview')).toBeDefined();
     expect(screen.getByTestId('data-table')).toBeDefined();
     // Check header columns are present
@@ -47,24 +50,18 @@ describe('CsvPreview', () => {
   });
 
   it('should show row count summary text', () => {
-    render(
-      <CsvPreview headers={mockHeaders} rows={mockRows} totalRowCount={100} />,
-    );
+    render(<CsvPreview headers={mockHeaders} rows={mockRows} totalRowCount={100} />);
     expect(screen.getByTestId('csv-preview-count')).toBeDefined();
     expect(screen.getByText('Showing 3 of 100 rows')).toBeDefined();
   });
 
   it('should show EmptyState when no data', () => {
-    render(
-      <CsvPreview headers={mockHeaders} rows={[]} totalRowCount={0} />,
-    );
+    render(<CsvPreview headers={mockHeaders} rows={[]} totalRowCount={0} />);
     expect(screen.getByTestId('empty-state')).toBeDefined();
   });
 
   it('should render row numbers starting from 1', () => {
-    render(
-      <CsvPreview headers={mockHeaders} rows={mockRows} totalRowCount={100} />,
-    );
+    render(<CsvPreview headers={mockHeaders} rows={mockRows} totalRowCount={100} />);
     // Row numbers column header
     expect(screen.getByText('#')).toBeDefined();
   });

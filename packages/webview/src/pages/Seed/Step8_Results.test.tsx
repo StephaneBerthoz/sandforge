@@ -9,8 +9,20 @@ const result: SeedExecutionResult = {
   operationId: 'op-1',
   status: 'success',
   objectResults: [
-    { objectApiName: 'Account', recordsCreated: 500, recordsFailed: 0, createdIds: ['001-1'], errors: [] },
-    { objectApiName: 'Contact', recordsCreated: 990, recordsFailed: 10, createdIds: ['003-1'], errors: ['FIELD_ERROR: Required field missing'] },
+    {
+      objectApiName: 'Account',
+      recordsCreated: 500,
+      recordsFailed: 0,
+      createdIds: ['001-1'],
+      errors: [],
+    },
+    {
+      objectApiName: 'Contact',
+      recordsCreated: 990,
+      recordsFailed: 10,
+      createdIds: ['003-1'],
+      errors: ['FIELD_ERROR: Required field missing'],
+    },
   ],
   totalRecordsCreated: 1490,
   totalRecordsFailed: 10,

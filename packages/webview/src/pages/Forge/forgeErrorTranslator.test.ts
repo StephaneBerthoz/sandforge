@@ -23,7 +23,9 @@ describe('translateForgeError', () => {
   });
 
   it('captures REQUIRED_FIELD_MISSING detail in vars', () => {
-    const result = translateForgeError('REQUIRED_FIELD_MISSING: Required fields are missing: [NameInsuredId]');
+    const result = translateForgeError(
+      'REQUIRED_FIELD_MISSING: Required fields are missing: [NameInsuredId]',
+    );
     expect(result?.code).toBe('REQUIRED_FIELD_MISSING');
     expect(result?.severity).toBe('error');
     expect(result?.vars?.detail).toContain('Required fields');

@@ -80,10 +80,7 @@ describe('SandboxRefreshTracker', () => {
         refreshDate: '2026-01-05T10:00:00Z',
         status: 'Pending',
       };
-      vi.mocked(querySandboxes).mockResolvedValue([
-        ...createMockRefreshEvents(),
-        newEvent,
-      ]);
+      vi.mocked(querySandboxes).mockResolvedValue([...createMockRefreshEvents(), newEvent]);
 
       await tracker.fetch('org-1');
       expect(onRefreshDetected).toHaveBeenCalledTimes(1);

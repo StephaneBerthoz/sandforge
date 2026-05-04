@@ -17,9 +17,7 @@ export class RecycleBinManager {
   async getDeletedRecords(
     orgId: string,
     objectApiName: string,
-    queryFn: (
-      q: string,
-    ) => Promise<Record<string, unknown>[]>,
+    queryFn: (q: string) => Promise<Record<string, unknown>[]>,
   ): Promise<Record<string, unknown>[]> {
     if (!orgId || !objectApiName) {
       return [];

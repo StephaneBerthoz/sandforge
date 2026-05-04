@@ -7,8 +7,16 @@ import { fadeIn, slideUp } from '../../motion/presets';
 
 /** Variant styles for different confirmation dialog types. */
 const variantStyles = {
-  danger: { accent: 'text-red-400', border: 'border-red-500/50', btnBg: 'bg-red-500 hover:bg-red-600' },
-  warning: { accent: 'text-monitor', border: 'border-monitor/50', btnBg: 'bg-monitor hover:bg-yellow-600' },
+  danger: {
+    accent: 'text-red-400',
+    border: 'border-red-500/50',
+    btnBg: 'bg-red-500 hover:bg-red-600',
+  },
+  warning: {
+    accent: 'text-monitor',
+    border: 'border-monitor/50',
+    btnBg: 'bg-monitor hover:bg-yellow-600',
+  },
   info: { accent: 'text-sync', border: 'border-sync/50', btnBg: 'bg-sync hover:bg-blue-600' },
 } as const;
 
@@ -111,14 +119,26 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                     exit="hidden"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <Dialog.Title className={cn('text-base font-semibold', styles.accent)} data-testid="danger-title">
+                    <Dialog.Title
+                      className={cn('text-base font-semibold', styles.accent)}
+                      data-testid="danger-title"
+                    >
                       {title}
                     </Dialog.Title>
                     <Dialog.Description className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-2">
                       {description}
                     </Dialog.Description>
                     <p className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] mt-3">
-                      Type <code className={cn('px-1 py-0.5 rounded bg-[var(--vscode-input-background,#3c3c3c)] font-mono', styles.accent)}>{confirmText}</code> to confirm:
+                      Type{' '}
+                      <code
+                        className={cn(
+                          'px-1 py-0.5 rounded bg-[var(--vscode-input-background,#3c3c3c)] font-mono',
+                          styles.accent,
+                        )}
+                      >
+                        {confirmText}
+                      </code>{' '}
+                      to confirm:
                     </p>
                     <input
                       ref={inputRef}

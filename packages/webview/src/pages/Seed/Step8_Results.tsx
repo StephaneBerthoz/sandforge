@@ -22,17 +22,21 @@ export const Step8Results: React.FC<Step8ResultsProps> = ({ result }) => {
 
   if (!result) {
     return (
-      <div className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]" data-testid="step-results">
+      <div
+        className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="step-results"
+      >
         {t('common.noData')}
       </div>
     );
   }
 
-  const statusLabel = result.status === 'success'
-    ? t('seed.complete')
-    : result.status === 'partial'
-      ? t('seed.partial')
-      : t('seed.failed');
+  const statusLabel =
+    result.status === 'success'
+      ? t('seed.complete')
+      : result.status === 'partial'
+        ? t('seed.partial')
+        : t('seed.failed');
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-results">

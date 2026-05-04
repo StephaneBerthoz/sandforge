@@ -59,7 +59,8 @@ describe('OrgHealthProbe', () => {
     });
 
     it('should reset failure count on success', async () => {
-      const executor: HealthCheckExecutor = vi.fn()
+      const executor: HealthCheckExecutor = vi
+        .fn()
         .mockRejectedValueOnce(new Error('timeout'))
         .mockRejectedValueOnce(new Error('timeout'))
         .mockResolvedValueOnce({ latencyMs: 100 });

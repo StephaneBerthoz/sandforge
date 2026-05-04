@@ -15,7 +15,8 @@ describe('I18nManager', () => {
   const frTranslations = {
     'app.name': 'SandForge',
     'org.connected': 'Connect\u00e9 \u00e0 {{alias}}',
-    'seed.completed': 'Seed termin\u00e9 : {{count}} enregistrements cr\u00e9\u00e9s en {{duration}}',
+    'seed.completed':
+      'Seed termin\u00e9 : {{count}} enregistrements cr\u00e9\u00e9s en {{duration}}',
     'common.loading': 'Chargement...',
   };
 
@@ -65,13 +66,13 @@ describe('I18nManager', () => {
 
     it('should replace multiple parameters', () => {
       expect(i18n.t('seed.completed', { count: 42, duration: '3s' })).toBe(
-        'Seed completed: 42 records created in 3s'
+        'Seed completed: 42 records created in 3s',
       );
     });
 
     it('should leave unmatched placeholders intact', () => {
       expect(i18n.t('seed.completed', { count: 10 })).toBe(
-        'Seed completed: 10 records created in {{duration}}'
+        'Seed completed: 10 records created in {{duration}}',
       );
     });
 

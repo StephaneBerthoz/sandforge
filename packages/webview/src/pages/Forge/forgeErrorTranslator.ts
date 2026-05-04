@@ -28,8 +28,7 @@ interface Rule {
   build: (raw: string, captures: RegExpMatchArray) => TranslatedError;
 }
 
-const KEY = (code: string, leaf: 'explanation' | 'action'): string =>
-  `forge.error.${code}.${leaf}`;
+const KEY = (code: string, leaf: 'explanation' | 'action'): string => `forge.error.${code}.${leaf}`;
 
 const RULES: Rule[] = [
   {

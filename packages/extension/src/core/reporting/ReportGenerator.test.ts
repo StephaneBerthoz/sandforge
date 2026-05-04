@@ -3,9 +3,7 @@ import { EventEmitter } from 'node:events';
 import { ReportGenerator } from './ReportGenerator';
 import type { ReportDefinition } from '@sandforge/shared';
 
-function makeDefinition(
-  overrides?: Partial<ReportDefinition>
-): ReportDefinition {
+function makeDefinition(overrides?: Partial<ReportDefinition>): ReportDefinition {
   return {
     id: 'def-001',
     name: 'Test Report',
@@ -153,18 +151,9 @@ describe('ReportGenerator', () => {
     });
 
     it('should filter by report type', async () => {
-      await generator.generateReport(
-        makeDefinition({ type: 'seed_execution' }),
-        {}
-      );
-      await generator.generateReport(
-        makeDefinition({ type: 'sync_execution' }),
-        {}
-      );
-      await generator.generateReport(
-        makeDefinition({ type: 'seed_execution' }),
-        {}
-      );
+      await generator.generateReport(makeDefinition({ type: 'seed_execution' }), {});
+      await generator.generateReport(makeDefinition({ type: 'sync_execution' }), {});
+      await generator.generateReport(makeDefinition({ type: 'seed_execution' }), {});
 
       const filtered = generator.listReports({ type: 'seed_execution' });
       expect(filtered).toHaveLength(2);
@@ -181,18 +170,15 @@ describe('ReportGenerator', () => {
     });
 
     it('should filter by both type and module', async () => {
-      await generator.generateReport(
-        makeDefinition({ type: 'seed_execution' }),
-        { module: 'seed' }
-      );
-      await generator.generateReport(
-        makeDefinition({ type: 'seed_execution' }),
-        { module: 'sync' }
-      );
-      await generator.generateReport(
-        makeDefinition({ type: 'sync_execution' }),
-        { module: 'seed' }
-      );
+      await generator.generateReport(makeDefinition({ type: 'seed_execution' }), {
+        module: 'seed',
+      });
+      await generator.generateReport(makeDefinition({ type: 'seed_execution' }), {
+        module: 'sync',
+      });
+      await generator.generateReport(makeDefinition({ type: 'sync_execution' }), {
+        module: 'seed',
+      });
 
       const filtered = generator.listReports({
         type: 'seed_execution',

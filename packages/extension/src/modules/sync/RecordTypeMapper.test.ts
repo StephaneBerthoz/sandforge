@@ -140,9 +140,7 @@ describe('RecordTypeMapper', () => {
     });
 
     it('should preserve all other record fields', () => {
-      const records = [
-        { Name: 'Acme', Industry: 'Tech', RecordTypeId: 'src-1' },
-      ];
+      const records = [{ Name: 'Acme', Industry: 'Tech', RecordTypeId: 'src-1' }];
       const mappings: RecordTypeMapping[] = [
         { sourceId: 'src-1', targetId: 'tgt-1', developerName: 'Business' },
       ];

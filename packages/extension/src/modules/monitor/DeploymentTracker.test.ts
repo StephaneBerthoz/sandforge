@@ -93,9 +93,7 @@ describe('DeploymentTracker', () => {
     });
 
     it('should return empty when no deployments are active', async () => {
-      vi.mocked(queryDeployments).mockResolvedValue([
-        { ...createMockDeployments()[1] },
-      ]);
+      vi.mocked(queryDeployments).mockResolvedValue([{ ...createMockDeployments()[1] }]);
       await tracker.fetch('org-1');
       expect(tracker.getActiveDeployments('org-1')).toEqual([]);
     });

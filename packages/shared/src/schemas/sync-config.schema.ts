@@ -52,11 +52,15 @@ export const syncObjectConfigSchema = z.object({
   fieldMappings: z.array(fieldMappingSchema),
   transformRules: z.array(transformRuleSchema),
   excludedFields: z.array(z.string()),
-  addOnFields: z.array(z.object({
-    fieldApiName: z.string().min(1),
-    value: z.union([z.string(), z.number(), z.boolean()]),
-    overwriteExisting: z.boolean(),
-  })).default([]),
+  addOnFields: z
+    .array(
+      z.object({
+        fieldApiName: z.string().min(1),
+        value: z.union([z.string(), z.number(), z.boolean()]),
+        overwriteExisting: z.boolean(),
+      }),
+    )
+    .default([]),
   batchSize: z.number().int().positive().default(200),
   orderBy: z.string().optional(),
   where: z.string().optional(),

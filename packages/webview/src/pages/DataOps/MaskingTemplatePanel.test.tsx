@@ -14,17 +14,37 @@ const mockTemplates: ObjectTemplate[] = [
     objectApiName: 'Account',
     label: 'Account',
     rules: [
-      { fieldApiName: 'Name', ruleType: 'fake', description: 'Replace with fake company name', recommended: true },
+      {
+        fieldApiName: 'Name',
+        ruleType: 'fake',
+        description: 'Replace with fake company name',
+        recommended: true,
+      },
       { fieldApiName: 'Phone', ruleType: 'mask', description: 'Mask phone', recommended: true },
-      { fieldApiName: 'Description', ruleType: 'constant', description: 'Replace with placeholder', recommended: false },
+      {
+        fieldApiName: 'Description',
+        ruleType: 'constant',
+        description: 'Replace with placeholder',
+        recommended: false,
+      },
     ],
   },
   {
     objectApiName: 'Contact',
     label: 'Contact',
     rules: [
-      { fieldApiName: 'FirstName', ruleType: 'fake', description: 'Replace with fake first name', recommended: true },
-      { fieldApiName: 'Email', ruleType: 'fake', description: 'Replace with fake email', recommended: true },
+      {
+        fieldApiName: 'FirstName',
+        ruleType: 'fake',
+        description: 'Replace with fake first name',
+        recommended: true,
+      },
+      {
+        fieldApiName: 'Email',
+        ruleType: 'fake',
+        description: 'Replace with fake email',
+        recommended: true,
+      },
     ],
   },
 ];
@@ -93,10 +113,13 @@ describe('MaskingTemplatePanel', () => {
     fireEvent.click(screen.getByTestId('select-recommended-Account'));
     expect(screen.getByTestId('apply-Account')).toBeTruthy();
     fireEvent.click(screen.getByTestId('apply-Account'));
-    expect(onApply).toHaveBeenCalledWith('Account', expect.arrayContaining([
-      expect.objectContaining({ fieldApiName: 'Name' }),
-      expect.objectContaining({ fieldApiName: 'Phone' }),
-    ]));
+    expect(onApply).toHaveBeenCalledWith(
+      'Account',
+      expect.arrayContaining([
+        expect.objectContaining({ fieldApiName: 'Name' }),
+        expect.objectContaining({ fieldApiName: 'Phone' }),
+      ]),
+    );
   });
 
   it('filters templates by search', () => {

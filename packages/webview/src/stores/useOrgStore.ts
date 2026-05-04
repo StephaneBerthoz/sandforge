@@ -33,9 +33,7 @@ export const useOrgStore = create<OrgState>((set, get) => ({
 
   updateOrg(id: string, updates: Partial<SalesforceOrg>): void {
     set((state) => ({
-      orgs: state.orgs.map((org) =>
-        org.id === id ? { ...org, ...updates } : org,
-      ),
+      orgs: state.orgs.map((org) => (org.id === id ? { ...org, ...updates } : org)),
     }));
   },
 

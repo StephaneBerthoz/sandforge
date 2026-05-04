@@ -10,9 +10,7 @@ import type {
 } from './grappe.types.js';
 
 describe('GrappeConfig', () => {
-  function createConfig(
-    overrides: Partial<GrappeConfig> = {},
-  ): GrappeConfig {
+  function createConfig(overrides: Partial<GrappeConfig> = {}): GrappeConfig {
     const backPressure: BackPressureConfig = {
       enabled: true,
       maxQueueDepth: 100,
@@ -72,9 +70,7 @@ describe('GrappeConfig', () => {
 });
 
 describe('GrappePartition', () => {
-  function createPartition(
-    overrides: Partial<GrappePartition> = {},
-  ): GrappePartition {
+  function createPartition(overrides: Partial<GrappePartition> = {}): GrappePartition {
     const progress: GrappeProgress = {
       processedRecords: 0,
       totalRecords: 2500,
@@ -217,9 +213,7 @@ describe('AggregatedGrappeResult', () => {
     expect(result.totalPartitions).toBe(3);
     expect(result.completedPartitions).toBe(2);
     expect(result.failedPartitions).toBe(0);
-    expect(result.successRecords + result.failedRecords).toBe(
-      result.totalRecords,
-    );
+    expect(result.successRecords + result.failedRecords).toBe(result.totalRecords);
     expect(result.partitionResults).toHaveLength(3);
     expect(result.duration).toBe(20000);
   });

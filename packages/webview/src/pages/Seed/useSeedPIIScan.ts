@@ -58,7 +58,12 @@ export function useSeedPIIScan(
   useEffect(() => {
     const bridgeError = piiScanMutation.error;
     if (bridgeError) {
-      addNotification({ level: 'error', title: t('seed.title'), message: bridgeError, autoDismissMs: 5000 });
+      addNotification({
+        level: 'error',
+        title: t('seed.title'),
+        message: bridgeError,
+        autoDismissMs: 5000,
+      });
     }
   }, [piiScanMutation.error, addNotification, t]);
 

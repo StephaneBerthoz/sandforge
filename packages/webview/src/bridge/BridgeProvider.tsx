@@ -81,12 +81,9 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
   );
 
   // Listen for org:selected (from sidebar) → selectOrg
-  useMessageListener<BaseMessage & { payload: { orgId: string } }>(
-    'org:selected',
-    (msg) => {
-      useOrgStore.getState().selectOrg(msg.payload.orgId);
-    },
-  );
+  useMessageListener<BaseMessage & { payload: { orgId: string } }>('org:selected', (msg) => {
+    useOrgStore.getState().selectOrg(msg.payload.orgId);
+  });
 
   // Listen for notifications → addNotification
   useMessageListener<
@@ -119,24 +116,25 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     useAppStore.getState().setLoading(false);
   });
 
-  useMessageListener<BaseMessage & { payload: { operationId: string; error: string; retryable: boolean } }>(
-    'operation:failed',
-    (msg) => {
-      useAppStore.getState().setLoading(false);
+  useMessageListener<
+    BaseMessage & { payload: { operationId: string; error: string; retryable: boolean } }
+  >('operation:failed', (msg) => {
+    useAppStore.getState().setLoading(false);
 
-      // Auto-invoke AI error resolver if an operation fails and AI is available
-      if (useAppStore.getState().aiAvailable) {
-        sendMessage(buildMessage<{ errorMessage: string; module: string; context: Record<string, unknown> }>(
+    // Auto-invoke AI error resolver if an operation fails and AI is available
+    if (useAppStore.getState().aiAvailable) {
+      sendMessage(
+        buildMessage<{ errorMessage: string; module: string; context: Record<string, unknown> }>(
           'ai:resolve-error',
           {
             errorMessage: msg.payload.error,
             module: 'unknown',
             context: { operationId: msg.payload.operationId, retryable: msg.payload.retryable },
           },
-        ));
-      }
-    },
-  );
+        ),
+      );
+    }
+  });
 
   // Listen for AI error resolution responses → show as notification
   useMessageListener<
@@ -176,50 +174,40 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
   });
 
   // Listen for whats-new:show → display what's new overlay
-  useMessageListener<BaseMessage & { payload: { version: string } }>(
-    'whats-new:show',
-    (msg) => {
-      useAppStore.getState().setShowWhatsNew(true, msg.payload.version);
-    },
-  );
+  useMessageListener<BaseMessage & { payload: { version: string } }>('whats-new:show', (msg) => {
+    useAppStore.getState().setShowWhatsNew(true, msg.payload.version);
+  });
 
   // ─── Grappe (cluster) message listeners ───────────────────────────────────
   useMessageListener<
-    BaseMessage & { payload: { operationId: string; totalPartitions: number; totalRecords: number } }
+    BaseMessage & {
+      payload: { operationId: string; totalPartitions: number; totalRecords: number };
+    }
   >('grappe:started', (msg) => {
-    useGrappeStore.getState().start(
-      msg.payload.operationId,
-      msg.payload.totalPartitions,
-      msg.payload.totalRecords,
-    );
+    useGrappeStore
+      .getState()
+      .start(msg.payload.operationId, msg.payload.totalPartitions, msg.payload.totalRecords);
   });
 
   useMessageListener<
     BaseMessage & { payload: { grappeId: string; percentage: number; processedRecords: number } }
   >('grappe:partitionProgress', (msg) => {
-    useGrappeStore.getState().updatePartition(
-      msg.payload.grappeId,
-      msg.payload.percentage,
-      msg.payload.processedRecords,
-    );
+    useGrappeStore
+      .getState()
+      .updatePartition(msg.payload.grappeId, msg.payload.percentage, msg.payload.processedRecords);
   });
 
-  useMessageListener<
-    BaseMessage & { payload: { level: BackPressureLevel; apiPercent: number } }
-  >('grappe:backPressure', (msg) => {
-    useGrappeStore.getState().updateBackPressure(
-      msg.payload.level,
-      msg.payload.apiPercent,
-    );
-  });
+  useMessageListener<BaseMessage & { payload: { level: BackPressureLevel; apiPercent: number } }>(
+    'grappe:backPressure',
+    (msg) => {
+      useGrappeStore.getState().updateBackPressure(msg.payload.level, msg.payload.apiPercent);
+    },
+  );
 
   useMessageListener<
     BaseMessage & { payload: { operationId: string; totalProcessed: number; totalFailed: number } }
   >('grappe:completed', (msg) => {
-    useGrappeStore.getState().complete(
-      msg.payload.totalProcessed,
-      msg.payload.totalFailed,
-    );
+    useGrappeStore.getState().complete(msg.payload.totalProcessed, msg.payload.totalFailed);
   });
 
   return <>{children}</>;

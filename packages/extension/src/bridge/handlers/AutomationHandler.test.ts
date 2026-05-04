@@ -54,7 +54,10 @@ describe('AutomationHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { templates: unknown[] } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { templates: unknown[] };
+    };
     expect(response.type).toBe('pipeline:templates:response');
     expect(response.correlationId).toBe('req-auto-1');
     expect(Array.isArray(response.payload.templates)).toBe(true);
@@ -75,7 +78,10 @@ describe('AutomationHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; error: string } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { success: boolean; error: string };
+    };
     expect(response.type).toBe('marketplace:list:response');
     expect(response.correlationId).toBe('req-auto-2');
     expect(response.payload.success).toBe(false);
@@ -84,13 +90,17 @@ describe('AutomationHandler', () => {
 
   it('handles marketplace:list success path with correlationId', async () => {
     const mockMarketplace = {
-      getTemplates: vi.fn().mockReturnValue([
-        { id: 'tpl-1', name: 'Test Template', description: 'Desc', category: 'test' },
-      ]),
+      getTemplates: vi
+        .fn()
+        .mockReturnValue([
+          { id: 'tpl-1', name: 'Test Template', description: 'Desc', category: 'test' },
+        ]),
       search: vi.fn(),
       getByCategory: vi.fn(),
     };
-    handler.setPipelineMarketplace(mockMarketplace as unknown as Parameters<typeof handler.setPipelineMarketplace>[0]);
+    handler.setPipelineMarketplace(
+      mockMarketplace as unknown as Parameters<typeof handler.setPipelineMarketplace>[0],
+    );
 
     const msg: BaseMessage & { payload: Record<string, unknown> } = {
       id: 'req-auto-3',
@@ -102,7 +112,10 @@ describe('AutomationHandler', () => {
     await handler.handle(msg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; templates: unknown[] } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { success: boolean; templates: unknown[] };
+    };
     expect(response.type).toBe('marketplace:list:response');
     expect(response.correlationId).toBe('req-auto-3');
     expect(response.payload.success).toBe(true);
@@ -120,7 +133,10 @@ describe('AutomationHandler', () => {
     await handler.handle(msg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { success: boolean };
+    };
     expect(response.type).toBe('marketplace:install:response');
     expect(response.correlationId).toBe('req-auto-4');
     expect(response.payload.success).toBe(false);
@@ -144,7 +160,10 @@ describe('AutomationHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { pipelines: unknown[] } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { pipelines: unknown[] };
+    };
     expect(response.type).toBe('pipeline:list:response');
     expect(response.correlationId).toBe('req-auto-list');
     expect(response.payload.pipelines).toHaveLength(1);
@@ -169,7 +188,10 @@ describe('AutomationHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { history: Array<{ timestamp: number }> } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { history: Array<{ timestamp: number }> };
+    };
     expect(response.type).toBe('pipeline:history:response');
     expect(response.correlationId).toBe('req-auto-hist');
     expect(response.payload.history).toHaveLength(2);
@@ -201,7 +223,10 @@ describe('AutomationHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean; id: string } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+      payload: { success: boolean; id: string };
+    };
     expect(response.type).toBe('pipeline:save:response');
     expect(response.correlationId).toBe('req-auto-save');
     expect(response.payload.success).toBe(true);
@@ -210,7 +235,9 @@ describe('AutomationHandler', () => {
 
   it('handles pipeline:list error path', async () => {
     const configStore = deps.configStore as unknown as { getByCategory: ReturnType<typeof vi.fn> };
-    configStore.getByCategory = vi.fn().mockImplementation(() => { throw new Error('store failed'); });
+    configStore.getByCategory = vi.fn().mockImplementation(() => {
+      throw new Error('store failed');
+    });
 
     const msg: BaseMessage = {
       id: 'req-auto-list-err',
@@ -223,7 +250,9 @@ describe('AutomationHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string };
+    };
     expect(response.type).toBe('pipeline:error');
     expect(response.payload.message).toBe('store failed');
   });

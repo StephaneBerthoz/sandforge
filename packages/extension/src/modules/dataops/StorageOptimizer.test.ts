@@ -11,9 +11,7 @@ describe('StorageOptimizer', () => {
 
   describe('analyze', () => {
     it('should recommend archive for high record count and large size', () => {
-      const stats = [
-        { objectApiName: 'EventLog', recordCount: 200000, size: 80_000_000 },
-      ];
+      const stats = [{ objectApiName: 'EventLog', recordCount: 200000, size: 80_000_000 }];
 
       const recommendations = optimizer.analyze('org-1', stats);
 
@@ -22,9 +20,7 @@ describe('StorageOptimizer', () => {
     });
 
     it('should recommend delete for high record count but moderate size', () => {
-      const stats = [
-        { objectApiName: 'Task', recordCount: 200000, size: 10_000_000 },
-      ];
+      const stats = [{ objectApiName: 'Task', recordCount: 200000, size: 10_000_000 }];
 
       const recommendations = optimizer.analyze('org-1', stats);
 
@@ -33,9 +29,7 @@ describe('StorageOptimizer', () => {
     });
 
     it('should recommend compress for large size but moderate records', () => {
-      const stats = [
-        { objectApiName: 'Attachment', recordCount: 5000, size: 80_000_000 },
-      ];
+      const stats = [{ objectApiName: 'Attachment', recordCount: 5000, size: 80_000_000 }];
 
       const recommendations = optimizer.analyze('org-1', stats);
 
@@ -44,9 +38,7 @@ describe('StorageOptimizer', () => {
     });
 
     it('should recommend optimize for many records but small size', () => {
-      const stats = [
-        { objectApiName: 'Log__c', recordCount: 50000, size: 500_000 },
-      ];
+      const stats = [{ objectApiName: 'Log__c', recordCount: 50000, size: 500_000 }];
 
       const recommendations = optimizer.analyze('org-1', stats);
 
@@ -55,9 +47,7 @@ describe('StorageOptimizer', () => {
     });
 
     it('should return no recommendations for small objects', () => {
-      const stats = [
-        { objectApiName: 'Account', recordCount: 100, size: 5000 },
-      ];
+      const stats = [{ objectApiName: 'Account', recordCount: 100, size: 5000 }];
 
       const recommendations = optimizer.analyze('org-1', stats);
 
@@ -77,9 +67,7 @@ describe('StorageOptimizer', () => {
     });
 
     it('should include estimated savings in each recommendation', () => {
-      const stats = [
-        { objectApiName: 'EventLog', recordCount: 200000, size: 80_000_000 },
-      ];
+      const stats = [{ objectApiName: 'EventLog', recordCount: 200000, size: 80_000_000 }];
 
       const recommendations = optimizer.analyze('org-1', stats);
 

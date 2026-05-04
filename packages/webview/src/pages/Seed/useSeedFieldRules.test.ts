@@ -78,7 +78,12 @@ describe('useSeedFieldRules', () => {
       industry: 'tech',
       locale: 'en_US',
       dataPatterns: {
-        Name: { fieldType: 'string', generator: 'faker', params: { method: 'company.name' }, examples: ['Acme'] },
+        Name: {
+          fieldType: 'string',
+          generator: 'faker',
+          params: { method: 'company.name' },
+          examples: ['Acme'],
+        },
       },
     };
 

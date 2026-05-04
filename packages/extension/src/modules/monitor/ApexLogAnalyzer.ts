@@ -13,22 +13,14 @@ export interface ApexLogAnalysis {
 
 /** A detected issue within an Apex log */
 export interface ApexLogIssue {
-  type:
-    | 'soql_in_loop'
-    | 'excessive_dml'
-    | 'large_heap'
-    | 'slow_query'
-    | 'governor_warning';
+  type: 'soql_in_loop' | 'excessive_dml' | 'large_heap' | 'slow_query' | 'governor_warning';
   severity: 'info' | 'warning' | 'critical';
   message: string;
   line?: number;
 }
 
 /** Function signature for fetching Apex log entries */
-export type FetchLogsFn = (
-  orgId: string,
-  count: number
-) => Promise<ApexLogEntry[]>;
+export type FetchLogsFn = (orgId: string, count: number) => Promise<ApexLogEntry[]>;
 
 /** Governor limit thresholds for issue detection */
 const SOQL_QUERY_LIMIT = 100;
@@ -101,9 +93,7 @@ export class ApexLogAnalyzer {
       }
     }
 
-    return [...issueCounts.values()]
-      .sort((a, b) => b.count - a.count)
-      .map((entry) => entry.issue);
+    return [...issueCounts.values()].sort((a, b) => b.count - a.count).map((entry) => entry.issue);
   }
 }
 
@@ -136,7 +126,7 @@ function detectIssues(
   soqlQueries: number,
   dmlStatements: number,
   heapUsed: number,
-  cpuTime: number
+  cpuTime: number,
 ): ApexLogIssue[] {
   const issues: ApexLogIssue[] = [];
 

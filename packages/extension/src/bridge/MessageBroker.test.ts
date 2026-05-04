@@ -56,7 +56,9 @@ describe('MessageBroker', () => {
 
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       const message = createMessage('org:list');
       messageCallback(message);
 
@@ -98,7 +100,9 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('seed:execute'));
 
       expect(handler).toHaveBeenCalledOnce();
@@ -111,7 +115,9 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('sync:execute'));
 
       expect(handler).not.toHaveBeenCalled();
@@ -126,7 +132,9 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:list'));
 
       expect(handler1).toHaveBeenCalledOnce();
@@ -142,7 +150,9 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:list'));
 
       expect(handler).not.toHaveBeenCalled();
@@ -155,7 +165,9 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:connect'));
 
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -165,13 +177,17 @@ describe('MessageBroker', () => {
     });
 
     it('should catch errors from sync handlers without crashing', () => {
-      const handler = vi.fn().mockImplementation(() => { throw new Error('sync boom'); });
+      const handler = vi.fn().mockImplementation(() => {
+        throw new Error('sync boom');
+      });
       broker.on('org:list', handler);
 
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:list'));
 
       expect(handler).toHaveBeenCalledOnce();
@@ -182,18 +198,22 @@ describe('MessageBroker', () => {
       const logFn = vi.fn();
       broker.setLogFunction(logFn);
 
-      const handler = vi.fn().mockImplementation(() => { throw new Error('sync boom'); });
+      const handler = vi.fn().mockImplementation(() => {
+        throw new Error('sync boom');
+      });
       broker.on('org:list', handler);
 
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:list'));
 
       expect(logFn).toHaveBeenCalledOnce();
       expect(logFn).toHaveBeenCalledWith(
-        expect.stringContaining('[MessageBroker] Handler error for "org:list": sync boom')
+        expect.stringContaining('[MessageBroker] Handler error for "org:list": sync boom'),
       );
     });
 
@@ -207,14 +227,16 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:connect'));
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(logFn).toHaveBeenCalledOnce();
       expect(logFn).toHaveBeenCalledWith(
-        expect.stringContaining('[MessageBroker] Handler error for "org:connect": async boom')
+        expect.stringContaining('[MessageBroker] Handler error for "org:connect": async boom'),
       );
     });
   });
@@ -260,11 +282,15 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
       messageCallback({ type: 'org:list', timestamp: Date.now() });
 
       expect(handler).not.toHaveBeenCalled();
-      expect(logFn).toHaveBeenCalledWith(expect.stringContaining('[MessageBroker] Received malformed message'));
+      expect(logFn).toHaveBeenCalledWith(
+        expect.stringContaining('[MessageBroker] Received malformed message'),
+      );
     });
 
     it('should drop messages with empty type and log error', () => {
@@ -277,11 +303,15 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
       messageCallback({ id: 'msg-1', type: '', timestamp: Date.now() });
 
       expect(handler).not.toHaveBeenCalled();
-      expect(logFn).toHaveBeenCalledWith(expect.stringContaining('[MessageBroker] Received malformed message'));
+      expect(logFn).toHaveBeenCalledWith(
+        expect.stringContaining('[MessageBroker] Received malformed message'),
+      );
     });
 
     it('should drop messages with missing timestamp and log error', () => {
@@ -294,11 +324,15 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
       messageCallback({ id: 'msg-1', type: 'org:list' });
 
       expect(handler).not.toHaveBeenCalled();
-      expect(logFn).toHaveBeenCalledWith(expect.stringContaining('[MessageBroker] Received malformed message'));
+      expect(logFn).toHaveBeenCalledWith(
+        expect.stringContaining('[MessageBroker] Received malformed message'),
+      );
     });
 
     it('should drop null messages and log error', () => {
@@ -311,11 +345,15 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
       messageCallback(null);
 
       expect(handler).not.toHaveBeenCalled();
-      expect(logFn).toHaveBeenCalledWith(expect.stringContaining('[MessageBroker] Received malformed message'));
+      expect(logFn).toHaveBeenCalledWith(
+        expect.stringContaining('[MessageBroker] Received malformed message'),
+      );
     });
 
     it('should accept valid messages with extra payload fields', () => {
@@ -325,8 +363,15 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
-      messageCallback({ id: 'msg-1', type: 'seed:execute', timestamp: Date.now(), payload: { templateId: 't1' } } as BaseMessage);
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
+      messageCallback({
+        id: 'msg-1',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { templateId: 't1' },
+      } as BaseMessage);
 
       expect(handler).toHaveBeenCalledOnce();
     });
@@ -357,7 +402,9 @@ describe('MessageBroker', () => {
 
       broker.dispose();
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:list'));
 
       expect(handler).not.toHaveBeenCalled();
@@ -395,7 +442,9 @@ describe('MessageBroker', () => {
         payload: innerMsg,
       };
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
       messageCallback(envelope);
 
       expect(handler).toHaveBeenCalledOnce();
@@ -417,7 +466,9 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
       messageCallback({
         protocolVersion: PROTOCOL_VERSION,
         payload: { id: 'x', type: 'totally:unknown', timestamp: 1 },
@@ -444,7 +495,9 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
       messageCallback({
         protocolVersion: PROTOCOL_VERSION + 999,
         payload: createMessage('org:list'),
@@ -468,7 +521,9 @@ describe('MessageBroker', () => {
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
       broker.on('org:list', vi.fn());
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: unknown) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
       for (let i = 0; i < 3; i++) {
         messageCallback({
           protocolVersion: PROTOCOL_VERSION + 999,
@@ -494,10 +549,14 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('nonexistent:type'));
 
-      expect(logFn).toHaveBeenCalledWith('[MessageBroker] Unhandled message type: "nonexistent:type"');
+      expect(logFn).toHaveBeenCalledWith(
+        '[MessageBroker] Unhandled message type: "nonexistent:type"',
+      );
     });
 
     it('should not log a warning when a handler is registered', () => {
@@ -508,7 +567,9 @@ describe('MessageBroker', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
 
-      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (msg: BaseMessage) => void;
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: BaseMessage,
+      ) => void;
       messageCallback(createMessage('org:list'));
 
       expect(logFn).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled'));

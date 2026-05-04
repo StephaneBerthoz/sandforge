@@ -169,6 +169,13 @@ export const DEFAULT_SOQL_LIMITS = {
 } as const;
 
 /** Module names */
-export const MODULE_NAMES = ['seed', 'sync', 'monitor', 'compare', 'dataops', 'automation'] as const;
+export const MODULE_NAMES = [
+  'seed',
+  'sync',
+  'monitor',
+  'compare',
+  'dataops',
+  'automation',
+] as const;
 
-export type ModuleName = typeof MODULE_NAMES[number];
+export type ModuleName = (typeof MODULE_NAMES)[number];

@@ -32,7 +32,12 @@ describe('ReferenceDataMapper', () => {
     );
     expect(result.mappings).toEqual([
       { sourceId: '01mSRC001', targetId: '01mTGT001', matchedBy: 'Name', matchValue: 'Default' },
-      { sourceId: '01mSRC002', targetId: '01mTGT002', matchedBy: 'Name', matchValue: '24/7 Support' },
+      {
+        sourceId: '01mSRC002',
+        targetId: '01mTGT002',
+        matchedBy: 'Name',
+        matchValue: '24/7 Support',
+      },
     ]);
     expect(result.unmatched).toEqual([]);
   });
@@ -51,9 +56,7 @@ describe('ReferenceDataMapper', () => {
 
     expect(result.mappings).toHaveLength(1);
     expect(result.mappings[0].sourceId).toBe('01mSRC001');
-    expect(result.unmatched).toEqual([
-      { sourceId: '01mSRC002', matchValue: 'Custom' },
-    ]);
+    expect(result.unmatched).toEqual([{ sourceId: '01mSRC002', matchValue: 'Custom' }]);
   });
 
   it('honours an explicit matchField override', async () => {
@@ -74,11 +77,7 @@ describe('ReferenceDataMapper', () => {
   it('escapes single quotes in match values to prevent SOQL injection', async () => {
     const query = vi.fn().mockResolvedValue([]);
     const mapper = new ReferenceDataMapper(query);
-    await mapper.resolve(
-      'BusinessHours',
-      [{ Id: '01mSRC', Name: "Bob's Workshop" }],
-      'tgt',
-    );
+    await mapper.resolve('BusinessHours', [{ Id: '01mSRC', Name: "Bob's Workshop" }], 'tgt');
 
     expect(query.mock.calls[0][1]).toBe(
       `SELECT Id, Name FROM BusinessHours WHERE Name IN ('Bob\\'s Workshop')`,
@@ -87,9 +86,9 @@ describe('ReferenceDataMapper', () => {
 
   it('rejects invalid SOQL identifiers (defence-in-depth)', async () => {
     const mapper = new ReferenceDataMapper(vi.fn());
-    await expect(
-      mapper.resolve('Bad; Object', [{ Id: '01m', Name: 'X' }], 'tgt'),
-    ).rejects.toThrow(/Invalid Salesforce API name/);
+    await expect(mapper.resolve('Bad; Object', [{ Id: '01m', Name: 'X' }], 'tgt')).rejects.toThrow(
+      /Invalid Salesforce API name/,
+    );
   });
 
   it('skips source records missing the match value (no Id, no Name)', async () => {
@@ -105,9 +104,7 @@ describe('ReferenceDataMapper', () => {
     );
 
     // Only 'OK' is included in the IN clause
-    expect(query.mock.calls[0][1]).toBe(
-      `SELECT Id, Name FROM BusinessHours WHERE Name IN ('OK')`,
-    );
+    expect(query.mock.calls[0][1]).toBe(`SELECT Id, Name FROM BusinessHours WHERE Name IN ('OK')`);
     // 'OK' was not found on target → unmatched
     expect(result.mappings).toEqual([]);
     expect(result.unmatched).toEqual([{ sourceId: '01mOK', matchValue: 'OK' }]);

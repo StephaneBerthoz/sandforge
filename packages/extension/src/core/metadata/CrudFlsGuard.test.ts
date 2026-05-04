@@ -67,9 +67,7 @@ describe('CrudFlsGuard', () => {
     });
 
     it('should deny insert when object is not createable', async () => {
-      const fetch: DescribeFetchFn = vi.fn().mockResolvedValue(
-        makeDescribe({ createable: false }),
-      );
+      const fetch: DescribeFetchFn = vi.fn().mockResolvedValue(makeDescribe({ createable: false }));
       const guard = new CrudFlsGuard(fetch);
       const result = await guard.checkCrudPermission('Account', 'insert');
       expect(result.allowed).toBe(false);
@@ -77,9 +75,9 @@ describe('CrudFlsGuard', () => {
     });
 
     it('should deny upsert when object is not both createable and updateable', async () => {
-      const fetch: DescribeFetchFn = vi.fn().mockResolvedValue(
-        makeDescribe({ createable: true, updateable: false }),
-      );
+      const fetch: DescribeFetchFn = vi
+        .fn()
+        .mockResolvedValue(makeDescribe({ createable: true, updateable: false }));
       const guard = new CrudFlsGuard(fetch);
       const result = await guard.checkCrudPermission('Account', 'upsert');
       expect(result.allowed).toBe(false);

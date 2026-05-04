@@ -15,9 +15,26 @@ export interface ComplianceCheckResult {
 
 /** Field patterns that must be anonymized per compliance framework */
 const FRAMEWORK_FIELDS: Record<ComplianceFrameworkType, string[]> = {
-  gdpr: ['Email', 'Phone', 'FirstName', 'LastName', 'BirthDate', 'MailingAddress', 'PersonalEmail__c'],
+  gdpr: [
+    'Email',
+    'Phone',
+    'FirstName',
+    'LastName',
+    'BirthDate',
+    'MailingAddress',
+    'PersonalEmail__c',
+  ],
   ccpa: ['Email', 'Phone', 'FirstName', 'LastName', 'MailingAddress'],
-  hipaa: ['Email', 'Phone', 'FirstName', 'LastName', 'BirthDate', 'SSN__c', 'MedicalRecordNumber__c', 'HealthPlanId__c'],
+  hipaa: [
+    'Email',
+    'Phone',
+    'FirstName',
+    'LastName',
+    'BirthDate',
+    'SSN__c',
+    'MedicalRecordNumber__c',
+    'HealthPlanId__c',
+  ],
   pci_dss: ['CreditCardNumber__c', 'CardExpiry__c', 'CVV__c', 'BillingAddress'],
   custom: [],
   none: [],
@@ -41,9 +58,7 @@ export class ComplianceChecker {
     framework: ComplianceFrameworkType,
   ): ComplianceCheckResult {
     const requiredFields = this.getRequiredFields(framework);
-    const coveredFields = new Set(
-      template.rules.map((r) => r.fieldApiName),
-    );
+    const coveredFields = new Set(template.rules.map((r) => r.fieldApiName));
 
     const missingRules: string[] = [];
     const suggestions: DataOpsAnonymizationRule[] = [];
@@ -51,16 +66,13 @@ export class ComplianceChecker {
     for (const field of requiredFields) {
       if (!coveredFields.has(field)) {
         missingRules.push(`Field '${field}' is not anonymized`);
-        suggestions.push(
-          this.buildSuggestedRule(framework, field),
-        );
+        suggestions.push(this.buildSuggestedRule(framework, field));
       }
     }
 
     const totalRequired = requiredFields.length;
     const covered = totalRequired - missingRules.length;
-    const score =
-      totalRequired > 0 ? Math.round((covered / totalRequired) * 100) : 100;
+    const score = totalRequired > 0 ? Math.round((covered / totalRequired) * 100) : 100;
 
     return {
       compliant: missingRules.length === 0,
@@ -114,10 +126,7 @@ export class ComplianceChecker {
    * @param framework - The compliance framework to check against
    * @returns True if no rules are missing
    */
-  isCompliant(
-    template: AnonymizationTemplate,
-    framework: ComplianceFrameworkType,
-  ): boolean {
+  isCompliant(template: AnonymizationTemplate, framework: ComplianceFrameworkType): boolean {
     return this.check(template, framework).compliant;
   }
 
@@ -133,9 +142,7 @@ export class ComplianceChecker {
     };
   }
 
-  private inferRuleType(
-    fieldApiName: string,
-  ): DataOpsAnonymizationRule['method'] {
+  private inferRuleType(fieldApiName: string): DataOpsAnonymizationRule['method'] {
     const lower = fieldApiName.toLowerCase();
     if (lower.includes('email')) {
       return 'fake';

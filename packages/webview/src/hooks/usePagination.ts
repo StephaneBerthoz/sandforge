@@ -68,10 +68,7 @@ export function usePagination(options: UsePaginationOptions): UsePaginationResul
   );
 
   // Clamp page to valid range when totalPages changes
-  const clampedPage = useMemo(
-    () => Math.min(Math.max(1, page), totalPages),
-    [page, totalPages],
-  );
+  const clampedPage = useMemo(() => Math.min(Math.max(1, page), totalPages), [page, totalPages]);
 
   const canNext = clampedPage < totalPages;
   const canPrev = clampedPage > 1;
@@ -104,7 +101,7 @@ export function usePagination(options: UsePaginationOptions): UsePaginationResul
   }, [canPrev]);
 
   const paginatedSlice = useCallback(
-    <T,>(data: T[]): T[] => data.slice(startIndex, endIndex),
+    <T>(data: T[]): T[] => data.slice(startIndex, endIndex),
     [startIndex, endIndex],
   );
 

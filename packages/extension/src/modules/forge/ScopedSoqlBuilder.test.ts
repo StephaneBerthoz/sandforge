@@ -81,7 +81,12 @@ describe('ScopedSoqlBuilder', () => {
       cache.add('Account', ['001AAA', '001BBB']);
 
       const edges: ForgeGraphEdge[] = [
-        { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+        {
+          sourceObject: 'Account',
+          targetObject: 'Contact',
+          relationshipName: 'Contacts',
+          type: 'lookup',
+        },
       ];
 
       const result = builder.build({
@@ -109,7 +114,12 @@ describe('ScopedSoqlBuilder', () => {
       cache.add('Case', [ROOT_ID]);
 
       const edges: ForgeGraphEdge[] = [
-        { sourceObject: 'Case', targetObject: 'CaseHistory', relationshipName: 'Histories', type: 'lookup' },
+        {
+          sourceObject: 'Case',
+          targetObject: 'CaseHistory',
+          relationshipName: 'Histories',
+          type: 'lookup',
+        },
       ];
 
       const result = builder.build({
@@ -136,8 +146,18 @@ describe('ScopedSoqlBuilder', () => {
       cache.add('Case', [ROOT_ID]);
 
       const edges: ForgeGraphEdge[] = [
-        { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
-        { sourceObject: 'Case', targetObject: 'Contact', relationshipName: 'CaseContacts', type: 'lookup' },
+        {
+          sourceObject: 'Account',
+          targetObject: 'Contact',
+          relationshipName: 'Contacts',
+          type: 'lookup',
+        },
+        {
+          sourceObject: 'Case',
+          targetObject: 'Contact',
+          relationshipName: 'CaseContacts',
+          type: 'lookup',
+        },
       ];
 
       const result = builder.build({
@@ -163,7 +183,12 @@ describe('ScopedSoqlBuilder', () => {
       cache.add('Account', ['001AAA']);
 
       const edges: ForgeGraphEdge[] = [
-        { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+        {
+          sourceObject: 'Account',
+          targetObject: 'Contact',
+          relationshipName: 'Contacts',
+          type: 'lookup',
+        },
       ];
 
       const result = builder.build({
@@ -186,7 +211,12 @@ describe('ScopedSoqlBuilder', () => {
       cache.add('Account', ['001AAA']);
 
       const edges: ForgeGraphEdge[] = [
-        { sourceObject: 'Account', targetObject: 'Task', relationshipName: 'Tasks', type: 'lookup' },
+        {
+          sourceObject: 'Account',
+          targetObject: 'Task',
+          relationshipName: 'Tasks',
+          type: 'lookup',
+        },
       ];
 
       const result = builder.build({
@@ -200,9 +230,7 @@ describe('ScopedSoqlBuilder', () => {
       });
 
       expect(result.scoped).toBe(true);
-      expect(result.soql).toBe(
-        `SELECT Id, WhatId FROM Task WHERE WhatId IN ('001AAA')`,
-      );
+      expect(result.soql).toBe(`SELECT Id, WhatId FROM Task WHERE WhatId IN ('001AAA')`);
     });
   });
 
@@ -223,9 +251,7 @@ describe('ScopedSoqlBuilder', () => {
       });
 
       expect(result.scope).toBe('self-cached');
-      expect(result.soql).toBe(
-        `SELECT Id, Name FROM Account WHERE Id IN ('001AAA', '001BBB')`,
-      );
+      expect(result.soql).toBe(`SELECT Id, Name FROM Account WHERE Id IN ('001AAA', '001BBB')`);
       expect(result.scopeIdCount).toBe(2);
     });
   });
@@ -256,7 +282,12 @@ describe('ScopedSoqlBuilder', () => {
       const cache = new RecordScopeCache();
       // Edge says Account is a parent, but cache has no Account IDs.
       const edges: ForgeGraphEdge[] = [
-        { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+        {
+          sourceObject: 'Account',
+          targetObject: 'Contact',
+          relationshipName: 'Contacts',
+          type: 'lookup',
+        },
       ];
 
       const result = builder.build({
@@ -278,7 +309,12 @@ describe('ScopedSoqlBuilder', () => {
       cache.add('Account', ['001AAA']);
 
       const edges: ForgeGraphEdge[] = [
-        { sourceObject: 'Account', targetObject: 'Contact', relationshipName: 'Contacts', type: 'lookup' },
+        {
+          sourceObject: 'Account',
+          targetObject: 'Contact',
+          relationshipName: 'Contacts',
+          type: 'lookup',
+        },
       ];
 
       // Contact has no field referencing Account in the metadata supplied here.
@@ -320,7 +356,7 @@ describe('ScopedSoqlBuilder', () => {
         builder.build({
           node: makeNode('Case'),
           fields: [],
-          selectFields: ['Id', "Name; DROP"],
+          selectFields: ['Id', 'Name; DROP'],
           edges: [],
           cache,
           rootObjectApiName: 'Case',

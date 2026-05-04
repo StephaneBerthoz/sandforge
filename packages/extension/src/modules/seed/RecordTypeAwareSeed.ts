@@ -24,7 +24,7 @@ export class RecordTypeAwareSeed {
    */
   generate(
     objectConfig: SeedObjectConfig,
-    recordTypes: RecordTypeInfo[]
+    recordTypes: RecordTypeInfo[],
   ): Record<string, unknown>[] {
     const { recordCount } = objectConfig;
 
@@ -56,7 +56,7 @@ function createRecordsWithoutRecordType(count: number): Record<string, unknown>[
 /** Create records all using a single record type */
 function createRecordsWithSingleType(
   count: number,
-  recordTypeId: string
+  recordTypeId: string,
 ): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = [];
   for (let i = 0; i < count; i++) {
@@ -71,7 +71,7 @@ function createRecordsWithSingleType(
  */
 function distributeAcrossRecordTypes(
   count: number,
-  recordTypes: RecordTypeInfo[]
+  recordTypes: RecordTypeInfo[],
 ): Record<string, unknown>[] {
   const records: Record<string, unknown>[] = [];
   const perType = Math.floor(count / recordTypes.length);

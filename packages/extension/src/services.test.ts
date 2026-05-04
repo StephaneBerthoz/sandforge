@@ -139,8 +139,13 @@ describe('services', () => {
         alertEngine: { evaluate: vi.fn() },
         healthCheck: {
           computeHealth: vi.fn().mockResolvedValue({
-            orgId: 'o', overall: 'healthy', apiLimitsStatus: 'ok', storageStatus: 'ok',
-            activeJobs: 0, recentErrors: 0, lastChecked: '',
+            orgId: 'o',
+            overall: 'healthy',
+            apiLimitsStatus: 'ok',
+            storageStatus: 'ok',
+            activeJobs: 0,
+            recentErrors: 0,
+            lastChecked: '',
           }),
         },
       } as unknown as Parameters<typeof services.monitorOrchestrator>[0]);
@@ -206,8 +211,13 @@ describe('services', () => {
         alertEngine: { evaluate: vi.fn() },
         healthCheck: {
           computeHealth: vi.fn().mockResolvedValue({
-            orgId: 'org-1', overall: 'healthy', apiLimitsStatus: 'ok', storageStatus: 'ok',
-            activeJobs: 0, recentErrors: 0, lastChecked: '',
+            orgId: 'org-1',
+            overall: 'healthy',
+            apiLimitsStatus: 'ok',
+            storageStatus: 'ok',
+            activeJobs: 0,
+            recentErrors: 0,
+            lastChecked: '',
           }),
         },
       } as unknown as Parameters<typeof services.monitorOrchestrator>[0]);

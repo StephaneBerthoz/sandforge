@@ -50,9 +50,7 @@ describe('ErrorClassification', () => {
 });
 
 describe('BatchRecordError', () => {
-  function createSfApiError(
-    overrides: Partial<SalesforceApiError> = {},
-  ): SalesforceApiError {
+  function createSfApiError(overrides: Partial<SalesforceApiError> = {}): SalesforceApiError {
     return {
       statusCode: 'FIELD_CUSTOM_VALIDATION_EXCEPTION',
       message: 'Value too large for field',
@@ -69,9 +67,7 @@ describe('BatchRecordError', () => {
 
     expect(batchError.recordIndex).toBe(5);
     expect(batchError.errors).toHaveLength(1);
-    expect(batchError.errors[0].statusCode).toBe(
-      'FIELD_CUSTOM_VALIDATION_EXCEPTION',
-    );
+    expect(batchError.errors[0].statusCode).toBe('FIELD_CUSTOM_VALIDATION_EXCEPTION');
     expect(batchError.retryable).toBe(false);
   });
 
@@ -140,9 +136,7 @@ describe('ErrorSummary', () => {
     };
 
     expect(summary.totalErrors).toBe(25);
-    expect(summary.retryableCount + summary.nonRetryableCount).toBe(
-      summary.totalErrors,
-    );
+    expect(summary.retryableCount + summary.nonRetryableCount).toBe(summary.totalErrors);
     expect(summary.byCategory['network']).toBe(10);
     expect(Object.keys(summary.byErrorCode)).toHaveLength(4);
     expect(summary.sampleErrors).toHaveLength(2);

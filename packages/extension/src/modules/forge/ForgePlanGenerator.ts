@@ -63,9 +63,7 @@ export class ForgePlanGenerator {
     }
 
     const sortedLevels = [...levelMap.keys()].sort((a, b) => a - b);
-    const nodeMap = new Map(
-      includedNodes.map((n) => [n.objectApiName, n]),
-    );
+    const nodeMap = new Map(includedNodes.map((n) => [n.objectApiName, n]));
 
     const waves: ForgeWave[] = sortedLevels.map((level, index) => {
       const objects = levelMap.get(level) ?? [];
@@ -77,10 +75,7 @@ export class ForgePlanGenerator {
         const node = nodeMap.get(objName);
         if (!node) continue;
         totalRecords += node.recordCount;
-        const resolved = this.batchStrategy.resolve(
-          node.batchStrategy,
-          node.recordCount,
-        );
+        const resolved = this.batchStrategy.resolve(node.batchStrategy, node.recordCount);
         const apiCalls = resolved.batchCount;
         totalApiCalls += apiCalls;
         const duration = apiCalls * this.avgSecondsPerApiCall;
@@ -99,14 +94,8 @@ export class ForgePlanGenerator {
     const cycleResolutions = this.detectCycles(graph);
 
     const totalRecords = waves.reduce((s, w) => s + w.totalRecords, 0);
-    const totalApiCalls = waves.reduce(
-      (s, w) => s + w.estimatedApiCalls,
-      0,
-    );
-    const estimatedDurationSeconds = waves.reduce(
-      (s, w) => s + w.estimatedDurationSeconds,
-      0,
-    );
+    const totalApiCalls = waves.reduce((s, w) => s + w.estimatedApiCalls, 0);
+    const estimatedDurationSeconds = waves.reduce((s, w) => s + w.estimatedDurationSeconds, 0);
 
     return {
       waves,
@@ -145,10 +134,7 @@ export class ForgePlanGenerator {
       if (edge.sourceObject === edge.targetObject) continue;
       if (!includedSet.has(edge.sourceObject)) continue;
       if (!includedSet.has(edge.targetObject)) continue;
-      inDegree.set(
-        edge.targetObject,
-        (inDegree.get(edge.targetObject) ?? 0) + 1,
-      );
+      inDegree.set(edge.targetObject, (inDegree.get(edge.targetObject) ?? 0) + 1);
       const list = outgoing.get(edge.sourceObject);
       if (list) list.push(edge.targetObject);
       else outgoing.set(edge.sourceObject, [edge.targetObject]);
@@ -258,10 +244,7 @@ export class ForgePlanGenerator {
             onStack.add(w);
             callStack.push({ v: w, neighbors: adj.get(w) ?? [], i: 0 });
           } else if (onStack.has(w)) {
-            lowLink.set(
-              frame.v,
-              Math.min(lowLink.get(frame.v)!, nodeIndex.get(w)!),
-            );
+            lowLink.set(frame.v, Math.min(lowLink.get(frame.v)!, nodeIndex.get(w)!));
           }
           continue;
         }
@@ -272,10 +255,7 @@ export class ForgePlanGenerator {
         // `lowLink[v] = min(lowLink[v], lowLink[w])` after recursion).
         const parent = callStack[callStack.length - 1];
         if (parent) {
-          lowLink.set(
-            parent.v,
-            Math.min(lowLink.get(parent.v)!, lowLink.get(v)!),
-          );
+          lowLink.set(parent.v, Math.min(lowLink.get(parent.v)!, lowLink.get(v)!));
         }
         // Emit SCC root.
         if (lowLink.get(v) === nodeIndex.get(v)) {
@@ -309,9 +289,7 @@ export class ForgePlanGenerator {
           e.type === 'lookup',
       );
 
-      const strategy = hasNullableLookup
-        ? 'nullable_lookup'
-        : 'two_pass';
+      const strategy = hasNullableLookup ? 'nullable_lookup' : 'two_pass';
       return {
         objects,
         strategy,

@@ -36,13 +36,17 @@ function createMockDeps(): HandlerDeps {
 /**
  * Creates a mock AutopilotOrchestrator with configurable behavior.
  */
-function createMockOrchestrator(overrides: Record<string, unknown> = {}): Parameters<AutopilotHandler['setOrchestrator']>[0] {
+function createMockOrchestrator(
+  overrides: Record<string, unknown> = {},
+): Parameters<AutopilotHandler['setOrchestrator']>[0] {
   return {
     scanSchemas: vi.fn().mockResolvedValue({ recordCounts: new Map(), totalObjectsScanned: 5 }),
     buildGraph: vi.fn().mockReturnValue({ nodes: [], edges: [] }),
     buildCompliance: vi.fn().mockReturnValue({ profile: {}, rules: [] }),
     generatePlan: vi.fn().mockReturnValue({ steps: [] }),
-    executePlan: vi.fn().mockResolvedValue({ totalSuccess: 10, totalFailure: 0, totalSkipped: 0, elapsedMs: 100 }),
+    executePlan: vi
+      .fn()
+      .mockResolvedValue({ totalSuccess: 10, totalFailure: 0, totalSkipped: 0, elapsedMs: 100 }),
     generateReport: vi.fn().mockReturnValue({ score: 100, issues: [] }),
     pause: vi.fn(),
     resume: vi.fn(),
@@ -73,11 +77,23 @@ describe('AutopilotHandler', () => {
 
     mockGetConn.mockResolvedValue({} as never);
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; selectedObjects: string[]; includeStandardObjects: boolean } } = {
+    const msg: BaseMessage & {
+      payload: {
+        sourceOrgId: string;
+        targetOrgId: string;
+        selectedObjects: string[];
+        includeStandardObjects: boolean;
+      };
+    } = {
       id: 'req-ap-1',
       type: 'autopilot:scan-schema',
       timestamp: Date.now(),
-      payload: { sourceOrgId: 'src', targetOrgId: 'tgt', selectedObjects: [], includeStandardObjects: false },
+      payload: {
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        selectedObjects: [],
+        includeStandardObjects: false,
+      },
     };
 
     const result = await handler.handle(msg);
@@ -101,7 +117,12 @@ describe('AutopilotHandler', () => {
       id: 'scan-1',
       type: 'autopilot:scan-schema',
       timestamp: Date.now(),
-      payload: { sourceOrgId: 'src', targetOrgId: 'tgt', selectedObjects: [], includeStandardObjects: false },
+      payload: {
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        selectedObjects: [],
+        includeStandardObjects: false,
+      },
     } as BaseMessage);
 
     // Now generate plan
@@ -129,11 +150,23 @@ describe('AutopilotHandler', () => {
 
     mockGetConn.mockResolvedValue({} as never);
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; selectedObjects: string[]; includeStandardObjects: boolean } } = {
+    const msg: BaseMessage & {
+      payload: {
+        sourceOrgId: string;
+        targetOrgId: string;
+        selectedObjects: string[];
+        includeStandardObjects: boolean;
+      };
+    } = {
       id: 'req-ap-err',
       type: 'autopilot:scan-schema',
       timestamp: Date.now(),
-      payload: { sourceOrgId: 'src', targetOrgId: 'tgt', selectedObjects: [], includeStandardObjects: false },
+      payload: {
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        selectedObjects: [],
+        includeStandardObjects: false,
+      },
     };
 
     await handler.handle(msg);
@@ -143,22 +176,38 @@ describe('AutopilotHandler', () => {
     expect(postToWebview).toHaveBeenCalledTimes(2);
 
     // First call: typed error response from sendHandlerError
-    const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string };
+    };
     expect(errorResponse.type).toBe('autopilot:error');
     expect(errorResponse.payload.message).toBe('Schema scan exploded');
 
     // Second call: notification
-    const notification = postToWebview.mock.calls[1][0] as BaseMessage & { payload: { title: string } };
+    const notification = postToWebview.mock.calls[1][0] as BaseMessage & {
+      payload: { title: string };
+    };
     expect(notification.type).toBe('notification');
   });
 
   it('not-initialized error sends notification for scan-schema', async () => {
     // No orchestrator injected
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; selectedObjects: string[]; includeStandardObjects: boolean } } = {
+    const msg: BaseMessage & {
+      payload: {
+        sourceOrgId: string;
+        targetOrgId: string;
+        selectedObjects: string[];
+        includeStandardObjects: boolean;
+      };
+    } = {
       id: 'req-ap-noinit',
       type: 'autopilot:scan-schema',
       timestamp: Date.now(),
-      payload: { sourceOrgId: 'src', targetOrgId: 'tgt', selectedObjects: [], includeStandardObjects: false },
+      payload: {
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        selectedObjects: [],
+        includeStandardObjects: false,
+      },
     };
 
     await handler.handle(msg);
@@ -166,7 +215,9 @@ describe('AutopilotHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const notification = postToWebview.mock.calls[0][0] as BaseMessage & { payload: { message: string } };
+    const notification = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { message: string };
+    };
     expect(notification.type).toBe('notification');
   });
 
@@ -202,7 +253,12 @@ describe('AutopilotHandler', () => {
       id: 'scan-exec',
       type: 'autopilot:scan-schema',
       timestamp: Date.now(),
-      payload: { sourceOrgId: 'src', targetOrgId: 'tgt', selectedObjects: [], includeStandardObjects: false },
+      payload: {
+        sourceOrgId: 'src',
+        targetOrgId: 'tgt',
+        selectedObjects: [],
+        includeStandardObjects: false,
+      },
     } as BaseMessage);
 
     await handler.handle({
@@ -227,7 +283,14 @@ describe('AutopilotHandler', () => {
 
     // Expect: 2 processing + 2 completed/failed + 1 autopilot:completed = 5 calls
     const allCalls = postToWebview.mock.calls.map(
-      (call: [BaseMessage & { correlationId?: string; payload: { status?: string; objectName?: string } }]) => call[0],
+      (
+        call: [
+          BaseMessage & {
+            correlationId?: string;
+            payload: { status?: string; objectName?: string };
+          },
+        ],
+      ) => call[0],
     );
 
     // Filter node-progress messages

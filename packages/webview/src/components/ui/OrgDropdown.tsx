@@ -105,10 +105,12 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
         )}
       >
         {selectedOrg && (
-          <div className={cn('w-2 h-2 rounded-full shrink-0', statusDotColor(selectedOrg.status))} />
+          <div
+            className={cn('w-2 h-2 rounded-full shrink-0', statusDotColor(selectedOrg.status))}
+          />
         )}
         <span className="truncate flex-1 text-left">
-          {selectedOrg ? (selectedOrg.alias || selectedOrg.username) : t('forge.selectOrg')}
+          {selectedOrg ? selectedOrg.alias || selectedOrg.username : t('forge.selectOrg')}
         </span>
         <ChevronDown
           size={14}

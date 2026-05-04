@@ -206,9 +206,7 @@ function assessRisks(components: DeploymentComponent[]): DeploymentRisk[] {
 }
 
 /** Determine the inherent risk level of a component type */
-function getComponentRiskLevel(
-  componentType: MetadataComponentType
-): DeploymentRisk['risk'] {
+function getComponentRiskLevel(componentType: MetadataComponentType): DeploymentRisk['risk'] {
   switch (componentType) {
     case 'ApexClass':
     case 'ApexTrigger':

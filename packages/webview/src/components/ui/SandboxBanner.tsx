@@ -21,9 +21,7 @@ export interface SandboxBannerProps {
 export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
   const { t } = useTranslation();
   const { hasSandbox } = useSandboxDetection();
-  const [dismissed, setDismissed] = useState(
-    () => localStorage.getItem(DISMISS_KEY) === 'true',
-  );
+  const [dismissed, setDismissed] = useState(() => localStorage.getItem(DISMISS_KEY) === 'true');
 
   const handleDismiss = useCallback(() => {
     setDismissed(true);
@@ -41,9 +39,7 @@ export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
       role="status"
     >
       <Icon name="database" className="text-amber-400 shrink-0" />
-      <span className="flex-1 text-sm text-amber-200">
-        {t('onboarding.sandboxBanner')}
-      </span>
+      <span className="flex-1 text-sm text-amber-200">{t('onboarding.sandboxBanner')}</span>
       <div className="flex items-center gap-2 shrink-0">
         <Button
           variant="primary"

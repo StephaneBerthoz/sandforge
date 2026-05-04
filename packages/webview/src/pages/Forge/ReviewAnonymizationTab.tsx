@@ -2,10 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge/shared';
-import {
-  FORGE_ANONYMIZATION_PRESETS,
-  findForgeAnonymizationPreset,
-} from '@sandforge/shared';
+import { FORGE_ANONYMIZATION_PRESETS, findForgeAnonymizationPreset } from '@sandforge/shared';
 
 /** All anonymization categories in display order. */
 const CATEGORIES: ForgeAnonymizationCategory[] = [
@@ -55,8 +52,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
   const setRule = useForgeStore((s) => s.setAnonymizationRule);
   const graph = useForgeStore((s) => s.graph);
   const applyPreset = useForgeStore((s) => s.applyAnonymizationPreset);
-  const piiFieldCount =
-    graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
+  const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
 
   const [presetId, setPresetId] = useState<string>('');
   const handlePresetChange = useCallback(
@@ -132,16 +128,12 @@ export const ReviewAnonymizationTab: React.FC = () => {
                 data-testid={`anon-row-${cat}`}
                 className="border-b border-subtle last:border-b-0"
               >
-                <td className="px-3 py-2 text-text-primary">
-                  {CATEGORY_LABELS[cat]}
-                </td>
+                <td className="px-3 py-2 text-text-primary">{CATEGORY_LABELS[cat]}</td>
                 <td className="px-3 py-2">
                   <select
                     data-testid={`anon-select-${cat}`}
                     value={rules[cat]}
-                    onChange={(e) =>
-                      setRule(cat, e.target.value as AnonymizationMethod)
-                    }
+                    onChange={(e) => setRule(cat, e.target.value as AnonymizationMethod)}
                     className="bg-surface-3 text-text-primary text-xs rounded px-2 py-1 border border-subtle"
                   >
                     {METHODS.map((m) => (

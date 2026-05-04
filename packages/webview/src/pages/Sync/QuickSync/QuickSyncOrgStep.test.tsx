@@ -5,8 +5,28 @@ import { useOrgStore } from '../../../stores/useOrgStore';
 import { QuickSyncOrgStep } from './QuickSyncOrgStep';
 
 const mockOrgs = [
-  { id: 'org-1', alias: 'prod', username: 'user@prod.com', instanceUrl: 'https://prod.salesforce.com', orgType: 'production' as const, status: 'connected' as const, safetyTier: 'critical' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
-  { id: 'org-2', alias: 'dev1', username: 'user@dev1.com', instanceUrl: 'https://dev1.salesforce.com', orgType: 'sandbox' as const, status: 'connected' as const, safetyTier: 'low' as const, apiVersion: '59.0', lastConnected: '2024-01-01T00:00:00Z' },
+  {
+    id: 'org-1',
+    alias: 'prod',
+    username: 'user@prod.com',
+    instanceUrl: 'https://prod.salesforce.com',
+    orgType: 'production' as const,
+    status: 'connected' as const,
+    safetyTier: 'critical' as const,
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
+  {
+    id: 'org-2',
+    alias: 'dev1',
+    username: 'user@dev1.com',
+    instanceUrl: 'https://dev1.salesforce.com',
+    orgType: 'sandbox' as const,
+    status: 'connected' as const,
+    safetyTier: 'low' as const,
+    apiVersion: '59.0',
+    lastConnected: '2024-01-01T00:00:00Z',
+  },
 ];
 
 describe('QuickSyncOrgStep', () => {

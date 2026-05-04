@@ -5,8 +5,18 @@ import type { TimelineItem } from './Timeline';
 
 const items: TimelineItem[] = [
   { title: 'Deployment started', timestamp: '10:00 AM', status: 'info' },
-  { title: 'Records inserted', description: '500 Account records', timestamp: '10:05 AM', status: 'success' },
-  { title: 'Error on Contact', description: 'Duplicate rule violation', timestamp: '10:06 AM', status: 'error' },
+  {
+    title: 'Records inserted',
+    description: '500 Account records',
+    timestamp: '10:05 AM',
+    status: 'success',
+  },
+  {
+    title: 'Error on Contact',
+    description: 'Duplicate rule violation',
+    timestamp: '10:06 AM',
+    status: 'error',
+  },
 ];
 
 describe('Timeline', () => {

@@ -86,7 +86,10 @@ export const DriftDashboard: React.FC<DriftDashboardProps> = ({ drift, className
             </div>
 
             {/* Grouped drifted components */}
-            <div className="flex flex-col gap-3 max-h-64 overflow-y-auto" data-testid="drift-groups">
+            <div
+              className="flex flex-col gap-3 max-h-64 overflow-y-auto"
+              data-testid="drift-groups"
+            >
               {groups.map((group) => (
                 <div key={group.componentType} data-testid={`drift-group-${group.componentType}`}>
                   {/* Group header */}
@@ -95,9 +98,7 @@ export const DriftDashboard: React.FC<DriftDashboardProps> = ({ drift, className
                       {group.componentType}
                     </span>
                     <span data-testid={`drift-group-count-${group.componentType}`}>
-                      <Badge variant="default">
-                        {group.components.length}
-                      </Badge>
+                      <Badge variant="default">{group.components.length}</Badge>
                     </span>
                   </div>
                   {/* Components in this group */}

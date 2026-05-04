@@ -40,7 +40,13 @@ const mockOrgs: SalesforceOrg[] = [
 describe('OrgDropdown', () => {
   it('should render placeholder when no org is selected', () => {
     render(
-      <OrgDropdown value="" onChange={vi.fn()} orgs={mockOrgs} ariaLabel="Source Org" testId="test-dd" />,
+      <OrgDropdown
+        value=""
+        onChange={vi.fn()}
+        orgs={mockOrgs}
+        ariaLabel="Source Org"
+        testId="test-dd"
+      />,
     );
     const trigger = screen.getByTestId('test-dd');
     expect(trigger.textContent).toContain('Select');
@@ -48,7 +54,13 @@ describe('OrgDropdown', () => {
 
   it('should show selected org alias when value is set', () => {
     render(
-      <OrgDropdown value="org-1" onChange={vi.fn()} orgs={mockOrgs} ariaLabel="Source Org" testId="test-dd" />,
+      <OrgDropdown
+        value="org-1"
+        onChange={vi.fn()}
+        orgs={mockOrgs}
+        ariaLabel="Source Org"
+        testId="test-dd"
+      />,
     );
     const trigger = screen.getByTestId('test-dd');
     expect(trigger.textContent).toContain('DevOrg');
@@ -56,7 +68,13 @@ describe('OrgDropdown', () => {
 
   it('should open dropdown and list all orgs on click', () => {
     render(
-      <OrgDropdown value="" onChange={vi.fn()} orgs={mockOrgs} ariaLabel="Source Org" testId="test-dd" />,
+      <OrgDropdown
+        value=""
+        onChange={vi.fn()}
+        orgs={mockOrgs}
+        ariaLabel="Source Org"
+        testId="test-dd"
+      />,
     );
     fireEvent.click(screen.getByTestId('test-dd'));
     expect(screen.getByTestId('test-dd-panel')).toBeDefined();
@@ -67,7 +85,13 @@ describe('OrgDropdown', () => {
   it('should call onChange when an org option is clicked', () => {
     const handleChange = vi.fn();
     render(
-      <OrgDropdown value="" onChange={handleChange} orgs={mockOrgs} ariaLabel="Source Org" testId="test-dd" />,
+      <OrgDropdown
+        value=""
+        onChange={handleChange}
+        orgs={mockOrgs}
+        ariaLabel="Source Org"
+        testId="test-dd"
+      />,
     );
     fireEvent.click(screen.getByTestId('test-dd'));
     fireEvent.click(screen.getByTestId('test-dd-option-org-2'));
@@ -76,7 +100,13 @@ describe('OrgDropdown', () => {
 
   it('should close dropdown on Escape key', () => {
     render(
-      <OrgDropdown value="" onChange={vi.fn()} orgs={mockOrgs} ariaLabel="Source Org" testId="test-dd" />,
+      <OrgDropdown
+        value=""
+        onChange={vi.fn()}
+        orgs={mockOrgs}
+        ariaLabel="Source Org"
+        testId="test-dd"
+      />,
     );
     fireEvent.click(screen.getByTestId('test-dd'));
     expect(screen.getByTestId('test-dd-panel')).toBeDefined();

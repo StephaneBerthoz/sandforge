@@ -37,7 +37,10 @@ export interface PreCheckEngineDeps {
   compatibilityCheck: CategoryChecker;
   securityCheck: SecurityCategoryChecker;
   performanceCheck: PerformanceCategoryChecker;
-  fetchPerformanceMetrics: (orgId: string, operationConfig: Record<string, unknown>) => Promise<PerformanceMetrics>;
+  fetchPerformanceMetrics: (
+    orgId: string,
+    operationConfig: Record<string, unknown>,
+  ) => Promise<PerformanceMetrics>;
 }
 
 /** Severity penalty values for score calculation */
@@ -51,9 +54,15 @@ const SEVERITY_PENALTIES: Record<PreCheckSeverity, number> = {
 /** Map from PreCheckCategory to the dependency key */
 const CATEGORY_TO_CHECKER_KEY: Record<
   Exclude<PreCheckCategory, 'security' | 'performance' | 'connectivity'>,
-  keyof Pick<PreCheckEngineDeps,
-    'permissionCheck' | 'apiLimitCheck' | 'storageCheck' | 'schemaCheck' |
-    'dataIntegrityCheck' | 'orgStatusCheck' | 'compatibilityCheck'
+  keyof Pick<
+    PreCheckEngineDeps,
+    | 'permissionCheck'
+    | 'apiLimitCheck'
+    | 'storageCheck'
+    | 'schemaCheck'
+    | 'dataIntegrityCheck'
+    | 'orgStatusCheck'
+    | 'compatibilityCheck'
   >
 > = {
   permissions: 'permissionCheck',
@@ -124,10 +133,7 @@ export class PreCheckEngine {
   }
 
   /** Run checks for a single category */
-  async runCategory(
-    category: PreCheckCategory,
-    config: PreCheckConfig
-  ): Promise<PreCheckItem[]> {
+  async runCategory(category: PreCheckCategory, config: PreCheckConfig): Promise<PreCheckItem[]> {
     if (category === 'security') {
       const result = await this.deps.securityCheck.check(config);
       return result.items;
@@ -175,7 +181,7 @@ export class PreCheckEngine {
     if (hasBlocker) return 'fail';
 
     const hasWarningOrError = failedItems.some(
-      (item) => item.severity === 'warning' || item.severity === 'error'
+      (item) => item.severity === 'warning' || item.severity === 'error',
     );
 
     if (hasWarningOrError) return 'warning';
@@ -187,7 +193,7 @@ export class PreCheckEngine {
   private async computeEstimations(config: PreCheckConfig): Promise<PreCheckEstimations> {
     const metrics = await this.deps.fetchPerformanceMetrics(
       config.targetOrgId,
-      config.operationConfig
+      config.operationConfig,
     );
     return this.deps.performanceCheck.estimatePerformance(config, metrics);
   }

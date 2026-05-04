@@ -23,10 +23,26 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     titleKey: 'shortcuts.navigation',
     fallback: 'Navigation',
     shortcuts: [
-      { keys: ['Ctrl', 'K'], descriptionKey: 'shortcuts.commandPalette', fallback: 'Command Palette' },
-      { keys: ['Ctrl', 'B'], descriptionKey: 'shortcuts.toggleSidebar', fallback: 'Toggle Sidebar' },
-      { keys: ['?'], descriptionKey: 'shortcuts.showShortcuts', fallback: 'Show Keyboard Shortcuts' },
-      { keys: ['Esc'], descriptionKey: 'shortcuts.closeOverlay', fallback: 'Close Overlay / Dialog' },
+      {
+        keys: ['Ctrl', 'K'],
+        descriptionKey: 'shortcuts.commandPalette',
+        fallback: 'Command Palette',
+      },
+      {
+        keys: ['Ctrl', 'B'],
+        descriptionKey: 'shortcuts.toggleSidebar',
+        fallback: 'Toggle Sidebar',
+      },
+      {
+        keys: ['?'],
+        descriptionKey: 'shortcuts.showShortcuts',
+        fallback: 'Show Keyboard Shortcuts',
+      },
+      {
+        keys: ['Esc'],
+        descriptionKey: 'shortcuts.closeOverlay',
+        fallback: 'Close Overlay / Dialog',
+      },
     ],
   },
   {
@@ -38,7 +54,11 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
       { keys: ['Ctrl', '3'], descriptionKey: 'shortcuts.ctrlModule3', fallback: 'Go to Sync' },
       { keys: ['Ctrl', '4'], descriptionKey: 'shortcuts.ctrlModule4', fallback: 'Go to Compare' },
       { keys: ['Ctrl', '5'], descriptionKey: 'shortcuts.ctrlModule5', fallback: 'Go to DataOps' },
-      { keys: ['Ctrl', '6'], descriptionKey: 'shortcuts.ctrlModule6', fallback: 'Go to Automation' },
+      {
+        keys: ['Ctrl', '6'],
+        descriptionKey: 'shortcuts.ctrlModule6',
+        fallback: 'Go to Automation',
+      },
     ],
   },
   {
@@ -59,9 +79,17 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
     fallback: 'Actions',
     shortcuts: [
       { keys: ['Ctrl', 'S'], descriptionKey: 'shortcuts.saveSettings', fallback: 'Save Settings' },
-      { keys: ['Ctrl', 'Enter'], descriptionKey: 'shortcuts.execute', fallback: 'Execute current action' },
+      {
+        keys: ['Ctrl', 'Enter'],
+        descriptionKey: 'shortcuts.execute',
+        fallback: 'Execute current action',
+      },
       { keys: ['Esc'], descriptionKey: 'shortcuts.cancel', fallback: 'Cancel / Close' },
-      { keys: ['Ctrl', 'Shift', 'P'], descriptionKey: 'shortcuts.openSettings', fallback: 'Open Settings' },
+      {
+        keys: ['Ctrl', 'Shift', 'P'],
+        descriptionKey: 'shortcuts.openSettings',
+        fallback: 'Open Settings',
+      },
     ],
   },
 ];
@@ -100,21 +128,25 @@ export const KeyboardShortcuts: React.FC<KeyboardShortcutsProps> = ({ className 
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    const target = e.target as HTMLElement;
-    const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput =
+        target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
 
-    if (e.key === '?' && !isInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      e.preventDefault();
-      setOpen((prev) => !prev);
-      return;
-    }
+      if (e.key === '?' && !isInput && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setOpen((prev) => !prev);
+        return;
+      }
 
-    if (e.key === 'Escape' && open) {
-      e.preventDefault();
-      setOpen(false);
-    }
-  }, [open]);
+      if (e.key === 'Escape' && open) {
+        e.preventDefault();
+        setOpen(false);
+      }
+    },
+    [open],
+  );
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
@@ -125,10 +157,7 @@ export const KeyboardShortcuts: React.FC<KeyboardShortcutsProps> = ({ className 
 
   return (
     <div
-      className={cn(
-        'fixed inset-0 z-[9998] flex items-center justify-center',
-        className,
-      )}
+      className={cn('fixed inset-0 z-[9998] flex items-center justify-center', className)}
       data-testid="keyboard-shortcuts-overlay"
       role="dialog"
       aria-modal="true"
@@ -225,7 +254,8 @@ export const KeyboardShortcuts: React.FC<KeyboardShortcutsProps> = ({ className 
           }}
         >
           <span className="text-[11px]">
-            {t('shortcuts.pressToClose', 'Press')} <KeyCap label="?" /> {t('shortcuts.or', 'or')} <KeyCap label="Esc" /> {t('shortcuts.toClose', 'to close')}
+            {t('shortcuts.pressToClose', 'Press')} <KeyCap label="?" /> {t('shortcuts.or', 'or')}{' '}
+            <KeyCap label="Esc" /> {t('shortcuts.toClose', 'to close')}
           </span>
         </div>
       </div>

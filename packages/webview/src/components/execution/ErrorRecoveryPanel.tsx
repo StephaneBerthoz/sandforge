@@ -76,7 +76,9 @@ const RetryRow: React.FC<{
         data-testid="error-toggle"
         aria-expanded={expanded}
       >
-        {expanded ? status.lastError : status.lastError.slice(0, 80) + (status.lastError.length > 80 ? '...' : '')}
+        {expanded
+          ? status.lastError
+          : status.lastError.slice(0, 80) + (status.lastError.length > 80 ? '...' : '')}
       </button>
 
       {expanded && (
@@ -93,7 +95,10 @@ const RetryRow: React.FC<{
       <div className="flex items-center gap-2">
         {status.nextRetryAt !== null && countdown > 0 ? (
           <span className="text-xs text-blue-400" data-testid="countdown">
-            {t('retry.retryingIn', { seconds: countdown, defaultValue: 'Retrying in {{seconds}}s' })}
+            {t('retry.retryingIn', {
+              seconds: countdown,
+              defaultValue: 'Retrying in {{seconds}}s',
+            })}
           </span>
         ) : !status.canRetry ? (
           <span className="text-xs text-red-400" data-testid="exhausted">
@@ -153,10 +158,7 @@ export const ErrorRecoveryPanel: React.FC<ErrorRecoveryPanelProps> = ({
       </h3>
 
       {statuses.length === 0 ? (
-        <div
-          className="flex items-center gap-2 text-sm text-emerald-400"
-          data-testid="no-failures"
-        >
+        <div className="flex items-center gap-2 text-sm text-emerald-400" data-testid="no-failures">
           <span>&#10003;</span>
           <span>{t('retry.noFailures', 'No failed operations')}</span>
         </div>

@@ -31,12 +31,8 @@ describe('Pagination', () => {
   it('should render all elements', () => {
     render(<Pagination {...baseProps} />);
 
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent(
-      'Showing 26-50 of 100',
-    );
-    expect(screen.getByTestId('pagination-page-info')).toHaveTextContent(
-      'Page 2 of 4',
-    );
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 26-50 of 100');
+    expect(screen.getByTestId('pagination-page-info')).toHaveTextContent('Page 2 of 4');
     expect(screen.getByLabelText('Previous page')).toBeInTheDocument();
     expect(screen.getByLabelText('Next page')).toBeInTheDocument();
     expect(screen.getByLabelText('Rows per page')).toBeInTheDocument();
@@ -65,9 +61,7 @@ describe('Pagination', () => {
 
   it('should fire onPageSizeChange when selecting a new page size', () => {
     const onPageSizeChange = vi.fn();
-    render(
-      <Pagination {...baseProps} onPageSizeChange={onPageSizeChange} />,
-    );
+    render(<Pagination {...baseProps} onPageSizeChange={onPageSizeChange} />);
 
     fireEvent.change(screen.getByLabelText('Rows per page'), {
       target: { value: '50' },
@@ -90,9 +84,7 @@ describe('Pagination', () => {
   });
 
   it('should render custom page size options', () => {
-    render(
-      <Pagination {...baseProps} pageSizeOptions={[5, 15, 30]} />,
-    );
+    render(<Pagination {...baseProps} pageSizeOptions={[5, 15, 30]} />);
 
     const select = screen.getByLabelText('Rows per page');
     const options = select.querySelectorAll('option');
@@ -114,9 +106,7 @@ describe('Pagination', () => {
       />,
     );
 
-    expect(screen.getByTestId('pagination-summary')).toHaveTextContent(
-      'Showing 0-0 of 0',
-    );
+    expect(screen.getByTestId('pagination-summary')).toHaveTextContent('Showing 0-0 of 0');
   });
 
   it('should apply custom className', () => {

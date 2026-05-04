@@ -35,10 +35,7 @@ describe('JobAnalyzer', () => {
   });
 
   it('should return empty insights for healthy jobs', () => {
-    const jobs = [
-      createJob({ status: 'Completed' }),
-      createJob({ status: 'Completed' }),
-    ];
+    const jobs = [createJob({ status: 'Completed' }), createJob({ status: 'Completed' })];
     const insights = analyzer.analyze(jobs);
     expect(insights).toHaveLength(0);
   });
@@ -69,10 +66,7 @@ describe('JobAnalyzer', () => {
     });
 
     it('should not flag fewer than 3 failures', () => {
-      const jobs = [
-        createJob({ status: 'Failed' }),
-        createJob({ status: 'Failed' }),
-      ];
+      const jobs = [createJob({ status: 'Failed' }), createJob({ status: 'Failed' })];
       const insights = analyzer.analyze(jobs);
       expect(insights.filter((i) => i.type === 'frequent_failures')).toHaveLength(0);
     });

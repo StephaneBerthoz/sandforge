@@ -9,10 +9,23 @@ import type {
 import { updateGraphNodeStatus, updateGraphNodeProgress } from '../utils/graphStoreUtils';
 
 /** Autopilot wizard step */
-export type AutopilotStep = 'connect' | 'objects' | 'compliance' | 'review' | 'executing' | 'completed';
+export type AutopilotStep =
+  | 'connect'
+  | 'objects'
+  | 'compliance'
+  | 'review'
+  | 'executing'
+  | 'completed';
 
 /** Execution status */
-export type ExecutionStatus = 'idle' | 'scanning' | 'planning' | 'executing' | 'paused' | 'completed' | 'failed';
+export type ExecutionStatus =
+  | 'idle'
+  | 'scanning'
+  | 'planning'
+  | 'executing'
+  | 'paused'
+  | 'completed'
+  | 'failed';
 
 /** Live statistics during execution */
 export interface LiveStats {
@@ -102,7 +115,11 @@ export interface AutopilotState {
   /** Select a node by object API name */
   selectNode: (nodeName: string | null) => void;
   /** Update a node's status and optionally its progress */
-  updateNodeStatus: (objectName: string, status: AutopilotNode['status'], progress?: number) => void;
+  updateNodeStatus: (
+    objectName: string,
+    status: AutopilotNode['status'],
+    progress?: number,
+  ) => void;
   /** Update a node's progress and records processed */
   updateNodeProgress: (objectName: string, progress: number, recordsProcessed: number) => void;
   /** Merge partial live stats updates */
@@ -218,7 +235,13 @@ export const useAutopilotStore = create<AutopilotState>((set, get) => ({
   },
 
   reset(): void {
-    set({ ...INITIAL_STATE, liveStats: { ...DEFAULT_LIVE_STATS }, errors: [], selectedObjects: [], rules: [] });
+    set({
+      ...INITIAL_STATE,
+      liveStats: { ...DEFAULT_LIVE_STATS },
+      errors: [],
+      selectedObjects: [],
+      rules: [],
+    });
   },
 
   selectedNode(): AutopilotNode | undefined {

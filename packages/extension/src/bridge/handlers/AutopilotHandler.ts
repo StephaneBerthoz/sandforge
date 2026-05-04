@@ -1,10 +1,19 @@
-import type { BaseMessage, AutopilotScanSchemaRequest, AutopilotGeneratePlanRequest, AutopilotExecuteRequest, AutopilotSkipNodeRequest } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  AutopilotScanSchemaRequest,
+  AutopilotGeneratePlanRequest,
+  AutopilotExecuteRequest,
+  AutopilotSkipNodeRequest,
+} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import type { AutopilotOrchestrator } from '../../modules/autopilot/AutopilotOrchestrator.js';
-import type { AutopilotConnection, SchemaScanResult } from '../../modules/autopilot/SchemaScanner.js';
+import type {
+  AutopilotConnection,
+  SchemaScanResult,
+} from '../../modules/autopilot/SchemaScanner.js';
 
 /** Message types handled by AutopilotHandler. */
 const AUTOPILOT_TYPES = new Set([
@@ -83,8 +92,16 @@ export class AutopilotHandler implements DomainHandler {
     }
     const payload = (msg as AutopilotScanSchemaRequest).payload;
     try {
-      const sourceConn = await getJsforceConnection(payload.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager) as unknown as AutopilotConnection;
-      const targetConn = await getJsforceConnection(payload.targetOrgId, this.deps.orgRegistry, this.deps.orgManager) as unknown as AutopilotConnection;
+      const sourceConn = (await getJsforceConnection(
+        payload.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      )) as unknown as AutopilotConnection;
+      const targetConn = (await getJsforceConnection(
+        payload.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      )) as unknown as AutopilotConnection;
       const scanResult = await this.orchestrator.scanSchemas(sourceConn, targetConn, {
         selectedObjects: payload.selectedObjects,
         includeStandardObjects: payload.includeStandardObjects,
@@ -96,7 +113,12 @@ export class AutopilotHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:scan-schema', 'autopilot:error', err);
-      sendNotification(this.deps, 'error', 'Autopilot', `Schema scan failed: ${extractErrorMessage(err)}`);
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        `Schema scan failed: ${extractErrorMessage(err)}`,
+      );
     }
   }
 
@@ -107,7 +129,12 @@ export class AutopilotHandler implements DomainHandler {
       return;
     }
     if (!this.graph) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'No schema scan result available. Run scan-schema first.');
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        'No schema scan result available. Run scan-schema first.',
+      );
       return;
     }
     const payload = (msg as AutopilotGeneratePlanRequest).payload;
@@ -117,11 +144,19 @@ export class AutopilotHandler implements DomainHandler {
       this.rules = rules;
       const plan = this.orchestrator.generatePlan(this.graph, payload.complianceFramework, rules);
       this.plan = plan;
-      const response = buildResponse(this.deps, msg, 'autopilot:plan-ready', { plan, graph: this.graph });
+      const response = buildResponse(this.deps, msg, 'autopilot:plan-ready', {
+        plan,
+        graph: this.graph,
+      });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:generate-plan', 'autopilot:error', err);
-      sendNotification(this.deps, 'error', 'Autopilot', `Plan generation failed: ${extractErrorMessage(err)}`);
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        `Plan generation failed: ${extractErrorMessage(err)}`,
+      );
     }
   }
 
@@ -132,7 +167,12 @@ export class AutopilotHandler implements DomainHandler {
       return;
     }
     if (!this.plan || !this.graph || !this.rules || !this.scanResult) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'No execution plan available. Run generate-plan first.');
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        'No execution plan available. Run generate-plan first.',
+      );
       return;
     }
     const payload = (msg as AutopilotExecuteRequest).payload;
@@ -191,7 +231,12 @@ export class AutopilotHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', err);
-      sendNotification(this.deps, 'error', 'Autopilot', `Execution failed: ${extractErrorMessage(err)}`);
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        `Execution failed: ${extractErrorMessage(err)}`,
+      );
     }
   }
 
@@ -232,7 +277,12 @@ export class AutopilotHandler implements DomainHandler {
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution paused.');
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:pause', 'autopilot:error', err);
-      sendNotification(this.deps, 'error', 'Autopilot', `Pause failed: ${extractErrorMessage(err)}`);
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        `Pause failed: ${extractErrorMessage(err)}`,
+      );
     }
   }
 
@@ -247,7 +297,12 @@ export class AutopilotHandler implements DomainHandler {
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution resumed.');
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:resume', 'autopilot:error', err);
-      sendNotification(this.deps, 'error', 'Autopilot', `Resume failed: ${extractErrorMessage(err)}`);
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        `Resume failed: ${extractErrorMessage(err)}`,
+      );
     }
   }
 
@@ -274,7 +329,12 @@ export class AutopilotHandler implements DomainHandler {
       return;
     }
     if (!this.profile || !this.rules || !this.scanResult) {
-      sendNotification(this.deps, 'error', 'Autopilot', 'No compliance data available. Run generate-plan first.');
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        'No compliance data available. Run generate-plan first.',
+      );
       return;
     }
     try {
@@ -290,7 +350,12 @@ export class AutopilotHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'autopilot:compliance-report', 'autopilot:error', err);
-      sendNotification(this.deps, 'error', 'Autopilot', `Report generation failed: ${extractErrorMessage(err)}`);
+      sendNotification(
+        this.deps,
+        'error',
+        'Autopilot',
+        `Report generation failed: ${extractErrorMessage(err)}`,
+      );
     }
   }
 }

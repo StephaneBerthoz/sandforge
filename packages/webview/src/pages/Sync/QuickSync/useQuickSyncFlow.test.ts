@@ -105,22 +105,23 @@ describe('useQuickSyncFlow', () => {
       result.current.setSourceOrg('org-1');
     });
 
-    expect(mockSetDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceOrgId: 'org-1' }),
-    );
+    expect(mockSetDraft).toHaveBeenCalledWith(expect.objectContaining({ sourceOrgId: 'org-1' }));
 
     act(() => {
       result.current.setTargetOrg('org-2');
     });
 
-    expect(mockSetDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ targetOrgId: 'org-2' }),
-    );
+    expect(mockSetDraft).toHaveBeenCalledWith(expect.objectContaining({ targetOrgId: 'org-2' }));
   });
 
   it('canGoToObjects is true when both orgs selected and different', () => {
     persistedValues = {
-      quickSyncDraft: { sourceOrgId: 'org-1', targetOrgId: 'org-2', selectedObjects: [], parentObjects: [] },
+      quickSyncDraft: {
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        selectedObjects: [],
+        parentObjects: [],
+      },
       quickSyncStep: 'orgs',
     };
 
@@ -131,7 +132,12 @@ describe('useQuickSyncFlow', () => {
 
   it('canGoToObjects is false when orgs are the same', () => {
     persistedValues = {
-      quickSyncDraft: { sourceOrgId: 'org-1', targetOrgId: 'org-1', selectedObjects: [], parentObjects: [] },
+      quickSyncDraft: {
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-1',
+        selectedObjects: [],
+        parentObjects: [],
+      },
       quickSyncStep: 'orgs',
     };
 
@@ -165,14 +171,17 @@ describe('useQuickSyncFlow', () => {
       result2.current.removeObject('Account');
     });
 
-    expect(mockSetDraft).toHaveBeenCalledWith(
-      expect.objectContaining({ selectedObjects: [] }),
-    );
+    expect(mockSetDraft).toHaveBeenCalledWith(expect.objectContaining({ selectedObjects: [] }));
   });
 
   it('canGoToPreview is true when at least 1 object selected', () => {
     persistedValues = {
-      quickSyncDraft: { sourceOrgId: 'org-1', targetOrgId: 'org-2', selectedObjects: ['Account'], parentObjects: [] },
+      quickSyncDraft: {
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        selectedObjects: ['Account'],
+        parentObjects: [],
+      },
       quickSyncStep: 'objects',
     };
 
@@ -183,9 +192,19 @@ describe('useQuickSyncFlow', () => {
 
   it('reset clears all state back to initial', () => {
     persistedValues = {
-      quickSyncDraft: { sourceOrgId: 'org-1', targetOrgId: 'org-2', selectedObjects: ['Account'], parentObjects: ['Contact'] },
+      quickSyncDraft: {
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        selectedObjects: ['Account'],
+        parentObjects: ['Contact'],
+      },
       quickSyncStep: 'preview',
-      quickSyncPreview: { objects: [], totalRecords: 100, totalApiCalls: 5, estimatedDurationSec: 10 },
+      quickSyncPreview: {
+        objects: [],
+        totalRecords: 100,
+        totalApiCalls: 5,
+        estimatedDurationSec: 10,
+      },
       quickSyncResult: null,
       quickSyncExecuting: false,
       quickSyncError: null,
@@ -197,7 +216,12 @@ describe('useQuickSyncFlow', () => {
       result.current.reset();
     });
 
-    expect(mockSetDraft).toHaveBeenCalledWith({ sourceOrgId: '', targetOrgId: '', selectedObjects: [], parentObjects: [] });
+    expect(mockSetDraft).toHaveBeenCalledWith({
+      sourceOrgId: '',
+      targetOrgId: '',
+      selectedObjects: [],
+      parentObjects: [],
+    });
     expect(mockSetStep).toHaveBeenCalledWith('orgs');
     expect(mockSetPreview).toHaveBeenCalledWith(null);
     expect(mockSetResult).toHaveBeenCalledWith(null);

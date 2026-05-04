@@ -4,7 +4,7 @@ import type { SalesforceApiError } from '@sandforge/shared';
 
 function createError(
   statusCode: string,
-  message: string = `Error: ${statusCode}`
+  message: string = `Error: ${statusCode}`,
 ): SalesforceApiError {
   return { statusCode, message };
 }
@@ -61,28 +61,20 @@ describe('ErrorClassifier', () => {
     it('should suggest upsert for DUPLICATE_VALUE', () => {
       const result = classifier.classify(createError('DUPLICATE_VALUE'));
 
-      expect(result.suggestedAction).toBe(
-        'Consider using upsert with external ID'
-      );
+      expect(result.suggestedAction).toBe('Consider using upsert with external ID');
     });
 
     it('should suggest truncation for STRING_TOO_LONG', () => {
       const result = classifier.classify(createError('STRING_TOO_LONG'));
 
-      expect(result.suggestedAction).toBe(
-        'Truncate field values to fit within limits'
-      );
+      expect(result.suggestedAction).toBe('Truncate field values to fit within limits');
     });
 
     it('should flag STORAGE_LIMIT_EXCEEDED as blocking', () => {
-      const result = classifier.classify(
-        createError('STORAGE_LIMIT_EXCEEDED')
-      );
+      const result = classifier.classify(createError('STORAGE_LIMIT_EXCEEDED'));
 
       expect(result.classification.blockAll).toBe(true);
-      expect(result.suggestedAction).toBe(
-        'Operation blocked: resolve storage/limit issue first'
-      );
+      expect(result.suggestedAction).toBe('Operation blocked: resolve storage/limit issue first');
     });
   });
 
@@ -92,9 +84,7 @@ describe('ErrorClassifier', () => {
 
       expect(result.classification.retryable).toBe(false);
       expect(result.classification.category).toBe('unknown');
-      expect(result.suggestedAction).toBe(
-        'Fix SOME_NEW_ERROR error and retry manually'
-      );
+      expect(result.suggestedAction).toBe('Fix SOME_NEW_ERROR error and retry manually');
     });
   });
 
@@ -131,9 +121,7 @@ describe('ErrorClassifier', () => {
     });
 
     it('should include up to 5 sample errors', () => {
-      const errors = Array.from({ length: 10 }, (_, i) =>
-        createError(`ERROR_${i}`)
-      );
+      const errors = Array.from({ length: 10 }, (_, i) => createError(`ERROR_${i}`));
 
       const { summary } = classifier.classifyBatch(errors);
       expect(summary.sampleErrors).toHaveLength(5);
@@ -154,19 +142,13 @@ describe('ErrorClassifier', () => {
 
   describe('hasBlockingError', () => {
     it('should return true when a blocking error is present', () => {
-      const errors = [
-        createError('INVALID_FIELD'),
-        createError('STORAGE_LIMIT_EXCEEDED'),
-      ];
+      const errors = [createError('INVALID_FIELD'), createError('STORAGE_LIMIT_EXCEEDED')];
 
       expect(classifier.hasBlockingError(errors)).toBe(true);
     });
 
     it('should return false when no blocking errors exist', () => {
-      const errors = [
-        createError('INVALID_FIELD'),
-        createError('UNABLE_TO_LOCK_ROW'),
-      ];
+      const errors = [createError('INVALID_FIELD'), createError('UNABLE_TO_LOCK_ROW')];
 
       expect(classifier.hasBlockingError(errors)).toBe(false);
     });

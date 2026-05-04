@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  RobustnessConfigSchema,
-  DEFAULT_ROBUSTNESS_CONFIG,
-} from './robustness-config.schema';
+import { RobustnessConfigSchema, DEFAULT_ROBUSTNESS_CONFIG } from './robustness-config.schema';
 
 describe('RobustnessConfigSchema', () => {
   describe('default config', () => {

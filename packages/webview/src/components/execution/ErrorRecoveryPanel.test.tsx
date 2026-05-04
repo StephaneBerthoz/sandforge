@@ -7,10 +7,11 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown> | string) => {
       if (typeof opts === 'string') return opts;
-      if (opts?.defaultValue) return String(opts.defaultValue)
-        .replace('{{current}}', String(opts.current ?? ''))
-        .replace('{{max}}', String(opts.max ?? ''))
-        .replace('{{seconds}}', String(opts.seconds ?? ''));
+      if (opts?.defaultValue)
+        return String(opts.defaultValue)
+          .replace('{{current}}', String(opts.current ?? ''))
+          .replace('{{max}}', String(opts.max ?? ''))
+          .replace('{{seconds}}', String(opts.seconds ?? ''));
       return key;
     },
   }),
@@ -230,7 +231,8 @@ describe('ErrorRecoveryPanel', () => {
         attemptNumber: 1,
         maxAttempts: 3,
         nextRetryAt: null,
-        lastError: 'This is a long error message that provides detailed information about what went wrong during the operation',
+        lastError:
+          'This is a long error message that provides detailed information about what went wrong during the operation',
         canRetry: true,
         canAbort: true,
       });

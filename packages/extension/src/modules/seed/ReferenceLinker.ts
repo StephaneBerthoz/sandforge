@@ -13,7 +13,7 @@ export class ReferenceLinker {
     records: Record<string, unknown>[],
     referenceField: string,
     _targetObject: string,
-    availableIds: string[]
+    availableIds: string[],
   ): Record<string, unknown>[] {
     if (availableIds.length === 0) {
       return records;

@@ -9,7 +9,8 @@ export const home: TranslationRecord = {
   opsLast7d: 'Ops (7d)',
   limitWarnings: 'Limit Warnings',
   forgeASandbox: 'Forge a Sandbox',
-  forgeDescription: 'Enter a record ID or SOQL query to clone a full data graph — with dependencies, ID remapping, and PII anonymization.',
+  forgeDescription:
+    'Enter a record ID or SOQL query to clone a full data graph — with dependencies, ID remapping, and PII anonymization.',
   recordIdPlaceholder: 'Record ID or SOQL query...',
   startForge: 'Start Forge',
   sandboxHealth: 'Sandbox Health',

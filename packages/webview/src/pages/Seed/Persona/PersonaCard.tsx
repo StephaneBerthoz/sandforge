@@ -1,8 +1,16 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Shield, Heart, ShoppingCart, Landmark, Cpu,
-  Building2, GraduationCap, Truck, Users, HandHeart,
+  Shield,
+  Heart,
+  ShoppingCart,
+  Landmark,
+  Cpu,
+  Building2,
+  GraduationCap,
+  Truck,
+  Users,
+  HandHeart,
   HelpCircle,
 } from 'lucide-react';
 import type { PersonaMsg } from '@sandforge/shared';
@@ -102,9 +110,7 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({
             <Badge variant="default">
               {localeFlag} {persona.locale}
             </Badge>
-            <Badge variant="default">
-              {t('seed.persona.card.fields', { count: fieldCount })}
-            </Badge>
+            <Badge variant="default">{t('seed.persona.card.fields', { count: fieldCount })}</Badge>
           </div>
 
           <div className="flex gap-2">

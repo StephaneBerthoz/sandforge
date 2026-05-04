@@ -75,11 +75,13 @@ function mockGlobalSObject(
 }
 
 /** Helper: create a mock AutopilotConnection. */
-function mockConn(config: {
-  describes?: Record<string, ObjectDescribeResult>;
-  globalSObjects?: GlobalSObjectDescribe[];
-  counts?: Record<string, number>;
-} = {}): AutopilotConnection {
+function mockConn(
+  config: {
+    describes?: Record<string, ObjectDescribeResult>;
+    globalSObjects?: GlobalSObjectDescribe[];
+    counts?: Record<string, number>;
+  } = {},
+): AutopilotConnection {
   const { describes = {}, globalSObjects = [], counts = {} } = config;
 
   return {
@@ -121,10 +123,7 @@ describe('SchemaScanner', () => {
       },
     });
     const target = mockConn({
-      globalSObjects: [
-        mockGlobalSObject('MyCustom__c'),
-        mockGlobalSObject('Another__c'),
-      ],
+      globalSObjects: [mockGlobalSObject('MyCustom__c'), mockGlobalSObject('Another__c')],
     });
 
     const result = await scanner.scan(source, target, [], false);
@@ -139,17 +138,12 @@ describe('SchemaScanner', () => {
   it('should describe only selected objects and their dependencies', async () => {
     const source = mockConn({
       describes: {
-        Contact: mockDescribe('Contact', [
-          lookupField('AccountId', ['Account'], 'Account'),
-        ]),
+        Contact: mockDescribe('Contact', [lookupField('AccountId', ['Account'], 'Account')]),
         Account: mockDescribe('Account'),
       },
     });
     const target = mockConn({
-      globalSObjects: [
-        mockGlobalSObject('Contact'),
-        mockGlobalSObject('Account'),
-      ],
+      globalSObjects: [mockGlobalSObject('Contact'), mockGlobalSObject('Account')],
     });
 
     const result = await scanner.scan(source, target, ['Contact'], false);
@@ -200,12 +194,7 @@ describe('SchemaScanner', () => {
       ],
     });
 
-    const result = await scanner.scan(
-      source,
-      target,
-      ['Account', 'Contact'],
-      false,
-    );
+    const result = await scanner.scan(source, target, ['Account', 'Contact'], false);
 
     expect(result.missingInTarget).toContain('Contact');
     expect(result.missingInTarget).not.toContain('Account');
@@ -220,18 +209,10 @@ describe('SchemaScanner', () => {
       counts: { Account: 5000, Contact: 12000 },
     });
     const target = mockConn({
-      globalSObjects: [
-        mockGlobalSObject('Account'),
-        mockGlobalSObject('Contact'),
-      ],
+      globalSObjects: [mockGlobalSObject('Account'), mockGlobalSObject('Contact')],
     });
 
-    const result = await scanner.scan(
-      source,
-      target,
-      ['Account', 'Contact'],
-      false,
-    );
+    const result = await scanner.scan(source, target, ['Account', 'Contact'], false);
 
     expect(result.recordCounts.get('Account')).toBe(5000);
     expect(result.recordCounts.get('Contact')).toBe(12000);
@@ -260,9 +241,7 @@ describe('SchemaScanner', () => {
   it('should handle polymorphic lookups (referenceTo with multiple targets)', async () => {
     const source = mockConn({
       describes: {
-        Task: mockDescribe('Task', [
-          lookupField('WhoId', ['Contact', 'Lead'], 'Who'),
-        ]),
+        Task: mockDescribe('Task', [lookupField('WhoId', ['Contact', 'Lead'], 'Who')]),
         Contact: mockDescribe('Contact'),
         Lead: mockDescribe('Lead'),
       },
@@ -286,9 +265,7 @@ describe('SchemaScanner', () => {
   it('should handle self-referencing objects (Account.ParentId -> Account)', async () => {
     const source = mockConn({
       describes: {
-        Account: mockDescribe('Account', [
-          lookupField('ParentId', ['Account'], 'Parent'),
-        ]),
+        Account: mockDescribe('Account', [lookupField('ParentId', ['Account'], 'Parent')]),
       },
     });
     const target = mockConn({
@@ -359,24 +336,17 @@ describe('SchemaScanner', () => {
         Account: mockDescribe('Account'),
       },
     });
-    (source.describe as ReturnType<typeof vi.fn>).mockImplementation(
-      (name: string) => {
-        if (name === 'Restricted') {
-          return Promise.reject(new Error('No access'));
-        }
-        return Promise.resolve(mockDescribe(name));
-      },
-    );
+    (source.describe as ReturnType<typeof vi.fn>).mockImplementation((name: string) => {
+      if (name === 'Restricted') {
+        return Promise.reject(new Error('No access'));
+      }
+      return Promise.resolve(mockDescribe(name));
+    });
     const target = mockConn({
       globalSObjects: [mockGlobalSObject('Account')],
     });
 
-    const result = await scanner.scan(
-      source,
-      target,
-      ['Account', 'Restricted'],
-      false,
-    );
+    const result = await scanner.scan(source, target, ['Account', 'Restricted'], false);
 
     // Account should succeed, Restricted should be silently skipped
     expect(result.objectDescribes.has('Account')).toBe(true);

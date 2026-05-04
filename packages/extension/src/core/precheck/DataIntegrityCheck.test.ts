@@ -38,14 +38,16 @@ describe('DataIntegrityCheck', () => {
     it('should pass when all lookup targets exist', async () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
-          lookupTargets: [{
-            objectApiName: 'Contact',
-            fieldApiName: 'AccountId',
-            referencedObject: 'Account',
-            missingTargetCount: 0,
-            totalReferenceCount: 100,
-          }],
-        })
+          lookupTargets: [
+            {
+              objectApiName: 'Contact',
+              fieldApiName: 'AccountId',
+              referencedObject: 'Account',
+              missingTargetCount: 0,
+              totalReferenceCount: 100,
+            },
+          ],
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -59,14 +61,16 @@ describe('DataIntegrityCheck', () => {
     it('should fail when lookup targets are missing', async () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
-          lookupTargets: [{
-            objectApiName: 'Contact',
-            fieldApiName: 'AccountId',
-            referencedObject: 'Account',
-            missingTargetCount: 15,
-            totalReferenceCount: 100,
-          }],
-        })
+          lookupTargets: [
+            {
+              objectApiName: 'Contact',
+              fieldApiName: 'AccountId',
+              referencedObject: 'Account',
+              missingTargetCount: 15,
+              totalReferenceCount: 100,
+            },
+          ],
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -81,12 +85,14 @@ describe('DataIntegrityCheck', () => {
     it('should pass when no unique field conflicts', async () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
-          uniqueFieldConflicts: [{
-            objectApiName: 'Account',
-            fieldApiName: 'ExternalId__c',
-            conflictCount: 0,
-          }],
-        })
+          uniqueFieldConflicts: [
+            {
+              objectApiName: 'Account',
+              fieldApiName: 'ExternalId__c',
+              conflictCount: 0,
+            },
+          ],
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -100,12 +106,14 @@ describe('DataIntegrityCheck', () => {
     it('should fail when unique field conflicts exist', async () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
-          uniqueFieldConflicts: [{
-            objectApiName: 'Account',
-            fieldApiName: 'ExternalId__c',
-            conflictCount: 5,
-          }],
-        })
+          uniqueFieldConflicts: [
+            {
+              objectApiName: 'Account',
+              fieldApiName: 'ExternalId__c',
+              conflictCount: 5,
+            },
+          ],
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -120,12 +128,14 @@ describe('DataIntegrityCheck', () => {
     it('should pass when picklist values are valid', async () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
-          invalidPicklistValues: [{
-            objectApiName: 'Account',
-            fieldApiName: 'Industry',
-            invalidValues: [],
-          }],
-        })
+          invalidPicklistValues: [
+            {
+              objectApiName: 'Account',
+              fieldApiName: 'Industry',
+              invalidValues: [],
+            },
+          ],
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -138,12 +148,14 @@ describe('DataIntegrityCheck', () => {
     it('should warn when invalid picklist values exist', async () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
-          invalidPicklistValues: [{
-            objectApiName: 'Account',
-            fieldApiName: 'Industry',
-            invalidValues: ['InvalidValue1', 'InvalidValue2'],
-          }],
-        })
+          invalidPicklistValues: [
+            {
+              objectApiName: 'Account',
+              fieldApiName: 'Industry',
+              invalidValues: ['InvalidValue1', 'InvalidValue2'],
+            },
+          ],
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -158,13 +170,15 @@ describe('DataIntegrityCheck', () => {
     it('should pass when External ID field is available', async () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
-          externalIdFields: [{
-            objectApiName: 'Account',
-            fieldApiName: 'ExternalId__c',
-            isExternalId: true,
-            isUnique: true,
-          }],
-        })
+          externalIdFields: [
+            {
+              objectApiName: 'Account',
+              fieldApiName: 'ExternalId__c',
+              isExternalId: true,
+              isUnique: true,
+            },
+          ],
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -178,13 +192,15 @@ describe('DataIntegrityCheck', () => {
     it('should fail when field is not an External ID', async () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
-          externalIdFields: [{
-            objectApiName: 'Account',
-            fieldApiName: 'CustomField__c',
-            isExternalId: false,
-            isUnique: false,
-          }],
-        })
+          externalIdFields: [
+            {
+              objectApiName: 'Account',
+              fieldApiName: 'CustomField__c',
+              isExternalId: false,
+              isUnique: false,
+            },
+          ],
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -199,7 +215,13 @@ describe('DataIntegrityCheck', () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
           lookupTargets: [
-            { objectApiName: 'Contact', fieldApiName: 'AccountId', referencedObject: 'Account', missingTargetCount: 0, totalReferenceCount: 50 },
+            {
+              objectApiName: 'Contact',
+              fieldApiName: 'AccountId',
+              referencedObject: 'Account',
+              missingTargetCount: 0,
+              totalReferenceCount: 50,
+            },
           ],
           uniqueFieldConflicts: [
             { objectApiName: 'Account', fieldApiName: 'ExtId__c', conflictCount: 0 },
@@ -208,9 +230,14 @@ describe('DataIntegrityCheck', () => {
             { objectApiName: 'Account', fieldApiName: 'Type', invalidValues: [] },
           ],
           externalIdFields: [
-            { objectApiName: 'Account', fieldApiName: 'ExtId__c', isExternalId: true, isUnique: true },
+            {
+              objectApiName: 'Account',
+              fieldApiName: 'ExtId__c',
+              isExternalId: true,
+              isUnique: true,
+            },
           ],
-        })
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -223,9 +250,15 @@ describe('DataIntegrityCheck', () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
           lookupTargets: [
-            { objectApiName: 'Contact', fieldApiName: 'AccountId', referencedObject: 'Account', missingTargetCount: 0, totalReferenceCount: 50 },
+            {
+              objectApiName: 'Contact',
+              fieldApiName: 'AccountId',
+              referencedObject: 'Account',
+              missingTargetCount: 0,
+              totalReferenceCount: 50,
+            },
           ],
-        })
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -253,12 +286,18 @@ describe('DataIntegrityCheck', () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
           lookupTargets: [
-            { objectApiName: 'Contact', fieldApiName: 'AccountId', referencedObject: 'Account', missingTargetCount: 5, totalReferenceCount: 50 },
+            {
+              objectApiName: 'Contact',
+              fieldApiName: 'AccountId',
+              referencedObject: 'Account',
+              missingTargetCount: 5,
+              totalReferenceCount: 50,
+            },
           ],
           uniqueFieldConflicts: [
             { objectApiName: 'Account', fieldApiName: 'ExtId__c', conflictCount: 3 },
           ],
-        })
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);
@@ -273,10 +312,22 @@ describe('DataIntegrityCheck', () => {
       const fetchFn: FetchDataInfoFn = vi.fn().mockResolvedValue(
         createDataInfo({
           lookupTargets: [
-            { objectApiName: 'Contact', fieldApiName: 'AccountId', referencedObject: 'Account', missingTargetCount: 0, totalReferenceCount: 50 },
-            { objectApiName: 'Case', fieldApiName: 'ContactId', referencedObject: 'Contact', missingTargetCount: 0, totalReferenceCount: 30 },
+            {
+              objectApiName: 'Contact',
+              fieldApiName: 'AccountId',
+              referencedObject: 'Account',
+              missingTargetCount: 0,
+              totalReferenceCount: 50,
+            },
+            {
+              objectApiName: 'Case',
+              fieldApiName: 'ContactId',
+              referencedObject: 'Contact',
+              missingTargetCount: 0,
+              totalReferenceCount: 30,
+            },
           ],
-        })
+        }),
       );
 
       const checker = new DataIntegrityCheck(fetchFn);

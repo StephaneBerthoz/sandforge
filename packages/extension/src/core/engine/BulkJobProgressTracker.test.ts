@@ -3,7 +3,6 @@ import { BulkJobProgressTracker } from './BulkJobProgressTracker';
 import { BulkApiManager } from './BulkApiManager';
 import type { BulkJobInfo } from './BulkApiManager';
 
-
 function createJob(id: string, overrides?: Partial<BulkJobInfo>): BulkJobInfo {
   return {
     id,
@@ -77,12 +76,14 @@ describe('BulkJobProgressTracker', () => {
 
   describe('progress emission', () => {
     it('should emit progress with correct per-object data', () => {
-      manager.registerJob(createJob('job-1', {
-        state: 'InProgress',
-        operation: 'insert',
-        numberRecordsProcessed: 50,
-        numberRecordsFailed: 2,
-      }));
+      manager.registerJob(
+        createJob('job-1', {
+          state: 'InProgress',
+          operation: 'insert',
+          numberRecordsProcessed: 50,
+          numberRecordsFailed: 2,
+        }),
+      );
 
       const callback = vi.fn();
       tracker.onProgress(callback);
@@ -130,15 +131,19 @@ describe('BulkJobProgressTracker', () => {
 
   describe('weighted percentage calculation', () => {
     it('should compute weighted average based on totalRecords', () => {
-      manager.registerJob(createJob('job-1', {
-        state: 'InProgress',
-        numberRecordsProcessed: 100,
-      }));
-      manager.registerJob(createJob('job-2', {
-        state: 'InProgress',
-        object: 'Contact',
-        numberRecordsProcessed: 50,
-      }));
+      manager.registerJob(
+        createJob('job-1', {
+          state: 'InProgress',
+          numberRecordsProcessed: 100,
+        }),
+      );
+      manager.registerJob(
+        createJob('job-2', {
+          state: 'InProgress',
+          object: 'Contact',
+          numberRecordsProcessed: 50,
+        }),
+      );
 
       const callback = vi.fn();
       tracker.onProgress(callback);
@@ -155,9 +160,7 @@ describe('BulkJobProgressTracker', () => {
     it('should return 0 when totalRecords is 0', () => {
       const callback = vi.fn();
       tracker.onProgress(callback);
-      tracker.startTracking('exec-1', [
-        { jobId: 'job-1', objectName: 'Account', totalRecords: 0 },
-      ]);
+      tracker.startTracking('exec-1', [{ jobId: 'job-1', objectName: 'Account', totalRecords: 0 }]);
 
       const progress: BulkExecutionProgress = callback.mock.calls[0][0];
       expect(progress.overallPercent).toBe(0);

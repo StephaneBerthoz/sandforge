@@ -15,8 +15,14 @@ describe('SF_FIELD_TYPES', () => {
 
   it('should contain core field types', () => {
     const coreTypes: SfFieldType[] = [
-      'id', 'string', 'boolean', 'int', 'double',
-      'date', 'datetime', 'reference',
+      'id',
+      'string',
+      'boolean',
+      'int',
+      'double',
+      'date',
+      'datetime',
+      'reference',
     ];
 
     for (const fieldType of coreTypes) {
@@ -80,10 +86,9 @@ describe('SF_EXTERNAL_ID_COMPATIBLE_TYPES', () => {
 describe('SF_FIELD_MAX_LENGTHS', () => {
   it('should have all keys as valid SfFieldType values', () => {
     for (const key of Object.keys(SF_FIELD_MAX_LENGTHS)) {
-      expect(
-        SF_FIELD_TYPES as readonly string[],
-        `${key} should be a valid SfFieldType`,
-      ).toContain(key);
+      expect(SF_FIELD_TYPES as readonly string[], `${key} should be a valid SfFieldType`).toContain(
+        key,
+      );
     }
   });
 

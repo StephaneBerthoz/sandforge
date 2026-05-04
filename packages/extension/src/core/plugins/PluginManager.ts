@@ -22,7 +22,7 @@ export interface TransformerExtension {
   name: string;
   transform(
     record: Record<string, unknown>,
-    config: Record<string, unknown>
+    config: Record<string, unknown>,
   ): Record<string, unknown>;
 }
 
@@ -55,10 +55,7 @@ export interface ExportFormatExtension {
 /** A grappe strategy extension point */
 export interface GrappeStrategyExtension {
   name: string;
-  partition(
-    records: string[],
-    partitionCount: number
-  ): string[][];
+  partition(records: string[], partitionCount: number): string[][];
 }
 
 /** All extension point types */
@@ -102,21 +99,26 @@ export interface PluginContext {
 
 /** Schema for plugin manifest validation */
 export const pluginManifestSchema = z.object({
-  name: z.string().min(1).regex(/^[a-z0-9-]+$/, 'Plugin name must be lowercase alphanumeric with hyphens'),
+  name: z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9-]+$/, 'Plugin name must be lowercase alphanumeric with hyphens'),
   version: z.string().regex(/^\d+\.\d+\.\d+$/, 'Version must follow semver (x.y.z)'),
   description: z.string().min(1),
   author: z.string().optional(),
   entrypoint: z.string().min(1),
-  extensionPoints: z.array(
-    z.enum([
-      'seedStrategies',
-      'transformers',
-      'preChecks',
-      'pipelineSteps',
-      'exportFormats',
-      'grappeStrategies',
-    ])
-  ).min(1),
+  extensionPoints: z
+    .array(
+      z.enum([
+        'seedStrategies',
+        'transformers',
+        'preChecks',
+        'pipelineSteps',
+        'exportFormats',
+        'grappeStrategies',
+      ]),
+    )
+    .min(1),
   dependencies: z.record(z.string(), z.string()).optional().default({}),
   sandforgeMinVersion: z.string().optional(),
 });
@@ -363,22 +365,22 @@ export class PluginManager {
    */
   private removeExtensionsFor(pluginName: string): void {
     this.extensionPoints.seedStrategies = this.extensionPoints.seedStrategies.filter(
-      (s) => s.name !== pluginName
+      (s) => s.name !== pluginName,
     );
     this.extensionPoints.transformers = this.extensionPoints.transformers.filter(
-      (t) => t.name !== pluginName
+      (t) => t.name !== pluginName,
     );
     this.extensionPoints.preChecks = this.extensionPoints.preChecks.filter(
-      (p) => p.name !== pluginName
+      (p) => p.name !== pluginName,
     );
     this.extensionPoints.pipelineSteps = this.extensionPoints.pipelineSteps.filter(
-      (s) => s.name !== pluginName
+      (s) => s.name !== pluginName,
     );
     this.extensionPoints.exportFormats = this.extensionPoints.exportFormats.filter(
-      (f) => f.name !== pluginName
+      (f) => f.name !== pluginName,
     );
     this.extensionPoints.grappeStrategies = this.extensionPoints.grappeStrategies.filter(
-      (g) => g.name !== pluginName
+      (g) => g.name !== pluginName,
     );
   }
 }

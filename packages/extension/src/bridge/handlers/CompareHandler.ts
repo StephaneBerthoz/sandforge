@@ -59,15 +59,29 @@ export class CompareHandler implements DomainHandler {
 
   private async handleCompareStart(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string; types: string[] } }).payload;
+    const payload = (
+      msg as BaseMessage & {
+        payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
+      }
+    ).payload;
 
     try {
-      const sourceConn = await getJsforceConnection(payload.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager);
-      const targetConn = await getJsforceConnection(payload.targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
+      const sourceConn = await getJsforceConnection(
+        payload.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const targetConn = await getJsforceConnection(
+        payload.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       // Resolve dynamic query limits based on source org tier
       const compareSourceOrg = this.deps.orgManager.getOrg(payload.sourceOrgId);
-      const compareOrgTier = resolveOrgTier(compareSourceOrg?.orgType === 'Sandbox' || compareSourceOrg?.orgType === 'Scratch');
+      const compareOrgTier = resolveOrgTier(
+        compareSourceOrg?.orgType === 'Sandbox' || compareSourceOrg?.orgType === 'Scratch',
+      );
       const compareQueryLimits = getQueryLimits(compareOrgTier);
 
       const { DiffEngine } = await import('../../modules/compare/DiffEngine.js');
@@ -78,57 +92,63 @@ export class CompareHandler implements DomainHandler {
 
       const diffEngine = new DiffEngine();
 
-      const fetchMetadata = async (orgId: string, componentType: import('@sandforge/shared').MetadataComponentType) => {
+      const fetchMetadata = async (
+        orgId: string,
+        componentType: import('@sandforge/shared').MetadataComponentType,
+      ) => {
         const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
         const components = new Map<string, string>();
-        const listResult = await conn.metadata.list([{ type: componentType }]) as Array<{ fullName: string }>;
+        const listResult = (await conn.metadata.list([{ type: componentType }])) as Array<{
+          fullName: string;
+        }>;
         checkApiLimits(conn.limitInfo, `compare:metadata list ${String(componentType)}`);
-        for (const item of (Array.isArray(listResult) ? listResult : [])) {
+        for (const item of Array.isArray(listResult) ? listResult : []) {
           components.set(item.fullName, JSON.stringify(item));
         }
         return components;
       };
 
       const metadataCompare = new MetadataCompare(fetchMetadata, diffEngine);
-      const configCompare = new ConfigCompare(
-        async (orgId) => {
-          const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
-          const settings = await conn.request(`/services/data/${SF_API_VERSION}/tooling/query?q=SELECT+FullName,Metadata+FROM+OrgWideEmailAddress+LIMIT+1`) as Record<string, string>;
-          return new Map<string, string>(Object.entries(settings));
-        },
-        diffEngine,
-      );
-      const permissionCompare = new PermissionCompare(
-        async (orgId) => {
-          const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
-          const records = await queryAll<{ Id: string; Name: string }>(
-            conn,
-            `SELECT Id, Name FROM PermissionSet LIMIT ${compareQueryLimits.permissionSetLimit}`,
-          );
-          checkApiLimits(conn.limitInfo, `compare:permissionSets query`);
-          return records.map(r => ({
-            name: r.Name,
-            type: 'PermissionSet' as const,
-            objectPermissions: {} as Record<string, { create: boolean; read: boolean; update: boolean; delete: boolean }>,
-            fieldPermissions: {} as Record<string, boolean>,
-          }));
-        },
-      );
-      const dataCompare = new DataCompare(
-        async (orgId, objectName) => {
-          const safeObj = sanitizeSoqlObjectName(objectName);
-          const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
-          const dataRecords = await queryWithFieldsFallback<Record<string, string>>(
-            conn, safeObj,
-            `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${compareQueryLimits.defaultQueryLimit}`,
-          );
-          checkApiLimits(conn.limitInfo, `compare:data query ${safeObj}`);
-          return dataRecords;
-        },
-      );
+      const configCompare = new ConfigCompare(async (orgId) => {
+        const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
+        const settings = (await conn.request(
+          `/services/data/${SF_API_VERSION}/tooling/query?q=SELECT+FullName,Metadata+FROM+OrgWideEmailAddress+LIMIT+1`,
+        )) as Record<string, string>;
+        return new Map<string, string>(Object.entries(settings));
+      }, diffEngine);
+      const permissionCompare = new PermissionCompare(async (orgId) => {
+        const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
+        const records = await queryAll<{ Id: string; Name: string }>(
+          conn,
+          `SELECT Id, Name FROM PermissionSet LIMIT ${compareQueryLimits.permissionSetLimit}`,
+        );
+        checkApiLimits(conn.limitInfo, `compare:permissionSets query`);
+        return records.map((r) => ({
+          name: r.Name,
+          type: 'PermissionSet' as const,
+          objectPermissions: {} as Record<
+            string,
+            { create: boolean; read: boolean; update: boolean; delete: boolean }
+          >,
+          fieldPermissions: {} as Record<string, boolean>,
+        }));
+      });
+      const dataCompare = new DataCompare(async (orgId, objectName) => {
+        const safeObj = sanitizeSoqlObjectName(objectName);
+        const conn = orgId === payload.sourceOrgId ? sourceConn : targetConn;
+        const dataRecords = await queryWithFieldsFallback<Record<string, string>>(
+          conn,
+          safeObj,
+          `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${compareQueryLimits.defaultQueryLimit}`,
+        );
+        checkApiLimits(conn.limitInfo, `compare:data query ${safeObj}`);
+        return dataRecords;
+      });
 
       if (!this.deps.services) {
-        throw new Error('CompareHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.');
+        throw new Error(
+          'CompareHandler: composition-root services not injected. Wire ExtensionHandlersDeps.services in extension.ts.',
+        );
       }
       const orchestrator = this.deps.services.compareOrchestrator({
         metadataCompare,
@@ -153,7 +173,12 @@ export class CompareHandler implements DomainHandler {
 
       const result = await orchestrator.execute(config);
 
-      const response = buildResponse(this.deps, msg, 'compare:execute:response', result as unknown as Record<string, unknown>);
+      const response = buildResponse(
+        this.deps,
+        msg,
+        'compare:execute:response',
+        result as unknown as Record<string, unknown>,
+      );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -167,18 +192,37 @@ export class CompareHandler implements DomainHandler {
    */
   private async handlePermissions(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } }).payload;
+    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } })
+      .payload;
 
     try {
-      const sourceConn = await getJsforceConnection(payload.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager);
-      const targetConn = await getJsforceConnection(payload.targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
+      const sourceConn = await getJsforceConnection(
+        payload.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const targetConn = await getJsforceConnection(
+        payload.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
       const sourceOrg = this.deps.orgManager.getOrg(payload.sourceOrgId);
-      const orgTier = resolveOrgTier(sourceOrg?.orgType === 'Sandbox' || sourceOrg?.orgType === 'Scratch');
+      const orgTier = resolveOrgTier(
+        sourceOrg?.orgType === 'Sandbox' || sourceOrg?.orgType === 'Scratch',
+      );
       const limits = getQueryLimits(orgTier);
 
-      const fetchPermissions = async (conn: Awaited<ReturnType<typeof getJsforceConnection>>, label: string) => {
-        const permSets = await queryAll<{ Id: string; Name: string; Label: string; IsOwnedByProfile: boolean }>(
+      const fetchPermissions = async (
+        conn: Awaited<ReturnType<typeof getJsforceConnection>>,
+        label: string,
+      ) => {
+        const permSets = await queryAll<{
+          Id: string;
+          Name: string;
+          Label: string;
+          IsOwnedByProfile: boolean;
+        }>(
           conn,
           `SELECT Id, Name, Label, IsOwnedByProfile FROM PermissionSet LIMIT ${limits.permissionSetLimit}`,
         );
@@ -205,18 +249,32 @@ export class CompareHandler implements DomainHandler {
 
       const permissionDiffs = {
         permissionSets: {
-          sourceOnly: sourcePerms.permSets.filter((p) => !targetPermNames.has(p.Name)).map((p) => ({ name: p.Name, label: p.Label })),
-          targetOnly: targetPerms.permSets.filter((p) => !sourcePermNames.has(p.Name)).map((p) => ({ name: p.Name, label: p.Label })),
-          shared: sourcePerms.permSets.filter((p) => targetPermNames.has(p.Name)).map((p) => ({ name: p.Name, label: p.Label })),
+          sourceOnly: sourcePerms.permSets
+            .filter((p) => !targetPermNames.has(p.Name))
+            .map((p) => ({ name: p.Name, label: p.Label })),
+          targetOnly: targetPerms.permSets
+            .filter((p) => !sourcePermNames.has(p.Name))
+            .map((p) => ({ name: p.Name, label: p.Label })),
+          shared: sourcePerms.permSets
+            .filter((p) => targetPermNames.has(p.Name))
+            .map((p) => ({ name: p.Name, label: p.Label })),
         },
         profiles: {
-          sourceOnly: sourcePerms.profiles.filter((p) => !targetProfileNames.has(p.Name)).map((p) => ({ name: p.Name })),
-          targetOnly: targetPerms.profiles.filter((p) => !sourceProfileNames.has(p.Name)).map((p) => ({ name: p.Name })),
-          shared: sourcePerms.profiles.filter((p) => targetProfileNames.has(p.Name)).map((p) => ({ name: p.Name })),
+          sourceOnly: sourcePerms.profiles
+            .filter((p) => !targetProfileNames.has(p.Name))
+            .map((p) => ({ name: p.Name })),
+          targetOnly: targetPerms.profiles
+            .filter((p) => !sourceProfileNames.has(p.Name))
+            .map((p) => ({ name: p.Name })),
+          shared: sourcePerms.profiles
+            .filter((p) => targetProfileNames.has(p.Name))
+            .map((p) => ({ name: p.Name })),
         },
       };
 
-      const response = buildResponse(this.deps, msg, 'compare:permissions:response', { permissions: permissionDiffs });
+      const response = buildResponse(this.deps, msg, 'compare:permissions:response', {
+        permissions: permissionDiffs,
+      });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
@@ -230,22 +288,36 @@ export class CompareHandler implements DomainHandler {
    */
   private async handleSnapshots(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } }).payload;
+    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } })
+      .payload;
 
     try {
-      const sourceConn = await getJsforceConnection(payload.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager);
-      const targetConn = await getJsforceConnection(payload.targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
+      const sourceConn = await getJsforceConnection(
+        payload.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const targetConn = await getJsforceConnection(
+        payload.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
-      const describeOrg = async (conn: Awaited<ReturnType<typeof getJsforceConnection>>, label: string) => {
+      const describeOrg = async (
+        conn: Awaited<ReturnType<typeof getJsforceConnection>>,
+        label: string,
+      ) => {
         const globalDescribe = await conn.describeGlobal();
         checkApiLimits(conn.limitInfo, `compare:snapshots describeGlobal ${label}`);
 
-        const allObjects = globalDescribe.sobjects.map((s: { name: string; custom: boolean; label: string; queryable: boolean }) => ({
-          name: s.name,
-          custom: s.custom,
-          label: s.label,
-          queryable: s.queryable,
-        }));
+        const allObjects = globalDescribe.sobjects.map(
+          (s: { name: string; custom: boolean; label: string; queryable: boolean }) => ({
+            name: s.name,
+            custom: s.custom,
+            label: s.label,
+            queryable: s.queryable,
+          }),
+        );
 
         return {
           totalObjects: allObjects.length,
@@ -280,8 +352,12 @@ export class CompareHandler implements DomainHandler {
           queryableObjects: targetSnapshot.queryableObjects,
         },
         diff: {
-          sourceOnly: sourceSnapshot.objects.filter((o) => !targetObjectNames.has(o.name)).map((o) => o.name),
-          targetOnly: targetSnapshot.objects.filter((o) => !sourceObjectNames.has(o.name)).map((o) => o.name),
+          sourceOnly: sourceSnapshot.objects
+            .filter((o) => !targetObjectNames.has(o.name))
+            .map((o) => o.name),
+          targetOnly: targetSnapshot.objects
+            .filter((o) => !sourceObjectNames.has(o.name))
+            .map((o) => o.name),
           sharedCount: sourceSnapshot.objects.filter((o) => targetObjectNames.has(o.name)).length,
         },
         capturedAt: new Date().toISOString(),
@@ -301,13 +377,25 @@ export class CompareHandler implements DomainHandler {
    */
   private async handleDrift(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } }).payload;
+    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } })
+      .payload;
 
     try {
-      const sourceConn = await getJsforceConnection(payload.sourceOrgId, this.deps.orgRegistry, this.deps.orgManager);
-      const targetConn = await getJsforceConnection(payload.targetOrgId, this.deps.orgRegistry, this.deps.orgManager);
+      const sourceConn = await getJsforceConnection(
+        payload.sourceOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
+      const targetConn = await getJsforceConnection(
+        payload.targetOrgId,
+        this.deps.orgRegistry,
+        this.deps.orgManager,
+      );
 
-      const fetchOrgSettings = async (conn: Awaited<ReturnType<typeof getJsforceConnection>>, label: string) => {
+      const fetchOrgSettings = async (
+        conn: Awaited<ReturnType<typeof getJsforceConnection>>,
+        label: string,
+      ) => {
         const settings: Record<string, string> = {};
 
         const companyInfo = await queryAll<Record<string, string>>(
@@ -332,20 +420,45 @@ export class CompareHandler implements DomainHandler {
       ]);
 
       const allKeys = new Set([...Object.keys(sourceSettings), ...Object.keys(targetSettings)]);
-      const driftItems: Array<{ setting: string; sourceValue: string; targetValue: string; status: 'match' | 'drift' | 'missing_source' | 'missing_target' }> = [];
+      const driftItems: Array<{
+        setting: string;
+        sourceValue: string;
+        targetValue: string;
+        status: 'match' | 'drift' | 'missing_source' | 'missing_target';
+      }> = [];
 
       for (const key of allKeys) {
         const sourceVal = sourceSettings[key];
         const targetVal = targetSettings[key];
 
         if (sourceVal === undefined) {
-          driftItems.push({ setting: key, sourceValue: '', targetValue: targetVal ?? '', status: 'missing_source' });
+          driftItems.push({
+            setting: key,
+            sourceValue: '',
+            targetValue: targetVal ?? '',
+            status: 'missing_source',
+          });
         } else if (targetVal === undefined) {
-          driftItems.push({ setting: key, sourceValue: sourceVal, targetValue: '', status: 'missing_target' });
+          driftItems.push({
+            setting: key,
+            sourceValue: sourceVal,
+            targetValue: '',
+            status: 'missing_target',
+          });
         } else if (sourceVal !== targetVal) {
-          driftItems.push({ setting: key, sourceValue: sourceVal, targetValue: targetVal, status: 'drift' });
+          driftItems.push({
+            setting: key,
+            sourceValue: sourceVal,
+            targetValue: targetVal,
+            status: 'drift',
+          });
         } else {
-          driftItems.push({ setting: key, sourceValue: sourceVal, targetValue: targetVal, status: 'match' });
+          driftItems.push({
+            setting: key,
+            sourceValue: sourceVal,
+            targetValue: targetVal,
+            status: 'match',
+          });
         }
       }
 
@@ -354,7 +467,9 @@ export class CompareHandler implements DomainHandler {
         totalChecked: driftItems.length,
         driftCount: driftItems.filter((d) => d.status === 'drift').length,
         matchCount: driftItems.filter((d) => d.status === 'match').length,
-        missingCount: driftItems.filter((d) => d.status === 'missing_source' || d.status === 'missing_target').length,
+        missingCount: driftItems.filter(
+          (d) => d.status === 'missing_source' || d.status === 'missing_target',
+        ).length,
         detectedAt: new Date().toISOString(),
       };
 

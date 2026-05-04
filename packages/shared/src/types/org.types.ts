@@ -15,12 +15,7 @@ export type OrgType = 'Production' | 'Sandbox' | 'Scratch' | 'Developer';
 export type SandboxType = 'Developer' | 'DeveloperPro' | 'Partial' | 'Full';
 
 /** Authentication method for connecting to an org */
-export type AuthMethod =
-  | 'oauth_web'
-  | 'oauth_device'
-  | 'jwt'
-  | 'usernamePassword'
-  | 'sfdx_import';
+export type AuthMethod = 'oauth_web' | 'oauth_device' | 'jwt' | 'usernamePassword' | 'sfdx_import';
 
 /** Org connection status */
 export type OrgStatus = 'connected' | 'expired' | 'error' | 'refreshing';

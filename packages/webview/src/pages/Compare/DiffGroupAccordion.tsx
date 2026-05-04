@@ -172,15 +172,13 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                 aria-hidden="true"
               />
               <span style={{ fontWeight: 600, flex: 1, textAlign: 'left' }}>{group.name}</span>
-              <span style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-text-secondary)' }}>
+              <span
+                style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-text-secondary)' }}
+              >
                 {group.diffs.length} {t('compare.changes', 'changes')}
               </span>
-              {group.counts.added > 0 && (
-                <Badge variant="success">{group.counts.added}+</Badge>
-              )}
-              {group.counts.removed > 0 && (
-                <Badge variant="error">{group.counts.removed}-</Badge>
-              )}
+              {group.counts.added > 0 && <Badge variant="success">{group.counts.added}+</Badge>}
+              {group.counts.removed > 0 && <Badge variant="error">{group.counts.removed}-</Badge>}
               {group.counts.modified > 0 && (
                 <Badge variant="warning">{group.counts.modified}~</Badge>
               )}
@@ -248,7 +246,10 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
                     {/* Dependencies count */}
                     {diff.dependencies.length > 0 && (
                       <span
-                        style={{ fontSize: 'var(--sf-font-size-xs)', color: 'var(--sf-text-muted)' }}
+                        style={{
+                          fontSize: 'var(--sf-font-size-xs)',
+                          color: 'var(--sf-text-muted)',
+                        }}
                       >
                         {diff.dependencies.length} {t('compare.deps', 'deps')}
                       </span>

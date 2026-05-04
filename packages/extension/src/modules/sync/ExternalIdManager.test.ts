@@ -83,9 +83,7 @@ describe('ExternalIdManager', () => {
     });
 
     it('should return true when field has idLookup even without externalId flag', async () => {
-      deps = createDeps([
-        createField({ name: 'Email', externalId: false, idLookup: true }),
-      ]);
+      deps = createDeps([createField({ name: 'Email', externalId: false, idLookup: true })]);
       manager = new ExternalIdManager(deps);
 
       const result = await manager.ensureExternalId('org-1', 'Contact', 'Email');
@@ -103,9 +101,7 @@ describe('ExternalIdManager', () => {
     });
 
     it('should return false when field exists but is not external ID or idLookup', async () => {
-      deps = createDeps([
-        createField({ name: 'Name', externalId: false, idLookup: false }),
-      ]);
+      deps = createDeps([createField({ name: 'Name', externalId: false, idLookup: false })]);
       manager = new ExternalIdManager(deps);
 
       const result = await manager.ensureExternalId('org-1', 'Account', 'Name');

@@ -132,9 +132,7 @@ describe('BackupStorage', () => {
 
   describe('deleteBackup', () => {
     it('should not throw when deleting a non-existent backup', async () => {
-      await expect(
-        storage.deleteBackup('nonexistent')
-      ).resolves.toBeUndefined();
+      await expect(storage.deleteBackup('nonexistent')).resolves.toBeUndefined();
     });
 
     it('should delete metadata and record files', async () => {
@@ -206,9 +204,9 @@ describe('BackupStorage', () => {
     });
 
     it('should reject empty operationId after sanitization', async () => {
-      await expect(
-        storage.saveBackup('', 'org-1', sampleObjects, sampleRecords),
-      ).rejects.toThrow('Invalid identifier');
+      await expect(storage.saveBackup('', 'org-1', sampleObjects, sampleRecords)).rejects.toThrow(
+        'Invalid identifier',
+      );
     });
   });
 });

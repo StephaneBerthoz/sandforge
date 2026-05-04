@@ -2,9 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { GrappeScheduler } from './GrappeScheduler';
 import type { GrappePartition, GrappeProgress } from '@sandforge/shared';
 
-function createPartition(
-  overrides: Partial<GrappePartition> = {}
-): GrappePartition {
+function createPartition(overrides: Partial<GrappePartition> = {}): GrappePartition {
   const progress: GrappeProgress = {
     processedRecords: 0,
     totalRecords: 5,
@@ -138,9 +136,7 @@ describe('GrappeScheduler', () => {
     });
 
     it('should not include already completed partitions', () => {
-      const partitions = [
-        createPartition({ id: 'p1', dependencies: [] }),
-      ];
+      const partitions = [createPartition({ id: 'p1', dependencies: [] })];
 
       const completed = new Set(['p1']);
       const batch = scheduler.getNextBatch(partitions, completed);
@@ -164,9 +160,7 @@ describe('GrappeScheduler', () => {
       const partition = createPartition({
         dependencies: ['dep1', 'dep2'],
       });
-      expect(
-        scheduler.canExecute(partition, new Set(['dep1', 'dep2']))
-      ).toBe(true);
+      expect(scheduler.canExecute(partition, new Set(['dep1', 'dep2']))).toBe(true);
     });
   });
 

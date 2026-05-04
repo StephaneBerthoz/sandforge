@@ -128,9 +128,7 @@ describe('ForgeAnonymizer', () => {
 
   describe('anonymizeRecords', () => {
     it('should anonymize PII fields while keeping non-PII unchanged', () => {
-      const records = [
-        { Id: '001A', Email: 'john@test.com', Name: 'Acme Corp', Amount: 500 },
-      ];
+      const records = [{ Id: '001A', Email: 'john@test.com', Name: 'Acme Corp', Amount: 500 }];
       const piiFields: PIIFieldInfo[] = [{ name: 'Email', type: 'email' }];
       const categoryRules = anonymizer.getDefaults();
 

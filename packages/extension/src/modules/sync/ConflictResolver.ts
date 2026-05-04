@@ -17,10 +17,7 @@ export class ConflictResolver {
    * Resolve a list of conflicts using the specified strategy.
    * Returns resolved records with the chosen values for each conflict.
    */
-  resolve(
-    conflicts: ConflictRecord[],
-    strategy: ConflictStrategy
-  ): ResolvedRecord[] {
+  resolve(conflicts: ConflictRecord[], strategy: ConflictStrategy): ResolvedRecord[] {
     return conflicts.map((conflict) => resolveConflict(conflict, strategy));
   }
 
@@ -70,7 +67,7 @@ export class ConflictResolver {
   detectConflicts(
     source: Record<string, unknown>[],
     target: Record<string, unknown>[],
-    matchField: string
+    matchField: string,
   ): ConflictRecord[] {
     const targetMap = new Map<string, Record<string, unknown>>();
     for (const record of target) {
@@ -112,10 +109,7 @@ export class ConflictResolver {
 /**
  * Resolve a single conflict using the specified strategy.
  */
-function resolveConflict(
-  conflict: ConflictRecord,
-  strategy: ConflictStrategy
-): ResolvedRecord {
+function resolveConflict(conflict: ConflictRecord, strategy: ConflictStrategy): ResolvedRecord {
   const effectiveStrategy = conflict.resolution ?? strategy;
 
   switch (effectiveStrategy) {
@@ -152,10 +146,7 @@ function resolveConflict(
  * Resolve by choosing whichever side has the newest LastModifiedDate.
  * Falls back to source if dates are unavailable or equal.
  */
-function resolveByNewest(
-  conflict: ConflictRecord,
-  strategy: ConflictStrategy
-): ResolvedRecord {
+function resolveByNewest(conflict: ConflictRecord, strategy: ConflictStrategy): ResolvedRecord {
   const sourceDate = parseDate(conflict.sourceValues.LastModifiedDate);
   const targetDate = parseDate(conflict.targetValues.LastModifiedDate);
 
@@ -178,10 +169,7 @@ function resolveByNewest(
  * Merge strategy: source values for conflicting fields, target values for non-conflicting.
  * Non-null source values take precedence over null target values.
  */
-function resolveMerge(
-  conflict: ConflictRecord,
-  strategy: ConflictStrategy
-): ResolvedRecord {
+function resolveMerge(conflict: ConflictRecord, strategy: ConflictStrategy): ResolvedRecord {
   const merged: Record<string, unknown> = { ...conflict.targetValues };
 
   for (const field of conflict.conflictFields) {
@@ -216,7 +204,7 @@ function parseDate(value: unknown): Date | null {
 function findConflictFields(
   source: Record<string, unknown>,
   target: Record<string, unknown>,
-  matchField: string
+  matchField: string,
 ): string[] {
   const allFields = new Set([...Object.keys(source), ...Object.keys(target)]);
   const conflicts: string[] = [];
@@ -253,10 +241,7 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 /**
  * Extract a subset of fields from a record.
  */
-function extractValues(
-  record: Record<string, unknown>,
-  fields: string[]
-): Record<string, unknown> {
+function extractValues(record: Record<string, unknown>, fields: string[]): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const field of fields) {
     result[field] = record[field];

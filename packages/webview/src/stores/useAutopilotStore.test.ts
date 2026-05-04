@@ -24,11 +24,14 @@ function createMockNode(overrides: Partial<AutopilotNode> = {}): AutopilotNode {
 
 function createMockGraph(nodes: AutopilotNode[] = []): AutopilotGraph {
   return {
-    nodes: nodes.length > 0 ? nodes : [
-      createMockNode({ objectApiName: 'Account' }),
-      createMockNode({ objectApiName: 'Contact', insertOrder: 1, level: 1 }),
-      createMockNode({ objectApiName: 'Opportunity', insertOrder: 2, level: 1 }),
-    ],
+    nodes:
+      nodes.length > 0
+        ? nodes
+        : [
+            createMockNode({ objectApiName: 'Account' }),
+            createMockNode({ objectApiName: 'Contact', insertOrder: 1, level: 1 }),
+            createMockNode({ objectApiName: 'Opportunity', insertOrder: 2, level: 1 }),
+          ],
     edges: [],
     cycles: [],
     stats: {

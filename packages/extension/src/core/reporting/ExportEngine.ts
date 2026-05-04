@@ -59,9 +59,7 @@ export class ExportEngine {
    * @returns A complete HTML document string
    */
   exportToHtml(report: GeneratedReport): string {
-    const sortedSections = [...report.sections].sort(
-      (a, b) => a.order - b.order
-    );
+    const sortedSections = [...report.sections].sort((a, b) => a.order - b.order);
 
     const sectionsHtml = sortedSections
       .map((section) => this.renderHtmlSection(section))
@@ -98,9 +96,7 @@ export class ExportEngine {
    * @returns A Markdown-formatted string
    */
   exportToMarkdown(report: GeneratedReport): string {
-    const sortedSections = [...report.sections].sort(
-      (a, b) => a.order - b.order
-    );
+    const sortedSections = [...report.sections].sort((a, b) => a.order - b.order);
 
     const parts: string[] = [
       `# ${report.title}`,
@@ -120,10 +116,7 @@ export class ExportEngine {
   }
 
   private renderHtmlSection(section: ReportSection): string {
-    const lines: string[] = [
-      '<div class="section">',
-      `<h2>${this.escapeHtml(section.title)}</h2>`,
-    ];
+    const lines: string[] = ['<div class="section">', `<h2>${this.escapeHtml(section.title)}</h2>`];
 
     switch (section.type) {
       case 'table': {
@@ -132,20 +125,13 @@ export class ExportEngine {
           const headers = Object.keys(rows[0]);
           lines.push('<table>');
           lines.push(
-            '<tr>' +
-              headers.map((h) => `<th>${this.escapeHtml(h)}</th>`).join('') +
-              '</tr>'
+            '<tr>' + headers.map((h) => `<th>${this.escapeHtml(h)}</th>`).join('') + '</tr>',
           );
           for (const row of rows) {
             lines.push(
               '<tr>' +
-                headers
-                  .map(
-                    (h) =>
-                      `<td>${this.escapeHtml(String(row[h] ?? ''))}</td>`
-                  )
-                  .join('') +
-                '</tr>'
+                headers.map((h) => `<td>${this.escapeHtml(String(row[h] ?? ''))}</td>`).join('') +
+                '</tr>',
             );
           }
           lines.push('</table>');
@@ -166,9 +152,7 @@ export class ExportEngine {
           lines.push('<dl>');
           for (const [key, val] of entries) {
             lines.push(`<dt>${this.escapeHtml(key)}</dt>`);
-            lines.push(
-              `<dd>${this.escapeHtml(String(val ?? ''))}</dd>`
-            );
+            lines.push(`<dd>${this.escapeHtml(String(val ?? ''))}</dd>`);
           }
           lines.push('</dl>');
         }
@@ -222,16 +206,13 @@ export class ExportEngine {
     return lines.join('\n');
   }
 
-  private extractTableRows(
-    section: ReportSection
-  ): Record<string, unknown>[] {
+  private extractTableRows(section: ReportSection): Record<string, unknown>[] {
     const rows = section.content['rows'];
     if (!Array.isArray(rows)) {
       return [];
     }
     return rows.filter(
-      (row): row is Record<string, unknown> =>
-        typeof row === 'object' && row !== null
+      (row): row is Record<string, unknown> => typeof row === 'object' && row !== null,
     );
   }
 

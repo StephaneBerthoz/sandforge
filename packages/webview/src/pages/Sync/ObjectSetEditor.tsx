@@ -119,7 +119,10 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
         <Button
           variant="primary"
           size="sm"
-          onClick={() => { onAdd(newObject); setNewObject(''); }}
+          onClick={() => {
+            onAdd(newObject);
+            setNewObject('');
+          }}
           disabled={!newObject}
           data-testid="add-object-btn"
         >

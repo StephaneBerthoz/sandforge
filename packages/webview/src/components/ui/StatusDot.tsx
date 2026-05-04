@@ -31,7 +31,12 @@ const pulseClasses: Record<StatusDotStatus, string> = {
 };
 
 /** Small colored status indicator dot with optional label. */
-export const StatusDot: React.FC<StatusDotProps> = ({ status, label, pulse = false, className }) => {
+export const StatusDot: React.FC<StatusDotProps> = ({
+  status,
+  label,
+  pulse = false,
+  className,
+}) => {
   return (
     <span
       className={cn('inline-flex items-center gap-1.5', className)}
@@ -54,9 +59,7 @@ export const StatusDot: React.FC<StatusDotProps> = ({ status, label, pulse = fal
         />
       </span>
       {label && (
-        <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {label}
-        </span>
+        <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">{label}</span>
       )}
     </span>
   );

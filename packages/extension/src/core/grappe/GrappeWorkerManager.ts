@@ -1,8 +1,4 @@
-import type {
-  GrappePartition,
-  GrappeResult,
-  GrappeWorkerStatus,
-} from '@sandforge/shared';
+import type { GrappePartition, GrappeResult, GrappeWorkerStatus } from '@sandforge/shared';
 
 /** Internal representation of a virtual worker */
 interface Worker {
@@ -52,7 +48,9 @@ export class GrappeWorkerManager {
         return workerId;
       }
     }
-    throw new Error('No available workers to assign partition. All workers are busy — wait for a worker to complete or increase maxWorkers in Grappe settings.');
+    throw new Error(
+      'No available workers to assign partition. All workers are busy — wait for a worker to complete or increase maxWorkers in Grappe settings.',
+    );
   }
 
   /**
@@ -92,9 +90,7 @@ export class GrappeWorkerManager {
    * @returns Array of worker status objects
    */
   getAllWorkerStatuses(): GrappeWorkerStatus[] {
-    return Array.from(this.workers.values()).map((w) =>
-      this.toWorkerStatus(w)
-    );
+    return Array.from(this.workers.values()).map((w) => this.toWorkerStatus(w));
   }
 
   /**
@@ -122,7 +118,7 @@ export class GrappeWorkerManager {
   async processPartition(
     workerId: number,
     partition: GrappePartition,
-    processFn: (records: string[]) => Promise<GrappeResult>
+    processFn: (records: string[]) => Promise<GrappeResult>,
   ): Promise<GrappeResult> {
     const worker = this.workers.get(workerId);
     if (!worker) {

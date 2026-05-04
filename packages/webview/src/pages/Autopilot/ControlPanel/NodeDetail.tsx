@@ -10,7 +10,10 @@ export const NodeDetail: React.FC = () => {
 
   if (!selectedNode) {
     return (
-      <div className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]" data-testid="node-detail-empty">
+      <div
+        className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+        data-testid="node-detail-empty"
+      >
         {t('autopilot.control.noNodeSelected')}
       </div>
     );
@@ -55,7 +58,8 @@ export const NodeDetail: React.FC = () => {
             {t('autopilot.control.recordsProcessed')}
           </span>
           <span className="font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {selectedNode.successCount?.toLocaleString() ?? 0} / {selectedNode.recordCount.toLocaleString()}
+            {selectedNode.successCount?.toLocaleString() ?? 0} /{' '}
+            {selectedNode.recordCount.toLocaleString()}
           </span>
         </div>
         <div className="flex flex-col gap-0.5">

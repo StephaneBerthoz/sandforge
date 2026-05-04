@@ -25,11 +25,7 @@ export type DateFormatStyle = 'short' | 'medium' | 'long';
  * @param format - Display style: 'short', 'medium' (default), or 'long'.
  * @returns The formatted date string, or an empty string for invalid dates.
  */
-export function formatDate(
-  d: Date,
-  locale?: string,
-  format: DateFormatStyle = 'medium',
-): string {
+export function formatDate(d: Date, locale?: string, format: DateFormatStyle = 'medium'): string {
   if (!(d instanceof Date) || isNaN(d.getTime())) return '';
 
   const options: Intl.DateTimeFormatOptions =

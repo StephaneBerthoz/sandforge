@@ -1,8 +1,4 @@
-import type {
-  PipelineStatus,
-  StepStatus,
-  ExecutionProgress,
-} from '@sandforge/shared';
+import type { PipelineStatus, StepStatus, ExecutionProgress } from '@sandforge/shared';
 import { logger } from '../../logger.js';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
 
@@ -200,18 +196,9 @@ export class ExecutionPipeline {
   /** Compute aggregate execution progress across all steps */
   getProgress(): ExecutionProgress {
     const totalRecords = this.steps.reduce((sum, s) => sum + s.recordCount, 0);
-    const processedRecords = this.steps.reduce(
-      (sum, s) => sum + s.processedCount,
-      0
-    );
-    const successRecords = this.steps.reduce(
-      (sum, s) => sum + s.successCount,
-      0
-    );
-    const failedRecords = this.steps.reduce(
-      (sum, s) => sum + s.failureCount,
-      0
-    );
+    const processedRecords = this.steps.reduce((sum, s) => sum + s.processedCount, 0);
+    const successRecords = this.steps.reduce((sum, s) => sum + s.successCount, 0);
+    const failedRecords = this.steps.reduce((sum, s) => sum + s.failureCount, 0);
     const elapsed = this.startTime > 0 ? Date.now() - this.startTime : 0;
     const rate = elapsed > 0 ? (processedRecords / elapsed) * 1000 : 0;
     const now = new Date().toISOString();
@@ -224,8 +211,7 @@ export class ExecutionPipeline {
       processedRecords,
       successRecords,
       failedRecords,
-      startTime:
-        this.startTime > 0 ? new Date(this.startTime).toISOString() : now,
+      startTime: this.startTime > 0 ? new Date(this.startTime).toISOString() : now,
       elapsedMs: elapsed,
       recordsPerSecond: rate,
     };

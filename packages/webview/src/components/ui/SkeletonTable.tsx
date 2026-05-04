@@ -25,10 +25,7 @@ export const SkeletonTable: React.FC<SkeletonTableProps> = ({
   className,
 }) => (
   <div
-    className={cn(
-      'rounded-lg border border-subtle bg-surface-1 overflow-hidden',
-      className,
-    )}
+    className={cn('rounded-lg border border-subtle bg-surface-1 overflow-hidden', className)}
     data-testid="skeleton-table"
     aria-hidden={true}
   >
@@ -38,7 +35,12 @@ export const SkeletonTable: React.FC<SkeletonTableProps> = ({
       data-testid="skeleton-table-header"
     >
       {Array.from({ length: columns }, (_, i) => (
-        <Skeleton key={`h-${i}`} variant="rect" width={COL_WIDTHS[i % COL_WIDTHS.length]} height="0.75em" />
+        <Skeleton
+          key={`h-${i}`}
+          variant="rect"
+          width={COL_WIDTHS[i % COL_WIDTHS.length]}
+          height="0.75em"
+        />
       ))}
     </div>
 

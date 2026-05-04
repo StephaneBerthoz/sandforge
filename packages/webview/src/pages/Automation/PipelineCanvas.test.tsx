@@ -7,7 +7,14 @@ import type { PipelineStep } from '@sandforge/shared';
 const steps: PipelineStep[] = [
   { id: 's1', name: 'Backup Data', type: 'backup', config: {}, continueOnError: false },
   { id: 's2', name: 'Anonymize PII', type: 'anonymize', config: {}, continueOnError: true },
-  { id: 's3', name: 'Sync to Dev', type: 'sync', config: {}, continueOnError: false, onSuccess: 's4' },
+  {
+    id: 's3',
+    name: 'Sync to Dev',
+    type: 'sync',
+    config: {},
+    continueOnError: false,
+    onSuccess: 's4',
+  },
 ];
 
 describe('PipelineCanvas', () => {

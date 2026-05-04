@@ -48,7 +48,10 @@ const AccordionPanel: React.FC<{
       >
         <span>{item.title}</span>
         <svg
-          className={cn('w-4 h-4 shrink-0 transition-transform duration-200', isOpen && 'rotate-180')}
+          className={cn(
+            'w-4 h-4 shrink-0 transition-transform duration-200',
+            isOpen && 'rotate-180',
+          )}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -65,7 +68,10 @@ const AccordionPanel: React.FC<{
         className="overflow-hidden transition-[max-height] duration-200 ease-in-out"
         style={{ maxHeight: isOpen ? height : 0 }}
       >
-        <div ref={contentRef} className="px-3 pb-3 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <div
+          ref={contentRef}
+          className="px-3 pb-3 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]"
+        >
           {item.content}
         </div>
       </div>
@@ -100,7 +106,10 @@ export const Accordion: React.FC<AccordionProps> = ({ items, single = false, cla
 
   return (
     <div
-      className={cn('border border-[var(--vscode-panel-border,#3c3c3c)] rounded-md overflow-hidden', className)}
+      className={cn(
+        'border border-[var(--vscode-panel-border,#3c3c3c)] rounded-md overflow-hidden',
+        className,
+      )}
       role="presentation"
     >
       {items.map((item, index) => (

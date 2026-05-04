@@ -1,6 +1,10 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { AnonymizationTemplate, AnonymizationMethod, ComplianceFrameworkType } from '@sandforge/shared';
+import type {
+  AnonymizationTemplate,
+  AnonymizationMethod,
+  ComplianceFrameworkType,
+} from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -59,7 +63,12 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
         <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
           {t('dataops.anonymize')}
         </h2>
-        <Button variant="secondary" size="sm" onClick={onCreateTemplate} data-testid="create-template-btn">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onCreateTemplate}
+          data-testid="create-template-btn"
+        >
           {t('dataops.createTemplate')}
         </Button>
       </div>
@@ -84,84 +93,95 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
 
       {selectedTemplate && (
         <div data-testid="template-detail">
-        <Card>
-          <CardHeader
-            title={selectedTemplate.name}
-            subtitle={selectedTemplate.description}
-            action={
-              selectedTemplate.complianceFramework && (
-                <Badge variant="info">{t(FRAMEWORK_LABELS[selectedTemplate.complianceFramework] ?? selectedTemplate.complianceFramework)}</Badge>
-              )
-            }
-          />
-          <CardBody>
-            <div className="flex flex-col gap-2">
-              <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                {selectedTemplate.rules.length} rules
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {selectedTemplate.rules.map((rule, i) => (
-                  <Badge key={i} variant="default">
-                    {rule.fieldApiName}: {t(RULE_TYPE_LABELS[rule.method] ?? rule.method)}
+          <Card>
+            <CardHeader
+              title={selectedTemplate.name}
+              subtitle={selectedTemplate.description}
+              action={
+                selectedTemplate.complianceFramework && (
+                  <Badge variant="info">
+                    {t(
+                      FRAMEWORK_LABELS[selectedTemplate.complianceFramework] ??
+                        selectedTemplate.complianceFramework,
+                    )}
                   </Badge>
-                ))}
+                )
+              }
+            />
+            <CardBody>
+              <div className="flex flex-col gap-2">
+                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                  {selectedTemplate.rules.length} rules
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {selectedTemplate.rules.map((rule, i) => (
+                    <Badge key={i} variant="default">
+                      {rule.fieldApiName}: {t(RULE_TYPE_LABELS[rule.method] ?? rule.method)}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => onPreview?.(selectedTemplate.id)}
+                    data-testid="preview-btn"
+                  >
+                    {t('dataops.previewAnonymization')}
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => onApply?.(selectedTemplate.id)}
+                    loading={isApplying}
+                    data-testid="apply-btn"
+                  >
+                    {t('dataops.applyAnonymization')}
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2 mt-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => onPreview?.(selectedTemplate.id)}
-                  data-testid="preview-btn"
-                >
-                  {t('dataops.previewAnonymization')}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => onApply?.(selectedTemplate.id)}
-                  loading={isApplying}
-                  data-testid="apply-btn"
-                >
-                  {t('dataops.applyAnonymization')}
-                </Button>
-              </div>
-            </div>
-          </CardBody>
-        </Card>
+            </CardBody>
+          </Card>
         </div>
       )}
 
       {previewData && previewData.length > 0 && (
         <div data-testid="preview-data">
-        <Card>
-          <CardHeader title={t('dataops.previewAnonymization')} />
-          <CardBody>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr>
-                    {Object.keys(previewData[0]).map((key) => (
-                      <th key={key} className="text-left px-2 py-1 text-[var(--vscode-descriptionForeground,#868686)]">
-                        {key}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {previewData.map((row, i) => (
-                    <tr key={i}>
-                      {Object.values(row).map((val, j) => (
-                        <td key={j} className="px-2 py-1 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                          {String(val ?? '')}
-                        </td>
+          <Card>
+            <CardHeader title={t('dataops.previewAnonymization')} />
+            <CardBody>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr>
+                      {Object.keys(previewData[0]).map((key) => (
+                        <th
+                          key={key}
+                          className="text-left px-2 py-1 text-[var(--vscode-descriptionForeground,#868686)]"
+                        >
+                          {key}
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardBody>
-        </Card>
+                  </thead>
+                  <tbody>
+                    {previewData.map((row, i) => (
+                      <tr key={i}>
+                        {Object.values(row).map((val, j) => (
+                          <td
+                            key={j}
+                            className="px-2 py-1 text-[var(--vscode-editor-foreground,#d4d4d4)]"
+                          >
+                            {String(val ?? '')}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardBody>
+          </Card>
         </div>
       )}
     </div>

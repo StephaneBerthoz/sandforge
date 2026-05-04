@@ -8,13 +8,17 @@ function createMockDeps(overrides?: Partial<OperationSchedulerDeps>): OperationS
   return {
     configStore: {
       get: vi.fn(<T>(key: string): T | undefined => store.get(key) as T | undefined),
-      set: vi.fn(<T>(key: string, value: T): void => { store.set(key, value); }),
+      set: vi.fn(<T>(key: string, value: T): void => {
+        store.set(key, value);
+      }),
     },
     log: vi.fn(),
-    onExecute: vi.fn<(schedule: ScheduledOperation) => Promise<OperationExecutionResult>>().mockResolvedValue({
-      success: true,
-      recordsProcessed: 42,
-    }),
+    onExecute: vi
+      .fn<(schedule: ScheduledOperation) => Promise<OperationExecutionResult>>()
+      .mockResolvedValue({
+        success: true,
+        recordsProcessed: 42,
+      }),
     ...overrides,
   };
 }
@@ -54,7 +58,11 @@ describe('OperationScheduler', () => {
 
     it('should update an existing schedule', () => {
       scheduler.upsert(makeScheduleInput());
-      const updated = scheduler.upsert({ ...makeScheduleInput(), frequency: 'weekly', dayOfWeek: 3 });
+      const updated = scheduler.upsert({
+        ...makeScheduleInput(),
+        frequency: 'weekly',
+        dayOfWeek: 3,
+      });
       expect(updated.frequency).toBe('weekly');
       expect(scheduler.getSchedules()).toHaveLength(1);
     });
@@ -134,14 +142,22 @@ describe('OperationScheduler', () => {
 
     it('should compute next weekly run', () => {
       vi.setSystemTime(new Date('2026-03-13T10:00:00Z')); // Friday
-      const result = scheduler.computeNextRunAt({ frequency: 'weekly', time: '08:00', dayOfWeek: 1 }); // Monday
+      const result = scheduler.computeNextRunAt({
+        frequency: 'weekly',
+        time: '08:00',
+        dayOfWeek: 1,
+      }); // Monday
       const next = new Date(result);
       expect(next.getDay()).toBe(1);
     });
 
     it('should compute next monthly run', () => {
       vi.setSystemTime(new Date('2026-03-13T10:00:00Z'));
-      const result = scheduler.computeNextRunAt({ frequency: 'monthly', time: '08:00', dayOfMonth: 1 });
+      const result = scheduler.computeNextRunAt({
+        frequency: 'monthly',
+        time: '08:00',
+        dayOfMonth: 1,
+      });
       const next = new Date(result);
       expect(next.getDate()).toBe(1);
       expect(next.getMonth()).toBe(3); // April
@@ -208,7 +224,9 @@ describe('OperationScheduler', () => {
       await scheduler.tick();
       const updated = scheduler.getSchedule('sched-1');
       expect(updated?.nextRunAt).toBeDefined();
-      expect(new Date(updated!.nextRunAt!).getTime()).toBeGreaterThan(new Date('2026-03-13T03:00:00Z').getTime());
+      expect(new Date(updated!.nextRunAt!).getTime()).toBeGreaterThan(
+        new Date('2026-03-13T03:00:00Z').getTime(),
+      );
     });
   });
 
@@ -232,7 +250,14 @@ describe('OperationScheduler', () => {
     it('should load from config store on construction', () => {
       const store = new Map<string, unknown>();
       store.set('sandforge.scheduler.schedules', [
-        { id: 's1', operationType: 'backup', frequency: 'daily', time: '02:00', enabled: true, nextRunAt: '2026-03-14T02:00:00Z' },
+        {
+          id: 's1',
+          operationType: 'backup',
+          frequency: 'daily',
+          time: '02:00',
+          enabled: true,
+          nextRunAt: '2026-03-14T02:00:00Z',
+        },
       ]);
       store.set('sandforge.scheduler.history', []);
 

@@ -223,15 +223,11 @@ describe('forgeConfigSchema', () => {
   });
 
   it('should reject invalid depth', () => {
-    expect(() =>
-      forgeConfigSchema.parse({ ...createValidForgeConfig(), depth: 'deep' }),
-    ).toThrow();
+    expect(() => forgeConfigSchema.parse({ ...createValidForgeConfig(), depth: 'deep' })).toThrow();
   });
 
   it('should reject zero batchSize number', () => {
-    expect(() =>
-      forgeConfigSchema.parse({ ...createValidForgeConfig(), batchSize: 0 }),
-    ).toThrow();
+    expect(() => forgeConfigSchema.parse({ ...createValidForgeConfig(), batchSize: 0 })).toThrow();
   });
 
   it('should reject negative batchSize number', () => {
@@ -293,9 +289,7 @@ describe('forgeGraphNodeSchema', () => {
   });
 
   it('should reject missing required fields', () => {
-    expect(() =>
-      forgeGraphNodeSchema.parse({ objectApiName: 'Account' }),
-    ).toThrow();
+    expect(() => forgeGraphNodeSchema.parse({ objectApiName: 'Account' })).toThrow();
   });
 });
 
@@ -465,15 +459,11 @@ describe('forgeTemplateSchema', () => {
   });
 
   it('should reject empty id', () => {
-    expect(() =>
-      forgeTemplateSchema.parse({ ...createValidForgeTemplate(), id: '' }),
-    ).toThrow();
+    expect(() => forgeTemplateSchema.parse({ ...createValidForgeTemplate(), id: '' })).toThrow();
   });
 
   it('should reject empty name', () => {
-    expect(() =>
-      forgeTemplateSchema.parse({ ...createValidForgeTemplate(), name: '' }),
-    ).toThrow();
+    expect(() => forgeTemplateSchema.parse({ ...createValidForgeTemplate(), name: '' })).toThrow();
   });
 
   it('should reject negative objectCount', () => {
@@ -567,7 +557,13 @@ describe('forgeWaveSchema', () => {
 
   it('should reject negative order', () => {
     expect(() =>
-      forgeWaveSchema.parse({ order: -1, objectApiNames: [], totalRecords: 0, estimatedDurationSeconds: 0, estimatedApiCalls: 0 }),
+      forgeWaveSchema.parse({
+        order: -1,
+        objectApiNames: [],
+        totalRecords: 0,
+        estimatedDurationSeconds: 0,
+        estimatedApiCalls: 0,
+      }),
     ).toThrow();
   });
 });
@@ -592,7 +588,15 @@ describe('forgeCycleResolutionSchema', () => {
 describe('forgePlanSchema', () => {
   it('should parse valid plan', () => {
     const result = forgePlanSchema.parse({
-      waves: [{ order: 0, objectApiNames: ['Account'], totalRecords: 10, estimatedDurationSeconds: 5, estimatedApiCalls: 1 }],
+      waves: [
+        {
+          order: 0,
+          objectApiNames: ['Account'],
+          totalRecords: 10,
+          estimatedDurationSeconds: 5,
+          estimatedApiCalls: 1,
+        },
+      ],
       totalRecords: 10,
       totalApiCalls: 1,
       estimatedDurationSeconds: 5,
@@ -604,7 +608,13 @@ describe('forgePlanSchema', () => {
 
   it('should reject negative totalApiCalls', () => {
     expect(() =>
-      forgePlanSchema.parse({ waves: [], totalRecords: 0, totalApiCalls: -1, estimatedDurationSeconds: 0, cycleResolutions: [] }),
+      forgePlanSchema.parse({
+        waves: [],
+        totalRecords: 0,
+        totalApiCalls: -1,
+        estimatedDurationSeconds: 0,
+        cycleResolutions: [],
+      }),
     ).toThrow();
   });
 });
@@ -663,8 +673,20 @@ describe('forgeCheckpointSchema', () => {
           skipEmpty: false,
           batchSize: 'auto',
         },
-        graph: { nodes: [], edges: [], totalRecords: 0, estimatedSizeMB: 0, estimatedDurationSeconds: 0 },
-        plan: { waves: [], totalRecords: 0, totalApiCalls: 0, estimatedDurationSeconds: 0, cycleResolutions: [] },
+        graph: {
+          nodes: [],
+          edges: [],
+          totalRecords: 0,
+          estimatedSizeMB: 0,
+          estimatedDurationSeconds: 0,
+        },
+        plan: {
+          waves: [],
+          totalRecords: 0,
+          totalApiCalls: 0,
+          estimatedDurationSeconds: 0,
+          cycleResolutions: [],
+        },
         currentWaveIndex: -1,
         currentObjectIndex: 0,
         currentBatchIndex: 0,

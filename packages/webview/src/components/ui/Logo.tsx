@@ -24,11 +24,7 @@ const SIZE_MAP: Record<LogoSize, number> = {
  * Supports three sizes and a monochrome variant.
  * Includes a subtle hover animation on particles that respects `prefers-reduced-motion`.
  */
-export const Logo: React.FC<LogoProps> = ({
-  size = 'medium',
-  mono = false,
-  className,
-}) => {
+export const Logo: React.FC<LogoProps> = ({ size = 'medium', mono = false, className }) => {
   const px = SIZE_MAP[size];
   const anvilColor = mono ? 'currentColor' : '#E8A838';
   const sparkColor = mono ? 'currentColor' : '#F59E0B';
@@ -68,20 +64,21 @@ export const Logo: React.FC<LogoProps> = ({
       <rect x="12" y="48" width="40" height="6" rx="2" fill={baseColor} />
 
       {/* Anvil body */}
-      <path
-        d="M18 48 L18 36 L14 32 L14 28 L50 28 L50 32 L46 36 L46 48 Z"
-        fill={anvilColor}
-      />
+      <path d="M18 48 L18 36 L14 32 L14 28 L50 28 L50 32 L46 36 L46 48 Z" fill={anvilColor} />
 
       {/* Anvil horn (left) */}
-      <path
-        d="M14 28 L6 26 L6 30 L14 32 Z"
-        fill={anvilColor}
-        opacity="0.85"
-      />
+      <path d="M14 28 L6 26 L6 30 L14 32 Z" fill={anvilColor} opacity="0.85" />
 
       {/* Anvil top surface highlight */}
-      <rect x="14" y="28" width="36" height="2" rx="1" fill={mono ? 'currentColor' : '#FCD34D'} opacity="0.4" />
+      <rect
+        x="14"
+        y="28"
+        width="36"
+        height="2"
+        rx="1"
+        fill={mono ? 'currentColor' : '#FCD34D'}
+        opacity="0.4"
+      />
 
       {/* Sparks */}
       <circle className="sf-spark" cx="28" cy="22" r="2" fill={sparkColor} opacity="0.8" />

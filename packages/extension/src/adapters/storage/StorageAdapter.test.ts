@@ -52,7 +52,9 @@ class MockSecretStorage implements vscode.SecretStorage {
     this.data.delete(key);
   }
 
-  onDidChange = (() => ({ dispose: () => undefined })) as unknown as vscode.Event<vscode.SecretStorageChangeEvent>;
+  onDidChange = (() => ({
+    dispose: () => undefined,
+  })) as unknown as vscode.Event<vscode.SecretStorageChangeEvent>;
 
   getInternal(): Map<string, string> {
     return this.data;
@@ -146,7 +148,11 @@ describe('StorageAdapter', () => {
     it('moves a globalState string value into SecretStorage and deletes the old key', async () => {
       await globalState.update('legacy.apiKey', 'sk-1234');
 
-      const migrated = await adapter.migrateLegacyKey('legacy.apiKey', 'sandforge.ai.anthropic.key', true);
+      const migrated = await adapter.migrateLegacyKey(
+        'legacy.apiKey',
+        'sandforge.ai.anthropic.key',
+        true,
+      );
 
       expect(migrated).toBe(true);
       expect(await secrets.get('sandforge.ai.anthropic.key')).toBe('sk-1234');
@@ -168,7 +174,11 @@ describe('StorageAdapter', () => {
     it('moves a globalState value to a new globalState key when isSecret is false', async () => {
       await globalState.update('legacy.setting', { flag: true });
 
-      const migrated = await adapter.migrateLegacyKey('legacy.setting', 'sandforge.ui.setting', false);
+      const migrated = await adapter.migrateLegacyKey(
+        'legacy.setting',
+        'sandforge.ui.setting',
+        false,
+      );
 
       expect(migrated).toBe(true);
       expect(adapter.getGlobal('sandforge.ui.setting')).toEqual({ flag: true });

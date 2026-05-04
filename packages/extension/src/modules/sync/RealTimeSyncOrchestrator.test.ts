@@ -24,9 +24,15 @@ function createMockListener(): CDCListener {
   const errorHandlers: Array<(error: Error) => void> = [];
 
   return {
-    onEvent: vi.fn((handler) => { eventHandlers.push(handler); }),
-    onConnection: vi.fn((handler) => { connectionHandlers.push(handler); }),
-    onError: vi.fn((handler) => { errorHandlers.push(handler); }),
+    onEvent: vi.fn((handler) => {
+      eventHandlers.push(handler);
+    }),
+    onConnection: vi.fn((handler) => {
+      connectionHandlers.push(handler);
+    }),
+    onError: vi.fn((handler) => {
+      errorHandlers.push(handler);
+    }),
     start: vi.fn(async () => {
       for (const handler of connectionHandlers) {
         handler(true);
@@ -317,7 +323,9 @@ describe('RealTimeSyncOrchestrator', () => {
     it('should transition to error status on disconnect', async () => {
       await orchestrator.start(createConfig());
 
-      const typedListener = mockListener as unknown as { _emitConnection: (connected: boolean) => void };
+      const typedListener = mockListener as unknown as {
+        _emitConnection: (connected: boolean) => void;
+      };
       typedListener._emitConnection(false);
 
       expect(orchestrator.getStatus()).toBe('error');
@@ -332,11 +340,7 @@ describe('RealTimeSyncOrchestrator', () => {
       const typedListener = mockListener as unknown as { _emitError: (error: Error) => void };
       typedListener._emitError(new Error('Streaming API error'));
 
-      expect(feedHandler).toHaveBeenCalledWith(
-        expect.any(Object),
-        false,
-        'Streaming API error',
-      );
+      expect(feedHandler).toHaveBeenCalledWith(expect.any(Object), false, 'Streaming API error');
     });
   });
 
@@ -422,9 +426,7 @@ describe('RealTimeSyncOrchestrator', () => {
       await orchestrator.start(createConfig());
 
       // Verify setOnConflict was called on the replicator
-      expect(vi.mocked(mockReplicator.setOnConflict)).toHaveBeenCalledWith(
-        expect.any(Function),
-      );
+      expect(vi.mocked(mockReplicator.setOnConflict)).toHaveBeenCalledWith(expect.any(Function));
 
       // Simulate replicator emitting a conflict via the wired callback
       const onConflictFn = vi.mocked(mockReplicator.setOnConflict).mock.calls[0][0];

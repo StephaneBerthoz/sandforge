@@ -17,7 +17,11 @@ import type {
   GrappeConfig,
 } from '@sandforge/shared';
 import type { SchemaScanner, AutopilotConnection, SchemaScanResult } from './SchemaScanner.js';
-import type { DependencyGraphBuilder, GraphObjectDescribe, GraphFieldDescribe } from './DependencyGraphBuilder.js';
+import type {
+  DependencyGraphBuilder,
+  GraphObjectDescribe,
+  GraphFieldDescribe,
+} from './DependencyGraphBuilder.js';
 import type { ComplianceEngine } from './ComplianceEngine.js';
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import type { ExecutionPlanGenerator } from './ExecutionPlanGenerator.js';

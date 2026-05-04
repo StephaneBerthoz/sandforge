@@ -81,7 +81,7 @@ export class CompareReport {
 
       for (const item of section.items) {
         lines.push(
-          `| ${item.fullName} | ${item.status} | ${item.severity} | ${item.deployable ? 'Yes' : 'No'} |`
+          `| ${item.fullName} | ${item.status} | ${item.severity} | ${item.deployable ? 'Yes' : 'No'} |`,
         );
       }
 

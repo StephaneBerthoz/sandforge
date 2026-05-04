@@ -47,9 +47,11 @@ describe('PerformanceCheck', () => {
     });
 
     it('should info for short duration', async () => {
-      const fetchFn: FetchPerformanceMetricsFn = vi.fn().mockResolvedValue(
-        createMetrics({ recordCount: 100, avgResponseTimeMs: 50, networkLatencyMs: 10 })
-      );
+      const fetchFn: FetchPerformanceMetricsFn = vi
+        .fn()
+        .mockResolvedValue(
+          createMetrics({ recordCount: 100, avgResponseTimeMs: 50, networkLatencyMs: 10 }),
+        );
 
       const checker = new PerformanceCheck(fetchFn);
       const items = await checker.check(createConfig({ operationConfig: { batchSize: 200 } }));
@@ -60,9 +62,11 @@ describe('PerformanceCheck', () => {
     });
 
     it('should warn for duration over 15 minutes', async () => {
-      const fetchFn: FetchPerformanceMetricsFn = vi.fn().mockResolvedValue(
-        createMetrics({ recordCount: 700_000, avgResponseTimeMs: 200, networkLatencyMs: 100 })
-      );
+      const fetchFn: FetchPerformanceMetricsFn = vi
+        .fn()
+        .mockResolvedValue(
+          createMetrics({ recordCount: 700_000, avgResponseTimeMs: 200, networkLatencyMs: 100 }),
+        );
 
       const checker = new PerformanceCheck(fetchFn);
       const items = await checker.check(createConfig({ operationConfig: { batchSize: 200 } }));
@@ -78,7 +82,7 @@ describe('PerformanceCheck', () => {
           avgResponseTimeMs: 500,
           networkLatencyMs: 200,
           hasComplexTriggers: true,
-        })
+        }),
       );
 
       const checker = new PerformanceCheck(fetchFn);
@@ -99,9 +103,9 @@ describe('PerformanceCheck', () => {
     });
 
     it('should recommend smaller batch for complex triggers', async () => {
-      const fetchFn: FetchPerformanceMetricsFn = vi.fn().mockResolvedValue(
-        createMetrics({ hasComplexTriggers: true })
-      );
+      const fetchFn: FetchPerformanceMetricsFn = vi
+        .fn()
+        .mockResolvedValue(createMetrics({ hasComplexTriggers: true }));
 
       const checker = new PerformanceCheck(fetchFn);
       const items = await checker.check(createConfig({ operationConfig: { batchSize: 5000 } }));
@@ -111,9 +115,9 @@ describe('PerformanceCheck', () => {
     });
 
     it('should recommend grappe mode for large datasets', async () => {
-      const fetchFn: FetchPerformanceMetricsFn = vi.fn().mockResolvedValue(
-        createMetrics({ recordCount: 50_000 })
-      );
+      const fetchFn: FetchPerformanceMetricsFn = vi
+        .fn()
+        .mockResolvedValue(createMetrics({ recordCount: 50_000 }));
 
       const checker = new PerformanceCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -124,9 +128,9 @@ describe('PerformanceCheck', () => {
     });
 
     it('should not recommend grappe for small datasets', async () => {
-      const fetchFn: FetchPerformanceMetricsFn = vi.fn().mockResolvedValue(
-        createMetrics({ recordCount: 500 })
-      );
+      const fetchFn: FetchPerformanceMetricsFn = vi
+        .fn()
+        .mockResolvedValue(createMetrics({ recordCount: 500 }));
 
       const checker = new PerformanceCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -136,9 +140,9 @@ describe('PerformanceCheck', () => {
     });
 
     it('should include parallel workers recommendation', async () => {
-      const fetchFn: FetchPerformanceMetricsFn = vi.fn().mockResolvedValue(
-        createMetrics({ recordCount: 40_000 })
-      );
+      const fetchFn: FetchPerformanceMetricsFn = vi
+        .fn()
+        .mockResolvedValue(createMetrics({ recordCount: 40_000 }));
 
       const checker = new PerformanceCheck(fetchFn);
       const items = await checker.check(createConfig());
@@ -200,7 +204,7 @@ describe('PerformanceCheck', () => {
       const checker = new PerformanceCheck(fetchFn);
       const estimations = checker.estimatePerformance(
         createConfig(),
-        createMetrics({ recordCount: 50_000 })
+        createMetrics({ recordCount: 50_000 }),
       );
 
       expect(estimations.grappeRecommendation).toBe(true);
@@ -213,7 +217,7 @@ describe('PerformanceCheck', () => {
       const checker = new PerformanceCheck(fetchFn);
       const estimations = checker.estimatePerformance(
         createConfig(),
-        createMetrics({ recordCount: 500 })
+        createMetrics({ recordCount: 500 }),
       );
 
       expect(estimations.grappeRecommendation).toBe(false);
@@ -226,11 +230,11 @@ describe('PerformanceCheck', () => {
 
       const simple = checker.estimatePerformance(
         createConfig(),
-        createMetrics({ hasComplexTriggers: false })
+        createMetrics({ hasComplexTriggers: false }),
       );
       const complex = checker.estimatePerformance(
         createConfig(),
-        createMetrics({ hasComplexTriggers: true })
+        createMetrics({ hasComplexTriggers: true }),
       );
 
       expect(complex.duration).toBeGreaterThan(simple.duration);
@@ -241,7 +245,7 @@ describe('PerformanceCheck', () => {
       const checker = new PerformanceCheck(fetchFn);
       const estimations = checker.estimatePerformance(
         createConfig(),
-        createMetrics({ recordCount: 20_000, objectCount: 5 })
+        createMetrics({ recordCount: 20_000, objectCount: 5 }),
       );
 
       expect(estimations.optimalGrappeConfig?.strategy).toBe('dependency_aware');
@@ -252,7 +256,7 @@ describe('PerformanceCheck', () => {
       const checker = new PerformanceCheck(fetchFn);
       const estimations = checker.estimatePerformance(
         createConfig(),
-        createMetrics({ recordCount: 20_000, objectCount: 2 })
+        createMetrics({ recordCount: 20_000, objectCount: 2 }),
       );
 
       expect(estimations.optimalGrappeConfig?.strategy).toBe('round_robin');
@@ -263,7 +267,7 @@ describe('PerformanceCheck', () => {
       const checker = new PerformanceCheck(fetchFn);
       const estimations = checker.estimatePerformance(
         createConfig(),
-        createMetrics({ recordCount: 100_000 })
+        createMetrics({ recordCount: 100_000 }),
       );
 
       expect(estimations.optimalGrappeConfig?.checkpointing).toBe(true);
@@ -274,7 +278,7 @@ describe('PerformanceCheck', () => {
       const checker = new PerformanceCheck(fetchFn);
       const estimations = checker.estimatePerformance(
         createConfig(),
-        createMetrics({ recordCount: 1_000_000 })
+        createMetrics({ recordCount: 1_000_000 }),
       );
 
       expect(estimations.optimalGrappeConfig?.maxWorkers).toBeLessThanOrEqual(8);

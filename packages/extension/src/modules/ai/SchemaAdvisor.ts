@@ -280,7 +280,8 @@ export class SchemaAdvisor {
       if (!childObj) continue;
 
       const hasRelField = childObj.fields.some(
-        (f) => f.apiName === rel.fieldPattern || (f.referenceTo && f.referenceTo.includes(rel.parent)),
+        (f) =>
+          f.apiName === rel.fieldPattern || (f.referenceTo && f.referenceTo.includes(rel.parent)),
       );
 
       if (!hasRelField) {

@@ -69,7 +69,9 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
     /** Focus the close button on mount for keyboard accessibility. */
-    const closeBtn = dialogRef.current?.querySelector<HTMLElement>('[data-testid="close-diff-modal"]');
+    const closeBtn = dialogRef.current?.querySelector<HTMLElement>(
+      '[data-testid="close-diff-modal"]',
+    );
     closeBtn?.focus();
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
@@ -156,7 +158,9 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
           data-testid="diff-detail-meta"
         >
           <div>
-            <span style={{ color: 'var(--sf-text-muted)' }}>{t('compare.category', 'Category')}: </span>
+            <span style={{ color: 'var(--sf-text-muted)' }}>
+              {t('compare.category', 'Category')}:{' '}
+            </span>
             <span style={{ color: 'var(--sf-text-primary)' }}>{diff.category}</span>
           </div>
           <div>
@@ -282,7 +286,9 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
             </h4>
             <div style={{ display: 'flex', gap: 'var(--sf-space-1)', flexWrap: 'wrap' }}>
               {diff.dependencies.map((dep) => (
-                <Badge key={dep} variant="default">{dep}</Badge>
+                <Badge key={dep} variant="default">
+                  {dep}
+                </Badge>
               ))}
             </div>
           </div>

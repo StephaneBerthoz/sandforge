@@ -2,7 +2,15 @@ import React from 'react';
 import { cn } from '../../theme';
 
 /** Module identifier for contextual illustrations. */
-export type EmptyStateModule = 'seed' | 'sync' | 'monitor' | 'compare' | 'dataops' | 'automation' | 'forge' | 'autopilot';
+export type EmptyStateModule =
+  | 'seed'
+  | 'sync'
+  | 'monitor'
+  | 'compare'
+  | 'dataops'
+  | 'automation'
+  | 'forge'
+  | 'autopilot';
 
 /** EmptyState component props. */
 export interface EmptyStateProps {
@@ -32,7 +40,14 @@ export interface EmptyStateProps {
 /** Inline SVG illustrations per module (simple geometric shapes). */
 const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
   seed: (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-seed">
+    <svg
+      width="64"
+      height="64"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+      data-testid="illustration-seed"
+    >
       <circle cx="32" cy="32" r="28" stroke="#10B981" strokeWidth="2" strokeDasharray="4 4" />
       <path d="M32 16c0 16-12 20-12 28h24c0-8-12-12-12-28z" fill="#10B981" fillOpacity="0.2" />
       <path d="M32 16v28" stroke="#10B981" strokeWidth="2" />
@@ -40,21 +55,42 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
     </svg>
   ),
   sync: (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-sync">
+    <svg
+      width="64"
+      height="64"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+      data-testid="illustration-sync"
+    >
       <circle cx="32" cy="32" r="28" stroke="#3B82F6" strokeWidth="2" strokeDasharray="4 4" />
       <path d="M20 28l12-8v6h12v4H32v6l-12-8z" fill="#3B82F6" fillOpacity="0.3" />
       <path d="M44 36l-12 8v-6H20v-4h12v-6l12 8z" fill="#3B82F6" fillOpacity="0.3" />
     </svg>
   ),
   monitor: (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-monitor">
+    <svg
+      width="64"
+      height="64"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+      data-testid="illustration-monitor"
+    >
       <circle cx="32" cy="32" r="28" stroke="#F59E0B" strokeWidth="2" strokeDasharray="4 4" />
       <rect x="18" y="22" width="28" height="20" rx="3" stroke="#F59E0B" strokeWidth="2" />
       <polyline points="22,38 28,30 34,34 42,26" stroke="#F59E0B" strokeWidth="2" fill="none" />
     </svg>
   ),
   compare: (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-compare">
+    <svg
+      width="64"
+      height="64"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+      data-testid="illustration-compare"
+    >
       <circle cx="32" cy="32" r="28" stroke="#8B5CF6" strokeWidth="2" strokeDasharray="4 4" />
       <rect x="14" y="20" width="16" height="24" rx="2" stroke="#8B5CF6" strokeWidth="2" />
       <rect x="34" y="20" width="16" height="24" rx="2" stroke="#8B5CF6" strokeWidth="2" />
@@ -62,7 +98,14 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
     </svg>
   ),
   dataops: (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-dataops">
+    <svg
+      width="64"
+      height="64"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+      data-testid="illustration-dataops"
+    >
       <circle cx="32" cy="32" r="28" stroke="#EF4444" strokeWidth="2" strokeDasharray="4 4" />
       <ellipse cx="32" cy="24" rx="14" ry="6" stroke="#EF4444" strokeWidth="2" />
       <path d="M18 24v16c0 3.3 6.3 6 14 6s14-2.7 14-6V24" stroke="#EF4444" strokeWidth="2" />
@@ -70,7 +113,14 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
     </svg>
   ),
   automation: (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-automation">
+    <svg
+      width="64"
+      height="64"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+      data-testid="illustration-automation"
+    >
       <circle cx="32" cy="32" r="28" stroke="#F97316" strokeWidth="2" strokeDasharray="4 4" />
       <circle cx="20" cy="20" r="6" stroke="#F97316" strokeWidth="2" />
       <circle cx="44" cy="20" r="6" stroke="#F97316" strokeWidth="2" />
@@ -79,20 +129,58 @@ const MODULE_ILLUSTRATIONS: Record<EmptyStateModule, React.ReactNode> = {
     </svg>
   ),
   forge: (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-forge">
+    <svg
+      width="64"
+      height="64"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+      data-testid="illustration-forge"
+    >
       <circle cx="32" cy="32" r="28" stroke="#E8A838" strokeWidth="2" strokeDasharray="4 4" />
-      <rect x="20" y="36" width="24" height="6" rx="1" stroke="#E8A838" strokeWidth="2" fill="#E8A838" fillOpacity="0.15" />
+      <rect
+        x="20"
+        y="36"
+        width="24"
+        height="6"
+        rx="1"
+        stroke="#E8A838"
+        strokeWidth="2"
+        fill="#E8A838"
+        fillOpacity="0.15"
+      />
       <path d="M28 36V22l4-4 4 4v14" stroke="#E8A838" strokeWidth="2" />
       <path d="M26 22h12" stroke="#E8A838" strokeWidth="2" />
-      <circle cx="32" cy="48" r="3" fill="#E8A838" fillOpacity="0.3" stroke="#E8A838" strokeWidth="1.5" />
+      <circle
+        cx="32"
+        cy="48"
+        r="3"
+        fill="#E8A838"
+        fillOpacity="0.3"
+        stroke="#E8A838"
+        strokeWidth="1.5"
+      />
     </svg>
   ),
   autopilot: (
-    <svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true" data-testid="illustration-autopilot">
+    <svg
+      width="64"
+      height="64"
+      viewBox="0 0 64 64"
+      fill="none"
+      aria-hidden="true"
+      data-testid="illustration-autopilot"
+    >
       <circle cx="32" cy="32" r="28" stroke="#06B6D4" strokeWidth="2" strokeDasharray="4 4" />
       <circle cx="32" cy="32" r="12" stroke="#06B6D4" strokeWidth="2" />
       <path d="M32 20v6M32 38v6M20 32h6M38 32h6" stroke="#06B6D4" strokeWidth="2" />
-      <path d="M32 28l3 4-3 4-3-4z" fill="#06B6D4" fillOpacity="0.3" stroke="#06B6D4" strokeWidth="1.5" />
+      <path
+        d="M32 28l3 4-3 4-3-4z"
+        fill="#06B6D4"
+        fillOpacity="0.3"
+        stroke="#06B6D4"
+        strokeWidth="1.5"
+      />
     </svg>
   ),
 };
@@ -115,10 +203,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 }) => {
   return (
     <div
-      className={cn(
-        'flex flex-col items-center justify-center py-12 px-4 text-center',
-        className,
-      )}
+      className={cn('flex flex-col items-center justify-center py-12 px-4 text-center', className)}
       data-testid="empty-state"
     >
       {/* Module illustration */}

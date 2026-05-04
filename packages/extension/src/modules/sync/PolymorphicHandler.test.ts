@@ -105,9 +105,7 @@ describe('PolymorphicHandler', () => {
     });
 
     it('should preserve all original record fields', () => {
-      const records = [
-        { Id: 'T1', Subject: 'Call', WhoId: '003XXXXXXXXXXXX', Priority: 'High' },
-      ];
+      const records = [{ Id: 'T1', Subject: 'Call', WhoId: '003XXXXXXXXXXXX', Priority: 'High' }];
 
       const result = handler.resolve('WhoId', 'Contact', records);
 

@@ -43,11 +43,7 @@ export class SidebarViewProvider {
   }
 
   /** Called by VSCode when the sidebar view becomes visible. */
-  resolveWebviewView(
-    webviewView: vscode.WebviewView,
-    _context: unknown,
-    _token: unknown,
-  ): void {
+  resolveWebviewView(webviewView: vscode.WebviewView, _context: unknown, _token: unknown): void {
     this.view = webviewView;
 
     const webview = webviewView.webview;

@@ -32,7 +32,9 @@ const mockTemplate: SeedTemplate = {
     {
       objectApiName: 'Account',
       recordCount: 50,
-      fieldRules: [{ fieldApiName: 'Name', ruleType: 'faker', config: { fakerMethod: 'company.name' } }],
+      fieldRules: [
+        { fieldApiName: 'Name', ruleType: 'faker', config: { fakerMethod: 'company.name' } },
+      ],
       excludedFields: [],
       insertOrder: 0,
       batchSize: 200,
@@ -40,7 +42,9 @@ const mockTemplate: SeedTemplate = {
     {
       objectApiName: 'Contact',
       recordCount: 100,
-      fieldRules: [{ fieldApiName: 'LastName', ruleType: 'faker', config: { fakerMethod: 'person.lastName' } }],
+      fieldRules: [
+        { fieldApiName: 'LastName', ruleType: 'faker', config: { fakerMethod: 'person.lastName' } },
+      ],
       excludedFields: [],
       insertOrder: 1,
       batchSize: 200,

@@ -36,7 +36,11 @@ describe('TriggerEngine', () => {
     });
 
     it('should return false for event triggers (require external event)', () => {
-      const trigger = createTrigger({ type: 'event', enabled: true, config: { eventType: 'deploy' } });
+      const trigger = createTrigger({
+        type: 'event',
+        enabled: true,
+        config: { eventType: 'deploy' },
+      });
       expect(engine.evaluateTrigger(trigger)).toBe(false);
     });
   });
@@ -142,9 +146,7 @@ describe('TriggerEngine', () => {
     });
 
     it('should return empty array when no triggers are enabled', () => {
-      const triggers: PipelineTrigger[] = [
-        createTrigger({ id: 't1', enabled: false }),
-      ];
+      const triggers: PipelineTrigger[] = [createTrigger({ id: 't1', enabled: false })];
       expect(engine.getActiveTriggers(triggers)).toHaveLength(0);
     });
   });

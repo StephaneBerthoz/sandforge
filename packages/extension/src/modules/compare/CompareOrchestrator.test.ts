@@ -69,11 +69,9 @@ describe('CompareOrchestrator', () => {
       const config = createConfig({ mode: 'metadata' });
       await orchestrator.execute(config);
 
-      expect(deps.metadataCompare.compare).toHaveBeenCalledWith(
-        'source-org',
-        'target-org',
-        ['ApexClass']
-      );
+      expect(deps.metadataCompare.compare).toHaveBeenCalledWith('source-org', 'target-org', [
+        'ApexClass',
+      ]);
     });
 
     it('should call configCompare for config mode', async () => {
@@ -97,8 +95,18 @@ describe('CompareOrchestrator', () => {
       });
       await orchestrator.execute(config);
 
-      expect(deps.dataCompare.compare).toHaveBeenCalledWith('source-org', 'target-org', 'Account', 'Id');
-      expect(deps.dataCompare.compare).toHaveBeenCalledWith('source-org', 'target-org', 'Contact', 'Id');
+      expect(deps.dataCompare.compare).toHaveBeenCalledWith(
+        'source-org',
+        'target-org',
+        'Account',
+        'Id',
+      );
+      expect(deps.dataCompare.compare).toHaveBeenCalledWith(
+        'source-org',
+        'target-org',
+        'Contact',
+        'Id',
+      );
     });
 
     it('should not call dataCompare for data mode without objectFilter', async () => {
@@ -129,12 +137,8 @@ describe('CompareOrchestrator', () => {
     });
 
     it('should aggregate diffs from all sub-services', async () => {
-      vi.mocked(deps.metadataCompare.compare).mockResolvedValue([
-        createItem('ClassA'),
-      ]);
-      vi.mocked(deps.configCompare.compare).mockResolvedValue([
-        createItem('Setting1'),
-      ]);
+      vi.mocked(deps.metadataCompare.compare).mockResolvedValue([createItem('ClassA')]);
+      vi.mocked(deps.configCompare.compare).mockResolvedValue([createItem('Setting1')]);
 
       const config = createConfig({ mode: 'full' });
       await orchestrator.execute(config);
@@ -143,7 +147,7 @@ describe('CompareOrchestrator', () => {
         expect.arrayContaining([
           expect.objectContaining({ fullName: 'ClassA' }),
           expect.objectContaining({ fullName: 'Setting1' }),
-        ])
+        ]),
       );
     });
 

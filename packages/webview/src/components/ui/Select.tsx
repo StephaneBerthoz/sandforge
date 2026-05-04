@@ -9,7 +9,10 @@ export interface SelectOption {
 }
 
 /** Select component props. */
-export interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> {
+export interface SelectProps extends Omit<
+  React.SelectHTMLAttributes<HTMLSelectElement>,
+  'children'
+> {
   label?: string;
   error?: string;
   options: SelectOption[];
@@ -58,7 +61,13 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           ))}
         </select>
         {error && (
-          <span id={`${selectId}-error`} className="text-xs text-[var(--vscode-errorForeground,#f48771)]" role="alert">{error}</span>
+          <span
+            id={`${selectId}-error`}
+            className="text-xs text-[var(--vscode-errorForeground,#f48771)]"
+            role="alert"
+          >
+            {error}
+          </span>
         )}
       </div>
     );

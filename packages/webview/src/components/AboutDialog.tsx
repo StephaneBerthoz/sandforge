@@ -13,11 +13,16 @@ export interface AboutDialogProps {
 
 /** Konami code sequence: Up Up Down Down Left Right Left Right B A */
 const KONAMI_CODE = [
-  'ArrowUp', 'ArrowUp',
-  'ArrowDown', 'ArrowDown',
-  'ArrowLeft', 'ArrowRight',
-  'ArrowLeft', 'ArrowRight',
-  'KeyB', 'KeyA',
+  'ArrowUp',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowLeft',
+  'ArrowRight',
+  'KeyB',
+  'KeyA',
 ];
 
 /**
@@ -95,10 +100,7 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => 
           <Logo size="large" />
 
           <div>
-            <h2
-              id="about-dialog-title"
-              className="text-lg font-bold"
-            >
+            <h2 id="about-dialog-title" className="text-lg font-bold">
               SandForge v1.0.0
             </h2>
             <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-1">
@@ -135,9 +137,7 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => 
         </div>
       </dialog>
 
-      {showEasterEgg && (
-        <MojitoOverlayLazy onClose={handleCloseEasterEgg} />
-      )}
+      {showEasterEgg && <MojitoOverlayLazy onClose={handleCloseEasterEgg} />}
     </>
   );
 };
@@ -147,8 +147,8 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => 
  * Uses React.lazy to only import the overlay when triggered.
  */
 const MojitoOverlayLazy: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const LazyOverlay = React.lazy(
-    () => import('./EasterEgg/MojitoOverlay').then((m) => ({ default: m.MojitoOverlay })),
+  const LazyOverlay = React.lazy(() =>
+    import('./EasterEgg/MojitoOverlay').then((m) => ({ default: m.MojitoOverlay })),
   );
 
   return (

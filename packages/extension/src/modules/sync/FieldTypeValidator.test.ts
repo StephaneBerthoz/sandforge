@@ -153,9 +153,7 @@ describe('FieldTypeValidator', () => {
     });
 
     it('should catch wrong type values', () => {
-      const fields: TargetFieldDescriptor[] = [
-        { apiName: 'Active', type: 'boolean' },
-      ];
+      const fields: TargetFieldDescriptor[] = [{ apiName: 'Active', type: 'boolean' }];
 
       const records = [{ Active: 'yes' }];
 
@@ -167,9 +165,7 @@ describe('FieldTypeValidator', () => {
     });
 
     it('should catch string exceeding maxLength', () => {
-      const fields: TargetFieldDescriptor[] = [
-        { apiName: 'Code', type: 'string', maxLength: 5 },
-      ];
+      const fields: TargetFieldDescriptor[] = [{ apiName: 'Code', type: 'string', maxLength: 5 }];
 
       const records = [{ Code: 'TOOLONG' }];
 
@@ -181,9 +177,7 @@ describe('FieldTypeValidator', () => {
     });
 
     it('should catch missing required fields', () => {
-      const fields: TargetFieldDescriptor[] = [
-        { apiName: 'Name', type: 'string', required: true },
-      ];
+      const fields: TargetFieldDescriptor[] = [{ apiName: 'Name', type: 'string', required: true }];
 
       const records = [{ Other: 'value' }];
 
@@ -213,15 +207,9 @@ describe('FieldTypeValidator', () => {
     });
 
     it('should skip validation for null/undefined/empty values on optional fields', () => {
-      const fields: TargetFieldDescriptor[] = [
-        { apiName: 'Name', type: 'string', maxLength: 255 },
-      ];
+      const fields: TargetFieldDescriptor[] = [{ apiName: 'Name', type: 'string', maxLength: 255 }];
 
-      const records = [
-        { Name: null },
-        { Name: undefined },
-        { Name: '' },
-      ];
+      const records = [{ Name: null }, { Name: undefined }, { Name: '' }];
 
       const result = validator.validateRecords(records, fields);
 
@@ -229,9 +217,7 @@ describe('FieldTypeValidator', () => {
     });
 
     it('should validate integer fields reject floats', () => {
-      const fields: TargetFieldDescriptor[] = [
-        { apiName: 'Count', type: 'int' },
-      ];
+      const fields: TargetFieldDescriptor[] = [{ apiName: 'Count', type: 'int' }];
 
       const records = [{ Count: 3.14 }];
 
@@ -242,9 +228,7 @@ describe('FieldTypeValidator', () => {
     });
 
     it('should validate date fields accept valid ISO strings', () => {
-      const fields: TargetFieldDescriptor[] = [
-        { apiName: 'StartDate', type: 'date' },
-      ];
+      const fields: TargetFieldDescriptor[] = [{ apiName: 'StartDate', type: 'date' }];
 
       const records = [{ StartDate: '2026-01-15' }];
 
@@ -254,9 +238,7 @@ describe('FieldTypeValidator', () => {
     });
 
     it('should validate date fields reject invalid strings', () => {
-      const fields: TargetFieldDescriptor[] = [
-        { apiName: 'StartDate', type: 'date' },
-      ];
+      const fields: TargetFieldDescriptor[] = [{ apiName: 'StartDate', type: 'date' }];
 
       const records = [{ StartDate: 'not-a-date' }];
 

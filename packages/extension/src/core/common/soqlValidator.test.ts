@@ -119,21 +119,15 @@ describe('assertSoqlIdentifier', () => {
   });
 
   it('throws for invalid names', () => {
-    expect(() => assertSoqlIdentifier('1Bad')).toThrow(
-      'Invalid Salesforce API name',
-    );
+    expect(() => assertSoqlIdentifier('1Bad')).toThrow('Invalid Salesforce API name');
   });
 
   it('throws for empty strings', () => {
-    expect(() => assertSoqlIdentifier('')).toThrow(
-      'Invalid Salesforce API name',
-    );
+    expect(() => assertSoqlIdentifier('')).toThrow('Invalid Salesforce API name');
   });
 
   it('throws for names with injection attempts', () => {
-    expect(() => assertSoqlIdentifier('Account; DROP')).toThrow(
-      'Invalid Salesforce API name',
-    );
+    expect(() => assertSoqlIdentifier('Account; DROP')).toThrow('Invalid Salesforce API name');
   });
 
   it('includes the invalid name in the error message', () => {

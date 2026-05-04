@@ -2,9 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ComplianceChecker } from './ComplianceChecker';
 import type { AnonymizationTemplate } from '@sandforge/shared';
 
-function createTemplate(
-  fieldNames: string[],
-): AnonymizationTemplate {
+function createTemplate(fieldNames: string[]): AnonymizationTemplate {
   return {
     id: 'tmpl-1',
     name: 'Test Template',
@@ -30,7 +28,11 @@ describe('ComplianceChecker', () => {
   describe('check', () => {
     it('should return compliant for a fully covered template', () => {
       const template = createTemplate([
-        'Email', 'Phone', 'FirstName', 'LastName', 'MailingAddress',
+        'Email',
+        'Phone',
+        'FirstName',
+        'LastName',
+        'MailingAddress',
       ]);
 
       const result = checker.check(template, 'ccpa');
@@ -113,19 +115,13 @@ describe('ComplianceChecker', () => {
     });
 
     it('should return empty array when no fields match', () => {
-      const rules = checker.getSuggestedRules('ccpa', 'Contact', [
-        'UnrelatedField__c',
-      ]);
+      const rules = checker.getSuggestedRules('ccpa', 'Contact', ['UnrelatedField__c']);
 
       expect(rules).toHaveLength(0);
     });
 
     it('should assign appropriate rule types', () => {
-      const rules = checker.getSuggestedRules('gdpr', 'Contact', [
-        'Email',
-        'Phone',
-        'BirthDate',
-      ]);
+      const rules = checker.getSuggestedRules('gdpr', 'Contact', ['Email', 'Phone', 'BirthDate']);
 
       const emailRule = rules.find((r) => r.fieldApiName === 'Email');
       const phoneRule = rules.find((r) => r.fieldApiName === 'Phone');
@@ -140,7 +136,11 @@ describe('ComplianceChecker', () => {
   describe('isCompliant', () => {
     it('should return true when fully compliant', () => {
       const template = createTemplate([
-        'Email', 'Phone', 'FirstName', 'LastName', 'MailingAddress',
+        'Email',
+        'Phone',
+        'FirstName',
+        'LastName',
+        'MailingAddress',
       ]);
 
       expect(checker.isCompliant(template, 'ccpa')).toBe(true);

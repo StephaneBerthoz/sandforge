@@ -112,10 +112,7 @@ export class ChunkedBulkExecutor {
       }
 
       deps.bulkManager.updateJobState(jobId, status.state);
-      deps.onProgress?.(
-        status.numberRecordsProcessed ?? 0,
-        totalRecords,
-      );
+      deps.onProgress?.(status.numberRecordsProcessed ?? 0, totalRecords);
       await new Promise((r) => setTimeout(r, this.pollIntervalMs));
       status = await job.check();
     }
@@ -136,8 +133,7 @@ export class ChunkedBulkExecutor {
       }
     }
 
-    const finalState: BulkJobStatus =
-      status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
+    const finalState: BulkJobStatus = status.state === 'JobComplete' ? 'JobComplete' : 'Failed';
     deps.bulkManager.updateJobState(jobId, finalState);
     deps.bulkManager.updateJobCounts(
       jobId,

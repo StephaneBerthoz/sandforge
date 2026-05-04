@@ -87,9 +87,7 @@ export class ExecutionPlanGenerator {
     }
 
     // Sort nodes by insertOrder for deterministic grouping
-    const sortedNodes = [...graph.nodes].sort(
-      (a, b) => a.insertOrder - b.insertOrder,
-    );
+    const sortedNodes = [...graph.nodes].sort((a, b) => a.insertOrder - b.insertOrder);
 
     // Group nodes by level
     const levelMap = new Map<number, string[]>();
@@ -157,10 +155,7 @@ export class ExecutionPlanGenerator {
    * @param graph - The autopilot dependency graph (for per-node API call estimates)
    * @returns Estimated total duration in seconds
    */
-  private estimateDuration(
-    waves: ExecutionWave[],
-    graph: AutopilotGraph,
-  ): number {
+  private estimateDuration(waves: ExecutionWave[], graph: AutopilotGraph): number {
     // Build a lookup for estimatedApiCalls by objectApiName
     const apiCallsByObject = new Map<string, number>();
     for (const node of graph.nodes) {

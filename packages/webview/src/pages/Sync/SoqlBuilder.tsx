@@ -108,7 +108,12 @@ export const SoqlBuilder: React.FC<SoqlBuilderProps> = ({
         />
       </div>
 
-      <Button variant="secondary" size="sm" data-testid="copy-soql-btn" onClick={() => navigator.clipboard?.writeText(query)}>
+      <Button
+        variant="secondary"
+        size="sm"
+        data-testid="copy-soql-btn"
+        onClick={() => navigator.clipboard?.writeText(query)}
+      >
         {t('common.copy')} SOQL
       </Button>
     </div>

@@ -19,9 +19,7 @@ const mockPreview: ClonePreviewResult = {
     {
       objectApiName: 'Contact',
       recordCount: 120,
-      sampleRecords: [
-        { Id: '003xx001', FirstName: 'John', LastName: 'Doe' },
-      ],
+      sampleRecords: [{ Id: '003xx001', FirstName: 'John', LastName: 'Doe' }],
       relationships: [{ field: 'AccountId', referenceTo: 'Account' }],
     },
     {
@@ -47,13 +45,7 @@ const largeMockPreview: ClonePreviewResult = {
 
 describe('ClonePreviewPanel', () => {
   it('should render insert order list', () => {
-    render(
-      <ClonePreviewPanel
-        previewResult={mockPreview}
-        onExecute={vi.fn()}
-        onBack={vi.fn()}
-      />,
-    );
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
 
     expect(screen.getByTestId('clone-preview-panel')).toBeDefined();
     expect(screen.getByTestId('clone-insert-order')).toBeDefined();
@@ -65,13 +57,7 @@ describe('ClonePreviewPanel', () => {
   });
 
   it('should render record counts per object', () => {
-    render(
-      <ClonePreviewPanel
-        previewResult={mockPreview}
-        onExecute={vi.fn()}
-        onBack={vi.fn()}
-      />,
-    );
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
 
     const counts = screen.getByTestId('clone-record-counts');
     expect(counts.textContent).toContain('50');
@@ -80,13 +66,7 @@ describe('ClonePreviewPanel', () => {
   });
 
   it('should show total record count', () => {
-    render(
-      <ClonePreviewPanel
-        previewResult={mockPreview}
-        onExecute={vi.fn()}
-        onBack={vi.fn()}
-      />,
-    );
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
 
     const totalEl = screen.getByTestId('clone-total-records');
     expect(totalEl.textContent).toContain('200');
@@ -94,24 +74,14 @@ describe('ClonePreviewPanel', () => {
 
   it('should show large clone warning when records exceed threshold', () => {
     render(
-      <ClonePreviewPanel
-        previewResult={largeMockPreview}
-        onExecute={vi.fn()}
-        onBack={vi.fn()}
-      />,
+      <ClonePreviewPanel previewResult={largeMockPreview} onExecute={vi.fn()} onBack={vi.fn()} />,
     );
 
     expect(screen.getByTestId('clone-large-warning')).toBeDefined();
   });
 
   it('should not show large clone warning for small clones', () => {
-    render(
-      <ClonePreviewPanel
-        previewResult={mockPreview}
-        onExecute={vi.fn()}
-        onBack={vi.fn()}
-      />,
-    );
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={vi.fn()} />);
 
     expect(screen.queryByTestId('clone-large-warning')).toBeNull();
   });
@@ -119,11 +89,7 @@ describe('ClonePreviewPanel', () => {
   it('should call onExecute when clicking Execute button', () => {
     const onExecute = vi.fn();
     render(
-      <ClonePreviewPanel
-        previewResult={mockPreview}
-        onExecute={onExecute}
-        onBack={vi.fn()}
-      />,
+      <ClonePreviewPanel previewResult={mockPreview} onExecute={onExecute} onBack={vi.fn()} />,
     );
 
     fireEvent.click(screen.getByTestId('clone-preview-execute'));
@@ -132,13 +98,7 @@ describe('ClonePreviewPanel', () => {
 
   it('should call onBack when clicking Back button', () => {
     const onBack = vi.fn();
-    render(
-      <ClonePreviewPanel
-        previewResult={mockPreview}
-        onExecute={vi.fn()}
-        onBack={onBack}
-      />,
-    );
+    render(<ClonePreviewPanel previewResult={mockPreview} onExecute={vi.fn()} onBack={onBack} />);
 
     fireEvent.click(screen.getByTestId('clone-preview-back'));
     expect(onBack).toHaveBeenCalledTimes(1);

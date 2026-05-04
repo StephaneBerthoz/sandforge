@@ -60,13 +60,8 @@ const mockAnalysis: ImpactAnalysis = {
     { fullName: 'AccountController', componentType: 'ApexClass', impactType: 'direct' },
     { fullName: 'AccountTrigger', componentType: 'ApexTrigger', impactType: 'indirect' },
   ],
-  dependencies: [
-    { source: 'AccountController', target: 'AccountTrigger', type: 'triggers' },
-  ],
-  recommendations: [
-    'Review AccountTrigger for side effects',
-    'Run all Account-related tests',
-  ],
+  dependencies: [{ source: 'AccountController', target: 'AccountTrigger', type: 'triggers' }],
+  recommendations: ['Review AccountTrigger for side effects', 'Run all Account-related tests'],
 };
 
 describe('ImpactGraph', () => {

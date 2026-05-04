@@ -12,7 +12,12 @@ export interface StepConfigPanelProps {
 }
 
 /** Step-type specific config fields (labels are i18n keys). */
-const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, Array<{ key: string; labelKey: string; type: 'text' | 'number' | 'boolean' }>>> = {
+const STEP_CONFIG_FIELDS: Partial<
+  Record<
+    PipelineStepType,
+    Array<{ key: string; labelKey: string; type: 'text' | 'number' | 'boolean' }>
+  >
+> = {
   seed: [
     { key: 'objectName', labelKey: 'common.object', type: 'text' },
     { key: 'recordCount', labelKey: 'seed.recordCount', type: 'number' },
@@ -29,20 +34,14 @@ const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, Array<{ key: string; 
     { key: 'channel', labelKey: 'automation.stepConfigChannel', type: 'text' },
     { key: 'message', labelKey: 'automation.stepConfigMessage', type: 'text' },
   ],
-  delay: [
-    { key: 'seconds', labelKey: 'automation.stepConfigDelay', type: 'number' },
-  ],
-  script: [
-    { key: 'script', labelKey: 'automation.stepConfigScript', type: 'text' },
-  ],
+  delay: [{ key: 'seconds', labelKey: 'automation.stepConfigDelay', type: 'number' }],
+  script: [{ key: 'script', labelKey: 'automation.stepConfigScript', type: 'text' }],
   delete: [
     { key: 'objectName', labelKey: 'common.object', type: 'text' },
     { key: 'query', labelKey: 'automation.stepConfigWhere', type: 'text' },
     { key: 'hardDelete', labelKey: 'dataops.hardDelete', type: 'boolean' },
   ],
-  anonymize: [
-    { key: 'templateId', labelKey: 'automation.stepConfigTemplate', type: 'text' },
-  ],
+  anonymize: [{ key: 'templateId', labelKey: 'automation.stepConfigTemplate', type: 'text' }],
 };
 
 /**
@@ -50,11 +49,7 @@ const STEP_CONFIG_FIELDS: Partial<Record<PipelineStepType, Array<{ key: string; 
  * including name, timeout, retries, continueOnError,
  * and step-type-specific configuration fields.
  */
-export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
-  step,
-  onUpdate,
-  className,
-}) => {
+export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate, className }) => {
   const { t } = useTranslation();
 
   if (!step) {
@@ -82,7 +77,10 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
 
   return (
     <div
-      className={cn('flex flex-col gap-3 p-3 border border-[var(--sf-border,#3c3c3c)] rounded', className)}
+      className={cn(
+        'flex flex-col gap-3 p-3 border border-[var(--sf-border,#3c3c3c)] rounded',
+        className,
+      )}
       data-testid="step-config-panel"
     >
       {/* Step header */}
@@ -115,7 +113,9 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
         <input
           type="number"
           value={step.timeout ?? ''}
-          onChange={(e) => handleUpdate({ timeout: e.target.value ? Number(e.target.value) : undefined })}
+          onChange={(e) =>
+            handleUpdate({ timeout: e.target.value ? Number(e.target.value) : undefined })
+          }
           placeholder="300"
           className="text-xs p-1.5 rounded border border-[var(--sf-border,#3c3c3c)] bg-[var(--sf-bg-input,#1e1e1e)] text-[var(--sf-text-primary,#d4d4d4)]"
           data-testid="step-timeout-input"
@@ -130,7 +130,9 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
         <input
           type="number"
           value={step.retries ?? ''}
-          onChange={(e) => handleUpdate({ retries: e.target.value ? Number(e.target.value) : undefined })}
+          onChange={(e) =>
+            handleUpdate({ retries: e.target.value ? Number(e.target.value) : undefined })
+          }
           placeholder="0"
           min={0}
           max={5}
@@ -152,7 +154,10 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
 
       {/* Step-type-specific config fields */}
       {configFields.length > 0 && (
-        <div className="flex flex-col gap-2 mt-1 pt-2 border-t border-[var(--sf-border,#3c3c3c)]" data-testid="step-type-config">
+        <div
+          className="flex flex-col gap-2 mt-1 pt-2 border-t border-[var(--sf-border,#3c3c3c)]"
+          data-testid="step-type-config"
+        >
           <span className="text-[10px] font-semibold text-[var(--sf-text-muted,#868686)] uppercase">
             {t('automation.typeConfig', 'Type-specific config')}
           </span>
@@ -175,10 +180,12 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({
                 <input
                   type={field.type}
                   value={String(step.config[field.key] ?? '')}
-                  onChange={(e) => handleConfigUpdate(
-                    field.key,
-                    field.type === 'number' ? Number(e.target.value) : e.target.value,
-                  )}
+                  onChange={(e) =>
+                    handleConfigUpdate(
+                      field.key,
+                      field.type === 'number' ? Number(e.target.value) : e.target.value,
+                    )
+                  }
                   className="text-xs p-1.5 rounded border border-[var(--sf-border,#3c3c3c)] bg-[var(--sf-bg-input,#1e1e1e)] text-[var(--sf-text-primary,#d4d4d4)]"
                   data-testid={`config-${field.key}`}
                 />

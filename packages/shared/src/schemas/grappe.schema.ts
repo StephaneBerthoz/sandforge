@@ -1,17 +1,19 @@
 import { z } from 'zod';
 
 /** Back-pressure configuration schema */
-export const backPressureConfigSchema = z.object({
-  enabled: z.boolean(),
-  maxQueueDepth: z.number().int().positive().default(3),
-  highWaterMark: z.number().min(0).max(100).default(80),
-  lowWaterMark: z.number().min(0).max(100).default(60),
-  strategy: z.enum(['pause', 'throttle', 'drop_priority']),
-  monitoringInterval: z.number().positive().default(5000),
-}).refine(
-  (data) => data.lowWaterMark < data.highWaterMark,
-  { message: 'lowWaterMark must be less than highWaterMark', path: ['lowWaterMark'] },
-);
+export const backPressureConfigSchema = z
+  .object({
+    enabled: z.boolean(),
+    maxQueueDepth: z.number().int().positive().default(3),
+    highWaterMark: z.number().min(0).max(100).default(80),
+    lowWaterMark: z.number().min(0).max(100).default(60),
+    strategy: z.enum(['pause', 'throttle', 'drop_priority']),
+    monitoringInterval: z.number().positive().default(5000),
+  })
+  .refine((data) => data.lowWaterMark < data.highWaterMark, {
+    message: 'lowWaterMark must be less than highWaterMark',
+    path: ['lowWaterMark'],
+  });
 
 /** Grappe (cluster) configuration schema */
 export const grappeConfigSchema = z.object({

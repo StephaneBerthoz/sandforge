@@ -16,13 +16,17 @@ vi.mock('reactflow', () => ({
 
 /* Mock Recharts */
 vi.mock('recharts', () => ({
-  BarChart: ({ children }: { children: React.ReactNode }) => <div data-testid="mock-barchart">{children}</div>,
+  BarChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="mock-barchart">{children}</div>
+  ),
   Bar: () => <div />,
   XAxis: () => <div />,
   YAxis: () => <div />,
   Tooltip: () => <div />,
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  LineChart: ({ children }: { children: React.ReactNode }) => <div data-testid="mock-linechart">{children}</div>,
+  LineChart: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="mock-linechart">{children}</div>
+  ),
   Line: () => <div />,
   CartesianGrid: () => <div />,
 }));
@@ -149,7 +153,9 @@ describe('ReportsPage', () => {
   });
 
   it('should render KPI summary row', () => {
-    render(<ReportsPage reports={reports} analyticsSummary={summary} auditEntries={auditEntries} />);
+    render(
+      <ReportsPage reports={reports} analyticsSummary={summary} auditEntries={auditEntries} />,
+    );
     expect(screen.getByTestId('reports-kpi-row')).toBeDefined();
     expect(screen.getAllByTestId('kpi-card').length).toBe(4);
   });

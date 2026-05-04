@@ -25,9 +25,7 @@ interface AggregateItem {
  * @param results - Array of items with a `success` boolean.
  * @returns The aggregate status string.
  */
-export function determineExecutionStatus(
-  results: StatusItem[],
-): 'success' | 'partial' | 'failed' {
+export function determineExecutionStatus(results: StatusItem[]): 'success' | 'partial' | 'failed' {
   if (results.length === 0) return 'success';
 
   const successCount = results.filter((r) => r.success).length;

@@ -18,7 +18,7 @@ import type { CoreServices } from '../../services.js';
 /** Function to query records from an org */
 export type OrchestratorQueryFn = (
   orgId: string,
-  objectConfig: SyncObjectConfig
+  objectConfig: SyncObjectConfig,
 ) => Promise<Record<string, unknown>[]>;
 
 /** Grappe event emitted during partitioned sync execution */
@@ -75,16 +75,14 @@ export class SyncOrchestrator {
     if (config.preScript) {
       const preResult = await this.deps.migrationScript.execute(
         config.preScript,
-        config.sourceOrgId
+        config.sourceOrgId,
       );
       if (!preResult.success) {
         return buildResult(config.id, operationId, objectResults, startTime, 'failure');
       }
     }
 
-    const sortedObjects = [...config.objects].sort(
-      (a, b) => a.insertOrder - b.insertOrder
-    );
+    const sortedObjects = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
 
     const grappeActive = this.isGrappeActive();
     if (grappeActive) {
@@ -113,19 +111,12 @@ export class SyncOrchestrator {
     }
 
     if (config.postScript) {
-      await this.deps.migrationScript.execute(
-        config.postScript,
-        config.targetOrgId
-      );
+      await this.deps.migrationScript.execute(config.postScript, config.targetOrgId);
     }
 
     const timestamp = new Date().toISOString();
     for (const objectConfig of sortedObjects) {
-      this.deps.incrementalTracker.recordSync(
-        config.id,
-        objectConfig.objectApiName,
-        timestamp
-      );
+      this.deps.incrementalTracker.recordSync(config.id, objectConfig.objectApiName, timestamp);
     }
 
     const status = determineStatus(objectResults);
@@ -149,7 +140,7 @@ export class SyncOrchestrator {
   /** Check whether grappe mode is active based on config. */
   private isGrappeActive(): boolean {
     const config = this.deps.grappeConfig;
-    return !!(config?.enabled);
+    return !!config?.enabled;
   }
 
   /**
@@ -161,25 +152,20 @@ export class SyncOrchestrator {
     const operationId = `dryrun-${Date.now()}`;
     const objectResults: SyncObjectResult[] = [];
 
-    const sortedObjects = [...config.objects].sort(
-      (a, b) => a.insertOrder - b.insertOrder
-    );
+    const sortedObjects = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
 
     for (const objectConfig of sortedObjects) {
-      const sourceRecords = await this.deps.querySource(
-        config.sourceOrgId,
-        objectConfig
-      );
+      const sourceRecords = await this.deps.querySource(config.sourceOrgId, objectConfig);
 
       const lastSync = this.deps.incrementalTracker.getLastSync(
         config.id,
-        objectConfig.objectApiName
+        objectConfig.objectApiName,
       );
 
       const delta = await this.deps.deltaDetector.detect(
         objectConfig,
         config.sourceOrgId,
-        lastSync
+        lastSync,
       );
 
       objectResults.push({
@@ -201,12 +187,9 @@ export class SyncOrchestrator {
 
   private async syncObject(
     config: SyncConfig,
-    objectConfig: SyncObjectConfig
+    objectConfig: SyncObjectConfig,
   ): Promise<SyncObjectResult> {
-    const sourceRecords = await this.deps.querySource(
-      config.sourceOrgId,
-      objectConfig
-    );
+    const sourceRecords = await this.deps.querySource(config.sourceOrgId, objectConfig);
 
     if (sourceRecords.length === 0) {
       return createEmptyResult(objectConfig);
@@ -218,33 +201,25 @@ export class SyncOrchestrator {
     });
 
     const recordsWithAddOns = mappedRecords.map((record) =>
-      this.deps.fieldMapping.applyAddOns(record, objectConfig.addOnFields)
+      this.deps.fieldMapping.applyAddOns(record, objectConfig.addOnFields),
     );
 
     let finalRecords = recordsWithAddOns;
 
     if (config.direction === 'bidirectional') {
-      const targetRecords = await this.deps.queryTarget(
-        config.targetOrgId,
-        objectConfig
-      );
+      const targetRecords = await this.deps.queryTarget(config.targetOrgId, objectConfig);
 
       const matchField = objectConfig.externalIdField ?? 'Id';
       const conflicts = this.deps.conflictResolver.detectConflicts(
         recordsWithAddOns,
         targetRecords,
-        matchField
+        matchField,
       );
 
       if (conflicts.length > 0) {
-        const resolved = this.deps.conflictResolver.resolve(
-          conflicts,
-          config.conflictStrategy
-        );
+        const resolved = this.deps.conflictResolver.resolve(conflicts, config.conflictStrategy);
 
-        const resolvedMap = new Map(
-          resolved.map((r) => [r.recordId, r.resolvedValues])
-        );
+        const resolvedMap = new Map(resolved.map((r) => [r.recordId, r.resolvedValues]));
 
         finalRecords = recordsWithAddOns.map((record) => {
           const key = String(record[matchField] ?? '');
@@ -280,9 +255,7 @@ function createEmptyResult(objectConfig: SyncObjectConfig): SyncObjectResult {
 /**
  * Determine the overall status from individual object results.
  */
-function determineStatus(
-  results: SyncObjectResult[]
-): 'success' | 'partial' | 'failure' {
+function determineStatus(results: SyncObjectResult[]): 'success' | 'partial' | 'failure' {
   if (results.length === 0) {
     return 'success';
   }
@@ -308,7 +281,7 @@ function buildResult(
   operationId: string,
   objectResults: SyncObjectResult[],
   startTime: number,
-  status: 'success' | 'partial' | 'failure'
+  status: 'success' | 'partial' | 'failure',
 ): SyncExecutionResult {
   let totalProcessed = 0;
   let totalSuccess = 0;

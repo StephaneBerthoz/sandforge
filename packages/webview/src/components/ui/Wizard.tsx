@@ -70,7 +70,8 @@ export const Wizard: React.FC<WizardProps> = ({
               className={cn(
                 'flex items-start gap-2 px-2 py-1.5 rounded text-left text-xs transition-colors w-full',
                 isCurrent && 'bg-[var(--vscode-list-activeSelectionBackground,#094771)]',
-                isCompleted && 'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] cursor-pointer',
+                isCompleted &&
+                  'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] cursor-pointer',
                 isFuture && 'opacity-50 cursor-default',
               )}
               onClick={() => isCompleted && onStepChange(i)}
@@ -88,7 +89,11 @@ export const Wizard: React.FC<WizardProps> = ({
                       : 'bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-descriptionForeground,#868686)]',
                 )}
               >
-                {isCompleted ? <Check size={12} data-testid={tid(testIdPrefix, `check-${step.id}`)} /> : i + 1}
+                {isCompleted ? (
+                  <Check size={12} data-testid={tid(testIdPrefix, `check-${step.id}`)} />
+                ) : (
+                  i + 1
+                )}
               </span>
               <span className="flex flex-col min-w-0">
                 <span

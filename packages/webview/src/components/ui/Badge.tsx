@@ -12,8 +12,7 @@ export interface BadgeProps {
 }
 
 const variantClasses: Record<BadgeVariant, string> = {
-  default:
-    'bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#fff)]',
+  default: 'bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#fff)]',
   success: 'bg-emerald-700 text-emerald-100',
   warning: 'bg-amber-700 text-amber-100',
   error: 'bg-red-700 text-red-100',

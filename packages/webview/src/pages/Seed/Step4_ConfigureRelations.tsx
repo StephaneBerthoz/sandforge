@@ -93,15 +93,38 @@ export const Step4ConfigureRelations: React.FC<Step4ConfigureRelationsProps> = (
             data-testid="erd-legend"
           >
             <span className="flex items-center gap-1">
-              <span style={{ width: 16, height: 2, background: 'var(--sf-info, #3B82F6)', display: 'inline-block', borderTop: '1px dashed var(--sf-info, #3B82F6)' }} />
+              <span
+                style={{
+                  width: 16,
+                  height: 2,
+                  background: 'var(--sf-info, #3B82F6)',
+                  display: 'inline-block',
+                  borderTop: '1px dashed var(--sf-info, #3B82F6)',
+                }}
+              />
               {t('seed.erdLookup', 'Lookup')}
             </span>
             <span className="flex items-center gap-1">
-              <span style={{ width: 16, height: 2, background: 'var(--sf-error, #EF4444)', display: 'inline-block' }} />
+              <span
+                style={{
+                  width: 16,
+                  height: 2,
+                  background: 'var(--sf-error, #EF4444)',
+                  display: 'inline-block',
+                }}
+              />
               {t('seed.erdMasterDetail', 'Master-Detail')}
             </span>
             <span className="flex items-center gap-1">
-              <span style={{ width: 8, height: 8, borderRadius: '50%', border: '1.5px solid var(--sf-error, #EF4444)', display: 'inline-block' }} />
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  border: '1.5px solid var(--sf-error, #EF4444)',
+                  display: 'inline-block',
+                }}
+              />
               {t('seed.erdCircular', 'Circular Dep')}
             </span>
           </div>
@@ -112,11 +135,7 @@ export const Step4ConfigureRelations: React.FC<Step4ConfigureRelationsProps> = (
       {erdWarnings.length > 0 && (
         <div className="flex flex-col gap-1" data-testid="erd-warnings">
           {erdWarnings.map((warning, i) => (
-            <ErrorBanner
-              key={i}
-              message={warning}
-              data-testid={`erd-warning-${i}`}
-            />
+            <ErrorBanner key={i} message={warning} data-testid={`erd-warning-${i}`} />
           ))}
         </div>
       )}

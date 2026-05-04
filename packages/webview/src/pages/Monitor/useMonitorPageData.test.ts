@@ -157,17 +157,37 @@ describe('useMonitorPageData', () => {
 
     // Simulate 2 failures
     for (let i = 1; i <= 2; i++) {
-      mockMonitorQueryState = { data: standardPayload, loading: true, error: null, refetch: mockRefetch };
+      mockMonitorQueryState = {
+        data: standardPayload,
+        loading: true,
+        error: null,
+        refetch: mockRefetch,
+      };
       rerender();
-      mockMonitorQueryState = { data: standardPayload, loading: false, error: `Error ${i}`, refetch: mockRefetch };
+      mockMonitorQueryState = {
+        data: standardPayload,
+        loading: false,
+        error: `Error ${i}`,
+        refetch: mockRefetch,
+      };
       rerender();
     }
     expect(result.current.consecutiveFailures).toBe(2);
 
     // Now simulate a successful refresh
-    mockMonitorQueryState = { data: standardPayload, loading: true, error: null, refetch: mockRefetch };
+    mockMonitorQueryState = {
+      data: standardPayload,
+      loading: true,
+      error: null,
+      refetch: mockRefetch,
+    };
     rerender();
-    mockMonitorQueryState = { data: standardPayload, loading: false, error: null, refetch: mockRefetch };
+    mockMonitorQueryState = {
+      data: standardPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
     rerender();
 
     expect(result.current.consecutiveFailures).toBe(0);
@@ -223,9 +243,7 @@ describe('useMonitorPageData', () => {
     mockMonitorQueryState = {
       data: {
         ...standardPayload,
-        limits: [
-          { name: 'DailyApiRequests', max: 15000, remaining: 2550, usedPercent: 83 },
-        ],
+        limits: [{ name: 'DailyApiRequests', max: 15000, remaining: 2550, usedPercent: 83 }],
       },
       loading: false,
       error: null,
@@ -238,11 +256,7 @@ describe('useMonitorPageData', () => {
   });
 
   it('should use real timestamps in trendSeries when TrendData.timestamps is present', () => {
-    const realTimestamps = [
-      '2026-03-20T10:00:00Z',
-      '2026-03-20T10:15:00Z',
-      '2026-03-20T10:30:00Z',
-    ];
+    const realTimestamps = ['2026-03-20T10:00:00Z', '2026-03-20T10:15:00Z', '2026-03-20T10:30:00Z'];
     mockMonitorQueryState = {
       data: {
         ...standardPayload,
@@ -293,11 +307,7 @@ describe('useMonitorPageData', () => {
   });
 
   it('should use real timestamps in trendChartData when TrendData.timestamps is present', () => {
-    const realTimestamps = [
-      '2026-03-20T10:00:00Z',
-      '2026-03-20T10:15:00Z',
-      '2026-03-20T10:30:00Z',
-    ];
+    const realTimestamps = ['2026-03-20T10:00:00Z', '2026-03-20T10:15:00Z', '2026-03-20T10:30:00Z'];
     mockMonitorQueryState = {
       data: {
         ...standardPayload,

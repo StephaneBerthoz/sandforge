@@ -16,12 +16,7 @@ export interface DescribeFieldInfo {
  * Well-known master-detail relationship fields in standard Salesforce objects.
  * These fields represent required relationships where the parent must exist.
  */
-const KNOWN_MASTER_DETAIL_FIELDS = new Set([
-  'OpportunityId',
-  'CaseId',
-  'ContractId',
-  'OrderId',
-]);
+const KNOWN_MASTER_DETAIL_FIELDS = new Set(['OpportunityId', 'CaseId', 'ContractId', 'OrderId']);
 
 /**
  * Detects parent object dependencies by analyzing reference/lookup fields

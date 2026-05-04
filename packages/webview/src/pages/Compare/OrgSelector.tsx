@@ -56,7 +56,10 @@ export const OrgSelector: React.FC<OrgSelectorProps> = ({
         />
       </div>
       {sameOrg && (
-        <p className="text-xs text-[var(--vscode-notificationsWarningIcon-foreground,#cca700)] mt-2" data-testid="org-same-warning">
+        <p
+          className="text-xs text-[var(--vscode-notificationsWarningIcon-foreground,#cca700)] mt-2"
+          data-testid="org-same-warning"
+        >
           {t('compare.sameOrgWarning')}
         </p>
       )}

@@ -23,12 +23,7 @@ export interface OrgEditDialogProps {
 }
 
 /** Dialog for editing an existing org's metadata. */
-export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({
-  org,
-  open,
-  onClose,
-  onSave,
-}) => {
+export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose, onSave }) => {
   const { t } = useTranslation();
 
   const tierOptions = [

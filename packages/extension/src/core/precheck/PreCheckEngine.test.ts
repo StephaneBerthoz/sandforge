@@ -1,11 +1,26 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PreCheckEngine } from './PreCheckEngine';
-import type { PreCheckEngineDeps, CategoryChecker, SecurityCategoryChecker, PerformanceCategoryChecker } from './PreCheckEngine';
+import type {
+  PreCheckEngineDeps,
+  CategoryChecker,
+  SecurityCategoryChecker,
+  PerformanceCategoryChecker,
+} from './PreCheckEngine';
 import type { PreCheckConfig, PreCheckItem, PreCheckEstimations } from '@sandforge/shared';
 
 function createConfig(overrides?: Partial<PreCheckConfig>): PreCheckConfig {
   return {
-    categories: ['permissions', 'api_limits', 'storage', 'schema', 'data_integrity', 'org_status', 'compatibility', 'security', 'performance'],
+    categories: [
+      'permissions',
+      'api_limits',
+      'storage',
+      'schema',
+      'data_integrity',
+      'org_status',
+      'compatibility',
+      'security',
+      'performance',
+    ],
     skipWarnings: false,
     autoFix: false,
     targetOrgId: 'org-001',
@@ -61,7 +76,13 @@ function createMockChecker(items: PreCheckItem[] = []): CategoryChecker {
 
 function createMockSecurityChecker(
   items: PreCheckItem[] = [],
-  confirmations: { title: string; description: string; severity: 'warning' | 'error'; requiresTypedConfirmation: boolean; confirmationText?: string }[] = []
+  confirmations: {
+    title: string;
+    description: string;
+    severity: 'warning' | 'error';
+    requiresTypedConfirmation: boolean;
+    confirmationText?: string;
+  }[] = [],
 ): SecurityCategoryChecker {
   return {
     check: vi.fn().mockResolvedValue({ items, confirmations }),
@@ -70,7 +91,7 @@ function createMockSecurityChecker(
 
 function createMockPerformanceChecker(
   items: PreCheckItem[] = [],
-  estimations?: PreCheckEstimations
+  estimations?: PreCheckEstimations,
 ): PerformanceCategoryChecker {
   return {
     check: vi.fn().mockResolvedValue(items),
@@ -131,9 +152,7 @@ describe('PreCheckEngine', () => {
 
     it('should return fail status when a blocker exists', async () => {
       const deps = createDeps({
-        permissionCheck: createMockChecker([
-          createFailingItem({ severity: 'blocker' }),
-        ]),
+        permissionCheck: createMockChecker([createFailingItem({ severity: 'blocker' })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -145,9 +164,7 @@ describe('PreCheckEngine', () => {
 
     it('should return warning status when errors but no blockers', async () => {
       const deps = createDeps({
-        permissionCheck: createMockChecker([
-          createFailingItem({ severity: 'error' }),
-        ]),
+        permissionCheck: createMockChecker([createFailingItem({ severity: 'error' })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -159,9 +176,7 @@ describe('PreCheckEngine', () => {
 
     it('should return warning status for warning severity failures', async () => {
       const deps = createDeps({
-        permissionCheck: createMockChecker([
-          createFailingItem({ severity: 'warning' }),
-        ]),
+        permissionCheck: createMockChecker([createFailingItem({ severity: 'warning' })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -172,9 +187,7 @@ describe('PreCheckEngine', () => {
 
     it('should deduct 30 points for each blocker', async () => {
       const deps = createDeps({
-        permissionCheck: createMockChecker([
-          createFailingItem({ severity: 'blocker' }),
-        ]),
+        permissionCheck: createMockChecker([createFailingItem({ severity: 'blocker' })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -185,9 +198,7 @@ describe('PreCheckEngine', () => {
 
     it('should deduct 15 points for each error', async () => {
       const deps = createDeps({
-        permissionCheck: createMockChecker([
-          createFailingItem({ severity: 'error' }),
-        ]),
+        permissionCheck: createMockChecker([createFailingItem({ severity: 'error' })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -198,9 +209,7 @@ describe('PreCheckEngine', () => {
 
     it('should deduct 5 points for each warning', async () => {
       const deps = createDeps({
-        permissionCheck: createMockChecker([
-          createFailingItem({ severity: 'warning' }),
-        ]),
+        permissionCheck: createMockChecker([createFailingItem({ severity: 'warning' })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -211,9 +220,7 @@ describe('PreCheckEngine', () => {
 
     it('should not deduct points for info severity', async () => {
       const deps = createDeps({
-        permissionCheck: createMockChecker([
-          createFailingItem({ severity: 'info' }),
-        ]),
+        permissionCheck: createMockChecker([createFailingItem({ severity: 'info' })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -255,12 +262,14 @@ describe('PreCheckEngine', () => {
       const deps = createDeps({
         securityCheck: createMockSecurityChecker(
           [createPassingItem({ category: 'security' })],
-          [{
-            title: 'Production Guard',
-            description: 'Confirm production operation',
-            severity: 'warning',
-            requiresTypedConfirmation: false,
-          }]
+          [
+            {
+              title: 'Production Guard',
+              description: 'Confirm production operation',
+              severity: 'warning',
+              requiresTypedConfirmation: false,
+            },
+          ],
         ),
       });
 
@@ -291,9 +300,7 @@ describe('PreCheckEngine', () => {
 
     it('should not include passing autoFixable items in autoFixable list', async () => {
       const deps = createDeps({
-        schemaCheck: createMockChecker([
-          createPassingItem({ autoFixable: true }),
-        ]),
+        schemaCheck: createMockChecker([createPassingItem({ autoFixable: true })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -358,9 +365,7 @@ describe('PreCheckEngine', () => {
   describe('runCategory', () => {
     it('should run a single category and return items', async () => {
       const deps = createDeps({
-        permissionCheck: createMockChecker([
-          createPassingItem({ category: 'permissions' }),
-        ]),
+        permissionCheck: createMockChecker([createPassingItem({ category: 'permissions' })]),
       });
 
       const engine = new PreCheckEngine(deps);
@@ -374,7 +379,14 @@ describe('PreCheckEngine', () => {
       const deps = createDeps({
         securityCheck: createMockSecurityChecker(
           [createPassingItem({ category: 'security' })],
-          [{ title: 'Test', description: 'Test', severity: 'warning', requiresTypedConfirmation: false }]
+          [
+            {
+              title: 'Test',
+              description: 'Test',
+              severity: 'warning',
+              requiresTypedConfirmation: false,
+            },
+          ],
         ),
       });
 

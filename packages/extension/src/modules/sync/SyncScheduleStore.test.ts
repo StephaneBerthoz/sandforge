@@ -82,11 +82,7 @@ describe('SyncScheduleStore', () => {
     it('should store with the correct key prefix and category', () => {
       const entry = createScheduleEntry();
       store.save(entry);
-      expect(configStore.set).toHaveBeenCalledWith(
-        'schedule:sync:sched-1',
-        entry,
-        'syncSchedules',
-      );
+      expect(configStore.set).toHaveBeenCalledWith('schedule:sync:sched-1', entry, 'syncSchedules');
     });
 
     it('should return undefined for non-existent schedule', () => {

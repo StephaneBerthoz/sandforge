@@ -126,9 +126,7 @@ describe('ConfigCompare', () => {
     it('should handle fetch failures by propagating the error', async () => {
       vi.mocked(fetchConfig).mockRejectedValue(new Error('Timeout'));
 
-      await expect(
-        configCompare.compare('org-1', 'org-2')
-      ).rejects.toThrow('Timeout');
+      await expect(configCompare.compare('org-1', 'org-2')).rejects.toThrow('Timeout');
     });
 
     it('should fetch both orgs in parallel', async () => {

@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
-import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeExecutionResult, ForgeTemplate, ForgePlan } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  ForgeConfig,
+  ForgeGraph,
+  ForgeExecutionResult,
+  ForgeTemplate,
+  ForgePlan,
+} from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
@@ -192,17 +199,23 @@ describe('ForgeHandler', () => {
       const handled = await handler.handle(msg);
 
       expect(handled).toBe(true);
-      expect(orchestrator.discover).toHaveBeenCalledWith(config, expect.objectContaining({
-        signal: expect.any(AbortSignal),
-        onProgress: expect.any(Function),
-      }));
+      expect(orchestrator.discover).toHaveBeenCalledWith(
+        config,
+        expect.objectContaining({
+          signal: expect.any(AbortSignal),
+          onProgress: expect.any(Function),
+        }),
+      );
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
       const responseCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'forge:discover:response',
       );
       expect(responseCalls).toHaveLength(1);
-      const response = responseCalls[0][0] as BaseMessage & { correlationId?: string; payload: { graph: ForgeGraph } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { graph: ForgeGraph };
+      };
       expect(response.correlationId).toBe(msg.id);
       expect(response.payload.graph).toEqual(graph);
     });
@@ -284,7 +297,10 @@ describe('ForgeHandler', () => {
         (call) => (call[0] as BaseMessage).type === 'forge:execute:response',
       );
       expect(responseCalls).toHaveLength(1);
-      const response = responseCalls[0][0] as BaseMessage & { correlationId?: string; payload: { result: ForgeExecutionResult } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { result: ForgeExecutionResult };
+      };
       expect(response.correlationId).toBe(msg.id);
       expect(response.payload.result).toEqual(result);
     });
@@ -294,12 +310,10 @@ describe('ForgeHandler', () => {
       const config = createMockConfig();
       let capturedListener: ProgressListener | undefined;
 
-      vi.mocked(orchestrator.on).mockImplementation(
-        (_type: string, listener: ProgressListener) => {
-          capturedListener = listener;
-          return vi.fn();
-        },
-      );
+      vi.mocked(orchestrator.on).mockImplementation((_type: string, listener: ProgressListener) => {
+        capturedListener = listener;
+        return vi.fn();
+      });
       vi.mocked(orchestrator.execute).mockImplementation(async () => {
         if (capturedListener) {
           capturedListener({
@@ -368,7 +382,9 @@ describe('ForgeHandler', () => {
         (call) => (call[0] as BaseMessage).type === 'forge:execute:response',
       );
       expect(responseCalls).toHaveLength(1);
-      const response = responseCalls[0][0] as BaseMessage & { payload: { result: ForgeExecutionResult; operationId: string } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        payload: { result: ForgeExecutionResult; operationId: string };
+      };
       expect(response.payload.operationId).toBeDefined();
       expect(response.payload.operationId).toMatch(/^forge-execute-/);
     });
@@ -386,7 +402,11 @@ describe('ForgeHandler', () => {
         (call) => (call[0] as BaseMessage).type === 'forge:execute:error',
       );
       expect(errCalls).toHaveLength(1);
-      const errPayload = (errCalls[0][0] as BaseMessage & { payload: { message: string; code: string; retryable: boolean } }).payload;
+      const errPayload = (
+        errCalls[0][0] as BaseMessage & {
+          payload: { message: string; code: string; retryable: boolean };
+        }
+      ).payload;
       expect(errPayload.code).toBe('EXECUTE_ERROR');
       expect(errPayload.retryable).toBe(true);
     });
@@ -470,7 +490,10 @@ describe('ForgeHandler', () => {
 
       let resolveDiscover: ((value: ForgeGraph) => void) | undefined;
       vi.mocked(orchestrator.discover).mockImplementation(
-        () => new Promise<ForgeGraph>((resolve) => { resolveDiscover = resolve; }),
+        () =>
+          new Promise<ForgeGraph>((resolve) => {
+            resolveDiscover = resolve;
+          }),
       );
 
       const discoverMsg = buildMsg('forge:discover', { config });
@@ -515,7 +538,10 @@ describe('ForgeHandler', () => {
         (call) => (call[0] as BaseMessage).type === 'forge:templates:list:response',
       );
       expect(responseCalls).toHaveLength(1);
-      const response = responseCalls[0][0] as BaseMessage & { correlationId?: string; payload: { templates: ForgeTemplate[] } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { templates: ForgeTemplate[] };
+      };
       expect(response.correlationId).toBe(msg.id);
       expect(response.payload.templates).toEqual([]);
     });
@@ -531,7 +557,9 @@ describe('ForgeHandler', () => {
       const responseCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'forge:templates:list:response',
       );
-      const response = responseCalls[0][0] as BaseMessage & { payload: { templates: ForgeTemplate[] } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        payload: { templates: ForgeTemplate[] };
+      };
       expect(response.payload.templates).toEqual(templates);
     });
   });
@@ -545,18 +573,17 @@ describe('ForgeHandler', () => {
       const handled = await handler.handle(msg);
 
       expect(handled).toBe(true);
-      expect(deps.configStore.set).toHaveBeenCalledWith(
-        'forge:templates',
-        [template],
-        'forge',
-      );
+      expect(deps.configStore.set).toHaveBeenCalledWith('forge:templates', [template], 'forge');
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
       const responseCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'forge:templates:save:response',
       );
       expect(responseCalls).toHaveLength(1);
-      const response = responseCalls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean };
+      };
       expect(response.correlationId).toBe(msg.id);
       expect(response.payload.success).toBe(true);
     });
@@ -569,11 +596,7 @@ describe('ForgeHandler', () => {
       const msg = buildMsg('forge:templates:save', { template: template2 });
       await handler.handle(msg);
 
-      expect(deps.configStore.set).toHaveBeenCalledWith(
-        'forge:templates',
-        [template2],
-        'forge',
-      );
+      expect(deps.configStore.set).toHaveBeenCalledWith('forge:templates', [template2], 'forge');
     });
   });
 
@@ -586,18 +609,17 @@ describe('ForgeHandler', () => {
       const handled = await handler.handle(msg);
 
       expect(handled).toBe(true);
-      expect(deps.configStore.set).toHaveBeenCalledWith(
-        'forge:templates',
-        [],
-        'forge',
-      );
+      expect(deps.configStore.set).toHaveBeenCalledWith('forge:templates', [], 'forge');
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
       const responseCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'forge:templates:delete:response',
       );
       expect(responseCalls).toHaveLength(1);
-      const response = responseCalls[0][0] as BaseMessage & { correlationId?: string; payload: { success: boolean } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { success: boolean };
+      };
       expect(response.correlationId).toBe(msg.id);
       expect(response.payload.success).toBe(true);
     });
@@ -618,7 +640,10 @@ describe('ForgeHandler', () => {
         (call) => (call[0] as BaseMessage).type === 'forge:history:list:response',
       );
       expect(responseCalls).toHaveLength(1);
-      const response = responseCalls[0][0] as BaseMessage & { correlationId?: string; payload: { history: ForgeExecutionResult[] } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        correlationId?: string;
+        payload: { history: ForgeExecutionResult[] };
+      };
       expect(response.correlationId).toBe(msg.id);
       expect(response.payload.history).toEqual([]);
     });
@@ -634,7 +659,9 @@ describe('ForgeHandler', () => {
       const responseCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'forge:history:list:response',
       );
-      const response = responseCalls[0][0] as BaseMessage & { payload: { history: ForgeExecutionResult[] } };
+      const response = responseCalls[0][0] as BaseMessage & {
+        payload: { history: ForgeExecutionResult[] };
+      };
       expect(response.payload.history).toEqual(history);
     });
   });
@@ -657,13 +684,23 @@ describe('ForgeHandler', () => {
 
     it('calls planGenerator.generate and posts response with correlationId', async () => {
       const mockPlan: ForgePlan = {
-        waves: [{ order: 0, objectApiNames: ['Account'], totalRecords: 10, estimatedDurationSeconds: 0.5, estimatedApiCalls: 1 }],
+        waves: [
+          {
+            order: 0,
+            objectApiNames: ['Account'],
+            totalRecords: 10,
+            estimatedDurationSeconds: 0.5,
+            estimatedApiCalls: 1,
+          },
+        ],
         totalRecords: 10,
         totalApiCalls: 1,
         estimatedDurationSeconds: 0.5,
         cycleResolutions: [],
       };
-      const planGenerator = { generate: vi.fn().mockReturnValue(mockPlan) } as unknown as ForgePlanGenerator;
+      const planGenerator = {
+        generate: vi.fn().mockReturnValue(mockPlan),
+      } as unknown as ForgePlanGenerator;
       handler.setForgeOrchestrator(orchestrator, { planGenerator });
 
       const graph = createMockGraph();
@@ -684,16 +721,29 @@ describe('ForgeHandler', () => {
 
     it('emits operation:started then operation:completed on success', async () => {
       const mockPlan: ForgePlan = {
-        waves: [{ order: 0, objectApiNames: ['Account'], totalRecords: 10, estimatedDurationSeconds: 0.5, estimatedApiCalls: 1 }],
+        waves: [
+          {
+            order: 0,
+            objectApiNames: ['Account'],
+            totalRecords: 10,
+            estimatedDurationSeconds: 0.5,
+            estimatedApiCalls: 1,
+          },
+        ],
         totalRecords: 10,
         totalApiCalls: 1,
         estimatedDurationSeconds: 0.5,
         cycleResolutions: [],
       };
-      const planGenerator = { generate: vi.fn().mockReturnValue(mockPlan) } as unknown as ForgePlanGenerator;
+      const planGenerator = {
+        generate: vi.fn().mockReturnValue(mockPlan),
+      } as unknown as ForgePlanGenerator;
       handler.setForgeOrchestrator(orchestrator, { planGenerator });
 
-      const msg = buildMsg('forge:plan:request', { graph: createMockGraph(), config: createMockConfig() });
+      const msg = buildMsg('forge:plan:request', {
+        graph: createMockGraph(),
+        config: createMockConfig(),
+      });
       await handler.handle(msg);
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
@@ -705,16 +755,27 @@ describe('ForgeHandler', () => {
       );
       expect(startedCalls).toHaveLength(1);
       expect(completedCalls).toHaveLength(1);
-      const startedPayload = (startedCalls[0][0] as BaseMessage & { payload: { operationId: string; description: string } }).payload;
+      const startedPayload = (
+        startedCalls[0][0] as BaseMessage & {
+          payload: { operationId: string; description: string };
+        }
+      ).payload;
       expect(startedPayload.operationId).toMatch(/^forge-plan-/);
       expect(startedPayload.description).toBe('Generating execution plan');
     });
 
     it('emits operation:failed when planGenerator throws and error has code and retryable', async () => {
-      const planGenerator = { generate: vi.fn().mockImplementation(() => { throw new Error('generation failed'); }) } as unknown as ForgePlanGenerator;
+      const planGenerator = {
+        generate: vi.fn().mockImplementation(() => {
+          throw new Error('generation failed');
+        }),
+      } as unknown as ForgePlanGenerator;
       handler.setForgeOrchestrator(orchestrator, { planGenerator });
 
-      const msg = buildMsg('forge:plan:request', { graph: createMockGraph(), config: createMockConfig() });
+      const msg = buildMsg('forge:plan:request', {
+        graph: createMockGraph(),
+        config: createMockConfig(),
+      });
       await handler.handle(msg);
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
@@ -727,7 +788,11 @@ describe('ForgeHandler', () => {
         (call) => (call[0] as BaseMessage).type === 'forge:plan:error',
       );
       expect(errCalls).toHaveLength(1);
-      const errPayload = (errCalls[0][0] as BaseMessage & { payload: { message: string; code: string; retryable: boolean } }).payload;
+      const errPayload = (
+        errCalls[0][0] as BaseMessage & {
+          payload: { message: string; code: string; retryable: boolean };
+        }
+      ).payload;
       expect(errPayload.code).toBe('PLAN_ERROR');
       expect(errPayload.retryable).toBe(false);
     });
@@ -752,7 +817,9 @@ describe('ForgeHandler', () => {
 
     it('calls complianceService.generate and posts response with correlationId', async () => {
       const mockReport = { id: 'r-1', framework: 'gdpr' };
-      const complianceService = { generate: vi.fn().mockReturnValue(mockReport) } as unknown as ForgeComplianceService;
+      const complianceService = {
+        generate: vi.fn().mockReturnValue(mockReport),
+      } as unknown as ForgeComplianceService;
       handler.setForgeOrchestrator(orchestrator, { complianceService });
 
       const graph = createMockGraph();
@@ -774,10 +841,16 @@ describe('ForgeHandler', () => {
 
     it('emits operation lifecycle events on success', async () => {
       const mockReport = { id: 'r-1', framework: 'gdpr' };
-      const complianceService = { generate: vi.fn().mockReturnValue(mockReport) } as unknown as ForgeComplianceService;
+      const complianceService = {
+        generate: vi.fn().mockReturnValue(mockReport),
+      } as unknown as ForgeComplianceService;
       handler.setForgeOrchestrator(orchestrator, { complianceService });
 
-      const msg = buildMsg('forge:compliance:request', { framework: 'gdpr', graph: createMockGraph(), config: createMockConfig() });
+      const msg = buildMsg('forge:compliance:request', {
+        framework: 'gdpr',
+        graph: createMockGraph(),
+        config: createMockConfig(),
+      });
       await handler.handle(msg);
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
@@ -789,7 +862,11 @@ describe('ForgeHandler', () => {
       );
       expect(startedCalls).toHaveLength(1);
       expect(completedCalls).toHaveLength(1);
-      const startedPayload = (startedCalls[0][0] as BaseMessage & { payload: { operationId: string; description: string } }).payload;
+      const startedPayload = (
+        startedCalls[0][0] as BaseMessage & {
+          payload: { operationId: string; description: string };
+        }
+      ).payload;
       expect(startedPayload.operationId).toMatch(/^forge-compliance-/);
       expect(startedPayload.description).toBe('Generating compliance report');
     });
@@ -813,8 +890,18 @@ describe('ForgeHandler', () => {
     });
 
     it('calls metadataDiff.compare and posts response with correlationId', async () => {
-      const mockDiffs = [{ objectApiName: 'Account', fieldApiName: 'Custom__c', issue: 'missing', severity: 'error', details: 'Missing field' }];
-      const metadataDiff = { compare: vi.fn().mockResolvedValue(mockDiffs) } as unknown as ForgeMetadataDiff;
+      const mockDiffs = [
+        {
+          objectApiName: 'Account',
+          fieldApiName: 'Custom__c',
+          issue: 'missing',
+          severity: 'error',
+          details: 'Missing field',
+        },
+      ];
+      const metadataDiff = {
+        compare: vi.fn().mockResolvedValue(mockDiffs),
+      } as unknown as ForgeMetadataDiff;
       handler.setForgeOrchestrator(orchestrator, { metadataDiff });
 
       const msg = buildMsg('forge:metadata-diff:request', {
@@ -837,8 +924,18 @@ describe('ForgeHandler', () => {
     });
 
     it('emits operation lifecycle events on success', async () => {
-      const mockDiffs = [{ objectApiName: 'Account', fieldApiName: 'Custom__c', issue: 'missing', severity: 'error', details: 'Missing field' }];
-      const metadataDiff = { compare: vi.fn().mockResolvedValue(mockDiffs) } as unknown as ForgeMetadataDiff;
+      const mockDiffs = [
+        {
+          objectApiName: 'Account',
+          fieldApiName: 'Custom__c',
+          issue: 'missing',
+          severity: 'error',
+          details: 'Missing field',
+        },
+      ];
+      const metadataDiff = {
+        compare: vi.fn().mockResolvedValue(mockDiffs),
+      } as unknown as ForgeMetadataDiff;
       handler.setForgeOrchestrator(orchestrator, { metadataDiff });
 
       const msg = buildMsg('forge:metadata-diff:request', {
@@ -857,13 +954,19 @@ describe('ForgeHandler', () => {
       );
       expect(startedCalls).toHaveLength(1);
       expect(completedCalls).toHaveLength(1);
-      const startedPayload = (startedCalls[0][0] as BaseMessage & { payload: { operationId: string; description: string } }).payload;
+      const startedPayload = (
+        startedCalls[0][0] as BaseMessage & {
+          payload: { operationId: string; description: string };
+        }
+      ).payload;
       expect(startedPayload.operationId).toMatch(/^forge-metadata-diff-/);
       expect(startedPayload.description).toBe('Comparing metadata schemas');
     });
 
     it('emits operation:failed when compare throws and error has code', async () => {
-      const metadataDiff = { compare: vi.fn().mockRejectedValue(new Error('diff failed')) } as unknown as ForgeMetadataDiff;
+      const metadataDiff = {
+        compare: vi.fn().mockRejectedValue(new Error('diff failed')),
+      } as unknown as ForgeMetadataDiff;
       handler.setForgeOrchestrator(orchestrator, { metadataDiff });
 
       const msg = buildMsg('forge:metadata-diff:request', {
@@ -883,7 +986,11 @@ describe('ForgeHandler', () => {
         (call) => (call[0] as BaseMessage).type === 'forge:metadata-diff:error',
       );
       expect(errCalls).toHaveLength(1);
-      const errPayload = (errCalls[0][0] as BaseMessage & { payload: { message: string; code: string; retryable: boolean } }).payload;
+      const errPayload = (
+        errCalls[0][0] as BaseMessage & {
+          payload: { message: string; code: string; retryable: boolean };
+        }
+      ).payload;
       expect(errPayload.code).toBe('METADATA_DIFF_ERROR');
       expect(errPayload.retryable).toBe(false);
     });
@@ -938,9 +1045,7 @@ describe('ForgeHandler', () => {
         limitInfo: {},
       };
       mockGetConn.mockResolvedValue(mockConn as never);
-      mockQueryFallback.mockResolvedValue([
-        { Id: '001xx000003DGb1', Name: 'Acme' },
-      ]);
+      mockQueryFallback.mockResolvedValue([{ Id: '001xx000003DGb1', Name: 'Acme' }]);
 
       const msg = buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-1' });
       await handler.handle(msg);

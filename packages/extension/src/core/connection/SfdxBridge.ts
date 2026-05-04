@@ -110,7 +110,7 @@ export class SfdxBridge {
     } catch (parseErr: unknown) {
       throw new Error(
         `Failed to parse SF CLI JSON: ${parseErr instanceof Error ? parseErr.message : parseErr}. ` +
-        `Output starts with: ${stdout.slice(0, 300)}`,
+          `Output starts with: ${stdout.slice(0, 300)}`,
       );
     }
 
@@ -150,16 +150,17 @@ export class SfdxBridge {
 
   private mapToSalesforceOrg(entry: SfdxOrgEntry): SfdxImportResult {
     const orgType = entry.isScratchOrg
-      ? 'Scratch' as const
+      ? ('Scratch' as const)
       : entry.isSandbox
-        ? 'Sandbox' as const
-        : 'Production' as const;
+        ? ('Sandbox' as const)
+        : ('Production' as const);
 
-    const safetyTier = orgType === 'Production'
-      ? OrgSafetyTier.CRITICAL
-      : orgType === 'Scratch'
-        ? OrgSafetyTier.LOW
-        : OrgSafetyTier.LOW;
+    const safetyTier =
+      orgType === 'Production'
+        ? OrgSafetyTier.CRITICAL
+        : orgType === 'Scratch'
+          ? OrgSafetyTier.LOW
+          : OrgSafetyTier.LOW;
 
     const org: SalesforceOrg = {
       id: entry.orgId,
@@ -170,7 +171,11 @@ export class SfdxBridge {
       orgType,
       authMethod: 'sfdx_import',
       safetyTier,
-      appearance: { color: orgType === 'Production' ? '#e74c3c' : '#4a9eff', icon: 'cloud', position: 0 },
+      appearance: {
+        color: orgType === 'Production' ? '#e74c3c' : '#4a9eff',
+        icon: 'cloud',
+        position: 0,
+      },
       metadata: {
         apiVersion: entry.instanceApiVersion ?? '62.0',
         edition: entry.name ?? '',

@@ -12,9 +12,16 @@ function createSnapshot(
   return { orgId, limits, timestamp };
 }
 
-function makeSimpleLimits(usedPercent: number): Array<{ name: string; max: number; remaining: number; usedPercent: number }> {
+function makeSimpleLimits(
+  usedPercent: number,
+): Array<{ name: string; max: number; remaining: number; usedPercent: number }> {
   return [
-    { name: 'DailyApiRequests', max: 15000, remaining: Math.round(15000 * (1 - usedPercent / 100)), usedPercent },
+    {
+      name: 'DailyApiRequests',
+      max: 15000,
+      remaining: Math.round(15000 * (1 - usedPercent / 100)),
+      usedPercent,
+    },
     { name: 'DataStorageMB', max: 5120, remaining: 3000, usedPercent: 41 },
   ];
 }
@@ -105,15 +112,24 @@ describe('TrendStorage', () => {
     it('should filter by period', () => {
       // Record 3 snapshots at different times
       vi.setSystemTime(new Date('2026-02-24T06:00:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T06:00:00Z', makeSimpleLimits(40)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T06:00:00Z', makeSimpleLimits(40)),
+      );
 
       vi.advanceTimersByTime(15 * 60 * 1000);
       vi.setSystemTime(new Date('2026-02-24T10:00:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)),
+      );
 
       vi.advanceTimersByTime(15 * 60 * 1000);
       vi.setSystemTime(new Date('2026-02-24T12:00:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(60)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(60)),
+      );
 
       // Get only last 3 hours
       const recent = storage.getHistory('org-1', 3 * 60 * 60 * 1000);
@@ -127,7 +143,10 @@ describe('TrendStorage', () => {
 
   describe('getTrendData()', () => {
     it('should return stable trend for single data point', () => {
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(50)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(50)),
+      );
 
       const trend = storage.getTrendData('org-1', 'DailyApiRequests');
       expect(trend.limitName).toBe('DailyApiRequests');
@@ -145,15 +164,24 @@ describe('TrendStorage', () => {
 
     it('should detect increasing trend', () => {
       vi.setSystemTime(new Date('2026-02-24T10:00:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)),
+      );
 
       vi.advanceTimersByTime(15 * 60 * 1000);
       vi.setSystemTime(new Date('2026-02-24T10:15:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(60)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(60)),
+      );
 
       vi.advanceTimersByTime(15 * 60 * 1000);
       vi.setSystemTime(new Date('2026-02-24T10:30:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:30:00Z', makeSimpleLimits(70)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:30:00Z', makeSimpleLimits(70)),
+      );
 
       const trend = storage.getTrendData('org-1', 'DailyApiRequests');
       expect(trend.direction).toBe('up');
@@ -165,11 +193,17 @@ describe('TrendStorage', () => {
 
     it('should detect decreasing trend', () => {
       vi.setSystemTime(new Date('2026-02-24T10:00:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(70)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(70)),
+      );
 
       vi.advanceTimersByTime(15 * 60 * 1000);
       vi.setSystemTime(new Date('2026-02-24T10:15:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(55)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(55)),
+      );
 
       const trend = storage.getTrendData('org-1', 'DailyApiRequests');
       expect(trend.direction).toBe('down');
@@ -179,11 +213,17 @@ describe('TrendStorage', () => {
 
     it('should detect stable trend for small changes', () => {
       vi.setSystemTime(new Date('2026-02-24T10:00:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)),
+      );
 
       vi.advanceTimersByTime(15 * 60 * 1000);
       vi.setSystemTime(new Date('2026-02-24T10:15:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(51)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(51)),
+      );
 
       const trend = storage.getTrendData('org-1', 'DailyApiRequests');
       expect(trend.direction).toBe('stable');
@@ -191,11 +231,17 @@ describe('TrendStorage', () => {
 
     it('should return timestamps array with ISO strings matching snapshot timestamps', () => {
       vi.setSystemTime(new Date('2026-02-24T10:00:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(50)),
+      );
 
       vi.advanceTimersByTime(15 * 60 * 1000);
       vi.setSystemTime(new Date('2026-02-24T10:15:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(60)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(60)),
+      );
 
       const trend = storage.getTrendData('org-1', 'DailyApiRequests');
       expect(trend.timestamps).toEqual(['2026-02-24T10:00:00Z', '2026-02-24T10:15:00Z']);
@@ -209,11 +255,17 @@ describe('TrendStorage', () => {
 
     it('should return correct sparkline data for a specific limit', () => {
       vi.setSystemTime(new Date('2026-02-24T10:00:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(30)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:00:00Z', makeSimpleLimits(30)),
+      );
 
       vi.advanceTimersByTime(15 * 60 * 1000);
       vi.setSystemTime(new Date('2026-02-24T10:15:00Z'));
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(45)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T10:15:00Z', makeSimpleLimits(45)),
+      );
 
       // DataStorageMB is always 41% in makeSimpleLimits
       const storageTrend = storage.getTrendData('org-1', 'DataStorageMB');
@@ -224,7 +276,10 @@ describe('TrendStorage', () => {
 
   describe('purge()', () => {
     it('should clear all data for an org', () => {
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(50)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(50)),
+      );
       expect(storage.getHistory('org-1')).toHaveLength(1);
 
       storage.purge('org-1');
@@ -232,17 +287,29 @@ describe('TrendStorage', () => {
     });
 
     it('should reset rate limiter for purged org', () => {
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(50)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(50)),
+      );
       storage.purge('org-1');
 
       // Should be able to record immediately after purge
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T12:01:00Z', makeSimpleLimits(55)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T12:01:00Z', makeSimpleLimits(55)),
+      );
       expect(storage.getHistory('org-1')).toHaveLength(1);
     });
 
     it('should not affect other orgs', () => {
-      storage.record('org-1', createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(50)));
-      storage.record('org-2', createSnapshot('org-2', '2026-02-24T12:00:00Z', makeSimpleLimits(60)));
+      storage.record(
+        'org-1',
+        createSnapshot('org-1', '2026-02-24T12:00:00Z', makeSimpleLimits(50)),
+      );
+      storage.record(
+        'org-2',
+        createSnapshot('org-2', '2026-02-24T12:00:00Z', makeSimpleLimits(60)),
+      );
 
       storage.purge('org-1');
 

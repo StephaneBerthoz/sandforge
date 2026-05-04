@@ -30,7 +30,9 @@ describe('HealthCheck', () => {
 
     it('should reflect degraded status when average score is between 50 and 80', async () => {
       const providers: HealthSignalProvider[] = [
-        vi.fn().mockResolvedValue(createSignal({ name: 'apiLimits', score: 60, status: 'warning' })),
+        vi
+          .fn()
+          .mockResolvedValue(createSignal({ name: 'apiLimits', score: 60, status: 'warning' })),
         vi.fn().mockResolvedValue(createSignal({ name: 'storage', score: 70, status: 'ok' })),
       ];
 
@@ -42,7 +44,9 @@ describe('HealthCheck', () => {
 
     it('should reflect critical status when average score is below 50', async () => {
       const providers: HealthSignalProvider[] = [
-        vi.fn().mockResolvedValue(createSignal({ name: 'apiLimits', score: 20, status: 'critical' })),
+        vi
+          .fn()
+          .mockResolvedValue(createSignal({ name: 'apiLimits', score: 20, status: 'critical' })),
         vi.fn().mockResolvedValue(createSignal({ name: 'storage', score: 30, status: 'critical' })),
       ];
 
@@ -54,7 +58,9 @@ describe('HealthCheck', () => {
 
     it('should map apiLimits signal status to apiLimitsStatus', async () => {
       const providers: HealthSignalProvider[] = [
-        vi.fn().mockResolvedValue(createSignal({ name: 'apiLimits', score: 60, status: 'warning' })),
+        vi
+          .fn()
+          .mockResolvedValue(createSignal({ name: 'apiLimits', score: 60, status: 'warning' })),
       ];
 
       const health = new HealthCheck(providers);
@@ -100,10 +106,7 @@ describe('HealthCheck', () => {
     });
 
     it('should return the average score', () => {
-      const signals = [
-        createSignal({ score: 80 }),
-        createSignal({ score: 60 }),
-      ];
+      const signals = [createSignal({ score: 80 }), createSignal({ score: 60 })];
       expect(HealthCheck.computeScore(signals)).toBe(70);
     });
 
@@ -121,10 +124,7 @@ describe('HealthCheck', () => {
     });
 
     it('should handle all-zero scores', () => {
-      const signals = [
-        createSignal({ score: 0 }),
-        createSignal({ score: 0 }),
-      ];
+      const signals = [createSignal({ score: 0 }), createSignal({ score: 0 })];
       expect(HealthCheck.computeScore(signals)).toBe(0);
     });
   });

@@ -196,7 +196,9 @@ export class ObjectGraph {
     for (let i = 0; i < cycle.length; i++) {
       const source = cycle[i];
       const target = cycle[(i + 1) % cycle.length];
-      const edge = this.edges.find((e) => e.source === source && e.target === target && !e.required);
+      const edge = this.edges.find(
+        (e) => e.source === source && e.target === target && !e.required,
+      );
       if (edge) return source;
     }
     return undefined;

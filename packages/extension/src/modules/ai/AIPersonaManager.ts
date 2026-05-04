@@ -24,7 +24,7 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
   {
     id: 'assureur-fr',
     name: 'Assureur français',
-    description: 'Compagnie d\'assurance française avec contrats, sinistres et assurés.',
+    description: "Compagnie d'assurance française avec contrats, sinistres et assurés.",
     industry: 'Insurance',
     locale: 'fr-FR',
     dataPatterns: {
@@ -106,7 +106,9 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
       Insurance_Provider__c: {
         fieldType: 'picklist',
         generator: 'random_pick',
-        params: { values: ['Blue Cross', 'Aetna', 'UnitedHealth', 'Cigna', 'Medicare', 'Medicaid'] },
+        params: {
+          values: ['Blue Cross', 'Aetna', 'UnitedHealth', 'Cigna', 'Medicare', 'Medicaid'],
+        },
         examples: ['Blue Cross', 'Aetna', 'Medicare'],
       },
     },
@@ -122,7 +124,11 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
         fieldType: 'string',
         generator: 'faker',
         params: { method: 'commerce.productName' },
-        examples: ['Ergonomic Steel Chair', 'Wireless Bluetooth Headphones', 'Organic Cotton T-Shirt'],
+        examples: [
+          'Ergonomic Steel Chair',
+          'Wireless Bluetooth Headphones',
+          'Organic Cotton T-Shirt',
+        ],
       },
       SKU__c: {
         fieldType: 'string',
@@ -139,7 +145,9 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
       Order_Status__c: {
         fieldType: 'picklist',
         generator: 'random_pick',
-        params: { values: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Returned', 'Cancelled'] },
+        params: {
+          values: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Returned', 'Cancelled'],
+        },
         examples: ['Pending', 'Shipped', 'Delivered'],
       },
       Rating__c: {
@@ -152,7 +160,11 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
         fieldType: 'textarea',
         generator: 'ai_generate',
         params: { prompt: 'Product review, 1-3 sentences, realistic tone' },
-        examples: ['Great product, fast shipping!', 'Good quality but runs small.', 'Exactly as described.'],
+        examples: [
+          'Great product, fast shipping!',
+          'Good quality but runs small.',
+          'Exactly as described.',
+        ],
       },
     },
   },
@@ -167,7 +179,11 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
         fieldType: 'string',
         generator: 'faker',
         params: { method: 'finance.iban', locale: 'fr' },
-        examples: ['FR7630006000011234567890189', 'DE89370400440532013000', 'ES9121000418450200051332'],
+        examples: [
+          'FR7630006000011234567890189',
+          'DE89370400440532013000',
+          'ES9121000418450200051332',
+        ],
       },
       BIC__c: {
         fieldType: 'string',
@@ -256,7 +272,9 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
       Property_Type__c: {
         fieldType: 'picklist',
         generator: 'random_pick',
-        params: { values: ['Appartement', 'Maison', 'Studio', 'Loft', 'Terrain', 'Local commercial'] },
+        params: {
+          values: ['Appartement', 'Maison', 'Studio', 'Loft', 'Terrain', 'Local commercial'],
+        },
         examples: ['Appartement', 'Maison', 'Studio'],
       },
       Surface__c: {
@@ -274,7 +292,9 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
       City__c: {
         fieldType: 'string',
         generator: 'random_pick',
-        params: { values: ['Paris', 'Lyon', 'Marseille', 'Bordeaux', 'Toulouse', 'Nantes', 'Lille'] },
+        params: {
+          values: ['Paris', 'Lyon', 'Marseille', 'Bordeaux', 'Toulouse', 'Nantes', 'Lille'],
+        },
         examples: ['Paris', 'Lyon', 'Bordeaux'],
       },
       Mandate_Type__c: {
@@ -319,7 +339,16 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
       Course_Name__c: {
         fieldType: 'string',
         generator: 'random_pick',
-        params: { values: ['Mathématiques', 'Physique', 'Histoire', 'Anglais', 'Informatique', 'Philosophie'] },
+        params: {
+          values: [
+            'Mathématiques',
+            'Physique',
+            'Histoire',
+            'Anglais',
+            'Informatique',
+            'Philosophie',
+          ],
+        },
         examples: ['Mathématiques', 'Physique', 'Informatique'],
       },
       Grade__c: {
@@ -352,7 +381,9 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
       Status__c: {
         fieldType: 'picklist',
         generator: 'random_pick',
-        params: { values: ['En préparation', 'Expédié', 'En transit', 'En livraison', 'Livré', 'Retourné'] },
+        params: {
+          values: ['En préparation', 'Expédié', 'En transit', 'En livraison', 'Livré', 'Retourné'],
+        },
         examples: ['Expédié', 'En transit', 'Livré'],
       },
       Weight__c: {
@@ -364,7 +395,9 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
       Warehouse__c: {
         fieldType: 'string',
         generator: 'random_pick',
-        params: { values: ['Paris-Nord', 'Lyon-Est', 'Marseille-Port', 'Bordeaux-Sud', 'Lille-Centre'] },
+        params: {
+          values: ['Paris-Nord', 'Lyon-Est', 'Marseille-Port', 'Bordeaux-Sud', 'Lille-Centre'],
+        },
         examples: ['Paris-Nord', 'Lyon-Est', 'Marseille-Port'],
       },
       Carrier__c: {
@@ -415,7 +448,9 @@ const BUILT_IN_PERSONAS: AIPersona[] = [
       Leave_Type__c: {
         fieldType: 'picklist',
         generator: 'random_pick',
-        params: { values: ['Congés payés', 'RTT', 'Maladie', 'Sans solde', 'Maternité', 'Formation'] },
+        params: {
+          values: ['Congés payés', 'RTT', 'Maladie', 'Sans solde', 'Maternité', 'Formation'],
+        },
         examples: ['Congés payés', 'RTT', 'Maladie'],
       },
       Leave_Days__c: {
@@ -537,7 +572,11 @@ export class AIPersonaManager {
    * @param fieldName - The field API name to match
    * @returns The matching field pattern or undefined
    */
-  applyPersona(persona: AIPersona, _objectName: string, fieldName: string): PersonaFieldPattern | undefined {
+  applyPersona(
+    persona: AIPersona,
+    _objectName: string,
+    fieldName: string,
+  ): PersonaFieldPattern | undefined {
     return persona.dataPatterns[fieldName];
   }
 
@@ -585,15 +624,15 @@ function buildCustomPersonaPrompt(description: string): string {
  * Parse the AI response into a partial AIPersona structure.
  * Handles responses wrapped in markdown code blocks.
  */
-function parsePersonaResponse(
-  response: string,
-): Omit<AIPersona, 'id'> {
+function parsePersonaResponse(response: string): Omit<AIPersona, 'id'> {
   const trimmed = response.trim();
   const jsonContent = extractJsonFromMarkdown(trimmed);
   const parsed: unknown = JSON.parse(jsonContent);
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error('AI response is not a valid JSON object. The AI model returned an unexpected format — try again or check the AI provider configuration.');
+    throw new Error(
+      'AI response is not a valid JSON object. The AI model returned an unexpected format — try again or check the AI provider configuration.',
+    );
   }
 
   const obj = parsed as Record<string, unknown>;
@@ -611,9 +650,10 @@ function parsePersonaResponse(
         dataPatterns[key] = {
           fieldType: typeof p['fieldType'] === 'string' ? p['fieldType'] : 'string',
           generator: typeof p['generator'] === 'string' ? p['generator'] : 'faker',
-          params: typeof p['params'] === 'object' && p['params'] !== null
-            ? p['params'] as Record<string, unknown>
-            : undefined,
+          params:
+            typeof p['params'] === 'object' && p['params'] !== null
+              ? (p['params'] as Record<string, unknown>)
+              : undefined,
           examples: Array.isArray(p['examples'])
             ? (p['examples'] as unknown[]).filter((e): e is string => typeof e === 'string')
             : [],

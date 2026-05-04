@@ -86,16 +86,19 @@ export const ForgeExecution: React.FC = () => {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Add a log entry (local state + store persistence). */
-  const addLog = useCallback((level: LogEntry['level'], message: string) => {
-    const entry: LogEntry & ForgeLogEntry = {
-      id: nextLogId(),
-      timestamp: Date.now(),
-      level,
-      message,
-    };
-    setLogs((prev) => [...prev, entry]);
-    addLogToStore(entry);
-  }, [nextLogId, addLogToStore]);
+  const addLog = useCallback(
+    (level: LogEntry['level'], message: string) => {
+      const entry: LogEntry & ForgeLogEntry = {
+        id: nextLogId(),
+        timestamp: Date.now(),
+        level,
+        message,
+      };
+      setLogs((prev) => [...prev, entry]);
+      addLogToStore(entry);
+    },
+    [nextLogId, addLogToStore],
+  );
 
   // ---- Bridge message listener ----
   useEffect(() => {
@@ -114,17 +117,16 @@ export const ForgeExecution: React.FC = () => {
       updateNodeStatus(objectName, status, progress);
 
       const level: LogEntry['level'] = status === 'error' ? 'error' : 'info';
-      const logMessage = typeof data.message === 'string'
-        ? data.message
-        : `${objectName}: ${status}${progress !== undefined ? ` (${progress}%)` : ''}`;
+      const logMessage =
+        typeof data.message === 'string'
+          ? data.message
+          : `${objectName}: ${status}${progress !== undefined ? ` (${progress}%)` : ''}`;
       addLog(level, logMessage);
 
       // Check if all nodes are terminal
       if (graph) {
         const updatedNodes = graph.nodes.map((n) =>
-          n.objectApiName === objectName
-            ? { ...n, status, progress: progress ?? n.progress }
-            : n,
+          n.objectApiName === objectName ? { ...n, status, progress: progress ?? n.progress } : n,
         );
         const allTerminal = updatedNodes.every(
           (n) => n.status === 'done' || n.status === 'error' || n.status === 'skipped',
@@ -145,7 +147,9 @@ export const ForgeExecution: React.FC = () => {
     const nodeList = graph?.nodes ?? [];
     const total = nodeList.length;
     const done = nodeList.filter((n) => n.status === 'done').length;
-    const running = nodeList.filter((n) => n.status === 'running' || n.status === 'scanning').length;
+    const running = nodeList.filter(
+      (n) => n.status === 'running' || n.status === 'scanning',
+    ).length;
     const queued = nodeList.filter((n) => n.status === 'idle').length;
     const failed = nodeList.filter((n) => n.status === 'error').length;
     const apiCalls = nodeList.reduce((sum, n) => sum + (n.estimatedApiCalls ?? 0), 0);
@@ -210,11 +214,15 @@ export const ForgeExecution: React.FC = () => {
               {t('forge.elapsed')}: {formatElapsed(elapsed)}
             </span>
             <span data-testid="forge-execution-eta" className="text-forge">
-              {t('forge.eta')}: {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
+              {t('forge.eta')}:{' '}
+              {etaSeconds !== null ? formatElapsed(etaSeconds) : t('forge.etaCalculating')}
             </span>
           </span>
         </div>
-        <div className="h-2 w-full rounded-full bg-surface-2 overflow-hidden" data-testid="forge-execution-progress">
+        <div
+          className="h-2 w-full rounded-full bg-surface-2 overflow-hidden"
+          data-testid="forge-execution-progress"
+        >
           <div
             className="h-full rounded-full bg-forge transition-all duration-300 ease-out"
             style={{ width: `${kpis.progress}%` }}
@@ -301,30 +309,10 @@ export const ForgeExecution: React.FC = () => {
       >
         {/* KPI row */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <KPICard
-            icon="check"
-            label={t('forge.done')}
-            value={kpis.done}
-            variant="success"
-          />
-          <KPICard
-            icon="sync"
-            label={t('forge.running')}
-            value={kpis.running}
-            variant="default"
-          />
-          <KPICard
-            icon="clock"
-            label={t('forge.queued')}
-            value={kpis.queued}
-            variant="warning"
-          />
-          <KPICard
-            icon="error"
-            label={t('forge.failed')}
-            value={kpis.failed}
-            variant="error"
-          />
+          <KPICard icon="check" label={t('forge.done')} value={kpis.done} variant="success" />
+          <KPICard icon="sync" label={t('forge.running')} value={kpis.running} variant="default" />
+          <KPICard icon="clock" label={t('forge.queued')} value={kpis.queued} variant="warning" />
+          <KPICard icon="error" label={t('forge.failed')} value={kpis.failed} variant="error" />
           <KPICard
             icon="zap"
             label={t('forge.apiCallsConsumed')}

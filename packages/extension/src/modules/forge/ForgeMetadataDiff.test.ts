@@ -2,9 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ForgeMetadataDiff } from './ForgeMetadataDiff.js';
 import type { MetadataDiffDeps, DescribedField } from './ForgeMetadataDiff.js';
 
-function makeDeps(
-  schemas: Record<string, Record<string, DescribedField[]>>,
-): MetadataDiffDeps {
+function makeDeps(schemas: Record<string, Record<string, DescribedField[]>>): MetadataDiffDeps {
   return {
     describeObject: async (orgId: string, objectApiName: string) => {
       const orgSchemas = schemas[orgId];

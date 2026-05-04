@@ -9,7 +9,9 @@ let mockPhase = 'input';
 
 vi.mock('../../stores/useForgeStore', () => {
   const defaultState = {
-    get phase() { return mockPhase; },
+    get phase() {
+      return mockPhase;
+    },
     config: null,
     templates: [],
     graph: null,
@@ -19,8 +21,13 @@ vi.mock('../../stores/useForgeStore', () => {
     complianceReport: null,
     metadataDiffs: [],
     anonymizationRules: {
-      email: 'fake', phone: 'mask', name: 'fake', address: 'fake',
-      ssn_id: 'redact', financial: 'hash', other: 'nullify',
+      email: 'fake',
+      phone: 'mask',
+      name: 'fake',
+      address: 'fake',
+      ssn_id: 'redact',
+      financial: 'hash',
+      other: 'nullify',
     },
     setConfig: vi.fn(),
     setPhase: vi.fn(),
@@ -53,11 +60,13 @@ vi.mock('../../stores/useForgeStore', () => {
   return { useForgeStore: store };
 });
 
-let mockOrgState: Record<string, unknown> = { orgs: [{ id: 'org-1', alias: 'Dev' }], selectedOrgId: 'org-1' };
+let mockOrgState: Record<string, unknown> = {
+  orgs: [{ id: 'org-1', alias: 'Dev' }],
+  selectedOrgId: 'org-1',
+};
 
 vi.mock('../../stores/useOrgStore', () => ({
-  useOrgStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector(mockOrgState),
+  useOrgStore: (selector: (state: Record<string, unknown>) => unknown) => selector(mockOrgState),
 }));
 
 const mockNavigate = vi.fn();
@@ -68,7 +77,9 @@ vi.mock('../../stores/useAppStore', () => ({
 
 vi.mock('../../components/graph/LiveGraph', () => ({
   LiveGraph: ({ className }: { className?: string }) => (
-    <div data-testid="live-graph" className={className}>LiveGraph mock</div>
+    <div data-testid="live-graph" className={className}>
+      LiveGraph mock
+    </div>
   ),
 }));
 

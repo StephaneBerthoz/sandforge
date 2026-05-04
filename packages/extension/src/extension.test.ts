@@ -75,9 +75,11 @@ vi.mock('vscode', () => ({
     workspaceFolders: undefined,
   },
   Uri: {
-    joinPath: vi.fn().mockImplementation((base: { toString: () => string }, ...segments: string[]) => ({
-      toString: () => `${base.toString()}/${segments.join('/')}`,
-    })),
+    joinPath: vi
+      .fn()
+      .mockImplementation((base: { toString: () => string }, ...segments: string[]) => ({
+        toString: () => `${base.toString()}/${segments.join('/')}`,
+      })),
   },
   EventEmitter: vi.fn(() => mockEventEmitter),
   ThemeIcon: vi.fn().mockImplementation((iconId: string) => ({ id: iconId })),

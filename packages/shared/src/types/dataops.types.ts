@@ -1,4 +1,10 @@
-import type { UUID, ISODateString, ApiName, ComplianceFrameworkType, BaseAnonymizationRule } from './common.types.js';
+import type {
+  UUID,
+  ISODateString,
+  ApiName,
+  ComplianceFrameworkType,
+  BaseAnonymizationRule,
+} from './common.types.js';
 
 /** Backup status */
 export type BackupStatus = 'pending' | 'running' | 'completed' | 'failed' | 'expired';
@@ -92,7 +98,6 @@ export interface AnonymizationRuleConfig {
   constantValue?: string;
   preserveLength?: boolean;
 }
-
 
 /** Data quality scan result */
 export interface DataQualityScanResult {

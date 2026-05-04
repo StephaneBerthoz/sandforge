@@ -46,9 +46,7 @@ const optionsWithDesc: VirtualComboboxOption[] = [
 
 describe('VirtualCombobox', () => {
   it('should render with data-testid', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     expect(screen.getByTestId('virtual-combobox')).toBeDefined();
   });
 
@@ -65,33 +63,25 @@ describe('VirtualCombobox', () => {
   });
 
   it('should display selected option label', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="b" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="b" onChange={vi.fn()} />);
     expect(screen.getByText('Beta')).toBeDefined();
   });
 
   it('should open dropdown on click', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     expect(screen.queryByTestId('combobox-dropdown')).toBeNull();
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     expect(screen.getByTestId('combobox-dropdown')).toBeDefined();
   });
 
   it('should not open when disabled', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} disabled />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} disabled />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     expect(screen.queryByTestId('combobox-dropdown')).toBeNull();
   });
 
   it('should filter options on search input', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     const searchInput = screen.getByTestId('combobox-search');
     fireEvent.change(searchInput, { target: { value: 'pha' } });
@@ -101,9 +91,7 @@ describe('VirtualCombobox', () => {
   });
 
   it('should show no results message when filter matches nothing', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     const searchInput = screen.getByTestId('combobox-search');
     fireEvent.change(searchInput, { target: { value: 'zzzzz' } });
@@ -113,18 +101,14 @@ describe('VirtualCombobox', () => {
 
   it('should call onChange with selected value on click', () => {
     const handler = vi.fn();
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={handler} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={handler} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     fireEvent.click(screen.getByTestId('combobox-option-1'));
     expect(handler).toHaveBeenCalledWith('b');
   });
 
   it('should close dropdown after single-select', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     expect(screen.getByTestId('combobox-dropdown')).toBeDefined();
     fireEvent.click(screen.getByTestId('combobox-option-0'));
@@ -133,14 +117,7 @@ describe('VirtualCombobox', () => {
 
   it('should handle multi-select mode', () => {
     const handler = vi.fn();
-    render(
-      <VirtualCombobox
-        options={simpleOptions}
-        value={['a']}
-        onChange={handler}
-        multiple
-      />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value={['a']} onChange={handler} multiple />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     // Select another option
     fireEvent.click(screen.getByTestId('combobox-option-1'));
@@ -150,12 +127,7 @@ describe('VirtualCombobox', () => {
   it('should deselect in multi-select mode', () => {
     const handler = vi.fn();
     render(
-      <VirtualCombobox
-        options={simpleOptions}
-        value={['a', 'b']}
-        onChange={handler}
-        multiple
-      />,
+      <VirtualCombobox options={simpleOptions} value={['a', 'b']} onChange={handler} multiple />,
     );
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     // Click 'Alpha' (index 0) to deselect it
@@ -164,14 +136,7 @@ describe('VirtualCombobox', () => {
   });
 
   it('should show check icons for selected options in multi-select', () => {
-    render(
-      <VirtualCombobox
-        options={simpleOptions}
-        value={['a']}
-        onChange={vi.fn()}
-        multiple
-      />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value={['a']} onChange={vi.fn()} multiple />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     const checkIcons = screen.getAllByTestId('icon-check');
     expect(checkIcons.length).toBeGreaterThan(0);
@@ -191,9 +156,7 @@ describe('VirtualCombobox', () => {
 
   it('should navigate with keyboard ArrowDown and Enter', () => {
     const handler = vi.fn();
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={handler} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={handler} />);
     const trigger = screen.getByTestId('combobox-trigger');
     // Open with ArrowDown
     fireEvent.keyDown(trigger, { key: 'ArrowDown' });
@@ -206,9 +169,7 @@ describe('VirtualCombobox', () => {
   });
 
   it('should close with Escape key', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     expect(screen.getByTestId('combobox-dropdown')).toBeDefined();
     fireEvent.keyDown(screen.getByTestId('virtual-combobox'), { key: 'Escape' });
@@ -216,9 +177,7 @@ describe('VirtualCombobox', () => {
   });
 
   it('should render description text when provided', () => {
-    render(
-      <VirtualCombobox options={optionsWithDesc} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={optionsWithDesc} value="" onChange={vi.fn()} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     const descriptions = screen.getAllByTestId('option-description');
     expect(descriptions.length).toBe(2);
@@ -226,13 +185,11 @@ describe('VirtualCombobox', () => {
   });
 
   it('should handle 1000+ options without excessive DOM nodes', () => {
-    const largeOptions: VirtualComboboxOption[] = Array.from(
-      { length: 1500 },
-      (_, i) => ({ value: String(i), label: `Option ${i}` }),
-    );
-    render(
-      <VirtualCombobox options={largeOptions} value="" onChange={vi.fn()} />,
-    );
+    const largeOptions: VirtualComboboxOption[] = Array.from({ length: 1500 }, (_, i) => ({
+      value: String(i),
+      label: `Option ${i}`,
+    }));
+    render(<VirtualCombobox options={largeOptions} value="" onChange={vi.fn()} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     const renderedOptions = screen.getAllByTestId(/^combobox-option-/);
     // Virtualizer should limit DOM nodes (mock: 10 + 2*5 = 20 max)
@@ -241,9 +198,7 @@ describe('VirtualCombobox', () => {
   });
 
   it('should have aria-haspopup and aria-expanded attributes', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     const trigger = screen.getByTestId('combobox-trigger');
     expect(trigger.getAttribute('aria-haspopup')).toBe('listbox');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
@@ -252,17 +207,13 @@ describe('VirtualCombobox', () => {
   });
 
   it('should have role="listbox" on the options container', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     expect(screen.getByRole('listbox')).toBeDefined();
   });
 
   it('should have role="option" on each option', () => {
-    render(
-      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />,
-    );
+    render(<VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} />);
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     const optionElements = screen.getAllByRole('option');
     expect(optionElements.length).toBe(4);
@@ -282,12 +233,7 @@ describe('VirtualCombobox', () => {
 
   it('should not show search input when searchable is false', () => {
     render(
-      <VirtualCombobox
-        options={simpleOptions}
-        value=""
-        onChange={vi.fn()}
-        searchable={false}
-      />,
+      <VirtualCombobox options={simpleOptions} value="" onChange={vi.fn()} searchable={false} />,
     );
     fireEvent.click(screen.getByTestId('combobox-trigger'));
     expect(screen.queryByTestId('combobox-search')).toBeNull();

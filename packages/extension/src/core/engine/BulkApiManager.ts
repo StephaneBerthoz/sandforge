@@ -1,10 +1,5 @@
 /** Salesforce Bulk API 2.0 job status */
-export type BulkJobStatus =
-  | 'UploadComplete'
-  | 'InProgress'
-  | 'Aborted'
-  | 'JobComplete'
-  | 'Failed';
+export type BulkJobStatus = 'UploadComplete' | 'InProgress' | 'Aborted' | 'JobComplete' | 'Failed';
 
 /** Bulk API 2.0 job information */
 export interface BulkJobInfo {
@@ -59,11 +54,7 @@ export class BulkApiManager {
   }
 
   /** Update the processed and failed record counts of a tracked job */
-  updateJobCounts(
-    jobId: string,
-    processed: number,
-    failed: number
-  ): boolean {
+  updateJobCounts(jobId: string, processed: number, failed: number): boolean {
     const job = this.activeJobs.get(jobId);
     if (!job) return false;
     job.numberRecordsProcessed = processed;
@@ -87,17 +78,14 @@ export class BulkApiManager {
   /** Get all non-terminal (active) jobs */
   getActiveJobs(): BulkJobInfo[] {
     return Array.from(this.activeJobs.values()).filter(
-      (j) => j.state === 'UploadComplete' || j.state === 'InProgress'
+      (j) => j.state === 'UploadComplete' || j.state === 'InProgress',
     );
   }
 
   /** Get all terminal (completed, failed, or aborted) jobs */
   getCompletedJobs(): BulkJobInfo[] {
     return Array.from(this.activeJobs.values()).filter(
-      (j) =>
-        j.state === 'JobComplete' ||
-        j.state === 'Failed' ||
-        j.state === 'Aborted'
+      (j) => j.state === 'JobComplete' || j.state === 'Failed' || j.state === 'Aborted',
     );
   }
 
@@ -118,8 +106,9 @@ export class BulkApiManager {
 
   /** Purge oldest completed jobs when exceeding the retention limit */
   private purgeCompletedJobs(): void {
-    const completed = Array.from(this.activeJobs.entries())
-      .filter(([, job]) => ['JobComplete', 'Failed', 'Aborted'].includes(job.state));
+    const completed = Array.from(this.activeJobs.entries()).filter(([, job]) =>
+      ['JobComplete', 'Failed', 'Aborted'].includes(job.state),
+    );
     if (completed.length > this.maxCompletedJobs) {
       const toPurge = completed.slice(0, completed.length - this.maxCompletedJobs);
       for (const [id] of toPurge) {

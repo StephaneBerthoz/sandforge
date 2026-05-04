@@ -89,7 +89,11 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         />
         <StatCard
           label={t('autopilot.step4.anonymization')}
-          value={complianceFramework === 'none' ? t('autopilot.step4.noAnonymization') : t('autopilot.step4.autoDetect')}
+          value={
+            complianceFramework === 'none'
+              ? t('autopilot.step4.noAnonymization')
+              : t('autopilot.step4.autoDetect')
+          }
           testId="stat-anonymization"
         />
       </div>
@@ -99,9 +103,13 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           {t('autopilot.step4.connectionSummary')}
         </span>
         <div className="flex items-center gap-2 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-          <span>{t('autopilot.step4.source')}: {sourceOrgId}</span>
+          <span>
+            {t('autopilot.step4.source')}: {sourceOrgId}
+          </span>
           <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">&rarr;</span>
-          <span>{t('autopilot.step4.target')}: {targetOrgId}</span>
+          <span>
+            {t('autopilot.step4.target')}: {targetOrgId}
+          </span>
         </div>
       </div>
 
@@ -154,6 +162,8 @@ const StatCard: React.FC<StatCardProps> = ({ label, value, testId }) => (
     data-testid={testId}
   >
     <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">{label}</span>
-    <span className="text-lg font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">{value}</span>
+    <span className="text-lg font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      {value}
+    </span>
   </div>
 );

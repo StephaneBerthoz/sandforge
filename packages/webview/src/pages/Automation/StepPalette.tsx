@@ -37,12 +37,13 @@ const STEP_ENTRIES: StepPaletteEntry[] = [
 
 const CATEGORY_ORDER: StepCategory[] = ['data', 'quality', 'control', 'notification'];
 
-const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
-  data: 'info',
-  quality: 'success',
-  control: 'warning',
-  notification: 'default',
-};
+const CATEGORY_VARIANT: Record<StepCategory, 'default' | 'success' | 'warning' | 'error' | 'info'> =
+  {
+    data: 'info',
+    quality: 'success',
+    control: 'warning',
+    notification: 'default',
+  };
 
 /** Palette of available step types grouped by category. */
 export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
