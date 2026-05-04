@@ -308,6 +308,7 @@
     "jsforce": "^3",
     "p-limit": "^3.1.0",
     "p-retry": "^4.6.2",
+    "pdfkit": "^0.15",
     "pino": "^9",
     "pino-pretty": "^11",
     "zod": "^3.23"

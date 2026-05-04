@@ -801,6 +801,58 @@ export interface MonitorMetricSubscribeMessage extends BaseMessage {
   payload: { seriesPrefix: string };
 }
 
+/**
+ * Phase 03 Plan 03-06 — `monitor:export:request`. WebView -> Extension.
+ *
+ * Asks the {@link ReportExporter} to render a CSV or PDF for the given
+ * `DashboardView` descriptor + time range and write it to a user-chosen
+ * file path (selected via `vscode.window.showSaveDialog`).
+ */
+export interface MonitorExportRequestMessage extends BaseMessage {
+  type: 'monitor:export:request';
+  payload: {
+    format: 'csv' | 'pdf';
+    view: 'fleet' | 'single-org' | 'series';
+    orgId?: string;
+    seriesIds?: string[];
+    fromMs: number;
+    toMs: number;
+    /** User-chosen path returned by `vscode.window.showSaveDialog`. */
+    filePath: string;
+  };
+}
+
+/**
+ * Phase 03 Plan 03-06 — `monitor:export:response`. Extension -> WebView.
+ *
+ * Sent once the export has been written to disk. `bytes` is the size of
+ * the produced file (or sum of part files when the PDF was paginated).
+ */
+export interface MonitorExportResponseMessage extends BaseMessage {
+  type: 'monitor:export:response';
+  payload: {
+    filePath: string;
+    format: 'csv' | 'pdf';
+    bytes: number;
+    durationMs: number;
+  };
+}
+
+/**
+ * Phase 03 Plan 03-06 — `monitor:export:progress`. Extension -> WebView.
+ *
+ * Posted at coarse milestones during long exports so the user sees a
+ * spinner / pct-bar instead of a frozen UI. Stages are linear:
+ * `querying` → `rendering` → `writing` → `done`.
+ */
+export interface MonitorExportProgressMessage extends BaseMessage {
+  type: 'monitor:export:progress';
+  payload: {
+    stage: 'querying' | 'rendering' | 'writing' | 'done';
+    pct: number;
+  };
+}
+
 /** AI messages (WebView → Extension) */
 export interface AIChatRequest extends BaseMessage {
   type: 'ai:chat';
