@@ -6,6 +6,7 @@ import {
   StorageAdapter,
   FsAdapter,
 } from './adapters/index.js';
+import type { ConfigStore } from './core/storage/ConfigStore.js';
 
 import { MonitorOrchestrator } from './modules/monitor/MonitorOrchestrator.js';
 import type { MonitorDependencies } from './modules/monitor/MonitorOrchestrator.js';
@@ -34,6 +35,12 @@ export interface CoreServices {
   salesforce: SalesforceAdapter;
   /** Safe filesystem wrapper constrained to workspace root. */
   fs: FsAdapter;
+  /**
+   * VS Code-globalState-backed config store. Optional — populated by
+   * extension.ts after both `services` and the ConfigStore are created
+   * (legacy ordering). Modules that need it should branch on its presence.
+   */
+  configStore?: ConfigStore;
 }
 
 /**

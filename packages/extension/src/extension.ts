@@ -55,6 +55,10 @@ export function activate(context: vscode.ExtensionContext): void {
   const configBackend = new MementoConfigStoreBackend(context.globalState);
   const configStore = new ConfigStore(configBackend);
   configStore.initialize();
+  // Plumb into services bundle so orchestrators (Monitor v2 etc.) can pick
+  // it up via deps.services?.configStore. Mutating here because createServices
+  // ran before ConfigStore was constructed (legacy ordering).
+  services.configStore = configStore;
   log('ConfigStore initialized.');
 
   // 3. SecretVault (wrapping VSCode SecretStorage)
