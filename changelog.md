@@ -7,6 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase 03 Monitor v2 Core (2026-05-04)
+
+**Architecture**: Probe → MonitorRegistry (single-tick) → MetricBus
+(typed Zod-validated pub/sub) → TimeSeriesStore + AnomalyEngine +
+DriftDetector + ReportExporter + FleetSummaryService.
+
+- **MetricBus** (`@sandforge/shared/monitor` + `extension/modules/monitor/MetricBus`):
+  in-process typed event bus with 5 discriminated event subtypes
+  (`monitor:metric`, `monitor:metrics:batch`, `monitor:drift:detected`,
+  `monitor:anomaly:detected`, `monitor:fleet:summary`); auto-validates
+  every emit through Zod and routes to the bridge for webview consumers.
+- **TimeSeriesStore** (`extension/modules/monitor/TimeSeriesStore`):
+  per-(orgId, seriesId) ring-buffered MetricSample store with 50 MB LRU
+  cap, 7-day retention, opt-in disk persistence
+  (`sandforge.monitor.persistTimeSeries` setting), 5-min flush + 15-min
+  per-org rate limit, corruption recovery (P-03.10) that drops + breadcrumbs
+  without throwing. 50K-sample × 5-org × 20-series vertical slice in 115 ms.
+- **MonitorRegistry + 8 Probes**: single-tick scheduler with per-probe
+  in-flight gate, drift-safe scheduling, hard timeout, visibility
+  gating. All 8 trackers (Limits, Job, ApexLog, SandboxRefresh,
+  ErrorLog, UserSession, Health, Governance) wrapped as thin probes.
+  `DescribeCache` (per-org TTL + LRU) closes audit Perf #1.
+- **DriftDetector v2**: field-level + permission-level deltas, canonical
+  sort, debounced emission. New `DriftFeed` virtualized React component
+  with filter chips. 60 tests + 1 Playwright spec (3 E2E scenarios,
+  28 s wall-time).
+- **AnomalyEngine**: pure-function rolling 24h std-dev detector with
+  30-sample / 6-h warmup gate. Bridges anomalies into the existing
+  AlertEngine as synthetic AlertInstances (no new AlertDefinitions).
+- **ReportExporter** (CSV + lazy-pdfkit PDF): `await import('pdfkit')`
+  keeps cold start light, sparklines via LTTB downsampling
+  (Steinarsson 2013), 50-series-per-PDF cap with multi-part split.
+  Stream-pipe to disk so a 5K-sample × 50-series report doesn't buffer
+  in memory. 1000-sample × 5-series vertical slice exports both
+  formats < 10 MB with valid magic bytes.
+- **FleetSummaryService + MonitorOverviewPage**: multi-org fleet
+  default landing — backend uses `ConnectionPool` reuse + `p-limit(3)` +
+  60-s per-org cache + exponential backoff (60→120→240→600 s).
+  Webview Zustand `useFleetStore` keyed as `Record<orgId, summary>`
+  (audit M5 fix — Map ban). `useVisibilityGate` posts `monitor:visibility`
+  on `document.visibilitychange` so the extension pauses polling when
+  the panel is hidden (audit M1).
+
+**Test impact**: 8412 → 8745, +333 tests, 0 regressions.
+
+**Audit findings closed**: Perf #1, M1, M5, H7, P-03.1, P-03.2, P-03.4,
+P-03.5, P-03.6, P-03.7, P-03.10.
+
+**Deferred to Phase 06 BP-01**:
+- ReportExporter bridge wire — needs `MonitorOrchestrator` singleton in
+  `services.ts` so handlers see the same `timeSeriesStore` instance
+  across calls.
+- FleetSummaryService bridge wire — same dependency.
+- Stryker mutation testing — `stryker.conf.json` pins `vitest.dir =
+  packages/shared/`, extension-side mutants are never exercised
+  (Phase 06 BP-04).
+
+**Deferred to v1.4 polish**:
+- Playwright E2E for `MonitorOverviewPage` (component + 6 unit tests
+  already cover the paths; the data-testid contract matches the future
+  spec's expectations).
+
+### Fixed (post-Phase-03 hygiene)
+
+- **`ReportExporter.writePdfPart` stream listeners** — replaced
+  `stream.on('finish', …)` + `stream.on('error', …)` with `stream.once(…)`
+  so the audit-disposables script accepts them as one-shot sinks
+  (was 2 orphans, now 0). pdfkit's stream is one-shot per part anyway,
+  so the semantic is unchanged; this is the right primitive.
+
 ### Security (autonomous-improvement Round 1 — 2026-05-02)
 
 - **UUID hardening sweep across 11 modules**: extends the audit C3/L1 fix
