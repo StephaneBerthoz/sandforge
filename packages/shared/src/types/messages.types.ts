@@ -853,6 +853,77 @@ export interface MonitorExportProgressMessage extends BaseMessage {
   };
 }
 
+// ─── Phase 03 Plan 03-07 — Multi-org Fleet Overview + Visibility Gate ────────
+
+/**
+ * Phase 03 Plan 03-07 — `OrgFleetSummary`.
+ *
+ * Headline-shape per-org snapshot used by the multi-org overview page. Returned
+ * as an array in {@link MonitorFleetSummaryResponseMessage}, and persisted in
+ * the webview's `useFleetStore` (Record-keyed by `orgId` per audit M5).
+ *
+ * `stale` is true when the per-org backoff is active (consecutive failure
+ * window) so the UI can render a degraded badge without flagging the whole
+ * fleet as red.
+ */
+export interface OrgFleetSummary {
+  orgId: string;
+  name: string;
+  /** 0-100 derived from {@link HealthCheck.computeHealth} signals. */
+  healthScore: number;
+  /** ISO timestamp of the latest probe round-trip for this org. */
+  lastUpdated: string;
+  /** Active alert count for the org (sum of warning + critical). */
+  alertCount: number;
+  /** Most recent alerts, capped at 3 — used by the overview's mini-list. */
+  recentAlerts: Array<{
+    id: string;
+    severity: 'info' | 'warning' | 'critical';
+    metric: string;
+    triggeredAt: string;
+  }>;
+  /** True when consecutive failures > 1 — backoff active, value is last-known. */
+  stale: boolean;
+}
+
+/**
+ * Phase 03 Plan 03-07 — `monitor:fleet:summary:request`. WebView -> Extension.
+ *
+ * Asks the extension's {@link FleetSummaryService} to produce a fleet summary
+ * for the listed orgs. When `orgIds` is omitted, the handler defaults to every
+ * currently connected org (per the connection registry).
+ */
+export interface MonitorFleetSummaryRequestMessage extends BaseMessage {
+  type: 'monitor:fleet:summary:request';
+  payload: { orgIds?: string[] };
+}
+
+/**
+ * Phase 03 Plan 03-07 — `monitor:fleet:summary:response`. Extension -> WebView.
+ *
+ * Carries the per-org summary array + the cache TTL (in ms) so the webview
+ * knows when to schedule the next poll. The 60s default mirrors the backend
+ * cache window from RESEARCH §3 P-03.5.
+ */
+export interface MonitorFleetSummaryResponseMessage extends BaseMessage {
+  type: 'monitor:fleet:summary:response';
+  payload: { orgs: OrgFleetSummary[]; ttlMs: number };
+}
+
+/**
+ * Phase 03 Plan 03-07 — `monitor:visibility`. WebView -> Extension.
+ *
+ * Audit M1 mitigation. Posted whenever `document.visibilitychange` fires (and
+ * once on mount). The extension fans out to BOTH
+ * {@link MonitorRegistry.setVisibility} (low-priority probe pause) and
+ * {@link FleetSummaryService.setVisibility} (60s tick pause), so polling stops
+ * cleanly while the panel isn't on screen.
+ */
+export interface MonitorVisibilityMessage extends BaseMessage {
+  type: 'monitor:visibility';
+  payload: { hidden: boolean };
+}
+
 /** AI messages (WebView → Extension) */
 export interface AIChatRequest extends BaseMessage {
   type: 'ai:chat';

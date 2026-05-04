@@ -142,6 +142,14 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   msg('monitor:export:request'),
   msg('monitor:export:response'),
   msg('monitor:export:progress'),
+  // Phase 03 Plan 03-07 — Multi-org fleet overview + visibility gate envelope.
+  // The request/response handshake powers the MonitorOverviewPage; the
+  // visibility message is the audit M1 mitigation (WebView -> Extension).
+  // Payload shapes are typed in `messages.types.ts` (`MonitorFleetSummary*`,
+  // `MonitorVisibilityMessage`).
+  msg('monitor:fleet:summary:request'),
+  msg('monitor:fleet:summary:response'),
+  msg('monitor:visibility'),
 ]);
 
 // ─── Domain: Compare ─────────────────────────────────────────────────────────
