@@ -17,15 +17,27 @@ vi.mock('jsforce', () => ({
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 vi.mock('util', () => ({
   promisify: (fn: unknown) => fn,
 }));
 
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 
 const mockExec = vi.mocked(exec);
+const mockExecFile = vi.mocked(execFile);
+
+/**
+ * `refreshTokenViaCli` branches on `process.platform`:
+ * - Windows uses `exec` (shell required for `sf.cmd` PATHEXT resolution)
+ * - POSIX uses `execFile` with argv-as-array (no shell — safer per audit RT-#8)
+ *
+ * Tests must mock the right one for the current platform; this helper
+ * returns the active mock so individual tests stay platform-agnostic.
+ */
+const mockCliInvoker = process.platform === 'win32' ? mockExec : mockExecFile;
 
 function makeOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
   return {
@@ -147,7 +159,7 @@ describe('ConnectionHelper', () => {
         .mockResolvedValueOnce({ user_id: 'u1' });
 
       const refreshJson = JSON.stringify({ result: { accessToken: 'new-token-456' } });
-      mockExec.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
 
@@ -167,7 +179,7 @@ describe('ConnectionHelper', () => {
       const orgRegistry = createMockOrgRegistry(creds);
 
       mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
-      mockExec.mockRejectedValueOnce(new Error('sf not found') as never);
+      mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         'Token expired for "test-org" and refresh failed',
@@ -188,7 +200,7 @@ describe('ConnectionHelper', () => {
       );
     });
 
-    it('should call exec with quoted username for valid usernames', async () => {
+    it('should invoke the SF CLI with the validated username', async () => {
       const org = makeOrg();
       const creds = makeCreds();
       const orgManager = createMockOrgManager(org);
@@ -197,14 +209,24 @@ describe('ConnectionHelper', () => {
       mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
 
       const refreshJson = JSON.stringify({ result: { accessToken: 'new-token' } });
-      mockExec.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       await getJsforceConnection('org-1', orgRegistry, orgManager);
 
-      expect(mockExec).toHaveBeenCalledWith(
-        expect.stringContaining('sf org display -u "admin@test.com" --json'),
-        expect.objectContaining({ maxBuffer: expect.any(Number) }),
-      );
+      if (process.platform === 'win32') {
+        // Windows: shell-based exec with double-quoted username (regex-validated upstream)
+        expect(mockExec).toHaveBeenCalledWith(
+          expect.stringContaining('sf org display -u "admin@test.com" --json'),
+          expect.objectContaining({ maxBuffer: expect.any(Number) }),
+        );
+      } else {
+        // POSIX: argv-as-array execFile — no shell, no interpolation (RT-#8 hardening)
+        expect(mockExecFile).toHaveBeenCalledWith(
+          'sf',
+          ['org', 'display', '-u', 'admin@test.com', '--json'],
+          expect.objectContaining({ maxBuffer: expect.any(Number) }),
+        );
+      }
     });
 
     it('should throw on non-session errors without attempting refresh', async () => {
