@@ -558,4 +558,58 @@ describe('DriftDetector', () => {
       );
     });
   });
+
+  // ─── Plan 03-04 vertical-slice integration test ──────────────────────────
+
+  describe('vertical slice (Plan 03-04 demoable)', () => {
+    it('Plan 03-04 vertical slice: detect -> emit -> bus subscriber receives DriftEventPayload', () => {
+      // Demoable proof that Plan 03-04 ships an end-to-end vertical slice:
+      // describe pair -> DriftDetector.scanAndEmit -> MetricBus subscriber
+      // sees a typed envelope, with debounce honored on a re-scan.
+      const bus = new MetricBus();
+      const received: Array<{
+        orgId: string;
+        snapshotPairId: string;
+        summary: string;
+        deltaCount: number;
+        severity: 'info' | 'breaking' | 'permission';
+      }> = [];
+      bus.subscribe('monitor:drift:detected', (p) => received.push(p));
+
+      const prev: SnapshotPayload = {
+        permissionContainers: [
+          {
+            name: 'CustomProfile',
+            fieldPermissions: [
+              { field: 'Account.Email__c', read: false, edit: false },
+              { field: 'Account.Phone__c', read: true, edit: false },
+            ],
+          },
+        ],
+      };
+      const curr: SnapshotPayload = {
+        permissionContainers: [
+          {
+            name: 'CustomProfile',
+            fieldPermissions: [
+              { field: 'Account.Email__c', read: true, edit: false },
+              { field: 'Account.Phone__c', read: true, edit: false },
+            ],
+          },
+        ],
+      };
+
+      const payload = detector.scanAndEmit('org-1', 'snap-pair-vertical', prev, curr, bus);
+      expect(payload).not.toBeNull();
+      expect(received).toHaveLength(1);
+      expect(received[0].severity).toBe('permission');
+      expect(received[0].deltaCount).toBeGreaterThan(0);
+      expect(payload?.deltas.length).toBeLessThanOrEqual(500);
+
+      // Debounce: re-scan within 60 s returns null and does NOT re-emit.
+      const second = detector.scanAndEmit('org-1', 'snap-pair-vertical', prev, curr, bus);
+      expect(second).toBeNull();
+      expect(received).toHaveLength(1);
+    });
+  });
 });
