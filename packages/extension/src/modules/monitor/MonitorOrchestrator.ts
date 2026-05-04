@@ -8,6 +8,7 @@ import type { AlertEngine } from './AlertEngine';
 import type { HealthCheck } from './HealthCheck';
 import type { CoreServices } from '../../services.js';
 import { MetricBus, type MetricBusBridge } from './MetricBus.js';
+import { TimeSeriesStore } from './TimeSeriesStore.js';
 
 /** Events emitted by the MonitorOrchestrator */
 export type MonitorEvent = 'started' | 'stopped' | 'healthUpdated' | 'error';
@@ -43,6 +44,12 @@ export interface MonitorDependencies {
    * a public readonly singleton field.
    */
   bridge?: MetricBusBridge;
+  /**
+   * Persist Monitor time-series data to disk. Mirrors the
+   * `sandforge.monitor.persistTimeSeries` VS Code setting. Default off.
+   * Producer (extension.ts / handlers) reads the setting and passes it in.
+   */
+  persistTimeSeries?: boolean;
 }
 
 /**
@@ -68,6 +75,17 @@ export class MonitorOrchestrator {
    */
   public readonly metricBus: MetricBus;
 
+  /**
+   * Per-(orgId, seriesId) ring-buffered MetricSample store — Phase 03 Plan
+   * 03-02 substrate. Plan 03-03 will subscribe it to the MetricBus so probes
+   * funnel directly into time-series storage.
+   *
+   * Persistence is opt-in via the `sandforge.monitor.persistTimeSeries`
+   * setting (default off). When on AND `services.configStore` is present,
+   * the store flushes every 5 min and rehydrates on `start()`.
+   */
+  public readonly timeSeriesStore: TimeSeriesStore;
+
   constructor(deps: MonitorDependencies) {
     this.deps = deps;
     this.metricBus = new MetricBus({
@@ -77,6 +95,11 @@ export class MonitorOrchestrator {
       // tolerates a missing logger and silently swallows validation errors.
       logger: undefined,
     });
+    this.timeSeriesStore = new TimeSeriesStore({
+      configStore: deps.services?.configStore,
+      logger: deps.services?.telemetry?.getLogger?.(),
+      persist: deps.persistTimeSeries ?? false,
+    });
   }
 
   /** Start monitoring all services for the given org */
@@ -84,6 +107,10 @@ export class MonitorOrchestrator {
     if (this.activeOrgs.has(orgId)) {
       return;
     }
+
+    // P-03.10: rehydrate the time-series store BEFORE any probe.fetch() so
+    // record() never races with the on-disk replay. No-op when persist is off.
+    await this.timeSeriesStore.rehydrate();
 
     this.activeOrgs.add(orgId);
 
@@ -119,6 +146,11 @@ export class MonitorOrchestrator {
    */
   dispose(): void {
     this.metricBus.dispose();
+    // Best-effort final flush before tearing down. Errors are swallowed by
+    // TimeSeriesStore.flush itself (P-03.10) so we don't need a try/catch.
+    void this.timeSeriesStore.flush().finally(() => {
+      this.timeSeriesStore.dispose();
+    });
     this.activeOrgs.clear();
     this.healthCache.clear();
     this.handlers.clear();
