@@ -136,6 +136,12 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   msg('monitor:metric'),
   msg('monitor:metrics:batch'),
   msg('monitor:metric:subscribe'),
+  // Phase 03 Plan 03-06 — ReportExporter envelope variants. Bridge schema
+  // enforces envelope + discriminant; payload shapes are typed in
+  // `messages.types.ts` (`MonitorExport{Request,Response,Progress}Message`).
+  msg('monitor:export:request'),
+  msg('monitor:export:response'),
+  msg('monitor:export:progress'),
 ]);
 
 // ─── Domain: Compare ─────────────────────────────────────────────────────────
