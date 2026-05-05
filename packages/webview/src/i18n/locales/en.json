@@ -1077,6 +1077,14 @@
       "title": "AI Assistant Not Configured",
       "description": "To use AI features, configure your API key in Settings.",
       "configureButton": "Go to Settings"
+    },
+    "error": {
+      "overloaded": "AI provider temporarily overloaded. Retrying in {{countdown}}.",
+      "rateLimit": "AI rate limit reached. Retry in {{countdown}}.",
+      "auth": "AI key invalid or missing. Open Command Palette → SandForge: Configure AI Key.",
+      "cancelled": "AI request cancelled.",
+      "transient": "Temporary AI error. Retry available.",
+      "unknown": "Unexpected AI error."
     }
   },
   "notifications": {
