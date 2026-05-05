@@ -1,4 +1,4 @@
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 
 import {
   SalesforceAdapter,
@@ -6,6 +6,11 @@ import {
   StorageAdapter,
   FsAdapter,
 } from './adapters/index.js';
+import {
+  createAIClientFactory,
+  type AIClient,
+  type AIProviderType,
+} from './adapters/ai/index.js';
 import type { ConfigStore } from './core/storage/ConfigStore.js';
 
 import { MonitorOrchestrator } from './modules/monitor/MonitorOrchestrator.js';
@@ -41,6 +46,12 @@ export interface CoreServices {
    * (legacy ordering). Modules that need it should branch on its presence.
    */
   configStore?: ConfigStore;
+  /**
+   * AI client factory, memoised per provider. The first call constructs
+   * an `AnthropicAdapter` and lazily reads `sandforge.ai.anthropic.key`
+   * from SecretStorage on its first SDK request — never at activate.
+   */
+  aiClient: (provider?: AIProviderType) => AIClient;
 }
 
 /**
@@ -92,12 +103,27 @@ export function createServices(context: vscode.ExtensionContext): Services {
   const salesforce = new SalesforceAdapter(storage, telemetry);
   const fs = new FsAdapter(telemetry);
 
+  const aiClient = createAIClientFactory({
+    storage,
+    telemetry,
+    logger: telemetry.getLogger(),
+    getProvider: () => {
+      const cfg = vscode.workspace.getConfiguration('sandforge.ai');
+      return (cfg.get<AIProviderType>('provider') ?? 'anthropic') as AIProviderType;
+    },
+    getModel: () => {
+      const cfg = vscode.workspace.getConfiguration('sandforge.ai');
+      return cfg.get<string>('model');
+    },
+  });
+
   const services: Services = {
     context,
     storage,
     telemetry,
     salesforce,
     fs,
+    aiClient,
     monitorOrchestrator: (deps) => new MonitorOrchestrator(deps),
     seedOrchestrator: (deps) => new SeedOrchestrator(deps),
     syncOrchestrator: (deps) => new SyncOrchestrator(deps),
