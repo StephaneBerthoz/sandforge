@@ -294,6 +294,11 @@ export const AIMessageSchema = z.discriminatedUnion('type', [
   msg('ai:budget:state'),
   msg('ai:budget:warn'),
   msg('ai:budget:exceeded'),
+  // Phase 04 plan 04-04: diagnose flow + per-action approve gate.
+  msg('ai:diagnose'),
+  msg('ai:diagnose:response'),
+  msg('ai:approve-action'),
+  msg('ai:approve-action:response'),
 ]);
 
 // ─── Domain: Settings (includes onboarding, hint, telemetry, config, whats-new, notification, state) ─
