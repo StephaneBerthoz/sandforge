@@ -597,6 +597,52 @@ describe('AnthropicAdapter — Plan 04-03 vertical slice (runTools — describe 
   });
 });
 
+// ── Plan 04-05 vertical slice — token budget end-to-end ────────────────────
+describe('AnthropicAdapter — Plan 04-05 vertical slice (5 calls → warn → preflight refuse)', () => {
+  it('5 cumulative chats hit warn at 80% then 6th preflight refuses BEFORE the SDK call', async () => {
+    const { SessionBudget } = await import('./tokenBudget/SessionBudget.js');
+    const sentEnvelopes: Array<{ type: string }> = [];
+    const broker = { send: vi.fn((m: { type: string }) => sentEnvelopes.push({ type: m.type })) };
+
+    const budget = new SessionBudget({ sessionId: 'panel-1', budget: 10_000, broker });
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage, budget });
+
+    // Each SDK call returns 2_000 total tokens
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'hi' }],
+      usage: { input_tokens: 1500, output_tokens: 500 },
+      model: 'claude-sonnet-4-5-20250929',
+      stop_reason: 'end_turn',
+    });
+
+    // 5 calls — cumulative usage 2k, 4k, 6k, 8k, 10k
+    for (let i = 0; i < 5; i++) {
+      await adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+    }
+
+    // exactly ONE warn envelope was sent (debounced)
+    const warnCount = sentEnvelopes.filter((e) => e.type === 'ai:budget:warn').length;
+    expect(warnCount).toBe(1);
+
+    // at least one state envelope per increment
+    const stateCount = sentEnvelopes.filter((e) => e.type === 'ai:budget:state').length;
+    expect(stateCount).toBeGreaterThanOrEqual(5);
+
+    // 6th call: preflight projects 10k + ~75 (heuristic for "hi") → still < 10k? actually no, 10k already at limit. Increment a stub call to push it over.
+    expect(budget.getState().used.total).toBe(10_000);
+
+    // 6th call: preflight blocks because total is already AT 100% — adding ANY input puts it over.
+    const callsBefore = mockMessagesCreate.mock.calls.length;
+    await expect(
+      adapter.chat({ messages: [{ role: 'user', content: 'this is a longer message that should be predicted at > 0 tokens' }] }),
+    ).rejects.toThrow(/budget exceeded/i);
+    expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore); // no SDK invocation
+    const exceededCount = sentEnvelopes.filter((e) => e.type === 'ai:budget:exceeded').length;
+    expect(exceededCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('Plan 04-01 vertical slice — services.aiClient().complete() returns Zod-validated DiagnoseResult', () => {
   it('full round-trip from a mocked Anthropic SDK to a typed DiagnoseResult payload', async () => {
     const { DiagnoseResultSchema } = await import('@sandforge/shared');
