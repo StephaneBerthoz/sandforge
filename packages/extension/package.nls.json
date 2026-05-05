@@ -24,6 +24,7 @@
   "config.ai.enabled.description": "Enable AI Assistant (requires API key in secrets)",
   "config.ai.provider.description": "AI provider for the assistant (anthropic, openai, custom)",
   "config.ai.model.description": "AI model to use for the assistant",
+  "config.ai.tokenBudgetMaxPerSession.description": "Maximum AI token budget per Assistant panel session. Counter resets when the panel closes. SandForge soft-warns at 80% and hard-refuses further requests at 100%.",
   "config.backup.maxCount.description": "Maximum number of backups to retain per org",
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
   "config.api.timeout.description": "Salesforce API call timeout in milliseconds",

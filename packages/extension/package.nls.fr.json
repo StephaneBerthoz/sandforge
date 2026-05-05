@@ -24,6 +24,7 @@
   "config.ai.enabled.description": "Activer l'assistant IA (necessite une cle API dans les secrets)",
   "config.ai.provider.description": "Fournisseur IA pour l'assistant (anthropic, openai, custom)",
   "config.ai.model.description": "Modele IA a utiliser pour l'assistant",
+  "config.ai.tokenBudgetMaxPerSession.description": "Budget AI maximum par session du panneau Assistant. Le compteur se reinitialise a la fermeture. SandForge avertit a 80% et refuse les nouvelles requetes a 100%.",
   "config.backup.maxCount.description": "Nombre maximum de sauvegardes a conserver par org",
   "config.pipeline.timeout.description": "Delai d'expiration des pipelines en millisecondes",
   "config.api.timeout.description": "Delai d'expiration des appels API Salesforce en millisecondes",
