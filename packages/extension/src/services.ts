@@ -11,6 +11,7 @@ import {
   type AIClient,
   type AIProviderType,
 } from './adapters/ai/index.js';
+import { SessionBudget, type BudgetBroker } from './adapters/ai/tokenBudget/index.js';
 import type { ConfigStore } from './core/storage/ConfigStore.js';
 
 import { MonitorOrchestrator } from './modules/monitor/MonitorOrchestrator.js';
@@ -52,6 +53,14 @@ export interface CoreServices {
    * from SecretStorage on its first SDK request — never at activate.
    */
   aiClient: (provider?: AIProviderType) => AIClient;
+  /**
+   * Build a fresh `SessionBudget` for an AI panel session. Caller is
+   * responsible for attaching it to the adapter
+   * (`services.aiClient().budget = sessionBudget`) on panel-open and
+   * calling `sessionBudget.dispose()` on panel-close. Reads the current
+   * `sandforge.ai.tokenBudgetMaxPerSession` setting at construction.
+   */
+  createSessionBudget: (sessionId: string, broker?: BudgetBroker) => SessionBudget;
 }
 
 /**
@@ -124,6 +133,17 @@ export function createServices(context: vscode.ExtensionContext): Services {
     salesforce,
     fs,
     aiClient,
+    createSessionBudget: (sessionId, broker) => {
+      const budget = vscode.workspace
+        .getConfiguration('sandforge.ai')
+        .get<number>('tokenBudgetMaxPerSession', 50_000);
+      return new SessionBudget({
+        sessionId,
+        budget,
+        broker,
+        logger: telemetry.getLogger(),
+      });
+    },
     monitorOrchestrator: (deps) => new MonitorOrchestrator(deps),
     seedOrchestrator: (deps) => new SeedOrchestrator(deps),
     syncOrchestrator: (deps) => new SyncOrchestrator(deps),

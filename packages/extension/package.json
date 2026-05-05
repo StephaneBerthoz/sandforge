@@ -237,6 +237,13 @@
           "default": "claude-sonnet-4-20250514",
           "description": "%config.ai.model.description%"
         },
+        "sandforge.ai.tokenBudgetMaxPerSession": {
+          "type": "number",
+          "default": 50000,
+          "minimum": 1000,
+          "maximum": 1000000,
+          "description": "%config.ai.tokenBudgetMaxPerSession.description%"
+        },
         "sandforge.backup.maxCount": {
           "type": "number",
           "default": 10,
