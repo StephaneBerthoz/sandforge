@@ -5,6 +5,11 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Spinner } from '../../components/ui/Spinner';
+import { useMessageListener } from '../../hooks/useMessageBus';
+import {
+  AIProviderStatusBanner,
+  type AIProviderState,
+} from './components/AIProviderStatusBanner';
 
 /** Chat message for display. */
 export interface ChatMessageDisplay {
@@ -48,6 +53,24 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   const { t } = useTranslation();
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [providerStatus, setProviderStatus] = useState<{
+    provider: 'anthropic' | 'openai' | 'custom';
+    state: AIProviderState;
+    cooldownEndsAt?: string;
+    userMessageKey?: string;
+  } | null>(null);
+
+  useMessageListener<{
+    type: 'ai:provider:status';
+    payload: {
+      provider: 'anthropic' | 'openai' | 'custom';
+      state: AIProviderState;
+      cooldownEndsAt?: string;
+      userMessageKey?: string;
+    };
+  }>('ai:provider:status', (msg) => {
+    setProviderStatus(msg.payload);
+  });
 
   useEffect(() => {
     if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
@@ -83,6 +106,15 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
         icon="comment-discussion"
       />
+
+      {providerStatus && (
+        <AIProviderStatusBanner
+          provider={providerStatus.provider}
+          state={providerStatus.state}
+          cooldownEndsAt={providerStatus.cooldownEndsAt}
+          userMessageKey={providerStatus.userMessageKey}
+        />
+      )}
 
       <div className="flex flex-1 gap-[var(--sf-space-4)] min-h-0">
         {/* Conversation sidebar */}
