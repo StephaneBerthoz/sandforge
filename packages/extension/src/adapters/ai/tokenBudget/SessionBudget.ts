@@ -61,6 +61,7 @@ export class SessionBudget {
     this.budget = deps.budget;
     this.broker = deps.broker;
     this.logger = deps.logger;
+    void this.logger; // retained for future warn/info logging hooks
   }
 
   /**
