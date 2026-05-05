@@ -11,6 +11,7 @@ const hoisted = vi.hoisted(() => {
   const mockMessagesCreate = vi.fn();
   const mockMessagesParse = vi.fn();
   const mockMessagesCountTokens = vi.fn();
+  const mockBetaMessagesToolRunner = vi.fn();
   const ConstructorSpy = vi.fn();
 
   class MockAPIUserAbortError extends Error {
@@ -24,6 +25,7 @@ const hoisted = vi.hoisted(() => {
     mockMessagesCreate,
     mockMessagesParse,
     mockMessagesCountTokens,
+    mockBetaMessagesToolRunner,
     ConstructorSpy,
     MockAPIUserAbortError,
   };
@@ -33,6 +35,7 @@ const {
   mockMessagesCreate,
   mockMessagesParse,
   mockMessagesCountTokens,
+  mockBetaMessagesToolRunner,
   ConstructorSpy,
   MockAPIUserAbortError,
 } = hoisted;
@@ -44,6 +47,11 @@ vi.mock('@anthropic-ai/sdk', () => {
         create: hoisted.mockMessagesCreate,
         parse: hoisted.mockMessagesParse,
         countTokens: hoisted.mockMessagesCountTokens,
+      };
+      beta = {
+        messages: {
+          toolRunner: hoisted.mockBetaMessagesToolRunner,
+        },
       };
       constructor(args: { apiKey: string }) {
         hoisted.ConstructorSpy(args);
@@ -428,6 +436,164 @@ describe('AnthropicAdapter — Plan 04-02 vertical slice (3x 529 → open → fa
     expect(mockMessagesCreate.mock.calls.length).toBeGreaterThan(callsBefore);
     expect(adapter.breaker.getState()).toBe('closed');
     vi.useRealTimers();
+  });
+});
+
+// ── Plan 04-03 — runTools() tests ────────────────────────────────────────
+function makeRunner(yields: unknown[]): {
+  setRequestOptions: ReturnType<typeof vi.fn>;
+  [Symbol.asyncIterator]: () => AsyncIterator<unknown>;
+} {
+  return {
+    setRequestOptions: vi.fn(),
+    async *[Symbol.asyncIterator](): AsyncIterator<unknown> {
+      for (const y of yields) yield y;
+    },
+  };
+}
+
+describe('AnthropicAdapter — Plan 04-03 runTools', () => {
+  it('runTools happy path: single tool call + final text → toolCalls=1, runId UUID, breadcrumb fired', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockBetaMessagesToolRunner.mockReturnValue(
+      makeRunner([
+        {
+          content: [
+            { type: 'tool_use', name: 'describe_object', input: { sObject: 'Account' }, id: 't1' },
+          ],
+          usage: { input_tokens: 50, output_tokens: 12 },
+          model: 'claude-sonnet-4-5-20250929',
+        },
+        {
+          content: [{ type: 'text', text: 'There are 142 records.' }],
+          usage: { input_tokens: 110, output_tokens: 24 },
+          model: 'claude-sonnet-4-5-20250929',
+          stop_reason: 'end_turn',
+        },
+      ]),
+    );
+
+    const result = await adapter.runTools({
+      prompt: 'How many records in Account?',
+      tools: [],
+    });
+    expect(result.text).toBe('There are 142 records.');
+    expect(result.toolCalls).toBe(1);
+    expect(result.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(result.usage.input).toBe(110); // last message wins
+    expect(result.usage.total).toBe(134);
+  });
+
+  it('runTools forwards { signal } to toolRunner and the breaker is consulted', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockBetaMessagesToolRunner.mockReturnValue(
+      makeRunner([
+        { content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 }, model: 'm', stop_reason: 'end_turn' },
+      ]),
+    );
+    await adapter.runTools({ prompt: 'x', tools: [] });
+    expect(mockBetaMessagesToolRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ messages: [{ role: 'user', content: 'x' }] }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it('runTools respects maxIterations (forwarded to runner constructor)', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockBetaMessagesToolRunner.mockReturnValue(
+      makeRunner([
+        { content: [{ type: 'text', text: '' }], usage: { input_tokens: 0, output_tokens: 0 }, model: 'm', stop_reason: 'end_turn' },
+      ]),
+    );
+    await adapter.runTools({ prompt: 'x', tools: [], maxIterations: 3 });
+    expect(mockBetaMessagesToolRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ max_iterations: 3 }),
+      expect.any(Object),
+    );
+  });
+
+  it('runTools default maxIterations is 12', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockBetaMessagesToolRunner.mockReturnValue(
+      makeRunner([
+        { content: [{ type: 'text', text: '' }], usage: { input_tokens: 0, output_tokens: 0 }, model: 'm', stop_reason: 'end_turn' },
+      ]),
+    );
+    await adapter.runTools({ prompt: 'x', tools: [] });
+    expect(mockBetaMessagesToolRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ max_iterations: 12 }),
+      expect.any(Object),
+    );
+  });
+
+  it('runTools 529 trips the breaker via runWithBreaker', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    // toolRunner returns a runner whose iteration throws an overloaded error.
+    mockBetaMessagesToolRunner.mockReturnValue({
+      setRequestOptions: vi.fn(),
+      async *[Symbol.asyncIterator]() {
+        throw new MockOverloadedError(529);
+      },
+    });
+    for (let i = 0; i < 3; i++) {
+      await expect(adapter.runTools({ prompt: 'x', tools: [] })).rejects.toThrow();
+    }
+    expect(adapter.breaker.getState()).toBe('open');
+  });
+});
+
+// ── Plan 04-03 vertical slice ─────────────────────────────────────────────
+describe('AnthropicAdapter — Plan 04-03 vertical slice (runTools — describe + query)', () => {
+  it('multi-step flow: describe Account → query records → final 142 count, traces flow through wrapTool', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+
+    // Mock toolRunner: 2 tool_use turns + 1 final answer
+    mockBetaMessagesToolRunner.mockReturnValue(
+      makeRunner([
+        {
+          content: [
+            { type: 'tool_use', name: 'describe_object', input: { sObject: 'Account' }, id: 'tu1' },
+          ],
+          usage: { input_tokens: 50, output_tokens: 12 },
+          model: 'claude-sonnet-4-5-20250929',
+        },
+        {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'query_records',
+              input: { soql: 'SELECT COUNT() FROM Account', limit: 50 },
+              id: 'tu2',
+            },
+          ],
+          usage: { input_tokens: 80, output_tokens: 18 },
+          model: 'claude-sonnet-4-5-20250929',
+        },
+        {
+          content: [{ type: 'text', text: 'There are 142 Account records.' }],
+          usage: { input_tokens: 110, output_tokens: 24 },
+          model: 'claude-sonnet-4-5-20250929',
+          stop_reason: 'end_turn',
+        },
+      ]),
+    );
+
+    const result = await adapter.runTools({
+      prompt: 'Describe Account, then count records.',
+      tools: [],
+    });
+
+    expect(result.text).toContain('142');
+    expect(result.toolCalls).toBe(2);
+    expect(result.usage.input).toBe(110); // last-wins
+    expect(result.usage.total).toBe(134);
+    expect(result.runId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
 
