@@ -1,6 +1,8 @@
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter, Logger } from '../telemetry/TelemetryAdapter.js';
 import { AnthropicAdapter } from './AnthropicAdapter.js';
+import { OpenAIAdapter } from './OpenAIAdapter.js';
+import { CustomAdapter } from './CustomAdapter.js';
 import { AINotImplementedError, type AIClient, type AIProviderType } from './AIClient.js';
 
 export interface AIClientFactoryDeps {
@@ -45,9 +47,21 @@ export function createAIClientFactory(
         });
         break;
       case 'openai':
-        throw new AINotImplementedError('OpenAIAdapter ships in Plan 04-07.');
+        instance = new OpenAIAdapter({
+          storage: deps.storage,
+          telemetry: deps.telemetry,
+          logger: deps.logger,
+          model: deps.getModel?.(),
+        });
+        break;
       case 'custom':
-        throw new AINotImplementedError('CustomAdapter ships in Plan 04-07.');
+        instance = new CustomAdapter({
+          storage: deps.storage,
+          telemetry: deps.telemetry,
+          logger: deps.logger,
+          model: deps.getModel?.(),
+        });
+        break;
       default:
         throw new AINotImplementedError(`Unknown AI provider: ${provider as string}`);
     }

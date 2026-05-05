@@ -49,22 +49,45 @@ describe('AIClientFactory', () => {
     expect(client1).toBe(client3);
   });
 
-  it('throws AINotImplementedError for openai (stub lands in 04-07)', () => {
+  it('returns an OpenAIAdapter STUB for openai (Plan 04-07 — no factory throw)', () => {
     const factory = createAIClientFactory({
       storage: fakeStorage,
       getProvider: () => 'openai',
     });
-    expect(() => factory()).toThrow(AINotImplementedError);
-    expect(() => factory()).toThrow(/OpenAIAdapter ships in Plan 04-07/);
+    const client = factory();
+    expect(client.provider).toBe('openai');
+    expect(typeof client.chat).toBe('function');
+    expect(typeof client.runTools).toBe('function');
   });
 
-  it('throws AINotImplementedError for custom (stub lands in 04-07)', () => {
+  it('returns a CustomAdapter STUB for custom (Plan 04-07 — no factory throw)', () => {
     const factory = createAIClientFactory({
       storage: fakeStorage,
       getProvider: () => 'custom',
     });
+    const client = factory();
+    expect(client.provider).toBe('custom');
+    expect(typeof client.chat).toBe('function');
+  });
+
+  it('calling chat() on openai stub throws AINotImplementedError with provider-switch hint', async () => {
+    const factory = createAIClientFactory({
+      storage: fakeStorage,
+      getProvider: () => 'openai',
+    });
+    const client = factory();
+    await expect(client.chat({ messages: [] })).rejects.toThrow(AINotImplementedError);
+    await expect(client.chat({ messages: [] })).rejects.toThrow(/sandforge\.ai\.provider/);
+    await expect(client.chat({ messages: [] })).rejects.toThrow(/anthropic/);
+  });
+
+  it('typo provider STILL throws at factory time', () => {
+    const factory = createAIClientFactory({
+      storage: fakeStorage,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      getProvider: () => 'anthrop' as any,
+    });
     expect(() => factory()).toThrow(AINotImplementedError);
-    expect(() => factory()).toThrow(/CustomAdapter ships in Plan 04-07/);
   });
 
   it('explicit provider arg overrides getProvider', () => {
