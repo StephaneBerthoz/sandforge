@@ -96,9 +96,19 @@ vi.mock('vscode', () => ({
 
 // Stub the Anthropic SDK so AnthropicAdapter constructs without a real network
 // dependency when services.aiClient('anthropic') instantiates it.
+const sdkHoisted = vi.hoisted(() => {
+  const sharedCreate = vi.fn();
+  const sharedParse = vi.fn();
+  const sharedCountTokens = vi.fn();
+  return { sharedCreate, sharedParse, sharedCountTokens };
+});
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class Anthropic {
-    messages = { create: vi.fn(), parse: vi.fn(), countTokens: vi.fn() };
+    messages = {
+      create: sdkHoisted.sharedCreate,
+      parse: sdkHoisted.sharedParse,
+      countTokens: sdkHoisted.sharedCountTokens,
+    };
     constructor(_args: { apiKey: string }) {}
   },
   APIUserAbortError: class APIUserAbortError extends Error {},
@@ -143,6 +153,30 @@ describe('services', () => {
       const getSecretSpy = vi.spyOn(services.storage, 'getSecret');
       services.aiClient('anthropic');
       expect(getSecretSpy).not.toHaveBeenCalled();
+    });
+
+    it('Plan 04-01 vertical slice: services.aiClient().complete(DiagnoseResultSchema) round-trip', async () => {
+      const ctx = createMockContext({}, { 'sandforge.ai.anthropic.key': 'sk-ant-fake-12345' });
+      const services = createServices(ctx);
+      const ai = services.aiClient('anthropic');
+
+      sdkHoisted.sharedParse.mockResolvedValue({
+        parsed_output: {
+          summary: 'ok',
+          rootCause: 'demo',
+          suggestedActions: [],
+          confidence: 'medium',
+        },
+        usage: { input_tokens: 5, output_tokens: 2 },
+        model: 'claude-sonnet-4-5',
+        stop_reason: 'end_turn',
+      });
+
+      const { DiagnoseResultSchema } = await import('@sandforge/shared');
+      const result = await ai.complete({ prompt: 'diag', schema: DiagnoseResultSchema });
+      expect(result.payload.summary).toBe('ok');
+      expect(result.payload.confidence).toBe('medium');
+      expect(result.usage.total).toBe(7);
     });
 
     it('wires the four core adapters as instanceof of their classes', () => {
