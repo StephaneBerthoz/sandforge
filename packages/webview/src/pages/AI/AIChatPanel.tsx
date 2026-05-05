@@ -1,5 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import type {
+  AIProviderStatusMessage,
+  AIBudgetStateMessage,
+} from '@sandforge/shared';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
@@ -64,22 +68,13 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     userMessageKey?: string;
   } | null>(null);
 
-  useMessageListener<{
-    type: 'ai:provider:status';
-    payload: {
-      provider: 'anthropic' | 'openai' | 'custom';
-      state: AIProviderState;
-      cooldownEndsAt?: string;
-      userMessageKey?: string;
-    };
-  }>('ai:provider:status', (msg) => {
+  useMessageListener<AIProviderStatusMessage>('ai:provider:status', (msg) => {
     setProviderStatus(msg.payload);
   });
 
   const [budgetState, setBudgetState] = useState<TokenBudgetState | null>(null);
-  useMessageListener<{ type: 'ai:budget:state'; payload: TokenBudgetState }>(
-    'ai:budget:state',
-    (msg) => setBudgetState(msg.payload),
+  useMessageListener<AIBudgetStateMessage>('ai:budget:state', (msg) =>
+    setBudgetState(msg.payload),
   );
 
   useEffect(() => {

@@ -9,6 +9,7 @@
   "command.openCompare": "SandForge : Ouvrir Comparaison",
   "command.openDataOps": "SandForge : Ouvrir DataOps",
   "command.openAutomation": "SandForge : Ouvrir Automatisation",
+  "command.openAI": "SandForge : Ouvrir l'Assistant IA",
   "command.openOrgs": "SandForge : Connecter une Org",
   "command.openSettings": "SandForge : Parametres",
   "command.openHelp": "SandForge : Ouvrir l'Aide",

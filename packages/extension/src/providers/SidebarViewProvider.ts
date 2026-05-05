@@ -73,6 +73,7 @@ export class SidebarViewProvider {
             compare: 'sandforge.openCompare',
             dataops: 'sandforge.openDataOps',
             automation: 'sandforge.openAutomation',
+            ai: 'sandforge.openAI',
             orgs: 'sandforge.openOrgs',
             settings: 'sandforge.openSettings',
             help: 'sandforge.openHelp',

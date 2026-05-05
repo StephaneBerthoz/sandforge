@@ -549,6 +549,7 @@ export function activate(context: vscode.ExtensionContext): void {
     { command: 'sandforge.openCompare', moduleId: 'compare', title: 'Compare' },
     { command: 'sandforge.openDataOps', moduleId: 'dataops', title: 'DataOps' },
     { command: 'sandforge.openAutomation', moduleId: 'automation', title: 'Automation' },
+    { command: 'sandforge.openAI', moduleId: 'ai', title: 'AI Assistant' },
     { command: 'sandforge.openOrgs', moduleId: 'orgs', title: 'Organizations' },
     { command: 'sandforge.openSettings', moduleId: 'settings', title: 'Settings' },
     { command: 'sandforge.openHelp', moduleId: 'help', title: 'Help' },

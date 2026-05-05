@@ -104,6 +104,11 @@
         "icon": "$(zap)"
       },
       {
+        "command": "sandforge.openAI",
+        "title": "%command.openAI%",
+        "icon": "$(hubot)"
+      },
+      {
         "command": "sandforge.openOrgs",
         "title": "%command.openOrgs%",
         "icon": "$(plug)"

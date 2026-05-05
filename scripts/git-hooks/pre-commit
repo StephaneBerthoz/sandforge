@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Pre-commit guard — closes two silent-regression gaps that night-mode
+# autopilots have already shipped past test suites in this repo:
+#
+# (1) Webview typecheck. Phase 04 shipped a webview typecheck regression
+# in AIChatPanel.tsx (ai:provider:status / ai:budget:state envelopes were
+# inlined as ad-hoc types missing BaseMessage's id + timestamp fields).
+# The extension vitest suite was green, so night-mode autopilot did not
+# notice. `pnpm package` is the only path that runs the webview tsc,
+# and it was never invoked. `pnpm -r typecheck` runs tsc per package.
+#
+# (2) Duplicate top-level keys in i18n locale JSONs. en.json + fr.json
+# shipped with three duplicate top-level keys (monitor / dataops /
+# execution) — JSON.parse silently took the second value, wiping out
+# entire module translations. The user saw raw i18n keys (e.g.
+# `monitor.emptyState.title`) instead of the actual French / English
+# label. The pnpm typecheck step does NOT catch this — the JSON imports
+# pass typecheck even with dupes. This hook adds an explicit dupe scan
+# across all locale files.
+#
+# Bypass with --no-verify if you really need to (don't).
+
+set -e
+
+echo "→ pre-commit: pnpm -r typecheck"
+pnpm -r typecheck
+
+echo "→ pre-commit: locale dup-key scan"
+node -e "
+const fs=require('fs'),path=require('path');
+const dir='packages/webview/src/i18n/locales';
+const files=fs.readdirSync(dir).filter(f=>f.endsWith('.json'));
+let bad=0;
+for(const f of files){
+  const text=fs.readFileSync(path.join(dir,f),'utf8');
+  const seen={};
+  for(const line of text.split('\n')){
+    const m=line.match(/^  \"([^\"]+)\":/);
+    if(m){if(seen[m[1]]){console.error('DUP top-level key in',f,'->',m[1]);bad++;}else seen[m[1]]=true;}
+  }
+}
+process.exit(bad?1:0);
+"
+
+echo "✓ pre-commit: typecheck + i18n dup scan green"
