@@ -1,9 +1,12 @@
 import { EventEmitter } from 'node:events';
+import { randomUUID } from 'node:crypto';
 
 import Anthropic, { APIUserAbortError } from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import type { z } from 'zod';
 import type { AIUsage } from '@sandforge/shared';
+
+import type { WrappedTool } from './tools/wrapTool.js';
 
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter, Logger } from '../telemetry/TelemetryAdapter.js';
@@ -164,6 +167,91 @@ export class AnthropicAdapter implements AIClient {
       });
       return { inputTokens: resp.input_tokens };
     });
+  }
+
+  /**
+   * Run a multi-step tool conversation via the Anthropic toolRunner.
+   *
+   * Plan 04-03: this is the entry point for diagnose-style flows where Claude
+   * orchestrates several read-only tool calls before returning the final
+   * answer. The caller passes pre-built `WrappedTool`s (with their own
+   * `onTrace` already wired into the wrapTool layer); runTools generates a
+   * runId, drives the toolRunner to completion, and returns the final text +
+   * aggregated usage.
+   */
+  async runTools(opts: {
+    prompt: string;
+    system?: string;
+    tools: WrappedTool<z.ZodTypeAny, z.ZodTypeAny>[];
+    signal?: AbortSignal;
+    maxTokens?: number;
+    /** Default 12 — caps the multi-step loop. */
+    maxIterations?: number;
+  }): Promise<{
+    text: string;
+    usage: AIUsage;
+    model: string;
+    stopReason: string | null;
+    runId: string;
+    toolCalls: number;
+  }> {
+    const runId = randomUUID();
+    return this.runWithBreaker('chat', async (signal) => {
+      const client = await this.getClient();
+      const runner = client.beta.messages.toolRunner(
+        {
+          model: this.model,
+          max_tokens: opts.maxTokens ?? 4096,
+          system: opts.system,
+          messages: [{ role: 'user', content: opts.prompt }],
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          tools: opts.tools as any,
+          max_iterations: opts.maxIterations ?? 12,
+        },
+        { signal },
+      );
+
+      let toolCalls = 0;
+      let lastUsage: AIUsage = {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheCreate: 0,
+        total: 0,
+      };
+      let lastModel = this.model;
+      let lastStopReason: string | null = null;
+      let finalText = '';
+
+      for await (const message of runner) {
+        // BetaMessageStream support — treat both as plain message-shaped.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const m = message as any;
+        if (Array.isArray(m.content)) {
+          for (const block of m.content) {
+            if (block.type === 'tool_use') toolCalls++;
+            if (block.type === 'text' && typeof block.text === 'string') {
+              finalText = block.text; // last text block wins
+            }
+          }
+        }
+        if (m.usage) {
+          lastUsage = this.buildUsage(m.usage);
+        }
+        if (typeof m.model === 'string') lastModel = m.model;
+        if (m.stop_reason !== undefined) lastStopReason = m.stop_reason;
+      }
+
+      this.breadcrumb('chat', lastUsage);
+      return {
+        text: finalText,
+        usage: lastUsage,
+        model: lastModel,
+        stopReason: lastStopReason,
+        runId,
+        toolCalls,
+      };
+    }, opts.signal);
   }
 
   /**

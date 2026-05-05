@@ -1218,6 +1218,24 @@ export interface AIProviderStatusMessage extends BaseMessage {
   };
 }
 
+/**
+ * Phase 04 plan 04-03 — per-tool-call trace.
+ *
+ * Sent from extension → webview as the AnthropicAdapter.runTools() loop
+ * progresses. Carries timing + status, NEVER the tool's payload (privacy).
+ */
+export interface AIToolTraceMessage extends BaseMessage {
+  type: 'ai:tool-trace';
+  payload: {
+    /** Groups events for one runTools() invocation. */
+    runId: string;
+    toolName: string;
+    status: 'start' | 'success' | 'error';
+    durationMs?: number;
+    errorCode?: string;
+  };
+}
+
 // ─── Standalone Feature Messages (Tier 3) ───────────────────────────────────
 
 /** PII detection pre-check */
