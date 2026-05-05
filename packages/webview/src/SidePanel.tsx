@@ -4,6 +4,7 @@ import './i18n';
 import {
   Flame,
   Activity,
+  Bot,
   ExternalLink,
   CheckCircle,
   XCircle,
@@ -74,6 +75,12 @@ const MODULE_ITEMS: NavItem[] = [
     labelKey: 'nav.automation',
     icon: <Zap className="w-4 h-4" />,
     accent: 'text-amber-400',
+  },
+  {
+    id: 'ai',
+    labelKey: 'nav.ai',
+    icon: <Bot className="w-4 h-4" />,
+    accent: 'text-fuchsia-400',
   },
 ];
 
