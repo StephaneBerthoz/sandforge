@@ -10,6 +10,10 @@ import {
   AIProviderStatusBanner,
   type AIProviderState,
 } from './components/AIProviderStatusBanner';
+import {
+  TokenBudgetIndicator,
+  type TokenBudgetState,
+} from './components/TokenBudgetIndicator';
 
 /** Chat message for display. */
 export interface ChatMessageDisplay {
@@ -72,6 +76,12 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     setProviderStatus(msg.payload);
   });
 
+  const [budgetState, setBudgetState] = useState<TokenBudgetState | null>(null);
+  useMessageListener<{ type: 'ai:budget:state'; payload: TokenBudgetState }>(
+    'ai:budget:state',
+    (msg) => setBudgetState(msg.payload),
+  );
+
   useEffect(() => {
     if (typeof messagesEndRef.current?.scrollIntoView === 'function') {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -106,6 +116,12 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         subtitle={t('ai.subtitle', 'Get AI-powered insights for your Salesforce operations')}
         icon="comment-discussion"
       />
+
+      {budgetState && (
+        <div className="flex justify-end">
+          <TokenBudgetIndicator state={budgetState} />
+        </div>
+      )}
 
       {providerStatus && (
         <AIProviderStatusBanner
