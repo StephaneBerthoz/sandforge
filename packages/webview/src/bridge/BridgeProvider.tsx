@@ -1,5 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import type { BaseMessage, SalesforceOrg, BackPressureLevel } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  SalesforceOrg,
+  BackPressureLevel,
+  AIStatusResponse,
+} from '@sandforge/shared';
 import { useSendMessage, useMessageListener } from '../hooks/useMessageBus';
 import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
@@ -155,13 +160,13 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     }
   });
 
-  // Listen for ai:status:response to track AI availability
-  useMessageListener<BaseMessage & { payload: { available: boolean } }>(
-    'ai:status:response',
-    (msg) => {
-      useAppStore.getState().setAiAvailable(msg.payload.available);
-    },
-  );
+  // Listen for ai:status:response to track AI availability.
+  // Extension payload field is `enabled` (see AIStatusResponse in shared) — the
+  // earlier `available` read was a silent contract drift that left aiAvailable
+  // stuck at false even with a valid API key configured.
+  useMessageListener<AIStatusResponse>('ai:status:response', (msg) => {
+    useAppStore.getState().setAiAvailable(msg.payload.enabled);
+  });
 
   // Request connectivity status on mount
   useEffect(() => {

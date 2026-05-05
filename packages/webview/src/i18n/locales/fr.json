@@ -108,6 +108,17 @@
     "bannerEmpty": "Importez vos orgs depuis Salesforce CLI ou connectez-vous manuellement"
   },
   "monitor": {
+    "liveOps": {
+      "title": "Operations en cours",
+      "noOperations": "Aucune operation en cours",
+      "active": "actives",
+      "pause": "Pause",
+      "resume": "Reprendre",
+      "cancel": "Annuler",
+      "recsPerSec": "enr/s",
+      "elapsed": "Ecoule",
+      "throughput": "Debit"
+    },
     "title": "Tableau de bord",
     "limits": "Limites API",
     "jobs": "Jobs",
@@ -710,7 +721,7 @@
         "paused": "En pause",
         "error": "Erreur"
       },
-      "comingSoon": "Necessite CDC \u2014 Disponible dans la v2.0"
+      "comingSoon": "Necessite CDC — Disponible dans la v2.0"
     },
     "tabs": {
       "sync": "Sync",
@@ -750,6 +761,17 @@
     }
   },
   "dataops": {
+    "masking": {
+      "title": "Modeles de masquage de donnees",
+      "description": "Regles d'anonymisation pre-construites pour les objets Salesforce courants. Selectionnez les champs a masquer et appliquez.",
+      "noTemplates": "Aucun modele de masquage disponible",
+      "search": "Rechercher des objets...",
+      "fields": "champs",
+      "selectRecommended": "Recommandes",
+      "selectAll": "Tous",
+      "clearAll": "Effacer",
+      "apply": "Appliquer {{count}} regles"
+    },
     "title": "DataOps",
     "backup": "Sauvegarde",
     "backupDesc": "Creer et gerer les sauvegardes de donnees",
@@ -1524,7 +1546,7 @@
     "anonymizePII": "Anonymiser les PII",
     "skipEmpty": "Ignorer les objets vides",
     "discoverGraph": "Decouvrir le graphe",
-    "noTemplates": "Aucun modele enregistre",
+    "noTemplates": "Aucun modele enregistre pour le moment",
     "forging": "FORGEAGE...",
     "paused": "EN PAUSE",
     "complete": "TERMINE",
@@ -1561,7 +1583,7 @@
     "skipped": "Ignores",
     "idRemaps": "Remappages ID",
     "successRate": "Taux de reussite",
-    "saveTemplate": "Enregistrer comme modele",
+    "saveTemplate": "Enregistrer comme template",
     "copyReport": "Copier le rapport",
     "forgeAgain": "Forger a nouveau",
     "object": "Objet",
@@ -1570,7 +1592,6 @@
     "templates": "Modeles",
     "useTemplate": "Utiliser le modele",
     "deleteTemplate": "Supprimer",
-    "noTemplates": "Aucun modele enregistre pour le moment",
     "lastUsed": "Derniere utilisation",
     "previewRecord": "Apercu du record",
     "closePreview": "Fermer l'apercu",
@@ -1594,7 +1615,6 @@
     "soqlPreviewHint": "L'apercu est disponible pour les ID d'enregistrement",
     "templatePreviewHint": "Selectionnez un template pour voir sa configuration",
     "aiPreviewHint": "L'IA generera le graphe de dependances au discover",
-    "reviewAndExecute": "Revoir et executer",
     "refreshPreview": "Rafraichir l'apercu",
     "noOrgSelected": "Selectionnez une org source pour l'apercu",
     "livePreview": "Apercu en direct",
@@ -1624,7 +1644,6 @@
     "logsExported": "Logs exportes",
     "createTemplate": "Creer un template",
     "editTemplate": "Modifier",
-    "deleteTemplate": "Supprimer",
     "deleteTemplateConfirm": "Voulez-vous vraiment supprimer ce template ?",
     "templateName": "Nom du template",
     "templateDescription": "Description (optionnel)",
@@ -1633,7 +1652,6 @@
     "templateUpdated": "Template mis a jour",
     "selectOrg": "Selectionnez une org",
     "scrollPaused": "Defilement auto en pause",
-    "saveTemplate": "Enregistrer comme template",
     "cancelEdit": "Annuler",
     "depth": "Profondeur",
     "recordLimit": "Enregistrements / objet",
@@ -1734,7 +1752,10 @@
     },
     "graph": {
       "title": "Graphe de Dependances",
-      "legend": "Legende",
+      "legend": {
+        "statuses": "Statuts des noeuds",
+        "relationships": "Relations"
+      },
       "pending": "En attente",
       "extracting": "Extraction",
       "anonymizing": "Anonymisation",
@@ -1752,10 +1773,6 @@
         "zoomOut": "Zoom arriere",
         "fitView": "Ajuster a la vue",
         "minimap": "Afficher/masquer la minimap"
-      },
-      "legend": {
-        "statuses": "Statuts des noeuds",
-        "relationships": "Relations"
       }
     },
     "control": {
@@ -1867,19 +1884,6 @@
     "copyError": "Copier l'erreur",
     "copied": "Copié !"
   },
-  "monitor": {
-    "liveOps": {
-      "title": "Operations en cours",
-      "noOperations": "Aucune operation en cours",
-      "active": "actives",
-      "pause": "Pause",
-      "resume": "Reprendre",
-      "cancel": "Annuler",
-      "recsPerSec": "enr/s",
-      "elapsed": "Ecoule",
-      "throughput": "Debit"
-    }
-  },
   "config": {
     "categories": {
       "syncMappings": "Mappings Sync",
@@ -1903,19 +1907,6 @@
       "importSuccess": "{{entries}} entrees importees depuis {{categories}} categories",
       "validProfile": "Profil valide",
       "invalidProfile": "Profil invalide"
-    }
-  },
-  "dataops": {
-    "masking": {
-      "title": "Modeles de masquage de donnees",
-      "description": "Regles d'anonymisation pre-construites pour les objets Salesforce courants. Selectionnez les champs a masquer et appliquez.",
-      "noTemplates": "Aucun modele de masquage disponible",
-      "search": "Rechercher des objets...",
-      "fields": "champs",
-      "selectRecommended": "Recommandes",
-      "selectAll": "Tous",
-      "clearAll": "Effacer",
-      "apply": "Appliquer {{count}} regles"
     }
   },
   "scheduler": {
@@ -2056,28 +2047,6 @@
     "empty": "Aucun element"
   },
   "execution": {
-    "overallProgress": "Progression globale",
-    "recordsOf": "{{processed}} / {{total}} enregistrements",
-    "elapsed": "Ecoul\u00e9 : {{time}}",
-    "queued": "En file d'attente",
-    "processing": "En cours",
-    "complete": "Termin\u00e9",
-    "failed": "Echou\u00e9",
-    "aborted": "Annul\u00e9",
-    "failedRecords": "{{count}} en \u00e9chec"
-  },
-  "retry": {
-    "title": "R\u00e9cup\u00e9ration d'erreurs",
-    "attemptOf": "Tentative {{current}} sur {{max}}",
-    "retryingIn": "Nouvelle tentative dans {{seconds}}s",
-    "exhausted": "Toutes les tentatives \u00e9puis\u00e9es",
-    "retryNow": "R\u00e9essayer",
-    "abort": "Abandonner",
-    "noFailures": "Aucune op\u00e9ration en \u00e9chec",
-    "errorDetails": "D\u00e9tails de l'erreur",
-    "manualRetryTriggered": "Nouvelle tentative manuelle lanc\u00e9e"
-  },
-  "execution": {
     "background": {
       "syncCompleted": "Synchronisation terminee — {{count}} enregistrements traites",
       "syncFailed": "Synchronisation echouee — {{error}}",
@@ -2086,6 +2055,26 @@
       "showDetails": "Voir les details",
       "operationAborted": "Operation annulee",
       "operationRunning": "{{module}} en cours — {{percent}}% termine"
-    }
+    },
+    "overallProgress": "Progression globale",
+    "recordsOf": "{{processed}} / {{total}} enregistrements",
+    "elapsed": "Ecoulé : {{time}}",
+    "queued": "En file d'attente",
+    "processing": "En cours",
+    "complete": "Terminé",
+    "failed": "Echoué",
+    "aborted": "Annulé",
+    "failedRecords": "{{count}} en échec"
+  },
+  "retry": {
+    "title": "Récupération d'erreurs",
+    "attemptOf": "Tentative {{current}} sur {{max}}",
+    "retryingIn": "Nouvelle tentative dans {{seconds}}s",
+    "exhausted": "Toutes les tentatives épuisées",
+    "retryNow": "Réessayer",
+    "abort": "Abandonner",
+    "noFailures": "Aucune opération en échec",
+    "errorDetails": "Détails de l'erreur",
+    "manualRetryTriggered": "Nouvelle tentative manuelle lancée"
   }
 }

@@ -21,6 +21,7 @@ const ROUTE_LABELS: Record<ModuleRoute, string> = {
   compare: 'nav.compare',
   dataops: 'nav.dataops',
   automation: 'nav.automation',
+  ai: 'nav.ai',
   reports: 'nav.reports',
   settings: 'nav.settings',
   welcome: 'nav.welcome',

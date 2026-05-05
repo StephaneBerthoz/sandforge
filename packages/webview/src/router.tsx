@@ -14,6 +14,7 @@ import { SettingsPage } from './pages/Settings/SettingsPage';
 import { HelpPage } from './pages/Help/HelpPage';
 import { SeedPage } from './pages/Seed/SeedPage';
 import { SyncPage } from './pages/Sync/SyncPage';
+import { AIPage } from './pages/AI/AIPage';
 
 /** Placeholder for welcome route (handled in App.tsx overlay). */
 const WelcomePlaceholder: React.FC = () => null;
@@ -30,6 +31,7 @@ const routeComponents: Record<ModuleRoute, React.FC> = {
   compare: ComparePage,
   dataops: DataOpsPage,
   automation: AutomationPage,
+  ai: AIPage,
   reports: ReportsPage,
   settings: SettingsPage,
   welcome: WelcomePlaceholder,

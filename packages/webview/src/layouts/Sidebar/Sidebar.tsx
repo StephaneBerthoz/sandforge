@@ -8,6 +8,7 @@ import {
   Shield,
   Zap,
   Flame,
+  Bot,
   BarChart3,
   Settings,
   HelpCircle,
@@ -34,6 +35,7 @@ const iconMap: Record<string, LucideIcon> = {
   compare: GitCompare,
   dataops: Shield,
   automation: Zap,
+  ai: Bot,
   reports: BarChart3,
   settings: Settings,
   help: HelpCircle,
@@ -71,6 +73,7 @@ const moduleNav: NavItem[] = [
   { route: 'compare', labelKey: 'nav.compare', icon: 'compare' },
   { route: 'dataops', labelKey: 'nav.dataops', icon: 'dataops' },
   { route: 'automation', labelKey: 'nav.automation', icon: 'automation' },
+  { route: 'ai', labelKey: 'nav.ai', icon: 'ai' },
 ];
 
 const bottomNav: NavItem[] = [
