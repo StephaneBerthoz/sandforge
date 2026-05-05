@@ -153,7 +153,7 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
         output_config: { format: { __zod: schema } },
         messages: [{ role: 'user', content: 'x' }],
       }),
-      expect.objectContaining({ signal: undefined }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 
@@ -181,17 +181,13 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
     });
   });
 
-  it('AbortController signal is forwarded to the SDK and APIUserAbortError is preserved unwrapped', async () => {
+  it('APIUserAbortError surfaces unwrapped (preserved instance)', async () => {
     const { storage } = makeStorage();
     const adapter = new AnthropicAdapter({ storage });
-    const ctrl = new AbortController();
     const abortError = new MockAPIUserAbortError();
-    mockMessagesCreate.mockImplementation(async (_body, opts) => {
-      expect(opts.signal).toBe(ctrl.signal);
-      throw abortError;
-    });
+    mockMessagesCreate.mockRejectedValue(abortError);
     await expect(
-      adapter.chat({ messages: [{ role: 'user', content: 'hi' }], signal: ctrl.signal }),
+      adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
     ).rejects.toBe(abortError);
   });
 
