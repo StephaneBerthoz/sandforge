@@ -286,6 +286,8 @@ export const AIMessageSchema = z.discriminatedUnion('type', [
   msg('ai:generate-pipeline:response'),
   msg('ai:schema-advice'),
   msg('ai:schema-advice:response'),
+  // Phase 04 plan 04-02: provider status banner (breaker open / half-open / closed).
+  msg('ai:provider:status'),
 ]);
 
 // ─── Domain: Settings (includes onboarding, hint, telemetry, config, whats-new, notification, state) ─

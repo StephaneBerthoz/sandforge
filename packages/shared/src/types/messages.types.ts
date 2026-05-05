@@ -1194,6 +1194,30 @@ export interface AISchemaAdviceResponse extends BaseMessage {
   };
 }
 
+/**
+ * Phase 04 plan 04-02 — provider status banner.
+ *
+ * Sent from extension → webview every time the AI adapter's per-provider
+ * CircuitBreaker changes state (closed → open after 3 consecutive failures,
+ * open → half-open after 5 min, half-open → closed on success).
+ *
+ * Webview renders the AIProviderStatusBanner from this payload.
+ */
+export interface AIProviderStatusMessage extends BaseMessage {
+  type: 'ai:provider:status';
+  payload: {
+    provider: 'anthropic' | 'openai' | 'custom';
+    state: 'closed' | 'open' | 'half-open';
+    /** ISO timestamp when the breaker is expected to transition open → half-open. */
+    cooldownEndsAt?: string;
+    lastErrorKind?: 'overloaded' | 'rate-limit' | 'auth' | 'transient' | 'unknown';
+    /** ISO timestamp of the most recent failure that influenced this state. */
+    lastErrorAt?: string;
+    /** i18n key for the banner copy (e.g. 'ai.error.overloaded'). */
+    userMessageKey?: string;
+  };
+}
+
 // ─── Standalone Feature Messages (Tier 3) ───────────────────────────────────
 
 /** PII detection pre-check */
