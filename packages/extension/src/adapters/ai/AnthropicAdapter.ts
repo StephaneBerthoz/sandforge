@@ -7,6 +7,7 @@ import type { z } from 'zod';
 import type { AIUsage } from '@sandforge/shared';
 
 import type { WrappedTool } from './tools/wrapTool.js';
+import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter, Logger } from '../telemetry/TelemetryAdapter.js';
@@ -40,6 +41,7 @@ export interface AnthropicAdapterDeps {
   logger?: Logger;
   model?: string;
   breaker?: CircuitBreaker;
+  budget?: SessionBudget;
 }
 
 /**
@@ -75,6 +77,12 @@ export class AnthropicAdapter implements AIClient {
   public readonly provider: AIProviderType = 'anthropic';
   public readonly breaker: CircuitBreaker;
   public readonly breakerEvents = new EventEmitter();
+  /**
+   * Per-panel-session budget (Plan 04-05). Mutable via field assignment so
+   * the panel-open lifecycle can attach a fresh budget without re-creating
+   * the adapter. Set to undefined on panel-close to disable budget logic.
+   */
+  public budget?: SessionBudget;
 
   private client: Anthropic | null = null;
   private readonly storage: StorageAdapter;
@@ -98,11 +106,33 @@ export class AnthropicAdapter implements AIClient {
         resetTimeout: 300_000,
         halfOpenRequests: 1,
       });
+    this.budget = deps.budget;
+  }
+
+  /**
+   * Cheap input-token estimator. The Anthropic SDK provides
+   * `messages.countTokens` for an authoritative answer, but that's a network
+   * round-trip per preflight — too expensive for the night-mode shipping
+   * scope. Heuristic ≈ chars/4 (Claude's average tokenizer ratio for
+   * English text); slightly over-estimates which is the safe direction
+   * for budget refusal.
+   *
+   * Tools array length is added as a coarse multiplier (each tool adds
+   * ~50 tokens of schema overhead in the system prompt).
+   */
+  private estimateInputTokens(payload: { prompt?: string; messages?: { content: string }[]; system?: string; tools?: { length: number } }): number {
+    const promptChars = payload.prompt?.length ?? 0;
+    const messagesChars =
+      payload.messages?.reduce((sum, m) => sum + (m.content?.length ?? 0), 0) ?? 0;
+    const systemChars = payload.system?.length ?? 0;
+    const toolsOverhead = payload.tools ? payload.tools.length * 50 * 4 : 0;
+    return Math.ceil((promptChars + messagesChars + systemChars + toolsOverhead) / 4);
   }
 
   // ── public AIClient surface ──────────────────────────────────────────────
 
   async chat(opts: AIChatOpts): Promise<AIChatResult> {
+    this.budgetPreflight({ messages: opts.messages, system: opts.system });
     return this.runWithBreaker('chat', async (signal) => {
       const client = await this.getClient();
       const resp = await client.messages.create(
@@ -119,6 +149,7 @@ export class AnthropicAdapter implements AIClient {
         .map((b) => b.text)
         .join('');
       const usage = this.buildUsage(resp.usage);
+      this.budget?.increment(usage);
       this.breadcrumb('chat', usage);
       return {
         text,
@@ -132,6 +163,7 @@ export class AnthropicAdapter implements AIClient {
   async complete<T extends z.ZodTypeAny>(
     opts: AICompleteOpts<T>,
   ): Promise<AICompleteResult<T>> {
+    this.budgetPreflight({ prompt: opts.prompt, system: opts.system });
     return this.runWithBreaker('complete', async (signal) => {
       const client = await this.getClient();
       const resp = await client.messages.parse(
@@ -145,6 +177,7 @@ export class AnthropicAdapter implements AIClient {
         { signal },
       );
       const usage = this.buildUsage(resp.usage);
+      this.budget?.increment(usage);
       this.breadcrumb('complete', usage);
       return {
         payload: resp.parsed_output as z.infer<T>,
@@ -196,6 +229,7 @@ export class AnthropicAdapter implements AIClient {
     toolCalls: number;
   }> {
     const runId = randomUUID();
+    this.budgetPreflight({ prompt: opts.prompt, system: opts.system, tools: opts.tools });
     return this.runWithBreaker('chat', async (signal) => {
       const client = await this.getClient();
       const runner = client.beta.messages.toolRunner(
@@ -242,6 +276,7 @@ export class AnthropicAdapter implements AIClient {
         if (m.stop_reason !== undefined) lastStopReason = m.stop_reason;
       }
 
+      this.budget?.increment(lastUsage);
       this.breadcrumb('chat', lastUsage);
       return {
         text: finalText,
@@ -252,6 +287,24 @@ export class AnthropicAdapter implements AIClient {
         toolCalls,
       };
     }, opts.signal);
+  }
+
+  /**
+   * Pre-flight budget check. Throws an AI_BUDGET_EXCEEDED error BEFORE
+   * any SDK call when the projected total would breach the budget.
+   * Does NOT affect the breaker (budget rejection is a user-facing limit,
+   * not a provider failure).
+   */
+  private budgetPreflight(payload: Parameters<typeof this.estimateInputTokens>[0]): void {
+    if (!this.budget) return;
+    const predicted = this.estimateInputTokens(payload);
+    const result = this.budget.preflight(predicted);
+    if (!result.allowed) {
+      const err = new Error('AI token budget exceeded for this panel session');
+      (err as Error & { code?: string }).code = 'AI_BUDGET_EXCEEDED';
+      (err as Error & { budgetState?: typeof result.state }).budgetState = result.state;
+      throw err;
+    }
   }
 
   /**
