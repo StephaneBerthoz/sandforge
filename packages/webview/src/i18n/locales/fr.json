@@ -1232,6 +1232,14 @@
       "title": "Assistant IA non configure",
       "description": "Pour utiliser les fonctionnalites IA, configurez votre cle API dans les Parametres.",
       "configureButton": "Aller aux Parametres"
+    },
+    "error": {
+      "overloaded": "Fournisseur AI temporairement surcharge. Reprise dans {{countdown}}.",
+      "rateLimit": "Limite d'appels AI atteinte. Reprise dans {{countdown}}.",
+      "auth": "Cle AI invalide ou absente. Ouvrir la palette → SandForge: Configurer la cle AI.",
+      "cancelled": "Requete AI annulee.",
+      "transient": "Erreur AI temporaire. Reessayez.",
+      "unknown": "Erreur AI inattendue."
     }
   },
   "onboarding": {
