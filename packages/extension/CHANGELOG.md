@@ -5,6 +5,68 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.6] - 2026-05-05
+
+**Phase 03 Monitor v2 Core + Phase 04 AI Integration + close-out hardening.** Two milestone-track phases shipped under the v1.3.0 umbrella, plus a six-bug close-out pass surfaced when the user actually installed the fresh VSIX. Phase 03 ships the time-series monitor substrate (MetricBus, TimeSeriesStore, MonitorRegistry + 8 probes, DriftDetector v2, AnomalyEngine, ReportExporter, FleetSummaryService). Phase 04 ships the read-only AI assistant (per-provider CircuitBreaker, AbortController, 10 read-only tools with CI fence, per-panel-session token budget, prompt-injection defence with adversarial vitest, AIDiagnoseHandler with approve gate, Anthropic adapter functional + OpenAI/Custom stubs).
+
+### Added
+
+**Phase 03 — Monitor v2 Core**
+- `MetricBus` typed Zod-validated pub/sub with 5 discriminated event subtypes
+- `TimeSeriesStore` per-(orgId, seriesId) ring buffer, 50 MB LRU cap, 7-day retention, opt-in disk persistence (`sandforge.monitor.persistTimeSeries` setting), 5-min flush + 15-min per-org rate limit, corruption recovery
+- `MonitorRegistry` single-tick scheduler with per-probe in-flight gate, drift accounting, hard timeout, visibility gating
+- 8 trackers wrapped as `MonitorProbe` shells (Limits, Job, ApexLog, SandboxRefresh, ErrorLog, UserSession, Health, Governance)
+- `DescribeCache` per-org TTL + LRU
+- `DriftDetector v2` field-level + permission-level deltas with `DriftFeed` virtualized component
+- `AnomalyEngine` rolling 24h std-dev with 30-sample / 6-h warmup gate, bridges into existing `AlertEngine`
+- `ReportExporter` CSV + lazy-pdfkit PDF, sparklines via LTTB downsampling, 50-series-per-PDF cap with multi-part split
+- `FleetSummaryService` + `MonitorOverviewPage` multi-org fleet landing with `ConnectionPool` reuse, `p-limit(3)`, 60-s per-org cache, exponential backoff
+- `useVisibilityGate` posts `monitor:visibility` on `document.visibilitychange`
+
+**Phase 04 — AI Integration**
+- `AIClient` interface + `AnthropicAdapter` (chat / complete / countTokens / runTools / dispose) using `messages.parse + zodOutputFormat` for Zod-validated structured output
+- `OpenAIAdapter` + `CustomAdapter` stubs that satisfy the interface (constructor never throws, methods throw `AINotImplementedError` with provider-switch hint)
+- `AIClientFactory` per-provider memoisation; switching `sandforge.ai.provider` in Settings does NOT crash the extension
+- Per-provider `CircuitBreaker` (3 consecutive 529 → open for 5 min, dual-signal overloaded check, `APIUserAbortError` never trips breaker, `cancelAll()` for panel close)
+- Per-AI-request `AbortController` (cancelling one chat does not abort siblings)
+- 10 read-only tools (`describe_object`, `query_records`, `get_limits`, `get_recent_errors`, `get_apex_log`, `get_metadata`, `get_alerts`, `get_anomalies`, `list_sobjects`, `validate_soql`) with `wrapTool` that enforces read-only naming regex + `READ-ONLY` description substring + Zod-validated input/output
+- Registry CI fence test rejects any future write-verb tool addition
+- `validate_soql` AND `query_records` reject DML keywords (defence in depth, `DML_FORBIDDEN` error code)
+- `AIDiagnoseHandler` — failed-job → diagnose flow with two-call pattern (`runTools` for context + `complete(schema)` for typed payload), `ActionProposalSchema`, 5 action kinds, approve-gate dispatcher
+- Webview `ActionCard` (Approve / Modify / Reject trio, scrollable rootCause, ≤5 actions, per-action state badges)
+- `AIProviderStatusBanner` (FR + EN copy, live mm:ss countdown to half-open transition)
+- `TokenBudgetIndicator` mini-bar with 4-field tooltip, `aria-live='polite'`, green/yellow/red colour states
+- `SessionBudget` class — per-panel-session token counter, sums all 4 token fields, debounced 80% warn, 100% hard refuse with preflight BEFORE the SDK call
+- `sandforge.ai.tokenBudgetMaxPerSession` setting (default 50000) with EN+FR NLS
+- `escapeUserData` / `wrapAsUserData` HTML-entity escape helpers + `DIAGNOSE_SYSTEM_PROMPT` / `SOQL_REVIEW_SYSTEM_PROMPT` / `ERROR_RESOLVE_SYSTEM_PROMPT` carrying the spotlight clause
+- Adversarial vitest spec — 7 jailbreak fixtures × 2 defence layers + 2 spotlight assertions (RT-#10 closure)
+- `AIDiagnoseHandler` self-defence canary asserts the literal `</user-data>` substring NEVER appears in the body between the wrapper's open + close tags
+- 4 bridge envelopes (`ai:diagnose`, `ai:diagnose:response`, `ai:approve-action`, `ai:approve-action:response`) + 3 budget envelopes (`ai:budget:state`, `ai:budget:warn`, `ai:budget:exceeded`) + `ai:provider:status` + `ai:tool-trace`
+- 6 `ai.error.*` i18n keys (overloaded / rateLimit / auth / cancelled / transient / unknown) in EN + FR
+
+**Close-out wiring**
+- `sandforge.openAI` command + `Bot` icon + EN/FR NLS title + Ctrl+K palette entry — AI Assistant now reachable from the activity bar (SidePanel), the in-panel layout (Sidebar), the top bar route labels, and the command palette across all 11 surfaces
+
+**Tooling**
+- `scripts/git-hooks/pre-commit` runs `pnpm -r typecheck` + locale dup-key scan on every commit
+- `package.json` `prepare` lifecycle auto-installs the hook on `pnpm install` via `core.hooksPath = scripts/git-hooks`
+
+### Fixed
+
+- **AIChatPanel.tsx ad-hoc message types** — replaced inline `BaseMessage & { payload: { ... } }` types for `ai:provider:status` / `ai:budget:state` (which were missing `id` + `timestamp`) with canonical `AIProviderStatusMessage` / `AIBudgetStateMessage` imports from `@sandforge/shared`. Webview tsc was failing on Phase 04 close — extension vitest never caught it because the inline type compiled fine in isolation.
+- **`pnpm.overrides` minimatch flipped vsce to incompatible major** — previous `<3.1.4: >=3.1.4` was a non-existent version (last 3.x is 3.1.2) that resolved vsce's `^3.0.3` to 9.x or 10.x, breaking vsce's CJS-default `__importDefault(require('minimatch'))` with `(0 , minimatch_1.default) is not a function`. Tightened lower bound to `<3.0.5` (the actual ReDoS-fix threshold per GHSA), constrained replacement to `>=3.0.5 <4` so CJS-default consumers stay on 3.x, plus `@vscode/vsce>minimatch: 3.1.2` path-scoped override belt-and-braces.
+- **AI panel was an orphan route** — `AIPage` was registered in `PanelRouter.tsx` but `'ai'` was missing from `ModuleRoute` type, `ALL_ROUTES`, `router.tsx routeComponents`, both sidebars (`SidePanel.tsx` + `Sidebar.tsx`), `TopBar ROUTE_LABELS`, `CommandPalette ROUTE_ICONS+LABEL_KEYS`, `extension.ts moduleCommands`, `SidebarViewProvider commandMap`, the package.json command contribution, and EN/FR NLS. The whole AI backend was unreachable from the user-facing UI.
+- **`BridgeProvider.tsx` contract drift on `ai:status:response`** — the listener read `msg.payload.available` but the canonical `AIStatusResponse` payload field is `enabled`. Silent typecheck-clean / runtime-broken — `setAiAvailable(undefined)` always made `aiAvailable === false` even when the API key was configured. Replaced ad-hoc inline type with `AIStatusResponse` import from shared so future renames break both sides at compile time.
+- **Duplicate top-level keys in EN + FR locale JSONs** — `monitor`, `dataops`, `execution` were each defined twice in `en.json` and `fr.json`. `JSON.parse` silently kept only the second value (which contained `liveOps` only for `monitor`), wiping out `monitor.title`, `monitor.limits`, `monitor.emptyState`, etc. The user saw raw i18n keys on the Monitor empty state. Programmatic deep-merge preserved both occurrences in all three keys; verified all 4 other locales (de, es, ja, pt-BR) clean.
+
+### Changed
+
+- `pnpm validate` now ALWAYS runs through the pre-commit hook on every commit. The earlier flow let night autopilot ship phase summaries without ever invoking `pnpm package` (the only path that exercises webview tsc + VSIX production + vsce interop). The new hook closes that gap.
+
+### Security
+
+- **Prompt-injection defence verified adversarially** — `escapeUserData` HTML-entity-escapes `<` / `>` / `&`, strips NUL bytes, and `wrapAsUserData(label, value)` produces `<user-data label='${label}'>${escaped}</user-data>` where the label itself is also escaped. The spotlight clause in all 3 system prompts tells Claude `<user-data>` content is data, never instructions. 7 jailbreak fixtures (closing-tag breakout, nested-tag confusion, system-prompt impersonation, plain-text instruction, base64, unicode-lookalike, polyglot CDATA-like) all neutralised at the encoding layer with vitest assertions on both defence layers per fixture.
+
 ## [1.2.5] - 2026-05-02
 
 **Forge Hardening Pass** — 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows.

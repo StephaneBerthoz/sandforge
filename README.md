@@ -135,11 +135,15 @@
 
 ### AI Assistant
 
-- **NL2SOQL** — Query Salesforce in plain language (French and English)
-- **Error Resolver** — Contextual Salesforce error analysis with auto-fix and learning
-- **AI Code Reviewer** — Apex best practices, security, and performance suggestions
-- **Predictive Analytics** — Trend forecasting for API limits, storage, and record growth
-- **10 Industry Personas** — Pre-configured data profiles with locale-aware field patterns and sample preview
+- **Read-only by design** — 10 fine-grained read-only tools (`describe_object`, `query_records`, `get_limits`, `get_recent_errors`, `get_apex_log`, `get_metadata`, `get_alerts`, `get_anomalies`, `list_sobjects`, `validate_soql`). DML keywords rejected at two layers. Registry CI fence rejects any future write-verb addition.
+- **Failed-job diagnose flow** — Right-click a failed bulk job in Monitor → "Diagnose with AI" surfaces a structured `DiagnoseResult` ActionCard (Approve / Reject / Modify) inside the chat panel. Read-only suggested actions auto-execute silently; org-mutating ones (`requiresApproval=true`) gate behind the inline Approve button.
+- **Per-provider CircuitBreaker** — 3 consecutive 529s open the breaker for 5 min. `AnthropicAdapter` functional today; `OpenAIAdapter` and `CustomAdapter` ship as stubs that satisfy the interface (provider switch in Settings does not crash the extension).
+- **Per-AI-request AbortController** — Cancel one chat without aborting siblings. The Cancel button never trips the breaker.
+- **Per-panel-session token budget** — Mini-bar status indicator with 4-field tooltip. Soft warn at 80%, hard refuse at 100% via preflight BEFORE the SDK call. Configurable via `sandforge.ai.tokenBudgetMaxPerSession` (default 50000).
+- **Prompt-injection defence verified adversarially** — `<user-data>` is an actual safety boundary, not just a prompt-template wrapper. 7 jailbreak fixtures × 2 defence layers + spotlight system prompts asserted in CI.
+- **Zod-validated structured output** — `messages.parse + zodOutputFormat` for new flows (no regex-extract JSON parsing).
+- **NL2SOQL** — Query Salesforce in plain language (French and English).
+- **10 Industry Personas** — Pre-configured data profiles with locale-aware field patterns and sample preview.
 
 ### Real-Time Operations Dashboard
 
@@ -320,21 +324,40 @@ All UI text uses `t('key')` via react-i18next. Locale-aware formatters handle nu
 
 ---
 
-## What's New in 1.2.3
+## What's New in 1.2.6
 
-**Scale & Complete** — 7 phases, 50 requirements: enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
+**Hardening & Monitor v2 + AI Integration** — two milestone phases under v1.3.0 plus a six-bug close-out hardening pass.
 
-- **CSV Import** — Drag-and-drop CSV upload with auto column mapping, type validation, and 4-step wizard
-- **Clone from Org** — Clone records between orgs with dependency-ordered insert, SOQL filters, and ID mapping export
-- **AI Personas** — 10 industry-specific personas with sample preview and customizable field patterns
-- **Smart Actions** — Contextual recommendations on Home Dashboard with one-click execution
-- **CDC Real-Time Sync** — Change Data Capture subscriptions with live event feed, metrics dashboard, and auto-sync toggle
-- **Conflict Resolution** — Side-by-side 2-way/3-way diff viewer with per-field and bulk resolution
-- **Sync History & Scheduling** — Full execution history, cron scheduling with visual builder, and config persistence
-- **Streaming Execution** — Async generator pipeline for large datasets (>10K records) with chunked Bulk API 2.0
-- **Background Operations** — Long-running ops detach from UI, run in background, with native notifications on completion
-- **Enterprise Polish** — Virtual scrolling, pagination, skeleton loading, keyboard shortcuts, notification center
-- **8320 tests** across 3 packages
+**Phase 03 — Monitor v2 Core** (2026-05-04)
+
+- **MetricBus** typed Zod-validated pub/sub with 5 discriminated event subtypes
+- **TimeSeriesStore** ring-buffered per-(orgId, seriesId) with 50 MB LRU cap, 7-day retention, opt-in disk persistence + corruption recovery
+- **MonitorRegistry** single-tick scheduler with per-probe in-flight gate, drift accounting, hard timeout, visibility gating
+- **DriftDetector v2** field-level + permission-level deltas with virtualized `DriftFeed` component
+- **AnomalyEngine** rolling 24h std-dev with warmup gate, bridges into `AlertEngine`
+- **ReportExporter** CSV + lazy-pdfkit PDF with LTTB downsampling
+- **FleetSummaryService + MonitorOverviewPage** multi-org fleet landing
+- **8 trackers wrapped as `MonitorProbe` shells** (Limits, Job, ApexLog, SandboxRefresh, ErrorLog, UserSession, Health, Governance)
+
+**Phase 04 — AI Integration** (2026-05-05)
+
+- **Provider-agnostic `AIClient` interface** + `AnthropicAdapter` functional + `OpenAIAdapter` / `CustomAdapter` stubs that satisfy the interface
+- **Per-provider CircuitBreaker** (3 consecutive 529 → 5 min open) + per-AI-request `AbortController` (sibling-safe)
+- **Read-only tool surface** (10 tools, registry CI fence, `DML_FORBIDDEN` at 2 layers)
+- **Failed-job → diagnose flow** with `AIDiagnoseHandler` + `ActionCard` (Approve / Modify / Reject)
+- **Per-panel-session token budget** with `TokenBudgetIndicator` + preflight refusal BEFORE SDK call
+- **Prompt-injection defence** verified adversarially (7 jailbreak fixtures × 2 defence layers + spotlight system prompts)
+- **AIProviderStatusBanner** with FR + EN copy and live mm:ss countdown to half-open transition
+- **6 `ai.error.*` i18n keys** in EN + FR
+- **`sandforge.ai.tokenBudgetMaxPerSession`** setting (default 50000)
+
+**Close-out hardening** (2026-05-05)
+
+- **AI panel reachable from the UI** — wired `sandforge.openAI` command + `Bot` icon across all 11 surfaces (route type, both sidebars, router, top bar, command palette, command map, NLS)
+- **Pre-commit hook** runs `pnpm -r typecheck` + locale dup-key scan on every commit, auto-installed via `pnpm install` `prepare` lifecycle
+- **5 silent regressions fixed**: ad-hoc message types in `AIChatPanel`, `pnpm.overrides` minimatch flipping vsce to incompatible major, `BridgeProvider` reading wrong payload field, duplicate top-level keys in EN+FR locale JSONs wiping module translations, and the AI panel orphan route
+
+**Test impact**: 8412 → 8918 (+506 across both phases), 0 regressions across the 4994-test extension suite.
 
 See the full [CHANGELOG](CHANGELOG.md) for details.
 
