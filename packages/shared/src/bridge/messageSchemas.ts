@@ -288,6 +288,8 @@ export const AIMessageSchema = z.discriminatedUnion('type', [
   msg('ai:schema-advice:response'),
   // Phase 04 plan 04-02: provider status banner (breaker open / half-open / closed).
   msg('ai:provider:status'),
+  // Phase 04 plan 04-03: per-tool-call trace event (start / success / error).
+  msg('ai:tool-trace'),
 ]);
 
 // ─── Domain: Settings (includes onboarding, hint, telemetry, config, whats-new, notification, state) ─
