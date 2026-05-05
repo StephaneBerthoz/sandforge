@@ -1219,6 +1219,48 @@ export interface AIProviderStatusMessage extends BaseMessage {
 }
 
 /**
+ * Phase 04 plan 04-05 — per-panel-session token budget snapshots.
+ */
+export interface AIBudgetStateMessage extends BaseMessage {
+  type: 'ai:budget:state';
+  payload: {
+    sessionId: string;
+    used: { input: number; output: number; cacheRead: number; cacheCreate: number; total: number };
+    budget: number;
+    percent: number;
+    state: 'ok' | 'warn' | 'exceeded';
+  };
+}
+
+/** Fires once per session at the first crossing of the 80% threshold. */
+export interface AIBudgetWarnMessage extends BaseMessage {
+  type: 'ai:budget:warn';
+  payload: {
+    sessionId: string;
+    used: { input: number; output: number; cacheRead: number; cacheCreate: number; total: number };
+    budget: number;
+    percent: number;
+    state: 'ok' | 'warn' | 'exceeded';
+  };
+}
+
+/**
+ * Fires every time a call (or pre-flight) breaches 100%. The webview shows
+ * a modal that links straight to the Settings pane via `settingsKey`.
+ */
+export interface AIBudgetExceededMessage extends BaseMessage {
+  type: 'ai:budget:exceeded';
+  payload: {
+    sessionId: string;
+    used: { input: number; output: number; cacheRead: number; cacheCreate: number; total: number };
+    budget: number;
+    percent: number;
+    state: 'ok' | 'warn' | 'exceeded';
+    settingsKey: 'sandforge.ai.tokenBudgetMaxPerSession';
+  };
+}
+
+/**
  * Phase 04 plan 04-03 — per-tool-call trace.
  *
  * Sent from extension → webview as the AnthropicAdapter.runTools() loop

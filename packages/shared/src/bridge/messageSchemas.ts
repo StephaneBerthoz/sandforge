@@ -290,6 +290,10 @@ export const AIMessageSchema = z.discriminatedUnion('type', [
   msg('ai:provider:status'),
   // Phase 04 plan 04-03: per-tool-call trace event (start / success / error).
   msg('ai:tool-trace'),
+  // Phase 04 plan 04-05: per-panel-session token budget surface.
+  msg('ai:budget:state'),
+  msg('ai:budget:warn'),
+  msg('ai:budget:exceeded'),
 ]);
 
 // ─── Domain: Settings (includes onboarding, hint, telemetry, config, whats-new, notification, state) ─
