@@ -1219,6 +1219,63 @@ export interface AIProviderStatusMessage extends BaseMessage {
 }
 
 /**
+ * Phase 04 plan 04-04 — diagnose flow envelopes.
+ */
+export interface AIDiagnoseRequestMessage extends BaseMessage {
+  type: 'ai:diagnose';
+  payload: {
+    runId: string;
+    orgId: string;
+    errorContext: {
+      kind: 'bulk-job' | 'apex-deploy' | 'metadata-deploy' | 'test-run' | 'soql-analysis' | 'generic';
+      jobId?: string;
+      file?: string;
+      errorMessage: string;
+      debugLogTail?: string;
+      classifierVerdict?: string;
+    };
+  };
+}
+
+export interface AIDiagnoseResponseMessage extends BaseMessage {
+  type: 'ai:diagnose:response';
+  payload:
+    | {
+        runId: string;
+        result: {
+          summary: string;
+          rootCause: string;
+          suggestedActions: Array<{
+            label: string;
+            kind: 'copy-soql' | 'open-file' | 'run-anonymous' | 'apply-fix' | 'manual';
+            payload?: string;
+            requiresApproval: boolean;
+            riskNote?: string;
+          }>;
+          confidence: 'low' | 'medium' | 'high';
+          references?: string[];
+        };
+        usage: { input: number; output: number; cacheRead: number; cacheCreate: number; total: number };
+      }
+    | { runId: string; error: { code: string; message: string } };
+}
+
+export interface AIApproveActionRequestMessage extends BaseMessage {
+  type: 'ai:approve-action';
+  payload: { runId: string; actionIndex: number; modifiedPayload?: string };
+}
+
+export interface AIApproveActionResponseMessage extends BaseMessage {
+  type: 'ai:approve-action:response';
+  payload: {
+    runId: string;
+    actionIndex: number;
+    status: 'executed' | 'rejected' | 'failed';
+    resultMessage: string;
+  };
+}
+
+/**
  * Phase 04 plan 04-05 — per-panel-session token budget snapshots.
  */
 export interface AIBudgetStateMessage extends BaseMessage {
