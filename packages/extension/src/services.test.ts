@@ -94,6 +94,17 @@ vi.mock('vscode', () => ({
   ExtensionMode: { Production: 1, Development: 2, Test: 3 },
 }));
 
+// Stub the Anthropic SDK so AnthropicAdapter constructs without a real network
+// dependency when services.aiClient('anthropic') instantiates it.
+vi.mock('@anthropic-ai/sdk', () => ({
+  default: class Anthropic {
+    messages = { create: vi.fn(), parse: vi.fn(), countTokens: vi.fn() };
+    constructor(_args: { apiKey: string }) {}
+  },
+  APIUserAbortError: class APIUserAbortError extends Error {},
+}));
+vi.mock('@anthropic-ai/sdk/helpers/zod', () => ({ zodOutputFormat: (s: unknown) => s }));
+
 describe('services', () => {
   describe('createServices', () => {
     let context: vscode.ExtensionContext;
@@ -110,12 +121,28 @@ describe('services', () => {
       expect(services).toHaveProperty('telemetry');
       expect(services).toHaveProperty('salesforce');
       expect(services).toHaveProperty('fs');
+      expect(services).toHaveProperty('aiClient');
       expect(services).toHaveProperty('monitorOrchestrator');
       expect(services).toHaveProperty('seedOrchestrator');
       expect(services).toHaveProperty('syncOrchestrator');
       expect(services).toHaveProperty('compareOrchestrator');
       expect(services).toHaveProperty('dataopsOrchestrator');
       expect(services).toHaveProperty('automationOrchestrator');
+    });
+
+    it('aiClient is a memoised factory: calling it twice returns the same instance', () => {
+      const services = createServices(context);
+      const a = services.aiClient('anthropic');
+      const b = services.aiClient('anthropic');
+      expect(a).toBe(b);
+      expect(a.provider).toBe('anthropic');
+    });
+
+    it('aiClient does NOT call SecretStorage at activate (lazy)', () => {
+      const services = createServices(context);
+      const getSecretSpy = vi.spyOn(services.storage, 'getSecret');
+      services.aiClient('anthropic');
+      expect(getSecretSpy).not.toHaveBeenCalled();
     });
 
     it('wires the four core adapters as instanceof of their classes', () => {
