@@ -216,6 +216,221 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
   });
 });
 
+// ── Plan 04-02 — CircuitBreaker + per-request AbortController ─────────────
+// A small SDK-like error helper for breaker tests.
+class MockOverloadedError extends Error {
+  constructor(public status = 529) {
+    super(`Overloaded ${status}`);
+    this.error = { error: { type: 'overloaded_error' } };
+  }
+  error: unknown;
+}
+
+class MockRateLimitError extends Error {
+  constructor(public status = 429) {
+    super(`RateLimit ${status}`);
+    this.name = 'RateLimitError';
+  }
+}
+
+describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
+  it('3x 529 trips the breaker; 4th call fast-fails without hitting the SDK', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockMessagesCreate.mockRejectedValue(new MockOverloadedError(529));
+
+    for (let i = 0; i < 3; i++) {
+      await expect(
+        adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+      ).rejects.toThrow();
+    }
+    expect(adapter.breaker.getState()).toBe('open');
+
+    const callsBefore = mockMessagesCreate.mock.calls.length;
+    await expect(
+      adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+    ).rejects.toThrow(/circuit breaker open/i);
+    expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('2x 529 + 1x success → breaker stays closed (success resets the failure count)', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockMessagesCreate
+      .mockRejectedValueOnce(new MockOverloadedError())
+      .mockRejectedValueOnce(new MockOverloadedError())
+      .mockResolvedValueOnce(mkOkChat());
+
+    await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
+    await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
+    await adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }); // success
+    expect(adapter.breaker.getState()).toBe('closed');
+  });
+
+  it('3x 429 also trips the breaker (rate-limit counts toward the threshold)', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockMessagesCreate.mockRejectedValue(new MockRateLimitError(429));
+
+    for (let i = 0; i < 3; i++) {
+      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
+    }
+    expect(adapter.breaker.getState()).toBe('open');
+  });
+
+  it('APIUserAbortError does NOT trip the breaker (5 cancelled requests in a row)', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockMessagesCreate.mockRejectedValue(new MockAPIUserAbortError());
+
+    for (let i = 0; i < 5; i++) {
+      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toBeTruthy();
+    }
+    expect(adapter.breaker.getState()).toBe('closed');
+  });
+
+  it('mixed 2x 529 + cancel + 529 → breaker still trips on the 3rd real overload', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    mockMessagesCreate
+      .mockRejectedValueOnce(new MockOverloadedError())
+      .mockRejectedValueOnce(new MockOverloadedError())
+      .mockRejectedValueOnce(new MockAPIUserAbortError())
+      .mockRejectedValueOnce(new MockOverloadedError());
+
+    for (let i = 0; i < 4; i++) {
+      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toBeTruthy();
+    }
+    expect(adapter.breaker.getState()).toBe('open');
+  });
+
+  it('breakerEvents emits state-change with cooldownEndsAt when transitioning to open', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+    const events: Array<{ state: string; cooldownEndsAt?: string }> = [];
+    adapter.breakerEvents.on('state-change', (e: { state: string; cooldownEndsAt?: string }) => {
+      events.push(e);
+    });
+
+    mockMessagesCreate.mockRejectedValue(new MockOverloadedError());
+    for (let i = 0; i < 3; i++) {
+      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
+    }
+    const openEvent = events.find((e) => e.state === 'open');
+    expect(openEvent).toBeDefined();
+    expect(openEvent?.cooldownEndsAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('cancelAll() aborts every in-flight controller and returns the count', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+
+    // Each chat awaits the SDK forever (until aborted). The mock listens to
+    // the signal and rejects with an abort error when triggered.
+    mockMessagesCreate.mockImplementation((_body, opts) => {
+      return new Promise((_resolve, reject) => {
+        const signal = opts.signal as AbortSignal;
+        const onAbort = () => {
+          const err = new MockAPIUserAbortError('cancelled');
+          reject(err);
+        };
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort);
+      });
+    });
+
+    const p1 = adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+    const p2 = adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+    const p3 = adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+    // All three should be in-flight before cancelAll.
+    await Promise.resolve(); // let microtasks register
+    await Promise.resolve();
+
+    const count = adapter.cancelAll();
+    expect(count).toBe(3);
+
+    await expect(p1).rejects.toBeTruthy();
+    await expect(p2).rejects.toBeTruthy();
+    await expect(p3).rejects.toBeTruthy();
+  });
+
+  it('aborting one user signal does NOT propagate to a sibling call (Pitfall #3 isolation)', async () => {
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+
+    let aResolved = false;
+    let bResolved = false;
+    const seen: AbortSignal[] = [];
+    mockMessagesCreate.mockImplementation((_body, opts) => {
+      seen.push(opts.signal as AbortSignal);
+      return new Promise((resolve, reject) => {
+        const signal = opts.signal as AbortSignal;
+        signal.addEventListener('abort', () => {
+          reject(new MockAPIUserAbortError('cancelled'));
+        });
+        // For B: resolve quickly via setImmediate
+        setImmediate(() => {
+          if (!signal.aborted) {
+            resolve(mkOkChat());
+          }
+        });
+      });
+    });
+
+    const ctrlA = new AbortController();
+    const ctrlB = new AbortController();
+    const pA = adapter
+      .chat({ messages: [{ role: 'user', content: 'A' }], signal: ctrlA.signal })
+      .then(() => (aResolved = true))
+      .catch(() => undefined);
+    const pB = adapter
+      .chat({ messages: [{ role: 'user', content: 'B' }], signal: ctrlB.signal })
+      .then(() => (bResolved = true))
+      .catch(() => undefined);
+
+    // Wait for both to register, then abort A only.
+    await new Promise((r) => setImmediate(r));
+    ctrlA.abort();
+    await pA;
+    await pB;
+
+    expect(aResolved).toBe(false);
+    expect(bResolved).toBe(true);
+  });
+});
+
+describe('AnthropicAdapter — Plan 04-02 vertical slice (3x 529 → open → fast reject → 5min reset)', () => {
+  it('3 sequential 529s open the breaker; 4th rejects fast; 5min later the next call attempts the SDK', async () => {
+    vi.useFakeTimers();
+    const { storage } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+
+    mockMessagesCreate.mockRejectedValue(new MockOverloadedError(529));
+    for (let i = 0; i < 3; i++) {
+      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
+    }
+    expect(adapter.breaker.getState()).toBe('open');
+
+    const callsBefore = mockMessagesCreate.mock.calls.length;
+    await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow(
+      /circuit breaker open/i,
+    );
+    expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore);
+
+    // Advance past the 5-min cooldown
+    vi.advanceTimersByTime(300_001);
+
+    // Now a new call should reach the SDK (half-open)
+    mockMessagesCreate.mockResolvedValueOnce(mkOkChat());
+    const result = await adapter.chat({ messages: [{ role: 'user', content: 'hi' }] });
+    expect(result.text).toBe('hello');
+    expect(mockMessagesCreate.mock.calls.length).toBeGreaterThan(callsBefore);
+    expect(adapter.breaker.getState()).toBe('closed');
+    vi.useRealTimers();
+  });
+});
+
 describe('Plan 04-01 vertical slice — services.aiClient().complete() returns Zod-validated DiagnoseResult', () => {
   it('full round-trip from a mocked Anthropic SDK to a typed DiagnoseResult payload', async () => {
     const { DiagnoseResultSchema } = await import('@sandforge/shared');
