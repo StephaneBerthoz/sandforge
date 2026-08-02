@@ -27,7 +27,7 @@ cache:
     - .pnpm-store
 
 variables:
-  PNPM_VERSION: "9"
+  PNPM_VERSION: "11"
   DRY_RUN: "true"
 
 stages:

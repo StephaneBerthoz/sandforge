@@ -17,9 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm version comes from the packageManager field in package.json
+      # (pnpm-workspace.yaml settings require pnpm >= 10)
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
@@ -31,6 +31,12 @@ jobs:
 
       - name: Validate (typecheck + lint + test + build)
         run: pnpm validate
+
+      # Coverage thresholds only gate here (once, not per-OS): vitest
+      # configs define thresholds ~5pts under the measured baseline
+      - name: Coverage thresholds
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm test:coverage
 
       # E2E tests only on Windows (matches dev environment)
       - name: Install Playwright Chromium

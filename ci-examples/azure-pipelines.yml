@@ -63,7 +63,7 @@ stages:
               versionSpec: $(nodeVersion)
             displayName: 'Install Node.js'
 
-          - script: npm install -g pnpm@9
+          - script: npm install -g pnpm@11
             displayName: 'Install pnpm'
 
           - script: pnpm install --frozen-lockfile
@@ -93,7 +93,7 @@ stages:
               versionSpec: $(nodeVersion)
             displayName: 'Install Node.js'
 
-          - script: npm install -g pnpm@9 @salesforce/cli
+          - script: npm install -g pnpm@11 @salesforce/cli
             displayName: 'Install pnpm and Salesforce CLI'
 
           - script: |
@@ -155,7 +155,7 @@ stages:
               versionSpec: $(nodeVersion)
             displayName: 'Install Node.js'
 
-          - script: npm install -g pnpm@9
+          - script: npm install -g pnpm@11
             displayName: 'Install pnpm'
 
           - script: pnpm install --frozen-lockfile
