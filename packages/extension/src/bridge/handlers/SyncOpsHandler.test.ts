@@ -100,6 +100,40 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
+/**
+ * Minimal sync config that passes the `sync:execute` / `sync:config:save`
+ * payload validation (mirrors the webview's shape).
+ */
+function validSyncConfig(): Record<string, unknown> {
+  return {
+    id: 'cfg-1',
+    name: 'sync-from-ui',
+    description: 'test',
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    direction: 'source_to_target',
+    mode: 'full',
+    objects: [
+      {
+        objectApiName: 'Account',
+        operation: 'upsert',
+        externalIdField: 'Ext_Id__c',
+        batchSize: 200,
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        insertOrder: 0,
+      },
+    ],
+    conflictStrategy: 'source_wins',
+    enableRollback: false,
+    dryRun: false,
+    createdAt: '2026-03-01T00:00:00Z',
+    updatedAt: '2026-03-01T00:00:00Z',
+  };
+}
+
 describe('SyncOpsHandler', () => {
   let handler: SyncOpsHandler;
   let deps: HandlerDeps;
@@ -169,11 +203,7 @@ describe('SyncOpsHandler', () => {
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
-          config: {
-            sourceOrgId: 'src-org',
-            targetOrgId: 'tgt-org',
-            objects: [],
-          },
+          config: validSyncConfig(),
         },
       };
 
@@ -223,11 +253,7 @@ describe('SyncOpsHandler', () => {
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
-          config: {
-            sourceOrgId: 'src-org',
-            targetOrgId: 'tgt-org',
-            objects: [],
-          },
+          config: validSyncConfig(),
         },
       };
 
@@ -337,27 +363,13 @@ describe('SyncOpsHandler', () => {
 
   describe('sync:config CRUD handlers', () => {
     it('handles sync:config:save and responds with success', async () => {
-      const config = {
-        id: 'cfg-1',
-        name: 'Test Config',
-        description: 'desc',
-        updatedAt: '2026-03-01T00:00:00Z',
-        sourceOrgId: 'src',
-        targetOrgId: 'tgt',
-        direction: 'source-to-target',
-        mode: 'full',
-        objects: [],
-        conflictStrategy: 'source-wins',
-        enableRollback: false,
-        dryRun: false,
-        createdAt: '2026-03-01T00:00:00Z',
-      };
+      const config = validSyncConfig();
 
       const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
         id: 'req-save',
         type: 'sync:config:save',
         timestamp: Date.now(),
-        payload: { config: config as unknown as Record<string, unknown> },
+        payload: { config },
       };
 
       const result = await handler.handle(msg);
@@ -376,21 +388,7 @@ describe('SyncOpsHandler', () => {
 
     it('handles sync:config:list and responds with summaries', async () => {
       // Save a config first
-      const config = {
-        id: 'cfg-list',
-        name: 'List Config',
-        description: 'test desc',
-        updatedAt: '2026-03-01T00:00:00Z',
-        sourceOrgId: 'src',
-        targetOrgId: 'tgt',
-        direction: 'source-to-target',
-        mode: 'full',
-        objects: [],
-        conflictStrategy: 'source-wins',
-        enableRollback: false,
-        dryRun: false,
-        createdAt: '2026-03-01T00:00:00Z',
-      };
+      const config = { ...validSyncConfig(), id: 'cfg-list', name: 'List Config' };
       await handler.handle({
         id: 'save-1',
         type: 'sync:config:save',
@@ -480,11 +478,7 @@ describe('SyncOpsHandler', () => {
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
-          config: {
-            sourceOrgId: 'src-org',
-            targetOrgId: 'tgt-org',
-            objects: [],
-          },
+          config: validSyncConfig(),
         },
       };
 
@@ -518,11 +512,7 @@ describe('SyncOpsHandler', () => {
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
-          config: {
-            sourceOrgId: 'src-org',
-            targetOrgId: 'tgt-org',
-            objects: [],
-          },
+          config: validSyncConfig(),
         },
       };
 
@@ -547,6 +537,70 @@ describe('SyncOpsHandler', () => {
       expect(source).toContain('STREAMING_THRESHOLD');
       expect(source).toContain('ChunkedBulkExecutor');
       expect(source).toContain('BackgroundOperationRegistry');
+    });
+  });
+
+  describe('payload validation', () => {
+    it('rejects sync:execute with an injection-shaped objectApiName before touching the org', async () => {
+      const config = validSyncConfig();
+      (config.objects as Array<Record<string, unknown>>)[0].objectApiName =
+        'Account WHERE Id != null';
+
+      const msg = {
+        id: 'bad-1',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config },
+      } as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string; message: string };
+      };
+      expect(errMsg.type).toBe('sync:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+      expect(errMsg.payload.message).toContain('Invalid Salesforce API name');
+    });
+
+    it('rejects sync:execute with a subquery WHERE clause', async () => {
+      const config = validSyncConfig();
+      (config.objects as Array<Record<string, unknown>>)[0].where =
+        'Id IN (SELECT Id FROM Contact)';
+
+      const msg = {
+        id: 'bad-2',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config },
+      } as BaseMessage;
+
+      await handler.handle(msg);
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('accepts a valid sync:execute payload (validation does not break the flow)', async () => {
+      mockGetConn.mockRejectedValue(new Error('no org in test'));
+
+      const msg = {
+        id: 'good-1',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      } as BaseMessage;
+
+      await handler.handle(msg);
+      // Reached the connection stage: validation let the payload through.
+      expect(mockGetConn).toHaveBeenCalled();
     });
   });
 });

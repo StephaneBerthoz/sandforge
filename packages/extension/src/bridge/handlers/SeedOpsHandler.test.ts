@@ -71,6 +71,31 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
+
+/** Minimal seed template that passes the seed:execute payload validation. */
+function validSeedTemplate(): Record<string, unknown> {
+  return {
+    id: 'tpl-1',
+    name: 'seed-from-ui',
+    description: 'test',
+    version: 1,
+    strategy: 'faker',
+    objects: [
+      {
+        objectApiName: 'Account',
+        recordCount: 5,
+        batchSize: 200,
+        insertOrder: 0,
+        excludedFields: [],
+        fieldRules: [],
+      },
+    ],
+    tags: [],
+    createdAt: '2026-03-01T00:00:00Z',
+    updatedAt: '2026-03-01T00:00:00Z',
+  };
+}
+
 describe('SeedOpsHandler', () => {
   let handler: SeedOpsHandler;
   let deps: HandlerDeps;
@@ -188,7 +213,7 @@ describe('SeedOpsHandler', () => {
         id: 'req-dry-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: true },
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
       };
 
       const result = await handler.handle(msg);
@@ -217,7 +242,7 @@ describe('SeedOpsHandler', () => {
         id: 'req-dry-2',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: false },
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
       };
 
       await handler.handle(msg);
@@ -595,7 +620,7 @@ describe('SeedOpsHandler', () => {
         id: 'bg-seed-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: false },
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
       };
 
       await handler.handle(msg);
@@ -618,7 +643,7 @@ describe('SeedOpsHandler', () => {
         id: 'bg-seed-dry',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: true },
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
       };
 
       await handler.handle(msg);
@@ -766,6 +791,52 @@ describe('SeedOpsHandler', () => {
       };
       expect(response.type).toBe('seed:template:delete:response');
       expect(response.payload.success).toBe(false);
+    });
+  });
+
+  describe('payload validation', () => {
+    it('rejects seed:execute with an injection-shaped objectApiName before touching the org', async () => {
+      const template = validSeedTemplate();
+      (template.objects as Array<Record<string, unknown>>)[0].objectApiName =
+        "Account' OR '1'='1";
+
+      const msg = {
+        id: 'bad-seed',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template },
+      } as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        type: string;
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('seed:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects seed:execute with absurd recordCount', async () => {
+      const template = validSeedTemplate();
+      (template.objects as Array<Record<string, unknown>>)[0].recordCount = 99_000_000;
+
+      const msg = {
+        id: 'bad-seed-2',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template },
+      } as BaseMessage;
+
+      await handler.handle(msg);
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
   });
 });

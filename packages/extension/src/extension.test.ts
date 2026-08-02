@@ -121,10 +121,10 @@ function createContext(): import('vscode').ExtensionContext {
 }
 
 describe('extension', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     registeredCommands.clear();
-    deactivate();
+    await deactivate();
   });
 
   it('should activate and create output channel', () => {
@@ -192,18 +192,19 @@ describe('extension', () => {
     activate(context);
 
     // 10 module commands + 1 cheers + 1 sandforge.ai config-change listener
-    // + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry = 17
-    expect(context.subscriptions.length).toBe(17);
+    // + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry
+    // + orgChange unsub + orgManager + offlineManager + performanceTracker + cacheManager = 22
+    expect(context.subscriptions.length).toBe(22);
   });
 
-  it('should deactivate without error', () => {
+  it('should deactivate without error', async () => {
     const context = createContext();
     activate(context);
 
-    expect(() => deactivate()).not.toThrow();
+    await expect(deactivate()).resolves.toBeUndefined();
   });
 
-  it('should handle double deactivation without error', () => {
-    expect(() => deactivate()).not.toThrow();
+  it('should handle double deactivation without error', async () => {
+    await expect(deactivate()).resolves.toBeUndefined();
   });
 });

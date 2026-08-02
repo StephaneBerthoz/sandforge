@@ -35,6 +35,31 @@ const PRODUCTION_APPROVAL_THRESHOLD = 1_000;
 const STAGING_CONFIRMATION_THRESHOLD = 10_000;
 const DEV_WARNING_THRESHOLD = 50_000;
 
+/** Maximum audit log entries retained (FIFO rotation — unbounded growth otherwise). */
+const MAX_AUDIT_ENTRIES = 1_000;
+
+/** Optional runtime configuration for {@link ProductionGuard}. */
+export interface ProductionGuardOptions {
+  /**
+   * Mirrors the `sandforge.safety.requireProdConfirmation` setting
+   * (manifest default true). When off, production-tier writes no longer
+   * request an explicit confirmation. Read at call time.
+   */
+  isProdConfirmationRequired?: () => boolean;
+  /**
+   * Mirrors the `sandforge.safety.auditLogging` setting (manifest default
+   * true). When off, {@link logOperation} becomes a no-op. Read at call time.
+   */
+  isAuditLoggingEnabled?: () => boolean;
+  /**
+   * UI callback invoked by {@link confirmIfNeeded} when a check result
+   * requires explicit user confirmation. Resolves to the user's consent.
+   * Wired in extension.ts to a modal `showWarningMessage`; absent in tests
+   * (operations proceed, preserving pre-existing behavior).
+   */
+  requestConfirmation?: (impactSummary: string) => Promise<boolean>;
+}
+
 /**
  * Guards against dangerous operations on production and staging orgs.
  * Enforces tier-based rules for writes, deletes, and large-volume operations.
@@ -42,6 +67,11 @@ const DEV_WARNING_THRESHOLD = 50_000;
 export class ProductionGuard {
   private readonly overrides: Map<string, boolean> = new Map();
   private readonly auditLog: AuditEntry[] = [];
+  private readonly options: ProductionGuardOptions;
+
+  constructor(options?: ProductionGuardOptions) {
+    this.options = options ?? {};
+  }
 
   /**
    * Evaluate an operation request against the safety rules for its org tier.
@@ -74,13 +104,45 @@ export class ProductionGuard {
     return [...this.auditLog];
   }
 
-  /** Record a safety check decision in the audit log */
+  /**
+   * Record a safety check decision in the audit log.
+   * No-op when audit logging is disabled via `safety.auditLogging`.
+   * The log is capped at {@link MAX_AUDIT_ENTRIES} with FIFO eviction.
+   */
   logOperation(request: OperationRequest, result: SafetyCheckResult): void {
+    if (this.options.isAuditLoggingEnabled && !this.options.isAuditLoggingEnabled()) {
+      return;
+    }
     this.auditLog.push({
       request,
       result,
       timestamp: new Date().toISOString(),
     });
+    if (this.auditLog.length > MAX_AUDIT_ENTRIES) {
+      this.auditLog.splice(0, this.auditLog.length - MAX_AUDIT_ENTRIES);
+    }
+  }
+
+  /**
+   * Ask the user to confirm an operation whose check result requires
+   * confirmation. Returns true when the operation may proceed.
+   *
+   * When no confirmation UI is wired (unit tests, headless hosts), proceeds
+   * and returns true — the pre-existing behavior for every caller.
+   */
+  async confirmIfNeeded(result: SafetyCheckResult): Promise<boolean> {
+    if (!result.allowed || !result.requiresConfirmation) {
+      return result.allowed;
+    }
+    if (!this.options.requestConfirmation) {
+      return true;
+    }
+    return this.options.requestConfirmation(result.impactSummary);
+  }
+
+  /** Whether production operations require an explicit confirmation (setting-backed). */
+  private requireProdConfirmation(): boolean {
+    return this.options.isProdConfirmationRequired?.() ?? true;
   }
 
   /** Apply production-tier safety rules */
@@ -112,7 +174,7 @@ export class ProductionGuard {
 
     return {
       allowed: true,
-      requiresConfirmation: true,
+      requiresConfirmation: this.requireProdConfirmation(),
       requiresApproval,
       warnings,
       impactSummary: buildImpactSummary(request),

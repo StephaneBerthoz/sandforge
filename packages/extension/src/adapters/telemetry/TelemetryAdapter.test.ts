@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type * as vscode from 'vscode';
 
-// VSCode mock — tests tune `isTelemetryEnabled` and `telemetryLevel` per case.
+// VSCode mock — tests tune `isTelemetryEnabled`, `telemetryLevel` and the
+// `sandforge.telemetry` opt-in per case.
 const vscodeMock = vi.hoisted(() => {
   const state = {
     isTelemetryEnabled: false as boolean,
     telemetryLevel: 'all' as string,
+    sandforgeTelemetry: true as boolean,
   };
   return {
     state,
@@ -15,8 +17,16 @@ const vscodeMock = vi.hoisted(() => {
       },
     },
     workspace: {
-      getConfiguration: (_section: string) => ({
-        get: (_key: string, fallback?: string) => state.telemetryLevel ?? fallback,
+      getConfiguration: (section: string) => ({
+        get: (key: string, fallback?: unknown) => {
+          if (section === 'sandforge' && key === 'telemetry') {
+            return state.sandforgeTelemetry;
+          }
+          if (section === 'telemetry' && key === 'telemetryLevel') {
+            return state.telemetryLevel;
+          }
+          return fallback;
+        },
       }),
     },
   };
@@ -61,6 +71,7 @@ describe('TelemetryAdapter', () => {
   beforeEach(() => {
     vscodeMock.state.isTelemetryEnabled = false;
     vscodeMock.state.telemetryLevel = 'all';
+    vscodeMock.state.sandforgeTelemetry = true;
   });
 
   afterEach(() => {
@@ -99,6 +110,21 @@ describe('TelemetryAdapter', () => {
     it('does NOT initialise Sentry when telemetryLevel is "crash"', () => {
       vscodeMock.state.isTelemetryEnabled = true;
       vscodeMock.state.telemetryLevel = 'crash';
+      const sentry = buildSentryStub();
+
+      const adapter = new TelemetryAdapter(fakeContext(), {
+        dsnNode: 'https://foo@sentry.io/1',
+        sentryModule: sentry,
+      });
+
+      expect(sentry.init).not.toHaveBeenCalled();
+      expect(adapter.isEnabled()).toBe(false);
+    });
+
+    it('does NOT initialise Sentry when sandforge.telemetry opt-in is false', () => {
+      vscodeMock.state.isTelemetryEnabled = true;
+      vscodeMock.state.telemetryLevel = 'all';
+      vscodeMock.state.sandforgeTelemetry = false;
       const sentry = buildSentryStub();
 
       const adapter = new TelemetryAdapter(fakeContext(), {

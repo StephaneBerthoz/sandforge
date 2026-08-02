@@ -26,11 +26,15 @@ import type { ObjectDescribe } from './modules/forge/GraphDiscoveryService';
 import { PIIDetector } from './core/precheck/PIIDetector';
 import { ProductionGuard } from './core/precheck/ProductionGuard';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
+import { CacheManager } from './core/cache/CacheManager';
 import { AI_CONFIG, AI_PROVIDER } from '@sandforge/shared';
 import { createServices } from './services.js';
+import type { Services } from './services.js';
+import { logger } from './logger.js';
 
 let router: MessageRouter | undefined;
 let broker: MessageBroker | undefined;
+let servicesRef: Services | undefined;
 
 /**
  * Called when the extension is activated.
@@ -44,11 +48,22 @@ export function activate(context: vscode.ExtensionContext): void {
   const log = (msg: string): void => {
     outputChannel.appendLine(`[+${Date.now() - startTs}ms] ${msg}`);
   };
+  // Wire the singleton logger (used across core modules) to the same channel —
+  // without this its warn/error lines are silently dropped.
+  logger.init(outputChannel);
   log('SandForge is now active.');
 
   // 1b. Composition root — wires core adapters (telemetry, storage, salesforce, fs)
   // and exposes orchestrator factories. Also kicks off SecretStorage migration.
-  const services = createServices(context);
+  // Pino (telemetry logger) is routed to the OutputChannel instead of stdout.
+  const services = createServices(context, {
+    pinoDestination: {
+      write: (chunk: string): void => {
+        outputChannel.appendLine(chunk.replace(/\n$/, ''));
+      },
+    },
+  });
+  servicesRef = services;
   log('Composition root wired.');
 
   // 2. ConfigStore (backed by VSCode globalState)
@@ -83,7 +98,26 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // 5c. Infrastructure services (Tier 1)
   const performanceTracker = new PerformanceTracker();
-  const productionGuard = new ProductionGuard();
+  // Safety settings are read live so toggling them takes effect without reload:
+  // - `safety.requireProdConfirmation` gates the modal confirmation shown
+  //   before any write to a production org;
+  // - `safety.auditLogging` gates ProductionGuard audit-log writes.
+  const productionGuard = new ProductionGuard({
+    isProdConfirmationRequired: () =>
+      services.getSandforgeSetting('safety.requireProdConfirmation', true),
+    isAuditLoggingEnabled: () => services.getSandforgeSetting('safety.auditLogging', true),
+    requestConfirmation: async (impactSummary) => {
+      const choice = await vscode.window.showWarningMessage(
+        'SandForge: production operation',
+        {
+          modal: true,
+          detail: `${impactSummary}\n\nThis operation writes data to a PRODUCTION org.`,
+        },
+        'Execute',
+      );
+      return choice === 'Execute';
+    },
+  });
   const offlineManager = new OfflineManager(configStore);
   const piiDetector = new PIIDetector();
 
@@ -621,7 +655,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   // 13. Org changes -> stateSync + statusBar
-  orgManager.onOrgChange(() => {
+  const unsubOrgChange = orgManager.onOrgChange(() => {
     const orgs = orgManager.getAllOrgs();
     stateSync.updateState({
       orgs: orgs as unknown as Record<string, unknown>[],
@@ -638,19 +672,35 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   });
 
-  context.subscriptions.push(outputChannel, sidebarRegistration, statusBar, panelManager, {
-    dispose: () => backgroundRegistry.dispose(),
-  });
+  context.subscriptions.push(
+    outputChannel,
+    sidebarRegistration,
+    statusBar,
+    panelManager,
+    { dispose: () => backgroundRegistry.dispose() },
+    { dispose: unsubOrgChange },
+    { dispose: () => orgManager.dispose() },
+    { dispose: () => offlineManager.dispose() },
+    { dispose: () => performanceTracker.dispose() },
+    // Dispose the CacheManager singleton (clears its purge interval) if it was
+    // ever instantiated — resetInstance() is a no-op otherwise.
+    { dispose: () => CacheManager.resetInstance() },
+  );
 }
 
 /**
  * Called when the extension is deactivated.
- * Cleans up router and broker.
+ * Cleans up router, broker, memoised AI adapters, and flushes telemetry.
  */
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   router?.dispose();
   broker?.dispose();
   router = undefined;
   broker = undefined;
+  // Drop memoised AI adapters (they hold SDK clients + budget state).
+  servicesRef?.aiClient.invalidate();
+  // Flush pending telemetry events before the host tears us down.
+  await servicesRef?.telemetry.flush();
+  servicesRef = undefined;
   // Infrastructure services with dispose methods are cleaned up via context.subscriptions
 }

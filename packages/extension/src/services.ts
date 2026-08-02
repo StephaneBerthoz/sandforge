@@ -13,6 +13,7 @@ import {
 } from './adapters/ai/index.js';
 import { SessionBudget, type BudgetBroker } from './adapters/ai/tokenBudget/index.js';
 import type { ConfigStore } from './core/storage/ConfigStore.js';
+import type { TelemetryAdapterOptions } from './adapters/telemetry/TelemetryAdapter.js';
 
 import { MonitorOrchestrator } from './modules/monitor/MonitorOrchestrator.js';
 import type { MonitorDependencies } from './modules/monitor/MonitorOrchestrator.js';
@@ -61,6 +62,13 @@ export interface CoreServices {
    * effect without a reload.
    */
   isAIEnabled: () => boolean;
+  /**
+   * Read a `sandforge.*` VS Code setting (e.g. `'safety.auditLogging'`)
+   * with the manifest default as fallback. Read at call time so setting
+   * changes take effect without a reload. Handlers and core services use
+   * this instead of importing `vscode` themselves (keeps them testable).
+   */
+  getSandforgeSetting: <T>(key: string, fallback: T) => T;
   /**
    * Build a fresh `SessionBudget` for an AI panel session. Caller is
    * responsible for attaching it to the adapter
@@ -113,12 +121,23 @@ export interface Services extends CoreServices, OrchestratorFactories {}
  * their unified SecretStorage locations.
  *
  * @param context - The VSCode extension context.
+ * @param opts - Optional TelemetryAdapter options (e.g. a Pino destination
+ *   routed to the extension's OutputChannel instead of stdout).
  * @returns A fully wired Services object ready to be passed to handlers.
  */
-export function createServices(context: vscode.ExtensionContext): Services {
-  const telemetry = new TelemetryAdapter(context);
+export function createServices(
+  context: vscode.ExtensionContext,
+  opts?: TelemetryAdapterOptions,
+): Services {
+  const telemetry = new TelemetryAdapter(context, opts);
   const storage = new StorageAdapter(context);
-  const salesforce = new SalesforceAdapter(storage, telemetry);
+  // `sandforge.api.retryAttempts` (manifest default 3) bounds p-retry attempts
+  // on retriable Salesforce errors. Read once at composition; a reload picks
+  // up changes (the adapter holds no per-call config).
+  const apiRetryAttempts = vscode.workspace
+    .getConfiguration('sandforge.api')
+    .get<number>('retryAttempts', 3);
+  const salesforce = new SalesforceAdapter(storage, telemetry, { retries: apiRetryAttempts });
   const fs = new FsAdapter(telemetry);
 
   const aiClient = createAIClientFactory({
@@ -144,6 +163,8 @@ export function createServices(context: vscode.ExtensionContext): Services {
     aiClient,
     isAIEnabled: () =>
       vscode.workspace.getConfiguration('sandforge.ai').get<boolean>('enabled', false),
+    getSandforgeSetting: <T>(key: string, fallback: T): T =>
+      vscode.workspace.getConfiguration('sandforge').get<T>(key, fallback),
     createSessionBudget: (sessionId, broker) => {
       const budget = vscode.workspace
         .getConfiguration('sandforge.ai')
@@ -155,7 +176,15 @@ export function createServices(context: vscode.ExtensionContext): Services {
         logger: telemetry.getLogger(),
       });
     },
-    monitorOrchestrator: (deps) => new MonitorOrchestrator(deps),
+    monitorOrchestrator: (deps) =>
+      new MonitorOrchestrator({
+        // `sandforge.monitor.persistTimeSeries` (manifest default off) feeds
+        // TimeSeriesStore disk persistence. An explicit caller value wins.
+        persistTimeSeries: vscode.workspace
+          .getConfiguration('sandforge.monitor')
+          .get<boolean>('persistTimeSeries', false),
+        ...deps,
+      }),
     seedOrchestrator: (deps) => new SeedOrchestrator(deps),
     syncOrchestrator: (deps) => new SyncOrchestrator(deps),
     compareOrchestrator: (deps) => new CompareOrchestrator(deps),

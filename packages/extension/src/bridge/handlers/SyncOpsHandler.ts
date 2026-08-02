@@ -19,6 +19,14 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
+import {
+  validatePayload,
+  syncExecutePayloadSchema,
+  syncConfigSavePayloadSchema,
+  syncConfigIdPayloadSchema,
+  syncDescribeGlobalPayloadSchema,
+  syncDescribeFieldsPayloadSchema,
+} from '../validatePayload.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
@@ -131,10 +139,10 @@ export class SyncOpsHandler implements DomainHandler {
   /** Save a sync configuration. */
   private async handleConfigSave(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncConfigSavePayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { config: Record<string, unknown> } })
-        .payload;
-      const config = payload.config as unknown as SyncConfig;
+      const config = parsed.config as unknown as SyncConfig;
       this.syncConfigStore.save(config);
       const response = buildResponse(this.deps, msg, 'sync:config:save:response', {
         success: true,
@@ -150,9 +158,10 @@ export class SyncOpsHandler implements DomainHandler {
   /** Load a sync configuration by ID. */
   private async handleConfigLoad(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncConfigIdPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
-      const config = this.syncConfigStore.load(payload.id);
+      const config = this.syncConfigStore.load(parsed.id);
       const response = buildResponse(this.deps, msg, 'sync:config:load:response', {
         config: (config as unknown as Record<string, unknown>) ?? null,
       });
@@ -187,9 +196,10 @@ export class SyncOpsHandler implements DomainHandler {
   /** Delete a sync configuration by ID. */
   private async handleConfigDelete(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncConfigIdPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
-      const success = this.syncConfigStore.delete(payload.id);
+      const success = this.syncConfigStore.delete(parsed.id);
       const response = buildResponse(this.deps, msg, 'sync:config:delete:response', { success });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -209,12 +219,13 @@ export class SyncOpsHandler implements DomainHandler {
 
   private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(syncDescribeGlobalPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     const config = this.getRobustnessConfig();
 
     try {
       const conn = await getJsforceConnection(
-        payload.orgId,
+        parsed.orgId,
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
@@ -237,11 +248,9 @@ export class SyncOpsHandler implements DomainHandler {
 
   private async handleDescribeFields(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (
-      msg as BaseMessage & {
-        payload: { sourceOrgId: string; targetOrgId: string; objectApiName: string };
-      }
-    ).payload;
+    const parsed = validatePayload(syncDescribeFieldsPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     const config = this.getRobustnessConfig();
 
     try {
@@ -299,28 +308,54 @@ export class SyncOpsHandler implements DomainHandler {
 
   private async handleExecute(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { config: Record<string, unknown> } }).payload;
+    const parsed = validatePayload(syncExecutePayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
 
     try {
-      const config = payload.config as unknown as import('@sandforge/shared').SyncConfig;
+      // Fill per-object batch sizes from the `sandforge.sync.defaultBatchSize`
+      // setting when the webview omitted them.
+      const defaultBatchSize =
+        this.deps.services?.getSandforgeSetting?.('sync.defaultBatchSize', 200) ?? 200;
+      const config = {
+        ...parsed.config,
+        objects: parsed.config.objects.map((o) => ({
+          ...o,
+          batchSize: o.batchSize ?? defaultBatchSize,
+        })),
+      } as unknown as import('@sandforge/shared').SyncConfig;
 
       // Production guard check on target org
       if (this.deps.infraServices?.productionGuard) {
+        const guard = this.deps.infraServices.productionGuard;
         const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
-        const check = this.deps.infraServices.productionGuard.check({
+        const guardRequest = {
           orgId: config.targetOrgId,
           orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-          operation: 'upsert',
+          operation: 'upsert' as const,
           objectName: config.objects?.[0]?.objectApiName ?? 'SyncData',
           recordCount: 1,
           module: 'sync',
-        });
+        };
+        const check = guard.check(guardRequest);
+        guard.logOperation(guardRequest, check);
         if (!check.allowed) {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
+        }
+        // `safety.requireProdConfirmation`: explicit user consent before
+        // writing to a production org.
+        const confirmed = await guard.confirmIfNeeded(check);
+        if (!confirmed) {
+          sendOperationFailed(
+            this.deps,
+            operationId,
+            'Operation cancelled by user (production confirmation declined).',
+            false,
+          );
+          return;
         }
       }
 
@@ -356,8 +391,10 @@ export class SyncOpsHandler implements DomainHandler {
       // Return immediately -- execution continues in background
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
+      // Single failure emission: `operation:failed` is the channel the webview
+      // consumes (clears loading, error surface) — no duplicate `sync:error`.
+      this.deps.log(`[ERR] sync:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
     }
   }
 
@@ -396,7 +433,11 @@ export class SyncOpsHandler implements DomainHandler {
 
       // Build robustness utilities
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
-      const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
+      // `sandforge.sync.maxConcurrentOps` (manifest default 3) bounds the
+      // number of concurrent Bulk API jobs for sync operations.
+      const maxConcurrentOps =
+        this.deps.services?.getSandforgeSetting?.('sync.maxConcurrentOps', 3) ?? 3;
+      const bulkManager = new BulkApiManager(maxConcurrentOps);
       progressTracker = new BulkJobProgressTracker(bulkManager);
       unsubProgress = progressTracker.onProgress((progress) => {
         this.deps.broker.postToWebview({
@@ -954,8 +995,9 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
+      // Single failure emission: `operation:failed` only (webview consumes it).
+      this.deps.log(`[ERR] sync:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
     } finally {
       progressTracker?.stopTracking(operationId);
       unsubProgress?.();

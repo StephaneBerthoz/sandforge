@@ -145,31 +145,10 @@
     "configuration": {
       "title": "%config.title%",
       "properties": {
-        "sandforge.language": {
-          "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "en",
-            "fr",
-            "de",
-            "es",
-            "ja",
-            "pt-BR"
-          ],
-          "description": "%config.language.description%"
-        },
         "sandforge.telemetry": {
           "type": "boolean",
           "default": false,
           "description": "%config.telemetry.description%"
-        },
-        "sandforge.monitor.autoRefreshInterval": {
-          "type": "number",
-          "default": 60,
-          "minimum": 10,
-          "maximum": 3600,
-          "description": "%config.monitor.autoRefreshInterval.description%"
         },
         "sandforge.monitor.persistTimeSeries": {
           "type": "boolean",
@@ -238,31 +217,12 @@
           "maximum": 3600000,
           "description": "%config.pipeline.timeout.description%"
         },
-        "sandforge.api.timeout": {
-          "type": "number",
-          "default": 30000,
-          "minimum": 5000,
-          "maximum": 120000,
-          "description": "%config.api.timeout.description%"
-        },
         "sandforge.api.retryAttempts": {
           "type": "number",
           "default": 3,
           "minimum": 0,
           "maximum": 10,
           "description": "%config.api.retryAttempts.description%"
-        },
-        "sandforge.grappe.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "%config.grappe.enabled.description%"
-        },
-        "sandforge.grappe.threshold": {
-          "type": "number",
-          "default": 10000,
-          "minimum": 1000,
-          "maximum": 100000,
-          "description": "%config.grappe.threshold.description%"
         },
         "sandforge.safety.requireProdConfirmation": {
           "type": "boolean",

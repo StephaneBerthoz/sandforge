@@ -16,6 +16,13 @@ import {
 } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
+import {
+  validatePayload,
+  monitorOrgPayloadSchema,
+  monitorTrendsPayloadSchema,
+  monitorAbortJobPayloadSchema,
+  monitorAlertIdPayloadSchema,
+} from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { UnifiedHealthScorer } from '../../modules/monitor/UnifiedHealthScorer.js';
@@ -390,7 +397,9 @@ export class MonitorOpsHandler implements DomainHandler {
 
   private async handleRefresh(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -535,7 +544,9 @@ export class MonitorOpsHandler implements DomainHandler {
 
   private handleTrends(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; period?: string } }).payload;
+    const parsed = validatePayload(monitorTrendsPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     const periodStr = payload.period ?? '24h';
     const periodMs = MONITOR_PERIOD_MAP[periodStr] ?? MONITOR_PERIOD_MAP['24h'];
 
@@ -577,7 +588,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleHealthScore(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -623,7 +636,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleStorage(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -669,7 +684,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleDeployments(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -720,7 +737,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleApiUsage(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -775,7 +794,9 @@ export class MonitorOpsHandler implements DomainHandler {
 
   private async handleAbortJob(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; jobId: string } }).payload;
+    const parsed = validatePayload(monitorAbortJobPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -815,7 +836,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleErrorLogs(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const errors = await this.errorLogMonitor.fetch(payload.orgId);
@@ -841,7 +864,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleSessions(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const sessions = await this.userSessionMonitor.fetch(payload.orgId);
@@ -865,7 +890,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleApexInsights(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const analyses = await this.apexLogAnalyzer.fetchAndAnalyze(payload.orgId, 20);
@@ -889,7 +916,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleSandboxRefresh(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const refreshes = await this.sandboxRefreshTracker.fetch(payload.orgId);
@@ -931,7 +960,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private handleAlertAcknowledge(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { alertId: string } }).payload;
+    const parsed = validatePayload(monitorAlertIdPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     this.alertEngine.acknowledgeAlert(payload.alertId);
     this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
     const response = buildResponse(this.deps, msg, 'monitor:alert:acknowledge:response', {
@@ -947,7 +978,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private handleAlertDismiss(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { alertId: string } }).payload;
+    const parsed = validatePayload(monitorAlertIdPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     this.alertEngine.dismissAlert(payload.alertId);
     this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
     const response = buildResponse(this.deps, msg, 'monitor:alert:dismiss:response', {

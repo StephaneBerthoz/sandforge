@@ -79,8 +79,9 @@ const PINO_REDACT_PATHS = buildRedactPaths();
  * TelemetryAdapter — opt-in observability facade wired on VSCode telemetry settings.
  *
  * Behaviour:
- *  - Sentry (`@sentry/node`) is only initialised when BOTH
+ *  - Sentry (`@sentry/node`) is only initialised when ALL of
  *    `vscode.env.isTelemetryEnabled` is true AND
+ *    `sandforge.telemetry` is true (extension-level opt-in, manifest default off) AND
  *    `telemetry.telemetryLevel` is `'error'` or `'all'` (not `'off'` / `'crash'`).
  *  - `getLogger()` returns a Pino logger configured with deep redaction paths
  *    for OAuth tokens, API keys and authorization headers.
@@ -165,9 +166,16 @@ export class TelemetryAdapter {
 
   // ── internals ──────────────────────────────────────────────
 
-  /** Gate per VSCode's global telemetry setting + `telemetry.telemetryLevel`. */
+  /** Gate per VSCode's global telemetry setting + `telemetry.telemetryLevel` + `sandforge.telemetry`. */
   private shouldEnableSentry(): boolean {
     if (!vscode.env.isTelemetryEnabled) {
+      return false;
+    }
+    // `sandforge.telemetry` (manifest default false) is the extension-level
+    // opt-in: even when the VS Code-wide telemetry switch is on, SandForge
+    // only reports when the user explicitly enabled its own telemetry.
+    const optedIn = vscode.workspace.getConfiguration('sandforge').get<boolean>('telemetry', false);
+    if (!optedIn) {
       return false;
     }
     const level = vscode.workspace

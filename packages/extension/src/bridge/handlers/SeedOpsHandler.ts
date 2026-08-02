@@ -19,6 +19,15 @@ import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
 import { AIPersonaManager } from '../../modules/ai/AIPersonaManager.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import {
+  validatePayload,
+  seedExecutePayloadSchema,
+  seedDescribeGlobalPayloadSchema,
+  seedDescribeObjectPayloadSchema,
+  seedTemplateIdPayloadSchema,
+  seedTemplateSavePayloadSchema,
+  seedCreatePersonaPayloadSchema,
+} from '../validatePayload.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
@@ -130,10 +139,10 @@ export class SeedOpsHandler implements DomainHandler {
   /** Save a seed template (create new or update existing). */
   private async handleTemplateSave(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedTemplateSavePayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { template: Record<string, unknown> } })
-        .payload;
-      const template = payload.template as unknown as SeedTemplate;
+      const template = parsed.template as unknown as SeedTemplate;
 
       if (template.id && this.templateManager.get(template.id)) {
         const updated = this.templateManager.update(template.id, template);
@@ -160,9 +169,10 @@ export class SeedOpsHandler implements DomainHandler {
   /** Load a seed template by ID. */
   private async handleTemplateLoad(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedTemplateIdPayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
-      const template = this.seedTemplateStore.load(payload.id);
+      const template = this.seedTemplateStore.load(parsed.id);
       const response = buildResponse(this.deps, msg, 'seed:template:load:response', {
         template: (template as unknown as Record<string, unknown>) ?? null,
       });
@@ -200,9 +210,10 @@ export class SeedOpsHandler implements DomainHandler {
   /** Delete a seed template by ID. */
   private async handleTemplateDelete(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedTemplateIdPayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
-      const success = this.seedTemplateStore.delete(payload.id);
+      const success = this.seedTemplateStore.delete(parsed.id);
       const response = buildResponse(this.deps, msg, 'seed:template:delete:response', { success });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -245,8 +256,10 @@ export class SeedOpsHandler implements DomainHandler {
   /** Create a custom persona from a text description using AI. */
   private async handleCreatePersona(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(seedCreatePersonaPayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { description: string } }).payload;
+      const payload = parsed;
       if (!payload.description || payload.description.trim().length === 0) {
         const response = buildResponse(this.deps, msg, 'seed:create-persona:response', {
           persona: {
@@ -332,7 +345,9 @@ export class SeedOpsHandler implements DomainHandler {
 
   private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(seedDescribeGlobalPayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     const config = this.getRobustnessConfig();
 
     try {
@@ -364,8 +379,9 @@ export class SeedOpsHandler implements DomainHandler {
 
   private async handleDescribeObject(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; objectApiName: string } })
-      .payload;
+    const parsed = validatePayload(seedDescribeObjectPayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     const config = this.getRobustnessConfig();
 
     try {
@@ -419,14 +435,27 @@ export class SeedOpsHandler implements DomainHandler {
 
   private async handleExecute(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (
-      msg as BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean };
-      }
-    ).payload;
+    const parsed = validatePayload(seedExecutePayloadSchema, msg, 'seed:error', this.deps);
+    if (!parsed) return;
     const operationId = crypto.randomUUID();
 
     try {
+      // Fill per-object batch sizes from the `sandforge.seed.defaultBatchSize`
+      // setting when the webview omitted them.
+      const defaultBatchSize =
+        this.deps.services?.getSandforgeSetting?.('seed.defaultBatchSize', 200) ?? 200;
+      const payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean } = {
+        orgId: parsed.orgId,
+        template: {
+          ...parsed.template,
+          objects: parsed.template.objects.map((o) => ({
+            ...o,
+            batchSize: o.batchSize ?? defaultBatchSize,
+          })),
+        } as unknown as Record<string, unknown>,
+        dryRun: parsed.dryRun,
+      };
+
       const conn = await getJsforceConnection(
         payload.orgId,
         this.deps.orgRegistry,
@@ -435,19 +464,36 @@ export class SeedOpsHandler implements DomainHandler {
 
       // Production guard check
       if (this.deps.infraServices?.productionGuard) {
+        const guard = this.deps.infraServices.productionGuard;
         const org = this.deps.orgManager.getOrg(payload.orgId);
-        const check = this.deps.infraServices.productionGuard.check({
+        const guardRequest = {
           orgId: payload.orgId,
           orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
-          operation: 'insert',
+          operation: 'insert' as const,
           objectName: 'SeedData',
           recordCount: 1,
           module: 'seed',
-        });
+        };
+        const check = guard.check(guardRequest);
+        guard.logOperation(guardRequest, check);
         if (!check.allowed) {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
+        }
+        // `safety.requireProdConfirmation`: explicit user consent before
+        // writing to a production org (skipped for dry runs — they write nothing).
+        if (!payload.dryRun) {
+          const confirmed = await guard.confirmIfNeeded(check);
+          if (!confirmed) {
+            sendOperationFailed(
+              this.deps,
+              operationId,
+              'Operation cancelled by user (production confirmation declined).',
+              false,
+            );
+            return;
+          }
         }
       }
 
@@ -486,8 +532,9 @@ export class SeedOpsHandler implements DomainHandler {
       // Return immediately -- execution continues in background
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
+      // Single failure emission: `operation:failed` only (webview consumes it).
+      this.deps.log(`[ERR] seed:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'seed:execute', 'seed:error', err);
     }
   }
 
@@ -681,8 +728,9 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
+      // Single failure emission: `operation:failed` only (webview consumes it).
+      this.deps.log(`[ERR] seed:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'seed:execute', 'seed:error', err);
     } finally {
       progressTracker?.stopTracking(operationId);
       unsubProgress?.();

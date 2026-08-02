@@ -14,6 +14,7 @@ import {
   sendOperationCompleted,
   sendOperationFailed,
 } from './HandlerTypes.js';
+import { validatePayload } from '../validatePayload.js';
 import { logger } from '../../logger.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -122,9 +123,8 @@ function throttle<T extends (...args: never[]) => void>(
 }
 
 /**
- * Validate a webview message payload against a zod schema. Returns parsed
- * data on success; on failure, posts a handler error and returns null so
- * the caller can early-return. Defense-in-depth against compromised webview.
+ * Local alias for the shared payload validator (bridge/validatePayload.ts).
+ * Kept as a one-line wrapper so the call sites below stay readable.
  */
 function parsePayload<T>(
   schema: z.ZodSchema<T>,
@@ -132,23 +132,7 @@ function parsePayload<T>(
   responseType: string,
   deps: HandlerDeps,
 ): T | null {
-  const payload = (msg as { payload?: unknown }).payload;
-  const result = schema.safeParse(payload);
-  if (!result.success) {
-    const summary = result.error.issues
-      .slice(0, 3)
-      .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
-      .join('; ');
-    sendHandlerError(
-      deps,
-      msg.type,
-      responseType,
-      new Error(`Invalid payload — ${summary}`),
-      'INVALID_PAYLOAD',
-    );
-    return null;
-  }
-  return result.data;
+  return validatePayload(schema, msg, responseType, deps);
 }
 
 /** Optional v2 services injected alongside the ForgeOrchestrator. */

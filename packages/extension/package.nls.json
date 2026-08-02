@@ -15,9 +15,7 @@
   "command.openHelp": "SandForge: Open Help",
   "command.cheers": "SandForge: Cheers!",
   "config.title": "SandForge",
-  "config.language.description": "Display language",
   "config.telemetry.description": "Enable anonymous usage telemetry",
-  "config.monitor.autoRefreshInterval.description": "Auto-refresh interval in seconds for the Monitor dashboard",
   "config.monitor.persistTimeSeries.description": "Persist Monitor time-series data to disk (~5 min flush, 7-day retention, ~500 KB/org). Off by default.",
   "config.seed.defaultBatchSize.description": "Default batch size for Seed data operations",
   "config.sync.defaultBatchSize.description": "Default batch size for Sync data operations",
@@ -28,10 +26,7 @@
   "config.ai.tokenBudgetMaxPerSession.description": "Maximum AI token budget per Assistant panel session. Counter resets when the panel closes. SandForge soft-warns at 80% and hard-refuses further requests at 100%.",
   "config.backup.maxCount.description": "Maximum number of backups to retain per org",
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
-  "config.api.timeout.description": "Salesforce API call timeout in milliseconds",
   "config.api.retryAttempts.description": "Number of retry attempts for failed API calls",
-  "config.grappe.enabled.description": "Enable Grappe mode for large data operations",
-  "config.grappe.threshold.description": "Record count threshold to trigger Grappe mode",
   "config.safety.requireProdConfirmation.description": "Require confirmation dialog for production org operations",
   "config.safety.auditLogging.description": "Enable audit logging for all data operations"
 }

@@ -91,6 +91,36 @@ function msg(
   };
 }
 
+/** Minimal sync config that passes the sync:config payload validation. */
+function validSyncConfig(id: string, name: string): Record<string, unknown> {
+  return {
+    id,
+    name,
+    description: '',
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    direction: 'source_to_target',
+    mode: 'full',
+    objects: [
+      {
+        objectApiName: 'Account',
+        operation: 'upsert',
+        fieldMappings: [],
+        transformRules: [],
+        excludedFields: [],
+        addOnFields: [],
+        batchSize: 200,
+        insertOrder: 0,
+      },
+    ],
+    conflictStrategy: 'source_wins',
+    enableRollback: false,
+    dryRun: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+}
+
 describe('ExtensionHandlers', () => {
   let broker: MessageBroker;
   let router: MessageRouter;
@@ -652,13 +682,14 @@ describe('ExtensionHandlers', () => {
       expect(completed).toBeDefined();
     });
 
-    it('should send dataops:error on failure', async () => {
+    it('should send operation:failed on failure', async () => {
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('No access'));
 
       broker['dispatch'](msg('dataops:backup', { orgId: 'org-1', objects: ['Account'] }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const errMsg = posted.find((p) => p.type === 'dataops:error');
+      // Single failure emission: operation:failed is the channel the webview consumes.
+      const errMsg = posted.find((p) => p.type === 'operation:failed');
       expect(errMsg).toBeDefined();
     });
   });
@@ -702,9 +733,11 @@ describe('ExtensionHandlers', () => {
       );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
 
-      // Pipeline execution should produce a response (empty steps = immediate completion)
+      // Pipeline execution should produce a response (empty steps = immediate
+      // completion); without injected services the run fails via the single
+      // operation:failed channel.
       const response = posted.find(
-        (p) => p.type === 'pipeline:run:response' || p.type === 'pipeline:error',
+        (p) => p.type === 'pipeline:run:response' || p.type === 'operation:failed',
       );
       expect(response).toBeDefined();
     });
@@ -756,7 +789,7 @@ describe('ExtensionHandlers', () => {
     it('should send error when connection fails', async () => {
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('No access'));
 
-      broker['dispatch'](msg('monitor:abort-job', { orgId: 'org-1', jobId: '7071x000001' }));
+      broker['dispatch'](msg('monitor:abort-job', { orgId: 'org-1', jobId: '7071x000001ABCDE12' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
 
       const response = posted.find((p) => p.type === 'monitor:abort-job:response');
@@ -773,7 +806,7 @@ describe('ExtensionHandlers', () => {
       };
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
 
-      broker['dispatch'](msg('monitor:abort-job', { orgId: 'org-1', jobId: '7071x000001' }));
+      broker['dispatch'](msg('monitor:abort-job', { orgId: 'org-1', jobId: '7071x000001ABCDE12' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
 
       const response = posted.find((p) => p.type === 'monitor:abort-job:response');
@@ -781,7 +814,7 @@ describe('ExtensionHandlers', () => {
       const payload = (response as BaseMessage & { payload: { success: boolean; jobId: string } })
         .payload;
       expect(payload.success).toBe(true);
-      expect(payload.jobId).toBe('7071x000001');
+      expect(payload.jobId).toBe('7071x000001ABCDE12');
     });
   });
 
@@ -860,11 +893,11 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('dataops:rollback', { orgId: 'org1', operationId: 'nonexistent-op' }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const errMsg = posted.find((p) => p.type === 'dataops:error') as BaseMessage & {
-        payload: { message: string };
+      const errMsg = posted.find((p) => p.type === 'operation:failed') as BaseMessage & {
+        payload: { error: string };
       };
       expect(errMsg).toBeDefined();
-      expect(errMsg.payload.message).toContain('No backup found');
+      expect(errMsg.payload.error).toContain('No backup found');
     });
 
     it('should restore records from backup when backup exists', async () => {
@@ -971,7 +1004,7 @@ describe('ExtensionHandlers', () => {
         payload: { message: string };
       };
       expect(errMsg).toBeDefined();
-      expect(errMsg.payload.message).toContain('Invalid Salesforce object API name');
+      expect(errMsg.payload.message).toContain('Invalid Salesforce API name');
     });
 
     it('should accept valid object names', async () => {
@@ -1192,7 +1225,7 @@ describe('ExtensionHandlers', () => {
     it('sync:config:save should persist the config and respond with its id', async () => {
       broker['dispatch'](
         msg('sync:config:save', {
-          config: { id: 'cfg-1', name: 'Cfg 1', description: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+          config: validSyncConfig('cfg-1', 'Cfg 1'),
         }),
       );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
@@ -1208,7 +1241,7 @@ describe('ExtensionHandlers', () => {
     it('sync:config:list should list saved configs', async () => {
       broker['dispatch'](
         msg('sync:config:save', {
-          config: { id: 'cfg-2', name: 'Cfg 2', description: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+          config: validSyncConfig('cfg-2', 'Cfg 2'),
         }),
       );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
@@ -1238,7 +1271,7 @@ describe('ExtensionHandlers', () => {
     it('sync:config:delete should delete a saved config', async () => {
       broker['dispatch'](
         msg('sync:config:save', {
-          config: { id: 'cfg-3', name: 'Cfg 3', description: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+          config: validSyncConfig('cfg-3', 'Cfg 3'),
         }),
       );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
