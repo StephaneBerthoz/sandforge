@@ -67,7 +67,7 @@ function overallLabel(status: 'healthy' | 'degraded' | 'critical'): string {
  * Renders two states: empty (no data) or a health status grid with
  * API limits, storage, active jobs, and recent error counts.
  */
-export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = ({ orgHealthStatus }) => {
+export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = React.memo(({ orgHealthStatus }) => {
   const { t } = useTranslation();
 
   if (!orgHealthStatus) {
@@ -162,4 +162,6 @@ export const HealthCheckPanel: React.FC<HealthCheckPanelProps> = ({ orgHealthSta
       </p>
     </div>
   );
-};
+});
+
+HealthCheckPanel.displayName = 'HealthCheckPanel';

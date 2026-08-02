@@ -32,10 +32,10 @@ export const ReviewMetadataTab: React.FC = () => {
   return (
     <div data-testid="review-metadata-tab" className="flex flex-col gap-2">
       <p className="text-xs text-text-muted">
-        {t(
-          'forge.review.diffsFound',
-          '{{count}} differences found between source and target.',
-        ).replace('{{count}}', String(diffs.length))}
+        {t('forge.review.diffsFound', {
+          defaultValue: '{{count}} differences found between source and target.',
+          count: diffs.length,
+        })}
       </p>
       {diffs.map((diff, idx) => (
         <div

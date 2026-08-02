@@ -38,7 +38,7 @@ const severityIcon: Record<AlertSeverity, string> = {
 };
 
 /** Panel displaying active alerts with severity indicators. */
-export const AlertsPanel: React.FC<AlertsPanelProps> = ({
+export const AlertsPanel: React.FC<AlertsPanelProps> = React.memo(({
   alerts: alertsProp,
   onAcknowledge: onAcknowledgeProp,
   onDismiss: onDismissProp,
@@ -163,4 +163,6 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = ({
       </CardBody>
     </Card>
   );
-};
+});
+
+AlertsPanel.displayName = 'AlertsPanel';

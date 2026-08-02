@@ -36,10 +36,10 @@ function limitWarning(
 ): string | undefined {
   const predicted = trends[limitName]?.predictedTimeToLimit;
   if (!predicted) return undefined;
-  return t('monitor.limitReachedIn', 'Limit reached in ~{{hours}}h').replace(
-    '{{hours}}',
-    String(Math.round(predicted)),
-  );
+  return t('monitor.limitReachedIn', {
+    defaultValue: 'Limit reached in ~{{hours}}h',
+    hours: Math.round(predicted),
+  });
 }
 
 /**

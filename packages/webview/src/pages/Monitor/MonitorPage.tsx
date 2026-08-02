@@ -285,10 +285,10 @@ export const MonitorPage: React.FC = () => {
         >
           <WifiOff className="h-4 w-4 text-amber-400 shrink-0" />
           <span className="flex-1 text-sm text-amber-300">
-            {t(
-              'monitor.connectionLost',
-              'Connection lost. Auto-refresh failed {{count}} times.',
-            ).replace('{{count}}', String(consecutiveFailures))}
+            {t('monitor.connectionLost', {
+              defaultValue: 'Connection lost. Auto-refresh failed {{count}} times.',
+              count: consecutiveFailures,
+            })}
           </span>
           <Button size="sm" variant="secondary" onClick={handleRefresh}>
             {t('monitor.tryReconnect', 'Try Reconnect')}

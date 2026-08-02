@@ -196,12 +196,11 @@ export const ConfigProfilePanel: React.FC = () => {
             <div className="flex items-center gap-2 text-xs text-green-400">
               <CheckCircle className="w-3.5 h-3.5" />
               <span>
-                {t(
-                  'config.profiles.exportSuccess',
-                  'Exported {{entries}} entries from {{categories}} categories',
-                )
-                  .replace('{{entries}}', String(exportMutation.data.entriesExported))
-                  .replace('{{categories}}', String(exportMutation.data.categoriesExported))}
+                {t('config.profiles.exportSuccess', {
+                  defaultValue: 'Exported {{entries}} entries from {{categories}} categories',
+                  entries: exportMutation.data.entriesExported,
+                  categories: exportMutation.data.categoriesExported,
+                })}
               </span>
             </div>
             <div className="flex gap-2">
@@ -327,12 +326,11 @@ export const ConfigProfilePanel: React.FC = () => {
             <div className="flex items-center gap-2 text-xs text-green-400">
               <CheckCircle className="w-3.5 h-3.5" />
               <span>
-                {t(
-                  'config.profiles.importSuccess',
-                  'Imported {{entries}} entries from {{categories}} categories',
-                )
-                  .replace('{{entries}}', String(importMutation.data.entriesImported))
-                  .replace('{{categories}}', String(importMutation.data.categoriesImported))}
+                {t('config.profiles.importSuccess', {
+                  defaultValue: 'Imported {{entries}} entries from {{categories}} categories',
+                  entries: importMutation.data.entriesImported,
+                  categories: importMutation.data.categoriesImported,
+                })}
               </span>
             </div>
             {importMutation.data.warnings.length > 0 && (
