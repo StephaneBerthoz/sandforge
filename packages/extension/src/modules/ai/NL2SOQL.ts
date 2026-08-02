@@ -1,5 +1,6 @@
-/** Function signature for calling an AI model. */
-export type AIProvider = (prompt: string) => Promise<string>;
+/** Re-exported from the central AI types module (single source of truth). */
+export type { AIProvider } from './types.js';
+import type { AIProvider } from './types.js';
 
 /** Schema context describing Salesforce objects and their fields. */
 export interface SchemaContext {

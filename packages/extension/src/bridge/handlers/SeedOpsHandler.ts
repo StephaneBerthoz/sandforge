@@ -264,12 +264,20 @@ export class SeedOpsHandler implements DomainHandler {
         return;
       }
 
+      const services = this.deps.services;
+      if (!services?.isAIEnabled()) {
+        throw new Error(
+          'AI is disabled. Enable sandforge.ai.enabled and configure your Anthropic API key ' +
+            '(SandForge: Configure AI Key) to create custom personas.',
+        );
+      }
+      // Route through the unified AI client (breaker + budget + redaction).
+      // A missing key surfaces AnthropicAdapter's explicit "not configured" error.
       const aiProvider = async (prompt: string): Promise<string> => {
-        const aiKey = await this.deps.secretVault.getSecret('ai:apiKey');
-        if (!aiKey) {
-          throw new Error('AI provider not configured. Please set an API key in Settings.');
-        }
-        return prompt;
+        const result = await services.aiClient().chat({
+          messages: [{ role: 'user', content: prompt }],
+        });
+        return result.text;
       };
 
       const persona = await this.personaManager.createCustomPersona(
@@ -293,6 +301,33 @@ export class SeedOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       sendHandlerError(this.deps, 'seed:create-persona', 'seed:error', err);
     }
+  }
+
+  /**
+   * Build the AI call function for seed data generation.
+   * When AI is enabled, routes prompts through the unified client (breaker +
+   * budget). When AI is disabled — or when a call fails (missing key, open
+   * breaker, network) — returns '[]' so FieldMapper gracefully falls back to
+   * FakerFallback instead of failing the whole seed operation.
+   */
+  private buildSeedCallAI(): (prompt: string) => Promise<string> {
+    const services = this.deps.services;
+    if (!services?.isAIEnabled()) {
+      return async () => '[]';
+    }
+    return async (prompt: string): Promise<string> => {
+      try {
+        const result = await services.aiClient().chat({
+          messages: [{ role: 'user', content: prompt }],
+        });
+        return result.text;
+      } catch (err: unknown) {
+        this.deps.log(
+          `[AI] seed data generation failed, falling back to faker: ${extractErrorMessage(err)}`,
+        );
+        return '[]';
+      }
+    };
   }
 
   private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
@@ -596,7 +631,7 @@ export class SeedOpsHandler implements DomainHandler {
       const { AIDataGenerator } = await import('../../modules/seed/AIDataGenerator.js');
       const { FakerFallback } = await import('../../modules/seed/FakerFallback.js');
 
-      const aiGenerator = new AIDataGenerator(async () => '[]');
+      const aiGenerator = new AIDataGenerator(this.buildSeedCallAI());
       const fakerFallback = new FakerFallback();
       const fieldMapper = new FieldMapper({ aiGenerator, fakerFallback });
       const referenceLinker = new ReferenceLinker();

@@ -130,6 +130,14 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   msg('monitor:apex-insights:response'),
   msg('monitor:sandbox-refresh'),
   msg('monitor:sandbox-refresh:response'),
+  // Alert panel (AlertsPanel / AlertHistoryPanel) — the result channel for
+  // monitor:alerts is `monitor:alerts:result`, not `:response`.
+  msg('monitor:alerts'),
+  msg('monitor:alerts:result'),
+  msg('monitor:alert:acknowledge'),
+  msg('monitor:alert:acknowledge:response'),
+  msg('monitor:alert:dismiss'),
+  msg('monitor:alert:dismiss:response'),
   // Phase 03 Plan 03-01 — MetricBus envelope variants. Payload validation is
   // delegated to the inner `MetricEvent`/`MetricSample` Zod schemas at the
   // MetricBus boundary; the bridge schema only enforces envelope + discriminant.
@@ -232,6 +240,7 @@ export const AutomationMessageSchema = z.discriminatedUnion('type', [
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
+  msg('forge:target-preflight:request'),
 ]);
 
 // ─── Domain: Execution + Operation lifecycle + grappe ────────────────────────

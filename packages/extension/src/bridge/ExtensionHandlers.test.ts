@@ -1061,4 +1061,255 @@ describe('ExtensionHandlers', () => {
       expect(logs.some((l) => l.includes('[RX] seed:execute'))).toBe(true);
     });
   });
+
+  describe('monitor alerts routing', () => {
+    it('monitor:alerts should respond with active alerts and history', async () => {
+      broker['dispatch'](msg('monitor:alerts', { orgId: 'org-1' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'monitor:alerts:result');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { alerts: unknown[]; history: unknown[] } }
+      ).payload;
+      expect(payload.alerts).toEqual([]);
+      expect(payload.history).toEqual([]);
+      expect(logs.some((l) => l.includes('[RX] monitor:alerts'))).toBe(true);
+    });
+
+    it('monitor:alert:acknowledge should respond with success', async () => {
+      broker['dispatch'](msg('monitor:alert:acknowledge', { alertId: 'alert-1' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'monitor:alert:acknowledge:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { success: boolean } }).payload;
+      expect(payload.success).toBe(true);
+    });
+
+    it('monitor:alert:dismiss should respond with success', async () => {
+      broker['dispatch'](msg('monitor:alert:dismiss', { alertId: 'alert-1' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'monitor:alert:dismiss:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { success: boolean } }).payload;
+      expect(payload.success).toBe(true);
+    });
+  });
+
+  describe('seed template + persona routing', () => {
+    it('seed:template:save should create the template and respond with its id', async () => {
+      broker['dispatch'](
+        msg('seed:template:save', {
+          template: { name: 'My Template', description: '', tags: [], objects: [] },
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'seed:template:save:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { success: boolean; id: string } })
+        .payload;
+      expect(payload.success).toBe(true);
+      expect(typeof payload.id).toBe('string');
+    });
+
+    it('seed:template:list should list saved templates', async () => {
+      broker['dispatch'](
+        msg('seed:template:save', {
+          template: { name: 'Listed Template', description: '', tags: [], objects: [] },
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      broker['dispatch'](msg('seed:template:list'));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
+
+      const response = posted.find((p) => p.type === 'seed:template:list:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { templates: Array<{ name: string }> } }
+      ).payload;
+      expect(payload.templates).toHaveLength(1);
+      expect(payload.templates[0].name).toBe('Listed Template');
+    });
+
+    it('seed:template:load should return null for an unknown id', async () => {
+      broker['dispatch'](msg('seed:template:load', { id: 'missing' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'seed:template:load:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { template: unknown } }).payload;
+      expect(payload.template).toBeNull();
+    });
+
+    it('seed:template:delete should delete a saved template', async () => {
+      broker['dispatch'](
+        msg('seed:template:save', {
+          template: { name: 'To Delete', description: '', tags: [], objects: [] },
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      // SeedTemplateManager.create always assigns a fresh id — use the one
+      // returned by the save response.
+      const saveResponse = posted.find((p) => p.type === 'seed:template:save:response');
+      const templateId = (saveResponse as BaseMessage & { payload: { id: string } }).payload.id;
+
+      broker['dispatch'](msg('seed:template:delete', { id: templateId }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
+
+      const response = posted.find((p) => p.type === 'seed:template:delete:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { success: boolean } }).payload;
+      expect(payload.success).toBe(true);
+    });
+
+    it('seed:list-personas should return the built-in personas', async () => {
+      broker['dispatch'](msg('seed:list-personas'));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'seed:list-personas:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { personas: unknown[] } }).payload;
+      expect(payload.personas.length).toBeGreaterThan(0);
+    });
+
+    it('seed:create-persona should reject an empty description', async () => {
+      broker['dispatch'](msg('seed:create-persona', { description: '   ' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'seed:create-persona:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { success: boolean } }).payload;
+      expect(payload.success).toBe(false);
+    });
+  });
+
+  describe('sync config routing', () => {
+    it('sync:config:save should persist the config and respond with its id', async () => {
+      broker['dispatch'](
+        msg('sync:config:save', {
+          config: { id: 'cfg-1', name: 'Cfg 1', description: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'sync:config:save:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { success: boolean; id: string } })
+        .payload;
+      expect(payload.success).toBe(true);
+      expect(payload.id).toBe('cfg-1');
+    });
+
+    it('sync:config:list should list saved configs', async () => {
+      broker['dispatch'](
+        msg('sync:config:save', {
+          config: { id: 'cfg-2', name: 'Cfg 2', description: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      broker['dispatch'](msg('sync:config:list'));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
+
+      const response = posted.find((p) => p.type === 'sync:config:list:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { configs: Array<{ id: string }> } }
+      ).payload;
+      expect(payload.configs).toHaveLength(1);
+      expect(payload.configs[0].id).toBe('cfg-2');
+    });
+
+    it('sync:config:load should return null for an unknown id', async () => {
+      broker['dispatch'](msg('sync:config:load', { id: 'missing' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'sync:config:load:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { config: unknown } }).payload;
+      expect(payload.config).toBeNull();
+    });
+
+    it('sync:config:delete should delete a saved config', async () => {
+      broker['dispatch'](
+        msg('sync:config:save', {
+          config: { id: 'cfg-3', name: 'Cfg 3', description: '', updatedAt: '2026-01-01T00:00:00.000Z' },
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      broker['dispatch'](msg('sync:config:delete', { id: 'cfg-3' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
+
+      const response = posted.find((p) => p.type === 'sync:config:delete:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { success: boolean } }).payload;
+      expect(payload.success).toBe(true);
+    });
+  });
+
+  describe('forge:target-preflight:request', () => {
+    it('should count existing rows on the target org', async () => {
+      const mockConnection = {
+        query: vi.fn().mockResolvedValue({ totalSize: 7 }),
+      };
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
+
+      broker['dispatch'](
+        msg('forge:target-preflight:request', {
+          targetOrgId: 'org-1',
+          objectApiNames: ['Account', 'Contact'],
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(posted.some((p) => p.type === 'forge:target-preflight:response')).toBe(true),
+      );
+
+      const response = posted.find((p) => p.type === 'forge:target-preflight:response');
+      const payload = (
+        response as BaseMessage & {
+          payload: { counts: Array<{ objectApiName: string; existing: number }> };
+        }
+      ).payload;
+      expect(payload.counts).toEqual([
+        { objectApiName: 'Account', existing: 7 },
+        { objectApiName: 'Contact', existing: 7 },
+      ]);
+    });
+
+    it('should reject an invalid payload with forge:target-preflight:error', async () => {
+      broker['dispatch'](
+        msg('forge:target-preflight:request', {
+          targetOrgId: 'org-1',
+          objectApiNames: ['Account; DROP TABLE'],
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const errMsg = posted.find((p) => p.type === 'forge:target-preflight:error');
+      expect(errMsg).toBeDefined();
+    });
+  });
+
+  describe('realtime:resolve-conflict', () => {
+    it('should respond with a comingSoon no-op response', async () => {
+      broker['dispatch'](
+        msg('realtime:resolve-conflict', { conflictId: 'conflict-1', resolution: 'source-wins' }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'realtime:resolve-conflict:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { success: boolean; comingSoon: boolean } }
+      ).payload;
+      expect(payload.success).toBe(false);
+      expect(payload.comingSoon).toBe(true);
+    });
+  });
 });

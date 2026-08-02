@@ -47,10 +47,32 @@ describe('NoOpHandler', () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
 
-    for (const type of ['realtime:start', 'realtime:stop', 'realtime:status', 'realtime:metrics']) {
+    for (const type of [
+      'realtime:start',
+      'realtime:stop',
+      'realtime:status',
+      'realtime:metrics',
+      'realtime:resolve-conflict',
+    ]) {
       const msg: BaseMessage = { id: `req-${type}`, type, timestamp: Date.now() };
       expect(await handler.handle(msg)).toBe(true);
     }
+  });
+
+  it('returns a comingSoon response for realtime:resolve-conflict', async () => {
+    const deps = createMockDeps();
+    const handler = new NoOpHandler(deps);
+    const msg: BaseMessage = { id: 'req-rt-1', type: 'realtime:resolve-conflict', timestamp: 4000 };
+
+    expect(await handler.handle(msg)).toBe(true);
+
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { success: boolean; comingSoon: boolean };
+    };
+    expect(posted.type).toBe('realtime:resolve-conflict:response');
+    expect(posted.correlationId).toBe('req-rt-1');
+    expect(posted.payload.success).toBe(false);
+    expect(posted.payload.comingSoon).toBe(true);
   });
 
   it('response includes correlationId matching the request id', async () => {

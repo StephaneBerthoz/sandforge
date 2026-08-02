@@ -110,4 +110,20 @@ describe('AIClientFactory', () => {
     // but the factory call should not throw. Memoisation also verifies wiring.
     expect(() => factory()).not.toThrow();
   });
+
+  it('invalidate() disposes cached adapters and rebuilds them on next call', () => {
+    const factory = createAIClientFactory({
+      storage: fakeStorage,
+      getProvider: () => 'anthropic',
+    });
+    const first = factory();
+    const disposeSpy = vi.spyOn(first, 'dispose');
+
+    factory.invalidate();
+
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    const second = factory();
+    expect(second).not.toBe(first);
+    expect(second.provider).toBe('anthropic');
+  });
 });

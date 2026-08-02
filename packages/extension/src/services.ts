@@ -8,7 +8,7 @@ import {
 } from './adapters/index.js';
 import {
   createAIClientFactory,
-  type AIClient,
+  type AIClientFactory,
   type AIProviderType,
 } from './adapters/ai/index.js';
 import { SessionBudget, type BudgetBroker } from './adapters/ai/tokenBudget/index.js';
@@ -51,8 +51,16 @@ export interface CoreServices {
    * AI client factory, memoised per provider. The first call constructs
    * an `AnthropicAdapter` and lazily reads `sandforge.ai.anthropic.key`
    * from SecretStorage on its first SDK request — never at activate.
+   * Call `aiClient.invalidate()` when `sandforge.ai.*` settings change so
+   * the next call rebuilds adapters from the current provider/model.
    */
-  aiClient: (provider?: AIProviderType) => AIClient;
+  aiClient: AIClientFactory;
+  /**
+   * True when AI features are enabled via the `sandforge.ai.enabled`
+   * setting (default false). Read at call time so setting changes take
+   * effect without a reload.
+   */
+  isAIEnabled: () => boolean;
   /**
    * Build a fresh `SessionBudget` for an AI panel session. Caller is
    * responsible for attaching it to the adapter
@@ -101,7 +109,8 @@ export interface Services extends CoreServices, OrchestratorFactories {}
  *           → orchestrator factories (capture the above)
  *
  * After wiring, `runSecretMigration` is invoked (fire-and-forget) to silently
- * move any legacy globalState credentials into SecretStorage.
+ * move legacy credentials (globalState and legacy SecretStorage AI keys) into
+ * their unified SecretStorage locations.
  *
  * @param context - The VSCode extension context.
  * @returns A fully wired Services object ready to be passed to handlers.
@@ -133,6 +142,8 @@ export function createServices(context: vscode.ExtensionContext): Services {
     salesforce,
     fs,
     aiClient,
+    isAIEnabled: () =>
+      vscode.workspace.getConfiguration('sandforge.ai').get<boolean>('enabled', false),
     createSessionBudget: (sessionId, broker) => {
       const budget = vscode.workspace
         .getConfiguration('sandforge.ai')
@@ -164,16 +175,52 @@ interface LegacyOrgRecord {
   [key: string]: unknown;
 }
 
+/** Unified SecretStorage key for the Anthropic API key (read by AnthropicAdapter). */
+const AI_SECRET_KEY = 'sandforge.ai.anthropic.key';
+
+/** Legacy globalState key holding the AI API key. */
+const AI_SECRET_KEY_LEGACY_GLOBALSTATE = 'ai.apiKey';
+
+/** Legacy SecretStorage keys holding the AI API key (migrated to AI_SECRET_KEY). */
+const AI_SECRET_KEYS_LEGACY = ['sandforge.ai-api-key', 'sandforge.ai:apiKey', 'ai:apiKey'];
+
+/**
+ * Move a legacy SecretStorage key to the unified AI key.
+ * Never overwrites an existing target value; the legacy key is deleted either
+ * way so the migration is idempotent.
+ *
+ * @returns true when a legacy value existed (and was migrated or superseded).
+ */
+async function migrateLegacySecretKey(
+  context: vscode.ExtensionContext,
+  oldKey: string,
+  newKey: string,
+): Promise<boolean> {
+  const value = await context.secrets.get(oldKey);
+  if (value === undefined || value === null) {
+    return false;
+  }
+  const existing = await context.secrets.get(newKey);
+  if (existing === undefined || existing === null) {
+    await context.secrets.store(newKey, value);
+  }
+  await context.secrets.delete(oldKey);
+  return true;
+}
+
 /**
  * Silently move legacy credentials from `globalState` into `SecretStorage`.
  *
  * Targets:
- *  - `ai.apiKey` → `sandforge.ai.anthropic.key`
+ *  - `ai.apiKey` (globalState) → `sandforge.ai.anthropic.key`
+ *  - legacy AI secret keys (`sandforge.ai-api-key`, `sandforge.ai:apiKey`,
+ *    `ai:apiKey`) → `sandforge.ai.anthropic.key`
  *  - `sandforge.${orgId}.accessToken` → same key in SecretStorage
  *  - `sandforge.${orgId}.refreshToken` → same key in SecretStorage
  *
- * Idempotent: keys already migrated (i.e. absent in globalState) are skipped
- * without failure. Emits a single telemetry breadcrumb summarising the run.
+ * Idempotent: keys already migrated (i.e. absent in globalState / SecretStorage)
+ * are skipped without failure. Emits a single telemetry breadcrumb summarising
+ * the run.
  *
  * @param storage - StorageAdapter instance.
  * @param telemetry - TelemetryAdapter for breadcrumb emission.
@@ -189,8 +236,17 @@ export async function runSecretMigration(
   let success = true;
 
   try {
-    if (await storage.migrateLegacyKey('ai.apiKey', 'sandforge.ai.anthropic.key', true)) {
+    if (await storage.migrateLegacyKey(AI_SECRET_KEY_LEGACY_GLOBALSTATE, AI_SECRET_KEY, true)) {
       count++;
+    }
+
+    // Legacy SecretStorage AI keys. `sandforge.ai-api-key` was written through
+    // SecretVault (prefix `sandforge.` + `ai-api-key`); `sandforge.ai:apiKey`
+    // is the prefixed form of the `ai:apiKey` key SeedOpsHandler used to read.
+    for (const oldKey of AI_SECRET_KEYS_LEGACY) {
+      if (await migrateLegacySecretKey(context, oldKey, AI_SECRET_KEY)) {
+        count++;
+      }
     }
 
     const orgIds = collectOrgIds(context);

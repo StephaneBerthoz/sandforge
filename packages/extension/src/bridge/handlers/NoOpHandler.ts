@@ -18,6 +18,7 @@ const NOOP_TYPES = new Set([
   'realtime:stop',
   'realtime:status',
   'realtime:metrics',
+  'realtime:resolve-conflict',
 ]);
 
 /**

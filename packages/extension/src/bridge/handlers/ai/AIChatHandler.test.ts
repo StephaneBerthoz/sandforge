@@ -475,7 +475,7 @@ describe('AIChatHandler', () => {
         createMsg('ai:save-key', { apiKey: 'sk-test' }) as unknown as BaseMessage,
       );
       expect(result).toBe(true);
-      expect(deps.secretVault.storeSecret).toHaveBeenCalledWith('ai-api-key', 'sk-test');
+      expect(deps.secretVault.storeSecret).toHaveBeenCalledWith('ai.anthropic.key', 'sk-test');
       expect(deps.broker.postToWebview).toHaveBeenCalledWith(
         expect.objectContaining({
           type: 'ai:save-key:response',

@@ -258,10 +258,34 @@ export class ExtensionHandlers {
     );
 
     // Seed
-    route(['seed:execute', 'seed:describe-global', 'seed:describe-object'], this.seedHandler);
+    route(
+      [
+        'seed:execute',
+        'seed:describe-global',
+        'seed:describe-object',
+        'seed:template:save',
+        'seed:template:load',
+        'seed:template:list',
+        'seed:template:delete',
+        'seed:list-personas',
+        'seed:create-persona',
+      ],
+      this.seedHandler,
+    );
 
     // Sync
-    route(['sync:execute', 'sync:describe-global', 'sync:describe-fields'], this.syncHandler);
+    route(
+      [
+        'sync:execute',
+        'sync:describe-global',
+        'sync:describe-fields',
+        'sync:config:save',
+        'sync:config:load',
+        'sync:config:list',
+        'sync:config:delete',
+      ],
+      this.syncHandler,
+    );
 
     // Quick Sync
     route(
@@ -290,6 +314,9 @@ export class ExtensionHandlers {
         'monitor:sessions',
         'monitor:apex-insights',
         'monitor:sandbox-refresh',
+        'monitor:alerts',
+        'monitor:alert:acknowledge',
+        'monitor:alert:dismiss',
       ],
       this.monitorHandler,
     );
@@ -403,6 +430,7 @@ export class ExtensionHandlers {
         'forge:plan:request',
         'forge:compliance:request',
         'forge:metadata-diff:request',
+        'forge:target-preflight:request',
       ],
       this.forgeHandler,
     );

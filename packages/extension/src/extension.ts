@@ -377,51 +377,38 @@ export function activate(context: vscode.ExtensionContext): void {
     )
     .catch((err) => log(`Failed to init Forge module: ${String(err)}`));
 
-  // 7d. Wire up AI assistant if API key is configured
+  // 7d. Wire up the AI stack — unified on services.aiClient (AnthropicAdapter
+  // with circuit breaker, token budget and error redaction). Initialisation
+  // only happens when `sandforge.ai.enabled` is true AND an API key is stored
+  // under the unified `sandforge.ai.anthropic.key` secret.
   const initAI = async (): Promise<void> => {
-    const apiKey = await secretVault.getSecret('ai-api-key');
-    if (!apiKey) return;
+    if (!services.isAIEnabled()) {
+      log('AI disabled (sandforge.ai.enabled=false) — skipping AI init.');
+      return;
+    }
+    const apiKey = await secretVault.getSecret('ai.anthropic.key');
+    if (!apiKey) {
+      log('AI enabled but no API key stored (sandforge.ai.anthropic.key) — skipping AI init.');
+      return;
+    }
 
     const { AIAssistant } = await import('./modules/ai/AIAssistant.js');
 
-    const aiCallFn: import('./modules/ai/AIAssistant').AICallFn = async (messages, aiConfig) => {
+    // Route AIAssistant through the unified adapter: breaker + budget + lazy
+    // SecretStorage read all live in AnthropicAdapter.
+    const aiCallFn: import('./modules/ai/AIAssistant').AICallFn = async (messages, callConfig) => {
       const start = Date.now();
-      const baseUrl = aiConfig.baseUrl ?? AI_CONFIG.BASE_URL;
-      if (!baseUrl.startsWith('https://')) {
-        throw new Error(
-          'AI API requires HTTPS connection. Refusing to send API key over insecure transport.',
-        );
-      }
-      const response = await fetch(`${baseUrl}/v1/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': aiConfig.apiKey,
-          'anthropic-version': AI_CONFIG.API_VERSION,
-        },
-        body: JSON.stringify({
-          model: aiConfig.model,
-          max_tokens: aiConfig.maxTokens,
-          temperature: aiConfig.temperature,
-          messages: messages
-            .filter((m) => m.role !== 'system')
-            .map((m) => ({ role: m.role, content: m.content })),
-          system: messages.find((m) => m.role === 'system')?.content,
-        }),
+      const result = await services.aiClient().chat({
+        messages: messages
+          .filter((m) => m.role !== 'system')
+          .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        system: messages.find((m) => m.role === 'system')?.content,
+        maxTokens: callConfig.maxTokens,
       });
-      if (!response.ok) {
-        const errorBody = await response.text();
-        throw new Error(`AI API request failed (${response.status}): ${errorBody}`);
-      }
-      const data = (await response.json()) as {
-        content: Array<{ text: string }>;
-        usage: { output_tokens: number };
-        model: string;
-      };
       return {
-        content: data.content[0]?.text ?? '',
-        tokenCount: data.usage?.output_tokens ?? 0,
-        model: data.model ?? aiConfig.model,
+        content: result.text,
+        tokenCount: result.usage.output,
+        model: result.model,
         durationMs: Date.now() - start,
       };
     };
@@ -434,18 +421,15 @@ export function activate(context: vscode.ExtensionContext): void {
       temperature: AI_CONFIG.TEMPERATURE,
     });
     handlers.setAIAssistant(aiAssistant);
-    log('AI Assistant initialized with stored API key.');
+    log('AI Assistant initialized (unified adapter stack).');
 
-    // Wire up AI modules (Tier 2) using the same provider function
+    // Wire up AI modules (Tier 2) using the same unified client
     const aiProvider = async (prompt: string): Promise<string> => {
-      const result = await aiCallFn([{ role: 'user', content: prompt }], {
-        provider: AI_PROVIDER,
-        model: AI_CONFIG.MODEL,
-        apiKey,
+      const result = await services.aiClient().chat({
+        messages: [{ role: 'user', content: prompt }],
         maxTokens: AI_CONFIG.MAX_TOKENS,
-        temperature: AI_CONFIG.TEMPERATURE,
       });
-      return result.content;
+      return result.text;
     };
 
     const [
@@ -479,6 +463,17 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   initAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
 
+  // Re-initialise the AI stack when any sandforge.ai.* setting changes.
+  // Memoised adapters are invalidated first so provider/model changes take
+  // effect immediately (the API key is re-read lazily on the next call).
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration('sandforge.ai')) return;
+      services.aiClient.invalidate();
+      initAI().catch((err) => log(`Failed to re-init AI: ${String(err)}`));
+    }),
+  );
+
   handlers.registerAll(router);
 
   // 8. PanelManager (creates full-editor webview panels for modules)
@@ -508,7 +503,14 @@ export function activate(context: vscode.ExtensionContext): void {
             : `SandForge: ${operation.module} failed${operation.resultSummary ? ' \u2014 ' + operation.resultSummary : ''}`;
         vscode.window.showInformationMessage(label, 'Show Details').then((action) => {
           if (action === 'Show Details') {
-            panelManager.openPanel({ viewType: 'sandforge-main', title: 'SandForge', column: 1 });
+            // Open the Monitor module — openPanel only assigns webview.html
+            // when a moduleId is provided (same id as sandforge.openMonitor).
+            panelManager.openPanel({
+              viewType: 'sandforge.monitor',
+              title: 'SandForge: Monitor',
+              moduleId: 'monitor',
+              column: 1,
+            });
           }
         });
       }

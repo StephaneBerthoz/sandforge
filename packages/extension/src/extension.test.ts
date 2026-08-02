@@ -72,6 +72,7 @@ vi.mock('vscode', () => ({
     getConfiguration: vi.fn(() => ({
       get: vi.fn((_key: string, fallback: unknown) => fallback),
     })),
+    onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
     workspaceFolders: undefined,
   },
   Uri: {
@@ -190,8 +191,9 @@ describe('extension', () => {
 
     activate(context);
 
-    // 9 module commands + 1 cheers + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry = 15
-    expect(context.subscriptions.length).toBe(15);
+    // 10 module commands + 1 cheers + 1 sandforge.ai config-change listener
+    // + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry = 17
+    expect(context.subscriptions.length).toBe(17);
   });
 
   it('should deactivate without error', () => {

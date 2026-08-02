@@ -132,39 +132,14 @@
     "menus": {},
     "keybindings": [
       {
-        "command": "sandforge.openMonitor",
-        "key": "ctrl+shift+m",
-        "mac": "cmd+shift+m"
-      },
-      {
-        "command": "sandforge.openForge",
-        "key": "ctrl+shift+f",
-        "mac": "cmd+shift+f"
-      },
-      {
         "command": "sandforge.openGrappe",
         "key": "ctrl+shift+r",
         "mac": "cmd+shift+r"
       },
       {
-        "command": "sandforge.openCompare",
-        "key": "ctrl+shift+k",
-        "mac": "cmd+shift+k"
-      },
-      {
-        "command": "sandforge.openDataOps",
-        "key": "ctrl+shift+o",
-        "mac": "cmd+shift+o"
-      },
-      {
         "command": "sandforge.openAutomation",
         "key": "ctrl+shift+a",
         "mac": "cmd+shift+a"
-      },
-      {
-        "command": "sandforge.openOrgs",
-        "key": "ctrl+shift+g",
-        "mac": "cmd+shift+g"
       }
     ],
     "configuration": {
@@ -239,7 +214,7 @@
         },
         "sandforge.ai.model": {
           "type": "string",
-          "default": "claude-sonnet-4-20250514",
+          "default": "claude-sonnet-4-5-20250929",
           "description": "%config.ai.model.description%"
         },
         "sandforge.ai.tokenBudgetMaxPerSession": {

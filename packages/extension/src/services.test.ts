@@ -155,6 +155,20 @@ describe('services', () => {
       expect(getSecretSpy).not.toHaveBeenCalled();
     });
 
+    it('aiClient.invalidate() drops the memoised adapter (next call rebuilds)', () => {
+      const services = createServices(context);
+      const first = services.aiClient('anthropic');
+      services.aiClient.invalidate();
+      const second = services.aiClient('anthropic');
+      expect(second).not.toBe(first);
+    });
+
+    it('isAIEnabled defaults to false when sandforge.ai.enabled is unset', () => {
+      const services = createServices(context);
+      // The vscode mock returns the fallback for every setting (default: false).
+      expect(services.isAIEnabled()).toBe(false);
+    });
+
     it('Plan 04-01 vertical slice: services.aiClient().complete(DiagnoseResultSchema) round-trip', async () => {
       const ctx = createMockContext({}, { 'sandforge.ai.anthropic.key': 'sk-ant-fake-12345' });
       const services = createServices(ctx);
@@ -300,6 +314,55 @@ describe('services', () => {
       expect(result.success).toBe(true);
       expect(context.globalState.get('ai.apiKey')).toBeUndefined();
       expect(await context.secrets.get('sandforge.ai.anthropic.key')).toBe('sk-anthropic-legacy');
+    });
+
+    it('migrates legacy SecretStorage AI keys to the unified key and deletes them', async () => {
+      const context = createMockContext(
+        {},
+        {
+          'sandforge.ai-api-key': 'sk-from-ai-api-key',
+          'sandforge.ai:apiKey': 'sk-from-colon-key',
+        },
+      );
+      const services = createServices(context);
+
+      const result = await runSecretMigration(services.storage, services.telemetry, context);
+
+      expect(result.count).toBeGreaterThanOrEqual(2);
+      expect(result.success).toBe(true);
+      // First legacy key found wins; every legacy key is deleted.
+      expect(await context.secrets.get('sandforge.ai.anthropic.key')).toBe('sk-from-ai-api-key');
+      expect(await context.secrets.get('sandforge.ai-api-key')).toBeUndefined();
+      expect(await context.secrets.get('sandforge.ai:apiKey')).toBeUndefined();
+    });
+
+    it('does not overwrite an existing unified key when migrating legacy secrets', async () => {
+      const context = createMockContext(
+        {},
+        {
+          'sandforge.ai.anthropic.key': 'sk-current',
+          'sandforge.ai-api-key': 'sk-legacy',
+        },
+      );
+      const services = createServices(context);
+
+      const result = await runSecretMigration(services.storage, services.telemetry, context);
+
+      expect(result.count).toBe(1);
+      expect(await context.secrets.get('sandforge.ai.anthropic.key')).toBe('sk-current');
+      expect(await context.secrets.get('sandforge.ai-api-key')).toBeUndefined();
+    });
+
+    it('is idempotent for legacy SecretStorage keys too', async () => {
+      const context = createMockContext({}, { 'sandforge.ai-api-key': 'sk-legacy' });
+      const services = createServices(context);
+
+      const first = await runSecretMigration(services.storage, services.telemetry, context);
+      const second = await runSecretMigration(services.storage, services.telemetry, context);
+
+      expect(first.count).toBe(1);
+      expect(second.count).toBe(0);
+      expect(await context.secrets.get('sandforge.ai.anthropic.key')).toBe('sk-legacy');
     });
 
     it('migrates per-org access and refresh tokens from globalState to SecretStorage', async () => {
