@@ -1,8 +1,33 @@
+import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { Step2SelectObjects } from './Step2_SelectObjects';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
+
+/**
+ * Mock VirtualList to render all items directly (jsdom has no layout engine,
+ * so the real @tanstack/react-virtual would not measure any visible row).
+ */
+vi.mock('../../components/ui/VirtualList', () => ({
+  VirtualList: <T,>({
+    items,
+    renderItem,
+    keyExtractor,
+  }: {
+    items: T[];
+    renderItem: (item: T, index: number) => React.ReactNode;
+    keyExtractor: (item: T, index: number) => string;
+  }) => (
+    <div data-testid="virtual-list" role="list">
+      {items.map((item, index) => (
+        <div key={keyExtractor(item, index)} role="listitem">
+          {renderItem(item, index)}
+        </div>
+      ))}
+    </div>
+  ),
+}));
 
 const objects: SeedObjectInfo[] = [
   { apiName: 'Account', label: 'Account', recordCount: 1000, dependencies: [] },

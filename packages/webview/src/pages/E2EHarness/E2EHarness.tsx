@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { DriftFeed } from '../../components/monitor/DriftFeed';
+import type { Flow } from './harnessFlow';
 
 /**
  * E2E Harness — placeholder surfaces for Plan 02-03 Playwright specs.
@@ -25,29 +26,6 @@ import { DriftFeed } from '../../components/monitor/DriftFeed';
  * `window.addEventListener('message')` and updates its local UI state so
  * MockBridge.respond() / MockBridge.stream() drive the experience.
  */
-
-type Flow = 'seed-ai' | 'sync-conflict' | 'monitor' | 'cdc' | 'ai-diagnose' | 'drift-feed';
-
-/** Read the ?e2e-harness=<flow> query param. Returns null when absent. */
-export function getHarnessFlow(search: string): Flow | null {
-  try {
-    const params = new URLSearchParams(search);
-    const raw = params.get('e2e-harness');
-    if (
-      raw === 'seed-ai' ||
-      raw === 'sync-conflict' ||
-      raw === 'monitor' ||
-      raw === 'cdc' ||
-      raw === 'ai-diagnose' ||
-      raw === 'drift-feed'
-    ) {
-      return raw;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 /** Minimal fetch-style helper: POST a message to the extension mock. */
 function postExtensionMessage(type: string, payload: Record<string, unknown>): void {
