@@ -1,19 +1,15 @@
-import type { ActiveOperation, BaseMessage } from '@sandforge/shared';
+import type {
+  ActiveOperation,
+  StateSyncMessage,
+  WebviewState,
+} from '@sandforge/shared';
 import type { MessageBroker } from './MessageBroker';
 
-/** State snapshot that gets pushed to connected webviews. */
-export interface WebviewState {
-  orgs: Record<string, unknown>[];
-  settings: Record<string, unknown>;
-  activeOperations: ActiveOperation[];
-  extensionReady: boolean;
-}
-
-/** Message shape for state synchronization pushes. */
-export interface StateSyncMessage extends BaseMessage {
-  type: 'state:sync';
-  payload: WebviewState;
-}
+// `WebviewState` + `StateSyncMessage` live in `@sandforge/shared`
+// (`types/messages/settings.messages.ts`) — they are the TS counterparts of
+// the `state:sync` envelope in `bridge/messageSchemas.ts`. Re-exported here
+// so existing imports from this module keep working.
+export type { StateSyncMessage, WebviewState } from '@sandforge/shared';
 
 /**
  * Maintains a state snapshot on the extension side and pushes

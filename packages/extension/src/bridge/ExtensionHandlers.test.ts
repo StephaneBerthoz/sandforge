@@ -121,6 +121,24 @@ function validSyncConfig(id: string, name: string): Record<string, unknown> {
   };
 }
 
+/** Minimal sync schedule entry that passes the sync:schedule payload validation. */
+function validSchedule(id: string): Record<string, unknown> {
+  return {
+    id,
+    name: 'Nightly sync',
+    configId: 'cfg-1',
+    cron: '0 6 * * *',
+    timezone: 'UTC',
+    enabled: true,
+    maxRetries: 3,
+    notifyOnComplete: true,
+    notifyOnFailure: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    version: 1,
+  };
+}
+
 describe('ExtensionHandlers', () => {
   let broker: MessageBroker;
   let router: MessageRouter;
@@ -1283,6 +1301,112 @@ describe('ExtensionHandlers', () => {
       expect(response).toBeDefined();
       const payload = (response as BaseMessage & { payload: { success: boolean } }).payload;
       expect(payload.success).toBe(true);
+    });
+  });
+
+  describe('sync schedule routing', () => {
+    it('sync:schedule:upsert should persist the schedule and respond with computed nextRunAt', async () => {
+      broker['dispatch'](msg('sync:schedule:upsert', { schedule: validSchedule('sched-1') }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'sync:schedule:upsert:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & {
+          payload: { success: boolean; schedule: { id: string; nextRunAt?: string } };
+        }
+      ).payload;
+      expect(payload.success).toBe(true);
+      expect(payload.schedule.id).toBe('sched-1');
+      // cron-parser computes a next run for the valid '0 6 * * *' expression
+      expect(payload.schedule.nextRunAt).toBeTruthy();
+    });
+
+    it('sync:schedule:list should list upserted schedules', async () => {
+      broker['dispatch'](msg('sync:schedule:upsert', { schedule: validSchedule('sched-2') }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      broker['dispatch'](msg('sync:schedule:list'));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
+
+      const response = posted.find((p) => p.type === 'sync:schedule:list:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { schedules: Array<{ id: string }> } }
+      ).payload;
+      expect(payload.schedules).toHaveLength(1);
+      expect(payload.schedules[0].id).toBe('sched-2');
+    });
+
+    it('sync:schedule:toggle should disable an enabled schedule', async () => {
+      broker['dispatch'](msg('sync:schedule:upsert', { schedule: validSchedule('sched-3') }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      broker['dispatch'](
+        msg('sync:schedule:toggle', { scheduleId: 'sched-3', enabled: false }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
+
+      const response = posted.find((p) => p.type === 'sync:schedule:toggle:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & {
+          payload: { success: boolean; scheduleId: string; enabled: boolean };
+        }
+      ).payload;
+      expect(payload.success).toBe(true);
+      expect(payload.scheduleId).toBe('sched-3');
+      expect(payload.enabled).toBe(false);
+    });
+
+    it('sync:schedule:toggle should report NOT_FOUND for an unknown schedule', async () => {
+      broker['dispatch'](
+        msg('sync:schedule:toggle', { scheduleId: 'missing', enabled: false }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const errMsg = posted.find((p) => p.type === 'sync:schedule:error');
+      expect(errMsg).toBeDefined();
+      const payload = (errMsg as BaseMessage & { payload: { code: string } }).payload;
+      expect(payload.code).toBe('NOT_FOUND');
+    });
+
+    it('sync:schedule:delete should delete an existing schedule', async () => {
+      broker['dispatch'](msg('sync:schedule:upsert', { schedule: validSchedule('sched-4') }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      broker['dispatch'](msg('sync:schedule:delete', { scheduleId: 'sched-4' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
+
+      const response = posted.find((p) => p.type === 'sync:schedule:delete:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { success: boolean; scheduleId: string } }
+      ).payload;
+      expect(payload.success).toBe(true);
+      expect(payload.scheduleId).toBe('sched-4');
+
+      broker['dispatch'](msg('sync:schedule:list'));
+      await vi.waitFor(() =>
+        expect(posted.some((p) => p.type === 'sync:schedule:list:response')).toBe(true),
+      );
+      const listResponse = posted.find((p) => p.type === 'sync:schedule:list:response');
+      const listPayload = (
+        listResponse as BaseMessage & { payload: { schedules: unknown[] } }
+      ).payload;
+      expect(listPayload.schedules).toHaveLength(0);
+    });
+
+    it('sync:schedule:upsert should reject an invalid payload with INVALID_PAYLOAD', async () => {
+      broker['dispatch'](
+        msg('sync:schedule:upsert', { schedule: { id: 'sched-bad' } }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const errMsg = posted.find((p) => p.type === 'sync:schedule:error');
+      expect(errMsg).toBeDefined();
+      const payload = (errMsg as BaseMessage & { payload: { code: string } }).payload;
+      expect(payload.code).toBe('INVALID_PAYLOAD');
     });
   });
 

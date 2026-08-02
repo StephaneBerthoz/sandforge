@@ -1,17 +1,22 @@
-// SandForge — Jenkins Pipeline
-// This pipeline runs the full SandForge workflow:
-//   1. Seed sandbox with test data
-//   2. Sync data between orgs
-//   3. Backup target org data
-//   4. Run health check on target org
-//   5. Generate execution report
+// SandForge — Jenkins Pipeline (EXAMPLE)
+//
+// Honest example built on what actually exists in this repo:
+//   1. Quality gates   — typecheck + unit tests + minified extension build
+//   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
+//   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+//   4. VSIX package    — pnpm package, archived as an artifact
+//
+// There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
+// only in the VSCode extension UI. See ci-examples/README.md for details.
 //
 // Prerequisites:
-//   - Configure the following credentials in Jenkins:
-//     - sf-source-credentials: Username/Password credential for source org
-//     - sf-target-credentials: Username/Password credential for target org
-//     - slack-webhook: Secret text for Slack webhook URL (optional)
-//   - Node.js 20 configured in Jenkins Global Tool Configuration
+//   - Node.js 20 configured in Jenkins Global Tool Configuration ('Node-20')
+//   - Credentials (Secret text):
+//     - sfdx-auth-url-source: sfdx auth URL of the source org
+//     - sfdx-auth-url-target: sfdx auth URL of the target sandbox
+//     - slack-webhook: (optional) Slack webhook for failure notifications
+//   - Job environment: set SANDFORGE_SF_ORGS=true and SF_CLONE_RECORD_ID
+//     (e.g. in folder properties) to enable the clone/cleanup stages
 
 pipeline {
     agent any
@@ -23,21 +28,14 @@ pipeline {
     parameters {
         booleanParam(
             name: 'DRY_RUN',
-            defaultValue: false,
-            description: 'Run in dry-run mode (no data written to target org)'
+            defaultValue: true,
+            description: 'Run clone/cleanup in dry-run mode (no data written to target org)'
         )
-    }
-
-    environment {
-        // Source org credentials
-        SF_SOURCE_USERNAME = credentials('sf-source-username')
-        SF_SOURCE_PASSWORD = credentials('sf-source-password')
-        SF_SOURCE_LOGIN_URL = credentials('sf-source-login-url')
-
-        // Target org credentials
-        SF_TARGET_USERNAME = credentials('sf-target-username')
-        SF_TARGET_PASSWORD = credentials('sf-target-password')
-        SF_TARGET_LOGIN_URL = credentials('sf-target-login-url')
+        string(
+            name: 'SF_CLONE_RECORD_ID',
+            defaultValue: '',
+            description: 'Salesforce record Id to clone (e.g. 500...). Required for the Clone stage.'
+        )
     }
 
     options {
@@ -52,121 +50,84 @@ pipeline {
     }
 
     stages {
-        // ── Setup ──────────────────────────────────────────
-        stage('Setup') {
+        // ── Quality gates ──────────────────────────────────
+        stage('Quality gates') {
             steps {
-                script {
-                    // Install pnpm
-                    sh 'npm install -g pnpm@9'
-                    sh 'pnpm install --frozen-lockfile'
+                sh 'npm install -g pnpm@9'
+                sh 'pnpm install --frozen-lockfile'
+                sh 'pnpm typecheck'
+                sh 'pnpm test'
+                sh 'pnpm build:extension'
+            }
+        }
+
+        // ── Forge clone (real CLI, dry-run default) ────────
+        stage('Clone (sandforge-clone)') {
+            when {
+                expression { return env.SANDFORGE_SF_ORGS == 'true' && params.SF_CLONE_RECORD_ID?.trim() }
+            }
+            steps {
+                withCredentials([
+                    string(credentialsId: 'sfdx-auth-url-source', variable: 'SFDX_AUTH_URL_SOURCE'),
+                    string(credentialsId: 'sfdx-auth-url-target', variable: 'SFDX_AUTH_URL_TARGET')
+                ]) {
+                    sh 'npm install -g @salesforce/cli'
+                    sh 'pnpm build:shared'
+                    // Authenticate both orgs; the CLIs shell out to `sf org display`.
+                    sh 'printf "%s" "$SFDX_AUTH_URL_SOURCE" > /tmp/auth-source.txt'
+                    sh 'printf "%s" "$SFDX_AUTH_URL_TARGET" > /tmp/auth-target.txt'
+                    sh 'sf org login sfdxurl --sfdx-url-file /tmp/auth-source.txt --alias ci-source'
+                    sh 'sf org login sfdxurl --sfdx-url-file /tmp/auth-target.txt --alias ci-target'
+                    sh 'rm -f /tmp/auth-source.txt /tmp/auth-target.txt'
+                    script {
+                        def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
+                        sh """
+                            pnpm exec tsx packages/extension/cli/sandforge-clone.ts \\
+                                --record "${params.SF_CLONE_RECORD_ID}" \\
+                                --source ci-source \\
+                                --target ci-target \\
+                                --upsert \\
+                                ${dryRunFlag} \\
+                                --json \\
+                                --remap-csv remap.csv \\
+                                > clone-summary.json
+                        """
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'clone-summary.json, remap.csv', allowEmptyArchive: true
                 }
             }
         }
 
-        // ── Stage 1: Seed ──────────────────────────────────
-        stage('Seed') {
+        // ── Cleanup (real CLI, dry-run default) ────────────
+        stage('Cleanup (sandforge-cleanup)') {
+            when {
+                expression { return env.SANDFORGE_SF_ORGS == 'true' }
+            }
             steps {
                 script {
                     def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
                     sh """
-                        sandforge seed \\
-                            --config .sandforge.json \\
-                            --template default \\
-                            ${dryRunFlag} \\
-                            --output-format json \\
-                            --output seed-report.json
+                        pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \\
+                            --target ci-target \\
+                            --since today \\
+                            ${dryRunFlag}
                     """
                 }
             }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'seed-report.json', allowEmptyArchive: true
-                }
-            }
         }
 
-        // ── Stage 2: Sync ──────────────────────────────────
-        stage('Sync') {
+        // ── VSIX package ───────────────────────────────────
+        stage('Package VSIX') {
             steps {
-                script {
-                    def dryRunFlag = params.DRY_RUN ? '--dry-run' : ''
-                    sh """
-                        sandforge sync \\
-                            --config .sandforge.json \\
-                            --mode full \\
-                            ${dryRunFlag} \\
-                            --output-format json \\
-                            --output sync-report.json
-                    """
-                }
+                sh 'pnpm package'
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'sync-report.json', allowEmptyArchive: true
-                }
-            }
-        }
-
-        // ── Stage 3: Backup ────────────────────────────────
-        stage('Backup') {
-            steps {
-                sh '''
-                    sandforge backup \
-                        --config .sandforge.json \
-                        --org target \
-                        --output-format json \
-                        --output backup-report.json
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'backup-report.json', allowEmptyArchive: true
-                }
-            }
-        }
-
-        // ── Stage 4: Health Check ──────────────────────────
-        stage('Health Check') {
-            steps {
-                sh '''
-                    sandforge monitor health-check \
-                        --config .sandforge.json \
-                        --org target \
-                        --output-format json \
-                        --output health-report.json
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'health-report.json', allowEmptyArchive: true
-                }
-            }
-        }
-
-        // ── Stage 5: Report ────────────────────────────────
-        stage('Report') {
-            steps {
-                sh '''
-                    sandforge report \
-                        --seed-report seed-report.json \
-                        --sync-report sync-report.json \
-                        --backup-report backup-report.json \
-                        --health-report health-report.json \
-                        --output-format html \
-                        --output pipeline-report.html
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'pipeline-report.html', allowEmptyArchive: true
-                    publishHTML(target: [
-                        allowMissing: true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: '.',
-                        reportFiles: 'pipeline-report.html',
-                        reportName: 'SandForge Pipeline Report'
-                    ])
+                    archiveArtifacts artifacts: 'sandforge.vsix', allowEmptyArchive: true
                 }
             }
         }
@@ -181,18 +142,7 @@ pipeline {
                         sh """
                             curl -X POST "\$SLACK_WEBHOOK_URL" \\
                                 -H 'Content-Type: application/json' \\
-                                -d '{
-                                    "text": "SandForge Pipeline FAILED on ${env.JOB_NAME} (#${env.BUILD_NUMBER})",
-                                    "blocks": [
-                                        {
-                                            "type": "section",
-                                            "text": {
-                                                "type": "mrkdwn",
-                                                "text": "*SandForge Pipeline Failed*\\n*Job:* ${env.JOB_NAME}\\n*Build:* #${env.BUILD_NUMBER}\\n*URL:* <${env.BUILD_URL}|View Build>"
-                                            }
-                                        }
-                                    ]
-                                }'
+                                -d '{"text": "SandForge Pipeline FAILED on ${env.JOB_NAME} (#${env.BUILD_NUMBER}) — ${env.BUILD_URL}"}'
                         """
                     }
                 } catch (Exception e) {

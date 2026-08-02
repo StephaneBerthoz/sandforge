@@ -111,6 +111,41 @@ export const syncDescribeFieldsPayloadSchema = z.object({
   objectApiName: sfApiNameSchema,
 });
 
+// ── sync:schedule:* payload schemas ─────────────────────────────────────────
+// Mirror what `useSyncScheduleStore` / `SyncSchedulePanel` actually post.
+// Runtime fields (nextRunAt/lastRunAt/lastResult) are computed extension-side
+// by SyncScheduleExecutor, so the upsert payload must NOT carry them.
+
+/** Schedule entry as sent by the webview (Omit<SyncScheduleEntry, runtime fields>). */
+export const syncScheduleEntryPayloadSchema = z
+  .object({
+    id: opaqueIdSchema,
+    name: z.string().min(1).max(200),
+    configId: opaqueIdSchema,
+    // 5-field cron expression; syntax is validated by cron-parser at upsert
+    // time (SyncScheduleExecutor logs and yields an empty nextRunAt on error).
+    cron: z.string().min(1).max(100),
+    // IANA timezone string (e.g. "Europe/Paris").
+    timezone: z.string().min(1).max(100),
+    enabled: z.boolean(),
+    maxRetries: z.number().int().min(0).max(10),
+    notifyOnComplete: z.boolean(),
+    notifyOnFailure: z.boolean(),
+    createdAt: z.string().max(40),
+    updatedAt: z.string().max(40),
+    version: z.number().int().positive(),
+  })
+  .passthrough();
+
+export const syncScheduleUpsertPayloadSchema = z.object({
+  schedule: syncScheduleEntryPayloadSchema,
+});
+export const syncScheduleTogglePayloadSchema = z.object({
+  scheduleId: opaqueIdSchema,
+  enabled: z.boolean(),
+});
+export const syncScheduleIdPayloadSchema = z.object({ scheduleId: opaqueIdSchema });
+
 // ── seed:* payload schemas ────────────────────────────────────────────────
 
 /** Per-object seed config as sent by the webview (see sync note on batchSize). */

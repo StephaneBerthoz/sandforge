@@ -536,9 +536,11 @@ describe('AnthropicAdapter — Plan 04-03 runTools', () => {
     // toolRunner returns a runner whose iteration throws an overloaded error.
     mockBetaMessagesToolRunner.mockReturnValue({
       setRequestOptions: vi.fn(),
-      async *[Symbol.asyncIterator]() {
-        throw new MockOverloadedError(529);
-      },
+      // Plain async iterator (not a generator — require-yield): the first
+      // next() rejects, so runTools' for-await rethrows the overloaded error.
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new MockOverloadedError(529)),
+      }),
     });
     for (let i = 0; i < 3; i++) {
       await expect(adapter.runTools({ prompt: 'x', tools: [] })).rejects.toThrow();

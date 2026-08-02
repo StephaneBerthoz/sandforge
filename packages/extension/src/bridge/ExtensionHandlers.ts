@@ -36,6 +36,7 @@ import type { MigrationFileReader } from './handlers/MigrationHandler.js';
 import { ConfigHandler } from './handlers/ConfigHandler.js';
 import { GovernanceOpsHandler } from './handlers/GovernanceOpsHandler.js';
 import { QuickSyncHandler } from './handlers/QuickSyncHandler.js';
+import { SyncScheduleHandler } from './handlers/SyncScheduleHandler.js';
 import { NoOpHandler } from './handlers/NoOpHandler.js';
 import { CacheHandler as CacheDomainHandler } from './handlers/CacheHandler.js';
 import { SmartActionHandler } from './handlers/SmartActionHandler.js';
@@ -107,6 +108,7 @@ export class ExtensionHandlers {
   private readonly configHandler: ConfigHandler;
   private readonly governanceHandler: GovernanceOpsHandler;
   private readonly quickSyncHandler: QuickSyncHandler;
+  private readonly syncScheduleHandler: SyncScheduleHandler;
   private readonly noOpHandler: NoOpHandler;
   private readonly cacheHandler: CacheDomainHandler;
   private readonly smartActionHandler: SmartActionHandler;
@@ -149,6 +151,7 @@ export class ExtensionHandlers {
       this.monitorHandler.getAlertEngine(),
     );
     this.quickSyncHandler = new QuickSyncHandler(this.handlerDeps);
+    this.syncScheduleHandler = new SyncScheduleHandler(this.handlerDeps);
     this.noOpHandler = new NoOpHandler(this.handlerDeps);
     this.cacheHandler = new CacheDomainHandler(this.handlerDeps);
     this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
@@ -285,6 +288,17 @@ export class ExtensionHandlers {
         'sync:config:delete',
       ],
       this.syncHandler,
+    );
+
+    // Sync schedules (CRUD backed by SyncScheduleExecutor + SyncScheduleStore)
+    route(
+      [
+        'sync:schedule:list',
+        'sync:schedule:upsert',
+        'sync:schedule:toggle',
+        'sync:schedule:delete',
+      ],
+      this.syncScheduleHandler,
     );
 
     // Quick Sync

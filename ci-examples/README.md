@@ -1,111 +1,107 @@
 # SandForge CI/CD Examples
 
-This directory contains ready-to-use CI/CD pipeline configurations for automating SandForge operations across different platforms.
+Ready-to-use CI/CD pipeline configurations for automating what SandForge **actually ships** — no fictional CLI commands.
+
+## What exists (and what doesn't)
+
+SandForge is a **VSCode extension**. Most operations (seed, sync, backup, health checks) run inside the extension UI and have **no headless CLI**. There is no `sandforge` binary and no `bin` entry in `package.json`.
+
+The only headless entry points are two TypeScript CLI scripts, run with `tsx` from the **repository root** of a checkout of this repo:
+
+| Script | Purpose | Required flags | Useful options |
+|--------|---------|----------------|----------------|
+| `packages/extension/cli/sandforge-clone.ts` | Record-scoped clone (Forge) from a source org to a target sandbox | `--record <id> --source <alias> --target <alias>` | `--dry-run`, `--json`, `--upsert`, `--max <n>`, `--depth direct\|full\|custom`, `--custom-depth <n>`, `--anonymize`, `--exclude <obj.field>`, `--owner-map <src=tgt>`, `--filter <obj=where>`, `--map <obj.src=tgt>`, `--remap-csv <file>`, `--skip-preflight`, `--expand-orphans` |
+| `packages/extension/cli/sandforge-cleanup.ts` | Bulk-delete records cloned by the current user on a target sandbox | `--target <alias>` | `--dry-run`, `--since today\|yesterday\|last_week\|last_n_days:N`, `--objects a,b,c`, `--max <n>` |
+
+Both scripts:
+
+- are invoked as `pnpm exec tsx packages/extension/cli/sandforge-<name>.ts ...`
+- delegate org authentication to the **Salesforce CLI** (`sf org display --target-org <alias>`), so `sf` must be installed and both orgs must be authenticated (in CI: `sf org login sfdxurl` with an `SFDX_AUTH_URL_*` secret)
+- require `pnpm install` + `pnpm build:shared` to have run first (they import `@sandforge/shared` and extension sources)
+- support `--dry-run` — the pipelines default to it so nothing is written unless you opt in
 
 ## Available Examples
 
-| File | Platform | Description |
-|------|----------|-------------|
-| `github-actions.yml` | GitHub Actions | Full pipeline with artifact upload and Slack notifications |
-| `gitlab-ci.yml` | GitLab CI | Multi-stage pipeline with caching and artifact retention |
-| `Jenkinsfile` | Jenkins | Declarative pipeline with HTML report publishing |
-| `azure-pipelines.yml` | Azure DevOps | Multi-stage pipeline with variable groups and artifact downloads |
+| File | Platform | Jobs |
+|------|----------|------|
+| `github-actions.yml` | GitHub Actions | quality gates → clone/cleanup (gated) → VSIX package → Slack notify |
+| `gitlab-ci.yml` | GitLab CI | quality → clone (rule-gated) → package |
+| `Jenkinsfile` | Jenkins | Quality gates → Clone → Cleanup → Package VSIX, artifact archiving |
+| `azure-pipelines.yml` | Azure DevOps | Quality → Clone (condition-gated) → Package |
 
-## Pipeline Stages
+Every pipeline implements the same four stages:
 
-Each pipeline implements the same five stages:
-
-1. **Seed** — Populate sandbox with test data using SandForge seed templates
-2. **Sync** — Synchronize data between source and target orgs
-3. **Backup** — Create a backup of the target org data
-4. **Health Check** — Run health diagnostics on the target org
-5. **Report** — Generate an HTML report combining all stage results
+1. **Quality gates** — `pnpm typecheck`, `pnpm test`, `pnpm build:extension` (minified esbuild bundle)
+2. **Clone** — `sandforge-clone.ts --dry-run --json --remap-csv` against sf-authenticated orgs (skipped unless org secrets are configured)
+3. **Cleanup** — `sandforge-cleanup.ts --dry-run` on the target sandbox
+4. **VSIX package** — `pnpm package`, uploaded/archived as an artifact
 
 ## Setup
 
-### 1. Install SandForge CLI
+### 1. Configure credentials
 
-Ensure `sandforge` CLI is available in your CI environment. The pipelines install Node.js and pnpm, then use the project's local SandForge installation.
+The clone/cleanup stages authenticate via the Salesforce CLI. Store **sfdx auth URLs** (obtained via `sf org display --verbose --json` → `sfdxAuthUrl`) as secrets:
 
-### 2. Configure Credentials
+| Variable | Description |
+|----------|-------------|
+| `SFDX_AUTH_URL_SOURCE` | sfdx auth URL of the source org (secret) |
+| `SFDX_AUTH_URL_TARGET` | sfdx auth URL of the target sandbox (secret) |
+| `SANDFORGE_SF_ORGS` | Set to `true` to enable the clone/cleanup stages |
+| `SF_CLONE_RECORD_ID` | Salesforce record Id to clone (15/18-char, e.g. `500...`) |
+| `SLACK_WEBHOOK_URL` | (Optional) Slack webhook for failure alerts |
 
-Each platform has its own secrets/credentials management. You need to configure the following variables:
+If `SANDFORGE_SF_ORGS` is not set, the pipelines still run quality gates and the VSIX package — the org-touching stages are skipped.
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `SF_SOURCE_USERNAME` | Source org Salesforce username | `admin@dev.sandbox` |
-| `SF_SOURCE_PASSWORD` | Source org password + security token | `MyP@ss123TOKEN` |
-| `SF_SOURCE_LOGIN_URL` | Source org login URL | `https://test.salesforce.com` |
-| `SF_TARGET_USERNAME` | Target org Salesforce username | `admin@qa.sandbox` |
-| `SF_TARGET_PASSWORD` | Target org password + security token | `MyP@ss456TOKEN` |
-| `SF_TARGET_LOGIN_URL` | Target org login URL | `https://test.salesforce.com` |
-| `SLACK_WEBHOOK_URL` | (Optional) Slack webhook for failure alerts | `https://hooks.slack.com/...` |
-
-### Platform-Specific Instructions
+### 2. Platform-specific instructions
 
 #### GitHub Actions
-1. Go to your repository Settings > Secrets and variables > Actions
-2. Add each variable as a Repository Secret
+1. Repository **Settings > Secrets and variables > Actions**: add the two `SFDX_AUTH_URL_*` secrets (+ optional `SLACK_WEBHOOK_URL`)
+2. Same page, **Variables** tab: `SANDFORGE_SF_ORGS=true`, `SF_CLONE_RECORD_ID=<id>`
 3. Copy `github-actions.yml` to `.github/workflows/sandforge.yml`
 
 #### GitLab CI
-1. Go to your project Settings > CI/CD > Variables
-2. Add each variable, marking passwords as "Masked"
-3. Copy `gitlab-ci.yml` to `.gitlab-ci.yml` in your project root
+1. **Settings > CI/CD > Variables**: add the variables, marking the auth URLs as "Masked"
+2. Copy `gitlab-ci.yml` to `.gitlab-ci.yml` in your project root
 
 #### Jenkins
-1. Go to Jenkins > Manage Jenkins > Credentials
-2. Create Username/Password and Secret Text credentials
-3. Copy `Jenkinsfile` to your project root
-4. Configure a Pipeline job pointing to the Jenkinsfile
+1. **Manage Jenkins > Credentials**: create Secret text credentials `sfdx-auth-url-source`, `sfdx-auth-url-target` (+ optional `slack-webhook`)
+2. Set `SANDFORGE_SF_ORGS=true` in folder/job environment
+3. Copy `Jenkinsfile` to your project root and point a Pipeline job at it
+4. Pass `SF_CLONE_RECORD_ID` as a build parameter
 
 #### Azure DevOps
-1. Go to Pipelines > Library > Variable Groups
-2. Create a group named `SandForge-Credentials` with all variables
-3. Copy `azure-pipelines.yml` to your project root
-4. Create a new pipeline referencing the YAML file
+1. **Pipelines > Library > Variable Groups**: create `SandForge-Credentials` with all variables (auth URLs as secrets)
+2. Copy `azure-pipelines.yml` to your project root and create a pipeline referencing it
 
-### 3. Configure SandForge
+### 3. Try the CLIs locally first
 
-Ensure your project has a `.sandforge.json` configuration file. See `.sandforge.example.json` in the project root for a complete template.
+```bash
+pnpm install
+pnpm build:shared
+pnpm exec tsx packages/extension/cli/sandforge-clone.ts --help
+pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts --help
+```
 
 ## Customization
 
 ### Dry Run Mode
-All pipelines support a dry-run mode that simulates operations without writing data. This is useful for testing pipeline configurations.
+All pipelines default to dry-run (no writes):
 
-- **GitHub Actions**: Use `workflow_dispatch` with `dry_run: true`
-- **GitLab CI**: Set the `DRY_RUN` variable to any non-empty value
-- **Jenkins**: Check the `DRY_RUN` parameter when triggering a build
-- **Azure DevOps**: Set the `dryRun` parameter to `true`
+- **GitHub Actions**: `workflow_dispatch` input `dry_run` (default `true`)
+- **GitLab CI**: `DRY_RUN` variable (default `"true"`)
+- **Jenkins**: `DRY_RUN` parameter (default checked)
+- **Azure DevOps**: `dryRun` parameter (default `true`)
 
 ### Scheduling
-By default, pipelines are scheduled to run every Monday at 6 AM UTC. Adjust the cron expression in each file to match your team's needs.
+Pipelines are scheduled every Monday at 6 AM UTC. Adjust the cron expression to your needs.
 
-### Notifications
-All pipelines include Slack notification on failure. To use a different notification method:
-1. Replace the `curl` command in the notification step
-2. Options: email, Microsoft Teams webhook, PagerDuty, custom HTTP endpoint
-
-### Adding Custom Stages
-To add stages (e.g., data anonymization, comparison):
-
-```yaml
-# Example: Add a compare stage after sync
-- name: Compare orgs after sync
-  run: |
-    sandforge compare \
-      --config .sandforge.json \
-      --mode metadata \
-      --output-format json \
-      --output compare-report.json
-```
+### Building only the VSIX
+The `package` stage is independent of org credentials — it always runs `pnpm package` (build shared → extension → webview → `vsce package`) and publishes `sandforge.vsix`.
 
 ## Security Best Practices
 
-1. **Never commit credentials** to your repository
-2. **Use platform-native secrets management** (not environment files)
-3. **Rotate credentials** regularly, especially after team changes
-4. **Use sandbox-only credentials** — never connect to production orgs in CI/CD
+1. **Never commit credentials** — use platform-native secrets management
+2. **Rotate sfdx auth URLs** regularly, especially after team changes
+3. **Use sandbox-only credentials** — never connect to production orgs in CI/CD
+4. **Keep dry-run on by default** — flip it off only for deliberate, reviewed runs
 5. **Enable audit logging** in your Salesforce orgs to track CI/CD operations
-6. **Restrict pipeline permissions** to minimum required access

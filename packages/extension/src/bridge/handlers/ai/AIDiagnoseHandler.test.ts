@@ -5,6 +5,7 @@ import type {
   AIRunToolsResult,
   AICompleteResult,
 } from '../../../adapters/ai/AIClient.js';
+import type { DiagnoseResult } from '@sandforge/shared';
 import { AIDiagnoseHandler, type DiagnoseBroker } from './AIDiagnoseHandler.js';
 
 const zeroUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheCreate: 0, total: 0 });
@@ -28,14 +29,13 @@ function makeClient(overrides: {
   const complete =
     overrides.complete ??
     vi.fn(
-      async (): Promise<AICompleteResult<never>> => ({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (): Promise<AICompleteResult<DiagnoseResult>> => ({
         payload: {
           summary: 'demo',
           rootCause: 'demo cause',
           suggestedActions: [],
           confidence: 'medium',
-        } as any,
+        },
         usage: { input: 60, output: 30, cacheRead: 0, cacheCreate: 0, total: 90 },
         model: 'm',
         stopReason: 'end_turn',
