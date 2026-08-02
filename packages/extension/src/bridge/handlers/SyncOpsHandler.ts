@@ -32,16 +32,10 @@ import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
-import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
-import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
-import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
-
-/** Record count threshold above which streaming pipeline is used. */
-const STREAMING_THRESHOLD = 10_000;
+import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 
 /** Message types handled by SyncOpsHandler. */
 const SYNC_TYPES = new Set([
@@ -55,19 +49,13 @@ const SYNC_TYPES = new Set([
 ]);
 
 /**
- * Convert a describe field result to a FieldDescriptor for FieldTypeValidator.
- * Maps the jsforce describe shape to the validator's input type.
- */
-function toValidatorField(f: { name: string; type: string; length: number }): FieldDescriptor {
-  return { apiName: f.name, type: f.type, maxLength: f.length || undefined };
-}
-
-/**
  * Domain handler for sync-related webview-to-extension messages.
  *
  * Routes sync:* message types to schema description and data synchronization
  * operations between Salesforce orgs, with production guard checks,
  * performance tracking, retry, timeout, bulk API, and field type validation.
+ * Record writes are delegated to {@link BulkDataWriter}; this handler only
+ * orchestrates message handling, guards, and progress channels.
  */
 export class SyncOpsHandler implements DomainHandler {
   /**
@@ -447,425 +435,27 @@ export class SyncOpsHandler implements DomainHandler {
           payload: progress,
         } as unknown as import('@sandforge/shared').BaseMessage);
       });
-      const retryOp = new RetryableOperation({
+      // Build the record writer: mutualizes insert/upsert/update/delete across
+      // the streaming, Bulk API, and REST batch paths (see BulkDataWriter).
+      const writer = new BulkDataWriter({
+        connection: targetConn,
+        bulkExecutor,
+        bulkManager,
         retryConfig: robustnessConfig.retry,
-        onRetry: (attempt, classified, delay) => {
-          this.deps.log(
-            `[RETRY] sync attempt=${attempt} code=${classified.originalError.statusCode} delay=${delay}ms`,
+        describeTimeoutMs: robustnessConfig.timeouts.describe,
+        signal: abortController.signal,
+        onProgress: (processed, total, label) => {
+          sendOperationProgress(
+            this.deps,
+            operationId,
+            Math.round((processed / total) * 100),
+            processed,
+            total,
+            label,
           );
         },
+        log: (message) => this.deps.log(message),
       });
-      const handlerDeps = this.deps;
-      const fieldValidator = new FieldTypeValidator();
-
-      // Build jsforce CRUD functions for target org with retry + bulk + streaming
-      type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
-
-      const insertFn = async (
-        objectName: string,
-        records: Record<string, unknown>[],
-        batchSize: number,
-      ) => {
-        // Streaming path for large record sets
-        if (records.length > STREAMING_THRESHOLD) {
-          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Streaming insert ${objectName}`,
-              );
-            },
-          };
-          const streamResult = await chunkedExecutor.executeChunked(
-            bulkDeps,
-            objectName,
-            'insert',
-            chunkedExecutor.createChunkGenerator(records),
-            records.length,
-          );
-          return Array.from({ length: records.length }, (_, i) => ({
-            id:
-              i < streamResult.successCount
-                ? (streamResult.successIds[i] ?? `stream-${i}`)
-                : undefined,
-            success: i < streamResult.successCount,
-            errors:
-              i >= streamResult.successCount
-                ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error']
-                : ([] as string[]),
-          }));
-        }
-
-        if (bulkExecutor.shouldUseBulkApi(records.length)) {
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Bulk insert ${objectName}`,
-              );
-            },
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectName,
-            'insert',
-            records,
-          );
-          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-            success: i < bulkResult.successCount,
-            errors:
-              i >= bulkResult.successCount
-                ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-                : ([] as string[]),
-          }));
-        }
-
-        const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
-        for (let i = 0; i < records.length; i += batchSize) {
-          const batch = records.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            return targetConn.sobject(objectName).create(batch) as Promise<JsforceResult[]>;
-          });
-          if (retryResult.success && retryResult.result) {
-            for (const r of retryResult.result) {
-              outcomes.push({
-                id: r.id,
-                success: r.success,
-                errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-              });
-            }
-          } else {
-            outcomes.push(
-              ...batch.map(() => ({
-                success: false as const,
-                errors: [retryResult.error?.message ?? 'Insert failed after retries'],
-              })),
-            );
-          }
-        }
-        return outcomes;
-      };
-
-      const upsertFn = async (
-        objectName: string,
-        externalIdField: string,
-        records: Record<string, unknown>[],
-        batchSize: number,
-      ) => {
-        // Streaming path for large record sets
-        if (records.length > STREAMING_THRESHOLD) {
-          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Streaming upsert ${objectName}`,
-              );
-            },
-          };
-          const streamResult = await chunkedExecutor.executeChunked(
-            bulkDeps,
-            objectName,
-            'upsert',
-            chunkedExecutor.createChunkGenerator(records),
-            records.length,
-            externalIdField,
-          );
-          return Array.from({ length: records.length }, (_, i) => ({
-            id:
-              i < streamResult.successCount
-                ? (streamResult.successIds[i] ?? `stream-${i}`)
-                : undefined,
-            success: i < streamResult.successCount,
-            errors:
-              i >= streamResult.successCount
-                ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error']
-                : ([] as string[]),
-          }));
-        }
-
-        if (bulkExecutor.shouldUseBulkApi(records.length)) {
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Bulk upsert ${objectName}`,
-              );
-            },
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectName,
-            'upsert',
-            records,
-            externalIdField,
-          );
-          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-            success: i < bulkResult.successCount,
-            errors:
-              i >= bulkResult.successCount
-                ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-                : ([] as string[]),
-          }));
-        }
-
-        // Validate field types before upsert
-        const targetTimeout = new TimeoutManager(robustnessConfig.timeouts.describe);
-        const targetDesc = await targetTimeout.withTimeout(`describe-${objectName}`, () =>
-          targetConn.describe(objectName),
-        );
-        const targetFields = (
-          targetDesc.fields as Array<{
-            name: string;
-            type: string;
-            length: number;
-            createable: boolean;
-          }>
-        )
-          .filter((f) => f.createable)
-          .map(toValidatorField);
-        const sourceFields =
-          records.length > 0
-            ? Object.keys(records[0]).map((k) => ({ apiName: k, type: 'string' }))
-            : [];
-        const fieldMapping: Record<string, string> = {};
-        for (const sf of sourceFields) {
-          const matched = targetFields.find((tf) => tf.apiName === sf.apiName);
-          if (matched) {
-            fieldMapping[sf.apiName] = matched.apiName;
-          }
-        }
-        const validation = fieldValidator.validateMapping(sourceFields, targetFields, fieldMapping);
-        if (!validation.valid) {
-          this.deps.log(
-            `[WARN] Field type validation failed for upsert on ${objectName}: ${validation.errors.length} error(s)`,
-          );
-        }
-
-        const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
-        for (let i = 0; i < records.length; i += batchSize) {
-          const batch = records.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            return targetConn
-              .sobject(objectName)
-              .upsert(batch, externalIdField) as unknown as Promise<JsforceResult[]>;
-          });
-          if (retryResult.success && retryResult.result) {
-            for (const r of Array.isArray(retryResult.result)
-              ? retryResult.result
-              : [retryResult.result]) {
-              outcomes.push({
-                id: r.id,
-                success: r.success,
-                errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-              });
-            }
-          } else {
-            outcomes.push(
-              ...batch.map(() => ({
-                success: false as const,
-                errors: [retryResult.error?.message ?? 'Upsert failed after retries'],
-              })),
-            );
-          }
-        }
-        return outcomes;
-      };
-
-      const updateFn = async (
-        objectName: string,
-        records: Record<string, unknown>[],
-        batchSize: number,
-      ) => {
-        // Streaming path for large record sets
-        if (records.length > STREAMING_THRESHOLD) {
-          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Streaming update ${objectName}`,
-              );
-            },
-          };
-          const streamResult = await chunkedExecutor.executeChunked(
-            bulkDeps,
-            objectName,
-            'update',
-            chunkedExecutor.createChunkGenerator(records),
-            records.length,
-          );
-          return Array.from({ length: records.length }, (_, i) => ({
-            id:
-              i < streamResult.successCount
-                ? (streamResult.successIds[i] ?? `stream-${i}`)
-                : undefined,
-            success: i < streamResult.successCount,
-            errors:
-              i >= streamResult.successCount
-                ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error']
-                : ([] as string[]),
-          }));
-        }
-
-        if (bulkExecutor.shouldUseBulkApi(records.length)) {
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Bulk update ${objectName}`,
-              );
-            },
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectName,
-            'update',
-            records,
-          );
-          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-            success: i < bulkResult.successCount,
-            errors:
-              i >= bulkResult.successCount
-                ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-                : ([] as string[]),
-          }));
-        }
-
-        const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
-        for (let i = 0; i < records.length; i += batchSize) {
-          const batch = records.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            return targetConn
-              .sobject(objectName)
-              .update(
-                batch as Array<Record<string, unknown> & { Id: string }>,
-              ) as unknown as Promise<JsforceResult[]>;
-          });
-          if (retryResult.success && retryResult.result) {
-            for (const r of Array.isArray(retryResult.result)
-              ? retryResult.result
-              : [retryResult.result]) {
-              outcomes.push({
-                id: r.id,
-                success: r.success,
-                errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-              });
-            }
-          } else {
-            outcomes.push(
-              ...batch.map(() => ({
-                success: false as const,
-                errors: [retryResult.error?.message ?? 'Update failed after retries'],
-              })),
-            );
-          }
-        }
-        return outcomes;
-      };
-
-      const deleteFn = async (objectName: string, recordIds: string[], batchSize: number) => {
-        if (bulkExecutor.shouldUseBulkApi(recordIds.length)) {
-          const bulkRecords = recordIds.map((id) => ({ Id: id }));
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Bulk delete ${objectName}`,
-              );
-            },
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectName,
-            'delete',
-            bulkRecords,
-          );
-          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-            success: i < bulkResult.successCount,
-            errors:
-              i >= bulkResult.successCount
-                ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-                : ([] as string[]),
-          }));
-        }
-
-        const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
-        for (let i = 0; i < recordIds.length; i += batchSize) {
-          const batch = recordIds.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            return targetConn.sobject(objectName).destroy(batch) as unknown as Promise<
-              JsforceResult[]
-            >;
-          });
-          if (retryResult.success && retryResult.result) {
-            for (const r of Array.isArray(retryResult.result)
-              ? retryResult.result
-              : [retryResult.result]) {
-              outcomes.push({
-                id: r.id,
-                success: r.success,
-                errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-              });
-            }
-          } else {
-            outcomes.push(
-              ...batch.map(() => ({
-                success: false as const,
-                errors: [retryResult.error?.message ?? 'Delete failed after retries'],
-              })),
-            );
-          }
-        }
-        return outcomes;
-      };
 
       // Build query functions with retry wrapping and dynamic limits
       const queryRetryOp = new RetryableOperation({ retryConfig: robustnessConfig.retry });
@@ -914,10 +504,12 @@ export class SyncOpsHandler implements DomainHandler {
       const { IncrementalTracker } = await import('../../modules/sync/IncrementalTracker.js');
 
       const dataSync = new DataSync({
-        upsert: upsertFn,
-        insert: insertFn,
-        update: updateFn,
-        delete: deleteFn,
+        upsert: (objectName, externalIdField, records, batchSize) =>
+          writer.upsert(objectName, externalIdField, records, batchSize),
+        insert: (objectName, records, batchSize) => writer.insert(objectName, records, batchSize),
+        update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
+        delete: (objectName, recordIds, batchSize) =>
+          writer.delete(objectName, recordIds, batchSize),
       });
       const metadataSync = new MetadataSync({
         fetchMetadata: async () => [],

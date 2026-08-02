@@ -530,12 +530,19 @@ describe('SyncOpsHandler', () => {
   });
 
   describe('streaming threshold', () => {
-    it('SyncOpsHandler source references STREAMING_THRESHOLD and ChunkedBulkExecutor', () => {
-      const handlerPath = path.join(__dirname, 'SyncOpsHandler.ts');
-      const source = fs.readFileSync(handlerPath, 'utf-8') as string;
+    it('BulkDataWriter source references STREAMING_THRESHOLD and ChunkedBulkExecutor', () => {
+      const writerPath = path.join(__dirname, '../../modules/sync/BulkDataWriter.ts');
+      const source = fs.readFileSync(writerPath, 'utf-8') as string;
 
       expect(source).toContain('STREAMING_THRESHOLD');
       expect(source).toContain('ChunkedBulkExecutor');
+    });
+
+    it('SyncOpsHandler source delegates writes to BulkDataWriter', () => {
+      const handlerPath = path.join(__dirname, 'SyncOpsHandler.ts');
+      const source = fs.readFileSync(handlerPath, 'utf-8') as string;
+
+      expect(source).toContain('BulkDataWriter');
       expect(source).toContain('BackgroundOperationRegistry');
     });
   });

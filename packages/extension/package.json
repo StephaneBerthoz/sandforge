@@ -247,13 +247,11 @@
     "jsforce": "^3",
     "microdiff": "^1.5.0",
     "p-limit": "^3.1.0",
-    "pdfkit": "^0.15",
     "pino": "^9",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/pdfkit": "^0.17.6",
     "@types/vscode": "^1.95",
     "@typescript-eslint/eslint-plugin": "^7",
     "@typescript-eslint/parser": "^7",
