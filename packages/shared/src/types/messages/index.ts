@@ -11,6 +11,7 @@
  */
 
 export * from './base.messages.js';
+export * from './bridge.messages.js';
 export * from './org.messages.js';
 export * from './seed.messages.js';
 export * from './sync.messages.js';
@@ -34,7 +35,14 @@ import type {
   OrgDisconnectRequest,
   OrgListResponse,
   OrgStatusChanged,
+  OrgSelected,
 } from './org.messages.js';
+import type {
+  BridgeErrorMessage,
+  BridgeProtocolMismatchMessage,
+  BridgeReloadBannerMessage,
+  WorkbenchReloadRequest,
+} from './bridge.messages.js';
 import type {
   SeedExecuteRequest,
   SeedDescribeGlobalRequest,
@@ -50,11 +58,15 @@ import type {
   SeedCsvExecuteRequest,
   SeedCsvValidateRequest,
   SeedCsvValidateResponse,
+  SeedCsvExecuteResponse,
+  SeedCsvErrorResponse,
   SeedCloneExecuteRequest,
   SeedClonePreviewRequest,
   SeedCloneDescribeSourceRequest,
   SeedClonePreviewResponse,
   SeedCloneDescribeSourceResponse,
+  SeedCloneExecuteResponse,
+  SeedCloneErrorResponse,
   SeedListPersonasRequest,
   SeedCreatePersonaRequest,
   SeedListPersonasResponse,
@@ -79,6 +91,7 @@ import type {
   SyncHistoryListResponse,
   SyncHistoryDetailResponse,
   SyncHistoryExportResponse,
+  SyncHistoryErrorResponse,
   SyncScheduleListRequest,
   SyncScheduleUpsertRequest,
   SyncScheduleToggleRequest,
@@ -125,6 +138,12 @@ import type {
 } from './monitor.messages.js';
 import type { CompareExecuteRequest } from './compare.messages.js';
 import type {
+  CompareStartRequest,
+  ComparePermissionsRequest,
+  CompareSnapshotsRequest,
+  CompareDriftRequest,
+} from './compare.messages.js';
+import type {
   BackupExecuteRequest,
   AnonymizationTemplatesRequest,
   AnonymizationTemplatesResponse,
@@ -132,11 +151,26 @@ import type {
   MaskingTemplatesByObjectResponse,
   PIIScanRequest,
   PIIScanResponse,
+  DataOpsBackupRequest,
+  DataOpsRollbackRequest,
+  DataOpsAnonymizeRequest,
+  GovernancePoliciesListRequest,
+  GovernancePolicyGetRequest,
+  GovernancePolicySaveRequest,
+  GovernancePolicyDeleteRequest,
+  GovernancePoliciesExportRequest,
+  GovernancePoliciesImportRequest,
+  GovernanceEvaluateRequest,
+  GovernanceTemplatesRequest,
 } from './dataops.messages.js';
 import type {
   PipelineRunRequest,
   PipelineTemplatesRequest,
   PipelineTemplatesResponse,
+  PipelineExecuteRequest,
+  PipelineListRequest,
+  PipelineHistoryRequest,
+  PipelineSaveRequest,
   MigrationImportRequest,
   MigrationImportResponse,
   MigrationImportSfdmuRequest,
@@ -168,6 +202,19 @@ import type {
   AutopilotComplianceReportReady,
 } from './autopilot.messages.js';
 import type {
+  ForgePreviewRequest,
+  ForgeDiscoverRequest,
+  ForgeExecuteRequest,
+  ForgePauseRequest,
+  ForgeResumeRequest,
+  ForgeAbortRequest,
+  ForgeTemplatesListRequest,
+  ForgeTemplatesSaveRequest,
+  ForgeTemplatesDeleteRequest,
+  ForgeHistoryListRequest,
+  ForgePlanRequest,
+  ForgeComplianceRequest,
+  ForgeMetadataDiffRequest,
   ForgeTargetPreflightRequest,
   ForgeTargetPreflightResponse,
   ForgeTargetPreflightErrorMessage,
@@ -177,11 +224,14 @@ import type {
   AIConversationCreateRequest,
   AIConversationLoadRequest,
   AIConversationDeleteRequest,
+  AIConversationListRequest,
   AIStatusRequest,
   AISaveKeyRequest,
   AIChatResponse,
   AIConversationCreatedResponse,
   AIConversationLoadedResponse,
+  AIConversationDeletedResponse,
+  AIConversationListResponse,
   AIErrorResponse,
   AIStatusResponse,
   AISaveKeyResponse,
@@ -250,6 +300,8 @@ import type {
   ExecutionRetryStatusMessage,
   ExecutionManualRetryRequest,
   ExecutionAbortRequest,
+  ExecutionStatusRequest,
+  ExecutionListRequest,
 } from './operation.messages.js';
 import type {
   SchedulerListRequest,
@@ -285,6 +337,10 @@ import type {
 import type {
   SmartActionAnalyzeRequest,
   SmartActionAnalyzeResponse,
+  QuickSyncSuggestObjectsRequest,
+  QuickSyncDetectRelationshipsRequest,
+  QuickSyncPreviewRequest,
+  QuickSyncExecuteRequest,
 } from './smart-action.messages.js';
 
 /** Message from WebView to Extension (requests) */
@@ -344,12 +400,32 @@ export type WebViewToExtensionMessage =
   | OrgHealthScoreRequest
   // Compare + DataOps
   | CompareExecuteRequest
+  | CompareStartRequest
+  | ComparePermissionsRequest
+  | CompareSnapshotsRequest
+  | CompareDriftRequest
   | BackupExecuteRequest
   | AnonymizationTemplatesRequest
   | MaskingTemplatesByObjectRequest
   | PIIScanRequest
+  | DataOpsBackupRequest
+  | DataOpsRollbackRequest
+  | DataOpsAnonymizeRequest
+  // Governance
+  | GovernancePoliciesListRequest
+  | GovernancePolicyGetRequest
+  | GovernancePolicySaveRequest
+  | GovernancePolicyDeleteRequest
+  | GovernancePoliciesExportRequest
+  | GovernancePoliciesImportRequest
+  | GovernanceEvaluateRequest
+  | GovernanceTemplatesRequest
   // Automation (pipeline + marketplace + migration + plugins)
   | PipelineRunRequest
+  | PipelineExecuteRequest
+  | PipelineListRequest
+  | PipelineHistoryRequest
+  | PipelineSaveRequest
   | PipelineTemplatesRequest
   | MigrationImportRequest
   | MigrationImportSfdmuRequest
@@ -366,12 +442,26 @@ export type WebViewToExtensionMessage =
   | AutopilotResumeRequest
   | AutopilotSkipNodeRequest
   // Forge
+  | ForgePreviewRequest
+  | ForgeDiscoverRequest
+  | ForgeExecuteRequest
+  | ForgePauseRequest
+  | ForgeResumeRequest
+  | ForgeAbortRequest
+  | ForgeTemplatesListRequest
+  | ForgeTemplatesSaveRequest
+  | ForgeTemplatesDeleteRequest
+  | ForgeHistoryListRequest
+  | ForgePlanRequest
+  | ForgeComplianceRequest
+  | ForgeMetadataDiffRequest
   | ForgeTargetPreflightRequest
   // AI
   | AIChatRequest
   | AIConversationCreateRequest
   | AIConversationLoadRequest
   | AIConversationDeleteRequest
+  | AIConversationListRequest
   | AIStatusRequest
   | AISaveKeyRequest
   | AINL2SOQLRequest
@@ -402,6 +492,10 @@ export type WebViewToExtensionMessage =
   | ResumeOperationRequest
   | ExecutionManualRetryRequest
   | ExecutionAbortRequest
+  | ExecutionStatusRequest
+  | ExecutionListRequest
+  // Bridge control
+  | WorkbenchReloadRequest
   // Scheduler
   | SchedulerListRequest
   | SchedulerUpsertRequest
@@ -417,21 +511,35 @@ export type WebViewToExtensionMessage =
   | CacheInvalidateAllRequest
   | CacheGetStatsRequest
   // Smart Action
-  | SmartActionAnalyzeRequest;
+  | SmartActionAnalyzeRequest
+  // QuickSync
+  | QuickSyncSuggestObjectsRequest
+  | QuickSyncDetectRelationshipsRequest
+  | QuickSyncPreviewRequest
+  | QuickSyncExecuteRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
   // Org
   | OrgListResponse
   | OrgStatusChanged
+  | OrgSelected
+  // Bridge control
+  | BridgeErrorMessage
+  | BridgeProtocolMismatchMessage
+  | BridgeReloadBannerMessage
   // Seed
   | SeedTemplateSaveResponse
   | SeedTemplateLoadResponse
   | SeedTemplateListResponse
   | SeedTemplateDeleteResponse
   | SeedCsvValidateResponse
+  | SeedCsvExecuteResponse
+  | SeedCsvErrorResponse
   | SeedClonePreviewResponse
   | SeedCloneDescribeSourceResponse
+  | SeedCloneExecuteResponse
+  | SeedCloneErrorResponse
   | SeedListPersonasResponse
   | SeedCreatePersonaResponse
   // Sync
@@ -442,6 +550,7 @@ export type ExtensionToWebViewMessage =
   | SyncHistoryListResponse
   | SyncHistoryDetailResponse
   | SyncHistoryExportResponse
+  | SyncHistoryErrorResponse
   | SyncScheduleListResponse
   | SyncScheduleUpsertResponse
   | SyncScheduleToggleResponse
@@ -491,6 +600,8 @@ export type ExtensionToWebViewMessage =
   | AIChatResponse
   | AIConversationCreatedResponse
   | AIConversationLoadedResponse
+  | AIConversationDeletedResponse
+  | AIConversationListResponse
   | AIErrorResponse
   | AIStatusResponse
   | AISaveKeyResponse

@@ -110,6 +110,12 @@ export interface SyncHistoryExportResponse extends BaseMessage {
   payload: { data: string; format: ExportFormat; filename: string };
 }
 
+/** Error response for sync history operations (emitted via sendHandlerError). */
+export interface SyncHistoryErrorResponse extends BaseMessage {
+  type: 'sync:history:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
 // ─── Sync Schedule Messages ──────────────────────────────────────────────────
 
 /** Request to list all sync schedules. */

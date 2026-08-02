@@ -25,6 +25,31 @@ export interface PipelineTemplatesResponse extends BaseMessage {
   };
 }
 
+/**
+ * Alias of `pipeline:run` routed to the same AutomationHandler method, carrying
+ * an inline pipeline definition instead of a stored ID.
+ */
+export interface PipelineExecuteRequest extends BaseMessage {
+  type: 'pipeline:execute';
+  payload: { pipeline: Record<string, unknown>; variables?: Record<string, string> };
+}
+
+/** Request to list saved pipelines from ConfigStore. */
+export interface PipelineListRequest extends BaseMessage {
+  type: 'pipeline:list';
+}
+
+/** Request to list pipeline execution history from ConfigStore. */
+export interface PipelineHistoryRequest extends BaseMessage {
+  type: 'pipeline:history';
+}
+
+/** Request to persist a pipeline configuration to ConfigStore. */
+export interface PipelineSaveRequest extends BaseMessage {
+  type: 'pipeline:save';
+  payload: { id: string; config: Record<string, unknown> };
+}
+
 /** Migration import (universal) */
 export interface MigrationImportRequest extends BaseMessage {
   type: 'migration:import';

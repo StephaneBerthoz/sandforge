@@ -94,10 +94,6 @@ export * from './utils/execution-result.js';
 export * from './templates/forge-builtin-templates.js';
 export * from './templates/forge-anonymization-presets.js';
 
-// Barrel exports — Services
-export { ConflictDiffService } from './services/ConflictDiffService.js';
-export type { ConflictFieldDiff, ThreeWayDiffResult } from './services/ConflictDiffService.js';
-
 // Barrel exports — I18n
 export * from './i18n/index.js';
 export { loadAllTranslations } from './i18n/locales/index.js';

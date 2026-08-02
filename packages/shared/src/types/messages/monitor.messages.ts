@@ -68,37 +68,6 @@ export interface MonitorMetricSubscribeMessage extends BaseMessage {
   payload: { seriesPrefix: string };
 }
 
-/**
- * Phase 03 Plan 03-07 — `OrgFleetSummary`.
- *
- * Headline-shape per-org snapshot used by the multi-org overview page and
- * persisted in the webview's `useFleetStore` (Record-keyed by `orgId` per
- * audit M5).
- *
- * `stale` is true when the per-org backoff is active (consecutive failure
- * window) so the UI can render a degraded badge without flagging the whole
- * fleet as red.
- */
-export interface OrgFleetSummary {
-  orgId: string;
-  name: string;
-  /** 0-100 derived from {@link HealthCheck.computeHealth} signals. */
-  healthScore: number;
-  /** ISO timestamp of the latest probe round-trip for this org. */
-  lastUpdated: string;
-  /** Active alert count for the org (sum of warning + critical). */
-  alertCount: number;
-  /** Most recent alerts, capped at 3 — used by the overview's mini-list. */
-  recentAlerts: Array<{
-    id: string;
-    severity: 'info' | 'warning' | 'critical';
-    metric: string;
-    triggeredAt: string;
-  }>;
-  /** True when consecutive failures > 1 — backoff active, value is last-known. */
-  stale: boolean;
-}
-
 // ─── Alert Panel Messages (AlertsPanel / AlertHistoryPanel) ──────────────────
 
 /**

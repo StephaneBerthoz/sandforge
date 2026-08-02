@@ -107,3 +107,14 @@ export interface ExecutionAbortRequest extends BaseMessage {
   type: 'execution:abort';
   payload: { executionId: string; objectName?: string };
 }
+
+/** Request the status of a single background operation (WebView -> Extension). */
+export interface ExecutionStatusRequest extends BaseMessage {
+  type: 'execution:status';
+  payload: { operationId: string };
+}
+
+/** Request the list of active background operations (WebView -> Extension, no payload). */
+export interface ExecutionListRequest extends BaseMessage {
+  type: 'execution:list';
+}

@@ -37,3 +37,9 @@ export interface OrgStatusChanged extends BaseMessage {
   type: 'org:statusChanged';
   payload: { orgId: string; status: string };
 }
+
+/** Notification that the user selected an org in the sidebar (posted by extension.ts) */
+export interface OrgSelected extends BaseMessage {
+  type: 'org:selected';
+  payload: { orgId: string };
+}

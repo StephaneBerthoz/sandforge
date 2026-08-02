@@ -57,9 +57,6 @@ importers:
       jsforce:
         specifier: ^3
         version: 3.10.14(@types/node@20.19.33)(supports-color@7.2.0)
-      microdiff:
-        specifier: ^1.5.0
-        version: 1.5.0
       p-limit:
         specifier: ^3.1.0
         version: 3.1.0
@@ -109,9 +106,6 @@ importers:
 
   packages/shared:
     dependencies:
-      microdiff:
-        specifier: ^1.5.0
-        version: 1.5.0
       zod:
         specifier: ^3.25.0
         version: 3.25.76
@@ -176,6 +170,9 @@ importers:
       lucide-react:
         specifier: ^0.376
         version: 0.376.0(react@18.3.1)
+      microdiff:
+        specifier: ^1.5.0
+        version: 1.5.0
       papaparse:
         specifier: ^5
         version: 5.5.3

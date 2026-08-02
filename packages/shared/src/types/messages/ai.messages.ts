@@ -45,6 +45,11 @@ export interface AIConversationDeleteRequest extends BaseMessage {
   payload: { conversationId: string };
 }
 
+/** Request to list all AI conversations from the persisted index */
+export interface AIConversationListRequest extends BaseMessage {
+  type: 'ai:conversation:list';
+}
+
 /** Request to get the current AI module status and usage stats */
 export interface AIStatusRequest extends BaseMessage {
   type: 'ai:status';
@@ -87,6 +92,20 @@ export interface AIConversationLoadedResponse extends BaseMessage {
       title: string;
       messages: AIConversationEntry[];
     };
+  };
+}
+
+/** Response confirming an AI conversation was deleted */
+export interface AIConversationDeletedResponse extends BaseMessage {
+  type: 'ai:conversation:deleted';
+  payload: { conversationId: string };
+}
+
+/** Response containing the list of persisted AI conversations */
+export interface AIConversationListResponse extends BaseMessage {
+  type: 'ai:conversation:list:response';
+  payload: {
+    conversations: Array<{ id: string; title: string; createdAt: string; messageCount: number }>;
   };
 }
 

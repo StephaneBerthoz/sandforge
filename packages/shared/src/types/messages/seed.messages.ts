@@ -5,7 +5,7 @@ import type {
   CsvColumnMapping,
   CsvValidationResult,
 } from '../seed.types.js';
-import type { CloneConfig, ClonePreviewResult } from '../clone.types.js';
+import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../clone.types.js';
 
 /** Seed messages */
 export interface SeedExecuteRequest extends BaseMessage {
@@ -108,6 +108,21 @@ export interface SeedCsvValidateResponse extends BaseMessage {
   payload: CsvValidationResult;
 }
 
+/**
+ * Response for CSV import execution (see SeedCsvHandler.CsvExecutionResultPayload;
+ * consumed by useCsvImport in the webview).
+ */
+export interface SeedCsvExecuteResponse extends BaseMessage {
+  type: 'seed:csv:execute:response';
+  payload: { insertedCount: number; failedCount: number; errors: string[] };
+}
+
+/** Error response for CSV validate/execute failures (emitted via sendHandlerError). */
+export interface SeedCsvErrorResponse extends BaseMessage {
+  type: 'seed:csv:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
 // ─── Clone Messages ─────────────────────────────────────────────────────────
 
 /** Request to execute a clone operation from source to target org. */
@@ -138,6 +153,18 @@ export interface SeedCloneDescribeSourceRequest extends BaseMessage {
 export interface SeedCloneDescribeSourceResponse extends BaseMessage {
   type: 'seed:clone:describe-source:response';
   payload: { objects: Array<{ apiName: string; label: string; recordCount: number }> };
+}
+
+/** Response containing the clone execution result (consumed by useClone in the webview). */
+export interface SeedCloneExecuteResponse extends BaseMessage {
+  type: 'seed:clone:execute:response';
+  payload: CloneExecutionResult;
+}
+
+/** Error response for clone describe/preview failures (emitted via sendHandlerError). */
+export interface SeedCloneErrorResponse extends BaseMessage {
+  type: 'seed:clone:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 // ─── Persona Messages ────────────────────────────────────────────────────────
