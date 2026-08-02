@@ -39,7 +39,7 @@ const mockJobs: JobDisplayInfo[] = [
 describe('JobsPanel', () => {
   it('should render the jobs title', () => {
     render(<JobsPanel jobs={mockJobs} />);
-    expect(screen.getByText('monitor.jobs')).toBeDefined();
+    expect(screen.getByText('Jobs')).toBeDefined();
   });
 
   it('should show active job count in subtitle', () => {

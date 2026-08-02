@@ -138,7 +138,7 @@ describe('DataOpsPage', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
     expect(screen.getByTestId('page-header')).toBeDefined();
-    expect(screen.getByText('dataops.title')).toBeDefined();
+    expect(screen.getByText('DataOps')).toBeDefined();
   });
 
   it('should show tabs', () => {
@@ -157,28 +157,28 @@ describe('DataOpsPage', () => {
   it('should switch to restore tab', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('dataops.restore'));
+    fireEvent.click(screen.getByText('Restore'));
     expect(screen.getByTestId('restore-panel')).toBeDefined();
   });
 
   it('should switch to anonymize tab', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('dataops.anonymize'));
+    fireEvent.click(screen.getByText('Anonymize'));
     expect(screen.getByTestId('anonymize-panel')).toBeDefined();
   });
 
   it('should switch to cleanup tab', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('dataops.cleanup'));
+    fireEvent.click(screen.getByText('Cleanup'));
     expect(screen.getByTestId('cleanup-panel')).toBeDefined();
   });
 
   it('should switch to quality tab', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
-    fireEvent.click(screen.getByText('dataops.quality'));
+    fireEvent.click(screen.getByText('Quality'));
     expect(screen.getByTestId('quality-dashboard')).toBeDefined();
   });
 

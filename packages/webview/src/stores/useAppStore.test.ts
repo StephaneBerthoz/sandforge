@@ -75,7 +75,7 @@ describe('useAppStore', () => {
   });
 
   it('should expose ALL_ROUTES with all module routes', () => {
-    expect(ALL_ROUTES).toHaveLength(14);
+    expect(ALL_ROUTES).toHaveLength(15);
     expect(ALL_ROUTES).toContain('home');
     expect(ALL_ROUTES).toContain('orgs');
     expect(ALL_ROUTES).toContain('forge');
@@ -86,6 +86,7 @@ describe('useAppStore', () => {
     expect(ALL_ROUTES).toContain('compare');
     expect(ALL_ROUTES).toContain('dataops');
     expect(ALL_ROUTES).toContain('automation');
+    expect(ALL_ROUTES).toContain('ai');
     expect(ALL_ROUTES).toContain('reports');
     expect(ALL_ROUTES).toContain('settings');
     expect(ALL_ROUTES).toContain('welcome');
