@@ -144,17 +144,11 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   msg('monitor:metric'),
   msg('monitor:metrics:batch'),
   msg('monitor:metric:subscribe'),
-  // Phase 03 Plan 03-06 — ReportExporter envelope variants. Bridge schema
-  // enforces envelope + discriminant; payload shapes are typed in
-  // `messages.types.ts` (`MonitorExport{Request,Response,Progress}Message`).
-  msg('monitor:export:request'),
-  msg('monitor:export:response'),
-  msg('monitor:export:progress'),
   // Phase 03 Plan 03-07 — Multi-org fleet overview + visibility gate envelope.
   // The request/response handshake powers the MonitorOverviewPage; the
   // visibility message is the audit M1 mitigation (WebView -> Extension).
-  // Payload shapes are typed in `messages.types.ts` (`MonitorFleetSummary*`,
-  // `MonitorVisibilityMessage`).
+  // (The `monitor:export:*` envelopes were removed when ReportExporter was
+  // dropped at P2; the legacy `MonitorExport*` TS interfaces are gone too.)
   msg('monitor:fleet:summary:request'),
   msg('monitor:fleet:summary:response'),
   msg('monitor:visibility'),
@@ -241,6 +235,8 @@ export const AutomationMessageSchema = z.discriminatedUnion('type', [
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
   msg('forge:target-preflight:request'),
+  msg('forge:target-preflight:response'),
+  msg('forge:target-preflight:error'),
 ]);
 
 // ─── Domain: Execution + Operation lifecycle + grappe ────────────────────────
