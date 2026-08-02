@@ -297,7 +297,7 @@ describe('BulkApiExecutor', () => {
       expect(result.successIds).toHaveLength(result.successCount);
     });
 
-    it('should fall back to bulk-{jobId}-{i} when id is undefined in results', async () => {
+    it('should NOT fabricate IDs when the backend omits them', async () => {
       const job = createMockJob({
         checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 2 }],
         allResults: [{ success: true }, { success: true }],
@@ -311,8 +311,14 @@ describe('BulkApiExecutor', () => {
       await vi.runAllTimersAsync();
       const result = await promise;
 
-      expect(result.successIds).toEqual(['bulk-test-job-123-0', 'bulk-test-job-123-1']);
-      expect(result.successIds).toHaveLength(result.successCount);
+      // Honest contract: successCount reflects the rows, but successIds only
+      // ever contains real Salesforce IDs — never fabricated bulk-* placeholders.
+      expect(result.successCount).toBe(2);
+      expect(result.successIds).toEqual([]);
+      expect(result.outcomes).toEqual([
+        { recordIndex: 0, id: undefined, success: true },
+        { recordIndex: 1, id: undefined, success: true },
+      ]);
     });
 
     it('should have successIds length matching successCount', async () => {
@@ -335,6 +341,63 @@ describe('BulkApiExecutor', () => {
 
       expect(result.successCount).toBe(2);
       expect(result.successIds).toHaveLength(2);
+      expect(result.successIds).toEqual(['001xx000001AAA', '001xx000001CCC']);
+    });
+
+    it('should fail closed for input records with no result row', async () => {
+      const job = createMockJob({
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 1 }],
+        allResults: [{ success: true, id: '001xx000001AAA' }],
+      });
+      const connection = createMockConnection(job);
+      const deps = createDeps(connection);
+      const executor = new BulkApiExecutor();
+
+      const records = [{ Name: 'A' }, { Name: 'B' }];
+      const promise = executor.executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.successCount).toBe(1);
+      expect(result.failureCount).toBe(1);
+      expect(result.outcomes[1]).toEqual({
+        recordIndex: 1,
+        success: false,
+        error: 'No result returned by Bulk API job',
+      });
+    });
+
+    it('should correlate real jsforce grouped results to input records by content', async () => {
+      const job = createMockJob({
+        checkResults: [{ state: 'JobComplete', numberRecordsProcessed: 3 }],
+      });
+      // Real jsforce shape — note the success/failure split and the fact that
+      // result order does NOT match input order.
+      (job.getAllResults as ReturnType<typeof vi.fn>).mockResolvedValue({
+        successfulResults: [
+          { sf__Id: '001xx000001CCC', sf__Created: 'true', Name: 'C' },
+          { sf__Id: '001xx000001AAA', sf__Created: 'true', Name: 'A' },
+        ],
+        failedResults: [{ sf__Error: 'REQUIRED_FIELD_MISSING: X', sf__Id: '', Name: 'B' }],
+        unprocessedRecords: [],
+      });
+      const connection = createMockConnection(job);
+      const deps = createDeps(connection);
+      const executor = new BulkApiExecutor();
+
+      const records = [{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }];
+      const promise = executor.executeBulk(deps, 'Account', 'insert', records);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(result.successCount).toBe(2);
+      expect(result.failureCount).toBe(1);
+      expect(result.outcomes).toEqual([
+        { recordIndex: 0, id: '001xx000001AAA', success: true },
+        { recordIndex: 1, success: false, error: 'REQUIRED_FIELD_MISSING: X' },
+        { recordIndex: 2, id: '001xx000001CCC', success: true },
+      ]);
+      expect(result.failures).toEqual([{ recordIndex: 1, error: 'REQUIRED_FIELD_MISSING: X' }]);
       expect(result.successIds).toEqual(['001xx000001AAA', '001xx000001CCC']);
     });
   });

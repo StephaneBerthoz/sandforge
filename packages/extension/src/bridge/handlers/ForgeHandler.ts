@@ -12,7 +12,6 @@ import {
   sendHandlerError,
   sendOperationStarted,
   sendOperationCompleted,
-  sendOperationFailed,
 } from './HandlerTypes.js';
 import { validatePayload } from '../validatePayload.js';
 import { logger } from '../../logger.js';
@@ -431,6 +430,11 @@ export class ForgeHandler implements DomainHandler {
       // the latest queue state before the error response arrives. Without
       // this, an abort mid-BFS leaves the wizard frozen on stale counts.
       throttledProgress.flush();
+      // Single error channel: `forge:discover:error` is what the webview
+      // consumes (ForgeDiscovery clears loading + surfaces the message).
+      // `operation:failed` is intentionally NOT emitted here — BridgeProvider
+      // auto-invokes `ai:resolve-error` on every operation:failed, which made
+      // each forge failure trigger a parasitic duplicate AI call.
       sendHandlerError(
         this.deps,
         'forge:discover',
@@ -439,7 +443,6 @@ export class ForgeHandler implements DomainHandler {
         'DISCOVER_ERROR',
         true,
       );
-      sendOperationFailed(this.deps, operationId, String(error), true);
     } finally {
       this.discoverAbortController = null;
     }
@@ -526,6 +529,8 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
       this.dmlTracker.markFailed(forgeOpId);
+      // Single error channel (see handleDiscover): `forge:execute:error`
+      // only — no duplicate `operation:failed` / parasitic ai:resolve-error.
       sendHandlerError(
         this.deps,
         'forge:execute',
@@ -534,7 +539,6 @@ export class ForgeHandler implements DomainHandler {
         'EXECUTE_ERROR',
         true,
       );
-      sendOperationFailed(this.deps, operationId, String(error), true);
     } finally {
       // CR-012: unsubscribe BEFORE flushing so the flush's terminal event
       // doesn't trigger any progress listeners that we're about to remove.
@@ -642,6 +646,7 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { waveCount: plan.waves?.length ?? 0 });
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
+      // Single error channel (see handleDiscover): no duplicate operation:failed.
       sendHandlerError(
         this.deps,
         'forge:plan',
@@ -650,7 +655,6 @@ export class ForgeHandler implements DomainHandler {
         isTimeout ? 'TIMEOUT' : 'PLAN_ERROR',
         isTimeout,
       );
-      sendOperationFailed(this.deps, operationId, String(error), isTimeout);
     }
   }
 
@@ -695,6 +699,7 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { framework });
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
+      // Single error channel (see handleDiscover): no duplicate operation:failed.
       sendHandlerError(
         this.deps,
         'forge:compliance',
@@ -703,7 +708,6 @@ export class ForgeHandler implements DomainHandler {
         isTimeout ? 'TIMEOUT' : 'COMPLIANCE_ERROR',
         isTimeout,
       );
-      sendOperationFailed(this.deps, operationId, String(error), isTimeout);
     }
   }
 
@@ -759,6 +763,7 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { objectCount: counts.length });
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
+      // Single error channel (see handleDiscover): no duplicate operation:failed.
       sendHandlerError(
         this.deps,
         'forge:target-preflight',
@@ -767,7 +772,6 @@ export class ForgeHandler implements DomainHandler {
         isTimeout ? 'TIMEOUT' : 'PREFLIGHT_ERROR',
         isTimeout,
       );
-      sendOperationFailed(this.deps, operationId, String(error), isTimeout);
     }
   }
 
@@ -804,6 +808,7 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { objectCount: objectApiNames.length });
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
+      // Single error channel (see handleDiscover): no duplicate operation:failed.
       sendHandlerError(
         this.deps,
         'forge:metadata-diff',
@@ -812,7 +817,6 @@ export class ForgeHandler implements DomainHandler {
         isTimeout ? 'TIMEOUT' : 'METADATA_DIFF_ERROR',
         isTimeout,
       );
-      sendOperationFailed(this.deps, operationId, String(error), isTimeout);
     }
   }
 }

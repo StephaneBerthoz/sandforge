@@ -111,6 +111,15 @@ export const syncDescribeFieldsPayloadSchema = z.object({
   objectApiName: sfApiNameSchema,
 });
 
+// ── sync:history:* payload schemas ──────────────────────────────────────────
+// Mirror what `useSyncHistoryStore` posts (fetchDetail/rerun/exportHistory).
+
+export const syncHistoryEntryIdPayloadSchema = z.object({ entryId: opaqueIdSchema });
+export const syncHistoryExportPayloadSchema = z.object({
+  format: z.enum(['csv', 'json']),
+  entryIds: z.array(opaqueIdSchema).max(500).optional(),
+});
+
 // ── sync:schedule:* payload schemas ─────────────────────────────────────────
 // Mirror what `useSyncScheduleStore` / `SyncSchedulePanel` actually post.
 // Runtime fields (nextRunAt/lastRunAt/lastResult) are computed extension-side
@@ -182,6 +191,66 @@ export const seedCreatePersonaPayloadSchema = z.object({
   // Empty descriptions stay legal here: the handler answers with a graceful
   // `success: false` response (existing webview flow) instead of INVALID_PAYLOAD.
   description: z.string().max(10_000),
+});
+
+// ── seed:clone:* payload schemas ────────────────────────────────────────────
+// Mirror what `useClone` posts (describe-source / preview / execute).
+
+/** Max cell/field value length accepted in clone/csv payloads. */
+const MAX_FIELD_VALUE_LENGTH = 131_072; // SF long-text-area cap
+
+/** Max rows accepted in a single CSV import (bounds memory + API usage). */
+const MAX_CSV_ROWS = 50_000;
+
+export const seedCloneObjectPayloadSchema = z
+  .object({
+    objectApiName: sfApiNameSchema,
+    whereClause: whereClauseSchema.optional(),
+  })
+  .passthrough();
+
+export const seedCloneDescribeSourcePayloadSchema = z.object({ sourceOrgId: orgIdSchema });
+
+/**
+ * Clone config as sent by the webview. `upsert` + `externalIdField` are
+ * optional extensions (the current UI always inserts; the CLI shows the
+ * upsert flow for re-runs against orgs with external Id fields).
+ */
+export const seedCloneExecutePayloadSchema = z
+  .object({
+    sourceOrgId: orgIdSchema,
+    targetOrgId: orgIdSchema,
+    objects: z.array(seedCloneObjectPayloadSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+    upsert: z.boolean().optional(),
+    externalIdField: sfApiNameSchema.optional(),
+  })
+  .refine((data) => !data.upsert || data.externalIdField !== undefined, {
+    message: 'externalIdField is required when upsert is true',
+    path: ['externalIdField'],
+  });
+
+// ── seed:csv:* payload schemas ──────────────────────────────────────────────
+// Mirror what `useCsvImport` posts (records pre-parsed by PapaParse webview-side).
+
+export const csvColumnMappingPayloadSchema = z
+  .object({
+    csvHeader: z.string().min(1).max(500),
+    // Empty string = column intentionally left unmapped (skipped on import).
+    sfFieldApiName: z.string().max(80),
+    sfFieldType: z.string().max(40),
+    sfFieldLength: z.number().int().positive().nullable(),
+  })
+  .passthrough();
+
+export const seedCsvPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  objectApiName: sfApiNameSchema,
+  records: z
+    .array(z.record(z.string().max(MAX_FIELD_VALUE_LENGTH)))
+    .min(1)
+    .max(MAX_CSV_ROWS),
+  columnMappings: z.array(csvColumnMappingPayloadSchema).min(1).max(500),
+  externalIdField: sfApiNameSchema.optional(),
 });
 
 // ── dataops:* / backup payload schemas ────────────────────────────────────

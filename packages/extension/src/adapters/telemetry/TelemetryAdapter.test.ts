@@ -97,4 +97,57 @@ describe('TelemetryAdapter', () => {
       await expect(adapter.flush()).resolves.toBeUndefined();
     });
   });
+
+  describe('sandforge.telemetry gate', () => {
+    it('suppresses captureException when the gate is closed', () => {
+      const { destination, chunks } = captureDestination();
+      const adapter = new TelemetryAdapter(fakeContext(), {
+        pinoDestination: destination,
+        isEnabled: () => false,
+      });
+
+      adapter.captureException(new Error('boom'));
+
+      expect(chunks.join('')).toBe('');
+      expect(adapter.getTelemetryEventCount()).toBe(0);
+    });
+
+    it('suppresses addBreadcrumb when the gate is closed', () => {
+      const adapter = new TelemetryAdapter(fakeContext(), { isEnabled: () => false });
+
+      adapter.addBreadcrumb('msg', 'cat', 'info');
+
+      expect(adapter.getTelemetryEventCount()).toBe(0);
+    });
+
+    it('counts emitted events while the gate is open and honours live toggling', () => {
+      const { destination, chunks } = captureDestination();
+      let enabled = true;
+      const adapter = new TelemetryAdapter(fakeContext(), {
+        pinoDestination: destination,
+        isEnabled: () => enabled,
+      });
+
+      adapter.captureException(new Error('first'));
+      expect(adapter.getTelemetryEventCount()).toBe(1);
+      expect(chunks.join('')).toContain('first');
+
+      enabled = false;
+      adapter.captureException(new Error('second'));
+      expect(adapter.getTelemetryEventCount()).toBe(1);
+      expect(chunks.join('')).not.toContain('second');
+    });
+
+    it('never gates the operational Pino logger', () => {
+      const { destination, chunks } = captureDestination();
+      const adapter = new TelemetryAdapter(fakeContext(), {
+        pinoDestination: destination,
+        isEnabled: () => false,
+      });
+
+      adapter.getLogger().info('operational-log');
+
+      expect(chunks.join('')).toContain('operational-log');
+    });
+  });
 });

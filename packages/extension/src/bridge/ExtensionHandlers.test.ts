@@ -1453,20 +1453,417 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('realtime:resolve-conflict', () => {
-    it('should respond with a comingSoon no-op response', async () => {
+  describe('realtime no-op routing (webview contract types)', () => {
+    it('realtime:resolve-conflict should respond on realtime:conflict-resolved', async () => {
       broker['dispatch'](
         msg('realtime:resolve-conflict', { conflictId: 'conflict-1', resolution: 'source-wins' }),
       );
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      const response = posted.find((p) => p.type === 'realtime:resolve-conflict:response');
+      const response = posted.find((p) => p.type === 'realtime:conflict-resolved');
       expect(response).toBeDefined();
       const payload = (
         response as BaseMessage & { payload: { success: boolean; comingSoon: boolean } }
       ).payload;
       expect(payload.success).toBe(false);
       expect(payload.comingSoon).toBe(true);
+    });
+
+    it('realtime:start should respond on realtime:started', async () => {
+      broker['dispatch'](
+        msg('realtime:start', { sourceOrgId: 'org-1', targetOrgId: 'org-2', watchedObjects: [] }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'realtime:started');
+      expect(response).toBeDefined();
+    });
+
+    it('realtime:stop should respond on realtime:stopped', async () => {
+      broker['dispatch'](msg('realtime:stop', { sessionId: '' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'realtime:stopped');
+      expect(response).toBeDefined();
+    });
+  });
+
+  describe('ai:conversation:list routing', () => {
+    it('should respond with the persisted conversation index', async () => {
+      broker['dispatch'](msg('ai:conversation:list', {}));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'ai:conversation:list:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { conversations: unknown[] } }
+      ).payload;
+      expect(payload.conversations).toEqual([]);
+    });
+  });
+
+  describe('ai:diagnose routing (handler not wired)', () => {
+    it('should answer with an explicit AI_NOT_CONFIGURED error response', async () => {
+      broker['dispatch'](
+        msg('ai:diagnose', {
+          runId: 'run-1',
+          orgId: 'org-1',
+          errorContext: { kind: 'generic', errorMessage: 'boom' },
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'ai:diagnose:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & {
+          payload: { runId: string; error: { code: string; message: string } };
+        }
+      ).payload;
+      expect(payload.runId).toBe('run-1');
+      expect(payload.error.code).toBe('AI_NOT_CONFIGURED');
+    });
+
+    it('ai:approve-action should answer failed when not configured', async () => {
+      broker['dispatch'](msg('ai:approve-action', { runId: 'run-1', actionIndex: 0 }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'ai:approve-action:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { status: string; resultMessage: string } }
+      ).payload;
+      expect(payload.status).toBe('failed');
+    });
+  });
+
+  describe('sync:history routing', () => {
+    it('sync:history:list should respond with stored entries (empty by default)', async () => {
+      broker['dispatch'](msg('sync:history:list'));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'sync:history:list:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { entries: unknown[] } }).payload;
+      expect(payload.entries).toEqual([]);
+    });
+
+    it('sync:history:detail should return null for an unknown entry', async () => {
+      broker['dispatch'](msg('sync:history:detail', { entryId: 'missing' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'sync:history:detail:response');
+      expect(response).toBeDefined();
+      const payload = (response as BaseMessage & { payload: { entry: unknown } }).payload;
+      expect(payload.entry).toBeNull();
+    });
+
+    it('sync:history:export should produce CSV data', async () => {
+      broker['dispatch'](msg('sync:history:export', { format: 'csv' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'sync:history:export:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & { payload: { data: string; format: string } }
+      ).payload;
+      expect(payload.format).toBe('csv');
+      expect(payload.data).toContain('configName');
+    });
+
+    it('sync:history:export should reject an invalid format with INVALID_PAYLOAD', async () => {
+      broker['dispatch'](msg('sync:history:export', { format: 'xml' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const errMsg = posted.find((p) => p.type === 'sync:history:error');
+      expect(errMsg).toBeDefined();
+      const payload = (errMsg as BaseMessage & { payload: { code: string } }).payload;
+      expect(payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('sync:history:rerun should answer NOT_FOUND for an unknown entry', async () => {
+      broker['dispatch'](msg('sync:history:rerun', { entryId: 'missing' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const errMsg = posted.find((p) => p.type === 'sync:history:error');
+      expect(errMsg).toBeDefined();
+      const payload = (errMsg as BaseMessage & { payload: { code: string } }).payload;
+      expect(payload.code).toBe('NOT_FOUND');
+    });
+  });
+
+  describe('seed:clone routing', () => {
+    it('seed:clone:describe-source should list createable+queryable objects', async () => {
+      const mockConnection = {
+        describeGlobal: vi.fn().mockResolvedValue({
+          sobjects: [
+            { name: 'Account', label: 'Account', createable: true, queryable: true },
+            { name: 'ChangeEvent', label: 'Change Event', createable: true, queryable: false },
+          ],
+        }),
+      };
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
+
+      broker['dispatch'](msg('seed:clone:describe-source', { sourceOrgId: 'org-1' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const response = posted.find((p) => p.type === 'seed:clone:describe-source:response');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & {
+          payload: { objects: Array<{ apiName: string; label: string; recordCount: number }> };
+        }
+      ).payload;
+      expect(payload.objects).toHaveLength(1);
+      expect(payload.objects[0].apiName).toBe('Account');
+    });
+
+    it('seed:clone:preview should return counts, samples and insert order', async () => {
+      const mockConnection = {
+        describe: vi.fn().mockResolvedValue({
+          name: 'Account',
+          fields: [
+            { name: 'Id', type: 'id', createable: false },
+            { name: 'Name', type: 'string', createable: true },
+          ],
+        }),
+        query: vi.fn().mockResolvedValue({
+          totalSize: 2,
+          done: true,
+          records: [
+            { Id: '001AAAAAAAAAAAAAA', Name: 'Acme' },
+            { Id: '001BBBBBBBBBBBBBB', Name: 'Beta' },
+          ],
+        }),
+      };
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
+
+      broker['dispatch'](
+        msg('seed:clone:preview', {
+          sourceOrgId: 'org-1',
+          targetOrgId: 'org-2',
+          objects: [{ objectApiName: 'Account' }],
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(posted.some((p) => p.type === 'seed:clone:preview:response')).toBe(true),
+      );
+
+      const response = posted.find((p) => p.type === 'seed:clone:preview:response');
+      const payload = (
+        response as BaseMessage & {
+          payload: {
+            objects: Array<{ objectApiName: string; recordCount: number }>;
+            insertOrder: string[];
+          };
+        }
+      ).payload;
+      expect(payload.objects).toHaveLength(1);
+      expect(payload.objects[0].recordCount).toBe(2);
+      expect(payload.insertOrder).toEqual(['Account']);
+    });
+
+    it('seed:clone:execute should clone records and remap IDs', async () => {
+      const created: unknown[][] = [];
+      const mockConnection = {
+        describe: vi.fn().mockResolvedValue({
+          name: 'Account',
+          fields: [
+            { name: 'Id', type: 'id', createable: false },
+            { name: 'Name', type: 'string', createable: true },
+          ],
+        }),
+        query: vi.fn().mockResolvedValue({
+          totalSize: 1,
+          done: true,
+          records: [{ Id: '001AAAAAAAAAAAAAA', Name: 'Acme' }],
+        }),
+        sobject: vi.fn().mockImplementation(() => ({
+          create: vi.fn().mockImplementation((batch: unknown[]) => {
+            created.push(batch);
+            return Promise.resolve([{ success: true, id: '001NEWID00000001' }]);
+          }),
+        })),
+      };
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
+
+      broker['dispatch'](
+        msg('seed:clone:execute', {
+          sourceOrgId: 'org-1',
+          targetOrgId: 'org-2',
+          objects: [{ objectApiName: 'Account' }],
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(posted.some((p) => p.type === 'seed:clone:execute:response')).toBe(true),
+        { timeout: 10000 },
+      );
+
+      const response = posted.find((p) => p.type === 'seed:clone:execute:response');
+      const payload = (
+        response as BaseMessage & {
+          payload: {
+            status: string;
+            totalInserted: number;
+            objectResults: Array<{ idMappings: Array<{ sourceId: string; targetId: string }> }>;
+          };
+        }
+      ).payload;
+      expect(payload.status).toBe('success');
+      expect(payload.totalInserted).toBe(1);
+      expect(payload.objectResults[0].idMappings).toEqual([
+        { sourceId: '001AAAAAAAAAAAAAA', targetId: '001NEWID00000001' },
+      ]);
+      // The source Id must be stripped from the written record.
+      expect(created[0][0]).toEqual({ Name: 'Acme' });
+    });
+
+    it('seed:clone:execute should reject upsert without externalIdField', async () => {
+      broker['dispatch'](
+        msg('seed:clone:execute', {
+          sourceOrgId: 'org-1',
+          targetOrgId: 'org-2',
+          objects: [{ objectApiName: 'Account' }],
+          upsert: true,
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const errMsg = posted.find((p) => p.type === 'seed:clone:error');
+      expect(errMsg).toBeDefined();
+      const payload = (errMsg as BaseMessage & { payload: { code: string } }).payload;
+      expect(payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('seed:clone:execute should reject a SOQL-injection whereClause', async () => {
+      broker['dispatch'](
+        msg('seed:clone:execute', {
+          sourceOrgId: 'org-1',
+          targetOrgId: 'org-2',
+          objects: [{ objectApiName: 'Account', whereClause: "Name != '' DELETE FROM Account" }],
+        }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+
+      const errMsg = posted.find((p) => p.type === 'seed:clone:error');
+      expect(errMsg).toBeDefined();
+    });
+  });
+
+  describe('seed:csv routing', () => {
+    it('seed:csv:validate should validate rows against describe metadata', async () => {
+      const mockConnection = {
+        describe: vi.fn().mockResolvedValue({
+          name: 'Account',
+          fields: [
+            {
+              name: 'Name',
+              label: 'Name',
+              type: 'string',
+              nillable: false,
+              defaultValue: null,
+              length: 255,
+            },
+          ],
+        }),
+      };
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
+
+      broker['dispatch'](
+        msg('seed:csv:validate', {
+          orgId: 'org-1',
+          objectApiName: 'Account',
+          records: [{ Name: 'Acme' }, { Name: '' }],
+          columnMappings: [
+            { csvHeader: 'Name', sfFieldApiName: 'Name', sfFieldType: 'string', sfFieldLength: 255 },
+          ],
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(posted.some((p) => p.type === 'seed:csv:validate:response')).toBe(true),
+      );
+
+      const response = posted.find((p) => p.type === 'seed:csv:validate:response');
+      const payload = (
+        response as BaseMessage & {
+          payload: { valid: boolean; errors: Array<{ errorType: string }> };
+        }
+      ).payload;
+      expect(payload.valid).toBe(false);
+      expect(payload.errors[0].errorType).toBe('missing_required');
+    });
+
+    it('seed:csv:execute should insert mapped records and report counts', async () => {
+      const mockConnection = {
+        sobject: vi.fn().mockImplementation(() => ({
+          create: vi.fn().mockResolvedValue([{ success: true, id: '001NEWID00000002' }]),
+        })),
+      };
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
+
+      broker['dispatch'](
+        msg('seed:csv:execute', {
+          orgId: 'org-1',
+          objectApiName: 'Account',
+          records: [{ Name: 'Acme', NumberOfEmployees: '42' }],
+          columnMappings: [
+            { csvHeader: 'Name', sfFieldApiName: 'Name', sfFieldType: 'string', sfFieldLength: 255 },
+            {
+              csvHeader: 'NumberOfEmployees',
+              sfFieldApiName: 'NumberOfEmployees',
+              sfFieldType: 'int',
+              sfFieldLength: null,
+            },
+          ],
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(posted.some((p) => p.type === 'seed:csv:execute:response')).toBe(true),
+        { timeout: 10000 },
+      );
+
+      const response = posted.find((p) => p.type === 'seed:csv:execute:response');
+      const payload = (
+        response as BaseMessage & {
+          payload: { insertedCount: number; failedCount: number; errors: string[] };
+        }
+      ).payload;
+      expect(payload.insertedCount).toBe(1);
+      expect(payload.failedCount).toBe(0);
+      expect(payload.errors).toEqual([]);
+    });
+  });
+
+  describe('execution:manual-retry routing', () => {
+    it('should answer execution:retry-status with canRetry:false (not replayable)', async () => {
+      const { BackgroundOperationRegistry } = await import(
+        '../core/engine/BackgroundOperationRegistry'
+      );
+      const localBroker = new MessageBroker();
+      const localPosted: BaseMessage[] = [];
+      vi.spyOn(localBroker, 'postToWebview').mockImplementation((m) => {
+        localPosted.push(m);
+      });
+      const localRouter = new MessageRouter(localBroker);
+      const localHandlers = new ExtensionHandlers({ ...deps, broker: localBroker });
+      localHandlers.setBackgroundRegistry(new BackgroundOperationRegistry());
+      localHandlers.registerAll(localRouter);
+
+      localBroker['dispatch'](
+        msg('execution:manual-retry', { executionId: 'op-x', objectName: 'Account' }),
+      );
+      await vi.waitFor(() => expect(localPosted.length).toBeGreaterThanOrEqual(1));
+
+      const response = localPosted.find((p) => p.type === 'execution:retry-status');
+      expect(response).toBeDefined();
+      const payload = (
+        response as BaseMessage & {
+          payload: { executionId: string; canRetry: boolean; lastError: string };
+        }
+      ).payload;
+      expect(payload.executionId).toBe('op-x');
+      expect(payload.canRetry).toBe(false);
+      expect(payload.lastError).toContain('Operation not found');
     });
   });
 });

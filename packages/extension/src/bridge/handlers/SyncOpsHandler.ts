@@ -15,6 +15,7 @@ import {
   sendOperationFailed,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
@@ -73,6 +74,12 @@ export class SyncOpsHandler implements DomainHandler {
   /** Background operation registry for detached execution. */
   private registry?: BackgroundOperationRegistry;
 
+  /**
+   * Execution-history logger. Injected by ExtensionHandlers so every completed
+   * sync lands in SyncHistoryStore (powers the sync:history:* read surface).
+   */
+  private historyLogger?: SyncExecutionLogger;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.syncConfigStore = new SyncConfigStore(deps.configStore);
@@ -86,6 +93,15 @@ export class SyncOpsHandler implements DomainHandler {
    */
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
+  }
+
+  /**
+   * Inject the sync execution-history logger.
+   *
+   * @param logger - The shared SyncExecutionLogger instance.
+   */
+  setHistoryLogger(logger: SyncExecutionLogger): void {
+    this.historyLogger = logger;
   }
 
   /**
@@ -298,6 +314,46 @@ export class SyncOpsHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncExecutePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
+    await this.startExecution(msg, parsed.config, 'manual');
+  }
+
+  /**
+   * Re-run a sync from a persisted history config snapshot (`sync:history:rerun`).
+   *
+   * The snapshot was produced by a previously validated config, but it
+   * round-trips through ConfigStore and the webview, so it is re-validated
+   * here before execution (defense-in-depth). Validation failures are
+   * reported on the `sync:history:error` channel the history store consumes.
+   *
+   * @param msg - The triggering `sync:history:rerun` message (correlation id source).
+   * @param snapshot - The raw config snapshot loaded from SyncHistoryStore.
+   */
+  async rerunFromSnapshot(msg: BaseMessage, snapshot: unknown): Promise<void> {
+    this.deps.log(`[RX] sync:history:rerun id=${msg.id}`);
+    const parsed = validatePayload(
+      syncExecutePayloadSchema,
+      { ...msg, payload: { config: snapshot } } as BaseMessage,
+      'sync:history:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    await this.startExecution(msg, parsed.config, 'rerun');
+  }
+
+  /**
+   * Shared execution entry point for `sync:execute` and `sync:history:rerun`:
+   * fills per-object batch sizes, runs the production guard, registers the
+   * operation, and dispatches the detached execution.
+   *
+   * @param msg - Triggering bridge message (correlation + operation id source).
+   * @param rawConfig - Payload-validated sync config (webview or history snapshot).
+   * @param triggeredBy - Origin marker persisted in the execution history entry.
+   */
+  private async startExecution(
+    msg: BaseMessage,
+    rawConfig: unknown,
+    triggeredBy: 'manual' | 'rerun',
+  ): Promise<void> {
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
 
@@ -306,9 +362,10 @@ export class SyncOpsHandler implements DomainHandler {
       // setting when the webview omitted them.
       const defaultBatchSize =
         this.deps.services?.getSandforgeSetting?.('sync.defaultBatchSize', 200) ?? 200;
+      const parsedConfig = rawConfig as { objects: Array<{ batchSize?: number }> };
       const config = {
-        ...parsed.config,
-        objects: parsed.config.objects.map((o) => ({
+        ...parsedConfig,
+        objects: parsedConfig.objects.map((o) => ({
           ...o,
           batchSize: o.batchSize ?? defaultBatchSize,
         })),
@@ -366,7 +423,13 @@ export class SyncOpsHandler implements DomainHandler {
       const abortController = new AbortController();
 
       // Build the execution promise (runs detached in the background)
-      const executionPromise = this.executeSync(msg, config, operationId, abortController);
+      const executionPromise = this.executeSync(
+        msg,
+        config,
+        operationId,
+        abortController,
+        triggeredBy,
+      );
 
       // Register with BackgroundOperationRegistry if available
       if (this.registry) {
@@ -395,6 +458,7 @@ export class SyncOpsHandler implements DomainHandler {
     config: import('@sandforge/shared').SyncConfig,
     operationId: string,
     abortController: AbortController,
+    triggeredBy: 'manual' | 'rerun',
   ): Promise<void> {
     const robustnessConfig = this.getRobustnessConfig();
     let progressTracker: BulkJobProgressTracker | undefined;
@@ -576,6 +640,14 @@ export class SyncOpsHandler implements DomainHandler {
       this.dmlTracker.markCompleted(operationId);
       checkApiLimits(sourceConn.limitInfo, 'sync:execute completion (source)');
       checkApiLimits(targetConn.limitInfo, 'sync:execute completion (target)');
+
+      // Persist the execution in the sync history (powers sync:history:*).
+      // A logging failure must never fail the sync itself — log and move on.
+      try {
+        this.historyLogger?.logExecution(config, result, triggeredBy);
+      } catch (historyErr: unknown) {
+        this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
+      }
 
       const response = buildResponse(
         this.deps,

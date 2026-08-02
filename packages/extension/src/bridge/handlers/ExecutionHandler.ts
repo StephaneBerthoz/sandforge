@@ -4,7 +4,12 @@ import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
 /** Message types handled by ExecutionHandler. */
-const EXECUTION_TYPES = new Set(['execution:abort', 'execution:status', 'execution:list']);
+const EXECUTION_TYPES = new Set([
+  'execution:abort',
+  'execution:status',
+  'execution:list',
+  'execution:manual-retry',
+]);
 
 /**
  * Domain handler for execution lifecycle messages.
@@ -39,9 +44,44 @@ export class ExecutionHandler implements DomainHandler {
       case 'execution:list':
         await this.handleList(msg);
         return true;
+      case 'execution:manual-retry':
+        this.handleManualRetry(msg);
+        return true;
       default:
         return false;
     }
+  }
+
+  /**
+   * Handle a manual retry request from the ErrorRecoveryPanel.
+   *
+   * Honest minimal behaviour: the extension does not persist failed-operation
+   * configs for replay (only sync executions are replayable, via
+   * `sync:history:rerun`), so a manual retry cannot actually re-run the
+   * operation. Instead of dropping the message silently, answer on the exact
+   * channel the webview consumes — `execution:retry-status` — with
+   * `canRetry: false` so the panel disables the retry button and surfaces the
+   * "retries exhausted" state instead of waiting forever.
+   */
+  private handleManualRetry(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const payload = (msg as BaseMessage & { payload: { executionId: string; objectName: string } })
+      .payload;
+    const operation = this.registry.get(payload.executionId);
+    const response = buildResponse(this.deps, msg, 'execution:retry-status', {
+      executionId: payload.executionId,
+      objectName: payload.objectName,
+      attemptNumber: 0,
+      maxAttempts: 0,
+      nextRetryAt: null,
+      lastError: operation
+        ? 'Manual retry is not supported for this operation: its configuration was not persisted for replay.'
+        : `Operation not found: ${payload.executionId}. Manual retry is unavailable.`,
+      canRetry: false,
+      canAbort: operation?.status === 'running',
+    });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id} (not replayable)`);
   }
 
   /**

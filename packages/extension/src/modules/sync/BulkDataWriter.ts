@@ -227,15 +227,15 @@ export class BulkDataWriter {
       chunkedExecutor.createChunkGenerator(records),
       records.length,
       externalIdField,
+      // Full array is already in memory here — enables honest per-record
+      // result attribution instead of the old "first successCount succeeded"
+      // assumption, which misattributed failures after partial job errors.
+      records,
     );
-    return Array.from({ length: records.length }, (_, i) => ({
-      id:
-        i < streamResult.successCount ? (streamResult.successIds[i] ?? `stream-${i}`) : undefined,
-      success: i < streamResult.successCount,
-      errors:
-        i >= streamResult.successCount
-          ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error']
-          : [],
+    return (streamResult.outcomes ?? []).map((outcome) => ({
+      id: outcome.id,
+      success: outcome.success,
+      errors: outcome.success ? [] : [outcome.error ?? 'Streaming error'],
     }));
   }
 
@@ -265,13 +265,13 @@ export class BulkDataWriter {
       records,
       externalIdField,
     );
-    return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-      id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-      success: i < bulkResult.successCount,
-      errors:
-        i >= bulkResult.successCount
-          ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-          : [],
+    // Real per-record outcomes: input-aligned, real Salesforce IDs (the old
+    // code fabricated `bulk-${i}` IDs and assumed the first successCount
+    // records had succeeded).
+    return bulkResult.outcomes.map((outcome) => ({
+      id: outcome.id,
+      success: outcome.success,
+      errors: outcome.success ? [] : [outcome.error ?? 'Bulk error'],
     }));
   }
 

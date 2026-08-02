@@ -70,6 +70,19 @@ export interface CoreServices {
    */
   getSandforgeSetting: <T>(key: string, fallback: T) => T;
   /**
+   * Persist a `sandforge.*` VS Code setting at Global (user) scope.
+   * Optional so tests that construct partial Services bundles still compile;
+   * handlers must degrade honestly when it is absent.
+   * (`PromiseLike` because vscode's `WorkspaceConfiguration.update` returns a Thenable.)
+   */
+  setSandforgeSetting?: <T>(key: string, value: T) => PromiseLike<void>;
+  /**
+   * Absolute fs paths of the open workspace folders (empty when no folder is
+   * open). Used by file-ingest handlers (migration import) to bound webview-
+   * supplied paths to an allowed base. Optional for the same test reason.
+   */
+  getWorkspaceFolders?: () => string[];
+  /**
    * Build a fresh `SessionBudget` for an AI panel session. Caller is
    * responsible for attaching it to the adapter
    * (`services.aiClient().budget = sessionBudget`) on panel-open and
@@ -129,7 +142,14 @@ export function createServices(
   context: vscode.ExtensionContext,
   opts?: TelemetryAdapterOptions,
 ): Services {
-  const telemetry = new TelemetryAdapter(context, opts);
+  // `sandforge.telemetry` (manifest default false) gates telemetry emissions
+  // (breadcrumbs / captureException) at the point of emission — read live so
+  // toggling the setting takes effect without a reload. The operational Pino
+  // logger (OutputChannel) is intentionally NOT gated.
+  const telemetry = new TelemetryAdapter(context, {
+    ...opts,
+    isEnabled: () => vscode.workspace.getConfiguration('sandforge').get<boolean>('telemetry', false),
+  });
   const storage = new StorageAdapter(context);
   const salesforce = new SalesforceAdapter(storage, telemetry);
   const fs = new FsAdapter(telemetry);
@@ -159,6 +179,12 @@ export function createServices(
       vscode.workspace.getConfiguration('sandforge.ai').get<boolean>('enabled', false),
     getSandforgeSetting: <T>(key: string, fallback: T): T =>
       vscode.workspace.getConfiguration('sandforge').get<T>(key, fallback),
+    setSandforgeSetting: <T>(key: string, value: T): PromiseLike<void> =>
+      vscode.workspace
+        .getConfiguration('sandforge')
+        .update(key, value, vscode.ConfigurationTarget.Global),
+    getWorkspaceFolders: (): string[] =>
+      vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
     createSessionBudget: (sessionId, broker) => {
       const budget = vscode.workspace
         .getConfiguration('sandforge.ai')

@@ -9,6 +9,14 @@ export type Logger = PinoLogger;
 export interface TelemetryAdapterOptions {
   /** Optional override for Pino destination (used by tests to capture output). */
   pinoDestination?: pino.DestinationStream;
+  /**
+   * Live gate for telemetry emissions, bound to the `sandforge.telemetry`
+   * setting at the composition root. When absent, telemetry emissions are
+   * always allowed (preserves legacy behaviour for tests embedding the
+   * adapter directly). The operational Pino logger is NEVER gated — only
+   * the telemetry-style API (`captureException` / `addBreadcrumb`).
+   */
+  isEnabled?: () => boolean;
 }
 
 /**
@@ -70,6 +78,8 @@ export class TelemetryAdapter {
   private readonly context: vscode.ExtensionContext;
   private readonly opts: TelemetryAdapterOptions;
   private readonly logger: Logger;
+  /** Count of telemetry events actually emitted while the gate was open. */
+  private telemetryEventCount = 0;
 
   constructor(context: vscode.ExtensionContext, opts?: TelemetryAdapterOptions) {
     this.context = context;
@@ -82,8 +92,23 @@ export class TelemetryAdapter {
     return this.logger;
   }
 
+  /**
+   * Number of telemetry events emitted since activation (0 when the
+   * `sandforge.telemetry` gate has been closed the whole time).
+   */
+  getTelemetryEventCount(): number {
+    return this.telemetryEventCount;
+  }
+
+  /** True when the `sandforge.telemetry` gate allows telemetry emissions. */
+  private isTelemetryAllowed(): boolean {
+    return this.opts.isEnabled?.() ?? true;
+  }
+
   /** Log an exception at error level; sensitive extras are redacted. */
   captureException(err: unknown, extra?: Record<string, unknown>): void {
+    if (!this.isTelemetryAllowed()) return;
+    this.telemetryEventCount++;
     this.logger.error({ err, extra: sanitiseExtras(extra) }, 'captureException');
   }
 
@@ -93,6 +118,8 @@ export class TelemetryAdapter {
     category?: string,
     level: 'info' | 'warning' | 'error' = 'info',
   ): void {
+    if (!this.isTelemetryAllowed()) return;
+    this.telemetryEventCount++;
     this.logger.debug({ category: category ?? 'sandforge', level }, message);
   }
 

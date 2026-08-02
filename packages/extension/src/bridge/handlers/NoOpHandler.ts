@@ -22,6 +22,21 @@ const NOOP_TYPES = new Set([
 ]);
 
 /**
+ * Response-type overrides for requests whose webview contract does NOT follow
+ * the generic `${type}:response` pattern (verified against
+ * `useCDCLiveStore` / `useCDCMetricsStore` / `useConflictStore`):
+ *   realtime:start            -> realtime:started
+ *   realtime:stop             -> realtime:stopped
+ *   realtime:resolve-conflict -> realtime:conflict-resolved
+ * `realtime:status` and `realtime:metrics` already match `:response`.
+ */
+const RESPONSE_TYPE_OVERRIDES: Readonly<Record<string, string>> = {
+  'realtime:start': 'realtime:started',
+  'realtime:stop': 'realtime:stopped',
+  'realtime:resolve-conflict': 'realtime:conflict-resolved',
+};
+
+/**
  * No-op handler for ghost features (Scheduler, RealTime CDC).
  *
  * Returns a standardised `{ success: false, comingSoon: true }` response
@@ -41,14 +56,19 @@ export class NoOpHandler implements DomainHandler {
   async handle(msg: BaseMessage): Promise<boolean> {
     if (!NOOP_TYPES.has(msg.type)) return false;
 
-    const responseType = `${msg.type}:response`;
-    this.deps.broker.postToWebview(
-      buildResponse(this.deps, msg, responseType, {
-        success: false,
-        error: 'Feature not yet available',
-        comingSoon: true,
-      }),
-    );
+    const responseType = RESPONSE_TYPE_OVERRIDES[msg.type] ?? `${msg.type}:response`;
+    const payload: Record<string, unknown> = {
+      success: false,
+      error: 'Feature not yet available',
+      comingSoon: true,
+    };
+    // realtime:status:response is the one realtime channel whose payload the
+    // webview actually reads (`payload.status`). Report the truthful state:
+    // no CDC stream is running because the feature does not exist yet.
+    if (msg.type === 'realtime:status') {
+      payload['status'] = 'disconnected';
+    }
+    this.deps.broker.postToWebview(buildResponse(this.deps, msg, responseType, payload));
     return true;
   }
 }

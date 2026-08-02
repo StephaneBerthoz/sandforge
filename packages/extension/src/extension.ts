@@ -28,6 +28,7 @@ import { ProductionGuard } from './core/precheck/ProductionGuard';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { CacheManager } from './core/cache/CacheManager';
 import { AI_CONFIG, AI_PROVIDER } from '@sandforge/shared';
+import type { BaseMessage } from '@sandforge/shared';
 import { createServices } from './services.js';
 import type { Services } from './services.js';
 import { logger } from './logger.js';
@@ -494,6 +495,51 @@ export function activate(context: vscode.ExtensionContext): void {
       schemaAdvisor: new SchemaAdvisor(),
     });
     log('AI modules (Tier 2) initialized.');
+
+    // Plan 04-04: wire the diagnose flow (failed-job → structured context →
+    // diagnosis → per-action approve gate). run-anonymous actions execute
+    // against the target org via the shared connection helper; apply-fix
+    // stays unwired for now (the handler answers honestly that the
+    // dispatcher is missing rather than pretending to apply edits).
+    const { AIDiagnoseHandler } = await import('./bridge/handlers/ai/AIDiagnoseHandler.js');
+    const diagnoseBroker = broker;
+    handlers.setAIDiagnoseHandler(
+      new AIDiagnoseHandler({
+        aiClient: services.aiClient(),
+        broker: {
+          send: (message) => {
+            diagnoseBroker?.postToWebview(message as unknown as BaseMessage);
+          },
+        },
+        telemetry: services.telemetry,
+        logger: services.telemetry.getLogger(),
+        dispatcher: {
+          runAnonymous: async (script, orgId) => {
+            const { getJsforceConnection } = await import(
+              './core/connection/ConnectionHelper.js'
+            );
+            const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
+            const res = (await conn.tooling.executeAnonymous(script)) as {
+              compiled: boolean;
+              success: boolean;
+              compileProblem?: string;
+              exceptionMessage?: string;
+            };
+            if (!res.compiled) {
+              return { ok: false, resultMessage: `Compile error: ${res.compileProblem ?? 'unknown'}` };
+            }
+            if (!res.success) {
+              return {
+                ok: false,
+                resultMessage: `Execution error: ${res.exceptionMessage ?? 'unknown'}`,
+              };
+            }
+            return { ok: true, resultMessage: 'Anonymous Apex executed successfully' };
+          },
+        },
+      }),
+    );
+    log('AI diagnose handler initialized.');
   };
   initAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
 
