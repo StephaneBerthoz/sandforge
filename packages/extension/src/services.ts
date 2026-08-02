@@ -38,7 +38,7 @@ export interface CoreServices {
   storage: StorageAdapter;
   /** Telemetry + structured logger facade. */
   telemetry: TelemetryAdapter;
-  /** jsforce gateway with concurrency gate + retry. */
+  /** jsforce gateway with concurrency gate + describe cache. */
   salesforce: SalesforceAdapter;
   /** Safe filesystem wrapper constrained to workspace root. */
   fs: FsAdapter;
@@ -131,13 +131,7 @@ export function createServices(
 ): Services {
   const telemetry = new TelemetryAdapter(context, opts);
   const storage = new StorageAdapter(context);
-  // `sandforge.api.retryAttempts` (manifest default 3) bounds p-retry attempts
-  // on retriable Salesforce errors. Read once at composition; a reload picks
-  // up changes (the adapter holds no per-call config).
-  const apiRetryAttempts = vscode.workspace
-    .getConfiguration('sandforge.api')
-    .get<number>('retryAttempts', 3);
-  const salesforce = new SalesforceAdapter(storage, telemetry, { retries: apiRetryAttempts });
+  const salesforce = new SalesforceAdapter(storage, telemetry);
   const fs = new FsAdapter(telemetry);
 
   const aiClient = createAIClientFactory({

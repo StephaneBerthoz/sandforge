@@ -26,7 +26,6 @@
   "config.ai.tokenBudgetMaxPerSession.description": "Budget AI maximum par session du panneau Assistant. Le compteur se reinitialise a la fermeture. SandForge avertit a 80% et refuse les nouvelles requetes a 100%.",
   "config.backup.maxCount.description": "Nombre maximum de sauvegardes a conserver par org",
   "config.pipeline.timeout.description": "Delai d'expiration des pipelines en millisecondes",
-  "config.api.retryAttempts.description": "Nombre de tentatives de renvoi pour les appels API echoues",
   "config.safety.requireProdConfirmation.description": "Exiger une confirmation pour les operations sur les orgs de production",
   "config.safety.auditLogging.description": "Activer la journalisation d'audit pour toutes les operations de donnees"
 }

@@ -217,13 +217,6 @@
           "maximum": 3600000,
           "description": "%config.pipeline.timeout.description%"
         },
-        "sandforge.api.retryAttempts": {
-          "type": "number",
-          "default": 3,
-          "minimum": 0,
-          "maximum": 10,
-          "description": "%config.api.retryAttempts.description%"
-        },
         "sandforge.safety.requireProdConfirmation": {
           "type": "boolean",
           "default": true,
@@ -250,16 +243,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "0.93.0",
     "@sandforge/shared": "workspace:*",
-    "@sentry/browser": "^8",
-    "@sentry/node": "^8",
     "cron-parser": "^5.5.0",
     "jsforce": "^3",
     "microdiff": "^1.5.0",
     "p-limit": "^3.1.0",
-    "p-retry": "^4.6.2",
     "pdfkit": "^0.15",
     "pino": "^9",
-    "pino-pretty": "^11",
     "zod": "^3.25.0"
   },
   "devDependencies": {

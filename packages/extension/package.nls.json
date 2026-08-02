@@ -26,7 +26,6 @@
   "config.ai.tokenBudgetMaxPerSession.description": "Maximum AI token budget per Assistant panel session. Counter resets when the panel closes. SandForge soft-warns at 80% and hard-refuses further requests at 100%.",
   "config.backup.maxCount.description": "Maximum number of backups to retain per org",
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
-  "config.api.retryAttempts.description": "Number of retry attempts for failed API calls",
   "config.safety.requireProdConfirmation.description": "Require confirmation dialog for production org operations",
   "config.safety.auditLogging.description": "Enable audit logging for all data operations"
 }
