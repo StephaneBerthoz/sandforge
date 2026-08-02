@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useMemo } from 'react';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
+import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
 
 /** Return type for the useSeedObjectSelection hook. */
@@ -19,9 +20,11 @@ export interface SeedObjectSelectionState {
 /**
  * Hook managing object selection state for the Seed wizard.
  * Fetches the list of available objects when an org is selected.
+ * Selection state lives in `useSeedWizardStore`.
  */
 export function useSeedObjectSelection(selectedOrgId: string): SeedObjectSelectionState {
-  const [selectedObjects, setSelectedObjects] = useState<string[]>([]);
+  const selectedObjects = useSeedWizardStore((s) => s.selectedObjects);
+  const handleToggleObject = useSeedWizardStore((s) => s.handleToggleObject);
 
   const describeGlobalQuery = useBridgeQuery<{ objects: SeedObjectInfo[] }>(
     'seed:describe-global',
@@ -29,14 +32,12 @@ export function useSeedObjectSelection(selectedOrgId: string): SeedObjectSelecti
     { responseType: 'seed:describe-global:response', skip: !selectedOrgId },
   );
 
-  const availableObjects = describeGlobalQuery.data?.objects ?? [];
+  // Memoised fallback keeps referential stability when no data is loaded.
+  const availableObjects = useMemo(
+    () => describeGlobalQuery.data?.objects ?? [],
+    [describeGlobalQuery.data?.objects],
+  );
   const loadingObjects = describeGlobalQuery.loading;
-
-  const handleToggleObject = useCallback((apiName: string) => {
-    setSelectedObjects((prev) =>
-      prev.includes(apiName) ? prev.filter((o) => o !== apiName) : [...prev, apiName],
-    );
-  }, []);
 
   return {
     availableObjects,

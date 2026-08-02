@@ -3,24 +3,19 @@ import { useTranslation } from 'react-i18next';
 import { Sparkles, Upload, Copy, ArrowLeft, Users } from 'lucide-react';
 import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
-import { Skeleton } from '../../components/ui/Skeleton';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { OrgBadge } from '../../components/ui/OrgBadge';
-import { Button } from '../../components/ui/Button';
-import { Input } from '../../components/ui/Input';
-import { Badge } from '../../components/ui/Badge';
-import { Select } from '../../components/ui/Select';
-import { Accordion } from '../../components/ui/Accordion';
-import { Card, CardHeader, CardBody } from '../../components/ui/Card';
+import { Card, CardBody } from '../../components/ui/Card';
 import { Divider } from '../../components/ui/Divider';
-import { InfoTooltip } from '../../components/ui/InfoTooltip';
 import { SeedWizard } from './SeedWizard';
 import type { WizardStep } from './SeedWizard';
-import { Step2SelectObjects } from './Step2_SelectObjects';
-import { Step3ConfigureFields } from './Step3_ConfigureFields';
-import { Step7Execute } from './Step7_Execute';
+import { SeedSelectStep } from './SeedSelectStep';
+import { SeedConfigureStep } from './SeedConfigureStep';
+import { SeedExecuteStep } from './SeedExecuteStep';
+import { SeedResultsStep } from './SeedResultsStep';
 import { TemplateGallery } from './TemplateGallery';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import { useSeedWizardState } from './useSeedWizardState';
@@ -29,8 +24,6 @@ import { GuidedFirstStepCard } from '../../components/ui/GuidedFirstStepCard';
 import { CsvUploadWizard } from './CsvUpload/CsvUploadWizard';
 import { CloneWizard } from './Clone/CloneWizard';
 import { PersonaGallery } from './Persona/PersonaGallery';
-import type { PIIObjectResult } from './useSeedWizardState';
-import type { BadgeVariant } from '../../components/ui/Badge';
 
 /** Seed mode selection with AI sub-modes. */
 type SeedMode = 'select' | 'ai' | 'ai-persona' | 'ai-scratch' | 'csv' | 'clone';
@@ -41,12 +34,6 @@ const SEED_STEPS: WizardStep[] = [
   { id: 'execute', labelKey: 'seed.stepExecute' },
   { id: 'results', labelKey: 'seed.stepResults' },
 ];
-
-const RESULTS_STATUS_VARIANT: Record<string, BadgeVariant> = {
-  success: 'success',
-  partial: 'warning',
-  failure: 'error',
-};
 
 /** Threshold below which wizard auto-advances past Configure step. */
 const AUTO_ADVANCE_THRESHOLD = 5;
@@ -61,6 +48,8 @@ export const SeedPage: React.FC = () => {
   /** Tracks whether the configure step was auto-skipped (for the "Customize" banner). */
   const [configSkipped, setConfigSkipped] = useState(false);
   const prevStepRef = useRef(state.currentStep);
+  const setSelectedPersona = useSeedWizardStore((s) => s.setSelectedPersona);
+  const setCurrentStep = state.setCurrentStep;
 
   const handleSelectTemplate = (
     template: SeedTemplate,
@@ -72,33 +61,47 @@ export const SeedPage: React.FC = () => {
   /** Handle persona selection from the PersonaGallery. Stores persona and switches to wizard. */
   const handlePersonaSelected = useCallback(
     (persona: PersonaMsg) => {
-      state.setSelectedPersona(persona);
+      setSelectedPersona(persona);
       setSeedMode('ai-scratch');
     },
-    [state],
+    [setSelectedPersona],
   );
 
   /**
    * Custom step change handler that implements adaptive auto-advance.
    * When moving from Select (0) to Configure (1), if there are fewer than
    * AUTO_ADVANCE_THRESHOLD objects, skip Configure and go directly to Execute (2).
+   * The selected-object count is read from the store at call time so this
+   * callback stays memoised across wizard state changes.
    */
   const handleStepChange = useCallback(
     (nextStep: number) => {
       const movingForwardFromSelect = prevStepRef.current === 0 && nextStep === 1;
-      if (movingForwardFromSelect && state.selectedObjects.length < AUTO_ADVANCE_THRESHOLD) {
+      const selectedCount = useSeedWizardStore.getState().selectedObjects.length;
+      if (movingForwardFromSelect && selectedCount < AUTO_ADVANCE_THRESHOLD) {
         setConfigSkipped(true);
-        state.setCurrentStep(2);
+        setCurrentStep(2);
       } else {
         if (nextStep === 1) {
           setConfigSkipped(false);
         }
-        state.setCurrentStep(nextStep);
+        setCurrentStep(nextStep);
       }
       prevStepRef.current = nextStep;
     },
-    [state],
+    [setCurrentStep],
   );
+
+  /** Customize link on the Execute step: back to Configure, clear the skipped flag. */
+  const handleCustomize = useCallback(() => {
+    setConfigSkipped(false);
+    setCurrentStep(1);
+  }, [setCurrentStep]);
+
+  /** "Seed again" on the Results step: restart at the Select step. */
+  const handleSeedAgain = useCallback(() => {
+    setCurrentStep(0);
+  }, [setCurrentStep]);
 
   if (orgs.length === 0) {
     return <EmptyState icon="database" title={t('seed.title')} description={t('org.noOrgs')} />;
@@ -293,448 +296,50 @@ export const SeedPage: React.FC = () => {
               >
                 {/* STEP 1: SELECT */}
                 {state.currentStep === 0 && (
-                  <div
-                    className="flex flex-col gap-[var(--sf-space-3)]"
-                    data-testid="seed-step-select-content"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <InfoTooltip
-                        id="help.seed.selectObjects"
-                        content={t('help.seed.selectObjects')}
-                      />
-                    </div>
-                    {/* Org selector */}
-                    <Select
-                      label={t('seed.selectOrg')}
-                      options={orgs.map((org) => ({
-                        value: org.id,
-                        label: `${org.alias || org.username} ${String(org.orgType).toLowerCase().includes('production') ? '[PROD]' : '[SBX]'}`,
-                      }))}
-                      value={state.selectedOrgId}
-                      onChange={(e) => state.handleOrgSelect(e.target.value)}
-                      placeholder={t('seed.selectOrg')}
-                      data-testid="org-selector"
-                    />
-
-                    {/* Object multi-select with inline volume */}
-                    {state.selectedOrgId &&
-                      (state.loadingObjects ? (
-                        <div
-                          className="flex flex-col gap-[var(--sf-space-2)]"
-                          data-testid="seed-objects-skeleton"
-                        >
-                          <Skeleton variant="text" width="30%" height="1em" />
-                          <Skeleton variant="rect" height="120px" />
-                          <Skeleton variant="text" width="50%" height="1em" />
-                        </div>
-                      ) : (
-                        <>
-                          <Step2SelectObjects
-                            availableObjects={state.availableObjects}
-                            selectedObjects={state.selectedObjects}
-                            onToggle={state.handleToggleObject}
-                          />
-
-                          {/* Inline volume inputs for selected objects */}
-                          {state.selectedObjects.length > 0 && (
-                            <div className="flex flex-col gap-1">
-                              <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                                {t('seed.recordCount')}
-                              </span>
-                              {state.selectedObjects.map((obj) => (
-                                <div key={obj} className="flex items-center gap-2 text-xs">
-                                  <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                                    {obj}
-                                  </span>
-                                  <Input
-                                    type="number"
-                                    min={1}
-                                    value={state.volumes[obj]?.count ?? 100}
-                                    onChange={(e) =>
-                                      state.handleChangeVolume(
-                                        obj,
-                                        parseInt(e.target.value, 10) || 0,
-                                      )
-                                    }
-                                    className="w-24"
-                                    data-testid={`volume-${obj}`}
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* PII badge warnings on selected objects */}
-                          {state.hasPiiWarnings && (
-                            <div
-                              className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-amber-600 bg-amber-950/30"
-                              role="alert"
-                              data-testid="pii-scan-warning"
-                            >
-                              <span className="text-sm font-medium text-amber-400">
-                                {t('seed.piiWarningTitle')}
-                              </span>
-                              {state.piiResults
-                                .filter((r: PIIObjectResult) => r.piiFields.length > 0)
-                                .map((r: PIIObjectResult) => (
-                                  <div key={r.objectName} className="flex flex-col gap-1">
-                                    <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                                      {r.objectName}
-                                    </span>
-                                    <div className="flex flex-wrap gap-1">
-                                      {r.piiFields.map(
-                                        (f: PIIObjectResult['piiFields'][number]) => (
-                                          <Badge
-                                            key={`${r.objectName}-${f.fieldName}`}
-                                            variant="warning"
-                                          >
-                                            {f.fieldName} ({f.piiType} --{' '}
-                                            {Math.round(f.confidence * 100)}%)
-                                          </Badge>
-                                        ),
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              <span className="text-xs text-amber-400/80">
-                                {t('seed.piiWarningHint')}
-                              </span>
-                            </div>
-                          )}
-
-                          {/* NL2SOQL Helper */}
-                          <div
-                            className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-[var(--vscode-input-border,#3c3c3c)] bg-[var(--vscode-editor-background)]"
-                            data-testid="nl2soql-helper"
-                          >
-                            <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                              {t('seed.nl2soqlTitle')}
-                            </span>
-                            <div className="flex gap-[var(--sf-space-2)] items-end">
-                              <div className="flex-1">
-                                <Input
-                                  placeholder={t('seed.nl2soqlPlaceholder')}
-                                  value={state.nl2soqlQuery}
-                                  onChange={(e) => state.setNl2soqlQuery(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && state.handleNl2soql()}
-                                  disabled={state.nl2soql.loading || !state.selectedOrgId}
-                                  data-testid="nl2soql-input"
-                                />
-                              </div>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                loading={state.nl2soql.loading}
-                                disabled={!state.nl2soqlQuery.trim() || !state.selectedOrgId}
-                                onClick={state.handleNl2soql}
-                                data-testid="nl2soql-button"
-                              >
-                                {t('seed.nl2soqlGenerate')}
-                              </Button>
-                            </div>
-                            {state.nl2soql.data?.soql && (
-                              <div className="relative group" data-testid="nl2soql-result">
-                                <pre className="text-xs p-2.5 rounded bg-[var(--vscode-input-background,#3c3c3c)] font-mono text-[var(--vscode-editor-foreground,#d4d4d4)] overflow-x-auto whitespace-pre-wrap">
-                                  {state.nl2soql.data.soql}
-                                </pre>
-                                <button
-                                  className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() =>
-                                    navigator.clipboard.writeText(state.nl2soql.data?.soql ?? '')
-                                  }
-                                  data-testid="nl2soql-copy"
-                                >
-                                  {t('common.copy')}
-                                </button>
-                              </div>
-                            )}
-                            {state.nl2soql.data?.explanation && (
-                              <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                                {state.nl2soql.data.explanation}
-                              </span>
-                            )}
-                            {(state.nl2soql.error ??
-                              (state.nl2soql.data && !state.nl2soql.data.success
-                                ? state.nl2soql.data.error
-                                : null)) && (
-                              <span
-                                className="text-xs text-[var(--vscode-errorForeground,#f48771)]"
-                                role="alert"
-                                data-testid="nl2soql-error"
-                              >
-                                {state.nl2soql.error ??
-                                  state.nl2soql.data?.error ??
-                                  t('seed.nl2soqlError')}
-                              </span>
-                            )}
-                          </div>
-                        </>
-                      ))}
-                  </div>
+                  <SeedSelectStep
+                    availableObjects={state.availableObjects}
+                    loadingObjects={state.loadingObjects}
+                    volumes={state.volumes}
+                    onChangeVolume={state.handleChangeVolume}
+                    hasPiiWarnings={state.hasPiiWarnings}
+                    piiResults={state.piiResults}
+                    nl2soqlQuery={state.nl2soqlQuery}
+                    onNl2soqlQueryChange={state.setNl2soqlQuery}
+                    onNl2soqlSubmit={state.handleNl2soql}
+                    nl2soql={state.nl2soql}
+                  />
                 )}
 
                 {/* STEP 2: CONFIGURE */}
                 {state.currentStep === 1 && (
-                  <div
-                    className="flex flex-col gap-[var(--sf-space-3)]"
-                    data-testid="seed-step-configure-content"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <InfoTooltip
-                        id="help.seed.configureFields"
-                        content={t('help.seed.configureFields')}
-                      />
-                    </div>
-                    {/* Collapsible field tree per object */}
-                    {state.piiLoading && (
-                      <div
-                        className="flex flex-col gap-[var(--sf-space-2)]"
-                        data-testid="pii-scan-loading"
-                      >
-                        <Skeleton variant="text" width="40%" height="1em" />
-                        <Skeleton variant="rect" height="80px" />
-                      </div>
-                    )}
-
-                    <Step3ConfigureFields
-                      objectConfigs={state.fieldConfigs.filter((c) =>
-                        state.selectedObjects.includes(c.objectApiName),
-                      )}
-                      onChangeRule={state.handleChangeFieldRule}
-                      onChangeConfig={state.handleChangeFieldConfig}
-                    />
-
-                    {/* Advanced section (Accordion) */}
-                    <Accordion
-                      items={[
-                        {
-                          title: t('seed.advancedSettings'),
-                          content: (
-                            <div
-                              className="flex flex-col gap-3"
-                              data-testid="seed-advanced-settings"
-                            >
-                              {/* Batch size per object */}
-                              <div className="flex flex-col gap-1">
-                                <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                                  {t('seed.batchSize')}
-                                </span>
-                                {state.selectedObjects.map((obj) => (
-                                  <div key={obj} className="flex items-center gap-2 text-xs">
-                                    <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                                      {obj}
-                                    </span>
-                                    <Input
-                                      type="number"
-                                      min={1}
-                                      max={10000}
-                                      value={state.volumes[obj]?.batchSize ?? 200}
-                                      onChange={(e) =>
-                                        state.handleChangeBatchSize(
-                                          obj,
-                                          parseInt(e.target.value, 10) || 200,
-                                        )
-                                      }
-                                      className="w-24"
-                                      data-testid={`batch-${obj}`}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-
-                              {/* Relations handling */}
-                              <div className="flex flex-col gap-1">
-                                <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                                  {t('seed.configureRelations')}
-                                </span>
-                                {state.relations.length === 0 && (
-                                  <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                                    {t('seed.noDependencies')}
-                                  </p>
-                                )}
-                                {state.relations.map((rel, i) => (
-                                  <div key={i} className="flex items-center gap-2 text-xs">
-                                    <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                                      {rel.childObject}.{rel.childField}
-                                    </span>
-                                    <Badge variant="default">{'\u2192'}</Badge>
-                                    <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                                      {rel.parentObject}.{rel.parentField}
-                                    </span>
-                                    <button
-                                      className="text-[var(--vscode-errorForeground,#f48771)] hover:opacity-70 px-1"
-                                      onClick={() => state.handleRemoveRelation(i)}
-                                      data-testid={`remove-relation-${i}`}
-                                    >
-                                      x
-                                    </button>
-                                  </div>
-                                ))}
-                                <button
-                                  className="text-xs text-[var(--vscode-focusBorder,#007fd4)] hover:underline self-start"
-                                  onClick={state.handleAddRelation}
-                                  data-testid="add-relation-btn"
-                                >
-                                  + {t('seed.addObject')}
-                                </button>
-                              </div>
-
-                              {/* PII toggles */}
-                              {state.hasPiiWarnings && (
-                                <div className="flex flex-col gap-1">
-                                  <span className="text-xs font-medium text-amber-400">
-                                    {t('seed.piiWarningTitle')}
-                                  </span>
-                                  {state.piiResults
-                                    .filter((r: PIIObjectResult) => r.piiFields.length > 0)
-                                    .map((r: PIIObjectResult) => (
-                                      <div key={r.objectName} className="flex flex-wrap gap-1">
-                                        {r.piiFields.map(
-                                          (f: PIIObjectResult['piiFields'][number]) => (
-                                            <Badge
-                                              key={`${r.objectName}-${f.fieldName}`}
-                                              variant="warning"
-                                            >
-                                              {f.fieldName} ({f.piiType})
-                                            </Badge>
-                                          ),
-                                        )}
-                                      </div>
-                                    ))}
-                                </div>
-                              )}
-                            </div>
-                          ),
-                        },
-                      ]}
-                    />
-                  </div>
+                  <SeedConfigureStep
+                    fieldConfigs={state.fieldConfigs}
+                    onChangeRule={state.handleChangeFieldRule}
+                    onChangeConfig={state.handleChangeFieldConfig}
+                    volumes={state.volumes}
+                    onChangeBatchSize={state.handleChangeBatchSize}
+                    piiLoading={state.piiLoading}
+                    hasPiiWarnings={state.hasPiiWarnings}
+                    piiResults={state.piiResults}
+                  />
                 )}
 
                 {/* STEP 3: EXECUTE */}
                 {state.currentStep === 2 && (
-                  <div data-testid="seed-step-execute-content">
-                    <div className="flex items-center gap-1.5">
-                      <InfoTooltip id="help.seed.execute" content={t('help.seed.execute')} />
-                    </div>
-
-                    {/* Adaptive: show "using defaults" banner when configure was skipped */}
-                    {configSkipped && (
-                      <div
-                        className="flex items-center gap-2 p-2 rounded text-xs bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-descriptionForeground,#868686)] mb-2"
-                        data-testid="adaptive-defaults-banner"
-                      >
-                        <span>{t('seed.adaptive.usingDefaults')}</span>
-                        <button
-                          className="text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline"
-                          onClick={() => {
-                            setConfigSkipped(false);
-                            state.setCurrentStep(1);
-                          }}
-                          data-testid="adaptive-customize-link"
-                        >
-                          {t('seed.adaptive.customizeLink')}
-                        </button>
-                      </div>
-                    )}
-
-                    <Step7Execute
-                      isRunning={state.isRunning}
-                      objectProgress={state.objectProgress}
-                      overallPercent={state.isRunning ? 50 : 0}
-                      elapsedMs={0}
-                    />
-                  </div>
+                  <SeedExecuteStep
+                    isRunning={state.isRunning}
+                    objectProgress={state.objectProgress}
+                    configSkipped={configSkipped}
+                    onCustomize={handleCustomize}
+                  />
                 )}
 
                 {/* STEP 4: RESULTS */}
                 {state.currentStep === 3 && (
-                  <div
-                    className="flex flex-col gap-[var(--sf-space-3)]"
-                    data-testid="seed-step-results-content"
-                  >
-                    {!state.executionResult ? (
-                      <div className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                        {t('common.noData')}
-                      </div>
-                    ) : (
-                      <>
-                        {/* Summary table */}
-                        <div
-                          className="flex items-center gap-3 text-xs"
-                          data-testid="result-summary"
-                        >
-                          <Badge variant={RESULTS_STATUS_VARIANT[state.executionResult.status]}>
-                            {state.executionResult.status === 'success'
-                              ? t('seed.complete')
-                              : state.executionResult.status === 'partial'
-                                ? t('seed.partial')
-                                : t('seed.failed')}
-                          </Badge>
-                          <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                            {t('seed.recordsCreated')}:{' '}
-                            <strong>{state.executionResult.totalRecordsCreated}</strong>
-                          </span>
-                          {state.executionResult.totalRecordsFailed > 0 && (
-                            <span className="text-[var(--vscode-errorForeground,#f48771)]">
-                              {t('seed.recordsFailed')}:{' '}
-                              <strong>{state.executionResult.totalRecordsFailed}</strong>
-                            </span>
-                          )}
-                          <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-                            {t('seed.executionTime')}:{' '}
-                            {(state.executionResult.duration / 1000).toFixed(1)}s
-                          </span>
-                        </div>
-
-                        {/* Per-object results */}
-                        {state.executionResult.objectResults.map((obj) => (
-                          <Card key={obj.objectApiName}>
-                            <CardHeader
-                              title={obj.objectApiName}
-                              action={
-                                <Badge variant={obj.recordsFailed > 0 ? 'warning' : 'success'}>
-                                  {obj.recordsCreated}/{obj.recordsCreated + obj.recordsFailed}
-                                </Badge>
-                              }
-                            />
-                            {obj.errors.length > 0 && (
-                              <CardBody>
-                                <div className="flex flex-col gap-1">
-                                  {obj.errors.map((err, i) => (
-                                    <p
-                                      key={i}
-                                      className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
-                                    >
-                                      {err}
-                                    </p>
-                                  ))}
-                                </div>
-                              </CardBody>
-                            )}
-                          </Card>
-                        ))}
-
-                        {/* Action buttons: Save, Export CSV, Seed Again */}
-                        <div className="flex gap-2 pt-2" data-testid="result-actions">
-                          <Button variant="secondary" size="sm" data-testid="btn-save-template">
-                            {t('seed.saveAsTemplate')}
-                          </Button>
-                          <Button variant="secondary" size="sm" data-testid="btn-export-csv">
-                            {t('seed.exportCsv')}
-                          </Button>
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => state.setCurrentStep(0)}
-                            data-testid="btn-seed-again"
-                          >
-                            {t('seed.seedAgain')}
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                  </div>
+                  <SeedResultsStep
+                    executionResult={state.executionResult}
+                    onSeedAgain={handleSeedAgain}
+                  />
                 )}
               </SeedWizard>
             </>

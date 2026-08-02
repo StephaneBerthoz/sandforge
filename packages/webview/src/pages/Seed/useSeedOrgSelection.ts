@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 
 /** Return type for the useSeedOrgSelection hook. */
 export interface SeedOrgSelectionState {
@@ -12,14 +12,14 @@ export interface SeedOrgSelectionState {
   selectedOrg: SalesforceOrg | undefined;
 }
 
-/** Hook managing org selection state for the Seed wizard. */
+/**
+ * Hook managing org selection state for the Seed wizard.
+ * State lives in `useSeedWizardStore`; this hook derives the resolved org.
+ */
 export function useSeedOrgSelection(): SeedOrgSelectionState {
   const orgs = useOrgStore((s) => s.orgs);
-  const [selectedOrgId, setSelectedOrgId] = useState('');
-
-  const handleOrgSelect = useCallback((orgId: string) => {
-    setSelectedOrgId(orgId);
-  }, []);
+  const selectedOrgId = useSeedWizardStore((s) => s.selectedOrgId);
+  const handleOrgSelect = useSeedWizardStore((s) => s.handleOrgSelect);
 
   const selectedOrg = orgs.find((o) => o.id === selectedOrgId);
 

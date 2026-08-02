@@ -172,11 +172,13 @@ export function useMonitorPageData(): MonitorPageData {
   const error = monitorQuery.error;
   const data = monitorQuery.data;
   const limits = useMemo(() => data?.limits ?? [], [data?.limits]);
-  const jobs = data?.jobs ?? [];
+  // Memoised fallbacks keep referential stability when there is no data yet,
+  // so the memoised page sections don't re-render on every parent render.
+  const jobs = useMemo(() => data?.jobs ?? [], [data?.jobs]);
   const healthScore = data?.healthScore ?? 0;
   const healthReport = data?.healthReport;
   const trends = useMemo(() => data?.trends ?? {}, [data?.trends]);
-  const jobInsights = data?.jobInsights ?? [];
+  const jobInsights = useMemo(() => data?.jobInsights ?? [], [data?.jobInsights]);
   const orgInfo = data?.orgInfo;
   const orgHealthStatus = data?.orgHealthStatus;
   const lastUpdated = data?.lastUpdated ?? null;
