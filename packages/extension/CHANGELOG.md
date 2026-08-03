@@ -5,6 +5,14 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.7] - 2026-08-03
+
+**Hardening marathon + Frozen Reference Dataset.** Two full audit cycles over the codebase, four fix waves, and one new module. Highlights: circuit breaker lockup fixed (per-org breakers, permits released on all paths), ~20 implemented-but-unrouted bridge messages wired (monitor alerts, seed templates, sync configs/history/schedules, seed clone/CSV, AI conversations), Bulk API results correctly mapped (they previously all counted as success with fabricated ids), shell injection and path traversal closed, Zod payload validation generalized, ~37 000 lines of verified dead code removed, ForgeExecutor split into a tested stage pipeline, extension activation refactored into src/composition/, bundle minified (6.7 MB to 2.3 MB), AI stack unified on one secret key with migration, manifest safety settings actually enforced. Full entry in the root changelog.
+
+### Added
+
+**Frozen Reference Dataset**: extract a business dataset once from a UAT sandbox, pseudonymize it deterministically (HMAC-SHA256, env-only salt), freeze it with a manifest, gate it on a 4-point non-reidentification control (including cross-field leaks and a Salesforce checksum sweep), and replay it identically into refreshed dev sandboxes (sandbox-only guards, schema alignment including RecordType picklist gaps, pilot mode, reload without refresh, robust post-load verification). New `frozen` page in 6 languages, command `sandforge.openFrozen`, docs in `docs/modules/frozen-dataset.md`.
+
 ## [1.2.6] - 2026-05-05
 
 **Phase 03 Monitor v2 Core + Phase 04 AI Integration + close-out hardening.** Two milestone-track phases shipped under the v1.3.0 umbrella, plus a six-bug close-out pass surfaced when the user actually installed the fresh VSIX. Phase 03 ships the time-series monitor substrate (MetricBus, TimeSeriesStore, MonitorRegistry + 8 probes, DriftDetector v2, AnomalyEngine, ReportExporter, FleetSummaryService). Phase 04 ships the read-only AI assistant (per-provider CircuitBreaker, AbortController, 10 read-only tools with CI fence, per-panel-session token budget, prompt-injection defence with adversarial vitest, AIDiagnoseHandler with approve gate, Anthropic adapter functional + OpenAI/Custom stubs).

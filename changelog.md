@@ -5,7 +5,9 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.7] - 2026-08-03
+
+**Hardening marathon**: two full audit cycles over the codebase, four fix waves, and a new module. All gates green (typecheck, lint, 7 500+ tests, disposable audit, prettier, builds).
 
 ### Added
 
@@ -15,6 +17,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New `FrozenDatasetHandler` (extension bridge): full lifecycle without UI: SasPathGuard-enforced sas outside the repo, redacted selection summaries (no source record ID crosses the bridge), Production Guard + entry guards (sandbox-only, protected envs, mocked-callout detection, empty dataset), ProductionGuard-audited DML via BulkDataWriter
 - New webview page (route `frozen`, sidebar + command `sandforge.openFrozen`): Extract tab (axes/budget config, selection matrix, extraction + gate result, manifest) and Load tab (target sandbox, pilot toggle, guards visibility, per-phase progress, full load report, post-load verdict), i18n in 6 languages
 - Docs: `docs/modules/frozen-dataset.md`
+
+**Sync schedules actually run**: the `sync:schedule:*` CRUD existed but schedules never fired. A tick loop now executes due schedules through the sync engine (concurrency-capped via `sync.maxConcurrentOps`).
+
+**Sync history, clone, CSV import, AI conversations wired**: these webview flows posted messages that were silently dropped. `sync:history:list/detail/rerun/export`, `seed:clone:*`, `seed:csv:*`, `ai:conversation:list`, `ai:diagnose`, `execution:manual-retry` and monitor alerts/seed templates/sync configs routes are now handled.
+
+### Fixed
+
+- Circuit breaker: the half-open permit was never released and the breaker was shared across orgs, leading to a total Salesforce connection lockup until VS Code restart. Permits are now released on all paths and breakers are per-org.
+- Bulk API results: jsforce returns `{successfulResults, failedResults, unprocessedRecords}`, not a flat array, so the mapping loop never ran and every bulk record counted as success with fabricated ids. Results are now content-correlated, fail-closed, with real ids.
+- Shell injection in `SfdxBridge.loginWeb` (unvalidated alias/instanceUrl joined into `exec`).
+- Path traversal in `MigrationHandler` file imports (paths now validated and contained).
+- Webview error handling: `seed:clone`/`seed:csv` failures surfaced a 30 s timeout instead of the actual error.
+- Response channel mismatches between handlers and webview (pipeline list/history/save, governance policies, compare execute); the pipeline save payload was silently dropped.
+- "Show Details" notification opened a blank panel.
+- `sandforge.telemetry` setting was displayed but never read; status/toggle now reflect and persist reality.
+
+### Security
+
+- Zod payload validation generalized across bridge handlers (was: unchecked casts; `sync:execute` accepted an arbitrary WHERE clause).
+- Manifest settings: `safety.requireProdConfirmation` and `safety.auditLogging` are now enforced (modal confirmation on production targets, bounded audit log). Settings with no implementation were removed from the manifest instead of promising what is not wired.
+- Five default keybindings that shadowed native VS Code shortcuts removed.
+- Message origin validation on all webview listeners (dispatcher + CDC stores + e2e harness).
+
+### Changed
+
+- About 37 000 lines of verified dead code removed (155+ files: unused engines, schedulers, reporting, CDC stack, duplicate dataops classes).
+- `ForgeExecutor` split into a tested 5-stage pipeline; sync writes mutualized in `BulkDataWriter`; monitor subsystem construction extracted to `MonitorOpsFactory`; extension activation refactored into `src/composition/` (654 to 188 lines).
+- Message contract split per domain with a bidirectional guard test (every Zod literal has a TypeScript interface and vice versa, enforced in CI).
+- Extension bundle minified: 6.7 MB to 2.3 MB.
+- Webview god components split (ForgeInput 1418 to 430, MonitorPage 924 to 535, SeedPage 746 to 351 lines); single message dispatcher instead of one window listener per hook.
+- AI stack unified on a single secret key `sandforge.ai.anthropic.key` with migration from legacy keys, a single default model, and `sandforge.ai.enabled` honored.
+
+### Removed
+
+- Dead dependencies: `@sentry/node`, `@sentry/browser`, `pino-pretty`, `p-retry`, `pdfkit`, `microdiff` (moved to the webview where it is actually used).
+- Dead manifest settings: `language`, `monitor.autoRefreshInterval`, `api.timeout`, `api.retryAttempts`, `grappe.enabled`, `grappe.threshold`.
+- 268 tautological tests in shared (types/constants) replaced by invariant-based tests.
 
 ## [1.2.6] - 2026-05-05
 
