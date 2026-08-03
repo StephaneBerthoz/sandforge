@@ -39,15 +39,33 @@ export interface PipelineListRequest extends BaseMessage {
   type: 'pipeline:list';
 }
 
+/** Response containing the saved pipelines (`pipelines` category in ConfigStore). */
+export interface PipelineListResponse extends BaseMessage {
+  type: 'pipeline:list:response';
+  payload: { pipelines: Array<Record<string, unknown>> };
+}
+
 /** Request to list pipeline execution history from ConfigStore. */
 export interface PipelineHistoryRequest extends BaseMessage {
   type: 'pipeline:history';
+}
+
+/** Response containing pipeline execution history, sorted by timestamp descending. */
+export interface PipelineHistoryResponse extends BaseMessage {
+  type: 'pipeline:history:response';
+  payload: { history: Array<Record<string, unknown>> };
 }
 
 /** Request to persist a pipeline configuration to ConfigStore. */
 export interface PipelineSaveRequest extends BaseMessage {
   type: 'pipeline:save';
   payload: { id: string; config: Record<string, unknown> };
+}
+
+/** Response after persisting a pipeline configuration. */
+export interface PipelineSaveResponse extends BaseMessage {
+  type: 'pipeline:save:response';
+  payload: { success: boolean; id: string };
 }
 
 /** Migration import (universal) */

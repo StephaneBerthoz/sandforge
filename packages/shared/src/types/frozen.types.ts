@@ -287,7 +287,12 @@ export interface FrozenLoadReportInfo {
   perObject: FrozenPerObjectLoadResult[];
   pass2: {
     resolved: number;
-    unresolved: Array<{ objectApiName: string; referenceId: string; field: string; detail: string }>;
+    unresolved: Array<{
+      objectApiName: string;
+      referenceId: string;
+      field: string;
+      detail: string;
+    }>;
   };
   personContact: {
     restored: number;

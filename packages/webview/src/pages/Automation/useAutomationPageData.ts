@@ -136,11 +136,7 @@ export function useAutomationPageData(): AutomationPageData {
   const [scheduledPipelines] = useState<ScheduledPipeline[]>([]);
 
   // Bridge query: load saved pipelines
-  const pipelinesQuery = useBridgeQuery<{ pipelines: PipelineDefinition[] }>(
-    'pipeline:list',
-    undefined,
-    { responseType: 'pipeline:list:result' },
-  );
+  const pipelinesQuery = useBridgeQuery<{ pipelines: PipelineDefinition[] }>('pipeline:list');
 
   // Bridge mutation: execute a pipeline
   const executeMutation = useBridgeMutation<Record<string, unknown>>('pipeline:execute', {
@@ -148,9 +144,7 @@ export function useAutomationPageData(): AutomationPageData {
   });
 
   // Bridge mutation: save a pipeline
-  const saveMutation = useBridgeMutation<Record<string, unknown>>('pipeline:save', {
-    responseType: 'pipeline:saved',
-  });
+  const saveMutation = useBridgeMutation<Record<string, unknown>>('pipeline:save');
 
   // Bridge query: load pipeline templates
   const templatesQuery = useBridgeQuery<{ templates: Record<string, unknown>[] }>(
@@ -160,17 +154,13 @@ export function useAutomationPageData(): AutomationPageData {
   );
 
   // Bridge query: load pipeline history
-  const historyQuery = useBridgeQuery<{ entries: PipelineHistoryEntry[] }>(
-    'pipeline:history',
-    undefined,
-    { responseType: 'pipeline:history:result' },
-  );
+  const historyQuery = useBridgeQuery<{ history: PipelineHistoryEntry[] }>('pipeline:history');
 
   // Derive running state from bridge mutation
   const isRunning = executeMutation.loading;
 
   // Derive history from bridge query
-  const historyEntries = historyQuery.data?.entries ?? [];
+  const historyEntries = historyQuery.data?.history ?? [];
 
   // Derive saved pipelines from bridge query
   const savedPipelines = pipelinesQuery.data?.pipelines ?? [];
@@ -249,7 +239,12 @@ export function useAutomationPageData(): AutomationPageData {
 
   const handleSavePipeline = () => {
     if (!pipeline) return;
-    saveMutation.mutate({ pipeline: pipeline as unknown as Record<string, unknown> });
+    // PipelineSaveRequest contract: { id, config } — the AutomationHandler
+    // persists `config` under `pipeline:saved:{id}` in the 'pipelines' category.
+    saveMutation.mutate({
+      id: pipeline.id,
+      config: pipeline as unknown as Record<string, unknown>,
+    });
     addNotification({
       level: 'success',
       title: t('automation.title'),

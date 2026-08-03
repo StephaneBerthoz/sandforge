@@ -93,6 +93,25 @@ export interface GovernancePoliciesListRequest extends BaseMessage {
   type: 'governance:policies:list';
 }
 
+/**
+ * Result of `governance:policies:list`. The channel is `:result` (not
+ * `:response`) — same convention as `monitor:alerts:result` — because both
+ * the handler and the webview consumer were built on it.
+ */
+export interface GovernancePoliciesListResult extends BaseMessage {
+  type: 'governance:policies:result';
+  payload: {
+    policies: Array<{
+      id: string;
+      name: string;
+      description: string;
+      ruleCount: number;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+  };
+}
+
 /** Request to get a single governance policy by ID. */
 export interface GovernancePolicyGetRequest extends BaseMessage {
   type: 'governance:policy:get';

@@ -1,9 +1,20 @@
 import type { BaseMessage } from './base.messages.js';
+import type { CompareResult } from '../compare.types.js';
 
 /** Compare messages */
 export interface CompareExecuteRequest extends BaseMessage {
   type: 'compare:execute';
   payload: { configId: string };
+}
+
+/**
+ * Result of a `compare:execute` (or legacy `compare:start`) run.
+ * This is the single response channel posted by CompareHandler for both
+ * request types — the webview listens on `compare:execute:response`.
+ */
+export interface CompareExecuteResponse extends BaseMessage {
+  type: 'compare:execute:response';
+  payload: CompareResult;
 }
 
 /**

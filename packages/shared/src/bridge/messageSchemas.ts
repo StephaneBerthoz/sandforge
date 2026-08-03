@@ -164,6 +164,7 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
 // ─── Domain: Compare ─────────────────────────────────────────────────────────
 export const CompareMessageSchema = z.discriminatedUnion('type', [
   msg('compare:execute'),
+  msg('compare:execute:response'),
   msg('compare:start'),
   msg('compare:permissions'),
   msg('compare:snapshots'),
@@ -183,6 +184,10 @@ export const DataOpsMessageSchema = z.discriminatedUnion('type', [
   msg('precheck:pii-scan'),
   msg('precheck:pii-scan:response'),
   msg('governance:policies:list'),
+  // The result channel for governance:policies:list is
+  // `governance:policies:result`, not `:response` (same convention as
+  // monitor:alerts:result — both handler and webview were built on it).
+  msg('governance:policies:result'),
   msg('governance:policy:get'),
   msg('governance:policy:save'),
   msg('governance:policy:delete'),
@@ -199,8 +204,11 @@ export const AutomationMessageSchema = z.discriminatedUnion('type', [
   msg('pipeline:templates'),
   msg('pipeline:templates:response'),
   msg('pipeline:list'),
+  msg('pipeline:list:response'),
   msg('pipeline:history'),
+  msg('pipeline:history:response'),
   msg('pipeline:save'),
+  msg('pipeline:save:response'),
   msg('marketplace:list'),
   msg('marketplace:list:response'),
   msg('marketplace:install'),

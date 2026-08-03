@@ -137,7 +137,7 @@ import type {
   OrgHealthScoreRequest,
   OrgHealthScoreResponse,
 } from './monitor.messages.js';
-import type { CompareExecuteRequest } from './compare.messages.js';
+import type { CompareExecuteRequest, CompareExecuteResponse } from './compare.messages.js';
 import type {
   CompareStartRequest,
   ComparePermissionsRequest,
@@ -156,6 +156,7 @@ import type {
   DataOpsRollbackRequest,
   DataOpsAnonymizeRequest,
   GovernancePoliciesListRequest,
+  GovernancePoliciesListResult,
   GovernancePolicyGetRequest,
   GovernancePolicySaveRequest,
   GovernancePolicyDeleteRequest,
@@ -170,8 +171,11 @@ import type {
   PipelineTemplatesResponse,
   PipelineExecuteRequest,
   PipelineListRequest,
+  PipelineListResponse,
   PipelineHistoryRequest,
+  PipelineHistoryResponse,
   PipelineSaveRequest,
+  PipelineSaveResponse,
   MigrationImportRequest,
   MigrationImportResponse,
   MigrationImportSfdmuRequest,
@@ -602,12 +606,19 @@ export type ExtensionToWebViewMessage =
   | MonitorApexInsightsResponse
   | MonitorSandboxRefreshResponse
   | OrgHealthScoreResponse
+  // Compare
+  | CompareExecuteResponse
   // DataOps
   | AnonymizationTemplatesResponse
   | MaskingTemplatesByObjectResponse
   | PIIScanResponse
+  // Governance
+  | GovernancePoliciesListResult
   // Automation
   | PipelineTemplatesResponse
+  | PipelineListResponse
+  | PipelineHistoryResponse
+  | PipelineSaveResponse
   | MigrationImportResponse
   | MigrationImportSfdmuResponse
   | MarketplaceListResponse
