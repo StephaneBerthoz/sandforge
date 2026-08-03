@@ -181,7 +181,7 @@ describe('ConnectionHelper', () => {
       );
     });
 
-    it('should throw when token refresh fails', async () => {
+    it('should throw an actionable error when token refresh fails', async () => {
       const org = makeOrg();
       const creds = makeCreds();
       const orgManager = createMockOrgManager(org);
@@ -191,7 +191,7 @@ describe('ConnectionHelper', () => {
       mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
-        'Token expired for "test-org" and refresh failed',
+        /Authentication expired for org "test-org".*sf org login web --alias test-org/,
       );
     });
 
@@ -250,6 +250,89 @@ describe('ConnectionHelper', () => {
         'Connection failed for "test-org": NETWORK_ERROR',
       );
       expect(mockExec).not.toHaveBeenCalled();
+    });
+
+    it('should recover from INVALID_AUTH_HEADER (HTTP 401) via a single CLI refresh', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      // Real-world shape from the reported incident: HTTP 401, token expired.
+      const unauthorized = Object.assign(new Error('Unauthorized'), {
+        statusCode: 401,
+        errorCode: 'INVALID_AUTH_HEADER',
+      });
+      mockIdentity.mockRejectedValueOnce(unauthorized).mockResolvedValueOnce({ user_id: 'u1' });
+
+      const refreshJson = JSON.stringify({ result: { accessToken: 'new-token-789' } });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+
+      const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      expect(conn).toBeDefined();
+      // Exactly one refresh attempt and exactly one retry of the validation call.
+      expect(mockCliInvoker).toHaveBeenCalledTimes(1);
+      expect(mockIdentity).toHaveBeenCalledTimes(2);
+      // Refreshed token persisted back to the vault.
+      expect(orgRegistry.saveOrg).toHaveBeenCalledWith(
+        org,
+        expect.objectContaining({ accessToken: 'new-token-789' }),
+      );
+    });
+
+    it('should throw an actionable error when the 401 refresh fails', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      mockIdentity.mockRejectedValueOnce(
+        Object.assign(new Error('Unauthorized'), { statusCode: 401 }),
+      );
+      mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
+
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        /Authentication expired for org "test-org".*sf org login web --alias test-org/,
+      );
+      expect(mockCliInvoker).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw an actionable error when the refreshed token is still rejected', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      // Initial validation AND the single retry both reject — no second refresh.
+      mockIdentity
+        .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
+        .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+      const refreshJson = JSON.stringify({ result: { accessToken: 'still-bad-token' } });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        /Authentication expired for org "test-org".*sf org login web --alias test-org/,
+      );
+      expect(mockCliInvoker).toHaveBeenCalledTimes(1);
+      expect(mockIdentity).toHaveBeenCalledTimes(2);
+    });
+
+    it('should not retry non-auth HTTP errors (500)', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      mockIdentity.mockRejectedValueOnce(
+        Object.assign(new Error('Internal Server Error'), { statusCode: 500 }),
+      );
+
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        'Connection failed for "test-org": Internal Server Error',
+      );
+      expect(mockCliInvoker).not.toHaveBeenCalled();
+      expect(mockIdentity).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -321,6 +404,55 @@ describe('ConnectionHelper', () => {
       const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
       expect(conn).toBeDefined();
       expect(breaker.getState()).toBe('closed');
+    });
+
+    it('does not count an auth failure recovered by refresh towards the breaker threshold', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      // Three full cycles of: auth rejection -> CLI refresh -> successful retry.
+      // (failureThreshold = 3 — had these counted as failures, the breaker
+      // would now be open.)
+      for (let i = 0; i < 3; i++) {
+        mockIdentity
+          .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
+          .mockResolvedValueOnce({ user_id: 'u1' });
+        mockCliInvoker.mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { accessToken: `refreshed-token-${i}` } }),
+          stderr: '',
+        } as never);
+
+        const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
+        expect(conn).toBeDefined();
+      }
+
+      const breaker = getCircuitBreaker('org-1');
+      expect(breaker.getState()).toBe('closed');
+      expect(breaker.getFailureCount()).toBe(0);
+    });
+
+    it('counts a failed auth recovery as a breaker failure', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      mockIdentity.mockRejectedValue(new Error('INVALID_SESSION_ID'));
+      // One CLI rejection per attempt (Once variants only — a persistent
+      // rejection would leak into later tests, mockExecFile is not reset).
+      for (let i = 0; i < 3; i++) {
+        mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
+        await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+          'Authentication expired for org "test-org"',
+        );
+      }
+
+      expect(getCircuitBreaker('org-1').getState()).toBe('open');
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        'Circuit breaker is open',
+      );
     });
   });
 });
