@@ -277,4 +277,84 @@ describe('useMessageResponse', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
   });
+
+  describe('error channel (errorType)', () => {
+    const optionsWithError: UseMessageResponseOptions = {
+      ...defaultOptions,
+      errorType: 'org:error',
+    };
+
+    it('should surface the handler error message immediately instead of timing out', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+
+      act(() => {
+        simulateResponse('org:error', { message: 'org unreachable', code: 'CONN_FAIL' });
+      });
+
+      expect(result.current.loading).toBe(false);
+      expect(result.current.error).toBe('org unreachable');
+      expect(result.current.data).toBeNull();
+
+      // The timeout timer must have been cleared: advancing past timeoutMs
+      // must not overwrite the handler error.
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      expect(result.current.error).toBe('org unreachable');
+    });
+
+    it('should use a generic message when the error payload has no message string', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+
+      act(() => {
+        simulateResponse('org:error', { code: 'UNKNOWN' });
+      });
+
+      expect(result.current.error).toBe("Bridge query 'org:list' failed");
+    });
+
+    it('should ignore error channel messages with a wrong correlationId', () => {
+      const { result } = renderHook(() => useMessageResponse<unknown>(optionsWithError));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-42');
+      });
+
+      act(() => {
+        simulateResponse('org:error', { message: 'not for us' }, 'req-99');
+      });
+
+      expect(result.current.loading).toBe(true);
+      expect(result.current.error).toBeNull();
+    });
+
+    it('should not fail on the error channel of an already-answered request', () => {
+      const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(optionsWithError));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-1');
+      });
+      act(() => {
+        simulateResponse('org:list:response', { orgs: ['a'] });
+      });
+      act(() => {
+        simulateResponse('org:error', { message: 'late error' });
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.data).toEqual({ orgs: ['a'] });
+    });
+  });
 });

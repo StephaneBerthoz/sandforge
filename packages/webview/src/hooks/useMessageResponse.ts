@@ -14,6 +14,12 @@ export interface UseMessageResponseOptions {
   timeoutMs: number;
   /** Label used in timeout error messages (e.g. `'query'` or `'mutation'`). */
   requestLabel: string;
+  /**
+   * Optional error channel to listen for (e.g. `'monitor:error'`). When a
+   * handler rejects a request it replies on this channel instead of the
+   * success channel; without a listener the user only saw the 30 s timeout.
+   */
+  errorType?: string;
 }
 
 /** Duration in milliseconds before the `timedOut` flag is set. */
@@ -57,7 +63,7 @@ export interface MessageResponseHandler<T> {
 export function useMessageResponse<T>(
   options: UseMessageResponseOptions,
 ): MessageResponseHandler<T> {
-  const { requestType, responseType, timeoutMs, requestLabel } = options;
+  const { requestType, responseType, timeoutMs, requestLabel, errorType } = options;
 
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(false);
@@ -139,6 +145,48 @@ export function useMessageResponse<T>(
 
       window.addEventListener('message', listener);
 
+      // Error channel: handlers reply on `<domain>:error` when the request
+      // fails server-side. Same origin and correlation rules as the success
+      // channel; without this the user only saw the generic timeout.
+      let removeErrorListener: (() => void) | undefined;
+      if (errorType) {
+        const errorListener = (event: MessageEvent): void => {
+          if (event.origin && !event.origin.startsWith('vscode-webview://')) {
+            return;
+          }
+          const eventData = event.data as
+            | (BaseMessage & { payload?: { message?: unknown } })
+            | undefined;
+          if (!eventData || eventData.type !== errorType) {
+            return;
+          }
+          if (eventData.correlationId && eventData.correlationId !== messageId) {
+            return;
+          }
+          if (!mountedRef.current || activeRequestId.current !== messageId) {
+            return;
+          }
+
+          clearTimeout(timer);
+          if (feedbackTimerRef.current !== null) {
+            clearTimeout(feedbackTimerRef.current);
+            feedbackTimerRef.current = null;
+          }
+          activeRequestId.current = null;
+
+          const payloadMessage = eventData.payload?.message;
+          setError(
+            typeof payloadMessage === 'string'
+              ? payloadMessage
+              : `Bridge ${requestLabel} '${requestType}' failed`,
+          );
+          setLoading(false);
+          setTimedOut(false);
+        };
+        window.addEventListener('message', errorListener);
+        removeErrorListener = () => window.removeEventListener('message', errorListener);
+      }
+
       return () => {
         clearTimeout(timer);
         if (feedbackTimerRef.current !== null) {
@@ -146,9 +194,10 @@ export function useMessageResponse<T>(
           feedbackTimerRef.current = null;
         }
         window.removeEventListener('message', listener);
+        removeErrorListener?.();
       };
     },
-    [requestType, responseType, timeoutMs, requestLabel],
+    [requestType, responseType, timeoutMs, requestLabel, errorType],
   );
 
   const reset = useCallback(() => {

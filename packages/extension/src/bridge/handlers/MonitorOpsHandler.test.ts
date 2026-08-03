@@ -219,6 +219,38 @@ describe('MonitorOpsHandler', () => {
     expect(response.payload.message).toBe('connection failed');
   });
 
+  it('emits monitor:error (not a silent hang) when the org call stalls past the bound', async () => {
+    vi.useFakeTimers();
+    try {
+      // Org call never resolves: the 25 s bound must fire before the webview
+      // 30 s bridge timeout so the user gets a real error message.
+      mockGetJsforceConnection.mockReturnValue(new Promise(() => {}));
+
+      const msg: BaseMessage & { payload: { orgId: string } } = {
+        id: 'req-mon-timeout',
+        type: 'monitor:refresh',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1' },
+      };
+
+      const handlePromise = handler.handle(msg);
+      await vi.advanceTimersByTimeAsync(25_000);
+      await handlePromise;
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      expect(postToWebview).toHaveBeenCalledTimes(1);
+
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { message: string };
+      };
+      expect(response.type).toBe('monitor:error');
+      expect(response.payload.message).toContain('monitor:refresh');
+      expect(response.payload.message).toContain('timed out');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   describe('limits caching (PERF-01)', () => {
     let mockConnRequest: ReturnType<typeof vi.fn>;
 

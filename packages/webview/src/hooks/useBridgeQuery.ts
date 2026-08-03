@@ -41,18 +41,25 @@ export function useBridgeQuery<T>(
     timeoutMs?: number;
     /** When true, skip the automatic query on mount. */
     skip?: boolean;
+    /**
+     * Error channel to listen for. Defaults to `<domain>:error` derived
+     * from the request type (the convention used by bridge handlers).
+     */
+    errorType?: string;
   },
 ): BridgeQueryState<T> {
   const sendMessage = useSendMessage();
   const responseType = options?.responseType ?? `${requestType}:response`;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const skip = options?.skip ?? false;
+  const errorType = options?.errorType ?? `${requestType.split(':')[0]}:error`;
 
   const { listen, data, loading, error, setLoading, setError } = useMessageResponse<T>({
     requestType,
     responseType,
     timeoutMs,
     requestLabel: 'query',
+    errorType,
   });
 
   // Stabilise sendMessage in a ref so it never triggers re-execution of the

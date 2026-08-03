@@ -38,6 +38,10 @@ import type { HealthCheck } from '../../modules/monitor/HealthCheck.js';
 import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
 import type { AlertStateStore } from '../../modules/monitor/AlertStateStore.js';
 import { createMonitorOps } from '../../modules/monitor/MonitorOpsFactory.js';
+import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
+
+/** Bound for monitor:refresh org calls, kept below the 30 s bridge timeout. */
+const MONITOR_REFRESH_TIMEOUT_MS = 25_000;
 
 /** Message types handled by MonitorOpsHandler. */
 const MONITOR_TYPES = new Set([
@@ -189,6 +193,18 @@ export class MonitorOpsHandler implements DomainHandler {
     if (!parsed) return;
     const payload = parsed;
 
+    try {
+      // Bounded below the 30 s bridge timeout: a hanging org call must produce
+      // a real monitor:error, not a generic webview timeout.
+      await new TimeoutManager(MONITOR_REFRESH_TIMEOUT_MS).withTimeout('monitor:refresh', () =>
+        this.executeRefresh(msg, payload),
+      );
+    } catch (err: unknown) {
+      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', err);
+    }
+  }
+
+  private async executeRefresh(msg: BaseMessage, payload: { orgId: string }): Promise<void> {
     try {
       const conn = await getJsforceConnection(
         payload.orgId,
