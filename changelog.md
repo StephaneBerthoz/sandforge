@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+**Frozen Reference Dataset module** — extract a business dataset once from a UAT sandbox, pseudonymize it deterministically (HMAC-SHA256 over `SANDFORGE_FROZEN_SALT`, never stored), freeze it with a manifest (salt fingerprint, volumetry, control outcomes), and replay it identically into refreshed dev sandboxes:
+
+- Bridge contract `frozen:*` (18 message types): config get/save, coverage-matrix selection, extraction + 4-point non-reidentification gate, manifest, replayable load (pilot mode, reload without refresh), throttled per-phase progress, chained read-only post-load verification, module status
+- New `FrozenDatasetHandler` (extension bridge): full lifecycle without UI — SasPathGuard-enforced sas outside the repo, redacted selection summaries (no source record ID crosses the bridge), Production Guard + entry guards (sandbox-only, protected envs, mocked-callout detection, empty dataset), ProductionGuard-audited DML via BulkDataWriter
+- New webview page (route `frozen`, sidebar + command `sandforge.openFrozen`): Extract tab (axes/budget config, selection matrix, extraction + gate result, manifest) and Load tab (target sandbox, pilot toggle, guards visibility, per-phase progress, full load report, post-load verdict) — i18n in 6 languages
+- Docs: `docs/modules/frozen-dataset.md`
+
 ## [1.2.5] - 2026-05-02
 
 **Forge Hardening Pass** — 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows. (Entry restored — it was only recorded in `packages/extension/CHANGELOG.md`.)
