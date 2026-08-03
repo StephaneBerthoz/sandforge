@@ -5,7 +5,7 @@ regenerate with `pnpm audit:disposables`; the file is only rewritten on content 
 
 ## Summary
 
-- Total timer calls scanned: **24**
+- Total timer calls scanned: **25**
 - Total listener calls scanned: **10**
 - Orphan registrations (no disposable sink found): **0**
 

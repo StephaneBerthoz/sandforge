@@ -1,4 +1,5 @@
 import type { BaseMessage, SyncScheduleEntry } from '@sandforge/shared';
+import type { SyncConfig, SyncExecutionResult } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -27,13 +28,23 @@ const SYNC_SCHEDULE_TYPES = new Set([
  * superset of the shared message types (`success`, `schedule`) plus the flat
  * fields the current webview store reads (`scheduleId`, `enabled`).
  *
- * Note: this handler only wires the CRUD surface used by SyncSchedulePanel.
- * The 60s tick loop that would actually *execute* due schedules is not started
- * here — that belongs to the composition root (extension.ts), together with a
- * real `onExecute` bridge to the sync engine.
+ * The 60 s tick loop that actually *executes* due schedules is started by the
+ * composition root: extension.ts calls `ExtensionHandlers.startSyncScheduler()`
+ * which injects the real execution bridge ({@link startScheduler}) delegating
+ * to `SyncOpsHandler.executeScheduled`. Until then the CRUD surface works but
+ * due schedules reject with a "not wired" error.
  */
 export class SyncScheduleHandler implements DomainHandler {
   private executor?: SyncScheduleExecutor;
+
+  /**
+   * Real execution bridge injected by the composition root. Undefined until
+   * `startScheduler` is called (tests, partial wiring).
+   */
+  private executeBridge?: (config: SyncConfig) => Promise<SyncExecutionResult>;
+
+  /** Number of scheduled executions currently in flight (concurrency cap). */
+  private inFlight = 0;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -70,15 +81,15 @@ export class SyncScheduleHandler implements DomainHandler {
    *
    * `start()` loads persisted entries and begins the tick loop; the immediate
    * `stop()` tears the loop down again so only the hydration side effect is
-   * kept (the tick loop is composition-root wiring, not handler scope).
+   * kept (the tick loop is started by the composition root via
+   * {@link startScheduler}, not by message handling).
    */
   private getExecutor(): SyncScheduleExecutor {
     if (!this.executor) {
       const executor = new SyncScheduleExecutor({
         scheduleStore: new SyncScheduleStore(this.deps.configStore),
         configStore: new SyncConfigStore(this.deps.configStore),
-        onExecute: () =>
-          Promise.reject(new Error('Scheduled sync execution is not wired to the sync engine yet')),
+        onExecute: (config) => this.executeDue(config),
         notificationCenter: {
           notify: (level: string, title: string, message: string) => {
             this.deps.log(`[SyncSchedule] ${level}: ${title} — ${message}`);
@@ -91,6 +102,55 @@ export class SyncScheduleHandler implements DomainHandler {
       this.executor = executor;
     }
     return this.executor;
+  }
+
+  /**
+   * Bridge from SyncScheduleExecutor to the sync engine.
+   *
+   * Rejects while the composition root has not wired the real bridge
+   * (`startScheduler`), and caps concurrent scheduled executions at the
+   * `sandforge.sync.maxConcurrentOps` setting — a tick that fires while a
+   * previous scheduled run is still in flight skips the new run instead of
+   * stacking Bulk API jobs.
+   */
+  private async executeDue(config: SyncConfig): Promise<SyncExecutionResult> {
+    if (!this.executeBridge) {
+      throw new Error('Scheduled sync execution is not wired to the sync engine yet');
+    }
+    const maxConcurrent =
+      this.deps.services?.getSandforgeSetting?.('sync.maxConcurrentOps', 3) ?? 3;
+    if (this.inFlight >= maxConcurrent) {
+      throw new Error(
+        `Scheduled sync skipped: ${this.inFlight} execution(s) already in flight (max ${maxConcurrent})`,
+      );
+    }
+    this.inFlight++;
+    try {
+      return await this.executeBridge(config);
+    } finally {
+      this.inFlight--;
+    }
+  }
+
+  /**
+   * Wire the real sync execution bridge and start the 60 s tick loop.
+   * Called once from the composition root (`ExtensionHandlers.startSyncScheduler`).
+   * Idempotent — SyncScheduleExecutor.start() is a no-op when already running.
+   *
+   * @param execute - Executes a due schedule's sync config (SyncOpsHandler.executeScheduled).
+   */
+  startScheduler(execute: (config: SyncConfig) => Promise<SyncExecutionResult>): void {
+    this.executeBridge = execute;
+    this.getExecutor().start();
+    this.deps.log('[SyncScheduleHandler] scheduler started (tick loop running)');
+  }
+
+  /**
+   * Stop the tick loop. Idempotent; safe to call from extension deactivate.
+   * In-flight executions are not aborted — they complete on their own.
+   */
+  stopScheduler(): void {
+    this.executor?.stop();
   }
 
   /** List all sync schedules. */

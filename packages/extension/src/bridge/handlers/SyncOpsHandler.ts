@@ -1,4 +1,4 @@
-import type { BaseMessage, SyncConfig } from '@sandforge/shared';
+import type { BaseMessage, SyncConfig, SyncExecutionResult } from '@sandforge/shared';
 import {
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
@@ -341,6 +341,90 @@ export class SyncOpsHandler implements DomainHandler {
   }
 
   /**
+   * Execute a sync config on behalf of the sync schedule executor
+   * (`sync:schedule:*` tick loop, wired via ExtensionHandlers.startSyncScheduler).
+   *
+   * Unlike the fire-and-forget message path (`sync:execute`), this awaits the
+   * full execution and resolves with the orchestrator result so
+   * SyncScheduleExecutor can persist `lastRunAt`/`lastResult`. Lifecycle
+   * events still flow on the usual `operation:*` channels and the run lands
+   * in sync history with `triggeredBy: 'schedule'`.
+   *
+   * The config round-trips through ConfigStore, so it is re-validated here
+   * before execution (same defense-in-depth rule as rerunFromSnapshot) — an
+   * invalid config rejects the returned promise instead of posting to an
+   * error channel nobody is listening on at tick time.
+   *
+   * @param config - The schedule's persisted sync config.
+   * @returns The orchestrator result (status 'failure' on execution error).
+   */
+  async executeScheduled(config: SyncConfig): Promise<SyncExecutionResult> {
+    const parsed = syncExecutePayloadSchema.safeParse({ config });
+    if (!parsed.success) {
+      throw new Error(
+        `Scheduled sync config failed validation: ${parsed.error.issues
+          .map((i) => i.message)
+          .join('; ')}`,
+      );
+    }
+    const operationId = `sync:schedule:${crypto.randomUUID()}`;
+    const msg: BaseMessage = { id: operationId, type: 'sync:execute', timestamp: Date.now() };
+
+    // Fill per-object batch sizes from the `sandforge.sync.defaultBatchSize`
+    // setting when the stored config omitted them (same rule as startExecution).
+    const defaultBatchSize =
+      this.deps.services?.getSandforgeSetting?.('sync.defaultBatchSize', 200) ?? 200;
+    const filledConfig = {
+      ...parsed.data.config,
+      objects: parsed.data.config.objects.map((o) => ({
+        ...o,
+        batchSize: o.batchSize ?? defaultBatchSize,
+      })),
+    } as unknown as SyncConfig;
+
+    // Production guard on target org — same policy as manual runs. A blocked
+    // or declined run rejects so the scheduler marks the schedule as failed.
+    if (this.deps.infraServices?.productionGuard) {
+      const guard = this.deps.infraServices.productionGuard;
+      const targetOrg = this.deps.orgManager.getOrg(filledConfig.targetOrgId);
+      const guardRequest = {
+        orgId: filledConfig.targetOrgId,
+        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        operation: 'upsert' as const,
+        objectName: filledConfig.objects?.[0]?.objectApiName ?? 'SyncData',
+        recordCount: 1,
+        module: 'sync',
+      };
+      const check = guard.check(guardRequest);
+      guard.logOperation(guardRequest, check);
+      if (!check.allowed) {
+        throw new Error(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+        );
+      }
+      const confirmed = await guard.confirmIfNeeded(check);
+      if (!confirmed) {
+        throw new Error('Scheduled sync cancelled (production confirmation declined).');
+      }
+    }
+
+    this.dmlTracker.register(operationId, 'sync', 'upsert', filledConfig.objects?.length ?? 0);
+    this.activeOperationIds.add(operationId);
+    this.deps.infraServices?.performanceTracker?.start(operationId, 'sync');
+    sendOperationStarted(
+      this.deps,
+      operationId,
+      'sync',
+      `Scheduled sync of ${filledConfig.objects?.length ?? 0} object(s)`,
+    );
+
+    const abortController = new AbortController();
+    // executeSync never rejects (it reports on operation:failed and converts
+    // the outcome to a failure-status result), so no try/catch is needed here.
+    return this.executeSync(msg, filledConfig, operationId, abortController, 'schedule');
+  }
+
+  /**
    * Shared execution entry point for `sync:execute` and `sync:history:rerun`:
    * fills per-object batch sizes, runs the production guard, registers the
    * operation, and dispatches the detached execution.
@@ -452,14 +536,19 @@ export class SyncOpsHandler implements DomainHandler {
   /**
    * Execute sync operation in the background.
    * Extracted from handleExecute to allow detached execution via BackgroundOperationRegistry.
+   *
+   * Resolves with the orchestrator result so scheduled executions
+   * (`executeScheduled`) can persist lastRunAt/lastResult; failures are
+   * reported on `operation:failed` and converted to a failure-status result
+   * rather than a rejection, keeping the registry's monitored promise clean.
    */
   private async executeSync(
     msg: BaseMessage,
     config: import('@sandforge/shared').SyncConfig,
     operationId: string,
     abortController: AbortController,
-    triggeredBy: 'manual' | 'rerun',
-  ): Promise<void> {
+    triggeredBy: 'manual' | 'rerun' | 'schedule',
+  ): Promise<SyncExecutionResult> {
     const robustnessConfig = this.getRobustnessConfig();
     let progressTracker: BulkJobProgressTracker | undefined;
     let unsubProgress: (() => void) | undefined;
@@ -657,11 +746,27 @@ export class SyncOpsHandler implements DomainHandler {
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      return result;
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
       // Single failure emission: `operation:failed` only (webview consumes it).
       this.deps.log(`[ERR] sync:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      // Failure-status result (instead of a rejection) so scheduled executions
+      // can persist lastResult='failure' without an unhandled rejection in the
+      // BackgroundOperationRegistry's monitored promise.
+      return {
+        configId: config.id,
+        operationId,
+        status: 'failure',
+        objectResults: [],
+        totalProcessed: 0,
+        totalSuccess: 0,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      };
     } finally {
       progressTracker?.stopTracking(operationId);
       unsubProgress?.();

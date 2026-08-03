@@ -217,6 +217,23 @@ export class ExtensionHandlers {
     this.executionHandler = new ExecutionHandler(this.handlerDeps, registry);
   }
 
+  /**
+   * Start the sync schedule executor tick loop with a real execution bridge.
+   *
+   * Wires `SyncScheduleExecutor.onExecute` to `SyncOpsHandler.executeScheduled`
+   * so due `sync:schedule:*` entries actually run (60 s tick). Call once from
+   * extension.ts after service injection (setBackgroundRegistry & co.).
+   * Pair with {@link stopSyncScheduler} on extension deactivate.
+   */
+  startSyncScheduler(): void {
+    this.syncScheduleHandler.startScheduler((config) => this.syncHandler.executeScheduled(config));
+  }
+
+  /** Stop the sync schedule executor tick loop. Call from extension deactivate(). */
+  stopSyncScheduler(): void {
+    this.syncScheduleHandler.stopScheduler();
+  }
+
   /** Inject AI modules (Tier 2). */
   setAIModules(modules: AIModules): void {
     this.aiHandler.setAIModules(modules);
