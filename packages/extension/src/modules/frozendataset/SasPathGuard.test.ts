@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { findRepoRoot, InsideRepoPathError, SasPathGuard } from './SasPathGuard.js';
@@ -8,7 +9,13 @@ const repoRoot = findRepoRoot(process.cwd());
 
 describe('findRepoRoot', () => {
   it('finds the monorepo root above the package dir', () => {
-    expect(path.basename(repoRoot)).toBe('sand-forge');
+    // Do not assert the checkout directory name (CI checks out under the
+    // repo name, local clones may differ): the root must be an ancestor of
+    // the package dir and carry a monorepo marker.
+    const cwd = process.cwd();
+    expect(cwd.startsWith(repoRoot + path.sep)).toBe(true);
+    expect(path.relative(repoRoot, cwd)).toBe(path.join('packages', 'extension'));
+    expect(fs.existsSync(path.join(repoRoot, 'pnpm-workspace.yaml'))).toBe(true);
   });
 
   it('throws when no repo root exists', () => {
