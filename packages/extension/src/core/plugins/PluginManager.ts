@@ -167,6 +167,12 @@ export interface ModuleLoader {
  */
 export class PluginManager {
   private readonly plugins: Map<string, LoadedPluginInfo> = new Map();
+  /**
+   * Owning plugin name per registered extension object. Extensions carry their
+   * own `name` (the extension's, not the plugin's), so ownership is tracked
+   * here at registration time — `removeExtensionsFor` filters on this map.
+   */
+  private readonly extensionOwners = new WeakMap<object, string>();
   private readonly extensionPoints: ExtensionPoints = {
     seedStrategies: [],
     transformers: [],
@@ -207,7 +213,13 @@ export class PluginManager {
       }
 
       const manifestContent = await this.fs.readFile(manifestPath);
-      const parsed: unknown = JSON.parse(manifestContent);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(manifestContent);
+      } catch {
+        // Malformed JSON manifest — skip this plugin instead of aborting discovery.
+        continue;
+      }
       const manifestResult = pluginManifestSchema.safeParse(parsed);
 
       if (!manifestResult.success) {
@@ -222,7 +234,7 @@ export class PluginManager {
 
       const entrypointPath = `${this.pluginsDir}/${entry}/${manifest.entrypoint}`;
       const plugin = await this.moduleLoader.load(entrypointPath);
-      const context = this.createContext();
+      const context = this.createContext(manifest.name);
 
       plugin.activate(context);
 
@@ -267,7 +279,11 @@ export class PluginManager {
       return false;
     }
 
-    info.plugin.deactivate();
+    try {
+      info.plugin.deactivate();
+    } catch {
+      // A throwing deactivate() must not block extension cleanup and unload.
+    }
     info.active = false;
 
     this.removeExtensionsFor(info.manifest.name);
@@ -334,26 +350,35 @@ export class PluginManager {
 
   /**
    * Create a plugin context for extension point registration.
+   * Every registered extension is tagged with the owning plugin name so
+   * `removeExtensionsFor` can later drop exactly that plugin's contributions.
+   * @param pluginName - Name of the plugin the context is created for
    * @returns PluginContext instance
    */
-  private createContext(): PluginContext {
+  private createContext(pluginName: string): PluginContext {
     return {
       registerSeedStrategy: (strategy: SeedStrategyExtension) => {
+        this.extensionOwners.set(strategy, pluginName);
         this.extensionPoints.seedStrategies.push(strategy);
       },
       registerTransformer: (transformer: TransformerExtension) => {
+        this.extensionOwners.set(transformer, pluginName);
         this.extensionPoints.transformers.push(transformer);
       },
       registerPreCheck: (preCheck: PreCheckExtension) => {
+        this.extensionOwners.set(preCheck, pluginName);
         this.extensionPoints.preChecks.push(preCheck);
       },
       registerPipelineStep: (step: PipelineStepExtension) => {
+        this.extensionOwners.set(step, pluginName);
         this.extensionPoints.pipelineSteps.push(step);
       },
       registerExportFormat: (format: ExportFormatExtension) => {
+        this.extensionOwners.set(format, pluginName);
         this.extensionPoints.exportFormats.push(format);
       },
       registerGrappeStrategy: (strategy: GrappeStrategyExtension) => {
+        this.extensionOwners.set(strategy, pluginName);
         this.extensionPoints.grappeStrategies.push(strategy);
       },
     };
@@ -361,26 +386,28 @@ export class PluginManager {
 
   /**
    * Remove all extension contributions from a specific plugin.
+   * Matches on the owning-plugin tag recorded at registration time — an
+   * extension's own `name` is NOT the plugin name and must not be compared.
    * @param pluginName - Name of the plugin whose extensions to remove
    */
   private removeExtensionsFor(pluginName: string): void {
     this.extensionPoints.seedStrategies = this.extensionPoints.seedStrategies.filter(
-      (s) => s.name !== pluginName,
+      (s) => this.extensionOwners.get(s) !== pluginName,
     );
     this.extensionPoints.transformers = this.extensionPoints.transformers.filter(
-      (t) => t.name !== pluginName,
+      (t) => this.extensionOwners.get(t) !== pluginName,
     );
     this.extensionPoints.preChecks = this.extensionPoints.preChecks.filter(
-      (p) => p.name !== pluginName,
+      (p) => this.extensionOwners.get(p) !== pluginName,
     );
     this.extensionPoints.pipelineSteps = this.extensionPoints.pipelineSteps.filter(
-      (s) => s.name !== pluginName,
+      (s) => this.extensionOwners.get(s) !== pluginName,
     );
     this.extensionPoints.exportFormats = this.extensionPoints.exportFormats.filter(
-      (f) => f.name !== pluginName,
+      (f) => this.extensionOwners.get(f) !== pluginName,
     );
     this.extensionPoints.grappeStrategies = this.extensionPoints.grappeStrategies.filter(
-      (g) => g.name !== pluginName,
+      (g) => this.extensionOwners.get(g) !== pluginName,
     );
   }
 }

@@ -1,178 +1,191 @@
-# SandForge — GitHub Actions CI/CD Pipeline
-# This workflow runs the full SandForge pipeline:
-#   1. Seed sandbox with test data
-#   2. Sync data between orgs
-#   3. Backup target org data
-#   4. Run health check on target org
-#   5. Generate execution report
+# SandForge — GitHub Actions CI/CD Pipeline (EXAMPLE)
 #
-# Prerequisites:
-#   - Set the following secrets in your repository settings:
-#     - SF_SOURCE_USERNAME: Salesforce source org username
-#     - SF_SOURCE_PASSWORD: Salesforce source org password + security token
-#     - SF_SOURCE_LOGIN_URL: Salesforce source login URL (e.g., https://test.salesforce.com)
-#     - SF_TARGET_USERNAME: Salesforce target org username
-#     - SF_TARGET_PASSWORD: Salesforce target org password + security token
-#     - SF_TARGET_LOGIN_URL: Salesforce target login URL
-#     - SLACK_WEBHOOK_URL: (optional) Slack webhook for failure notifications
+# Honest example built on what actually exists in this repo:
+#   1. Quality gates   — typecheck + unit tests + minified extension build
+#   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
+#   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+#   4. VSIX package    — pnpm package, uploaded as an artifact
+#
+# There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
+# only in the VSCode extension UI. See ci-examples/README.md for details.
+#
+# Prerequisites for stages 2-3 (org-touching, dry-run by default):
+#   - Repository secrets:
+#     - SFDX_AUTH_URL_SOURCE: sfdx auth URL of the source org
+#     - SFDX_AUTH_URL_TARGET: sfdx auth URL of the target sandbox
+#   - Repository variables:
+#     - SANDFORGE_SF_ORGS: set to 'true' to enable the clone/cleanup stages
+#     - SF_CLONE_RECORD_ID: Salesforce record Id to clone (e.g. 500...)
+#   - SLACK_WEBHOOK_URL (optional secret): failure notifications
 
 name: SandForge Pipeline
 
 on:
-  # Run on push to main branch
   push:
     branches: [main]
-  # Allow manual triggering
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Run in dry-run mode (no data written)'
+        description: 'Run clone/cleanup in dry-run mode (no data written)'
         required: false
-        default: 'false'
+        default: 'true'
         type: choice
         options:
           - 'true'
           - 'false'
-  # Schedule: every Monday at 6 AM UTC
   schedule:
     - cron: '0 6 * * 1'
 
 env:
-  NODE_VERSION: '20'
-  SF_SOURCE_USERNAME: ${{ secrets.SF_SOURCE_USERNAME }}
-  SF_SOURCE_PASSWORD: ${{ secrets.SF_SOURCE_PASSWORD }}
-  SF_SOURCE_LOGIN_URL: ${{ secrets.SF_SOURCE_LOGIN_URL }}
-  SF_TARGET_USERNAME: ${{ secrets.SF_TARGET_USERNAME }}
-  SF_TARGET_PASSWORD: ${{ secrets.SF_TARGET_PASSWORD }}
-  SF_TARGET_LOGIN_URL: ${{ secrets.SF_TARGET_LOGIN_URL }}
+  NODE_VERSION: '22'
+  DRY_RUN: ${{ github.event.inputs.dry_run || 'true' }}
 
 jobs:
-  sandforge-pipeline:
-    name: SandForge Full Pipeline
+  quality:
+    name: Quality gates
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-
+    timeout-minutes: 30
     steps:
-      # ── Setup ─────────────────────────────────────────────
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build extension (minified)
+        run: pnpm build:extension
+
+  clone-dry-run:
+    name: Forge clone (CLI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: quality
+    # Only runs when the repo admin has configured sf org secrets.
+    if: vars.SANDFORGE_SF_ORGS == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
         with:
           version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies and build shared
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build:shared
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Authenticate source and target orgs
+        env:
+          SFDX_AUTH_URL_SOURCE: ${{ secrets.SFDX_AUTH_URL_SOURCE }}
+          SFDX_AUTH_URL_TARGET: ${{ secrets.SFDX_AUTH_URL_TARGET }}
+        run: |
+          echo "$SFDX_AUTH_URL_SOURCE" > /tmp/auth-source.txt
+          echo "$SFDX_AUTH_URL_TARGET" > /tmp/auth-target.txt
+          sf org login sfdxurl --sfdx-url-file /tmp/auth-source.txt --alias ci-source
+          sf org login sfdxurl --sfdx-url-file /tmp/auth-target.txt --alias ci-target
+          rm -f /tmp/auth-source.txt /tmp/auth-target.txt
+
+      - name: Clone record graph (sandforge-clone)
+        env:
+          SF_CLONE_RECORD_ID: ${{ vars.SF_CLONE_RECORD_ID }}
+        run: |
+          DRY_FLAG=""
+          [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
+          pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+            --record "$SF_CLONE_RECORD_ID" \
+            --source ci-source \
+            --target ci-target \
+            --upsert \
+            $DRY_FLAG \
+            --json \
+            --remap-csv remap.csv \
+            > clone-summary.json
+
+      - name: Cleanup cloned records (sandforge-cleanup, dry-run)
+        run: |
+          DRY_FLAG=""
+          [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
+          pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
+            --target ci-target \
+            --since today \
+            $DRY_FLAG
+
+      - name: Upload clone artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clone-report
+          path: |
+            clone-summary.json
+            remap.csv
+          retention-days: 30
+
+  package-vsix:
+    name: Package VSIX
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # ── Stage 1: Seed ─────────────────────────────────────
-      - name: Seed sandbox with test data
-        run: |
-          sandforge seed \
-            --config .sandforge.json \
-            --template default \
-            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
-            --output-format json \
-            --output seed-report.json
+      - name: Build and package VSIX
+        run: pnpm package
 
-      - name: Upload seed report
-        if: always()
+      - name: Upload VSIX
         uses: actions/upload-artifact@v4
         with:
-          name: seed-report
-          path: seed-report.json
+          name: sandforge-vsix
+          path: sandforge.vsix
+          retention-days: 30
 
-      # ── Stage 2: Sync ─────────────────────────────────────
-      - name: Sync data between orgs
-        run: |
-          sandforge sync \
-            --config .sandforge.json \
-            --mode full \
-            ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }} \
-            --output-format json \
-            --output sync-report.json
-
-      - name: Upload sync report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sync-report
-          path: sync-report.json
-
-      # ── Stage 3: Backup ───────────────────────────────────
-      - name: Backup target org data
-        run: |
-          sandforge backup \
-            --config .sandforge.json \
-            --org target \
-            --output-format json \
-            --output backup-report.json
-
-      - name: Upload backup report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backup-report
-          path: backup-report.json
-
-      # ── Stage 4: Health Check ─────────────────────────────
-      - name: Run health check on target org
-        run: |
-          sandforge monitor health-check \
-            --config .sandforge.json \
-            --org target \
-            --output-format json \
-            --output health-report.json
-
-      - name: Upload health report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: health-report
-          path: health-report.json
-
-      # ── Stage 5: Report ───────────────────────────────────
-      - name: Generate execution report
-        if: always()
-        run: |
-          sandforge report \
-            --seed-report seed-report.json \
-            --sync-report sync-report.json \
-            --backup-report backup-report.json \
-            --health-report health-report.json \
-            --output-format html \
-            --output pipeline-report.html
-
-      - name: Upload pipeline report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pipeline-report
-          path: pipeline-report.html
-
-      # ── Notification on Failure ───────────────────────────
-      - name: Notify on failure
-        if: failure() && env.SLACK_WEBHOOK_URL != ''
+  notify:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: [quality, clone-dry-run, package-vsix]
+    if: failure()
+    steps:
+      - name: Post to Slack
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "No SLACK_WEBHOOK_URL secret configured, skipping notification"
+            exit 0
+          fi
           curl -X POST "$SLACK_WEBHOOK_URL" \
             -H 'Content-Type: application/json' \
-            -d "{
-              \"text\": \"SandForge Pipeline FAILED on ${{ github.repository }} (${{ github.ref_name }})\",
-              \"blocks\": [
-                {
-                  \"type\": \"section\",
-                  \"text\": {
-                    \"type\": \"mrkdwn\",
-                    \"text\": \"*SandForge Pipeline Failed*\n*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref_name }}\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>\"
-                  }
-                }
-              ]
-            }"
+            -d "{\"text\": \"SandForge Pipeline FAILED on ${{ github.repository }} (${{ github.ref_name }}) — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}"

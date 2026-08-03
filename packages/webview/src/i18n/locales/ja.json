@@ -44,6 +44,7 @@
     "seed": "Seed",
     "sync": "Sync",
     "monitor": "モニター",
+    "frozen": "凍結データセット",
     "compare": "Org比較",
     "dataops": "DataOps",
     "automation": "自動化",
@@ -1071,6 +1072,125 @@
     "openBrowser": "ブラウザを開く",
     "notSupported": "この認証方法はまだサポートされていません。",
     "sfdxHint": "Salesforce CLIのすべての接続済みOrgが自動的にインポートされます。"
+  },
+  "frozen": {
+    "subtitle": "一度抽出し、決定的に仮名化し、サンドボックス更新後も同一内容で再ロード",
+    "emptyState": {
+      "title": "接続されている組織がありません",
+      "description": "Salesforce組織に接続して、凍結参照データセットを作成または再ロードします。",
+      "cta": "組織を選択"
+    },
+    "status": {
+      "salt": "ソルトフィンガープリント",
+      "saltMissing": "ソルト未設定",
+      "dataset": "凍結データセット",
+      "records": "{{count}} レコード",
+      "noDataset": "凍結データセットなし",
+      "selection": "セレクション",
+      "noSelection": "セレクションなし",
+      "lastVerify": "最終検証"
+    },
+    "tabs": {
+      "extract": "抽出",
+      "load": "ロード"
+    },
+    "manifest": {
+      "version": "データセット v{{version}}"
+    },
+    "config": {
+      "title": "プロジェクト設定",
+      "rootObject": "ルートオブジェクト（案件）",
+      "budget": "件数バジェット（レコード）",
+      "axes": "カバレッジ軸",
+      "addAxis": "軸を追加",
+      "axisName": "名前",
+      "axisLabel": "ラベル",
+      "axisField": "フィルター項目",
+      "axisSoql": "集計SOQL（axisValue）",
+      "removeAxis": "軸を削除",
+      "edgeCases": "エッジケース",
+      "addEdgeCase": "エッジケースを追加",
+      "edgeName": "名前",
+      "edgeLabel": "ラベル",
+      "edgeWhere": "WHERE句",
+      "removeEdgeCase": "エッジケースを削除",
+      "advanced": "詳細設定（JSON：保護環境、識別キー、選択リストルール、プレースホルダー、モック…）",
+      "invalidJson": "JSONが無効です — 詳細設定はJSONオブジェクトである必要があります。",
+      "save": "設定を保存",
+      "saved": "設定を保存しました"
+    },
+    "selection": {
+      "title": "カバレッジマトリクス選択",
+      "run": "選択を実行",
+      "volumetry": "測定 {{total}} レコード（バジェット: {{budget}}）",
+      "combination": "組み合わせ",
+      "axes": "軸の値",
+      "edgeCase": "エッジケース",
+      "empty": "選択された組み合わせなし",
+      "uncovered": "未カバーの組み合わせ {{count}} 件"
+    },
+    "extract": {
+      "title": "抽出と仮名化",
+      "run": "抽出を実行",
+      "summary": "{{count}} レコードを {{files}} ファイルに凍結"
+    },
+    "control": {
+      "check": "チェック",
+      "result": "結果",
+      "pass": "PASS",
+      "fail": "FAIL",
+      "violations": "違反",
+      "object": "オブジェクト",
+      "field": "項目",
+      "detail": "詳細"
+    },
+    "guards": {
+      "title": "入力ガード",
+      "sandboxOnly": "サンドボックスのみ",
+      "protectedEnvs": "保護環境 {{count}} 件",
+      "mocksConfigured": "モック検出が設定済み",
+      "mocksNotConfigured": "モック検出が未設定",
+      "saltOk": "ソルト読込済み",
+      "saltMissing": "ソルト未設定"
+    },
+    "load": {
+      "targetOrg": "ターゲット組織（サンドボックス）",
+      "pilot": "パイロット（1案件）",
+      "reload": "更新なしの再ロード",
+      "run": "ロードを実行",
+      "runPilot": "パイロットを実行",
+      "progress": "進行状況"
+    },
+    "verify": {
+      "run": "再検証",
+      "title": "ロード後検証",
+      "attempts": "{{count}} 回測定",
+      "status": {
+        "passed": "成功",
+        "failed": "失敗",
+        "unstable": "不安定"
+      }
+    },
+    "report": {
+      "title": "ロードレポート",
+      "status": {
+        "completed": "完了",
+        "completed-with-errors": "エラーありで完了"
+      },
+      "inserted": "挿入",
+      "reused": "再利用",
+      "skipped": "スキップ（重複）",
+      "failed": "失敗",
+      "removals": "アライメントで除外された項目",
+      "field": "項目",
+      "reason": "理由",
+      "affected": "レコード数",
+      "placeholders": "技術的プレースホルダー",
+      "placeholder": "プレースホルダー",
+      "skippedList": "スキップされたレコード（ネイティブ重複検出）",
+      "errors": "エラー",
+      "postLoad": "パス2：サイクルリンク {{pass2}} 件解決 — PersonContact: {{personContact}} 件復元"
+    }
   },
   "forge": {
     "emptyState": {

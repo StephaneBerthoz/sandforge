@@ -20,9 +20,15 @@ export class OrgManager {
   private orgs: Map<UUID, SalesforceOrg> = new Map();
   private listeners: Set<OrgManagerListener> = new Set();
 
-  /** Register a listener for org change events */
-  onOrgChange(listener: OrgManagerListener): void {
+  /**
+   * Register a listener for org change events.
+   * @returns An unsubscribe function removing the listener.
+   */
+  onOrgChange(listener: OrgManagerListener): () => void {
     this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   /** Remove a listener */

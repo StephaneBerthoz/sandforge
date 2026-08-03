@@ -4,7 +4,7 @@ export const AI_PROVIDER = 'anthropic' as const;
 /** Default AI model configuration constants. */
 export const AI_CONFIG = {
   /** Default model identifier. */
-  MODEL: 'claude-sonnet-4-20250514',
+  MODEL: 'claude-sonnet-4-5-20250929',
   /** Default temperature for AI requests (0-1 scale). */
   TEMPERATURE: 0.3,
   /** Default max tokens for AI responses. */

@@ -12,8 +12,7 @@
         "src/adapters/**/*.ts!"
       ],
       "project": ["src/**/*.ts"],
-      "ignoreBinaries": ["esbuild", "vsce"],
-      "ignoreDependencies": ["@sentry/node", "@sentry/browser", "pino", "pino-pretty", "p-limit", "p-retry"]
+      "ignoreBinaries": ["esbuild", "vsce"]
     },
     "packages/webview": {
       "entry": [

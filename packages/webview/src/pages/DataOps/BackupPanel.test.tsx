@@ -41,7 +41,7 @@ describe('BackupPanel', () => {
 
   it('should show empty state when no backups', () => {
     render(<BackupPanel />);
-    expect(screen.getByText('dataops.noBackups')).toBeDefined();
+    expect(screen.getByText('No backups available')).toBeDefined();
   });
 
   it('should show backup cards', () => {

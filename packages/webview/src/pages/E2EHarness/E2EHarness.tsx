@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { DriftFeed } from '../../components/monitor/DriftFeed';
+import type { Flow } from './harnessFlow';
 
 /**
  * E2E Harness — placeholder surfaces for Plan 02-03 Playwright specs.
@@ -25,29 +26,6 @@ import { DriftFeed } from '../../components/monitor/DriftFeed';
  * `window.addEventListener('message')` and updates its local UI state so
  * MockBridge.respond() / MockBridge.stream() drive the experience.
  */
-
-type Flow = 'seed-ai' | 'sync-conflict' | 'monitor' | 'cdc' | 'ai-diagnose' | 'drift-feed';
-
-/** Read the ?e2e-harness=<flow> query param. Returns null when absent. */
-export function getHarnessFlow(search: string): Flow | null {
-  try {
-    const params = new URLSearchParams(search);
-    const raw = params.get('e2e-harness');
-    if (
-      raw === 'seed-ai' ||
-      raw === 'sync-conflict' ||
-      raw === 'monitor' ||
-      raw === 'cdc' ||
-      raw === 'ai-diagnose' ||
-      raw === 'drift-feed'
-    ) {
-      return raw;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 /** Minimal fetch-style helper: POST a message to the extension mock. */
 function postExtensionMessage(type: string, payload: Record<string, unknown>): void {
@@ -88,6 +66,11 @@ const SeedAIHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'forge:ai:generate:response' && data.payload) {
@@ -181,6 +164,11 @@ const SyncConflictHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'sync:conflict:detected' && data.payload) {
@@ -282,6 +270,11 @@ const MonitorHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'monitor:metrics:response' && data.payload) {
@@ -357,6 +350,11 @@ const CdcHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'cdc:subscribe:response' && data.payload) {
@@ -471,6 +469,11 @@ const AIDiagnoseHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'monitor:failed-jobs:response' && data.payload) {

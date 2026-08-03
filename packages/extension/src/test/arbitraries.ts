@@ -1,8 +1,9 @@
 /**
  * Shared fast-check arbitraries for property-based testing.
  *
- * Composed generators for the domain types used across the 4 property-tested
- * modules (ErrorClassifier, DiffEngine, GovernorLimitPredictor, DeltaDetector).
+ * Composed generators for the domain types used across the property-tested
+ * modules (ErrorClassifier, DiffEngine, DeltaDetector, anomaly-math,
+ * TimeSeriesStore).
  *
  * This file lives under `src/test/` so Vitest does NOT pick it up as a test
  * file (no `.test.ts` suffix). It is a pure test helper module.
@@ -12,8 +13,6 @@ import type {
   SalesforceApiError,
   ErrorCategory,
   MetadataComponentType,
-  LimitsSnapshot,
-  ApiLimit,
   MetricSample,
   FieldDelta,
   PermissionDelta,
@@ -65,87 +64,6 @@ export const componentMapArb: fc.Arbitrary<Map<string, string>> = fc
   })
   .map((entries) => new Map(entries));
 
-/** Arbitrary ApiLimit entry (single governor limit measurement). */
-export const apiLimitArb: fc.Arbitrary<ApiLimit> = fc
-  .record({
-    name: fc.string({ minLength: 1, maxLength: 40 }),
-    max: fc.integer({ min: 1, max: 1_000_000 }),
-    remainingRatio: fc.float({
-      min: 0,
-      max: 1,
-      noNaN: true,
-      noDefaultInfinity: true,
-    }),
-  })
-  .map(({ name, max, remainingRatio }) => {
-    const remaining = Math.floor(max * remainingRatio);
-    const used = max - remaining;
-    return {
-      name,
-      max,
-      remaining,
-      usedPercent: max === 0 ? 0 : (used / max) * 100,
-    };
-  });
-
-/** Arbitrary LimitsSnapshot for GovernorLimitPredictor. */
-export const limitsSnapshotArb: fc.Arbitrary<LimitsSnapshot> = fc.record({
-  orgId: fc.string({ minLength: 1, maxLength: 20 }),
-  timestamp: fc
-    .date({ min: new Date('2020-01-01'), max: new Date('2030-01-01') })
-    .map((d) => d.toISOString()),
-  limits: fc.array(apiLimitArb, { minLength: 0, maxLength: 10 }),
-});
-
-/** Chronologically ordered list of LimitsSnapshots (for prediction properties). */
-export const orderedSnapshotsArb: fc.Arbitrary<LimitsSnapshot[]> = fc
-  .array(limitsSnapshotArb, { minLength: 2, maxLength: 20 })
-  .map((arr) =>
-    [...arr].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()),
-  );
-
-/**
- * Builds an `orderedSnapshotsArb`-shaped sequence where the named limit has a
- * monotonically non-decreasing `usedPercent` across snapshots. Used to verify
- * the monotone-trend classification property on GovernorLimitPredictor.
- */
-export const monotoneNonDecreasingSnapshotsArb = (
-  limitName: string,
-): fc.Arbitrary<LimitsSnapshot[]> =>
-  fc
-    .array(
-      fc.record({
-        orgId: fc.string({ minLength: 1, maxLength: 10 }),
-        timestampMs: fc.integer({ min: 0, max: 1_000_000 }),
-        increment: fc.float({ min: 0, max: 20, noNaN: true, noDefaultInfinity: true }),
-        max: fc.integer({ min: 1, max: 1_000_000 }),
-      }),
-      { minLength: 3, maxLength: 12 },
-    )
-    .map((entries) => {
-      // Sort by timestampMs, then cumulate the increment so usedPercent is non-decreasing.
-      const sorted = [...entries].sort((a, b) => a.timestampMs - b.timestampMs);
-      let cumulative = 0;
-      return sorted.map((e, i) => {
-        cumulative = Math.min(100, cumulative + e.increment);
-        const used = (cumulative / 100) * e.max;
-        const remaining = Math.max(0, e.max - Math.floor(used));
-        const snapshot: LimitsSnapshot = {
-          orgId: e.orgId,
-          timestamp: new Date(i * 60_000 + e.timestampMs).toISOString(),
-          limits: [
-            {
-              name: limitName,
-              max: e.max,
-              remaining,
-              usedPercent: cumulative,
-            },
-          ],
-        };
-        return snapshot;
-      });
-    });
-
 /** Arbitrary QueryRecord for DeltaDetector. */
 export const queryRecordArb: fc.Arbitrary<QueryRecord> = fc.record({
   Id: fc.string({ minLength: 15, maxLength: 18 }),
@@ -182,11 +100,9 @@ export const metricSampleArb: fc.Arbitrary<MetricSample> = fc.record({
   value: fc.float({ min: -1e6, max: 1e6, noNaN: true, noDefaultInfinity: true }),
   unit: fc.option(fc.constantFrom('count', 'percent', 'bytes', 'ms'), { nil: undefined }),
   tags: fc.option(
-    fc.dictionary(
-      fc.string({ minLength: 1, maxLength: 20 }),
-      fc.string({ maxLength: 50 }),
-      { maxKeys: 5 },
-    ),
+    fc.dictionary(fc.string({ minLength: 1, maxLength: 20 }), fc.string({ maxLength: 50 }), {
+      maxKeys: 5,
+    }),
     { nil: undefined },
   ),
 });
@@ -264,17 +180,19 @@ export const driftEventArb: fc.Arbitrary<DriftEventPayload> = fc
  * Arbitrary CustomField describe-like record. Used by DriftDetector property
  * tests for `detectFieldDrift`. Generates an allowlistable-shaped record.
  */
-export const fieldDescribeArb: fc.Arbitrary<{ name: string } & Record<string, unknown>> = fc.record({
-  name: fc.string({ minLength: 1, maxLength: 30 }),
-  type: fc.constantFrom('Text', 'Email', 'Phone', 'Picklist', 'Number', 'Boolean'),
-  length: fc.option(fc.integer({ min: 1, max: 32_000 }), { nil: undefined }),
-  required: fc.boolean(),
-  externalId: fc.boolean(),
-  // Add some noise so canonicalization actually has work to do.
-  lastModifiedDate: fc
-    .date({ min: new Date('2020-01-01'), max: new Date('2030-01-01') })
-    .map((d) => d.toISOString()),
-});
+export const fieldDescribeArb: fc.Arbitrary<{ name: string } & Record<string, unknown>> = fc.record(
+  {
+    name: fc.string({ minLength: 1, maxLength: 30 }),
+    type: fc.constantFrom('Text', 'Email', 'Phone', 'Picklist', 'Number', 'Boolean'),
+    length: fc.option(fc.integer({ min: 1, max: 32_000 }), { nil: undefined }),
+    required: fc.boolean(),
+    externalId: fc.boolean(),
+    // Add some noise so canonicalization actually has work to do.
+    lastModifiedDate: fc
+      .date({ min: new Date('2020-01-01'), max: new Date('2030-01-01') })
+      .map((d) => d.toISOString()),
+  },
+);
 
 /** Arbitrary ObjectDescribe-like with `name` + `fields[]`. */
 export const objectDescribeArb: fc.Arbitrary<{

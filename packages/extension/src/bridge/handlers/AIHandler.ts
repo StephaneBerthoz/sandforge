@@ -11,6 +11,8 @@ import type { SchemaAdvisor } from '../../modules/ai/SchemaAdvisor.js';
 import { AIChatHandler } from './ai/AIChatHandler.js';
 import { AIAnalysisHandler } from './ai/AIAnalysisHandler.js';
 import { AIToolsHandler } from './ai/AIToolsHandler.js';
+import { AIDiagnoseAdapter } from './ai/AIDiagnoseAdapter.js';
+import type { AIDiagnoseHandler } from './ai/AIDiagnoseHandler.js';
 
 /** AI modules bundle. */
 export interface AIModules {
@@ -28,6 +30,7 @@ const AI_TYPES = new Set([
   'ai:chat',
   'ai:conversation:create',
   'ai:conversation:load',
+  'ai:conversation:list',
   'ai:conversation:delete',
   'ai:status',
   'ai:save-key',
@@ -38,6 +41,8 @@ const AI_TYPES = new Set([
   'ai:suggestions',
   'ai:generate-pipeline',
   'ai:schema-advice',
+  'ai:diagnose',
+  'ai:approve-action',
 ]);
 
 /**
@@ -47,11 +52,13 @@ const AI_TYPES = new Set([
  * - {@link AIChatHandler} — chat, conversations, status, key management
  * - {@link AIAnalysisHandler} — anomaly scan, suggestions, schema advice
  * - {@link AIToolsHandler} — NL2SOQL, error resolution, personas, pipeline generation
+ * - {@link AIDiagnoseAdapter} — diagnose flow + per-action approve gate
  */
 export class AIHandler implements DomainHandler {
   private readonly chatHandler: AIChatHandler;
   private readonly analysisHandler: AIAnalysisHandler;
   private readonly toolsHandler: AIToolsHandler;
+  private readonly diagnoseAdapter: AIDiagnoseAdapter;
   private readonly subHandlers: DomainHandler[];
 
   /** @param deps - Injected handler dependencies. */
@@ -59,7 +66,13 @@ export class AIHandler implements DomainHandler {
     this.chatHandler = new AIChatHandler(deps);
     this.analysisHandler = new AIAnalysisHandler(deps);
     this.toolsHandler = new AIToolsHandler(deps, () => this.chatHandler.getAIAssistant());
-    this.subHandlers = [this.chatHandler, this.analysisHandler, this.toolsHandler];
+    this.diagnoseAdapter = new AIDiagnoseAdapter(deps);
+    this.subHandlers = [
+      this.chatHandler,
+      this.analysisHandler,
+      this.toolsHandler,
+      this.diagnoseAdapter,
+    ];
   }
 
   /** Inject AI assistant service. */
@@ -71,6 +84,11 @@ export class AIHandler implements DomainHandler {
   setAIModules(modules: AIModules): void {
     this.analysisHandler.setAIModules(modules);
     this.toolsHandler.setAIModules(modules);
+  }
+
+  /** Inject the concrete diagnose handler once the AI stack is enabled. */
+  setDiagnoseHandler(handler: AIDiagnoseHandler): void {
+    this.diagnoseAdapter.setHandler(handler);
   }
 
   /**

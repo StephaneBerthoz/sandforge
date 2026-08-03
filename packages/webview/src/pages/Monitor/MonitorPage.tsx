@@ -1,47 +1,24 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  RefreshCw,
-  Clock,
-  Activity,
-  Database,
-  Bell,
-  AlertTriangle,
-  Zap,
-  ChevronDown,
-  ChevronRight,
-  Search,
-  Plug,
-  Server,
-  WifiOff,
-} from 'lucide-react';
-import { useOrgStore } from '../../stores/useOrgStore';
+import { RefreshCw, Clock, Activity, AlertTriangle, WifiOff, Plug } from 'lucide-react';
+import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
 import { cn } from '../../theme';
 import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
 import { Badge } from '../../components/ui/Badge';
-import type { BadgeVariant } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { ProgressBar } from '../../components/ui/ProgressBar';
 import { Skeleton } from '../../components/ui/Skeleton';
-import { Spinner } from '../../components/ui/Spinner';
 import { SkeletonTable } from '../../components/ui/SkeletonTable';
 import { SkeletonPanel } from '../../components/ui/SkeletonPanel';
-import { HealthScoreCard } from './HealthScoreCard';
-import { HealthGauge } from './HealthGauge';
-import { TrendChart } from './TrendChart';
-import { TrendCharts } from './TrendCharts';
-import { JobsTable } from './JobsTable';
 import { AlertsPanel } from './AlertsPanel';
 import { PredictionsTile } from './PredictionsTile';
 import { useMonitorPageData } from './useMonitorPageData';
 import { LiveOperationsPanel } from './LiveOperationsPanel';
 import { StorageBreakdownPanel } from './StorageBreakdownPanel';
 import { DeploymentTimeline } from './DeploymentTimeline';
-import { LimitExportButton } from './LimitExportButton';
 import { ApiUsagePanel } from './ApiUsagePanel';
 import { ErrorLogsPanel } from './ErrorLogsPanel';
 import { SessionsPanel } from './SessionsPanel';
@@ -51,42 +28,17 @@ import { HealthCheckPanel } from './HealthCheckPanel';
 import { AlertHistoryPanel } from './AlertHistoryPanel';
 import { GovernancePanelConnected } from './GovernancePanel';
 import { ResetCountdown } from './ResetCountdown';
+import { SectionHeader } from './SectionHeader';
+import { MonitorKpiRow } from './MonitorKpiRow';
+import { MonitorOrgInfoBar } from './MonitorOrgInfoBar';
+import { MonitorTrendsJobsRow } from './MonitorTrendsJobsRow';
+import { MonitorLimitsSection } from './MonitorLimitsSection';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { SalesforceOrg, LiveOperationSnapshot } from '@sandforge/shared';
-import { formatNumber } from '../../utils/formatters';
 
-/** Job info for display in the jobs DataTable. */
-export interface JobDisplayInfo {
-  id: string;
-  jobType: string;
-  status: string;
-  objectType?: string;
-  createdBy: string;
-  createdDate: string;
-  totalRecords?: number;
-  processedRecords?: number;
-  failedRecords?: number;
-}
-
-/** Returns progress bar variant based on usage. */
-function usageVariant(pct: number): 'default' | 'warning' | 'error' {
-  if (pct > 80) return 'error';
-  if (pct >= 60) return 'warning';
-  return 'default';
-}
-
-/** Returns badge variant based on usage. */
-function usageBadge(pct: number): BadgeVariant {
-  if (pct > 80) return 'error';
-  if (pct >= 60) return 'warning';
-  return 'success';
-}
-
-/** Formats MB as GB with one decimal. */
-function fmtGB(mb: number): string {
-  return (mb / 1024).toFixed(1);
-}
+/* Re-export so existing importers (`JobsTable`, `useMonitorPageData`) keep working. */
+export type { JobDisplayInfo } from './monitorUtils';
 
 /** Org card for the empty state — click to select. */
 const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => void }> = ({
@@ -124,97 +76,15 @@ const OrgSelectCard: React.FC<{ org: SalesforceOrg; onSelect: (id: string) => vo
   </button>
 );
 
-/** Compact KPI stat tile. */
-const KPIStat: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  sub?: string;
-  pct?: number;
-  variant?: 'default' | 'warning' | 'error';
-  spark?: number[];
-  warning?: string;
-}> = ({ icon, label, value, sub, pct, variant = 'default', warning }) => (
-  <div
-    className={cn(
-      'rounded-lg border bg-surface-1 p-4 flex flex-col gap-2',
-      variant === 'error'
-        ? 'border-red-500/30'
-        : variant === 'warning'
-          ? 'border-amber-500/30'
-          : 'border-subtle',
-    )}
-  >
-    <div className="flex items-center gap-2 text-text-secondary">
-      {icon}
-      <span className="text-xs font-medium">{label}</span>
-    </div>
-    <div className="flex items-baseline gap-1.5">
-      <span className="text-2xl font-bold tabular-nums text-text-primary">{value}</span>
-      {sub && <span className="text-xs text-text-muted">{sub}</span>}
-    </div>
-    {pct !== undefined && <ProgressBar value={pct} variant={usageVariant(pct)} size="sm" />}
-    {warning && (
-      <div className="flex items-center gap-1 text-[10px] text-amber-400">
-        <AlertTriangle className="w-3 h-3" />
-        <span>{warning}</span>
-      </div>
-    )}
-  </div>
-);
-
-/** Section header with optional collapse toggle. */
-const SectionHeader: React.FC<{
-  title: string;
-  count?: number;
-  collapsed?: boolean;
-  onToggle?: () => void;
-  actions?: React.ReactNode;
-}> = ({ title, count, collapsed, onToggle, actions }) => (
-  <div className="flex items-center gap-2 mb-3">
-    {onToggle && (
-      <button className="text-text-muted hover:text-text-secondary" onClick={onToggle}>
-        {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-      </button>
-    )}
-    <h3 className="text-sm font-semibold text-text-primary flex-1">{title}</h3>
-    {count !== undefined && <Badge variant="default">{count}</Badge>}
-    {actions}
-  </div>
-);
-
-/** Semi-transparent overlay shown on each panel during refresh. */
-function PanelOverlay({
-  isRefreshing,
-  children,
-}: {
-  isRefreshing: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="relative">
-      {children}
-      {isRefreshing && (
-        <div
-          className="absolute inset-0 bg-background/50 flex items-center justify-center z-10 rounded-lg"
-          data-testid="panel-overlay"
-        >
-          <Spinner size="sm" />
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** Main monitoring dashboard page. */
 export const MonitorPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const selectOrg = useOrgStore((s) => s.selectOrg);
-  const selectedOrg = useOrgStore((s) => s.selectedOrg);
-
-  const [limitsExpanded, setLimitsExpanded] = useState(false);
+  // Reactive selector — subscribing to the `selectedOrg` *method* would return
+  // a stable function reference and never notify on org changes.
+  const currentOrg = useOrgStore(selectSelectedOrg);
 
   const anomalyScan = useAnomalyScan();
 
@@ -272,7 +142,6 @@ export const MonitorPage: React.FC = () => {
   const liveOperations = liveOpsQuery.data?.operations ?? [];
 
   const navigate = useAppStore((s) => s.navigate);
-  const currentOrg = selectedOrg();
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
 
   // ─── Empty state ───────────────────────────────────────────────────────
@@ -348,10 +217,6 @@ export const MonitorPage: React.FC = () => {
   }
 
   // ─── Dashboard ─────────────────────────────────────────────────────────
-  const apiUsed = apiLimit.max - apiLimit.remaining;
-  const storageUsedMB = storageLimit.max - storageLimit.remaining;
-  const fileStorageUsedMB = fileStorageLimit.max - fileStorageLimit.remaining;
-
   return (
     <div className="flex flex-col gap-4 p-6 w-full" data-testid="monitor-page">
       {/* ── Header ── */}
@@ -413,10 +278,10 @@ export const MonitorPage: React.FC = () => {
         >
           <WifiOff className="h-4 w-4 text-amber-400 shrink-0" />
           <span className="flex-1 text-sm text-amber-300">
-            {t(
-              'monitor.connectionLost',
-              'Connection lost. Auto-refresh failed {{count}} times.',
-            ).replace('{{count}}', String(consecutiveFailures))}
+            {t('monitor.connectionLost', {
+              defaultValue: 'Connection lost. Auto-refresh failed {{count}} times.',
+              count: consecutiveFailures,
+            })}
           </span>
           <Button size="sm" variant="secondary" onClick={handleRefresh}>
             {t('monitor.tryReconnect', 'Try Reconnect')}
@@ -481,7 +346,7 @@ export const MonitorPage: React.FC = () => {
                 '{{minutes}}',
                 String(minutesSinceUpdate),
               )}
-              {' \u2014 '}
+              {' — '}
               {t('monitor.refreshNow', 'Refresh now')}
             </Badge>
           </span>
@@ -526,89 +391,16 @@ export const MonitorPage: React.FC = () => {
           className="flex flex-col gap-4"
         >
           {/* ── KPI Row ── */}
-          <PanelOverlay isRefreshing={isRefreshing}>
-            <div
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3"
-              data-testid="kpi-row"
-            >
-              {/* Health */}
-              <div className="rounded-lg border border-subtle bg-surface-1 p-4 flex flex-col items-center justify-center gap-1">
-                {healthReport ? (
-                  <HealthScoreCard report={healthReport} />
-                ) : (
-                  <>
-                    <HealthGauge value={healthScore} size={100} />
-                    <span className="text-xs text-text-secondary">
-                      {t('monitor.health', 'Health Score')}
-                    </span>
-                  </>
-                )}
-              </div>
-
-              {/* API Calls */}
-              <KPIStat
-                icon={<Zap className="w-4 h-4" />}
-                label={t('monitor.apiCalls', 'API Calls Today')}
-                value={formatNumber(apiUsed)}
-                sub={`/ ${formatNumber(apiLimit.max)}`}
-                pct={apiLimit.usedPercent}
-                variant={usageVariant(apiLimit.usedPercent)}
-                warning={
-                  trends['DailyApiRequests']?.predictedTimeToLimit
-                    ? t('monitor.limitReachedIn', 'Limit reached in ~{{hours}}h').replace(
-                        '{{hours}}',
-                        String(Math.round(trends['DailyApiRequests'].predictedTimeToLimit)),
-                      )
-                    : undefined
-                }
-              />
-
-              {/* Storage */}
-              <KPIStat
-                icon={<Database className="w-4 h-4" />}
-                label={t('monitor.dataStorage', 'Data Storage')}
-                value={`${fmtGB(storageUsedMB)} GB`}
-                sub={`/ ${fmtGB(storageLimit.max)} GB`}
-                pct={storageLimit.usedPercent}
-                variant={usageVariant(storageLimit.usedPercent)}
-                warning={
-                  trends['DataStorageMB']?.predictedTimeToLimit
-                    ? t('monitor.limitReachedIn', 'Limit reached in ~{{hours}}h').replace(
-                        '{{hours}}',
-                        String(Math.round(trends['DataStorageMB'].predictedTimeToLimit)),
-                      )
-                    : undefined
-                }
-              />
-
-              {/* File Storage */}
-              <KPIStat
-                icon={<Database className="w-4 h-4" />}
-                label={t('monitor.fileStorage', 'File Storage')}
-                value={`${fmtGB(fileStorageUsedMB)} GB`}
-                sub={`/ ${fmtGB(fileStorageLimit.max)} GB`}
-                pct={fileStorageLimit.usedPercent}
-                variant={usageVariant(fileStorageLimit.usedPercent)}
-                warning={
-                  trends['FileStorageMB']?.predictedTimeToLimit
-                    ? t('monitor.limitReachedIn', 'Limit reached in ~{{hours}}h').replace(
-                        '{{hours}}',
-                        String(Math.round(trends['FileStorageMB'].predictedTimeToLimit)),
-                      )
-                    : undefined
-                }
-              />
-
-              {/* Alerts */}
-              <KPIStat
-                icon={<Bell className="w-4 h-4" />}
-                label={t('monitor.alerts', 'Alerts')}
-                value={String(activeAlertsCount)}
-                sub={t('monitor.alertsCount', 'alert(s)')}
-                variant={activeAlertsCount > 0 ? 'warning' : 'default'}
-              />
-            </div>
-          </PanelOverlay>
+          <MonitorKpiRow
+            healthScore={healthScore}
+            healthReport={healthReport}
+            apiLimit={apiLimit}
+            storageLimit={storageLimit}
+            fileStorageLimit={fileStorageLimit}
+            trends={trends}
+            activeAlertsCount={activeAlertsCount}
+            isRefreshing={isRefreshing}
+          />
 
           {/* ── Live Operations ── */}
           {liveOperations.length > 0 && (
@@ -626,216 +418,28 @@ export const MonitorPage: React.FC = () => {
           )}
 
           {/* ── Org Info Panel (compact, right after KPIs) ── */}
-          {orgInfo && (
-            <div
-              className="rounded-lg border border-subtle bg-surface-1 px-4 py-3"
-              data-testid="org-info-panel"
-            >
-              <div className="flex items-center gap-2 mb-2.5">
-                <Server className="w-4 h-4 text-text-secondary" />
-                <h3 className="text-sm font-semibold text-text-primary">{orgInfo.name}</h3>
-                <span className="font-mono text-[10px] text-text-muted">{orgInfo.orgId}</span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-x-5 gap-y-2">
-                <div>
-                  <div className="text-[10px] text-text-muted">
-                    {t('monitor.release', 'Release')}
-                  </div>
-                  <div className="text-xs font-medium text-text-primary">
-                    {orgInfo.releaseName ?? `API v${orgInfo.apiVersion}`}
-                  </div>
-                </div>
-                {orgInfo.nextReleaseName && (
-                  <div>
-                    <div className="text-[10px] text-text-muted">
-                      {t('monitor.nextRelease', 'Next Release')}
-                    </div>
-                    <div className="text-xs font-medium text-text-primary">
-                      {orgInfo.nextReleaseName}
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <div className="text-[10px] text-text-muted">
-                    {t('monitor.instance', 'Instance')}
-                  </div>
-                  <div className="text-xs font-medium text-text-primary">
-                    {orgInfo.instanceName}
-                    {orgInfo.isHyperforce && (
-                      <Badge variant="info" className="ml-1 text-[8px] px-1 py-0">
-                        HF
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-text-muted">
-                    {t('monitor.edition', 'Edition')}
-                  </div>
-                  <div className="text-xs font-medium text-text-primary">{orgInfo.edition}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-text-muted">{t('monitor.users', 'Users')}</div>
-                  <div className="text-xs font-medium text-text-primary">
-                    {formatNumber(orgInfo.userCount)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-text-muted">
-                    {t('monitor.customObjects', 'Objects')}
-                  </div>
-                  <div className="text-xs font-medium text-text-primary">
-                    {formatNumber(orgInfo.customObjectCount)}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-text-muted">{t('monitor.code', 'Code')}</div>
-                  <div className="text-xs font-medium text-text-primary">
-                    {formatNumber(orgInfo.apexClassCount)} Apex &middot;{' '}
-                    {formatNumber(orgInfo.flowCount)} Flows
-                  </div>
-                </div>
-                {orgInfo.datacenter && (
-                  <div>
-                    <div className="text-[10px] text-text-muted">
-                      {t('monitor.datacenter', 'Datacenter')}
-                    </div>
-                    <div className="text-xs font-medium text-text-primary">
-                      {orgInfo.datacenter}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {(orgInfo.namespacePrefix || orgInfo.createdDate || orgInfo.podName) && (
-                <div className="flex items-center gap-4 mt-2 pt-2 border-t border-subtle text-[10px] text-text-muted">
-                  {orgInfo.namespacePrefix && (
-                    <span>
-                      Namespace:{' '}
-                      <span className="font-mono text-text-secondary">
-                        {orgInfo.namespacePrefix}
-                      </span>
-                    </span>
-                  )}
-                  {orgInfo.createdDate && (
-                    <span>
-                      {t('monitor.orgCreated', 'Created')}:{' '}
-                      {new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(
-                        new Date(orgInfo.createdDate),
-                      )}
-                    </span>
-                  )}
-                  {orgInfo.podName && (
-                    <span>
-                      Pod: <span className="font-mono text-text-secondary">{orgInfo.podName}</span>
-                    </span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          {orgInfo && <MonitorOrgInfoBar orgInfo={orgInfo} />}
 
           {/* ── Storage Breakdown ── */}
           <StorageBreakdownPanel />
 
           {/* ── Two-column: Trends + Jobs ── */}
-          <PanelOverlay isRefreshing={isRefreshing}>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Trend chart */}
-              <div className="rounded-lg border border-subtle bg-surface-1 p-4">
-                <SectionHeader
-                  title={t('monitor.trends', 'Trends')}
-                  actions={<LimitExportButton limits={sortedLimits} trends={trends} />}
-                />
-                {trendChartData.length >= 2 ? (
-                  <TrendChart data={trendChartData} />
-                ) : trendSeries.length > 0 ? (
-                  <TrendCharts series={trendSeries} />
-                ) : (
-                  <div className="flex items-center justify-center h-32 text-xs text-text-muted">
-                    {t('monitor.noTrends', 'Not enough data for trends yet')}
-                  </div>
-                )}
-              </div>
-
-              {/* Active Jobs */}
-              <div className="rounded-lg border border-subtle bg-surface-1 p-4">
-                <SectionHeader
-                  title={t('monitor.jobs', 'Jobs')}
-                  count={jobs.length > 0 ? jobs.length : undefined}
-                />
-                <JobsTable jobs={jobs} />
-              </div>
-            </div>
-          </PanelOverlay>
+          <MonitorTrendsJobsRow
+            sortedLimits={sortedLimits}
+            trends={trends}
+            trendChartData={trendChartData}
+            trendSeries={trendSeries}
+            jobs={jobs}
+            isRefreshing={isRefreshing}
+          />
 
           {/* ── Governor Limits ── */}
-          <PanelOverlay isRefreshing={isRefreshing}>
-            <div className="rounded-lg border border-subtle bg-surface-1 p-4">
-              <SectionHeader
-                title={t('monitor.governorLimits', 'Governor Limits')}
-                count={criticalLimits.length > 0 ? criticalLimits.length : undefined}
-                collapsed={!limitsExpanded}
-                onToggle={() => setLimitsExpanded(!limitsExpanded)}
-                actions={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      anomalyScan.mutate({ orgId: selectedOrgId, objectName: 'Account' })
-                    }
-                    disabled={anomalyScan.loading}
-                    loading={anomalyScan.loading}
-                    data-testid="anomaly-scan-btn"
-                  >
-                    <Search className="w-3.5 h-3.5 mr-1" />
-                    {t('monitor.scanAnomalies', 'Scan')}
-                  </Button>
-                }
-              />
-
-              {limitsExpanded && (
-                <div className="flex flex-col gap-1.5">
-                  {sortedLimits.length === 0 ? (
-                    <p className="text-xs text-text-muted text-center py-4">
-                      {t('monitor.noLimits', 'No limits data available')}
-                    </p>
-                  ) : (
-                    sortedLimits.map((l) => {
-                      const used = l.max - l.remaining;
-                      return (
-                        <div
-                          key={l.name}
-                          className="flex items-center gap-3 px-3 py-1.5 rounded hover:bg-surface-2 transition-colors"
-                          data-testid={`limit-${l.name}`}
-                        >
-                          <span className="text-xs font-medium text-text-primary w-48 truncate shrink-0">
-                            {l.name}
-                          </span>
-                          <div className="flex-1">
-                            <ProgressBar
-                              value={l.usedPercent}
-                              variant={usageVariant(l.usedPercent)}
-                              size="sm"
-                            />
-                          </div>
-                          <span className="text-xs tabular-nums text-text-secondary w-24 text-right shrink-0">
-                            {formatNumber(used)} / {formatNumber(l.max)}
-                          </span>
-                          <span className="w-12 text-right shrink-0">
-                            <Badge variant={usageBadge(l.usedPercent)}>
-                              {Math.round(l.usedPercent)}%
-                            </Badge>
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-            </div>
-          </PanelOverlay>
+          <MonitorLimitsSection
+            sortedLimits={sortedLimits}
+            criticalLimits={criticalLimits}
+            isRefreshing={isRefreshing}
+            anomalyScan={anomalyScan}
+          />
 
           {/* ── API Usage Breakdown ── */}
           <ApiUsagePanel />

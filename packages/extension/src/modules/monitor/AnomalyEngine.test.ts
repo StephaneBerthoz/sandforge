@@ -8,10 +8,7 @@ import { MetricBus } from './MetricBus.js';
 import { TimeSeriesStore } from './TimeSeriesStore.js';
 import { AlertEngine, SYNTHETIC_ANOMALY_DEFINITION_ID } from './AlertEngine.js';
 import { MIN_SAMPLES_FOR_BASELINE, MIN_BASELINE_SPAN_MS } from './anomaly-math.js';
-import {
-  metricSampleArb,
-  orderedSamplesForOneSeriesArb,
-} from '../../test/arbitraries.js';
+import { metricSampleArb, orderedSamplesForOneSeriesArb } from '../../test/arbitraries.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -42,7 +39,6 @@ function pushBaseline(
   return out;
 }
 
-
 /** Push a baseline with controlled mean/stdDev using a deterministic linear oscillation. */
 function pushControlledBaseline(
   store: TimeSeriesStore,
@@ -53,8 +49,12 @@ function pushControlledBaseline(
   stdDev: number,
 ): MetricSample[] {
   // Alternating +stdDev / -stdDev gives population std-dev exactly = stdDev for even n.
-  return pushBaseline(store, count, spanMs, startMs, (i) =>
-    mean + (i % 2 === 0 ? stdDev : -stdDev),
+  return pushBaseline(
+    store,
+    count,
+    spanMs,
+    startMs,
+    (i) => mean + (i % 2 === 0 ? stdDev : -stdDev),
   );
 }
 
@@ -117,7 +117,14 @@ describe('AnomalyEngine', () => {
   });
 
   it('Test 3 — warmed up: 30 samples spanning 6h → can emit', () => {
-    pushControlledBaseline(store, MIN_SAMPLES_FOR_BASELINE, MIN_BASELINE_SPAN_MS, NOW - SIX_HOURS, 50, 5);
+    pushControlledBaseline(
+      store,
+      MIN_SAMPLES_FOR_BASELINE,
+      MIN_BASELINE_SPAN_MS,
+      NOW - SIX_HOURS,
+      50,
+      5,
+    );
     // 6σ outlier well above effectiveThreshold (3 * (1 + 1/sqrt(30)) ≈ 3.55).
     const probe = sampleAt(50 + 5 * 6, NOW);
     store.record(probe, { intervalMs: 30_000 });

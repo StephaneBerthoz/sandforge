@@ -12,7 +12,23 @@ import { useKonamiCode } from './hooks/useKonamiCode';
 import { useAppStore } from './stores/useAppStore';
 import { useSendMessage } from './hooks/useMessageBus';
 import { buildMessage } from './bridge/messageHelpers';
-import { E2EHarness, getHarnessFlow } from './pages/E2EHarness/E2EHarness';
+import { getHarnessFlow } from './pages/E2EHarness/harnessFlow';
+
+/**
+ * E2E harness, loaded on demand and ONLY in e2e builds.
+ *
+ * The ternary is compile-time constant: `vite.config.ts` (prod) defines
+ * `import.meta.env.VITE_E2E` as `''`, so Rollup tree-shakes the dead branch —
+ * `E2EHarness` (and its `DriftFeed` dependency) never reach the production
+ * IIFE bundle. `vite.config.e2e.ts` defines it as `'1'`, so the Playwright
+ * dev server lazy-loads the harness on `?e2e-harness=<flow>` URLs.
+ */
+const LazyE2EHarness = import.meta.env.VITE_E2E
+  ? React.lazy(async () => {
+      const mod = await import('./pages/E2EHarness/E2EHarness');
+      return { default: mod.E2EHarness };
+    })
+  : null;
 
 /** Inner component that uses hooks (must be inside providers). */
 const AppInner: React.FC = () => {
@@ -121,12 +137,16 @@ export const App: React.FC = () => {
   // E2E harness short-circuit: when `?e2e-harness=<flow>` is present in the URL,
   // render a lightweight placeholder surface instead of the full app. Keeps
   // Plan 02-03 Playwright specs deterministic and decoupled from features that
-  // are delivered in Phase 04 (AI) and Phase 05 (CDC).
-  const harnessFlow = typeof window !== 'undefined' ? getHarnessFlow(window.location.search) : null;
-  if (harnessFlow) {
+  // are delivered in Phase 04 (AI) and Phase 05 (CDC). The harness component
+  // only exists in e2e builds (see LazyE2EHarness above).
+  const harnessFlow =
+    LazyE2EHarness && typeof window !== 'undefined' ? getHarnessFlow(window.location.search) : null;
+  if (harnessFlow && LazyE2EHarness) {
     return (
       <ErrorBoundary>
-        <E2EHarness flow={harnessFlow} />
+        <React.Suspense fallback={null}>
+          <LazyE2EHarness flow={harnessFlow} />
+        </React.Suspense>
       </ErrorBoundary>
     );
   }

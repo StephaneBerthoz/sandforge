@@ -120,7 +120,12 @@ export class AnthropicAdapter implements AIClient {
    * Tools array length is added as a coarse multiplier (each tool adds
    * ~50 tokens of schema overhead in the system prompt).
    */
-  private estimateInputTokens(payload: { prompt?: string; messages?: { content: string }[]; system?: string; tools?: { length: number } }): number {
+  private estimateInputTokens(payload: {
+    prompt?: string;
+    messages?: { content: string }[];
+    system?: string;
+    tools?: { length: number };
+  }): number {
     const promptChars = payload.prompt?.length ?? 0;
     const messagesChars =
       payload.messages?.reduce((sum, m) => sum + (m.content?.length ?? 0), 0) ?? 0;
@@ -133,59 +138,65 @@ export class AnthropicAdapter implements AIClient {
 
   async chat(opts: AIChatOpts): Promise<AIChatResult> {
     this.budgetPreflight({ messages: opts.messages, system: opts.system });
-    return this.runWithBreaker('chat', async (signal) => {
-      const client = await this.getClient();
-      const resp = await client.messages.create(
-        {
-          model: this.model,
-          max_tokens: opts.maxTokens ?? 4096,
-          system: opts.system,
-          messages: opts.messages,
-        },
-        { signal },
-      );
-      const text = resp.content
-        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-        .map((b) => b.text)
-        .join('');
-      const usage = this.buildUsage(resp.usage);
-      this.budget?.increment(usage);
-      this.breadcrumb('chat', usage);
-      return {
-        text,
-        usage,
-        model: resp.model,
-        stopReason: resp.stop_reason,
-      };
-    }, opts.signal);
+    return this.runWithBreaker(
+      'chat',
+      async (signal) => {
+        const client = await this.getClient();
+        const resp = await client.messages.create(
+          {
+            model: this.model,
+            max_tokens: opts.maxTokens ?? 4096,
+            system: opts.system,
+            messages: opts.messages,
+          },
+          { signal },
+        );
+        const text = resp.content
+          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+          .map((b) => b.text)
+          .join('');
+        const usage = this.buildUsage(resp.usage);
+        this.budget?.increment(usage);
+        this.breadcrumb('chat', usage);
+        return {
+          text,
+          usage,
+          model: resp.model,
+          stopReason: resp.stop_reason,
+        };
+      },
+      opts.signal,
+    );
   }
 
-  async complete<T extends z.ZodTypeAny>(
-    opts: AICompleteOpts<T>,
-  ): Promise<AICompleteResult<T>> {
+  async complete<T extends z.ZodTypeAny>(opts: AICompleteOpts<T>): Promise<AICompleteResult<T>> {
     this.budgetPreflight({ prompt: opts.prompt, system: opts.system });
-    return this.runWithBreaker('complete', async (signal) => {
-      const client = await this.getClient();
-      const resp = await client.messages.parse(
-        {
-          model: this.model,
-          max_tokens: opts.maxTokens ?? 4096,
-          system: opts.system,
-          messages: [{ role: 'user', content: opts.prompt }],
-          output_config: { format: zodOutputFormat(opts.schema) },
-        },
-        { signal },
-      );
-      const usage = this.buildUsage(resp.usage);
-      this.budget?.increment(usage);
-      this.breadcrumb('complete', usage);
-      return {
-        payload: resp.parsed_output as z.infer<T>,
-        usage,
-        model: resp.model,
-        stopReason: resp.stop_reason,
-      };
-    }, opts.signal);
+    return this.runWithBreaker(
+      'complete',
+      async (signal) => {
+        const client = await this.getClient();
+        const resp = await client.messages.parse(
+          {
+            model: this.model,
+            max_tokens: opts.maxTokens ?? 4096,
+            system: opts.system,
+            messages: [{ role: 'user', content: opts.prompt }],
+            output_config: { format: zodOutputFormat(opts.schema) },
+          },
+          { signal },
+        );
+        const usage = this.buildUsage(resp.usage);
+        this.budget?.increment(usage);
+        this.breadcrumb('complete', usage);
+        return {
+          payload: resp.parsed_output as z.infer<T>,
+          usage,
+          model: resp.model,
+          stopReason: resp.stop_reason,
+        };
+      },
+      opts.signal,
+    );
   }
 
   async countTokens(opts: AICountTokensOpts): Promise<AICountTokensResult> {
@@ -230,63 +241,67 @@ export class AnthropicAdapter implements AIClient {
   }> {
     const runId = randomUUID();
     this.budgetPreflight({ prompt: opts.prompt, system: opts.system, tools: opts.tools });
-    return this.runWithBreaker('chat', async (signal) => {
-      const client = await this.getClient();
-      const runner = client.beta.messages.toolRunner(
-        {
-          model: this.model,
-          max_tokens: opts.maxTokens ?? 4096,
-          system: opts.system,
-          messages: [{ role: 'user', content: opts.prompt }],
+    return this.runWithBreaker(
+      'chat',
+      async (signal) => {
+        const client = await this.getClient();
+        const runner = client.beta.messages.toolRunner(
+          {
+            model: this.model,
+            max_tokens: opts.maxTokens ?? 4096,
+            system: opts.system,
+            messages: [{ role: 'user', content: opts.prompt }],
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            tools: opts.tools as any,
+            max_iterations: opts.maxIterations ?? 12,
+          },
+          { signal },
+        );
+
+        let toolCalls = 0;
+        let lastUsage: AIUsage = {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheCreate: 0,
+          total: 0,
+        };
+        let lastModel = this.model;
+        let lastStopReason: string | null = null;
+        let finalText = '';
+
+        for await (const message of runner) {
+          // BetaMessageStream support — treat both as plain message-shaped.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          tools: opts.tools as any,
-          max_iterations: opts.maxIterations ?? 12,
-        },
-        { signal },
-      );
-
-      let toolCalls = 0;
-      let lastUsage: AIUsage = {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheCreate: 0,
-        total: 0,
-      };
-      let lastModel = this.model;
-      let lastStopReason: string | null = null;
-      let finalText = '';
-
-      for await (const message of runner) {
-        // BetaMessageStream support — treat both as plain message-shaped.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const m = message as any;
-        if (Array.isArray(m.content)) {
-          for (const block of m.content) {
-            if (block.type === 'tool_use') toolCalls++;
-            if (block.type === 'text' && typeof block.text === 'string') {
-              finalText = block.text; // last text block wins
+          const m = message as any;
+          if (Array.isArray(m.content)) {
+            for (const block of m.content) {
+              if (block.type === 'tool_use') toolCalls++;
+              if (block.type === 'text' && typeof block.text === 'string') {
+                finalText = block.text; // last text block wins
+              }
             }
           }
+          if (m.usage) {
+            lastUsage = this.buildUsage(m.usage);
+          }
+          if (typeof m.model === 'string') lastModel = m.model;
+          if (m.stop_reason !== undefined) lastStopReason = m.stop_reason;
         }
-        if (m.usage) {
-          lastUsage = this.buildUsage(m.usage);
-        }
-        if (typeof m.model === 'string') lastModel = m.model;
-        if (m.stop_reason !== undefined) lastStopReason = m.stop_reason;
-      }
 
-      this.budget?.increment(lastUsage);
-      this.breadcrumb('chat', lastUsage);
-      return {
-        text: finalText,
-        usage: lastUsage,
-        model: lastModel,
-        stopReason: lastStopReason,
-        runId,
-        toolCalls,
-      };
-    }, opts.signal);
+        this.budget?.increment(lastUsage);
+        this.breadcrumb('chat', lastUsage);
+        return {
+          text: finalText,
+          usage: lastUsage,
+          model: lastModel,
+          stopReason: lastStopReason,
+          runId,
+          toolCalls,
+        };
+      },
+      opts.signal,
+    );
   }
 
   /**
@@ -418,8 +433,7 @@ export class AnthropicAdapter implements AIClient {
     const event: BreakerStateChangeEvent = {
       state: current,
       lastErrorVerdict: verdict,
-      cooldownEndsAt:
-        current === 'open' ? new Date(Date.now() + 300_000).toISOString() : undefined,
+      cooldownEndsAt: current === 'open' ? new Date(Date.now() + 300_000).toISOString() : undefined,
     };
     try {
       this.breakerEvents.emit('state-change', event);
@@ -457,8 +471,7 @@ export class AnthropicAdapter implements AIClient {
    * surfacing it to logs / handlers (P-04.7).
    */
   private extractAndRedactErrorMessage(err: unknown): string {
-    const raw =
-      err instanceof Error ? err.message : typeof err === 'string' ? err : String(err);
+    const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : String(err);
     return raw.replace(/[A-Za-z0-9_-]{32,}/g, '***REDACTED***');
   }
 

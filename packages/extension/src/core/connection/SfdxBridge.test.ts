@@ -3,15 +3,27 @@ import { SfdxBridge } from './SfdxBridge';
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
+  execFile: vi.fn(),
 }));
 
 vi.mock('util', () => ({
   promisify: (fn: unknown) => fn,
 }));
 
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 
 const mockExec = vi.mocked(exec);
+const mockExecFile = vi.mocked(execFile);
+
+/**
+ * `loginWeb` branches on `process.platform`:
+ * - Windows uses `exec` (shell required for `sf.cmd` PATHEXT resolution)
+ * - POSIX uses `execFile` with argv-as-array (no shell — RT-#8 hardening)
+ *
+ * Tests pick the active mock for the current platform so they stay
+ * platform-agnostic (same pattern as ConnectionHelper.test.ts).
+ */
+const mockCliInvoker = process.platform === 'win32' ? mockExec : mockExecFile;
 
 function makeSfOrgListOutput(
   nonScratchOrgs: Record<string, unknown>[] = [],
@@ -94,7 +106,7 @@ describe('SfdxBridge', () => {
       expect(results[1].org.orgId).toBe('00D2');
       expect(results[1].org.alias).toBe('sbx');
       expect(results[1].org.orgType).toBe('Sandbox');
-      expect(results[1].org.safetyTier).toBe('low');
+      expect(results[1].org.safetyTier).toBe('medium');
     });
 
     it('should pass --json flag with NO_COLOR env', async () => {
@@ -348,33 +360,105 @@ describe('SfdxBridge', () => {
 
   describe('loginWeb', () => {
     it('should call sf org login web with alias and instanceUrl', async () => {
-      mockExec.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
+      mockCliInvoker.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
 
       await bridge.loginWeb('my-org', 'https://login.salesforce.com');
 
-      expect(mockExec).toHaveBeenCalledWith(
-        'sf org login web --instance-url https://login.salesforce.com --alias my-org',
-        expect.objectContaining({
-          timeout: 120_000,
-          maxBuffer: 10 * 1024 * 1024,
-          windowsHide: true,
-        }),
-      );
+      if (process.platform === 'win32') {
+        // Windows: shell-based exec with double-quoted, regex-validated values
+        expect(mockExec).toHaveBeenCalledWith(
+          'sf org login web --instance-url "https://login.salesforce.com" --alias "my-org"',
+          expect.objectContaining({
+            timeout: 120_000,
+            maxBuffer: 10 * 1024 * 1024,
+            windowsHide: true,
+          }),
+        );
+      } else {
+        // POSIX: argv-as-array execFile — no shell, no interpolation
+        expect(mockExecFile).toHaveBeenCalledWith(
+          'sf',
+          [
+            'org',
+            'login',
+            'web',
+            '--instance-url',
+            'https://login.salesforce.com',
+            '--alias',
+            'my-org',
+          ],
+          expect.objectContaining({
+            timeout: 120_000,
+            maxBuffer: 10 * 1024 * 1024,
+            windowsHide: true,
+          }),
+        );
+      }
     });
 
     it('should omit --alias when alias is empty', async () => {
-      mockExec.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
+      mockCliInvoker.mockResolvedValueOnce({ stdout: '', stderr: '' } as never);
 
       await bridge.loginWeb('', 'https://test.salesforce.com');
 
-      expect(mockExec).toHaveBeenCalledWith(
-        'sf org login web --instance-url https://test.salesforce.com',
-        expect.objectContaining({
-          timeout: 120_000,
-          maxBuffer: 10 * 1024 * 1024,
-          windowsHide: true,
-        }),
+      if (process.platform === 'win32') {
+        expect(mockExec).toHaveBeenCalledWith(
+          'sf org login web --instance-url "https://test.salesforce.com"',
+          expect.objectContaining({
+            timeout: 120_000,
+            maxBuffer: 10 * 1024 * 1024,
+            windowsHide: true,
+          }),
+        );
+      } else {
+        expect(mockExecFile).toHaveBeenCalledWith(
+          'sf',
+          ['org', 'login', 'web', '--instance-url', 'https://test.salesforce.com'],
+          expect.objectContaining({
+            timeout: 120_000,
+            maxBuffer: 10 * 1024 * 1024,
+            windowsHide: true,
+          }),
+        );
+      }
+    });
+
+    it('should reject a malicious alias to prevent shell injection', async () => {
+      await expect(
+        bridge.loginWeb('my-org; rm -rf /', 'https://login.salesforce.com'),
+      ).rejects.toThrow('Invalid alias format');
+      expect(mockExec).not.toHaveBeenCalled();
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it('should reject an alias with shell metacharacters', async () => {
+      await expect(
+        bridge.loginWeb('org"$(whoami)"', 'https://login.salesforce.com'),
+      ).rejects.toThrow('Invalid alias format');
+      expect(mockExec).not.toHaveBeenCalled();
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it('should reject a non-https instanceUrl', async () => {
+      await expect(bridge.loginWeb('my-org', 'http://login.salesforce.com')).rejects.toThrow(
+        'Invalid instanceUrl',
       );
+      expect(mockExec).not.toHaveBeenCalled();
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it('should reject a malformed instanceUrl', async () => {
+      await expect(bridge.loginWeb('my-org', 'not a url')).rejects.toThrow('Invalid instanceUrl');
+      expect(mockExec).not.toHaveBeenCalled();
+      expect(mockExecFile).not.toHaveBeenCalled();
+    });
+
+    it('should reject an instanceUrl with shell metacharacters in the hostname', async () => {
+      await expect(
+        bridge.loginWeb('my-org', 'https://login.salesforce.com";rm -rf /'),
+      ).rejects.toThrow('Invalid instanceUrl');
+      expect(mockExec).not.toHaveBeenCalled();
+      expect(mockExecFile).not.toHaveBeenCalled();
     });
   });
 });

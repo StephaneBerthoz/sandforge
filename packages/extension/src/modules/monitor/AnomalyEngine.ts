@@ -30,11 +30,7 @@ export interface AnomalyLogger {
  * adapter.
  */
 export interface AnomalyTelemetry {
-  addBreadcrumb(
-    message: string,
-    category?: string,
-    level?: 'info' | 'warning' | 'error',
-  ): void;
+  addBreadcrumb(message: string, category?: string, level?: 'info' | 'warning' | 'error'): void;
 }
 
 /** Constructor dependencies for {@link AnomalyEngine}. */

@@ -1,5 +1,6 @@
-/** Function signature for calling an AI model. */
-export type AIProvider = (prompt: string) => Promise<string>;
+/** Re-exported from the central AI types module (single source of truth). */
+export type { AIProvider } from './types.js';
+import type { AIProvider } from './types.js';
 
 /** Describes how a specific field should be generated for a persona. */
 export interface PersonaFieldPattern {

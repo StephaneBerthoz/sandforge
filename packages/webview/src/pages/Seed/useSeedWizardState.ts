@@ -7,6 +7,7 @@ import type {
   PersonaMsg,
 } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
@@ -115,6 +116,12 @@ export interface SeedWizardState {
  * Composite hook orchestrating all Seed wizard state by composing
  * focused sub-hooks for org selection, object selection, field config,
  * relations, and execution.
+ *
+ * Pure-UI wizard state (org/objects/relations/persona/error) lives in
+ * `useSeedWizardStore` so step sections can subscribe to their own
+ * slices; this hook stays the single facade used by SeedPage. The store
+ * is reset on mount/unmount — same lifecycle as component-local state —
+ * and the persisted draft is re-applied right after the reset.
  */
 export function useSeedWizardState(t: TFunction): SeedWizardState {
   const addNotification = useNotificationStore((s) => s.addNotification);
@@ -129,12 +136,14 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
 
   const [draft, setDraft] = useWebviewPersistedState<SeedDraftState>('seedDraft', defaultSeedDraft);
   const initialDraft = useRef(draft);
-  const restoredRef = useRef(false);
 
   const [currentStep, setCurrentStep] = useState(initialDraft.current.currentStep);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedPersona, setSelectedPersona] = useState<PersonaMsg | null>(null);
-  const [personaMatchedFields, setPersonaMatchedFields] = useState(0);
+  const error = useSeedWizardStore((s) => s.error);
+  const setError = useSeedWizardStore((s) => s.setError);
+  const selectedPersona = useSeedWizardStore((s) => s.selectedPersona);
+  const setSelectedPersona = useSeedWizardStore((s) => s.setSelectedPersona);
+  const personaMatchedFields = useSeedWizardStore((s) => s.personaMatchedFields);
+  const setPersonaMatchedFields = useSeedWizardStore((s) => s.setPersonaMatchedFields);
 
   /* ------------------------------------------------------------------ */
   /* Sub-hooks                                                           */
@@ -158,21 +167,26 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
   );
 
   /* ------------------------------------------------------------------ */
-  /* Draft persistence — restore on mount                                */
+  /* Store lifecycle + draft persistence — reset & restore on mount      */
   /* ------------------------------------------------------------------ */
   useEffect(() => {
-    if (restoredRef.current) return;
-    restoredRef.current = true;
+    const store = useSeedWizardStore.getState();
+    // Fresh wizard on every page mount (the store mirrors component-local
+    // state), then re-apply the persisted draft.
+    store.resetSeedWizard();
     const saved = initialDraft.current;
     if (saved.selectedOrgId) {
-      orgSelection.handleOrgSelect(saved.selectedOrgId);
+      store.handleOrgSelect(saved.selectedOrgId);
     }
     for (const objName of saved.selectedObjects) {
-      objectSelection.handleToggleObject(objName);
+      store.handleToggleObject(objName);
     }
     if (saved.nl2soqlQuery) {
       nl2soqlState.setNl2soqlQuery(saved.nl2soqlQuery);
     }
+    return () => {
+      useSeedWizardStore.getState().resetSeedWizard();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* Draft persistence — save on form state changes */
@@ -207,7 +221,7 @@ export function useSeedWizardState(t: TFunction): SeedWizardState {
         autoDismissMs: 5000,
       });
     }
-  }, [objectSelection.describeError, execution.executionError, addNotification, t]);
+  }, [objectSelection.describeError, execution.executionError, setError, addNotification, t]);
 
   /* Navigate to results step when execution completes */
   useEffect(() => {

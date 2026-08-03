@@ -1,5 +1,6 @@
-/** AI provider function type for generating text completions. */
-export type AIProvider = (prompt: string) => Promise<string>;
+/** Re-exported from the central AI types module (single source of truth). */
+export type { AIProvider } from './types.js';
+import type { AIProvider } from './types.js';
 
 /** Suggestion impact level. */
 export type SuggestionImpact = 'low' | 'medium' | 'high';

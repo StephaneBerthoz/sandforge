@@ -1,6 +1,23 @@
 /** Default maximum cache size in bytes (5 MB). */
 const DEFAULT_MAX_SIZE_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Flat overhead charged per field descriptor: object shape plus the ~35
+ * non-string props (flags, lengths, SOAP metadata) of a raw jsforce field
+ * describe. Calibrated so a realistic Account describe estimates in the
+ * hundreds of KB — see SchemaCache.estimateSize.
+ */
+const DESCRIBE_FIELD_OVERHEAD_BYTES = 250;
+
+/** Flat overhead charged per child relationship descriptor. */
+const DESCRIBE_CHILD_REL_OVERHEAD_BYTES = 100;
+
+/** Flat overhead charged per picklist value entry ({value,label,active,…}). */
+const PICKLIST_VALUE_OVERHEAD_BYTES = 64;
+
+/** V8 string header slack charged per string on top of 2 B/char. */
+const STRING_HEADER_BYTES = 16;
+
 /** Cached entry with metadata */
 interface CacheEntry<T> {
   data: T;
@@ -60,12 +77,12 @@ export class SchemaCache<T = unknown> {
       this.removeSize(key);
     }
 
-    // Skip JSON.stringify when byte-tracking is effectively disabled.
-    // estimateSize on a 1-5 MB describe response blocks the event loop
-    // for 50-200ms; with 50+ cache writes during BFS the freeze adds up
-    // to several seconds of unresponsive UI ("window is not responding"
-    // dialog). When the caller doesn't enforce a byte cap, we trust the
-    // entry-count cap (`maxSize`) alone.
+    // Skip size estimation when byte-tracking is effectively disabled.
+    // estimateSize walks the payload structurally (no JSON.stringify — that
+    // would block the event loop for 50-200ms on a 1-5 MB describe), so a
+    // write stays sub-millisecond even during BFS storms. When the caller
+    // doesn't enforce a byte cap, we trust the entry-count cap (`maxSize`)
+    // alone and skip the walk entirely.
     const trackBytes = this.maxSizeBytes < Number.POSITIVE_INFINITY;
     const entrySize = trackBytes ? this.estimateSize(value) : 0;
 
@@ -211,14 +228,27 @@ export class SchemaCache<T = unknown> {
   }
 
   /**
-   * Estimate the byte size of a value using O(1) structural heuristics.
+   * Estimate the byte size of a value using cheap structural heuristics.
    *
    * Calling `JSON.stringify` on a 1-5 MB describe payload blocks the event
    * loop for 50-200ms; doing it on every BFS write produces seconds of
-   * unresponsive UI. The describe-shaped fast path measures `fields` and
-   * `childRelationships` array lengths instead — biased high (~250 B/field,
-   * ~150 B/childRel) so the eviction kicks in before real heap pressure.
-   * Non-describe values fall back to a constant 1 KB; arrays use a per-
+   * unresponsive UI. The describe-shaped fast path instead WALKS the
+   * `fields` / `childRelationships` arrays and charges real string content
+   * (name, label, type, picklist values, help text…) at 2 B/char plus a
+   * per-string header, with a flat per-entry overhead for the object shape
+   * and its non-string flags. Summing `.length` allocates nothing, so the
+   * walk stays sub-millisecond even on big describes.
+   *
+   * Calibration: the formatted ObjectDescribe DTO SandForge caches (5 props
+   * per field) estimates at ~400 B/field — biased ~2x above its real heap,
+   * so eviction kicks in before real heap pressure. A raw 40-prop jsforce
+   * describe (label, picklistValues, inlineHelpText…) estimates at its true
+   * content weight (~1-2 KB/field, ~150-400 KB for a realistic Account);
+   * its extra real-heap slack (hidden classes, array over-allocation, up to
+   * ~1-2 MB) is bounded by the count cap (`maxSize`), which is why the
+   * Forge composition caps describes at 50 entries.
+   *
+   * Non-describe values fall back to a per-key heuristic; arrays use a per-
    * element heuristic; primitives are cheap. Never throws.
    */
   private estimateSize(value: T): number {
@@ -226,15 +256,22 @@ export class SchemaCache<T = unknown> {
     if (typeof value === 'string') return value.length * 2;
     if (typeof value === 'number' || typeof value === 'boolean') return 8;
     if (typeof value !== 'object') return 64;
-    // Describe-shaped: count fields + child relationships (the dominant
+    // Describe-shaped: walk fields + child relationships (the dominant
     // memory contributors on Salesforce describe responses).
     const v = value as { fields?: unknown[]; childRelationships?: unknown[] };
     if (Array.isArray(v.fields) || Array.isArray(v.childRelationships)) {
-      return (
-        (Array.isArray(v.fields) ? v.fields.length * 250 : 0) +
-        (Array.isArray(v.childRelationships) ? v.childRelationships.length * 150 : 0) +
-        512
-      );
+      let bytes = 512; // describe envelope (name, label, urls, flags…)
+      if (Array.isArray(v.fields)) {
+        for (const field of v.fields) {
+          bytes += this.estimateEntrySize(field, DESCRIBE_FIELD_OVERHEAD_BYTES);
+        }
+      }
+      if (Array.isArray(v.childRelationships)) {
+        for (const rel of v.childRelationships) {
+          bytes += this.estimateEntrySize(rel, DESCRIBE_CHILD_REL_OVERHEAD_BYTES);
+        }
+      }
+      return bytes;
     }
     if (Array.isArray(value)) {
       // Heuristic: 64 B per entry on average (assumes records or DTOs).
@@ -242,5 +279,36 @@ export class SchemaCache<T = unknown> {
     }
     // Plain object — count keys, charge ~64 B per entry.
     return Object.keys(value).length * 64 + 128;
+  }
+
+  /**
+   * Charge one field/childRelationship descriptor: a flat overhead for the
+   * object shape + non-string props, plus the real string content
+   * (2 B/char + header per string). One level of array nesting is walked
+   * (referenceTo: string[], picklistValues: {value,label,…}[]) — describes
+   * don't nest deeper.
+   */
+  private estimateEntrySize(entry: unknown, overheadBytes: number): number {
+    if (entry == null || typeof entry !== 'object') return 16;
+    let bytes = overheadBytes;
+    for (const prop of Object.values(entry)) {
+      if (typeof prop === 'string') {
+        bytes += STRING_HEADER_BYTES + prop.length * 2;
+      } else if (typeof prop === 'number' || typeof prop === 'boolean') {
+        bytes += 8;
+      } else if (Array.isArray(prop)) {
+        bytes += 16; // array header
+        for (const item of prop as unknown[]) {
+          bytes +=
+            typeof item === 'string'
+              ? STRING_HEADER_BYTES + item.length * 2
+              : this.estimateEntrySize(item, PICKLIST_VALUE_OVERHEAD_BYTES);
+        }
+      } else {
+        // null or nested plain object — rare on describes; small constant.
+        bytes += 16;
+      }
+    }
+    return bytes;
   }
 }

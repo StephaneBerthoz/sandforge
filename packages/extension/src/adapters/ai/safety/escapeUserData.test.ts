@@ -68,9 +68,7 @@ describe('wrapAsUserData', () => {
   });
 
   it('escapes the label too (defense in depth)', () => {
-    expect(wrapAsUserData('<evil>', 'foo')).toBe(
-      '<user-data label="&lt;evil&gt;">foo</user-data>',
-    );
+    expect(wrapAsUserData('<evil>', 'foo')).toBe('<user-data label="&lt;evil&gt;">foo</user-data>');
   });
 
   it('escapes the value', () => {

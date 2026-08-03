@@ -57,7 +57,7 @@ describe('QualityDashboard', () => {
 
   it('should show empty state when no results', () => {
     render(<QualityDashboard />);
-    expect(screen.getByText('dataops.noResults')).toBeDefined();
+    expect(screen.getByText('No scan results yet')).toBeDefined();
   });
 
   it('should show quality summary', () => {
@@ -92,7 +92,7 @@ describe('QualityDashboard', () => {
 
   it('should show rule type labels', () => {
     render(<QualityDashboard results={results} />);
-    expect(screen.getAllByText('dataops.qualityRules.completeness').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('dataops.qualityRules.uniqueness').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Completeness').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Uniqueness').length).toBeGreaterThan(0);
   });
 });

@@ -284,4 +284,43 @@ describe('CompareHandler', () => {
     expect(response.type).toBe('compare:error');
     expect(response.payload.message).toBe('perm connection failed');
   });
+
+  describe('payload validation', () => {
+    it('rejects compare:execute with empty types array', async () => {
+      const msg = {
+        id: 'bad-cmp',
+        type: 'compare:execute',
+        timestamp: Date.now(),
+        payload: { sourceOrgId: 'a', targetOrgId: 'b', types: [] },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        type: string;
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('compare:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects compare:permissions without targetOrgId', async () => {
+      const msg = {
+        id: 'bad-perm',
+        type: 'compare:permissions',
+        timestamp: Date.now(),
+        payload: { sourceOrgId: 'a' },
+      } as unknown as BaseMessage;
+
+      await handler.handle(msg);
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

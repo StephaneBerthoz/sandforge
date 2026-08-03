@@ -893,4 +893,42 @@ describe('MonitorOpsHandler', () => {
       }
     });
   });
+
+  describe('payload validation', () => {
+    it('rejects monitor:abort-job with a malformed jobId', async () => {
+      const msg = {
+        id: 'bad-job',
+        type: 'monitor:abort-job',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', jobId: 'not a job id' },
+      } as unknown as import('@sandforge/shared').BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        type: string;
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('monitor:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects monitor:refresh without orgId', async () => {
+      const msg = {
+        id: 'bad-refresh',
+        type: 'monitor:refresh',
+        timestamp: Date.now(),
+        payload: {},
+      } as unknown as import('@sandforge/shared').BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  DescribeCache,
-  type DescribedField,
-  DEFAULT_DESCRIBE_TTL_MS,
-} from './DescribeCache.js';
+import { DescribeCache, type DescribedField, DEFAULT_DESCRIBE_TTL_MS } from './DescribeCache.js';
 
 function fields(name: string): DescribedField[] {
   return [{ name, type: 'string' }];

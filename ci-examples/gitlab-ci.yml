@@ -1,22 +1,24 @@
-# SandForge — GitLab CI/CD Pipeline
-# This pipeline runs the full SandForge workflow:
-#   1. Seed sandbox with test data
-#   2. Sync data between orgs
-#   3. Backup target org data
-#   4. Run health check on target org
-#   5. Generate execution report
+# SandForge — GitLab CI/CD Pipeline (EXAMPLE)
 #
-# Prerequisites:
-#   - Set the following CI/CD variables in your GitLab project settings:
-#     - SF_SOURCE_USERNAME: Salesforce source org username
-#     - SF_SOURCE_PASSWORD: Salesforce source org password + security token (masked)
-#     - SF_SOURCE_LOGIN_URL: Salesforce source login URL
-#     - SF_TARGET_USERNAME: Salesforce target org username
-#     - SF_TARGET_PASSWORD: Salesforce target org password + security token (masked)
-#     - SF_TARGET_LOGIN_URL: Salesforce target login URL
-#     - SLACK_WEBHOOK_URL: (optional) Slack webhook for failure notifications
+# Honest example built on what actually exists in this repo:
+#   1. Quality gates   — typecheck + unit tests + minified extension build
+#   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
+#   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
+#   4. VSIX package    — pnpm package, uploaded as an artifact
+#
+# There is NO `sandforge seed|sync|backup|health` CLI — those stages exist
+# only in the VSCode extension UI. See ci-examples/README.md for details.
+#
+# Prerequisites for the org-touching stages (clone/cleanup, dry-run default):
+#   - CI/CD variables (masked):
+#     - SFDX_AUTH_URL_SOURCE: sfdx auth URL of the source org
+#     - SFDX_AUTH_URL_TARGET: sfdx auth URL of the target sandbox
+#   - CI/CD variables:
+#     - SANDFORGE_SF_ORGS: set to "true" to enable the clone/cleanup stages
+#     - SF_CLONE_RECORD_ID: Salesforce record Id to clone (e.g. 500...)
+#   - SLACK_WEBHOOK_URL (optional): failure notifications
 
-image: node:20-alpine
+image: node:22
 
 # Cache pnpm store across pipeline runs
 cache:
@@ -24,148 +26,89 @@ cache:
   paths:
     - .pnpm-store
 
-# Default environment variables for all stages
 variables:
-  PNPM_VERSION: "9"
-  DRY_RUN: "false"
+  PNPM_VERSION: "11"
+  DRY_RUN: "true"
 
-# Pipeline stages — executed in order
 stages:
-  - setup
-  - seed
-  - sync
-  - backup
-  - health-check
-  - report
+  - quality
+  - clone
+  - package
 
-# ── Setup ────────────────────────────────────────────────────
-setup:
-  stage: setup
+# ── Quality gates ────────────────────────────────────────────
+quality:
+  stage: quality
   script:
-    # Install pnpm globally
     - npm install -g pnpm@$PNPM_VERSION
-    # Configure pnpm store location for caching
     - pnpm config set store-dir .pnpm-store
-    # Install project dependencies
     - pnpm install --frozen-lockfile
-  artifacts:
-    paths:
-      - node_modules/
-      - packages/*/node_modules/
-    expire_in: 1 hour
-
-# ── Stage 1: Seed ───────────────────────────────────────────
-seed:
-  stage: seed
-  dependencies:
-    - setup
-  script:
-    - npm install -g pnpm@$PNPM_VERSION
-    - |
-      sandforge seed \
-        --config .sandforge.json \
-        --template default \
-        ${DRY_RUN:+--dry-run} \
-        --output-format json \
-        --output seed-report.json
-  artifacts:
-    paths:
-      - seed-report.json
-    expire_in: 7 days
-    when: always
+    - pnpm typecheck
+    - pnpm test
+    - pnpm build:extension
   rules:
-    # Run on push to main
     - if: $CI_COMMIT_BRANCH == "main"
-    # Run on manual trigger
     - if: $CI_PIPELINE_SOURCE == "web"
-    # Run on schedule
     - if: $CI_PIPELINE_SOURCE == "schedule"
 
-# ── Stage 2: Sync ───────────────────────────────────────────
-sync:
-  stage: sync
-  dependencies:
-    - setup
-    - seed
+# ── Forge clone + cleanup (real CLIs, dry-run default) ───────
+clone:
+  stage: clone
   script:
-    - npm install -g pnpm@$PNPM_VERSION
+    - npm install -g pnpm@$PNPM_VERSION @salesforce/cli
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile
+    - pnpm build:shared
+    # Authenticate both orgs; the CLIs shell out to `sf org display`.
+    - echo "$SFDX_AUTH_URL_SOURCE" > /tmp/auth-source.txt
+    - echo "$SFDX_AUTH_URL_TARGET" > /tmp/auth-target.txt
+    - sf org login sfdxurl --sfdx-url-file /tmp/auth-source.txt --alias ci-source
+    - sf org login sfdxurl --sfdx-url-file /tmp/auth-target.txt --alias ci-target
+    - rm -f /tmp/auth-source.txt /tmp/auth-target.txt
     - |
-      sandforge sync \
-        --config .sandforge.json \
-        --mode full \
-        ${DRY_RUN:+--dry-run} \
-        --output-format json \
-        --output sync-report.json
+      DRY_FLAG=""
+      [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
+      pnpm exec tsx packages/extension/cli/sandforge-clone.ts \
+        --record "$SF_CLONE_RECORD_ID" \
+        --source ci-source \
+        --target ci-target \
+        --upsert \
+        $DRY_FLAG \
+        --json \
+        --remap-csv remap.csv \
+        > clone-summary.json
+    - |
+      DRY_FLAG=""
+      [ "$DRY_RUN" = "true" ] && DRY_FLAG="--dry-run"
+      pnpm exec tsx packages/extension/cli/sandforge-cleanup.ts \
+        --target ci-target \
+        --since today \
+        $DRY_FLAG
   artifacts:
     paths:
-      - sync-report.json
-    expire_in: 7 days
-    when: always
-
-# ── Stage 3: Backup ─────────────────────────────────────────
-backup:
-  stage: backup
-  dependencies:
-    - setup
-    - sync
-  script:
-    - npm install -g pnpm@$PNPM_VERSION
-    - |
-      sandforge backup \
-        --config .sandforge.json \
-        --org target \
-        --output-format json \
-        --output backup-report.json
-  artifacts:
-    paths:
-      - backup-report.json
-    expire_in: 7 days
-    when: always
-
-# ── Stage 4: Health Check ───────────────────────────────────
-health-check:
-  stage: health-check
-  dependencies:
-    - setup
-    - sync
-  script:
-    - npm install -g pnpm@$PNPM_VERSION
-    - |
-      sandforge monitor health-check \
-        --config .sandforge.json \
-        --org target \
-        --output-format json \
-        --output health-report.json
-  artifacts:
-    paths:
-      - health-report.json
-    expire_in: 7 days
-    when: always
-
-# ── Stage 5: Report ─────────────────────────────────────────
-report:
-  stage: report
-  dependencies:
-    - setup
-    - seed
-    - sync
-    - backup
-    - health-check
-  script:
-    - npm install -g pnpm@$PNPM_VERSION
-    - |
-      sandforge report \
-        --seed-report seed-report.json \
-        --sync-report sync-report.json \
-        --backup-report backup-report.json \
-        --health-report health-report.json \
-        --output-format html \
-        --output pipeline-report.html
-  artifacts:
-    paths:
-      - pipeline-report.html
+      - clone-summary.json
+      - remap.csv
     expire_in: 30 days
     when: always
+  rules:
+    # Only when sf org secrets have been configured
+    - if: $SANDFORGE_SF_ORGS == "true"
+
+# ── VSIX package ─────────────────────────────────────────────
+package:
+  stage: package
+  script:
+    - npm install -g pnpm@$PNPM_VERSION
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile
+    - pnpm package
+  artifacts:
+    paths:
+      - sandforge.vsix
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
 
   # Notify on pipeline failure
   after_script:
@@ -173,16 +116,5 @@ report:
       if [ "$CI_JOB_STATUS" = "failed" ] && [ -n "$SLACK_WEBHOOK_URL" ]; then
         curl -X POST "$SLACK_WEBHOOK_URL" \
           -H 'Content-Type: application/json' \
-          -d "{
-            \"text\": \"SandForge Pipeline FAILED on $CI_PROJECT_NAME ($CI_COMMIT_REF_NAME)\",
-            \"blocks\": [
-              {
-                \"type\": \"section\",
-                \"text\": {
-                  \"type\": \"mrkdwn\",
-                  \"text\": \"*SandForge Pipeline Failed*\n*Project:* $CI_PROJECT_NAME\n*Branch:* $CI_COMMIT_REF_NAME\n*Pipeline:* <$CI_PIPELINE_URL|View Pipeline>\"
-                }
-              }
-            ]
-          }"
+          -d "{\"text\": \"SandForge Pipeline FAILED on $CI_PROJECT_NAME ($CI_COMMIT_REF_NAME) — $CI_PIPELINE_URL\"}"
       fi

@@ -155,9 +155,7 @@ export const DriftFeed: React.FC<DriftFeedProps> = ({ orgId, initialEvents }) =>
       if (ev.origin && !ev.origin.startsWith('vscode-webview://') && ev.origin !== '') {
         return;
       }
-      const data = ev.data as
-        | { type?: string; payload?: DriftDetectedEnvelope }
-        | undefined;
+      const data = ev.data as { type?: string; payload?: DriftDetectedEnvelope } | undefined;
       if (!data || data.type !== DRIFT_DETECTED_TYPE) return;
       const payload = data.payload;
       if (!payload || payload.orgId !== orgId) return;

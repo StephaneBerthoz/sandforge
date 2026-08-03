@@ -35,12 +35,7 @@ describe('ActionCard', () => {
       requiresApproval: false,
     }));
     render(
-      <ActionCard
-        runId="r1"
-        result={mkResult(actions)}
-        onApprove={vi.fn()}
-        onReject={vi.fn()}
-      />,
+      <ActionCard runId="r1" result={mkResult(actions)} onApprove={vi.fn()} onReject={vi.fn()} />,
     );
     const rows = screen.getAllByTestId(/^ai-action-card-action-/);
     expect(rows.length).toBe(5);
@@ -140,12 +135,7 @@ describe('ActionCard', () => {
 
   it('testid root matches the runId contract', () => {
     render(
-      <ActionCard
-        runId="my-run-42"
-        result={mkResult([])}
-        onApprove={vi.fn()}
-        onReject={vi.fn()}
-      />,
+      <ActionCard runId="my-run-42" result={mkResult([])} onApprove={vi.fn()} onReject={vi.fn()} />,
     );
     expect(screen.getByTestId('ai-action-card-my-run-42')).toBeTruthy();
   });

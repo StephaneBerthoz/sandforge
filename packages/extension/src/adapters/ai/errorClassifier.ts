@@ -129,11 +129,7 @@ export function classifyAnthropicError(err: unknown): AIErrorVerdict {
   }
 
   // 4) Auth — 401 / 403 / AuthenticationError.
-  if (
-    status === 401 ||
-    status === 403 ||
-    (e as { name?: string }).name === 'AuthenticationError'
-  ) {
+  if (status === 401 || status === 403 || (e as { name?: string }).name === 'AuthenticationError') {
     return {
       kind: 'auth',
       shouldTripBreaker: false,
@@ -144,11 +140,7 @@ export function classifyAnthropicError(err: unknown): AIErrorVerdict {
   }
 
   // 5) Bad request — 400 / 422 / BadRequestError.
-  if (
-    status === 400 ||
-    status === 422 ||
-    (e as { name?: string }).name === 'BadRequestError'
-  ) {
+  if (status === 400 || status === 422 || (e as { name?: string }).name === 'BadRequestError') {
     return {
       kind: 'invalid-request',
       shouldTripBreaker: false,

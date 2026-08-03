@@ -15,6 +15,13 @@ const INDEX_KEY = 'ai:conversations:index';
 /** ConfigStore category for all AI keys. */
 const AI_CATEGORY = 'ai';
 
+/**
+ * SecretVault key for the unified Anthropic API key.
+ * SecretVault prefixes keys with `sandforge.`, so this lands on
+ * `sandforge.ai.anthropic.key` — the key AnthropicAdapter reads.
+ */
+const AI_API_KEY_SECRET = 'ai.anthropic.key';
+
 /** Minimal conversation metadata stored in the index. */
 interface ConversationIndexEntry {
   id: string;
@@ -347,7 +354,7 @@ export class AIChatHandler implements DomainHandler {
   private async handleStatus(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
 
-    const hasKey = await this.deps.secretVault.hasSecret('ai-api-key');
+    const hasKey = await this.deps.secretVault.hasSecret(AI_API_KEY_SECRET);
 
     const response = buildResponse(this.deps, msg, 'ai:status:response', {
       enabled: !!this.aiAssistant && hasKey,
@@ -365,7 +372,7 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const { apiKey } = (msg as AISaveKeyRequest).payload;
     try {
-      await this.deps.secretVault.storeSecret('ai-api-key', apiKey);
+      await this.deps.secretVault.storeSecret(AI_API_KEY_SECRET, apiKey);
       const response = buildResponse(this.deps, msg, 'ai:save-key:response', {
         success: true,
       });

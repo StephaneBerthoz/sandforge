@@ -22,20 +22,28 @@ import { OrgHandler } from './handlers/OrgHandler.js';
 import { SettingsHandler } from './handlers/SettingsHandler.js';
 import { MonitorOpsHandler } from './handlers/MonitorOpsHandler.js';
 import { SeedOpsHandler } from './handlers/SeedOpsHandler.js';
+import { SeedCloneHandler } from './handlers/SeedCloneHandler.js';
+import { SeedCsvHandler } from './handlers/SeedCsvHandler.js';
 import { SyncOpsHandler } from './handlers/SyncOpsHandler.js';
+import { SyncHistoryHandler } from './handlers/SyncHistoryHandler.js';
+import { SyncHistoryStore } from '../modules/sync/SyncHistoryStore.js';
+import { SyncExecutionLogger } from '../modules/sync/SyncExecutionLogger.js';
 import { CompareHandler } from './handlers/CompareHandler.js';
 import { DataOpsHandler } from './handlers/DataOpsHandler.js';
 import { AutomationHandler } from './handlers/AutomationHandler.js';
 import { AIHandler } from './handlers/AIHandler.js';
 import type { AIModules } from './handlers/AIHandler.js';
+import type { AIDiagnoseHandler } from './handlers/ai/AIDiagnoseHandler.js';
 import { AutopilotHandler } from './handlers/AutopilotHandler.js';
 import { ForgeHandler } from './handlers/ForgeHandler.js';
 import type { ForgeServices } from './handlers/ForgeHandler.js';
+import { FrozenDatasetHandler } from './handlers/FrozenDatasetHandler.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
 import { ConfigHandler } from './handlers/ConfigHandler.js';
 import { GovernanceOpsHandler } from './handlers/GovernanceOpsHandler.js';
 import { QuickSyncHandler } from './handlers/QuickSyncHandler.js';
+import { SyncScheduleHandler } from './handlers/SyncScheduleHandler.js';
 import { NoOpHandler } from './handlers/NoOpHandler.js';
 import { CacheHandler as CacheDomainHandler } from './handlers/CacheHandler.js';
 import { SmartActionHandler } from './handlers/SmartActionHandler.js';
@@ -96,17 +104,22 @@ export class ExtensionHandlers {
   private readonly settingsHandler: SettingsHandler;
   private readonly monitorHandler: MonitorOpsHandler;
   private readonly seedHandler: SeedOpsHandler;
+  private readonly seedCloneHandler: SeedCloneHandler;
+  private readonly seedCsvHandler: SeedCsvHandler;
   private readonly syncHandler: SyncOpsHandler;
+  private readonly syncHistoryHandler: SyncHistoryHandler;
   private readonly compareHandler: CompareHandler;
   private readonly dataOpsHandler: DataOpsHandler;
   private readonly automationHandler: AutomationHandler;
   private readonly aiHandler: AIHandler;
   private readonly autopilotHandler: AutopilotHandler;
   private readonly forgeHandler: ForgeHandler;
+  private readonly frozenHandler: FrozenDatasetHandler;
   private readonly migrationHandler: MigrationHandler;
   private readonly configHandler: ConfigHandler;
   private readonly governanceHandler: GovernanceOpsHandler;
   private readonly quickSyncHandler: QuickSyncHandler;
+  private readonly syncScheduleHandler: SyncScheduleHandler;
   private readonly noOpHandler: NoOpHandler;
   private readonly cacheHandler: CacheDomainHandler;
   private readonly smartActionHandler: SmartActionHandler;
@@ -135,13 +148,25 @@ export class ExtensionHandlers {
     this.settingsHandler = new SettingsHandler(this.handlerDeps);
     this.monitorHandler = new MonitorOpsHandler(this.handlerDeps);
     this.seedHandler = new SeedOpsHandler(this.handlerDeps);
+    this.seedCloneHandler = new SeedCloneHandler(this.handlerDeps);
+    this.seedCsvHandler = new SeedCsvHandler(this.handlerDeps);
     this.syncHandler = new SyncOpsHandler(this.handlerDeps);
+    // Sync execution history: one shared store — SyncOpsHandler writes via
+    // SyncExecutionLogger, SyncHistoryHandler serves the read surface.
+    const syncHistoryStore = new SyncHistoryStore(deps.configStore);
+    this.syncHandler.setHistoryLogger(new SyncExecutionLogger(syncHistoryStore));
+    this.syncHistoryHandler = new SyncHistoryHandler(
+      this.handlerDeps,
+      syncHistoryStore,
+      this.syncHandler,
+    );
     this.compareHandler = new CompareHandler(this.handlerDeps);
     this.dataOpsHandler = new DataOpsHandler(this.handlerDeps);
     this.automationHandler = new AutomationHandler(this.handlerDeps);
     this.aiHandler = new AIHandler(this.handlerDeps);
     this.autopilotHandler = new AutopilotHandler(this.handlerDeps);
     this.forgeHandler = new ForgeHandler(this.handlerDeps);
+    this.frozenHandler = new FrozenDatasetHandler(this.handlerDeps);
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(
@@ -149,6 +174,7 @@ export class ExtensionHandlers {
       this.monitorHandler.getAlertEngine(),
     );
     this.quickSyncHandler = new QuickSyncHandler(this.handlerDeps);
+    this.syncScheduleHandler = new SyncScheduleHandler(this.handlerDeps);
     this.noOpHandler = new NoOpHandler(this.handlerDeps);
     this.cacheHandler = new CacheDomainHandler(this.handlerDeps);
     this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
@@ -191,9 +217,37 @@ export class ExtensionHandlers {
     this.executionHandler = new ExecutionHandler(this.handlerDeps, registry);
   }
 
+  /**
+   * Start the sync schedule executor tick loop with a real execution bridge.
+   *
+   * Wires `SyncScheduleExecutor.onExecute` to `SyncOpsHandler.executeScheduled`
+   * so due `sync:schedule:*` entries actually run (60 s tick). Call once from
+   * extension.ts after service injection (setBackgroundRegistry & co.).
+   * Pair with {@link stopSyncScheduler} on extension deactivate.
+   */
+  startSyncScheduler(): void {
+    this.syncScheduleHandler.startScheduler((config) => this.syncHandler.executeScheduled(config));
+  }
+
+  /** Stop the sync schedule executor tick loop. Call from extension deactivate(). */
+  stopSyncScheduler(): void {
+    this.syncScheduleHandler.stopScheduler();
+  }
+
   /** Inject AI modules (Tier 2). */
   setAIModules(modules: AIModules): void {
     this.aiHandler.setAIModules(modules);
+  }
+
+  /**
+   * Inject the concrete AI diagnose handler (Tier 2, plan 04-04).
+   *
+   * Wired from extension.ts only when the AI stack is enabled; until then the
+   * AIDiagnoseAdapter answers ai:diagnose / ai:approve-action with an explicit
+   * AI_NOT_CONFIGURED response instead of dropping the message.
+   */
+  setAIDiagnoseHandler(handler: AIDiagnoseHandler): void {
+    this.aiHandler.setDiagnoseHandler(handler);
   }
 
   /** Inject migration file reader (Tier 3). */
@@ -228,10 +282,13 @@ export class ExtensionHandlers {
    * preserving synchronous execution where possible.
    */
   registerAll(router: MessageRouter): void {
+    // The wrapper MUST return/await the handler promise: MessageBroker's
+    // rejection safety-net (continueDispatch) only catches promises it can
+    // see — a fire-and-forget wrapper would bypass it and drop rejections.
     const route = (types: string[], handler: DomainHandler) => {
       for (const type of types) {
-        router.route(type, (msg) => {
-          handler.handle(msg);
+        router.route(type, async (msg) => {
+          await handler.handle(msg);
         });
       }
     };
@@ -258,10 +315,60 @@ export class ExtensionHandlers {
     );
 
     // Seed
-    route(['seed:execute', 'seed:describe-global', 'seed:describe-object'], this.seedHandler);
+    route(
+      [
+        'seed:execute',
+        'seed:describe-global',
+        'seed:describe-object',
+        'seed:template:save',
+        'seed:template:load',
+        'seed:template:list',
+        'seed:template:delete',
+        'seed:list-personas',
+        'seed:create-persona',
+      ],
+      this.seedHandler,
+    );
+
+    // Seed — record clone wizard (useClone)
+    route(
+      ['seed:clone:describe-source', 'seed:clone:preview', 'seed:clone:execute'],
+      this.seedCloneHandler,
+    );
+
+    // Seed — CSV import wizard (useCsvImport)
+    route(['seed:csv:validate', 'seed:csv:execute'], this.seedCsvHandler);
 
     // Sync
-    route(['sync:execute', 'sync:describe-global', 'sync:describe-fields'], this.syncHandler);
+    route(
+      [
+        'sync:execute',
+        'sync:describe-global',
+        'sync:describe-fields',
+        'sync:config:save',
+        'sync:config:load',
+        'sync:config:list',
+        'sync:config:delete',
+      ],
+      this.syncHandler,
+    );
+
+    // Sync execution history (useSyncHistoryStore)
+    route(
+      ['sync:history:list', 'sync:history:detail', 'sync:history:rerun', 'sync:history:export'],
+      this.syncHistoryHandler,
+    );
+
+    // Sync schedules (CRUD backed by SyncScheduleExecutor + SyncScheduleStore)
+    route(
+      [
+        'sync:schedule:list',
+        'sync:schedule:upsert',
+        'sync:schedule:toggle',
+        'sync:schedule:delete',
+      ],
+      this.syncScheduleHandler,
+    );
 
     // Quick Sync
     route(
@@ -290,6 +397,9 @@ export class ExtensionHandlers {
         'monitor:sessions',
         'monitor:apex-insights',
         'monitor:sandbox-refresh',
+        'monitor:alerts',
+        'monitor:alert:acknowledge',
+        'monitor:alert:dismiss',
       ],
       this.monitorHandler,
     );
@@ -359,6 +469,7 @@ export class ExtensionHandlers {
         'ai:chat',
         'ai:conversation:create',
         'ai:conversation:load',
+        'ai:conversation:list',
         'ai:conversation:delete',
         'ai:status',
         'ai:save-key',
@@ -369,6 +480,8 @@ export class ExtensionHandlers {
         'ai:suggestions',
         'ai:generate-pipeline',
         'ai:schema-advice',
+        'ai:diagnose',
+        'ai:approve-action',
       ],
       this.aiHandler,
     );
@@ -403,8 +516,24 @@ export class ExtensionHandlers {
         'forge:plan:request',
         'forge:compliance:request',
         'forge:metadata-diff:request',
+        'forge:target-preflight:request',
       ],
       this.forgeHandler,
+    );
+
+    // Frozen Reference Dataset
+    route(
+      [
+        'frozen:config:get',
+        'frozen:config:save',
+        'frozen:select',
+        'frozen:extract',
+        'frozen:manifest:get',
+        'frozen:load',
+        'frozen:verify',
+        'frozen:status',
+      ],
+      this.frozenHandler,
     );
 
     // Migration
@@ -422,9 +551,12 @@ export class ExtensionHandlers {
     // Smart Action
     route(['smart-action:analyze'], this.smartActionHandler);
 
-    // Execution lifecycle (abort/status/list)
+    // Execution lifecycle (abort/status/list/manual-retry)
     if (this.executionHandler) {
-      route(['execution:abort', 'execution:status', 'execution:list'], this.executionHandler);
+      route(
+        ['execution:abort', 'execution:status', 'execution:list', 'execution:manual-retry'],
+        this.executionHandler,
+      );
     }
 
     // No-op handlers for ghost features (Scheduler v1.2, RealTime CDC v2.0)

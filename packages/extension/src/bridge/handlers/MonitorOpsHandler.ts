@@ -6,20 +6,21 @@ import type {
   DeploymentEntry,
   ApiUsageCategory,
   OrgHealthStatus,
-  ApexLogEntry,
 } from '@sandforge/shared';
-import {
-  SF_API_VERSION,
-  MONITOR_PERIOD_MAP,
-  MONITOR_KEY_LIMITS,
-  DEFAULT_SOQL_LIMITS,
-} from '@sandforge/shared';
+import { MONITOR_PERIOD_MAP, MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
+import {
+  validatePayload,
+  monitorOrgPayloadSchema,
+  monitorTrendsPayloadSchema,
+  monitorAbortJobPayloadSchema,
+  monitorAlertIdPayloadSchema,
+} from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { UnifiedHealthScorer } from '../../modules/monitor/UnifiedHealthScorer.js';
-import { TrendStorage } from '../../modules/monitor/TrendStorage.js';
+import type { TrendStorage } from '../../modules/monitor/TrendStorage.js';
 import { OrgInfoFetcher } from '../../modules/monitor/OrgInfoFetcher.js';
 import type { OrgInfoConnection } from '../../modules/monitor/OrgInfoFetcher.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
@@ -29,18 +30,14 @@ import type { RawLimitsResponse } from '../../modules/monitor/transformLimitsRes
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import type { Connection } from 'jsforce';
-import { ErrorLogMonitor } from '../../modules/monitor/ErrorLogMonitor.js';
-import type { ErrorLogEntry } from '../../modules/monitor/ErrorLogMonitor.js';
-import { UserSessionMonitor } from '../../modules/monitor/UserSessionMonitor.js';
-import type { UserSessionInfo } from '../../modules/monitor/UserSessionMonitor.js';
-import { ApexLogAnalyzer } from '../../modules/monitor/ApexLogAnalyzer.js';
-import { SandboxRefreshTracker } from '../../modules/monitor/SandboxRefreshTracker.js';
-import type { SandboxRefreshEvent } from '../../modules/monitor/SandboxRefreshTracker.js';
-import { HealthCheck } from '../../modules/monitor/HealthCheck.js';
-import type { HealthSignalProvider } from '../../modules/monitor/HealthCheck.js';
-import { AlertEngine } from '../../modules/monitor/AlertEngine.js';
-import { AlertStateStore } from '../../modules/monitor/AlertStateStore.js';
-import { DEFAULT_ALERT_DEFINITIONS } from '../../modules/monitor/defaultAlertDefinitions.js';
+import type { ErrorLogMonitor } from '../../modules/monitor/ErrorLogMonitor.js';
+import type { UserSessionMonitor } from '../../modules/monitor/UserSessionMonitor.js';
+import type { ApexLogAnalyzer } from '../../modules/monitor/ApexLogAnalyzer.js';
+import type { SandboxRefreshTracker } from '../../modules/monitor/SandboxRefreshTracker.js';
+import type { HealthCheck } from '../../modules/monitor/HealthCheck.js';
+import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
+import type { AlertStateStore } from '../../modules/monitor/AlertStateStore.js';
+import { createMonitorOps } from '../../modules/monitor/MonitorOpsFactory.js';
 
 /** Message types handled by MonitorOpsHandler. */
 const MONITOR_TYPES = new Set([
@@ -67,15 +64,19 @@ const MONITOR_TYPES = new Set([
  *
  * Routes monitor:* message types to health calculation, limits fetching,
  * trend computation, async job management, and full refresh operations.
+ * Service construction (stores, alert pipeline, SOQL-backed monitors,
+ * /limits cache, health providers) is delegated to {@link createMonitorOps};
+ * this handler only orchestrates message handling.
  */
 export class MonitorOpsHandler implements DomainHandler {
   private readonly trendStorage: TrendStorage;
   private readonly orgInfoFetcher = new OrgInfoFetcher();
   private readonly healthCalculator = new UnifiedHealthScorer();
   private liveOperationTracker?: LiveOperationTracker;
-  private readonly limitsCache: Map<string, { data: RawLimitsResponse; fetchedAt: number }> =
-    new Map();
-  private static readonly LIMITS_CACHE_TTL_MS = 30_000;
+  private readonly getOrFetchLimits: (
+    orgId: string,
+    conn: Connection,
+  ) => Promise<RawLimitsResponse>;
   private readonly errorLogMonitor: ErrorLogMonitor;
   private readonly userSessionMonitor: UserSessionMonitor;
   private readonly apexLogAnalyzer: ApexLogAnalyzer;
@@ -86,204 +87,21 @@ export class MonitorOpsHandler implements DomainHandler {
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
-    this.trendStorage = new TrendStorage(deps.configStore);
-
-    // Alert subsystem: state store, engine, and definition seeding
-    this.alertStateStore = new AlertStateStore(deps.configStore);
-    this.alertEngine = new AlertEngine((alert) => {
-      deps.log(`[ALERT] ${alert.severity}: ${alert.message}`);
-      const level = alert.severity === 'critical' ? ('error' as const) : ('warning' as const);
-      sendNotification(deps, level, 'Alert', alert.message);
-      this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
+    const ops = createMonitorOps({
+      configStore: deps.configStore,
+      log: (message) => deps.log(message),
+      notify: (level, message) => sendNotification(deps, level, 'Alert', message),
+      getConnection: (orgId) => getJsforceConnection(orgId, deps.orgRegistry, deps.orgManager),
     });
-
-    // Seed definitions from persistence, or use defaults on first launch
-    const persistedDefs = this.alertStateStore.loadDefinitions();
-    const defsToLoad = persistedDefs.length > 0 ? persistedDefs : DEFAULT_ALERT_DEFINITIONS;
-    for (const def of defsToLoad) {
-      this.alertEngine.addDefinition(def);
-    }
-    if (persistedDefs.length === 0) {
-      this.alertStateStore.saveDefinitions(DEFAULT_ALERT_DEFINITIONS);
-    }
-
-    // Restore previously active alerts
-    const persistedAlerts = this.alertStateStore.loadAlerts();
-    this.alertEngine.restoreAlerts(persistedAlerts);
-
-    this.errorLogMonitor = new ErrorLogMonitor(
-      async (orgId: string, since: string): Promise<ErrorLogEntry[]> => {
-        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-        const records = await queryAll<{
-          Id: string;
-          Operation: string;
-          Status: string;
-          DurationMilliseconds: number;
-          LogLength: number;
-          StartTime: string;
-          LogUser: { Username: string } | null;
-        }>(
-          conn,
-          `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog WHERE Status != 'Success' AND StartTime > ${since} ORDER BY StartTime DESC LIMIT 50`,
-        );
-        checkApiLimits(conn.limitInfo, 'monitor:error-logs apexLog');
-        return records.map((r) => ({
-          id: r.Id,
-          errorType: r.Status,
-          message: `${r.Operation} - ${r.Status}`,
-          timestamp: r.StartTime,
-          user: r.LogUser?.Username ?? undefined,
-          context: r.Operation,
-        }));
-      },
-    );
-
-    this.userSessionMonitor = new UserSessionMonitor(
-      async (orgId: string): Promise<UserSessionInfo[]> => {
-        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-        const records = await queryAll<{
-          Id: string;
-          UsersId: string;
-          LoginType: string;
-          SessionType: string;
-          CreatedDate: string;
-          SourceIp: string;
-        }>(
-          conn,
-          'SELECT Id, UsersId, LoginType, SessionType, CreatedDate, SourceIp FROM AuthSession ORDER BY CreatedDate DESC LIMIT 100',
-        );
-        checkApiLimits(conn.limitInfo, 'monitor:sessions authSession');
-        return records.map((r) => ({
-          userId: r.UsersId,
-          username: r.UsersId,
-          sessionType: r.SessionType ?? r.LoginType ?? 'Unknown',
-          loginTime: r.CreatedDate,
-          sourceIp: r.SourceIp ?? '',
-        }));
-      },
-    );
-
-    this.apexLogAnalyzer = new ApexLogAnalyzer(
-      async (orgId: string, count: number): Promise<ApexLogEntry[]> => {
-        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-        const records = await queryAll<{
-          Id: string;
-          Operation: string;
-          Status: string;
-          DurationMilliseconds: number;
-          LogLength: number;
-          StartTime: string;
-          LogUser: { Username: string } | null;
-        }>(
-          conn,
-          `SELECT Id, Operation, Status, DurationMilliseconds, LogLength, StartTime, LogUser.Username FROM ApexLog ORDER BY StartTime DESC LIMIT ${count}`,
-        );
-        checkApiLimits(conn.limitInfo, 'monitor:apex-insights apexLog');
-        return records.map((r) => ({
-          id: r.Id,
-          operation: r.Operation ?? 'Unknown',
-          status: r.Status,
-          durationMs: r.DurationMilliseconds ?? 0,
-          logSize: r.LogLength ?? 0,
-          startTime: r.StartTime,
-          user: r.LogUser?.Username ?? 'Unknown',
-        }));
-      },
-    );
-
-    this.sandboxRefreshTracker = new SandboxRefreshTracker(
-      async (orgId: string): Promise<SandboxRefreshEvent[]> => {
-        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-        const records = await queryAll<{
-          Id: string;
-          SandboxName: string;
-          Status: string;
-          CreatedDate: string;
-          Description: string | null;
-        }>(
-          conn,
-          'SELECT Id, SandboxName, Status, CreatedDate, Description FROM SandboxProcess ORDER BY CreatedDate DESC LIMIT 20',
-        );
-        checkApiLimits(conn.limitInfo, 'monitor:sandbox-refresh sandboxProcess');
-        return records.map((r) => ({
-          orgId,
-          sandboxName: r.SandboxName ?? 'Unknown',
-          refreshDate: r.CreatedDate,
-          status: (r.Status as SandboxRefreshEvent['status']) ?? 'Completed',
-          sourceOrg: r.Description ?? undefined,
-        }));
-      },
-    );
-    // No onRefreshDetected callback -- see Pitfall 9 in research
-
-    const apiLimitsProvider: HealthSignalProvider = async (orgId: string) => {
-      try {
-        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-        const limitsRaw = await this.getOrFetchLimits(orgId, conn);
-        const apiEntry = limitsRaw['DailyApiRequests'] as
-          | { Max: number; Remaining: number }
-          | undefined;
-        const pct = apiEntry
-          ? Math.round(((apiEntry.Max - apiEntry.Remaining) / apiEntry.Max) * 100)
-          : 0;
-        const status =
-          pct > 80 ? ('critical' as const) : pct > 60 ? ('warning' as const) : ('ok' as const);
-        return { name: 'apiLimits', status, score: 100 - pct, message: `API usage at ${pct}%` };
-      } catch {
-        return {
-          name: 'apiLimits',
-          status: 'ok' as const,
-          score: 100,
-          message: 'Unable to fetch limits',
-        };
-      }
-    };
-
-    const storageProvider: HealthSignalProvider = async (orgId: string) => {
-      try {
-        const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
-        const limitsRaw = await this.getOrFetchLimits(orgId, conn);
-        const storageEntry = limitsRaw['DataStorageMB'] as
-          | { Max: number; Remaining: number }
-          | undefined;
-        const pct = storageEntry
-          ? Math.round(((storageEntry.Max - storageEntry.Remaining) / storageEntry.Max) * 100)
-          : 0;
-        const status =
-          pct > 85 ? ('critical' as const) : pct > 70 ? ('warning' as const) : ('ok' as const);
-        return { name: 'storage', status, score: 100 - pct, message: `Storage usage at ${pct}%` };
-      } catch {
-        return {
-          name: 'storage',
-          status: 'ok' as const,
-          score: 100,
-          message: 'Unable to fetch storage',
-        };
-      }
-    };
-
-    const errorsProvider: HealthSignalProvider = async (orgId: string) => {
-      const errorCount = this.errorLogMonitor.getErrorCount(orgId);
-      const score = Math.max(0, 100 - errorCount * 5);
-      const status =
-        errorCount > 10
-          ? ('critical' as const)
-          : errorCount > 3
-            ? ('warning' as const)
-            : ('ok' as const);
-      return { name: 'recentErrors', status, score, message: `${errorCount} recent errors` };
-    };
-
-    const jobsProvider: HealthSignalProvider = async () => {
-      return { name: 'activeJobs', status: 'ok' as const, score: 90, message: 'Jobs nominal' };
-    };
-
-    this.healthCheck = new HealthCheck([
-      apiLimitsProvider,
-      storageProvider,
-      errorsProvider,
-      jobsProvider,
-    ]);
+    this.trendStorage = ops.trendStorage;
+    this.alertStateStore = ops.alertStateStore;
+    this.alertEngine = ops.alertEngine;
+    this.errorLogMonitor = ops.errorLogMonitor;
+    this.userSessionMonitor = ops.userSessionMonitor;
+    this.apexLogAnalyzer = ops.apexLogAnalyzer;
+    this.sandboxRefreshTracker = ops.sandboxRefreshTracker;
+    this.healthCheck = ops.healthCheck;
+    this.getOrFetchLimits = ops.getOrFetchLimits;
   }
 
   /**
@@ -302,29 +120,6 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   getAlertEngine(): AlertEngine {
     return this.alertEngine;
-  }
-
-  /**
-   * Return a cached /limits response or fetch a fresh one.
-   *
-   * Keyed by orgId with a 30-second TTL so that within a single refresh
-   * cycle, handleRefresh, handleHealthScore, and handleApiUsage share one
-   * API call instead of each requesting /limits independently.
-   *
-   * @param orgId - The Salesforce org identifier used as cache key.
-   * @param conn  - The active jsforce Connection to the target org.
-   * @returns The raw limits response object.
-   */
-  private async getOrFetchLimits(orgId: string, conn: Connection): Promise<RawLimitsResponse> {
-    const cached = this.limitsCache.get(orgId);
-    if (cached && Date.now() - cached.fetchedAt < MonitorOpsHandler.LIMITS_CACHE_TTL_MS) {
-      return cached.data;
-    }
-    const data = (await conn.request(
-      `/services/data/${SF_API_VERSION}/limits`,
-    )) as RawLimitsResponse;
-    this.limitsCache.set(orgId, { data, fetchedAt: Date.now() });
-    return data;
   }
 
   /**
@@ -390,7 +185,9 @@ export class MonitorOpsHandler implements DomainHandler {
 
   private async handleRefresh(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -535,7 +332,9 @@ export class MonitorOpsHandler implements DomainHandler {
 
   private handleTrends(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; period?: string } }).payload;
+    const parsed = validatePayload(monitorTrendsPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     const periodStr = payload.period ?? '24h';
     const periodMs = MONITOR_PERIOD_MAP[periodStr] ?? MONITOR_PERIOD_MAP['24h'];
 
@@ -577,7 +376,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleHealthScore(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -623,7 +424,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleStorage(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -669,7 +472,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleDeployments(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -720,7 +525,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleApiUsage(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -775,7 +582,9 @@ export class MonitorOpsHandler implements DomainHandler {
 
   private async handleAbortJob(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; jobId: string } }).payload;
+    const parsed = validatePayload(monitorAbortJobPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -783,11 +592,12 @@ export class MonitorOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      await conn
-        .sobject('AsyncApexJob')
-        .update({ Id: payload.jobId, Status: 'Aborted' } as Record<string, unknown> & {
-          Id: string;
-        });
+      await conn.sobject('AsyncApexJob').update({ Id: payload.jobId, Status: 'Aborted' } as Record<
+        string,
+        unknown
+      > & {
+        Id: string;
+      });
 
       const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', {
         jobId: payload.jobId,
@@ -815,7 +625,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleErrorLogs(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const errors = await this.errorLogMonitor.fetch(payload.orgId);
@@ -841,7 +653,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleSessions(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const sessions = await this.userSessionMonitor.fetch(payload.orgId);
@@ -865,7 +679,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleApexInsights(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const analyses = await this.apexLogAnalyzer.fetchAndAnalyze(payload.orgId, 20);
@@ -889,7 +705,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private async handleSandboxRefresh(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const refreshes = await this.sandboxRefreshTracker.fetch(payload.orgId);
@@ -931,7 +749,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private handleAlertAcknowledge(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { alertId: string } }).payload;
+    const parsed = validatePayload(monitorAlertIdPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     this.alertEngine.acknowledgeAlert(payload.alertId);
     this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
     const response = buildResponse(this.deps, msg, 'monitor:alert:acknowledge:response', {
@@ -947,7 +767,9 @@ export class MonitorOpsHandler implements DomainHandler {
    */
   private handleAlertDismiss(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { alertId: string } }).payload;
+    const parsed = validatePayload(monitorAlertIdPayloadSchema, msg, 'monitor:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     this.alertEngine.dismissAlert(payload.alertId);
     this.alertStateStore.saveAlerts(this.alertEngine.getActiveAlerts());
     const response = buildResponse(this.deps, msg, 'monitor:alert:dismiss:response', {

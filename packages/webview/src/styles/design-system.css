@@ -57,6 +57,7 @@
 
   --sf-border: var(--vscode-widget-border, var(--vscode-panel-border));
   --sf-border-subtle: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.2));
+  --sf-border-input: var(--vscode-input-border, var(--sf-border));
 
   --sf-accent: var(--vscode-focusBorder);
   --sf-button-bg: var(--vscode-button-background);

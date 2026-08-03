@@ -14,10 +14,7 @@ import {
   DEFAULT_WINDOW_MS,
   DEFAULT_SIGMA_THRESHOLD,
 } from './anomaly-math.js';
-import {
-  metricSampleArb,
-  orderedSamplesForOneSeriesArb,
-} from '../../test/arbitraries.js';
+import { metricSampleArb, orderedSamplesForOneSeriesArb } from '../../test/arbitraries.js';
 
 /** Build a synthetic MetricSample with deterministic ts. */
 function sample(value: number, ts: string = new Date(0).toISOString()): MetricSample {
@@ -207,19 +204,13 @@ describe('anomaly-math', () => {
 
     it('effectiveThreshold scales monotonically downward as n grows toward 100', () => {
       fc.assert(
-        fc.property(
-          fc.integer({ min: 1, max: 99 }),
-          fc.integer({ min: 1, max: 99 }),
-          (a, b) => {
-            const small = Math.min(a, b);
-            const big = Math.max(a, b);
-            // Same n → same threshold (idempotent).
-            // smaller n → wider (>=) threshold.
-            expect(effectiveThreshold(3, small)).toBeGreaterThanOrEqual(
-              effectiveThreshold(3, big),
-            );
-          },
-        ),
+        fc.property(fc.integer({ min: 1, max: 99 }), fc.integer({ min: 1, max: 99 }), (a, b) => {
+          const small = Math.min(a, b);
+          const big = Math.max(a, b);
+          // Same n → same threshold (idempotent).
+          // smaller n → wider (>=) threshold.
+          expect(effectiveThreshold(3, small)).toBeGreaterThanOrEqual(effectiveThreshold(3, big));
+        }),
         { numRuns: 100 },
       );
     });

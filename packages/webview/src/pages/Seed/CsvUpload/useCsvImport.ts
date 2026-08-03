@@ -3,6 +3,7 @@ import type { TFunction } from 'i18next';
 import Papa from 'papaparse';
 import type { CsvColumnMapping, CsvValidationResult, SeedFieldInfo } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
+import { useBridgeErrorChannel } from '../useBridgeErrorChannel';
 
 /** Step in the CSV import wizard. */
 export type CsvImportStep = 'upload' | 'map' | 'validate' | 'execute';
@@ -41,6 +42,8 @@ export interface CsvImportState {
   executionStatus: CsvExecutionStatus;
   /** Execution result after completion. */
   executionResult: CsvExecutionResult | null;
+  /** Error message from the last failed step, if any. */
+  error: string | null;
   /** Current wizard step. */
   step: CsvImportStep;
   /** Whether describe-object is loading. */
@@ -126,6 +129,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
   const [validationResult, setValidationResult] = useState<CsvValidationResult | null>(null);
   const [executionStatus, setExecutionStatus] = useState<CsvExecutionStatus>('idle');
   const [executionResult, setExecutionResult] = useState<CsvExecutionResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<CsvImportStep>('upload');
 
   const describeMutation = useBridgeMutation<{ fields: SeedFieldInfo[] }>('seed:describe-object');
@@ -198,6 +202,32 @@ export function useCsvImport(t: TFunction): CsvImportState {
     setExecutionStatus('complete');
   }
 
+  // React to validate/execute failures (bridge timeout or hook-level error) —
+  // without this the status stays stuck on 'validating'/'executing' forever.
+  if (validateMutation.error && executionStatus === 'validating') {
+    setExecutionStatus('error');
+    setError(validateMutation.error);
+  }
+  if (executeMutation.error && executionStatus === 'executing') {
+    setExecutionStatus('error');
+    setError(executeMutation.error);
+  }
+
+  /* Fail fast on the seed:csv:error channel: SeedCsvHandler reports
+   * validate/execute failures there (no correlationId); without this
+   * listener the mutation would only fail on the 30 s bridge timeout. */
+  useBridgeErrorChannel('seed:csv:error', (message) => {
+    if (validateMutation.loading) {
+      validateMutation.reset();
+      setExecutionStatus('error');
+      setError(message);
+    } else if (executeMutation.loading) {
+      executeMutation.reset();
+      setExecutionStatus('error');
+      setError(message);
+    }
+  });
+
   const handleMappingChange = useCallback(
     (csvHeader: string, sfFieldApiName: string) => {
       setColumnMappings((prev) =>
@@ -219,6 +249,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
   const handleValidate = useCallback(() => {
     setExecutionStatus('validating');
     setValidationResult(null);
+    setError(null);
 
     validateMutation.mutate({
       orgId: targetOrgId,
@@ -230,6 +261,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
 
   const handleExecute = useCallback(() => {
     setExecutionStatus('executing');
+    setError(null);
 
     executeMutation.mutate({
       orgId: targetOrgId,
@@ -251,6 +283,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
     setValidationResult(null);
     setExecutionStatus('idle');
     setExecutionResult(null);
+    setError(null);
     setStep('upload');
     describeMutation.reset();
     validateMutation.reset();
@@ -272,6 +305,7 @@ export function useCsvImport(t: TFunction): CsvImportState {
     validationResult,
     executionStatus,
     executionResult,
+    error,
     step,
     describeLoading: describeMutation.loading,
     validateLoading: validateMutation.loading,

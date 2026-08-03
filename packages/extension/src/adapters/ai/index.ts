@@ -17,6 +17,6 @@ export type { OpenAIAdapterDeps } from './OpenAIAdapter.js';
 export { CustomAdapter } from './CustomAdapter.js';
 export type { CustomAdapterDeps } from './CustomAdapter.js';
 export { createAIClientFactory } from './AIClientFactory.js';
-export type { AIClientFactoryDeps } from './AIClientFactory.js';
+export type { AIClientFactory, AIClientFactoryDeps } from './AIClientFactory.js';
 export { classifyAnthropicError, parseRetryAfter } from './errorClassifier.js';
 export type { AIErrorKind, AIErrorVerdict } from './errorClassifier.js';

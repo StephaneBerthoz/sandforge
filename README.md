@@ -1,22 +1,22 @@
-# SandForge 🔥 — Salesforce DevOps Toolkit
+# SandForge: Salesforce DevOps Toolkit
 
-![Version](https://img.shields.io/badge/version-1.2.3-blue)
+![Version](https://img.shields.io/badge/version-1.2.6-blue)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Tests](https://img.shields.io/badge/tests-8320-brightgreen)
+![Tests](https://img.shields.io/badge/tests-7634-brightgreen)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
 ![VSIX](https://img.shields.io/badge/vsix-1.23%20MB-green)
 
-**Forge your Salesforce sandboxes.** A full-featured VSCode extension for ETL, data seeding, org monitoring, metadata comparison, compliance, and automation — all from a single WebView UI.
+**Forge your Salesforce sandboxes.** A VSCode extension for ETL, data seeding, org monitoring, metadata comparison, compliance, and automation, all from a single WebView UI.
 
 ---
 
 ## Quick Start
 
-1. **Install** — Search for **SandForge** in the [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge) or install from the Extensions panel
-2. **Connect** — Authenticate with your Salesforce org using Salesforce CLI credentials
-3. **Forge** — Use the 5-step onboarding wizard to discover all 6 modules
+1. **Install**: Search for **SandForge** in the [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge) or install from the Extensions panel
+2. **Connect**: Authenticate with your Salesforce org using Salesforce CLI credentials
+3. **Forge**: Use the 5-step onboarding wizard to discover all 6 modules
 
 ---
 
@@ -39,111 +39,112 @@
 | Guide | Description |
 |---|---|
 | [Getting Started](docs/getting-started.md) | Install, connect your org, run your first operation |
-| **[Forge — Dev Sandbox Quickstart](docs/forge-quickstart.md)** | **Clone a record graph from a partial-copy sandbox into your dev sandbox in 60s — wizard + CLI** |
-| [Forge — Record-Scoped Architecture](docs/forge-record-scoped.md) | Internals of the scoped clone pipeline (BFS discovery, RecordType mapping, cycle 2-pass, orphan parent expansion, picklist strip) |
+| **[Forge: Dev Sandbox Quickstart](docs/forge-quickstart.md)** | **Clone a record graph from a partial-copy sandbox into your dev sandbox in 60s (wizard + CLI)** |
+| [Forge: Record-Scoped Architecture](docs/forge-record-scoped.md) | Internals of the scoped clone pipeline (BFS discovery, RecordType mapping, cycle 2-pass, orphan parent expansion, picklist strip) |
 | [Seed](docs/modules/seed.md) | AI generation, CSV import, and org-to-org cloning with templates and dependency resolution |
 | [Sync](docs/modules/sync.md) | Bidirectional data synchronization between orgs |
 | [Monitor](docs/modules/monitor.md) | Real-time org health, API limits, and job tracking |
 | [Compare](docs/modules/compare.md) | Metadata diff, permission matrix, and drift detection |
 | [DataOps](docs/modules/dataops.md) | Backup, restore, anonymization, and data quality |
 | [Automation](docs/modules/automation.md) | Visual pipeline builder with scheduling |
+| [Frozen Reference Dataset](docs/modules/frozen-dataset.md) | Extract once, pseudonymize deterministically, replay identically after every sandbox refresh |
 | [FAQ & Troubleshooting](docs/faq.md) | Common questions and solutions to frequent issues |
 
 ---
 
 ## Features
 
-### Seed — AI Generation, CSV Import & Org Cloning
+### Seed: AI Generation, CSV Import & Org Cloning
 
-- **3 Seed Modes** — AI Generate, CSV Upload, or Clone from Org — choose from a card-based mode selector
-- **AI Personas** — 10 industry-specific personas (Insurance FR, Hospital US, etc.) with locale badges and preview popover showing 5 sample records
-- **Smart Actions** — Home Dashboard analyzes your orgs and recommends the best action (clone, quick-seed, or sync) with a one-click "Just Do It" CTA
-- **Quick Seed** — Select a template, pick your org, seed in 1 click (no field config needed)
-- **CSV Import** — Drag-and-drop CSV upload with auto column mapping, inline validation, and 4-step wizard (Upload, Map, Validate, Execute)
-- **Clone from Org** — Clone records between orgs with relationship-ordered insert, per-object SOQL filters, and ID mapping export
-- **Template Gallery** — 3 pre-built templates (Sales Cloud, Service Cloud, Minimal Demo) + save your own
-- **Adaptive Wizard** — Auto-advance for small selections (<5 objects), grouped accordion for large ones (>20 objects)
-- **Locale-Aware Generation** — Realistic data in 6 locales (en, fr, de, es, ja, pt-BR) with geo-coherent addresses
-- **VR-Aware Generation** — Auto-adjusts field rules to satisfy your org's validation rules
-- **AI Generation** — LLM-backed realistic data (OpenAI, Anthropic, Ollama) with customizable persona field patterns
-- **Faker Profiles** — 30+ locale-aware Faker generators for names, addresses, emails, phones, and more
-- **Template Engine** — Reusable JSON/CSV templates with variable interpolation and conditional logic
-- **Dependency Resolution** — Automatic topological sort of parent-child relationships before insert
+- **3 Seed Modes**: AI Generate, CSV Upload, or Clone from Org (card-based mode selector)
+- **AI Personas**: 10 industry-specific personas (Insurance FR, Hospital US, etc.) with locale badges and preview popover showing 5 sample records
+- **Smart Actions**: Home Dashboard analyzes your orgs and recommends the best action (clone, quick-seed, or sync) with a one-click "Just Do It" CTA
+- **Quick Seed**: Select a template, pick your org, seed in 1 click (no field config needed)
+- **CSV Import**: Drag-and-drop CSV upload with auto column mapping, inline validation, and 4-step wizard (Upload, Map, Validate, Execute)
+- **Clone from Org**: Clone records between orgs with relationship-ordered insert, per-object SOQL filters, and ID mapping export
+- **Template Gallery**: 3 pre-built templates (Sales Cloud, Service Cloud, Minimal Demo) + save your own
+- **Adaptive Wizard**: Auto-advance for small selections (<5 objects), grouped accordion for large ones (>20 objects)
+- **Locale-Aware Generation**: Realistic data in 6 locales (en, fr, de, es, ja, pt-BR) with geo-coherent addresses
+- **VR-Aware Generation**: Auto-adjusts field rules to satisfy your org's validation rules
+- **AI Generation**: LLM-backed realistic data (OpenAI, Anthropic, Ollama) with customizable persona field patterns
+- **Faker Profiles**: 30+ locale-aware Faker generators for names, addresses, emails, phones, and more
+- **Template Engine**: Reusable JSON/CSV templates with variable interpolation and conditional logic
+- **Dependency Resolution**: Automatic topological sort of parent-child relationships before insert
 
-### Sync — Bidirectional Data Synchronization
+### Sync: Bidirectional Data Synchronization
 
-- **Quick Sync** — 3-click flow: pick orgs, select objects, go (auto-field mapping, smart defaults)
-- **CDC Real-Time Sync** — Change Data Capture subscriptions with live event feed, auto-sync toggle, and watchdog reconnection
-- **Conflict Resolution UI** — Side-by-side diff viewer (2-way + 3-way) with per-field resolution and bulk actions
-- **Sync History** — Full execution history (500 entries) with detail view and one-click re-run
-- **Cron Scheduling** — Visual builder + raw expression with timezone support, sleep/wake resilient
-- **Smart Object Suggestions** — Top 5 most-used objects suggested with one-click add
-- **Relationship Auto-Detection** — Adding "Opportunity" auto-suggests "Account" as parent dependency
-- **Pre-Built Sync Templates** — Full Account Hierarchy, Opportunities + Products, Cases + Attachments
-- **4 Sync Modes** — Upsert, Insert, Update, and Delete with per-object configuration
-- **7 Mapping Types** — Direct, Lookup, Formula, Constant, Concatenation, Conditional, and External ID
-- **Smart Field Mapping** — AI-powered mapping suggestions based on name similarity and sample data
-- **13 Transforms** — Uppercase, lowercase, trim, date format, number format, regex replace, and more
-- **5 Conflict Strategies** — Last-write-wins, source-wins, target-wins, manual merge, or auto-merge
-- **Rollback** — Automatic savepoints with one-click rollback on partial failures
-- **Config Persistence** — Save, load, and reuse sync configurations across sessions
+- **Quick Sync**: 3-click flow: pick orgs, select objects, go (auto-field mapping, smart defaults)
+- **CDC Real-Time Sync**: Change Data Capture subscriptions with live event feed, auto-sync toggle, and watchdog reconnection
+- **Conflict Resolution UI**: Side-by-side diff viewer (2-way + 3-way) with per-field resolution and bulk actions
+- **Sync History**: Full execution history (500 entries) with detail view and one-click re-run
+- **Cron Scheduling**: Visual builder + raw expression with timezone support, sleep/wake resilient
+- **Smart Object Suggestions**: Top 5 most-used objects suggested with one-click add
+- **Relationship Auto-Detection**: Adding "Opportunity" auto-suggests "Account" as parent dependency
+- **Pre-Built Sync Templates**: Full Account Hierarchy, Opportunities + Products, Cases + Attachments
+- **4 Sync Modes**: Upsert, Insert, Update, and Delete with per-object configuration
+- **7 Mapping Types**: Direct, Lookup, Formula, Constant, Concatenation, Conditional, and External ID
+- **Smart Field Mapping**: AI-powered mapping suggestions based on name similarity and sample data
+- **13 Transforms**: Uppercase, lowercase, trim, date format, number format, regex replace, and more
+- **5 Conflict Strategies**: Last-write-wins, source-wins, target-wins, manual merge, or auto-merge
+- **Rollback**: Automatic savepoints with one-click rollback on partial failures
+- **Config Persistence**: Save, load, and reuse sync configurations across sessions
 
-### Monitor — Real-Time Org Health
+### Monitor: Real-Time Org Health
 
-- **API Limits Tracking** — Live consumption of REST, Bulk, Streaming, and Metadata API quotas
-- **Job Monitoring** — Apex jobs, Bulk jobs, and scheduled tasks with status and progress
-- **Alert System** — Configurable thresholds with severity levels and notification channels
-- **Trend Analysis** — Historical charts with predictive analytics for API usage, storage, and records
-- **Health Score** — Composite score aggregating limits, jobs, storage, and error rates
-- **Anomaly Detection** — Statistical outlier detection with IQR, temporal patterns, and fuzzy duplicates
+- **API Limits Tracking**: Live consumption of REST, Bulk, Streaming, and Metadata API quotas
+- **Job Monitoring**: Apex jobs, Bulk jobs, and scheduled tasks with status and progress
+- **Alert System**: Configurable thresholds with severity levels and notification channels
+- **Trend Analysis**: Historical charts with predictive analytics for API usage, storage, and records
+- **Health Score**: Composite score aggregating limits, jobs, storage, and error rates
+- **Anomaly Detection**: Statistical outlier detection with IQR, temporal patterns, and fuzzy duplicates
 
-### Compare — Metadata Diff & Permissions
+### Compare: Metadata Diff & Permissions
 
-- **Metadata Diff** — Side-by-side comparison of fields, objects, flows, Apex classes, and profiles
-- **Permission Matrix** — Visual grid of CRUD and FLS permissions across profiles and permission sets
-- **Drift Detection** — Scheduled scans that flag configuration drift between production and sandboxes
-- **Impact Graph** — Interactive dependency visualization showing downstream effects of changes
-- **Deploy from Diff** — Select individual metadata differences and deploy them directly
+- **Metadata Diff**: Side-by-side comparison of fields, objects, flows, Apex classes, and profiles
+- **Permission Matrix**: Visual grid of CRUD and FLS permissions across profiles and permission sets
+- **Drift Detection**: Scheduled scans that flag configuration drift between production and sandboxes
+- **Impact Graph**: Interactive dependency visualization showing downstream effects of changes
+- **Deploy from Diff**: Select individual metadata differences and deploy them directly
 
-### DataOps — Backup, Compliance & Quality
+### DataOps: Backup, Compliance & Quality
 
-- **Backup & Restore** — Full or incremental backups with point-in-time restore and retention policies
-- **GDPR Anonymization** — PII detection and anonymization compliant with GDPR, CCPA, HIPAA, PCI DSS
-- **PII Detector** — Triple detection: field names + regex patterns + content sampling
-- **Data Quality Engine** — 7 rule types: completeness, format, consistency, uniqueness, range, pattern, custom
-- **Production Guard** — 3 safety tiers with double confirmation for Production, DELETE blocking, audit trail
-- **Encryption at Rest** — AES-256-GCM with PBKDF2 key derivation for sensitive data
+- **Backup & Restore**: Full or incremental backups with point-in-time restore and retention policies
+- **GDPR Anonymization**: PII detection and anonymization compliant with GDPR, CCPA, HIPAA, PCI DSS
+- **PII Detector**: Triple detection: field names + regex patterns + content sampling
+- **Data Quality Engine**: 7 rule types: completeness, format, consistency, uniqueness, range, pattern, custom
+- **Production Guard**: 3 safety tiers with double confirmation for Production, DELETE blocking, audit trail
+- **Encryption at Rest**: AES-256-GCM with PBKDF2 key derivation for sensitive data
 
-### Automation — Visual Pipeline Builder
+### Automation: Visual Pipeline Builder
 
-- **Visual Pipeline Builder** — Drag-and-drop canvas for composing automation steps
-- **15 Step Types** — Query, Transform, Load, Validate, Notify, Branch, Loop, Wait, Approval, and more
-- **Pipeline Marketplace** — 15 pre-configured templates across 5 categories
-- **Approval Gates** — Multi-approver workflows with configurable timeout and default action
-- **Pipeline Versioning** — Git-like history with diff, rollback, tags, and annotations
-- **Dry Run Mode** — Simulated execution with impact preview before running for real
-- **Scheduling** — Cron expressions with timezone support and calendar-based exclusions
+- **Visual Pipeline Builder**: Drag-and-drop canvas for composing automation steps
+- **15 Step Types**: Query, Transform, Load, Validate, Notify, Branch, Loop, Wait, Approval, and more
+- **Pipeline Marketplace**: 15 pre-configured templates across 5 categories
+- **Approval Gates**: Multi-approver workflows with configurable timeout and default action
+- **Pipeline Versioning**: Git-like history with diff, rollback, tags, and annotations
+- **Dry Run Mode**: Simulated execution with impact preview before running for real
+- **Scheduling**: Cron expressions with timezone support and calendar-based exclusions
 
 ### Streaming & Background Execution
 
-- **Streaming Pipeline** — Async generator-based chunk processing for datasets > 10,000 records
-- **Chunked Bulk API 2.0** — Multi-upload to a single Bulk API job (2000 records/chunk) for optimal throughput
-- **Background Operations** — Long-running operations detach from the UI and run in the background
-- **Abort Support** — Cancel any running background operation via AbortController
-- **Operation Dashboard** — Query status, list active operations, abort by ID from the WebView
-- **Native Notifications** — VSCode desktop notifications when background operations complete while panel is hidden
+- **Streaming Pipeline**: Async generator-based chunk processing for datasets > 10,000 records
+- **Chunked Bulk API 2.0**: Multi-upload to a single Bulk API job (2000 records/chunk) for optimal throughput
+- **Background Operations**: Long-running operations detach from the UI and run in the background
+- **Abort Support**: Cancel any running background operation via AbortController
+- **Operation Dashboard**: Query status, list active operations, abort by ID from the WebView
+- **Native Notifications**: VSCode desktop notifications when background operations complete while panel is hidden
 
 ### AI Assistant
 
-- **Read-only by design** — 10 fine-grained read-only tools (`describe_object`, `query_records`, `get_limits`, `get_recent_errors`, `get_apex_log`, `get_metadata`, `get_alerts`, `get_anomalies`, `list_sobjects`, `validate_soql`). DML keywords rejected at two layers. Registry CI fence rejects any future write-verb addition.
-- **Failed-job diagnose flow** — Right-click a failed bulk job in Monitor → "Diagnose with AI" surfaces a structured `DiagnoseResult` ActionCard (Approve / Reject / Modify) inside the chat panel. Read-only suggested actions auto-execute silently; org-mutating ones (`requiresApproval=true`) gate behind the inline Approve button.
-- **Per-provider CircuitBreaker** — 3 consecutive 529s open the breaker for 5 min. `AnthropicAdapter` functional today; `OpenAIAdapter` and `CustomAdapter` ship as stubs that satisfy the interface (provider switch in Settings does not crash the extension).
-- **Per-AI-request AbortController** — Cancel one chat without aborting siblings. The Cancel button never trips the breaker.
-- **Per-panel-session token budget** — Mini-bar status indicator with 4-field tooltip. Soft warn at 80%, hard refuse at 100% via preflight BEFORE the SDK call. Configurable via `sandforge.ai.tokenBudgetMaxPerSession` (default 50000).
-- **Prompt-injection defence verified adversarially** — `<user-data>` is an actual safety boundary, not just a prompt-template wrapper. 7 jailbreak fixtures × 2 defence layers + spotlight system prompts asserted in CI.
-- **Zod-validated structured output** — `messages.parse + zodOutputFormat` for new flows (no regex-extract JSON parsing).
-- **NL2SOQL** — Query Salesforce in plain language (French and English).
-- **10 Industry Personas** — Pre-configured data profiles with locale-aware field patterns and sample preview.
+- **Read-only by design**: 10 fine-grained read-only tools (`describe_object`, `query_records`, `get_limits`, `get_recent_errors`, `get_apex_log`, `get_metadata`, `get_alerts`, `get_anomalies`, `list_sobjects`, `validate_soql`). DML keywords rejected at two layers. Registry CI fence rejects any future write-verb addition.
+- **Failed-job diagnose flow**: Right-click a failed bulk job in Monitor → "Diagnose with AI" surfaces a structured `DiagnoseResult` ActionCard (Approve / Reject / Modify) inside the chat panel. Read-only suggested actions auto-execute silently; org-mutating ones (`requiresApproval=true`) gate behind the inline Approve button.
+- **Per-provider CircuitBreaker**: 3 consecutive 529s open the breaker for 5 min. `AnthropicAdapter` functional today; `OpenAIAdapter` and `CustomAdapter` ship as stubs that satisfy the interface (provider switch in Settings does not crash the extension).
+- **Per-AI-request AbortController**: Cancel one chat without aborting siblings. The Cancel button never trips the breaker.
+- **Per-panel-session token budget**: Mini-bar status indicator with 4-field tooltip. Soft warn at 80%, hard refuse at 100% via preflight BEFORE the SDK call. Configurable via `sandforge.ai.tokenBudgetMaxPerSession` (default 50000).
+- **Prompt-injection defence verified adversarially**: `<user-data>` is an actual safety boundary, not just a prompt-template wrapper. 7 jailbreak fixtures × 2 defence layers + spotlight system prompts asserted in CI.
+- **Zod-validated structured output**: `messages.parse + zodOutputFormat` for new flows (no regex-extract JSON parsing).
+- **NL2SOQL**: Query Salesforce in plain language (French and English).
+- **10 Industry Personas**: Pre-configured data profiles with locale-aware field patterns and sample preview.
 
 ### Real-Time Operations Dashboard
 
@@ -171,10 +172,10 @@
 
 ### Extensibility
 
-- **Plugin System** — 6 extension points (beforeSeed, afterSync, onError, transform, validate, notify)
-- **CI/CD Integration** — Ready-made configs for GitHub Actions, GitLab CI, Jenkins, Azure DevOps
-- **Team Configuration** — Shareable `.sandforge.json` for consistent team settings
-- **Telemetry** — Opt-in anonymous usage analytics (privacy-first, no PII)
+- **Plugin System**: 6 extension points (beforeSeed, afterSync, onError, transform, validate, notify)
+- **CI/CD Integration**: Ready-made configs for GitHub Actions, GitLab CI, Jenkins, Azure DevOps
+- **Team Configuration**: Shareable `.sandforge.json` for consistent team settings
+- **Telemetry**: Opt-in anonymous usage analytics (privacy-first, no PII)
 
 ---
 
@@ -309,7 +310,7 @@ graph TB
 
 ## Internationalization
 
-SandForge supports 6 languages from day one:
+SandForge supports 6 languages:
 
 | Language | Code | Status |
 |---|---|---|
@@ -326,9 +327,9 @@ All UI text uses `t('key')` via react-i18next. Locale-aware formatters handle nu
 
 ## What's New in 1.2.6
 
-**Hardening & Monitor v2 + AI Integration** — two milestone phases under v1.3.0 plus a six-bug close-out hardening pass.
+**Hardening & Monitor v2 + AI Integration**: two milestone phases under v1.3.0 plus a six-bug close-out hardening pass.
 
-**Phase 03 — Monitor v2 Core** (2026-05-04)
+**Phase 03: Monitor v2 Core** (2026-05-04)
 
 - **MetricBus** typed Zod-validated pub/sub with 5 discriminated event subtypes
 - **TimeSeriesStore** ring-buffered per-(orgId, seriesId) with 50 MB LRU cap, 7-day retention, opt-in disk persistence + corruption recovery
@@ -339,7 +340,7 @@ All UI text uses `t('key')` via react-i18next. Locale-aware formatters handle nu
 - **FleetSummaryService + MonitorOverviewPage** multi-org fleet landing
 - **8 trackers wrapped as `MonitorProbe` shells** (Limits, Job, ApexLog, SandboxRefresh, ErrorLog, UserSession, Health, Governance)
 
-**Phase 04 — AI Integration** (2026-05-05)
+**Phase 04: AI Integration** (2026-05-05)
 
 - **Provider-agnostic `AIClient` interface** + `AnthropicAdapter` functional + `OpenAIAdapter` / `CustomAdapter` stubs that satisfy the interface
 - **Per-provider CircuitBreaker** (3 consecutive 529 → 5 min open) + per-AI-request `AbortController` (sibling-safe)
@@ -353,7 +354,7 @@ All UI text uses `t('key')` via react-i18next. Locale-aware formatters handle nu
 
 **Close-out hardening** (2026-05-05)
 
-- **AI panel reachable from the UI** — wired `sandforge.openAI` command + `Bot` icon across all 11 surfaces (route type, both sidebars, router, top bar, command palette, command map, NLS)
+- **AI panel reachable from the UI**: wired `sandforge.openAI` command + `Bot` icon across all 11 surfaces (route type, both sidebars, router, top bar, command palette, command map, NLS)
 - **Pre-commit hook** runs `pnpm -r typecheck` + locale dup-key scan on every commit, auto-installed via `pnpm install` `prepare` lifecycle
 - **5 silent regressions fixed**: ad-hoc message types in `AIChatPanel`, `pnpm.overrides` minimatch flipping vsce to incompatible major, `BridgeProvider` reading wrong payload field, duplicate top-level keys in EN+FR locale JSONs wiping module translations, and the AI panel orphan route
 
@@ -380,7 +381,7 @@ pnpm validate         # typecheck + lint + test + build
 pnpm package          # Generate .vsix
 ```
 
-Every `.ts` file must have a corresponding `.test.ts` in the same directory. The build must stay green at all times. TypeScript strict mode is enforced — no `any`, no unused locals.
+Every `.ts` file must have a corresponding `.test.ts` in the same directory. The build must stay green at all times. TypeScript strict mode is enforced: no `any`, no unused locals.
 
 ---
 

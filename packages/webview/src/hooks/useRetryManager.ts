@@ -1,12 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { BaseMessage, RetryStatus } from '@sandforge/shared';
+import type { BaseMessage, ExecutionRetryStatusMessage, RetryStatus } from '@sandforge/shared';
 import { useMessageListener, useSendMessage } from './useMessageBus';
-
-/** Message shape for execution:retry-status events. */
-interface RetryStatusMessage extends BaseMessage {
-  type: 'execution:retry-status';
-  payload: RetryStatus;
-}
 
 /**
  * Hook that manages retry state for failed operations.
@@ -47,9 +41,9 @@ export function useRetryManager(): {
     };
   }, [statusMap]);
 
-  useMessageListener<RetryStatusMessage>(
+  useMessageListener<ExecutionRetryStatusMessage>(
     'execution:retry-status',
-    useCallback((message: RetryStatusMessage) => {
+    useCallback((message: ExecutionRetryStatusMessage) => {
       const status = message.payload;
       setStatusMap((prev) => {
         const next = new Map(prev);

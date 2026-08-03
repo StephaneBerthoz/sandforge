@@ -31,7 +31,7 @@ describe('CleanupPanel', () => {
 
   it('should show empty state when no recommendations', () => {
     render(<CleanupPanel />);
-    expect(screen.getByText('dataops.cleanupDesc')).toBeDefined();
+    expect(screen.getByText('Clean and optimize data')).toBeDefined();
   });
 
   it('should show recommendation cards', () => {

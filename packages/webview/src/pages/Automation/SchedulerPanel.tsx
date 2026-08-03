@@ -13,6 +13,7 @@ import {
 import { cn } from '../../theme';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { DataTable } from '../../components/ui/DataTable';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type {
@@ -360,58 +361,59 @@ export const SchedulerPanel: React.FC = () => {
           <h4 className="text-xs font-semibold text-text-primary mb-2">
             {t('scheduler.history', 'Operation History')}
           </h4>
-          <div className="rounded-lg border border-subtle overflow-hidden">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="bg-surface-2 text-text-secondary">
-                  <th className="px-3 py-2 text-left font-medium">
-                    {t('common.status', 'Status')}
-                  </th>
-                  <th className="px-3 py-2 text-left font-medium">{t('common.type', 'Type')}</th>
-                  <th className="px-3 py-2 text-left font-medium">
-                    {t('scheduler.startedAt', 'Started')}
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    {t('scheduler.duration', 'Duration')}
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    {t('scheduler.records', 'Records')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {history
-                  .slice(-10)
-                  .reverse()
-                  .map((run) => (
-                    <tr
-                      key={run.id}
-                      className="border-t border-subtle hover:bg-surface-2 transition-colors"
-                      data-testid={`history-${run.id}`}
-                    >
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1.5">
-                          {runStatusIcon(run.status)}
-                          <span className="text-text-primary capitalize">{run.status}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-text-secondary capitalize">
-                        {run.operationType}
-                      </td>
-                      <td className="px-3 py-2 text-text-secondary">
-                        {formatRelativeTime(run.startedAt)}
-                      </td>
-                      <td className="px-3 py-2 text-text-secondary text-right tabular-nums">
-                        {formatDuration(run.durationMs)}
-                      </td>
-                      <td className="px-3 py-2 text-text-secondary text-right tabular-nums">
-                        {run.recordsProcessed.toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={[
+              {
+                key: 'status',
+                header: t('common.status', 'Status'),
+                render: (run) => (
+                  <div className="flex items-center gap-1.5">
+                    {runStatusIcon(run.status)}
+                    <span className="text-text-primary capitalize">{run.status}</span>
+                  </div>
+                ),
+              },
+              {
+                key: 'operationType',
+                header: t('common.type', 'Type'),
+                render: (run) => (
+                  <span className="text-text-secondary capitalize">{run.operationType}</span>
+                ),
+              },
+              {
+                key: 'startedAt',
+                header: t('scheduler.startedAt', 'Started'),
+                render: (run) => (
+                  <span className="text-text-secondary">{formatRelativeTime(run.startedAt)}</span>
+                ),
+              },
+              {
+                key: 'durationMs',
+                header: t('scheduler.duration', 'Duration'),
+                align: 'right',
+                render: (run) => (
+                  <span className="text-text-secondary tabular-nums">
+                    {formatDuration(run.durationMs)}
+                  </span>
+                ),
+              },
+              {
+                key: 'recordsProcessed',
+                header: t('scheduler.records', 'Records'),
+                align: 'right',
+                render: (run) => (
+                  <span className="text-text-secondary tabular-nums">
+                    {run.recordsProcessed.toLocaleString()}
+                  </span>
+                ),
+              },
+            ]}
+            data={history
+              .slice(-10)
+              .reverse()
+              .map((run) => ({ ...run }))}
+            keyExtractor={(run) => run.id}
+          />
         </div>
       )}
     </div>

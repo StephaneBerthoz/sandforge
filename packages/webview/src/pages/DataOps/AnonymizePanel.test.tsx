@@ -32,7 +32,7 @@ describe('AnonymizePanel', () => {
 
   it('should show empty state when no templates', () => {
     render(<AnonymizePanel />);
-    expect(screen.getByText('dataops.noTemplates')).toBeDefined();
+    expect(screen.getByText('No templates available')).toBeDefined();
   });
 
   it('should show template selector', () => {
@@ -55,13 +55,13 @@ describe('AnonymizePanel', () => {
 
   it('should show compliance badge', () => {
     render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />);
-    expect(screen.getByText('dataops.frameworks.gdpr')).toBeDefined();
+    expect(screen.getByText('GDPR')).toBeDefined();
   });
 
   it('should show rule badges', () => {
     render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />);
-    expect(screen.getByText('Email: dataops.ruleTypes.mask')).toBeDefined();
-    expect(screen.getByText('Phone: dataops.ruleTypes.fake')).toBeDefined();
+    expect(screen.getByText('Email: Mask')).toBeDefined();
+    expect(screen.getByText('Phone: Fake')).toBeDefined();
   });
 
   it('should call onPreview when preview clicked', () => {

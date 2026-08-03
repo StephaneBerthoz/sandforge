@@ -18,7 +18,7 @@ NUL
 .sfdx/
 .superpowers/
 .vscode/
-prompts/
+/prompts/
 
 # Generated
 playwright-report/

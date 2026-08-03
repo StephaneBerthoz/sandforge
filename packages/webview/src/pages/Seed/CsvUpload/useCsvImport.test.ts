@@ -35,14 +35,17 @@ vi.mock('papaparse', () => ({
 const mockMutate = vi.fn();
 const mockReset = vi.fn();
 
+/** Shared mutable mutation state (one mutation exercised at a time). */
+let mockMutationState = {
+  mutate: mockMutate,
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: mockReset,
+};
+
 vi.mock('../../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: mockMutate,
-    data: null,
-    loading: false,
-    error: null,
-    reset: mockReset,
-  }),
+  useBridgeMutation: () => mockMutationState,
 }));
 
 const tMock: TFunction = ((key: string) => key) as unknown as TFunction;
@@ -51,6 +54,13 @@ describe('useCsvImport', () => {
   beforeEach(() => {
     mockMutate.mockClear();
     mockReset.mockClear();
+    mockMutationState = {
+      mutate: mockMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: mockReset,
+    };
   });
 
   it('should initialize with default state', () => {
@@ -151,5 +161,100 @@ describe('useCsvImport', () => {
 
     expect(result.current.executionStatus).toBe('validating');
     expect(mockMutate).toHaveBeenCalled();
+  });
+
+  /* ------------------------------------------------------------------ */
+  /* Error handling: mutation error + seed:csv:error channel             */
+  /* ------------------------------------------------------------------ */
+
+  const dispatchCsvError = (message: string) => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          id: 'err-1',
+          type: 'seed:csv:error',
+          timestamp: Date.now(),
+          payload: { message, code: 'UNKNOWN', retryable: false },
+        },
+      }),
+    );
+  };
+
+  it('unsticks the validating status when the validate mutation errors', () => {
+    const { result, rerender } = renderHook(() => useCsvImport(tMock));
+
+    act(() => {
+      result.current.handleValidate();
+    });
+    expect(result.current.executionStatus).toBe('validating');
+
+    // The mutation reports an error (e.g. bridge timeout) on the next render.
+    mockMutationState = { ...mockMutationState, loading: false, error: 'Bridge timeout' };
+    act(() => {
+      rerender();
+    });
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe('Bridge timeout');
+  });
+
+  it('fails the validation immediately on seed:csv:error', () => {
+    mockMutationState = { ...mockMutationState, loading: true };
+    const { result } = renderHook(() => useCsvImport(tMock));
+
+    act(() => {
+      result.current.handleValidate();
+    });
+    expect(result.current.executionStatus).toBe('validating');
+
+    act(() => {
+      dispatchCsvError('Validation exploded');
+    });
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe('Validation exploded');
+    expect(mockReset).toHaveBeenCalled();
+  });
+
+  it('fails the execution immediately on seed:csv:error', () => {
+    mockMutationState = { ...mockMutationState, loading: true };
+    const { result } = renderHook(() => useCsvImport(tMock));
+
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(result.current.executionStatus).toBe('executing');
+
+    act(() => {
+      dispatchCsvError('Import exploded');
+    });
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe('Import exploded');
+    expect(mockReset).toHaveBeenCalled();
+  });
+
+  it('ignores unrelated error channels', () => {
+    mockMutationState = { ...mockMutationState, loading: true };
+    const { result } = renderHook(() => useCsvImport(tMock));
+
+    act(() => {
+      result.current.handleValidate();
+    });
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'err-2',
+            type: 'seed:clone:error',
+            timestamp: Date.now(),
+            payload: { message: 'wrong channel', code: 'UNKNOWN', retryable: false },
+          },
+        }),
+      );
+    });
+
+    expect(result.current.executionStatus).toBe('validating');
+    expect(result.current.error).toBeNull();
   });
 });

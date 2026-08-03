@@ -36,10 +36,7 @@ export class RingBuffer<T> {
     if (this.size < this.capacity) {
       return this.buffer.slice(0, this.size) as T[];
     }
-    return [
-      ...(this.buffer.slice(this.head) as T[]),
-      ...(this.buffer.slice(0, this.head) as T[]),
-    ];
+    return [...(this.buffer.slice(this.head) as T[]), ...(this.buffer.slice(0, this.head) as T[])];
   }
 
   /** Filter the chronological snapshot by predicate. */

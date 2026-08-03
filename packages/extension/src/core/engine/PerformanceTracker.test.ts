@@ -252,4 +252,19 @@ describe('PerformanceTracker', () => {
       expect(tracker.getMetrics('op-2')).toBeUndefined();
     });
   });
+
+  describe('history cap', () => {
+    it('caps completed history at 100 entries per module with FIFO eviction', () => {
+      const tracker = new PerformanceTracker();
+      for (let i = 0; i < 120; i++) {
+        tracker.start(`op-${i}`, 'sync');
+        tracker.complete(`op-${i}`);
+      }
+      const history = tracker.getHistory('sync');
+      expect(history?.sampleCount).toBe(100);
+      // Oldest entries were evicted — op-0 metrics are gone, recent ones remain.
+      expect(tracker.getMetrics('op-0')).toBeUndefined();
+      expect(tracker.getMetrics('op-119')).toBeDefined();
+    });
+  });
 });

@@ -1,6 +1,6 @@
-import { randomBytes } from 'node:crypto';
 import type * as vscode from 'vscode';
 import type { MessageBroker } from '../bridge/MessageBroker';
+import { buildWebviewHtml } from './webviewHtml';
 
 /** Configuration for opening a webview panel. */
 export interface PanelConfig {
@@ -176,6 +176,8 @@ export class WebviewPanelManager {
    * Build the HTML content for a webview panel.
    * Injects the moduleId as `window.__SANDFORGE_MODULE__` so the
    * React application can route to the correct module view.
+   * The shell (strict CSP + crypto nonce) is shared with the sidebar —
+   * see ./webviewHtml.ts.
    */
   private buildHtml(webview: vscode.Webview, moduleId: string): string {
     const joinPath = this.uriJoinPath!;
@@ -185,31 +187,13 @@ export class WebviewPanelManager {
     const styleUri = webview.asWebviewUri(
       joinPath(this.extensionUri, 'webview-dist', 'assets', 'style.css') as vscode.Uri,
     );
-    const nonce = generateNonce();
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource}; img-src ${webview.cspSource} data:;">
-  <link href="${String(styleUri)}" rel="stylesheet">
-  <title>SandForge: ${moduleId}</title>
-</head>
-<body>
-  <div id="root"></div>
-  <script nonce="${nonce}">window.__SANDFORGE_MODULE__="${moduleId}";</script>
-  <script nonce="${nonce}" src="${String(scriptUri)}"></script>
-</body>
-</html>`;
+    return buildWebviewHtml({
+      cspSource: webview.cspSource,
+      scriptUri,
+      styleUri,
+      title: `SandForge: ${moduleId}`,
+      moduleId,
+    });
   }
-}
-
-/**
- * Generate a cryptographically-random ~32-character nonce for CSP script tags.
- * Uses node:crypto so the nonce is unguessable — Math.random is a PRNG and
- * predictable enough that an adversary who derives the seed could bypass CSP.
- */
-function generateNonce(): string {
-  return randomBytes(24).toString('base64url');
 }

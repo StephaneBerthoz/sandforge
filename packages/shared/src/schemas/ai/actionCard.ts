@@ -22,7 +22,14 @@ export type ActionProposal = z.infer<typeof ActionProposalSchema>;
 
 export const DiagnoseErrorContextSchema = z
   .object({
-    kind: z.enum(['bulk-job', 'apex-deploy', 'metadata-deploy', 'test-run', 'soql-analysis', 'generic']),
+    kind: z.enum([
+      'bulk-job',
+      'apex-deploy',
+      'metadata-deploy',
+      'test-run',
+      'soql-analysis',
+      'generic',
+    ]),
     jobId: z.string().optional(),
     file: z.string().optional(),
     errorMessage: z.string().min(1).max(8000),

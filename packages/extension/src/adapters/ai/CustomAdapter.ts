@@ -63,18 +63,14 @@ export class CustomAdapter implements AIClient {
     throw new AINotImplementedError(`CustomAdapter.chat() — ${NOT_IMPLEMENTED_MESSAGE}`);
   }
 
-  async complete<T extends z.ZodTypeAny>(
-    _opts: AICompleteOpts<T>,
-  ): Promise<AICompleteResult<T>> {
+  async complete<T extends z.ZodTypeAny>(_opts: AICompleteOpts<T>): Promise<AICompleteResult<T>> {
     this.notifyStub('complete');
     throw new AINotImplementedError(`CustomAdapter.complete() — ${NOT_IMPLEMENTED_MESSAGE}`);
   }
 
   async countTokens(_opts: AICountTokensOpts): Promise<AICountTokensResult> {
     this.notifyStub('countTokens');
-    throw new AINotImplementedError(
-      `CustomAdapter.countTokens() — ${NOT_IMPLEMENTED_MESSAGE}`,
-    );
+    throw new AINotImplementedError(`CustomAdapter.countTokens() — ${NOT_IMPLEMENTED_MESSAGE}`);
   }
 
   async runTools(_opts: AIRunToolsOpts): Promise<AIRunToolsResult> {

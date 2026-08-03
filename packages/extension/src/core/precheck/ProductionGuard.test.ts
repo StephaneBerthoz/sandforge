@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProductionGuard } from './ProductionGuard';
 import type { OperationRequest } from './ProductionGuard';
 
@@ -368,6 +368,80 @@ describe('ProductionGuard', () => {
       const log = guard.getAuditLog();
       const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
       expect(isoRegex.test(log[0].timestamp)).toBe(true);
+    });
+  });
+
+  describe('safety settings wiring', () => {
+    it('requiresConfirmation follows isProdConfirmationRequired=false', () => {
+      const noConfirmGuard = new ProductionGuard({ isProdConfirmationRequired: () => false });
+      const result = noConfirmGuard.check(
+        createRequest({ orgTier: 'production', operation: 'insert' }),
+      );
+      expect(result.allowed).toBe(true);
+      expect(result.requiresConfirmation).toBe(false);
+    });
+
+    it('requiresConfirmation stays true by default (no options)', () => {
+      const result = guard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
+      expect(result.requiresConfirmation).toBe(true);
+    });
+
+    it('logOperation is a no-op when auditLogging is disabled', () => {
+      const noAuditGuard = new ProductionGuard({ isAuditLoggingEnabled: () => false });
+      const request = createRequest({ orgTier: 'production', operation: 'insert' });
+      noAuditGuard.logOperation(request, noAuditGuard.check(request));
+      expect(noAuditGuard.getAuditLog()).toHaveLength(0);
+    });
+
+    it('logOperation reads the auditLogging flag at call time', () => {
+      let enabled = false;
+      const togglable = new ProductionGuard({ isAuditLoggingEnabled: () => enabled });
+      const request = createRequest();
+      togglable.logOperation(request, togglable.check(request));
+      expect(togglable.getAuditLog()).toHaveLength(0);
+      enabled = true;
+      togglable.logOperation(request, togglable.check(request));
+      expect(togglable.getAuditLog()).toHaveLength(1);
+    });
+
+    it('audit log is capped at 1000 entries with FIFO eviction', () => {
+      const request = createRequest();
+      const result = guard.check(request);
+      for (let i = 0; i < 1100; i++) {
+        guard.logOperation(request, result);
+      }
+      const log = guard.getAuditLog();
+      expect(log).toHaveLength(1000);
+    });
+
+    it('confirmIfNeeded returns true when confirmation not required', async () => {
+      const result = guard.check(createRequest({ orgTier: 'development' }));
+      await expect(guard.confirmIfNeeded(result)).resolves.toBe(true);
+    });
+
+    it('confirmIfNeeded returns false when check disallows the operation', async () => {
+      const result = guard.check(createRequest({ orgTier: 'production', operation: 'delete' }));
+      await expect(guard.confirmIfNeeded(result)).resolves.toBe(false);
+    });
+
+    it('confirmIfNeeded proceeds when no confirmation UI is wired', async () => {
+      const result = guard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
+      await expect(guard.confirmIfNeeded(result)).resolves.toBe(true);
+    });
+
+    it('confirmIfNeeded delegates to requestConfirmation and honors refusal', async () => {
+      const confirm = vi.fn().mockResolvedValue(false);
+      const uiGuard = new ProductionGuard({ requestConfirmation: confirm });
+      const result = uiGuard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
+      await expect(uiGuard.confirmIfNeeded(result)).resolves.toBe(false);
+      expect(confirm).toHaveBeenCalledWith(result.impactSummary);
+    });
+
+    it('confirmIfNeeded honors user acceptance', async () => {
+      const confirm = vi.fn().mockResolvedValue(true);
+      const uiGuard = new ProductionGuard({ requestConfirmation: confirm });
+      const result = uiGuard.check(createRequest({ orgTier: 'production', operation: 'insert' }));
+      await expect(uiGuard.confirmIfNeeded(result)).resolves.toBe(true);
     });
   });
 });

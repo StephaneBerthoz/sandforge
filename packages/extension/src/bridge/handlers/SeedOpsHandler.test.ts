@@ -71,6 +71,30 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
+/** Minimal seed template that passes the seed:execute payload validation. */
+function validSeedTemplate(): Record<string, unknown> {
+  return {
+    id: 'tpl-1',
+    name: 'seed-from-ui',
+    description: 'test',
+    version: 1,
+    strategy: 'faker',
+    objects: [
+      {
+        objectApiName: 'Account',
+        recordCount: 5,
+        batchSize: 200,
+        insertOrder: 0,
+        excludedFields: [],
+        fieldRules: [],
+      },
+    ],
+    tags: [],
+    createdAt: '2026-03-01T00:00:00Z',
+    updatedAt: '2026-03-01T00:00:00Z',
+  };
+}
+
 describe('SeedOpsHandler', () => {
   let handler: SeedOpsHandler;
   let deps: HandlerDeps;
@@ -188,7 +212,7 @@ describe('SeedOpsHandler', () => {
         id: 'req-dry-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: true },
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
       };
 
       const result = await handler.handle(msg);
@@ -217,7 +241,7 @@ describe('SeedOpsHandler', () => {
         id: 'req-dry-2',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: false },
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
       };
 
       await handler.handle(msg);
@@ -438,6 +462,132 @@ describe('SeedOpsHandler', () => {
       expect(response.type).toBe('seed:create-persona:response');
       expect(response.payload.success).toBe(false);
     });
+
+    it('sends an explicit error when AI is disabled (no services injected)', async () => {
+      // Default mock deps have no `services` — isAIEnabled() cannot be true.
+      const msg: BaseMessage & { payload: { description: string } } = {
+        id: 'req-create-3',
+        type: 'seed:create-persona',
+        timestamp: Date.now(),
+        payload: { description: 'A veterinary clinic in Texas' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { message: string };
+      };
+      expect(response.type).toBe('seed:error');
+      expect(response.payload.message).toContain('AI is disabled');
+    });
+
+    it('sends an explicit error when sandforge.ai.enabled is false', async () => {
+      deps.services = {
+        isAIEnabled: () => false,
+        aiClient: vi.fn(),
+      } as unknown as HandlerDeps['services'];
+      handler = new SeedOpsHandler(deps);
+
+      const msg: BaseMessage & { payload: { description: string } } = {
+        id: 'req-create-4',
+        type: 'seed:create-persona',
+        timestamp: Date.now(),
+        payload: { description: 'A veterinary clinic in Texas' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { message: string };
+      };
+      expect(response.type).toBe('seed:error');
+      expect(response.payload.message).toContain('AI is disabled');
+    });
+
+    it('creates a persona through the unified AI client when AI is enabled', async () => {
+      const chat = vi.fn().mockResolvedValue({
+        text: JSON.stringify({
+          name: 'Custom Veterinary Clinic',
+          description: 'Veterinary clinic with patients, owners, and appointments.',
+          industry: 'Veterinary',
+          locale: 'en-US',
+          dataPatterns: {
+            Pet_Name__c: {
+              fieldType: 'string',
+              generator: 'faker',
+              params: { method: 'animal.petName' },
+              examples: ['Buddy', 'Luna', 'Max'],
+            },
+          },
+        }),
+        usage: { input: 10, output: 20, cacheRead: 0, cacheCreate: 0, total: 30 },
+        model: 'claude-sonnet-4-5-20250929',
+        stopReason: 'end_turn',
+      });
+      const aiClient = vi.fn().mockReturnValue({ chat });
+      deps.services = {
+        isAIEnabled: () => true,
+        aiClient,
+      } as unknown as HandlerDeps['services'];
+      handler = new SeedOpsHandler(deps);
+
+      const msg: BaseMessage & { payload: { description: string } } = {
+        id: 'req-create-5',
+        type: 'seed:create-persona',
+        timestamp: Date.now(),
+        payload: { description: 'A veterinary clinic in Texas' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      // The prompt went through the unified client, not a stub
+      expect(aiClient).toHaveBeenCalled();
+      expect(chat).toHaveBeenCalledWith({
+        messages: [{ role: 'user', content: expect.stringContaining('veterinary') }],
+      });
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { success: boolean; persona: { name: string; industry: string } };
+      };
+      expect(response.type).toBe('seed:create-persona:response');
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.persona.name).toBe('Custom Veterinary Clinic');
+      expect(response.payload.persona.industry).toBe('Veterinary');
+    });
+
+    it('surfaces the adapter error when the API key is missing', async () => {
+      const chat = vi
+        .fn()
+        .mockRejectedValue(new Error('Anthropic API key not configured. Set it in Settings.'));
+      deps.services = {
+        isAIEnabled: () => true,
+        aiClient: vi.fn().mockReturnValue({ chat }),
+      } as unknown as HandlerDeps['services'];
+      handler = new SeedOpsHandler(deps);
+
+      const msg: BaseMessage & { payload: { description: string } } = {
+        id: 'req-create-6',
+        type: 'seed:create-persona',
+        timestamp: Date.now(),
+        payload: { description: 'A veterinary clinic in Texas' },
+      };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { message: string };
+      };
+      expect(response.type).toBe('seed:error');
+      expect(response.payload.message).toContain('API key not configured');
+    });
   });
 
   describe('bulk path uses real IDs', () => {
@@ -469,7 +619,7 @@ describe('SeedOpsHandler', () => {
         id: 'bg-seed-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: false },
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
       };
 
       await handler.handle(msg);
@@ -492,7 +642,7 @@ describe('SeedOpsHandler', () => {
         id: 'bg-seed-dry',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: { objects: [] }, dryRun: true },
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
       };
 
       await handler.handle(msg);
@@ -640,6 +790,51 @@ describe('SeedOpsHandler', () => {
       };
       expect(response.type).toBe('seed:template:delete:response');
       expect(response.payload.success).toBe(false);
+    });
+  });
+
+  describe('payload validation', () => {
+    it('rejects seed:execute with an injection-shaped objectApiName before touching the org', async () => {
+      const template = validSeedTemplate();
+      (template.objects as Array<Record<string, unknown>>)[0].objectApiName = "Account' OR '1'='1";
+
+      const msg = {
+        id: 'bad-seed',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template },
+      } as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        type: string;
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('seed:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects seed:execute with absurd recordCount', async () => {
+      const template = validSeedTemplate();
+      (template.objects as Array<Record<string, unknown>>)[0].recordCount = 99_000_000;
+
+      const msg = {
+        id: 'bad-seed-2',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template },
+      } as BaseMessage;
+
+      await handler.handle(msg);
+      expect(mockGetConn).not.toHaveBeenCalled();
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
   });
 });

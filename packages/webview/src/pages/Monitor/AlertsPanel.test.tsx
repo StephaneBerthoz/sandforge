@@ -87,7 +87,7 @@ const mockAlerts: AlertInstance[] = [
 describe('AlertsPanel', () => {
   it('should render the alerts title', () => {
     render(<AlertsPanel alerts={mockAlerts} />);
-    expect(screen.getByText('monitor.alerts')).toBeDefined();
+    expect(screen.getByText('Alerts')).toBeDefined();
   });
 
   it('should show active alert count (active + acknowledged)', () => {
@@ -125,33 +125,33 @@ describe('AlertsPanel', () => {
   it('should call onAcknowledge prop for active alerts when provided', () => {
     const handler = vi.fn();
     render(<AlertsPanel alerts={mockAlerts} onAcknowledge={handler} />);
-    fireEvent.click(screen.getByText('monitor.acknowledge'));
+    fireEvent.click(screen.getByText('Acknowledge'));
     expect(handler).toHaveBeenCalledWith('a1');
   });
 
   it('should call bridge mutation for acknowledge when no prop provided', () => {
     render(<AlertsPanel alerts={mockAlerts} />);
-    fireEvent.click(screen.getByText('monitor.acknowledge'));
+    fireEvent.click(screen.getByText('Acknowledge'));
     expect(mockAcknowledgeMutate).toHaveBeenCalledWith({ alertId: 'a1' });
   });
 
   it('should call onDismiss prop when dismiss is clicked and prop provided', () => {
     const handler = vi.fn();
     render(<AlertsPanel alerts={mockAlerts} onDismiss={handler} />);
-    const dismissBtns = screen.getAllByText('monitor.dismiss');
+    const dismissBtns = screen.getAllByText('Dismiss');
     fireEvent.click(dismissBtns[0]);
     expect(handler).toHaveBeenCalledWith('a1');
   });
 
   it('should call bridge mutation for dismiss when no prop provided', () => {
     render(<AlertsPanel alerts={mockAlerts} />);
-    const dismissBtns = screen.getAllByText('monitor.dismiss');
+    const dismissBtns = screen.getAllByText('Dismiss');
     fireEvent.click(dismissBtns[0]);
     expect(mockDismissMutate).toHaveBeenCalledWith({ alertId: 'a1' });
   });
 
   it('should show no alerts message when empty', () => {
     render(<AlertsPanel alerts={[]} />);
-    expect(screen.getByText('monitor.noAlerts')).toBeDefined();
+    expect(screen.getByText('No active alerts')).toBeDefined();
   });
 });

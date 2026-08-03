@@ -5,6 +5,7 @@ import type {
   AIRunToolsResult,
   AICompleteResult,
 } from '../../../adapters/ai/AIClient.js';
+import type { DiagnoseResult } from '@sandforge/shared';
 import { AIDiagnoseHandler, type DiagnoseBroker } from './AIDiagnoseHandler.js';
 
 const zeroUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheCreate: 0, total: 0 });
@@ -28,14 +29,13 @@ function makeClient(overrides: {
   const complete =
     overrides.complete ??
     vi.fn(
-      async (): Promise<AICompleteResult<never>> => ({
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (): Promise<AICompleteResult<DiagnoseResult>> => ({
         payload: {
           summary: 'demo',
           rootCause: 'demo cause',
           suggestedActions: [],
           confidence: 'medium',
-        } as any,
+        },
         usage: { input: 60, output: 30, cacheRead: 0, cacheCreate: 0, total: 90 },
         model: 'm',
         stopReason: 'end_turn',
@@ -50,7 +50,10 @@ function makeClient(overrides: {
     dispose: vi.fn(),
     __runTools: runTools,
     __complete: complete,
-  } as unknown as AIClient & { __runTools: ReturnType<typeof vi.fn>; __complete: ReturnType<typeof vi.fn> };
+  } as unknown as AIClient & {
+    __runTools: ReturnType<typeof vi.fn>;
+    __complete: ReturnType<typeof vi.fn>;
+  };
 }
 
 function makeBroker(): { broker: DiagnoseBroker; sent: Array<{ type: string; payload: unknown }> } {
@@ -76,11 +79,7 @@ const mkDiagnoseRequest = (runId = 'r1', errorMessage = 'REQUIRED_FIELD_MISSING'
   },
 });
 
-const mkApproveRequest = (
-  runId = 'r1',
-  actionIndex = 0,
-  modifiedPayload?: string,
-) => ({
+const mkApproveRequest = (runId = 'r1', actionIndex = 0, modifiedPayload?: string) => ({
   id: 'm2',
   timestamp: 0,
   type: 'ai:approve-action' as const,
@@ -104,7 +103,11 @@ describe('AIDiagnoseHandler', () => {
     expect(client.__complete).toHaveBeenCalledTimes(1);
     const resp = sent.find((m) => m.type === 'ai:diagnose:response');
     expect(resp).toBeDefined();
-    const payload = resp!.payload as { runId: string; result: { confidence: string }; usage: { total: number } };
+    const payload = resp!.payload as {
+      runId: string;
+      result: { confidence: string };
+      usage: { total: number };
+    };
     expect(payload.runId).toBe('r1');
     expect(payload.result.confidence).toBe('medium');
     // Total usage = 150 (runTools) + 90 (complete)
@@ -127,9 +130,13 @@ describe('AIDiagnoseHandler', () => {
 
   it('error path: runTools throws → sends ai:diagnose:response with { error }, redacted', async () => {
     const client = makeClient({
-      runTools: vi.fn().mockRejectedValue(
-        new Error('401 Unauthorized: header authorization=Bearer sk-ant-abcdefghijklmnopqrstuvwxyz123456'),
-      ),
+      runTools: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            '401 Unauthorized: header authorization=Bearer sk-ant-abcdefghijklmnopqrstuvwxyz123456',
+          ),
+        ),
     });
     const handler = new AIDiagnoseHandler({ aiClient: client, broker });
     await handler.handleMessage(mkDiagnoseRequest());
@@ -176,7 +183,12 @@ describe('AIDiagnoseHandler', () => {
           summary: 'x',
           rootCause: 'x',
           suggestedActions: [
-            { label: 'run', kind: 'run-anonymous', requiresApproval: true, payload: 'System.debug(1);' },
+            {
+              label: 'run',
+              kind: 'run-anonymous',
+              requiresApproval: true,
+              payload: 'System.debug(1);',
+            },
           ],
           confidence: 'medium',
         },
@@ -259,7 +271,10 @@ describe('AIDiagnoseHandler — Plan 04-04 vertical slice', () => {
             {
               label: 'Set row 17 Name to "Unknown Account"',
               kind: 'apply-fix',
-              payload: JSON.stringify({ file: 'data.csv', edit: { line: 17, before: ',', after: 'Unknown,' } }),
+              payload: JSON.stringify({
+                file: 'data.csv',
+                edit: { line: 17, before: ',', after: 'Unknown,' },
+              }),
               requiresApproval: true,
             },
           ],
@@ -273,11 +288,15 @@ describe('AIDiagnoseHandler — Plan 04-04 vertical slice', () => {
     const { broker, sent } = makeBroker();
     const handler = new AIDiagnoseHandler({ aiClient: client, broker, dispatcher: { applyFix } });
 
-    await handler.handleMessage(mkDiagnoseRequest('vert', 'REQUIRED_FIELD_MISSING: Account.Name on row 17'));
+    await handler.handleMessage(
+      mkDiagnoseRequest('vert', 'REQUIRED_FIELD_MISSING: Account.Name on row 17'),
+    );
     expect(client.__runTools).toHaveBeenCalledTimes(1);
     expect(client.__complete).toHaveBeenCalledTimes(1);
     const diagnoseResp = sent.find((m) => m.type === 'ai:diagnose:response');
-    expect((diagnoseResp!.payload as { result: { confidence: string } }).result.confidence).toBe('high');
+    expect((diagnoseResp!.payload as { result: { confidence: string } }).result.confidence).toBe(
+      'high',
+    );
 
     await handler.handleMessage(mkApproveRequest('vert', 0));
     expect(applyFix).toHaveBeenCalled();

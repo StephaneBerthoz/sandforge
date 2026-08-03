@@ -63,6 +63,7 @@
     "reports": "Reports",
     "settings": "Settings",
     "forge": "Forge",
+    "frozen": "Frozen Dataset",
     "grappe": "Grappe",
     "help": "Help"
   },
@@ -1921,6 +1922,125 @@
       "justNow": "just now",
       "minutesAgo": "{{count}}m ago",
       "hoursAgo": "{{count}}h ago"
+    }
+  },
+  "frozen": {
+    "subtitle": "Extract once, pseudonymize deterministically, replay identically after every sandbox refresh",
+    "emptyState": {
+      "title": "No org connected",
+      "description": "Connect a Salesforce org to build or replay a frozen reference dataset.",
+      "cta": "Select an Org"
+    },
+    "status": {
+      "salt": "Salt fingerprint",
+      "saltMissing": "Salt missing",
+      "dataset": "Frozen dataset",
+      "records": "{{count}} records",
+      "noDataset": "No dataset frozen yet",
+      "selection": "Selection",
+      "noSelection": "No selection yet",
+      "lastVerify": "Last verification"
+    },
+    "tabs": {
+      "extract": "Extract",
+      "load": "Load"
+    },
+    "manifest": {
+      "version": "Dataset v{{version}}"
+    },
+    "config": {
+      "title": "Project configuration",
+      "rootObject": "Root object (business folder)",
+      "budget": "Volume budget (records)",
+      "axes": "Coverage axes",
+      "addAxis": "Add axis",
+      "axisName": "Name",
+      "axisLabel": "Label",
+      "axisField": "Filter field",
+      "axisSoql": "Aggregate SOQL (axisValue)",
+      "removeAxis": "Remove axis",
+      "edgeCases": "Edge cases",
+      "addEdgeCase": "Add edge case",
+      "edgeName": "Name",
+      "edgeLabel": "Label",
+      "edgeWhere": "WHERE fragment",
+      "removeEdgeCase": "Remove edge case",
+      "advanced": "Advanced configuration (JSON: protected envs, identity keys, picklist rules, placeholders, mocks…)",
+      "invalidJson": "Invalid JSON — the advanced configuration must be a JSON object.",
+      "save": "Save configuration",
+      "saved": "Configuration saved"
+    },
+    "selection": {
+      "title": "Coverage-matrix selection",
+      "run": "Run selection",
+      "volumetry": "{{total}} records measured (budget: {{budget}})",
+      "combination": "Combination",
+      "axes": "Axis values",
+      "edgeCase": "Edge case",
+      "empty": "No combination retained",
+      "uncovered": "{{count}} uncovered combination(s)"
+    },
+    "extract": {
+      "title": "Extraction & pseudonymization",
+      "run": "Run extraction",
+      "summary": "{{count}} records frozen across {{files}} files"
+    },
+    "control": {
+      "check": "Check",
+      "result": "Result",
+      "pass": "PASS",
+      "fail": "FAIL",
+      "violations": "Violations",
+      "object": "Object",
+      "field": "Field",
+      "detail": "Detail"
+    },
+    "guards": {
+      "title": "Entry guards",
+      "sandboxOnly": "Sandbox only",
+      "protectedEnvs": "{{count}} protected env(s)",
+      "mocksConfigured": "Mock detection configured",
+      "mocksNotConfigured": "Mock detection not configured",
+      "saltOk": "Salt loaded",
+      "saltMissing": "Salt missing"
+    },
+    "load": {
+      "targetOrg": "Target org (sandbox)",
+      "pilot": "Pilot (1 folder)",
+      "reload": "Reload without refresh",
+      "run": "Run load",
+      "runPilot": "Run pilot",
+      "progress": "Progress"
+    },
+    "verify": {
+      "run": "Re-verify",
+      "title": "Post-load verification",
+      "attempts": "{{count}} measurement(s)",
+      "status": {
+        "passed": "Passed",
+        "failed": "Failed",
+        "unstable": "Unstable"
+      }
+    },
+    "report": {
+      "title": "Load report",
+      "status": {
+        "completed": "Completed",
+        "completed-with-errors": "Completed with errors"
+      },
+      "inserted": "Inserted",
+      "reused": "Reused",
+      "skipped": "Skipped (duplicates)",
+      "failed": "Failed",
+      "removals": "Fields removed at alignment",
+      "field": "Field",
+      "reason": "Reason",
+      "affected": "Records",
+      "placeholders": "Technical placeholders",
+      "placeholder": "Placeholder",
+      "skippedList": "Records skipped (native anti-duplicate)",
+      "errors": "Errors",
+      "postLoad": "Pass 2: {{pass2}} cycle links resolved — PersonContact: {{personContact}} restored"
     }
   },
   "grappe": {

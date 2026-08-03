@@ -15,7 +15,12 @@
 
 /** Pattern for the NUL byte — written via hex escape so the source file
  *  itself stays plain ASCII (no embedded NUL).
+ *
+ * Intentional control-char match: NUL bytes are stripped defensively from
+ * untrusted data before it crosses the <user-data> prompt boundary
+ * (prompt-injection defense).
  */
+// eslint-disable-next-line no-control-regex
 const NUL_PATTERN = /\x00/g;
 
 /**

@@ -8,6 +8,7 @@ import { ComparePage } from './pages/Compare/ComparePage';
 import { DataOpsPage } from './pages/DataOps/DataOpsPage';
 import { AutomationPage } from './pages/Automation/AutomationPage';
 import { ForgePage } from './pages/Forge/ForgePage';
+import { FrozenPage } from './pages/Frozen/FrozenPage';
 import { GrappePage } from './pages/Grappe/GrappePage';
 import { ReportsPage } from './pages/Reports/ReportsPage';
 import { SettingsPage } from './pages/Settings/SettingsPage';
@@ -24,6 +25,7 @@ const routeComponents: Record<ModuleRoute, React.FC> = {
   home: HomePage,
   orgs: OrgManagerPage,
   forge: ForgePage,
+  frozen: FrozenPage,
   grappe: GrappePage,
   monitor: MonitorPage,
   seed: SeedPage,

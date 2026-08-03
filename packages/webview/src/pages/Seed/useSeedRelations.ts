@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import type { SeedRelation } from './Step4_ConfigureRelations';
 
 /** Return type for the useSeedRelations hook. */
@@ -13,27 +13,15 @@ export interface SeedRelationsState {
   handleChangeRelation: (index: number, field: keyof SeedRelation, value: string) => void;
 }
 
-/** Hook managing parent-child relation configuration for the Seed wizard. */
+/**
+ * Hook managing parent-child relation configuration for the Seed wizard.
+ * State lives in `useSeedWizardStore`; this hook is a typed facade.
+ */
 export function useSeedRelations(): SeedRelationsState {
-  const [relations, setRelations] = useState<SeedRelation[]>([]);
-
-  const handleAddRelation = useCallback(() => {
-    setRelations((prev) => [
-      ...prev,
-      { childObject: '', childField: '', parentObject: '', parentField: 'Id' },
-    ]);
-  }, []);
-
-  const handleRemoveRelation = useCallback((index: number) => {
-    setRelations((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const handleChangeRelation = useCallback(
-    (index: number, field: keyof SeedRelation, value: string) => {
-      setRelations((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
-    },
-    [],
-  );
+  const relations = useSeedWizardStore((s) => s.relations);
+  const handleAddRelation = useSeedWizardStore((s) => s.handleAddRelation);
+  const handleRemoveRelation = useSeedWizardStore((s) => s.handleRemoveRelation);
+  const handleChangeRelation = useSeedWizardStore((s) => s.handleChangeRelation);
 
   return {
     relations,

@@ -41,6 +41,17 @@ export interface ForgeTableViewProps {
 /**
  * Table view of forge graph nodes with sortable columns and include toggles.
  * Provides an alternative to the LiveGraph for scanning large numbers of objects.
+ *
+ * Virtualization note (audit cycle 2): intentionally NOT virtualized with the
+ * existing primitives. `DataTable enableVirtualization` is a different
+ * component API — migrating would change every selector (`forge-table-view`,
+ * `forge-table-sort-*`, `forge-table-row`, `forge-table-include-*`) and the
+ * sort/search behavior contract pinned by ForgeTableView.test.tsx. `VirtualList`
+ * renders div-based role=list/listitem rows, which would drop the semantic
+ * `<table>` + sticky `<thead>` (roles/column-header association) and break
+ * header/body column alignment without fixed widths (visual change). Revisit
+ * with a table-aware virtualizer (padding-row technique) if node counts in
+ * the thousands prove to be a real perf issue.
  */
 export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
   graph,

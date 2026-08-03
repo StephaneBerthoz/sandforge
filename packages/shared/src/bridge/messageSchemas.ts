@@ -14,10 +14,14 @@ import { z } from 'zod';
  *     strictly guarded yet (i.e. the goal is envelope + type coverage, not full
  *     payload validation which will be tightened incrementally).
  *
- * Coverage audit (2026-04-24): every literal `type: 'xxx:yyy'` value appearing
- * in `packages/shared/src/types/messages.types.ts` is represented below. If a
- * new message type is introduced, add it to the matching domain union or
- * create a new domain union and extend {@link BridgeMessageSchema}.
+ * Coverage audit: `types/messages/coverage.test.ts` statically verifies the
+ * Zod ↔ TS contract in both directions — every msg() literal below has
+ * a TS interface (member of a directional union) with the same `type`, and
+ * every TS message interface has its msg() member below. If a new
+ * message type is introduced, add it to the matching domain union here AND to
+ * the matching `types/messages/<domain>.messages.ts` file (or create a new
+ * domain on both sides). Genuinely untypeable-but-live literals go into the
+ * test's KNOWN_CONTRACT_GAPS whitelist with a justification.
  */
 
 // Base shape that every member shares — id, type, timestamp, optional correlationId.
@@ -61,13 +65,17 @@ export const SeedMessageSchema = z.discriminatedUnion('type', [
   msg('seed:template:list:response'),
   msg('seed:template:delete:response'),
   msg('seed:csv:execute'),
+  msg('seed:csv:execute:response'),
   msg('seed:csv:validate'),
   msg('seed:csv:validate:response'),
+  msg('seed:csv:error'),
   msg('seed:clone:execute'),
+  msg('seed:clone:execute:response'),
   msg('seed:clone:preview'),
   msg('seed:clone:preview:response'),
   msg('seed:clone:describe-source'),
   msg('seed:clone:describe-source:response'),
+  msg('seed:clone:error'),
   msg('seed:list-personas'),
   msg('seed:list-personas:response'),
   msg('seed:create-persona'),
@@ -94,6 +102,8 @@ export const SyncMessageSchema = z.discriminatedUnion('type', [
   msg('sync:history:rerun'),
   msg('sync:history:export'),
   msg('sync:history:export:response'),
+  // Error channel consumed by useSyncHistoryStore (payload.message).
+  msg('sync:history:error'),
   msg('sync:schedule:list'),
   msg('sync:schedule:list:response'),
   msg('sync:schedule:upsert'),
@@ -130,31 +140,31 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   msg('monitor:apex-insights:response'),
   msg('monitor:sandbox-refresh'),
   msg('monitor:sandbox-refresh:response'),
+  // Alert panel (AlertsPanel / AlertHistoryPanel) — the result channel for
+  // monitor:alerts is `monitor:alerts:result`, not `:response`.
+  msg('monitor:alerts'),
+  msg('monitor:alerts:result'),
+  msg('monitor:alert:acknowledge'),
+  msg('monitor:alert:acknowledge:response'),
+  msg('monitor:alert:dismiss'),
+  msg('monitor:alert:dismiss:response'),
   // Phase 03 Plan 03-01 — MetricBus envelope variants. Payload validation is
   // delegated to the inner `MetricEvent`/`MetricSample` Zod schemas at the
   // MetricBus boundary; the bridge schema only enforces envelope + discriminant.
   msg('monitor:metric'),
   msg('monitor:metrics:batch'),
   msg('monitor:metric:subscribe'),
-  // Phase 03 Plan 03-06 — ReportExporter envelope variants. Bridge schema
-  // enforces envelope + discriminant; payload shapes are typed in
-  // `messages.types.ts` (`MonitorExport{Request,Response,Progress}Message`).
-  msg('monitor:export:request'),
-  msg('monitor:export:response'),
-  msg('monitor:export:progress'),
-  // Phase 03 Plan 03-07 — Multi-org fleet overview + visibility gate envelope.
-  // The request/response handshake powers the MonitorOverviewPage; the
-  // visibility message is the audit M1 mitigation (WebView -> Extension).
-  // Payload shapes are typed in `messages.types.ts` (`MonitorFleetSummary*`,
-  // `MonitorVisibilityMessage`).
-  msg('monitor:fleet:summary:request'),
-  msg('monitor:fleet:summary:response'),
-  msg('monitor:visibility'),
+  // (The `monitor:export:*` envelopes were removed when ReportExporter was
+  // dropped at P2; the legacy `MonitorExport*` TS interfaces are gone too.
+  // The `monitor:fleet:summary:request/response` + `monitor:visibility`
+  // envelopes were purged when MonitorOverviewPage / useFleetStore /
+  // useVisibilityGate were deleted — no emitter or consumer remains.)
 ]);
 
 // ─── Domain: Compare ─────────────────────────────────────────────────────────
 export const CompareMessageSchema = z.discriminatedUnion('type', [
   msg('compare:execute'),
+  msg('compare:execute:response'),
   msg('compare:start'),
   msg('compare:permissions'),
   msg('compare:snapshots'),
@@ -174,6 +184,10 @@ export const DataOpsMessageSchema = z.discriminatedUnion('type', [
   msg('precheck:pii-scan'),
   msg('precheck:pii-scan:response'),
   msg('governance:policies:list'),
+  // The result channel for governance:policies:list is
+  // `governance:policies:result`, not `:response` (same convention as
+  // monitor:alerts:result — both handler and webview were built on it).
+  msg('governance:policies:result'),
   msg('governance:policy:get'),
   msg('governance:policy:save'),
   msg('governance:policy:delete'),
@@ -190,8 +204,11 @@ export const AutomationMessageSchema = z.discriminatedUnion('type', [
   msg('pipeline:templates'),
   msg('pipeline:templates:response'),
   msg('pipeline:list'),
+  msg('pipeline:list:response'),
   msg('pipeline:history'),
+  msg('pipeline:history:response'),
   msg('pipeline:save'),
+  msg('pipeline:save:response'),
   msg('marketplace:list'),
   msg('marketplace:list:response'),
   msg('marketplace:install'),
@@ -232,6 +249,9 @@ export const AutomationMessageSchema = z.discriminatedUnion('type', [
   msg('forge:plan:request'),
   msg('forge:compliance:request'),
   msg('forge:metadata-diff:request'),
+  msg('forge:target-preflight:request'),
+  msg('forge:target-preflight:response'),
+  msg('forge:target-preflight:error'),
 ]);
 
 // ─── Domain: Execution + Operation lifecycle + grappe ────────────────────────
@@ -288,8 +308,6 @@ export const AIMessageSchema = z.discriminatedUnion('type', [
   msg('ai:schema-advice:response'),
   // Phase 04 plan 04-02: provider status banner (breaker open / half-open / closed).
   msg('ai:provider:status'),
-  // Phase 04 plan 04-03: per-tool-call trace event (start / success / error).
-  msg('ai:tool-trace'),
   // Phase 04 plan 04-05: per-panel-session token budget surface.
   msg('ai:budget:state'),
   msg('ai:budget:warn'),
@@ -381,6 +399,28 @@ export const SmartActionMessageSchema = z.discriminatedUnion('type', [
   msg('quicksync:execute'),
 ]);
 
+// ─── Domain: Frozen Reference Dataset ────────────────────────────────────────
+export const FrozenMessageSchema = z.discriminatedUnion('type', [
+  msg('frozen:config:get'),
+  msg('frozen:config:get:response'),
+  msg('frozen:config:save'),
+  msg('frozen:config:save:response'),
+  msg('frozen:select'),
+  msg('frozen:select:response'),
+  msg('frozen:extract'),
+  msg('frozen:extract:response'),
+  msg('frozen:control:result'),
+  msg('frozen:manifest:get'),
+  msg('frozen:manifest:get:response'),
+  msg('frozen:load'),
+  msg('frozen:load:response'),
+  msg('frozen:load:progress'),
+  msg('frozen:verify'),
+  msg('frozen:verify:result'),
+  msg('frozen:status'),
+  msg('frozen:status:response'),
+]);
+
 /**
  * Full bridge message surface — union of every domain union.
  *
@@ -404,6 +444,7 @@ export const BridgeMessageSchema = z.union([
   ConflictMessageSchema,
   CacheMessageSchema,
   SmartActionMessageSchema,
+  FrozenMessageSchema,
 ]);
 
 /** Inferred TS type of any valid bridge message (after parse). */

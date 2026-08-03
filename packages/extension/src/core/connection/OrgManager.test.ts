@@ -225,4 +225,33 @@ describe('OrgManager', () => {
     manager.addOrg(createMockOrg());
     expect(listener).not.toHaveBeenCalled();
   });
+
+  describe('onOrgChange unsubscribe', () => {
+    it('returns an unsubscribe function that removes the listener', () => {
+      const manager = new OrgManager();
+      const listener = vi.fn();
+      const unsub = manager.onOrgChange(listener);
+
+      manager.addOrg(createMockOrg());
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      unsub();
+      manager.addOrg(createMockOrg());
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('unsubscribing one listener keeps the others registered', () => {
+      const manager = new OrgManager();
+      const first = vi.fn();
+      const second = vi.fn();
+      const unsubFirst = manager.onOrgChange(first);
+      manager.onOrgChange(second);
+
+      unsubFirst();
+      manager.addOrg(createMockOrg());
+
+      expect(first).not.toHaveBeenCalled();
+      expect(second).toHaveBeenCalledTimes(1);
+    });
+  });
 });

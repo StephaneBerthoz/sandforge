@@ -1,138 +1,28 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type * as vscode from 'vscode';
 
-// VSCode mock — tests tune `isTelemetryEnabled` and `telemetryLevel` per case.
-const vscodeMock = vi.hoisted(() => {
-  const state = {
-    isTelemetryEnabled: false as boolean,
-    telemetryLevel: 'all' as string,
-  };
-  return {
-    state,
-    env: {
-      get isTelemetryEnabled(): boolean {
-        return state.isTelemetryEnabled;
-      },
-    },
-    workspace: {
-      getConfiguration: (_section: string) => ({
-        get: (_key: string, fallback?: string) => state.telemetryLevel ?? fallback,
-      }),
-    },
-  };
-});
-
-vi.mock('vscode', () => ({
-  env: vscodeMock.env,
-  workspace: vscodeMock.workspace,
-}));
-
-// Must import AFTER the mocks above so the SUT picks up the stub modules.
-import { TelemetryAdapter, stripSensitiveFields, type SentryModule } from './TelemetryAdapter.js';
-
-/** Fresh Sentry stub per test so call counts don't leak. */
-function buildSentryStub(): SentryModule & {
-  init: ReturnType<typeof vi.fn>;
-  captureException: ReturnType<typeof vi.fn>;
-  addBreadcrumb: ReturnType<typeof vi.fn>;
-  setUser: ReturnType<typeof vi.fn>;
-  flush: ReturnType<typeof vi.fn>;
-} {
-  return {
-    init: vi.fn(),
-    captureException: vi.fn(),
-    addBreadcrumb: vi.fn(),
-    setUser: vi.fn(),
-    flush: vi.fn(async () => true),
-  } as unknown as SentryModule & {
-    init: ReturnType<typeof vi.fn>;
-    captureException: ReturnType<typeof vi.fn>;
-    addBreadcrumb: ReturnType<typeof vi.fn>;
-    setUser: ReturnType<typeof vi.fn>;
-    flush: ReturnType<typeof vi.fn>;
-  };
-}
+import { TelemetryAdapter } from './TelemetryAdapter.js';
 
 function fakeContext(): vscode.ExtensionContext {
   return {} as unknown as vscode.ExtensionContext;
 }
 
+/** Capture Pino output chunks for assertions. */
+function captureDestination(): {
+  destination: { write: (chunk: string) => boolean };
+  chunks: string[];
+} {
+  const chunks: string[] = [];
+  const destination = {
+    write: (chunk: string) => {
+      chunks.push(chunk);
+      return true;
+    },
+  };
+  return { destination, chunks };
+}
+
 describe('TelemetryAdapter', () => {
-  beforeEach(() => {
-    vscodeMock.state.isTelemetryEnabled = false;
-    vscodeMock.state.telemetryLevel = 'all';
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  describe('Sentry init gating', () => {
-    it('does NOT initialise Sentry when VSCode telemetry is disabled globally', () => {
-      vscodeMock.state.isTelemetryEnabled = false;
-      vscodeMock.state.telemetryLevel = 'all';
-      const sentry = buildSentryStub();
-
-      const adapter = new TelemetryAdapter(fakeContext(), {
-        dsnNode: 'https://foo@sentry.io/1',
-        sentryModule: sentry,
-      });
-
-      expect(sentry.init).not.toHaveBeenCalled();
-      expect(adapter.isEnabled()).toBe(false);
-    });
-
-    it('does NOT initialise Sentry when telemetryLevel is "off"', () => {
-      vscodeMock.state.isTelemetryEnabled = true;
-      vscodeMock.state.telemetryLevel = 'off';
-      const sentry = buildSentryStub();
-
-      const adapter = new TelemetryAdapter(fakeContext(), {
-        dsnNode: 'https://foo@sentry.io/1',
-        sentryModule: sentry,
-      });
-
-      expect(sentry.init).not.toHaveBeenCalled();
-      expect(adapter.isEnabled()).toBe(false);
-    });
-
-    it('does NOT initialise Sentry when telemetryLevel is "crash"', () => {
-      vscodeMock.state.isTelemetryEnabled = true;
-      vscodeMock.state.telemetryLevel = 'crash';
-      const sentry = buildSentryStub();
-
-      const adapter = new TelemetryAdapter(fakeContext(), {
-        dsnNode: 'https://foo@sentry.io/1',
-        sentryModule: sentry,
-      });
-
-      expect(sentry.init).not.toHaveBeenCalled();
-      expect(adapter.isEnabled()).toBe(false);
-    });
-
-    it('initialises Sentry exactly once when telemetry is on + DSN provided', () => {
-      vscodeMock.state.isTelemetryEnabled = true;
-      vscodeMock.state.telemetryLevel = 'all';
-      const sentry = buildSentryStub();
-
-      const adapter = new TelemetryAdapter(fakeContext(), {
-        dsnNode: 'https://foo@sentry.io/1',
-        release: '1.3.0',
-        sentryModule: sentry,
-      });
-
-      expect(sentry.init).toHaveBeenCalledTimes(1);
-      expect(sentry.init).toHaveBeenCalledWith(
-        expect.objectContaining({
-          dsn: 'https://foo@sentry.io/1',
-          release: '1.3.0',
-          environment: 'extension-host',
-        }),
-      );
-      expect(adapter.isEnabled()).toBe(true);
-    });
-  });
-
   describe('Pino logger', () => {
     it('returns a working Pino logger instance', () => {
       const adapter = new TelemetryAdapter(fakeContext());
@@ -143,14 +33,8 @@ describe('TelemetryAdapter', () => {
       expect(typeof logger.error).toBe('function');
     });
 
-    it('redacts apiKey / accessToken at top level and nested depth', async () => {
-      const chunks: string[] = [];
-      const destination = {
-        write: (chunk: string) => {
-          chunks.push(chunk);
-          return true;
-        },
-      };
+    it('redacts apiKey / accessToken at top level and nested depth', () => {
+      const { destination, chunks } = captureDestination();
       const adapter = new TelemetryAdapter(fakeContext(), { pinoDestination: destination });
 
       adapter.getLogger().info(
@@ -173,116 +57,100 @@ describe('TelemetryAdapter', () => {
     });
   });
 
-  describe('beforeSend / stripSensitiveFields', () => {
-    it('strips accessToken from event.extra', () => {
-      const event = {
-        extra: {
-          orgId: 'org-1',
-          accessToken: 'at-xyz',
-          refreshToken: 'rt-xyz',
-        },
-      };
-      const result = stripSensitiveFields(event);
-      expect(result.extra).toEqual({
-        orgId: 'org-1',
-        accessToken: '[REDACTED]',
-        refreshToken: '[REDACTED]',
-      });
-    });
-
-    it('scrubs nested sensitive fields inside event.contexts', () => {
-      const event = {
-        contexts: {
-          auth: { apiKey: 'ak-1', user: 'alice' },
-          unrelated: { flag: true },
-        },
-      };
-      const result = stripSensitiveFields(event);
-      expect((result.contexts!.auth as { apiKey: string }).apiKey).toBe('[REDACTED]');
-      expect((result.contexts!.auth as { user: string }).user).toBe('alice');
-      expect(result.contexts!.unrelated).toEqual({ flag: true });
-    });
-  });
-
-  describe('public methods when Sentry is enabled', () => {
-    beforeEach(() => {
-      vscodeMock.state.isTelemetryEnabled = true;
-      vscodeMock.state.telemetryLevel = 'all';
-    });
-
-    it('captureException forwards to Sentry.captureException with sanitised extras', () => {
-      const sentry = buildSentryStub();
-      const adapter = new TelemetryAdapter(fakeContext(), {
-        dsnNode: 'https://x@y/1',
-        sentryModule: sentry,
-      });
+  describe('captureException', () => {
+    it('logs at error level with sanitised extras', () => {
+      const { destination, chunks } = captureDestination();
+      const adapter = new TelemetryAdapter(fakeContext(), { pinoDestination: destination });
       const err = new Error('boom');
 
       adapter.captureException(err, { orgId: 'o1', accessToken: 'leak' });
 
-      expect(sentry.captureException).toHaveBeenCalledTimes(1);
-      const [passedErr, options] = sentry.captureException.mock.calls[0];
-      expect(passedErr).toBe(err);
-      expect(options.extra).toEqual({ orgId: 'o1', accessToken: '[REDACTED]' });
-    });
-
-    it('addBreadcrumb forwards to Sentry.addBreadcrumb with defaults', () => {
-      const sentry = buildSentryStub();
-      const adapter = new TelemetryAdapter(fakeContext(), {
-        dsnNode: 'https://x@y/1',
-        sentryModule: sentry,
-      });
-
-      adapter.addBreadcrumb('retrying-429', 'salesforce', 'warning');
-
-      expect(sentry.addBreadcrumb).toHaveBeenCalledWith({
-        message: 'retrying-429',
-        category: 'salesforce',
-        level: 'warning',
-      });
-    });
-
-    it('setUser hashes the org id via SHA-256 before forwarding', () => {
-      const sentry = buildSentryStub();
-      const adapter = new TelemetryAdapter(fakeContext(), {
-        dsnNode: 'https://x@y/1',
-        sentryModule: sentry,
-      });
-
-      adapter.setUser('00D000000000ABC');
-
-      expect(sentry.setUser).toHaveBeenCalledTimes(1);
-      const [arg] = sentry.setUser.mock.calls[0];
-      expect(arg.id).toMatch(/^[a-f0-9]{64}$/);
-      expect(arg.id).not.toContain('00D');
-    });
-
-    it('flush calls Sentry.flush with the provided timeout', async () => {
-      const sentry = buildSentryStub();
-      const adapter = new TelemetryAdapter(fakeContext(), {
-        dsnNode: 'https://x@y/1',
-        sentryModule: sentry,
-      });
-
-      await adapter.flush(500);
-
-      expect(sentry.flush).toHaveBeenCalledWith(500);
+      const combined = chunks.join('');
+      expect(combined).toContain('"level":50');
+      expect(combined).toContain('captureException');
+      expect(combined).toContain('boom');
+      expect(combined).toContain('o1');
+      expect(combined).toContain('[REDACTED]');
+      expect(combined).not.toContain('leak');
     });
   });
 
-  describe('public methods when Sentry is disabled (no-op path)', () => {
-    it('addBreadcrumb / setUser / flush are safe no-ops', async () => {
-      vscodeMock.state.isTelemetryEnabled = false;
-      const sentry = buildSentryStub();
-      const adapter = new TelemetryAdapter(fakeContext(), { sentryModule: sentry });
+  describe('addBreadcrumb', () => {
+    it('logs at debug level (below the default info threshold)', () => {
+      const { destination, chunks } = captureDestination();
+      const adapter = new TelemetryAdapter(fakeContext(), { pinoDestination: destination });
 
-      adapter.addBreadcrumb('msg');
-      adapter.setUser('org');
-      await adapter.flush();
+      adapter.addBreadcrumb('retrying-429', 'salesforce', 'warning');
 
-      expect(sentry.addBreadcrumb).not.toHaveBeenCalled();
-      expect(sentry.setUser).not.toHaveBeenCalled();
-      expect(sentry.flush).not.toHaveBeenCalled();
+      // Debug is below the default `info` level — nothing is emitted.
+      expect(chunks.join('')).toBe('');
+    });
+
+    it('is safe to call without a category', () => {
+      const adapter = new TelemetryAdapter(fakeContext());
+      expect(() => adapter.addBreadcrumb('msg')).not.toThrow();
+    });
+  });
+
+  describe('flush', () => {
+    it('resolves without throwing', async () => {
+      const { destination } = captureDestination();
+      const adapter = new TelemetryAdapter(fakeContext(), { pinoDestination: destination });
+
+      await expect(adapter.flush()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('sandforge.telemetry gate', () => {
+    it('suppresses captureException when the gate is closed', () => {
+      const { destination, chunks } = captureDestination();
+      const adapter = new TelemetryAdapter(fakeContext(), {
+        pinoDestination: destination,
+        isEnabled: () => false,
+      });
+
+      adapter.captureException(new Error('boom'));
+
+      expect(chunks.join('')).toBe('');
+      expect(adapter.getTelemetryEventCount()).toBe(0);
+    });
+
+    it('suppresses addBreadcrumb when the gate is closed', () => {
+      const adapter = new TelemetryAdapter(fakeContext(), { isEnabled: () => false });
+
+      adapter.addBreadcrumb('msg', 'cat', 'info');
+
+      expect(adapter.getTelemetryEventCount()).toBe(0);
+    });
+
+    it('counts emitted events while the gate is open and honours live toggling', () => {
+      const { destination, chunks } = captureDestination();
+      let enabled = true;
+      const adapter = new TelemetryAdapter(fakeContext(), {
+        pinoDestination: destination,
+        isEnabled: () => enabled,
+      });
+
+      adapter.captureException(new Error('first'));
+      expect(adapter.getTelemetryEventCount()).toBe(1);
+      expect(chunks.join('')).toContain('first');
+
+      enabled = false;
+      adapter.captureException(new Error('second'));
+      expect(adapter.getTelemetryEventCount()).toBe(1);
+      expect(chunks.join('')).not.toContain('second');
+    });
+
+    it('never gates the operational Pino logger', () => {
+      const { destination, chunks } = captureDestination();
+      const adapter = new TelemetryAdapter(fakeContext(), {
+        pinoDestination: destination,
+        isEnabled: () => false,
+      });
+
+      adapter.getLogger().info('operational-log');
+
+      expect(chunks.join('')).toContain('operational-log');
     });
   });
 });

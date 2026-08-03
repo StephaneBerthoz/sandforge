@@ -103,7 +103,11 @@ describe('wrapTool — runtime contract', () => {
       expect.objectContaining({ name: 'describe_account', status: 'start' }),
     );
     expect(onTrace).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'describe_account', status: 'error', errorCode: 'TOOL_ERROR' }),
+      expect.objectContaining({
+        name: 'describe_account',
+        status: 'error',
+        errorCode: 'TOOL_ERROR',
+      }),
     );
   });
 

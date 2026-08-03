@@ -39,7 +39,7 @@ const mockJobs: JobDisplayInfo[] = [
 describe('JobsPanel', () => {
   it('should render the jobs title', () => {
     render(<JobsPanel jobs={mockJobs} />);
-    expect(screen.getByText('monitor.jobs')).toBeDefined();
+    expect(screen.getByText('Jobs')).toBeDefined();
   });
 
   it('should show active job count in subtitle', () => {
@@ -49,16 +49,16 @@ describe('JobsPanel', () => {
 
   it('should render table with headers', () => {
     render(<JobsPanel jobs={mockJobs} />);
-    expect(screen.getByTestId('jobs-table')).toBeDefined();
+    expect(screen.getByTestId('data-table')).toBeDefined();
     expect(screen.getByText('Type')).toBeDefined();
     expect(screen.getByText('Status')).toBeDefined();
   });
 
   it('should render all job rows', () => {
     render(<JobsPanel jobs={mockJobs} />);
-    expect(screen.getByTestId('job-row-j1')).toBeDefined();
-    expect(screen.getByTestId('job-row-j2')).toBeDefined();
-    expect(screen.getByTestId('job-row-j3')).toBeDefined();
+    expect(screen.getByTestId('table-row-0')).toBeDefined();
+    expect(screen.getByTestId('table-row-1')).toBeDefined();
+    expect(screen.getByTestId('table-row-2')).toBeDefined();
   });
 
   it('should display job type and object', () => {

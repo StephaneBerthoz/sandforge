@@ -147,6 +147,30 @@ describe('PluginManager', () => {
       expect(loaded).toEqual([]);
     });
 
+    it('should skip plugins with malformed JSON manifest and keep discovering', async () => {
+      const goodPlugin = createMockPlugin('good-plugin');
+      const goodManifest = createManifest({ name: 'good-plugin' });
+      const mixedFs: PluginFileSystem = {
+        readFile: vi.fn().mockImplementation(async (filePath: string) => {
+          if (filePath.includes('/broken-plugin/manifest.json')) {
+            return '{ not valid json';
+          }
+          if (filePath.includes('/good-plugin/manifest.json')) {
+            return JSON.stringify(goodManifest);
+          }
+          throw new Error(`File not found: ${filePath}`);
+        }),
+        exists: vi.fn().mockResolvedValue(true),
+        readDir: vi.fn().mockResolvedValue(['broken-plugin', 'good-plugin']),
+      };
+      const loader = createMockLoader({ 'good-plugin': goodPlugin });
+
+      const mgr = new PluginManager(mixedFs, loader, '/workspace/.sandforge/plugins');
+      const loaded = await mgr.loadPlugins();
+
+      expect(loaded).toEqual(['good-plugin']);
+    });
+
     it('should not load the same plugin twice', async () => {
       await manager.loadPlugins();
       const secondLoad = await manager.loadPlugins();
@@ -236,6 +260,58 @@ describe('PluginManager', () => {
 
       expect(manager.getTransformers()).toHaveLength(0);
       expect(manager.getSeedStrategies()).toHaveLength(0);
+    });
+
+    it('should remove extensions whose own name differs from the plugin name', async () => {
+      const plugin: SandForgePlugin = {
+        name: 'owner-plugin',
+        version: '1.0.0',
+        activate: (ctx: PluginContext) => {
+          ctx.registerTransformer({
+            name: 'upper-case-transformer',
+            transform: (record: Record<string, unknown>) => record,
+          });
+        },
+        deactivate: vi.fn(),
+      };
+
+      const manifest = createManifest({ name: 'owner-plugin', extensionPoints: ['transformers'] });
+      const fs = createMockFs({ 'owner-plugin': manifest });
+      const loader = createMockLoader({ 'owner-plugin': plugin });
+      const mgr = new PluginManager(fs, loader, '/workspace/.sandforge/plugins');
+
+      await mgr.loadPlugins();
+      expect(mgr.getTransformers()).toHaveLength(1);
+
+      expect(mgr.unloadPlugin('owner-plugin')).toBe(true);
+      expect(mgr.getTransformers()).toHaveLength(0);
+    });
+
+    it('should still unload when deactivate() throws', async () => {
+      const plugin: SandForgePlugin = {
+        name: 'test-plugin',
+        version: '1.0.0',
+        activate: vi.fn((context: PluginContext) => {
+          context.registerTransformer({
+            name: 'test-plugin',
+            transform: (record: Record<string, unknown>) => record,
+          });
+        }),
+        deactivate: vi.fn(() => {
+          throw new Error('deactivate boom');
+        }),
+      };
+
+      const manifest = createManifest();
+      const fs = createMockFs({ 'test-plugin': manifest });
+      const loader = createMockLoader({ 'test-plugin': plugin });
+      const mgr = new PluginManager(fs, loader, '/workspace/.sandforge/plugins');
+
+      await mgr.loadPlugins();
+
+      expect(mgr.unloadPlugin('test-plugin')).toBe(true);
+      expect(mgr.getPlugin('test-plugin')).toBeUndefined();
+      expect(mgr.getTransformers()).toHaveLength(0);
     });
   });
 

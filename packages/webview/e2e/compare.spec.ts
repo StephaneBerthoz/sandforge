@@ -174,7 +174,7 @@ test.describe('Compare page — with orgs', () => {
 
     // Send a mock compare result directly
     await sendExtensionMessage(page, {
-      type: 'compare:start:response',
+      type: 'compare:execute:response',
       id: `resp-${Date.now()}`,
       correlationId: 'compare-1',
       payload: MOCK_COMPARE_RESULT,
@@ -206,7 +206,7 @@ test.describe('Compare page — results tabs', () => {
   test('error banner can be dismissed', async ({ page }) => {
     // Inject an error
     await sendExtensionMessage(page, {
-      type: 'compare:start:response',
+      type: 'compare:execute:response',
       id: `resp-${Date.now()}`,
       correlationId: 'err-1',
       error: 'Connection timeout',

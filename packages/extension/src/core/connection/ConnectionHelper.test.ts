@@ -1,5 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getJsforceConnection, getConnectionPool, getCircuitBreaker } from './ConnectionHelper';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {
+  getJsforceConnection,
+  getConnectionPool,
+  getCircuitBreaker,
+  resetCircuitBreakers,
+} from './ConnectionHelper';
 import type { OrgRegistry } from './OrgRegistry';
 import type { OrgManager } from './OrgManager';
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
@@ -99,9 +104,13 @@ describe('ConnectionHelper', () => {
     vi.clearAllMocks();
     mockIdentity.mockReset();
     mockExec.mockReset();
-    // Reset singleton pool and circuit breaker between tests
+    // Reset singleton pool and per-org circuit breakers between tests
     getConnectionPool().dispose();
-    getCircuitBreaker().reset();
+    resetCircuitBreakers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('getJsforceConnection', () => {
@@ -241,6 +250,77 @@ describe('ConnectionHelper', () => {
         'Connection failed for "test-org": NETWORK_ERROR',
       );
       expect(mockExec).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('circuit breaker (per-org)', () => {
+    it('returns the same breaker per org and distinct breakers across orgs', () => {
+      expect(getCircuitBreaker('org-1')).toBe(getCircuitBreaker('org-1'));
+      expect(getCircuitBreaker('org-1')).not.toBe(getCircuitBreaker('org-2'));
+    });
+
+    it('keeps an open breaker for one org from blocking other orgs', async () => {
+      const org1 = makeOrg({ id: 'org-1', alias: 'org-one' });
+      const org2 = makeOrg({ id: 'org-2', alias: 'org-two' });
+      const creds = makeCreds();
+
+      // Trip org-1's breaker (failureThreshold = 3)
+      mockIdentity.mockRejectedValue(new Error('NETWORK_ERROR'));
+      for (let i = 0; i < 3; i++) {
+        await expect(
+          getJsforceConnection('org-1', createMockOrgRegistry(creds), createMockOrgManager(org1)),
+        ).rejects.toThrow('Connection failed');
+      }
+      expect(getCircuitBreaker('org-1').getState()).toBe('open');
+
+      // org-1 is now blocked...
+      await expect(
+        getJsforceConnection('org-1', createMockOrgRegistry(creds), createMockOrgManager(org1)),
+      ).rejects.toThrow('Circuit breaker is open');
+
+      // ...but org-2 still connects on its own breaker
+      mockIdentity.mockResolvedValueOnce({ user_id: 'u2' });
+      const conn = await getJsforceConnection(
+        'org-2',
+        createMockOrgRegistry(creds),
+        createMockOrgManager(org2),
+      );
+      expect(conn).toBeDefined();
+      expect(getCircuitBreaker('org-2').getState()).toBe('closed');
+    });
+
+    it('releases the half-open permit on failure so the breaker recovers instead of locking out forever', async () => {
+      vi.useFakeTimers();
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      // Trip the breaker: 3 consecutive failures
+      mockIdentity.mockRejectedValue(new Error('NETWORK_ERROR'));
+      for (let i = 0; i < 3; i++) {
+        await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+          'Connection failed',
+        );
+      }
+      const breaker = getCircuitBreaker('org-1');
+      expect(breaker.getState()).toBe('open');
+
+      // Cooldown elapses -> half-open; the probe fails and re-opens the breaker.
+      vi.advanceTimersByTime(31_000);
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        'Connection failed',
+      );
+      expect(breaker.getState()).toBe('open');
+
+      // Cooldown elapses again. The permit from the previous half-open probe
+      // must have been released (finally block) — otherwise canExecute() stays
+      // false forever and this call would throw "Circuit breaker is open".
+      vi.advanceTimersByTime(31_000);
+      mockIdentity.mockResolvedValueOnce({ user_id: 'u1' });
+      const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
+      expect(conn).toBeDefined();
+      expect(breaker.getState()).toBe('closed');
     });
   });
 });

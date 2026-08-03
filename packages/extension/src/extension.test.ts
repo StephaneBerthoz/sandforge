@@ -72,6 +72,7 @@ vi.mock('vscode', () => ({
     getConfiguration: vi.fn(() => ({
       get: vi.fn((_key: string, fallback: unknown) => fallback),
     })),
+    onDidChangeConfiguration: vi.fn(() => ({ dispose: vi.fn() })),
     workspaceFolders: undefined,
   },
   Uri: {
@@ -120,10 +121,10 @@ function createContext(): import('vscode').ExtensionContext {
 }
 
 describe('extension', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     registeredCommands.clear();
-    deactivate();
+    await deactivate();
   });
 
   it('should activate and create output channel', () => {
@@ -157,6 +158,7 @@ describe('extension', () => {
     const expectedCommands = [
       'sandforge.openMonitor',
       'sandforge.openForge',
+      'sandforge.openFrozen',
       'sandforge.openGrappe',
       'sandforge.openCompare',
       'sandforge.openDataOps',
@@ -190,18 +192,20 @@ describe('extension', () => {
 
     activate(context);
 
-    // 9 module commands + 1 cheers + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry = 15
-    expect(context.subscriptions.length).toBe(15);
+    // 11 module commands + 1 cheers + 1 sandforge.ai config-change listener
+    // + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry
+    // + orgChange unsub + orgManager + offlineManager + performanceTracker + cacheManager = 23
+    expect(context.subscriptions.length).toBe(23);
   });
 
-  it('should deactivate without error', () => {
+  it('should deactivate without error', async () => {
     const context = createContext();
     activate(context);
 
-    expect(() => deactivate()).not.toThrow();
+    await expect(deactivate()).resolves.toBeUndefined();
   });
 
-  it('should handle double deactivation without error', () => {
-    expect(() => deactivate()).not.toThrow();
+  it('should handle double deactivation without error', async () => {
+    await expect(deactivate()).resolves.toBeUndefined();
   });
 });

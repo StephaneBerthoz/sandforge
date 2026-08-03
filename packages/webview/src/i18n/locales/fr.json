@@ -63,6 +63,7 @@
     "reports": "Rapports",
     "settings": "Parametres",
     "forge": "Forge",
+    "frozen": "Jeu figé",
     "grappe": "Grappe",
     "help": "Aide"
   },
@@ -1862,6 +1863,125 @@
       "justNow": "a l'instant",
       "minutesAgo": "il y a {{count}}min",
       "hoursAgo": "il y a {{count}}h"
+    }
+  },
+  "frozen": {
+    "subtitle": "Extraire une fois, pseudonymiser de façon déterministe, rejouer à l'identique après chaque refresh de sandbox",
+    "emptyState": {
+      "title": "Aucune org connectée",
+      "description": "Connectez une org Salesforce pour construire ou rejouer un jeu de référence figé.",
+      "cta": "Sélectionner une org"
+    },
+    "status": {
+      "salt": "Empreinte du sel",
+      "saltMissing": "Sel absent",
+      "dataset": "Jeu figé",
+      "records": "{{count}} enregistrements",
+      "noDataset": "Aucun jeu figé pour l'instant",
+      "selection": "Sélection",
+      "noSelection": "Aucune sélection",
+      "lastVerify": "Dernière vérification"
+    },
+    "tabs": {
+      "extract": "Extraire",
+      "load": "Charger"
+    },
+    "manifest": {
+      "version": "Jeu v{{version}}"
+    },
+    "config": {
+      "title": "Configuration du projet",
+      "rootObject": "Objet racine (dossier)",
+      "budget": "Budget de volumétrie (enregistrements)",
+      "axes": "Axes de couverture",
+      "addAxis": "Ajouter un axe",
+      "axisName": "Nom",
+      "axisLabel": "Libellé",
+      "axisField": "Champ de filtre",
+      "axisSoql": "SOQL d'agrégat (axisValue)",
+      "removeAxis": "Retirer l'axe",
+      "edgeCases": "Cas limites",
+      "addEdgeCase": "Ajouter un cas limite",
+      "edgeName": "Nom",
+      "edgeLabel": "Libellé",
+      "edgeWhere": "Fragment WHERE",
+      "removeEdgeCase": "Retirer le cas limite",
+      "advanced": "Configuration avancée (JSON : envs protégés, clés d'identité, règles picklist, placeholders, mocks…)",
+      "invalidJson": "JSON invalide — la configuration avancée doit être un objet JSON.",
+      "save": "Enregistrer la configuration",
+      "saved": "Configuration enregistrée"
+    },
+    "selection": {
+      "title": "Sélection par matrice de couverture",
+      "run": "Lancer la sélection",
+      "volumetry": "{{total}} enregistrements mesurés (budget : {{budget}})",
+      "combination": "Combinaison",
+      "axes": "Valeurs d'axes",
+      "edgeCase": "Cas limite",
+      "empty": "Aucune combinaison retenue",
+      "uncovered": "{{count}} combinaison(s) non couverte(s)"
+    },
+    "extract": {
+      "title": "Extraction & pseudonymisation",
+      "run": "Lancer l'extraction",
+      "summary": "{{count}} enregistrements figés dans {{files}} fichiers"
+    },
+    "control": {
+      "check": "Contrôle",
+      "result": "Résultat",
+      "pass": "PASS",
+      "fail": "FAIL",
+      "violations": "Violations",
+      "object": "Objet",
+      "field": "Champ",
+      "detail": "Détail"
+    },
+    "guards": {
+      "title": "Gardes d'entrée",
+      "sandboxOnly": "Sandbox uniquement",
+      "protectedEnvs": "{{count}} env. protégé(s)",
+      "mocksConfigured": "Détection de mocks configurée",
+      "mocksNotConfigured": "Détection de mocks non configurée",
+      "saltOk": "Sel chargé",
+      "saltMissing": "Sel absent"
+    },
+    "load": {
+      "targetOrg": "Org cible (sandbox)",
+      "pilot": "Pilote (1 dossier)",
+      "reload": "Rechargement sans refresh",
+      "run": "Lancer le chargement",
+      "runPilot": "Lancer le pilote",
+      "progress": "Progression"
+    },
+    "verify": {
+      "run": "Re-vérifier",
+      "title": "Vérification post-chargement",
+      "attempts": "{{count}} relevé(s)",
+      "status": {
+        "passed": "Réussie",
+        "failed": "Échouée",
+        "unstable": "Instable"
+      }
+    },
+    "report": {
+      "title": "Rapport de chargement",
+      "status": {
+        "completed": "Terminé",
+        "completed-with-errors": "Terminé avec erreurs"
+      },
+      "inserted": "Insérés",
+      "reused": "Réutilisés",
+      "skipped": "Ignorés (doublons)",
+      "failed": "En échec",
+      "removals": "Champs retirés à l'alignement",
+      "field": "Champ",
+      "reason": "Raison",
+      "affected": "Enregistrements",
+      "placeholders": "Placeholders techniques",
+      "placeholder": "Placeholder",
+      "skippedList": "Enregistrements ignorés (anti-doublon natif)",
+      "errors": "Erreurs",
+      "postLoad": "Passe 2 : {{pass2}} liens de cycle résolus — PersonContact : {{personContact}} restaurés"
     }
   },
   "grappe": {

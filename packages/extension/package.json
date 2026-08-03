@@ -17,7 +17,7 @@
   "badges": [],
   "repository": {
     "type": "git",
-    "url": "https://github.com/sandforge/sandforge"
+    "url": "https://github.com/StephaneBerthoz/sand-forge"
   },
   "homepage": "https://github.com/sandforge/sandforge#readme",
   "bugs": {
@@ -84,6 +84,11 @@
         "icon": "$(flame)"
       },
       {
+        "command": "sandforge.openFrozen",
+        "title": "%command.openFrozen%",
+        "icon": "$(snowflake)"
+      },
+      {
         "command": "sandforge.openGrappe",
         "title": "%command.openGrappe%",
         "icon": "$(symbol-namespace)"
@@ -132,69 +137,23 @@
     "menus": {},
     "keybindings": [
       {
-        "command": "sandforge.openMonitor",
-        "key": "ctrl+shift+m",
-        "mac": "cmd+shift+m"
-      },
-      {
-        "command": "sandforge.openForge",
-        "key": "ctrl+shift+f",
-        "mac": "cmd+shift+f"
-      },
-      {
         "command": "sandforge.openGrappe",
         "key": "ctrl+shift+r",
         "mac": "cmd+shift+r"
       },
       {
-        "command": "sandforge.openCompare",
-        "key": "ctrl+shift+k",
-        "mac": "cmd+shift+k"
-      },
-      {
-        "command": "sandforge.openDataOps",
-        "key": "ctrl+shift+o",
-        "mac": "cmd+shift+o"
-      },
-      {
         "command": "sandforge.openAutomation",
         "key": "ctrl+shift+a",
         "mac": "cmd+shift+a"
-      },
-      {
-        "command": "sandforge.openOrgs",
-        "key": "ctrl+shift+g",
-        "mac": "cmd+shift+g"
       }
     ],
     "configuration": {
       "title": "%config.title%",
       "properties": {
-        "sandforge.language": {
-          "type": "string",
-          "default": "auto",
-          "enum": [
-            "auto",
-            "en",
-            "fr",
-            "de",
-            "es",
-            "ja",
-            "pt-BR"
-          ],
-          "description": "%config.language.description%"
-        },
         "sandforge.telemetry": {
           "type": "boolean",
           "default": false,
           "description": "%config.telemetry.description%"
-        },
-        "sandforge.monitor.autoRefreshInterval": {
-          "type": "number",
-          "default": 60,
-          "minimum": 10,
-          "maximum": 3600,
-          "description": "%config.monitor.autoRefreshInterval.description%"
         },
         "sandforge.monitor.persistTimeSeries": {
           "type": "boolean",
@@ -239,7 +198,7 @@
         },
         "sandforge.ai.model": {
           "type": "string",
-          "default": "claude-sonnet-4-20250514",
+          "default": "claude-sonnet-4-5-20250929",
           "description": "%config.ai.model.description%"
         },
         "sandforge.ai.tokenBudgetMaxPerSession": {
@@ -263,32 +222,6 @@
           "maximum": 3600000,
           "description": "%config.pipeline.timeout.description%"
         },
-        "sandforge.api.timeout": {
-          "type": "number",
-          "default": 30000,
-          "minimum": 5000,
-          "maximum": 120000,
-          "description": "%config.api.timeout.description%"
-        },
-        "sandforge.api.retryAttempts": {
-          "type": "number",
-          "default": 3,
-          "minimum": 0,
-          "maximum": 10,
-          "description": "%config.api.retryAttempts.description%"
-        },
-        "sandforge.grappe.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "%config.grappe.enabled.description%"
-        },
-        "sandforge.grappe.threshold": {
-          "type": "number",
-          "default": 10000,
-          "minimum": 1000,
-          "maximum": 100000,
-          "description": "%config.grappe.threshold.description%"
-        },
         "sandforge.safety.requireProdConfirmation": {
           "type": "boolean",
           "default": true,
@@ -303,7 +236,7 @@
     }
   },
   "scripts": {
-    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --minify",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ --ext .ts",
     "lint:fix": "eslint src/ --ext .ts --fix",
@@ -315,31 +248,24 @@
   "dependencies": {
     "@anthropic-ai/sdk": "0.93.0",
     "@sandforge/shared": "workspace:*",
-    "@sentry/browser": "^8",
-    "@sentry/node": "^8",
     "cron-parser": "^5.5.0",
     "jsforce": "^3",
-    "microdiff": "^1.5.0",
     "p-limit": "^3.1.0",
-    "p-retry": "^4.6.2",
-    "pdfkit": "^0.15",
     "pino": "^9",
-    "pino-pretty": "^11",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/pdfkit": "^0.17.6",
     "@types/vscode": "^1.95",
-    "@typescript-eslint/eslint-plugin": "^7",
-    "@typescript-eslint/parser": "^7",
+    "@typescript-eslint/eslint-plugin": "catalog:",
+    "@typescript-eslint/parser": "catalog:",
     "@vitest/coverage-v8": "^1.6.1",
     "@vscode/vsce": "^3",
     "esbuild": "^0.21",
-    "eslint": "^8",
-    "eslint-config-prettier": "^9",
-    "fast-check": "^3",
-    "typescript": "~5.5",
-    "vitest": "^1"
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "fast-check": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

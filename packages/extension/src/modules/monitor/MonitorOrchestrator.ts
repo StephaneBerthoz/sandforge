@@ -21,10 +21,7 @@ import { SandboxRefreshProbe } from './probes/SandboxRefreshProbe.js';
 import { ErrorLogProbe } from './probes/ErrorLogProbe.js';
 import { UserSessionProbe } from './probes/UserSessionProbe.js';
 import { HealthProbe } from './probes/HealthProbe.js';
-import {
-  GovernanceProbe,
-  type GovernanceProbeContext,
-} from './probes/GovernanceProbe.js';
+import { GovernanceProbe, type GovernanceProbeContext } from './probes/GovernanceProbe.js';
 
 /** Events emitted by the MonitorOrchestrator */
 export type MonitorEvent = 'started' | 'stopped' | 'healthUpdated' | 'error';
@@ -186,11 +183,10 @@ export class MonitorOrchestrator {
       this.registry.register(new SandboxRefreshProbe(this.deps.sandboxRefreshTracker));
     }
     if (this.deps.governanceEngine) {
-      const ctx: GovernanceProbeContext =
-        this.deps.governanceContext ?? {
-          getPolicy: () => undefined,
-          getMetrics: () => ({}),
-        };
+      const ctx: GovernanceProbeContext = this.deps.governanceContext ?? {
+        getPolicy: () => undefined,
+        getMetrics: () => ({}),
+      };
       this.registry.register(new GovernanceProbe(this.deps.governanceEngine, ctx));
     }
   }
@@ -211,19 +207,16 @@ export class MonitorOrchestrator {
     // warmed-up replay). Both steps are idempotent for re-entrant start()s.
     this.anomalyEngine.start();
     if (!this.anomalyBridgeUnsub) {
-      this.anomalyBridgeUnsub = this.metricBus.subscribe(
-        'monitor:anomaly:detected',
-        (payload) => {
-          // Re-construct the in-process AnomalyDetectedEvent shape — the bus
-          // payload carries every field except `detectedAt` (RESEARCH §4),
-          // which we synthesize here for the AlertInstance triggeredAt.
-          const event: AnomalyDetectedEvent = {
-            ...payload,
-            detectedAt: new Date().toISOString(),
-          };
-          this.deps.alertEngine.submitAnomalyInstance(event);
-        },
-      );
+      this.anomalyBridgeUnsub = this.metricBus.subscribe('monitor:anomaly:detected', (payload) => {
+        // Re-construct the in-process AnomalyDetectedEvent shape — the bus
+        // payload carries every field except `detectedAt` (RESEARCH §4),
+        // which we synthesize here for the AlertInstance triggeredAt.
+        const event: AnomalyDetectedEvent = {
+          ...payload,
+          detectedAt: new Date().toISOString(),
+        };
+        this.deps.alertEngine.submitAnomalyInstance(event);
+      });
     }
 
     this.activeOrgs.add(orgId);

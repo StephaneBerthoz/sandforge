@@ -1,8 +1,8 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { UIConflict } from '@sandforge/shared';
-import { ConflictDiffService } from '@sandforge/shared';
-import type { ConflictFieldDiff } from '@sandforge/shared';
+import { ConflictDiffService } from '../../services/ConflictDiffService';
+import type { ConflictFieldDiff } from '../../services/ConflictDiffService';
 import { Badge } from '../../components/ui/Badge';
 import { cn } from '../../theme';
 

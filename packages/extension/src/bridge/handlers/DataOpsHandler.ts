@@ -4,20 +4,26 @@ import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
   buildResponse,
   sendNotification,
-  sendHandlerError,
   sendOperationStarted,
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
 } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
-import type { PIIScanRequest } from '@sandforge/shared';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import { CrudFlsGuard } from '../../core/metadata/CrudFlsGuard.js';
 import type { ObjectDescribe } from '../../core/metadata/MetadataReader.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
+import {
+  validatePayload,
+  dataOpsBackupPayloadSchema,
+  dataOpsRollbackPayloadSchema,
+  dataOpsAnonymizePayloadSchema,
+  dataOpsMaskingTemplatesPayloadSchema,
+  piiScanPayloadSchema,
+} from '../validatePayload.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 import type { MaskingTemplateService } from '../../modules/dataops/templates/MaskingTemplateService.js';
@@ -156,9 +162,12 @@ export class DataOpsHandler implements DomainHandler {
 
   private async handleBackup(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; objects: string[] } })
-      .payload;
-    const operationId = crypto.randomUUID();
+    const parsed = validatePayload(dataOpsBackupPayloadSchema, msg, 'dataops:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
+    // Deterministic ID from the message ID — enables genuine duplicate detection
+    // (a fresh UUID per call made `isDuplicate` dead code).
+    const operationId = msg.id;
 
     const lockKey = `backup:${payload.orgId}`;
     if (this.activeOrgOperations.has(lockKey)) {
@@ -241,6 +250,9 @@ export class DataOpsHandler implements DomainHandler {
         this.deps.configStore.set(`${backupKey}:${r.objectApiName}`, r.records, 'backups');
       }
 
+      // `sandforge.backup.maxCount` retention: prune oldest backups for this org.
+      this.pruneBackups(payload.orgId);
+
       sendOperationCompleted(this.deps, operationId, {
         objects: results.map((r) => ({
           objectApiName: r.objectApiName,
@@ -264,18 +276,52 @@ export class DataOpsHandler implements DomainHandler {
       this.dmlTracker.markCompleted(operationId);
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
+      // Single failure emission: `operation:failed` only (webview consumes it).
+      this.deps.log(`[ERR] dataops:backup: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', err);
     } finally {
       this.activeOrgOperations.delete(lockKey);
     }
   }
 
+  /**
+   * Enforce the `sandforge.backup.maxCount` retention policy for an org:
+   * oldest backups (by meta timestamp) beyond the cap are deleted, including
+   * their per-object record payloads.
+   */
+  private pruneBackups(orgId: string): void {
+    const maxCount = this.deps.services?.getSandforgeSetting?.('backup.maxCount', 10) ?? 10;
+    const metas: Array<{ key: string; timestamp: string }> = [];
+    for (const key of this.deps.configStore.getKeysByPrefix('backup:')) {
+      // Meta keys are `backup:<operationId>`; record keys are
+      // `backup:<operationId>:<objectApiName>` — skip the latter.
+      const rest = key.slice('backup:'.length);
+      if (rest.includes(':')) continue;
+      const meta = this.deps.configStore.get<{ orgId?: string; timestamp?: string }>(key);
+      if (meta?.orgId !== orgId) continue;
+      metas.push({ key, timestamp: meta.timestamp ?? '' });
+    }
+    if (metas.length <= maxCount) return;
+    metas.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    for (const { key } of metas.slice(0, metas.length - maxCount)) {
+      const meta = this.deps.configStore.get<{
+        objects?: Array<{ objectApiName: string }>;
+      }>(key);
+      for (const obj of meta?.objects ?? []) {
+        this.deps.configStore.delete(`${key}:${obj.objectApiName}`);
+      }
+      this.deps.configStore.delete(key);
+      this.deps.log(`[INFO] Pruned backup ${key} (retention: ${maxCount} per org)`);
+    }
+  }
+
   private async handleRollback(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; operationId: string } })
-      .payload;
-    const rollbackOpId = crypto.randomUUID();
+    const parsed = validatePayload(dataOpsRollbackPayloadSchema, msg, 'dataops:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
+    // Deterministic ID from the message ID (see handleBackup).
+    const rollbackOpId = msg.id;
 
     const lockKey = `backup:${payload.orgId}`;
     if (this.activeOrgOperations.has(lockKey)) {
@@ -397,8 +443,9 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       this.dmlTracker.markFailed(rollbackOpId);
+      // Single failure emission: `operation:failed` only (webview consumes it).
+      this.deps.log(`[ERR] dataops:rollback: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', err);
     } finally {
       this.activeOrgOperations.delete(lockKey);
     }
@@ -406,26 +453,41 @@ export class DataOpsHandler implements DomainHandler {
 
   private async handleAnonymize(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (
-      msg as BaseMessage & { payload: { orgId: string; templateId: string; objects?: string[] } }
-    ).payload;
+    const parsed = validatePayload(dataOpsAnonymizePayloadSchema, msg, 'dataops:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     const operationId = crypto.randomUUID();
 
     try {
       if (this.deps.infraServices?.productionGuard) {
+        const guard = this.deps.infraServices.productionGuard;
         const org = this.deps.orgManager.getOrg(payload.orgId);
-        const check = this.deps.infraServices.productionGuard.check({
+        const guardRequest = {
           orgId: payload.orgId,
           orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
-          operation: 'update',
+          operation: 'update' as const,
           objectName: 'AnonymizeData',
           recordCount: 1,
           module: 'dataops',
-        });
+        };
+        const check = guard.check(guardRequest);
+        guard.logOperation(guardRequest, check);
         if (!check.allowed) {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
+        }
+        // `safety.requireProdConfirmation`: explicit user consent before
+        // writing to a production org.
+        const confirmed = await guard.confirmIfNeeded(check);
+        if (!confirmed) {
+          sendOperationFailed(
+            this.deps,
+            operationId,
+            'Operation cancelled by user (production confirmation declined).',
+            false,
+          );
+          return;
         }
       }
 
@@ -560,8 +622,9 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
+      // Single failure emission: `operation:failed` only (webview consumes it).
+      this.deps.log(`[ERR] dataops:anonymize: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', err);
     }
   }
 
@@ -576,7 +639,14 @@ export class DataOpsHandler implements DomainHandler {
 
   private handleMaskingTemplatesByObject(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { objectApiName: string } }).payload;
+    const parsed = validatePayload(
+      dataOpsMaskingTemplatesPayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
 
     if (!this.maskingTemplateService) {
       sendNotification(
@@ -599,7 +669,9 @@ export class DataOpsHandler implements DomainHandler {
 
   private async handlePIIScan(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { orgId, objectNames } = (msg as PIIScanRequest).payload;
+    const parsed = validatePayload(piiScanPayloadSchema, msg, 'dataops:error', this.deps);
+    if (!parsed) return;
+    const { orgId, objectNames } = parsed;
     try {
       if (!this.deps.infraServices?.piiDetector) {
         throw new Error('PII Detector not available.');
