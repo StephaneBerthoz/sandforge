@@ -38,11 +38,17 @@ export function useBridgeMutation<T>(
     responseType?: string;
     /** Timeout in milliseconds. Defaults to 30 000. */
     timeoutMs?: number;
+    /**
+     * Error channel to listen for. Defaults to `<domain>:error` derived
+     * from the request type (the convention used by bridge handlers).
+     */
+    errorType?: string;
   },
 ): BridgeMutationState<T> {
   const sendMessage = useSendMessage();
   const responseType = options?.responseType ?? `${requestType}:response`;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const errorType = options?.errorType ?? `${requestType.split(':')[0]}:error`;
 
   const {
     listen,
@@ -57,6 +63,7 @@ export function useBridgeMutation<T>(
     responseType,
     timeoutMs,
     requestLabel: 'mutation',
+    errorType,
   });
 
   // Store cleanup function for the current listener
