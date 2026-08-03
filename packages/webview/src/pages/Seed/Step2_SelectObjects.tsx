@@ -36,9 +36,7 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="step-select-objects">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-          {t('seed.selectObjectsDesc')}
-        </p>
+        <p className="text-xs text-text-secondary">{t('seed.selectObjectsDesc')}</p>
         {onSmartSuggest && (
           <Button
             variant="secondary"
@@ -60,10 +58,9 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
               <button
                 className={cn(
                   'flex items-center gap-2 px-3 py-2 rounded text-left text-xs w-full mb-1',
-                  'border border-[var(--vscode-panel-border,#3c3c3c)]',
-                  'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
-                  isSelected &&
-                    'border-[var(--vscode-focusBorder,#007fd4)] bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
+                  'border border-[var(--sf-border)]',
+                  'hover:bg-[var(--sf-bg-hover)]',
+                  isSelected && 'border-[var(--sf-accent)] bg-[var(--sf-bg-hover)]',
                 )}
                 onClick={() => onToggle(obj.apiName)}
                 role="checkbox"
@@ -74,18 +71,14 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
                   className={cn(
                     'w-4 h-4 rounded border flex items-center justify-center text-[10px]',
                     isSelected
-                      ? 'bg-[var(--vscode-focusBorder,#007fd4)] border-[var(--vscode-focusBorder,#007fd4)] text-white'
-                      : 'border-[var(--vscode-input-border,#3c3c3c)]',
+                      ? 'bg-[var(--sf-accent)] border-[var(--sf-accent)] text-white'
+                      : 'border-[var(--sf-border-input)]',
                   )}
                 >
                   {isSelected ? '\u2713' : ''}
                 </span>
-                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] flex-1">
-                  {obj.label}
-                </span>
-                <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-                  {obj.apiName}
-                </span>
+                <span className="text-text-primary flex-1">{obj.label}</span>
+                <span className="text-text-secondary">{obj.apiName}</span>
                 {obj.dependencies.length > 0 && (
                   <Badge variant="default">
                     {obj.dependencies.length} {t('seed.dependencies').toLowerCase()}
@@ -102,9 +95,7 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
       )}
 
       {availableObjects.length === 0 && (
-        <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4">
-          {t('seed.noObjects')}
-        </p>
+        <p className="text-xs text-center text-text-secondary py-4">{t('seed.noObjects')}</p>
       )}
     </div>
   );

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { SeedDataPlan } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
+import { DataTable } from '../../components/ui/DataTable';
 
 /** Step6 props. */
 export interface Step6ReviewPlanProps {
@@ -16,10 +17,7 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
 
   if (isLoading) {
     return (
-      <div
-        className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]"
-        data-testid="step-review-plan"
-      >
+      <div className="text-center py-8 text-xs text-text-secondary" data-testid="step-review-plan">
         {t('common.loading')}
       </div>
     );
@@ -27,10 +25,7 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
 
   if (!plan) {
     return (
-      <div
-        className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]"
-        data-testid="step-review-plan"
-      >
+      <div className="text-center py-8 text-xs text-text-secondary" data-testid="step-review-plan">
         {t('common.noData')}
       </div>
     );
@@ -38,19 +33,17 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-review-plan">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('seed.reviewPlanDesc')}
-      </p>
+      <p className="text-xs text-text-secondary">{t('seed.reviewPlanDesc')}</p>
 
       {/* Summary */}
       <div className="flex gap-4 text-xs" data-testid="plan-summary">
-        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-text-primary">
           {t('seed.totalRecords')}: <strong>{plan.totalRecords}</strong>
         </span>
-        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-text-primary">
           {t('seed.estimatedApiCalls')}: <strong>{plan.estimatedApiCalls}</strong>
         </span>
-        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-text-primary">
           {t('seed.estimatedDuration')}:{' '}
           <strong>{Math.round(plan.estimatedDuration / 1000)}s</strong>
         </span>
@@ -68,9 +61,7 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
             {/* Dependencies */}
             {obj.dependsOn.length > 0 && (
               <div className="flex gap-1 mb-2 flex-wrap">
-                <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-                  {t('seed.dependencies')}:
-                </span>
+                <span className="text-[10px] text-text-secondary">{t('seed.dependencies')}:</span>
                 {obj.dependsOn.map((dep) => (
                   <Badge key={dep} variant="default">
                     {dep}
@@ -81,36 +72,17 @@ export const Step6ReviewPlan: React.FC<Step6ReviewPlanProps> = ({ plan, isLoadin
 
             {/* Sample records */}
             {obj.sampleRecords.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-[10px]">
-                  <thead>
-                    <tr className="border-b border-[var(--vscode-panel-border,#3c3c3c)]">
-                      {Object.keys(obj.sampleRecords[0]).map((col) => (
-                        <th
-                          key={col}
-                          className="text-left px-2 py-1 text-[var(--vscode-descriptionForeground,#868686)] font-medium"
-                        >
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {obj.sampleRecords.map((rec, i) => (
-                      <tr key={i} className="border-b border-[var(--vscode-panel-border,#3c3c3c)]">
-                        {Object.values(rec).map((val, j) => (
-                          <td
-                            key={j}
-                            className="px-2 py-1 text-[var(--vscode-editor-foreground,#d4d4d4)] truncate max-w-[150px]"
-                          >
-                            {String(val ?? '')}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                columns={Object.keys(obj.sampleRecords[0]).map((col) => ({
+                  key: col,
+                  header: col,
+                  render: (rec: Record<string, unknown>) => (
+                    <span className="block max-w-[150px] truncate">{String(rec[col] ?? '')}</span>
+                  ),
+                }))}
+                data={obj.sampleRecords}
+                keyExtractor={(_rec, i) => `${obj.objectApiName}-${i}`}
+              />
             )}
           </CardBody>
         </Card>

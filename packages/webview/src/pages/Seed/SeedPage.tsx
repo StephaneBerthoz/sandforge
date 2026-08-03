@@ -150,7 +150,7 @@ export const SeedPage: React.FC = () => {
       {/* Back navigation button */}
       {seedMode !== 'select' && quickSeed.phase === 'idle' && (
         <button
-          className="flex items-center gap-1 text-xs text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline self-start"
+          className="flex items-center gap-1 text-xs text-[var(--sf-text-link)] hover:underline self-start"
           onClick={() => {
             if (seedMode === 'ai-persona' || seedMode === 'ai-scratch') {
               setSeedMode('ai');
@@ -173,11 +173,11 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai')} data-testid="mode-card-ai">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-4">
-                <Sparkles className="w-8 h-8 text-[var(--vscode-focusBorder,#007fd4)]" />
-                <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <Sparkles className="w-8 h-8 text-[var(--sf-accent)]" />
+                <span className="text-sm font-semibold text-text-primary">
                   {t('seed.modeSelect.ai')}
                 </span>
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center">
+                <span className="text-xs text-text-secondary text-center">
                   {t('seed.modeSelect.aiDesc')}
                 </span>
               </div>
@@ -188,10 +188,10 @@ export const SeedPage: React.FC = () => {
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-4">
                 <Upload className="w-8 h-8 text-emerald-400" />
-                <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-sm font-semibold text-text-primary">
                   {t('seed.modeSelect.csv')}
                 </span>
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center">
+                <span className="text-xs text-text-secondary text-center">
                   {t('seed.modeSelect.csvDesc')}
                 </span>
               </div>
@@ -202,10 +202,10 @@ export const SeedPage: React.FC = () => {
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-4">
                 <Copy className="w-8 h-8 text-amber-400" />
-                <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-sm font-semibold text-text-primary">
                   {t('seed.modeSelect.clone')}
                 </span>
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center">
+                <span className="text-xs text-text-secondary text-center">
                   {t('seed.modeSelect.cloneDesc')}
                 </span>
               </div>
@@ -226,11 +226,11 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai-persona')} data-testid="fork-card-persona">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-6">
-                <Users className="w-8 h-8 text-[var(--vscode-focusBorder,#007fd4)]" />
-                <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <Users className="w-8 h-8 text-[var(--sf-accent)]" />
+                <span className="text-sm font-semibold text-text-primary">
                   {t('seed.persona.forkPersonaTitle')}
                 </span>
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center">
+                <span className="text-xs text-text-secondary text-center">
                   {t('seed.persona.forkPersonaDesc')}
                 </span>
               </div>
@@ -240,11 +240,11 @@ export const SeedPage: React.FC = () => {
           <Card hoverable onClick={() => setSeedMode('ai-scratch')} data-testid="fork-card-scratch">
             <CardBody>
               <div className="flex flex-col items-center gap-2 py-6">
-                <Sparkles className="w-8 h-8 text-[var(--vscode-focusBorder,#007fd4)]" />
-                <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <Sparkles className="w-8 h-8 text-[var(--sf-accent)]" />
+                <span className="text-sm font-semibold text-text-primary">
                   {t('seed.persona.forkScratchTitle')}
                 </span>
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center">
+                <span className="text-xs text-text-secondary text-center">
                   {t('seed.persona.forkScratchDesc')}
                 </span>
               </div>

@@ -102,7 +102,7 @@ describe('SchedulerPanel', () => {
 
     render(<SchedulerPanel />);
     expect(screen.getByTestId('history-section')).toBeDefined();
-    expect(screen.getByTestId('history-run-1')).toBeDefined();
+    expect(screen.getByTestId('table-row-0')).toBeDefined();
   });
 
   it('should call delete when delete button clicked', () => {
