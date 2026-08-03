@@ -5,6 +5,13 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.8] - 2026-08-03
+
+### Fixed
+
+- Bridge error surfacing: when a handler rejected a request (expired connection, unreachable org, SOQL failure), it replied on the `<domain>:error` channel that no webview screen listened to, so users saw a generic `timed out after 30000ms` instead of the actual error. All bridge queries and mutations now listen for their error channel and display the handler's message immediately.
+- `monitor:refresh` org calls are bounded to 25 s, so a stalled org produces an explicit error instead of out-hanging the 30 s bridge timeout.
+
 ## [1.2.7] - 2026-08-03
 
 **Hardening marathon**: two full audit cycles over the codebase, four fix waves, and a new module. All gates green (typecheck, lint, 7 500+ tests, disposable audit, prettier, builds).
