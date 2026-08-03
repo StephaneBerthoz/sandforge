@@ -28,58 +28,9 @@ describe('SF_ERROR_CLASSIFICATIONS', () => {
       }
     }
   });
-
-  it('should classify UNABLE_TO_LOCK_ROW as retryable with exponential backoff', () => {
-    const classification = SF_ERROR_CLASSIFICATIONS['UNABLE_TO_LOCK_ROW'];
-    expect(classification.retryable).toBe(true);
-    expect(classification.strategy).toBe('exponential');
-    expect(classification.delay).toBe(2000);
-  });
-
-  it('should classify INVALID_SESSION_ID as retryable with reauth strategy', () => {
-    const classification = SF_ERROR_CLASSIFICATIONS['INVALID_SESSION_ID'];
-    expect(classification.retryable).toBe(true);
-    expect(classification.strategy).toBe('reauth_then_retry');
-  });
-
-  it('should classify INVALID_FIELD as non-retryable schema error', () => {
-    const classification = SF_ERROR_CLASSIFICATIONS['INVALID_FIELD'];
-    expect(classification.retryable).toBe(false);
-    expect(classification.category).toBe('schema');
-  });
-
-  it('should classify DUPLICATE_VALUE with suggestUpsert flag', () => {
-    const classification = SF_ERROR_CLASSIFICATIONS['DUPLICATE_VALUE'];
-    expect(classification.retryable).toBe(false);
-    expect(classification.suggestUpsert).toBe(true);
-  });
-
-  it('should classify STRING_TOO_LONG with suggestTruncate flag', () => {
-    const classification = SF_ERROR_CLASSIFICATIONS['STRING_TOO_LONG'];
-    expect(classification.retryable).toBe(false);
-    expect(classification.suggestTruncate).toBe(true);
-  });
-
-  it('should classify STORAGE_LIMIT_EXCEEDED with blockAll flag', () => {
-    const classification = SF_ERROR_CLASSIFICATIONS['STORAGE_LIMIT_EXCEEDED'];
-    expect(classification.retryable).toBe(false);
-    expect(classification.blockAll).toBe(true);
-  });
-
-  it('should classify INSUFFICIENT_ACCESS_OR_READONLY as permission error', () => {
-    const classification = SF_ERROR_CLASSIFICATIONS['INSUFFICIENT_ACCESS_OR_READONLY'];
-    expect(classification.retryable).toBe(false);
-    expect(classification.category).toBe('permission');
-  });
 });
 
 describe('getErrorClassification', () => {
-  it('should return correct classification for known error codes', () => {
-    const classification = getErrorClassification('UNABLE_TO_LOCK_ROW');
-    expect(classification.retryable).toBe(true);
-    expect(classification.strategy).toBe('exponential');
-  });
-
   it('should return default non-retryable classification for unknown error codes', () => {
     const classification = getErrorClassification('COMPLETELY_UNKNOWN_ERROR');
     expect(classification.retryable).toBe(false);

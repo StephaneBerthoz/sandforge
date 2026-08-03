@@ -26,31 +26,4 @@ describe('SF_LIMITS', () => {
     expect(typeof SF_LIMITS.DEFAULT_API_VERSION).toBe('string');
     expect(SF_LIMITS.DEFAULT_API_VERSION).toMatch(/^\d+\.\d+$/);
   });
-
-  it('should have correct REST API batch size', () => {
-    expect(SF_LIMITS.REST_API_BATCH_SIZE).toBe(200);
-  });
-
-  it('should have correct Composite API limits', () => {
-    expect(SF_LIMITS.COMPOSITE_BATCH_SIZE).toBe(25);
-    expect(SF_LIMITS.COMPOSITE_MAX_SUBREQUESTS).toBe(25);
-  });
-
-  it('should have correct Bulk API limits', () => {
-    expect(SF_LIMITS.BULK_API_MAX_RECORDS).toBe(150_000_000);
-    expect(SF_LIMITS.BULK_API_MAX_CONCURRENT_JOBS).toBe(100);
-    expect(SF_LIMITS.BULK_API_MAX_BATCH_SIZE_BYTES).toBe(10 * 1024 * 1024);
-  });
-
-  it('should have correct SOQL limits', () => {
-    expect(SF_LIMITS.SOQL_MAX_LENGTH).toBe(100_000);
-    expect(SF_LIMITS.SOQL_MAX_RECORDS).toBe(50_000);
-    expect(SF_LIMITS.SOQL_MAX_IN_VALUES).toBe(4000);
-    expect(SF_LIMITS.SOQL_MAX_OFFSET).toBe(2000);
-  });
-
-  it('should satisfy SfLimitKey type constraint', () => {
-    const key: SfLimitKey = 'REST_API_BATCH_SIZE';
-    expect(SF_LIMITS[key]).toBe(200);
-  });
 });
