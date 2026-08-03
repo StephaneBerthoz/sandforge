@@ -148,7 +148,13 @@ describe('SeedPage', () => {
 
   it('should show empty state when no orgs', () => {
     render(<SeedPage />);
-    expect(screen.getByText('No organizations connected')).toBeDefined();
+    expect(screen.getByTestId('empty-state')).toBeDefined();
+    expect(screen.getByTestId('illustration-seed')).toBeDefined();
+    expect(screen.getByText('Fill your sandbox with realistic test data')).toBeDefined();
+    expect(screen.getByTestId('empty-step-0').textContent).toContain(
+      'Connect an org via SFDX import',
+    );
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
   });
 
   it('should render seed page with mode selector', () => {

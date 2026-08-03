@@ -21,6 +21,8 @@ export interface EmptyStateProps {
   className?: string;
   /** Module identifier for inline SVG illustration. */
   module?: EmptyStateModule;
+  /** Ordered actionable steps displayed below the description. */
+  steps?: string[];
   /** Contextual encouragement message displayed below the description. */
   encouragement?: string;
   /** Label for a primary action button. */
@@ -193,6 +195,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   action,
   className,
   module,
+  steps,
   encouragement,
   actionLabel,
   onAction,
@@ -227,6 +230,28 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-1 max-w-xs">
           {description}
         </p>
+      )}
+
+      {/* Ordered actionable steps */}
+      {steps && steps.length > 0 && (
+        <ol className="mt-3 flex flex-col gap-1.5 text-left max-w-xs" data-testid="empty-steps">
+          {steps.map((step, index) => (
+            <li
+              key={index}
+              className="flex items-start gap-2 text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+              data-testid={`empty-step-${String(index)}`}
+            >
+              <span
+                className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-semibold mt-px"
+                style={{ background: 'var(--sf-accent, #E8A838)', color: '#1e1e1e' }}
+                aria-hidden="true"
+              >
+                {index + 1}
+              </span>
+              <span>{step}</span>
+            </li>
+          ))}
+        </ol>
       )}
 
       {/* Encouragement message */}

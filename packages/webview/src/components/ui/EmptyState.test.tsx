@@ -136,6 +136,32 @@ describe('EmptyState', () => {
     expect(screen.queryByTestId('empty-tour-link')).toBeNull();
   });
 
+  it('should render ordered steps when provided', () => {
+    render(
+      <EmptyState title="Empty" steps={['First connect', 'Then paste an ID', 'Then forge']} />,
+    );
+    expect(screen.getByTestId('empty-steps')).toBeDefined();
+    expect(screen.getByTestId('empty-step-0').textContent).toContain('First connect');
+    expect(screen.getByTestId('empty-step-1').textContent).toContain('Then paste an ID');
+    expect(screen.getByTestId('empty-step-2').textContent).toContain('Then forge');
+  });
+
+  it('should number the steps starting at 1', () => {
+    render(<EmptyState title="Empty" steps={['Alpha', 'Beta']} />);
+    expect(screen.getByTestId('empty-step-0').textContent).toContain('1');
+    expect(screen.getByTestId('empty-step-1').textContent).toContain('2');
+  });
+
+  it('should not render steps when not provided', () => {
+    render(<EmptyState title="Empty" />);
+    expect(screen.queryByTestId('empty-steps')).toBeNull();
+  });
+
+  it('should not render steps when the array is empty', () => {
+    render(<EmptyState title="Empty" steps={[]} />);
+    expect(screen.queryByTestId('empty-steps')).toBeNull();
+  });
+
   it('should render both links when both are provided', () => {
     render(
       <EmptyState

@@ -119,10 +119,13 @@
     "orgFlows": "Flows ativos",
     "orgInstance": "Instancia",
     "emptyState": {
-      "title": "Start Monitoring Your Org",
-      "description": "Connect a Salesforce org to track governor limits, API usage, storage, and org health in real time.",
-      "cta": "Select an Org"
-    }
+      "title": "Fique de olho na saúde da sua org",
+      "description": "O Monitor acompanha limites de governor, uso de API, armazenamento e jobs em tempo real — detecte problemas antes dos seus usuários.",
+      "step2": "Escolha a org a monitorar",
+      "step3": "Acompanhe limites, jobs e saúde num relance",
+      "step4": "Seja alertado antes de atingir os limites"
+    },
+    "selectOrgDesc": "Escolha uma org conectada para ver sua saúde, limites e jobs ao vivo."
   },
   "compare": {
     "title": "Comparar Org",
@@ -164,7 +167,14 @@
     "deps": "dependencias",
     "riskReasons": "Razoes de risco",
     "dependencies": "Dependencias",
-    "empty": "(vazio)"
+    "empty": "(vazio)",
+    "emptyState": {
+      "title": "Detecte diferenças entre duas orgs",
+      "description": "Compare metadados, permissões e drift entre uma org de origem e uma de destino — saiba exatamente o que muda antes de implantar.",
+      "step2": "Escolha as orgs de origem e destino",
+      "step3": "Selecione as categorias de metadados para comparar",
+      "step4": "Execute a comparação e revise os diffs"
+    }
   },
   "precheck": {
     "title": "Pre-verificacao",
@@ -365,6 +375,13 @@
         "stepPreview": "Pre-visualizacao",
         "stepExecute": "Executar"
       }
+    },
+    "emptyState": {
+      "title": "Preencha sua sandbox com dados de teste realistas",
+      "description": "O Seed gera dados sintéticos — a partir de templates, IA, CSV ou outra org — para desenvolver e testar sem dados de produção.",
+      "step2": "Escolha um template ou um modo: IA, CSV, Clonar",
+      "step3": "Escolha objetos e volumes de registros",
+      "step4": "Execute e revise os resultados"
     }
   },
   "sync": {
@@ -492,7 +509,14 @@
       }
     },
     "realtime": {
-      "comingSoon": "Requires CDC \u2014 Coming in v2.0"
+      "comingSoon": "Requires CDC — Coming in v2.0"
+    },
+    "emptyState": {
+      "title": "Mantenha duas orgs sincronizadas",
+      "description": "O Sync copia dados entre orgs — com mapeamento de campos, transformações e regras de conflito — ex. atualizar uma sandbox de dev a partir de uma partial copy.",
+      "step2": "Escolha as orgs de origem e destino",
+      "step3": "Mapeie objetos e campos",
+      "step4": "Execute a sincronização e revise os resultados"
     }
   },
   "dataops": {
@@ -604,9 +628,11 @@
     "runPIIScan": "Escanear PII",
     "noPII": "Nenhum campo PII detectado. Execute um escaneamento para verificar.",
     "emptyState": {
-      "title": "Protect and Manage Your Data",
-      "description": "Connect a Salesforce org to create backups, anonymize sensitive data, and ensure compliance.",
-      "cta": "Select an Org"
+      "title": "Proteja os dados da sua org",
+      "description": "O DataOps faz backup, restaura, anonimiza e limpa os dados da sua org — com ferramentas GDPR e painéis de qualidade integrados.",
+      "step2": "Crie um backup antes de qualquer operação arriscada",
+      "step3": "Anonimize campos sensíveis com um template",
+      "step4": "Agende limpezas e acompanhe a qualidade dos dados"
     }
   },
   "automation": {
@@ -934,8 +960,8 @@
     "welcomeSubtitle": "Forje suas sandboxes Salesforce com confianca",
     "step1Title": "Conecte sua Org",
     "step1Desc": "Vincule suas organizacoes Salesforce para comecar",
-    "step2Title": "Explore seu kit de ferramentas",
-    "step2Desc": "Descubra os 6 modulos que impulsionam seu fluxo de trabalho DevOps Salesforce",
+    "step2Title": "Três maneiras de preencher sua sandbox",
+    "step2Desc": "Comece de um registro real, gere dados sintéticos ou reproduza um dataset congelado após um refresh",
     "step3Title": "Configurar IA (Opcional)",
     "step3Desc": "Aprimore o SandForge com insights e geracao de dados impulsionados por IA",
     "getStarted": "Comecar",
@@ -982,6 +1008,17 @@
       "a11yDesc": "Rotulos ARIA, navegacao por teclado e suporte a alto contraste",
       "branding": "Novo branding",
       "brandingDesc": "Nova identidade do SandForge com logo e icones atualizados"
+    },
+    "heroTitle": "Preencha sua sandbox a partir de um registro real",
+    "heroDesc": "Aponte o SandForge para um registro em qualquer org — ele clona todo o grafo de relacionamentos para sua sandbox. Nada para copiar? Gere ou reproduza um dataset.",
+    "openFrozen": "Abrir Dataset congelado",
+    "paths": {
+      "forgeTitle": "Clonar a partir de um registro",
+      "forgeDesc": "Cole o ID de um registro, descubra seu grafo de relacionamentos, forge-o em sua sandbox",
+      "seedTitle": "Gerar dados sintéticos",
+      "seedDesc": "Templates, IA ou CSV — dados de teste realistas sem tocar na produção",
+      "frozenTitle": "Reproduzir um dataset congelado",
+      "frozenDesc": "Extraia uma vez, reproduza identicamente após cada refresh de sandbox"
     }
   },
   "help": {
@@ -1194,9 +1231,13 @@
   },
   "forge": {
     "emptyState": {
-      "title": "Discover Your Org Schema",
-      "description": "Connect a Salesforce org to explore its object relationships, generate data plans, and forge complete datasets.",
-      "cta": "Select an Org"
+      "title": "Preencha sua sandbox a partir de um registro real",
+      "description": "O Forge clona um registro raiz e todo o seu grafo de relacionamentos — Accounts, Contacts, Opportunities, Cases — para sua sandbox, remapeando cada ID.",
+      "step1Select": "Selecione uma org de origem",
+      "step2": "Cole o ID de um registro raiz (ex. uma Account de UAT)",
+      "step3": "Descubra seu grafo de relacionamentos",
+      "step4": "Ajuste profundidade, limite de registros e anonimização",
+      "step5": "Execute para sua sandbox — os IDs são remapeados"
     }
   },
   "autopilot": {
@@ -1231,20 +1272,31 @@
     "elapsed": "Decorrido: {{time}}",
     "queued": "Na fila",
     "processing": "Processando",
-    "complete": "Conclu\u00eddo",
+    "complete": "Concluído",
     "failed": "Falhou",
     "aborted": "Cancelado",
     "failedRecords": "{{count}} falharam"
   },
   "retry": {
-    "title": "Recupera\u00e7\u00e3o de erros",
+    "title": "Recuperação de erros",
     "attemptOf": "Tentativa {{current}} de {{max}}",
     "retryingIn": "Tentando novamente em {{seconds}}s",
     "exhausted": "Todas as tentativas esgotadas",
     "retryNow": "Tentar agora",
     "abort": "Cancelar",
-    "noFailures": "Nenhuma opera\u00e7\u00e3o com falha",
+    "noFailures": "Nenhuma operação com falha",
     "errorDetails": "Detalhes do erro",
     "manualRetryTriggered": "Tentativa manual iniciada"
+  },
+  "emptyState": {
+    "connectViaSfdx": "Conecte uma org via importação SFDX",
+    "connectTwoViaSfdx": "Conecte duas orgs via importação SFDX — origem e destino",
+    "connectSecondViaSfdx": "Conecte uma segunda org via importação SFDX",
+    "connectOrg": "Conectar uma org",
+    "selectOrgCta": "Selecionar uma org"
+  },
+  "guidedTour": {
+    "forgeTour": "Tour do Forge",
+    "forgeTourDesc": "Cole o ID de um registro, descubra seu grafo, forge-o em sua sandbox"
   }
 }

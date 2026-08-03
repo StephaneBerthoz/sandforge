@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CompareResult, MetadataComponentType, EnrichedDiff } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -42,6 +43,7 @@ export const ComparePage: React.FC = () => {
     { id: 'deploy', label: t('compare.deploy'), icon: 'cloud-upload' },
   ];
   const orgs = useOrgStore((s) => s.orgs);
+  const navigate = useAppStore((s) => s.navigate);
   const addNotification = useNotificationStore((s) => s.addNotification);
 
   const [sourceOrgId, setSourceOrgId] = useState('');
@@ -112,9 +114,19 @@ export const ComparePage: React.FC = () => {
   if (orgs.length < 2) {
     return (
       <EmptyState
-        icon="git-compare"
-        title={t('compare.selectOrgs')}
-        description={t('compare.selectOrgs')}
+        module="compare"
+        title={t('compare.emptyState.title')}
+        description={t('compare.emptyState.description')}
+        steps={[
+          orgs.length === 1
+            ? t('emptyState.connectSecondViaSfdx')
+            : t('emptyState.connectTwoViaSfdx'),
+          t('compare.emptyState.step2'),
+          t('compare.emptyState.step3'),
+          t('compare.emptyState.step4'),
+        ]}
+        actionLabel={t('emptyState.connectOrg')}
+        onAction={() => navigate('orgs')}
       />
     );
   }

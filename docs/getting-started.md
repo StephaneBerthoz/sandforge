@@ -81,7 +81,17 @@ If you have no connected orgs, a **Getting Started** card will guide you through
 
 ## Your First Operation
 
-Let's walk through a simple **Seed** operation to generate test data:
+The main SandForge use case: **populate a sandbox from a real record**. Let's walk through the **Forge** journey:
+
+1. Navigate to **Forge** from the sidebar
+2. Paste a root record ID in the **Record** tab (e.g. an Account from your UAT org) and pick the **Source Org** and **Target Org** (your dev sandbox)
+3. Click **Discover Graph** — Forge walks the record's relationship graph (Account → Contacts, Opportunities, Cases…)
+4. Tune the options: **Depth**, **Records per object**, **Anonymize PII**, excluded objects
+5. Click **Review & Execute**, then **Execute Forge** — records land in your sandbox with every ID remapped
+
+See the [Forge Quickstart](forge-quickstart.md) for the full walkthrough (including the headless CLI).
+
+No real data to copy yet? The **Seed** module generates test data instead:
 
 1. Navigate to **Seed** from the sidebar or Quick Actions
 2. Choose a seed mode from the mode selector: **AI Generate**, **CSV Upload**, or **Clone from Org**
@@ -100,6 +110,7 @@ The **NL2SOQL** helper in Step 1 lets you describe what you want in plain Englis
 
 Now that you are up and running, explore the full capabilities of each module:
 
+- [Forge](forge-quickstart.md) -- Record-scoped clone: populate a sandbox from a real record and its relationship graph
 - [Seed](modules/seed.md) -- AI generation, CSV import, and org-to-org cloning with templates and dependency resolution
 - [Sync](modules/sync.md) -- Bidirectional data synchronization between orgs
 - [Monitor](modules/monitor.md) -- Real-time org health, API limits, and job tracking

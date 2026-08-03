@@ -20,28 +20,37 @@ What it handles for you:
 
 ## 60-second wizard quickstart
 
+The main Forge journey, end to end — from a real record to a populated sandbox:
+
 ```
-1. Open VSCode → Sidebar → SandForge → Forge
-2. Pick a Source org (your partial copy) and a Target sandbox
-3. Paste a record ID (e.g. a Case Id) or pick a Salesforce URL
-4. Choose a Starter template:
-     • Account 360
-     • Case Workflow      ← typical Service Cloud dev case
-     • Lead → Opportunity
-5. Click "Discover Graph"
-6. Review the preview card:
-     • What will be cloned (X obj / Y records)
-     • What will be mapped (BusinessHours, OperatingHours)
-     • What will be skipped (excluded / out-of-scope)
-7. (Optional) Pick an anonymization preset:
-     • GDPR — default
-     • GDPR — strict
-     • Healthcare — PHI
-     • Internal-test — minimal
-8. Click "Execute Forge"
-9. The Errors panel groups any failures by object/stage with
-    Salesforce-code → human-friendly explanation + action hint
+1. Connect an org via SFDX import
+     → Sidebar → SandForge → Organizations → "SFDX Import"
+       (imports every org already authenticated with the Salesforce CLI)
+2. Open Forge (sidebar) and paste a root record ID
+     → "Record" tab → input "Record ID or Salesforce URL"
+       (e.g. an Account from your UAT / partial-copy org)
+     → pick the Source Org and the Target Org (your dev sandbox)
+3. Click "Discover Graph"
+     → Forge walks the relationship graph from your root record
+       (Account → Contacts, Opportunities, Cases…)
+4. Tune the options:
+     • Depth: "Direct only" / "Full tree" / "Custom depth"
+     • "Records per object" — cap rows per object (Smart / 10…1000 / All)
+     • "Anonymize PII" — protect sensitive fields on the way in
+     • "Skip empty objects" / "Auto-fetch parents"
+     • (Optional) pick an anonymization preset on the Review screen:
+       GDPR — default, GDPR — strict, Healthcare — PHI, Internal-test — minimal
+5. Click "Review & Execute", check the plan, then "Execute Forge"
+     → records are inserted into your target sandbox with every ID
+       remapped (see the "ID Remaps" tab in the results)
 ```
+
+The results screen groups any failures by object/stage with
+Salesforce-code → human-friendly explanation + action hint.
+
+> In a hurry? The "Template" tab ships starter graphs (Account 360,
+> Case Workflow, Lead → Opportunity) and the "Quick start" button skips
+> discovery entirely — record counts are then queried during execution.
 
 ## Headless quickstart (CLI)
 

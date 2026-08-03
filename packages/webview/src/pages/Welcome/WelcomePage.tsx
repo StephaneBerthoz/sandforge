@@ -8,39 +8,35 @@ import { Card, CardBody } from '../../components/ui/Card';
 const DONT_SHOW_KEY = 'sandforge-welcome-dont-show';
 
 /** Module card definition for the explore step. */
-interface ModuleCard {
-  id: string;
+interface UseCasePath {
+  id: 'forge' | 'seed' | 'frozen';
   icon: string;
   titleKey: string;
   descKey: string;
+  ctaKey: string;
 }
 
-const MODULES: ModuleCard[] = [
+const USE_CASE_PATHS: UseCasePath[] = [
   {
-    id: 'monitor',
-    icon: '\uD83D\uDCCA',
-    titleKey: 'nav.monitor',
-    descKey: 'onboarding.modules.monitor',
-  },
-  { id: 'seed', icon: '\uD83C\uDF31', titleKey: 'nav.seed', descKey: 'onboarding.modules.seed' },
-  { id: 'sync', icon: '\uD83D\uDD04', titleKey: 'nav.sync', descKey: 'onboarding.modules.sync' },
-  {
-    id: 'compare',
-    icon: '\uD83D\uDD0D',
-    titleKey: 'nav.compare',
-    descKey: 'onboarding.modules.compare',
+    id: 'forge',
+    icon: '\uD83D\uDD25',
+    titleKey: 'onboarding.paths.forgeTitle',
+    descKey: 'onboarding.paths.forgeDesc',
+    ctaKey: 'onboarding.openForge',
   },
   {
-    id: 'dataops',
-    icon: '\uD83D\uDEE1',
-    titleKey: 'nav.dataops',
-    descKey: 'onboarding.modules.dataops',
+    id: 'seed',
+    icon: '\uD83C\uDF31',
+    titleKey: 'onboarding.paths.seedTitle',
+    descKey: 'onboarding.paths.seedDesc',
+    ctaKey: 'onboarding.openSeed',
   },
   {
-    id: 'automation',
-    icon: '\u26A1',
-    titleKey: 'nav.automation',
-    descKey: 'onboarding.modules.automation',
+    id: 'frozen',
+    icon: '\u2744\uFE0F',
+    titleKey: 'onboarding.paths.frozenTitle',
+    descKey: 'onboarding.paths.frozenDesc',
+    ctaKey: 'onboarding.openFrozen',
   },
 ];
 
@@ -68,8 +64,9 @@ export interface WelcomePageProps {
 
 /**
  * 5-step onboarding wizard shown on first launch.
- * Step 0: Bienvenue (logo + language), Step 1: Connect Org,
- * Step 2: Explore modules, Step 3: Configure AI, Step 4: First steps suggestion.
+ * Step 0: Bienvenue (logo + language + primary use case), Step 1: Connect Org,
+ * Step 2: Pick a use-case path (Forge / Seed / Frozen), Step 3: Configure AI,
+ * Step 4: First steps suggestion.
  */
 export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 'sandbox' }) => {
   const { t, i18n } = useTranslation();
@@ -117,6 +114,18 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
       void i18n.changeLanguage(code);
     },
     [i18n],
+  );
+
+  /** Open a use-case path module and close the wizard. */
+  const handleOpenPath = useCallback(
+    (route: 'forge' | 'seed' | 'frozen'): void => {
+      if (dontShowAgain) {
+        localStorage.setItem(DONT_SHOW_KEY, 'true');
+      }
+      onComplete();
+      navigate(route);
+    },
+    [dontShowAgain, onComplete, navigate],
   );
 
   const progressPercent = ((step + 1) / TOTAL_STEPS) * 100;
@@ -175,6 +184,25 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
             <p className="text-xs mb-6" style={{ color: 'var(--sf-text-muted, #6a6a6a)' }}>
               {t('onboarding.bienvenueTagline')}
             </p>
+            {/* Primary use case — what SandForge is for */}
+            <div
+              className="mb-6 mx-auto max-w-md rounded-lg px-4 py-3"
+              style={{
+                border: '1px solid var(--sf-accent, #E8A838)',
+                background: 'var(--sf-bg-secondary, #252526)',
+              }}
+              data-testid="welcome-hero-usecase"
+            >
+              <p
+                className="text-sm font-semibold mb-1"
+                style={{ color: 'var(--sf-accent, #E8A838)' }}
+              >
+                {t('onboarding.heroTitle')}
+              </p>
+              <p className="text-xs" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
+                {t('onboarding.heroDesc')}
+              </p>
+            </div>
             <div className="mb-4">
               <p
                 className="text-sm font-medium mb-3"
@@ -226,29 +254,46 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
           </div>
         )}
 
-        {/* Step 2: Explore Modules */}
+        {/* Step 2: Pick a use-case path */}
         {step === 2 && (
           <div data-testid="welcome-step-2">
             <h2
-              className="text-xl font-semibold mb-4 text-center"
+              className="text-xl font-semibold mb-2 text-center"
               style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
             >
               {t('onboarding.step2Title')}
             </h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {MODULES.map((mod) => (
-                <Card key={mod.id} data-testid={`module-card-${mod.id}`}>
-                  <CardBody className="text-center p-4 cursor-pointer hover:opacity-80 transition-opacity">
-                    <div className="text-3xl mb-2">{mod.icon}</div>
+            <p
+              className="text-sm mb-4 text-center"
+              style={{ color: 'var(--sf-text-secondary, #868686)' }}
+            >
+              {t('onboarding.step2Desc')}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {USE_CASE_PATHS.map((path) => (
+                <Card key={path.id} data-testid={`path-card-${path.id}`}>
+                  <CardBody className="text-center p-4 flex flex-col items-center gap-2">
+                    <div className="text-3xl">{path.icon}</div>
                     <h3
-                      className="text-sm font-semibold mb-1"
+                      className="text-sm font-semibold"
                       style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
                     >
-                      {t(mod.titleKey)}
+                      {t(path.titleKey)}
                     </h3>
-                    <p className="text-xs" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
-                      {t(mod.descKey)}
+                    <p
+                      className="text-xs flex-1"
+                      style={{ color: 'var(--sf-text-secondary, #868686)' }}
+                    >
+                      {t(path.descKey)}
                     </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenPath(path.id)}
+                      data-testid={`welcome-open-${path.id}-btn`}
+                    >
+                      {t(path.ctaKey)}
+                    </Button>
                   </CardBody>
                 </Card>
               ))}

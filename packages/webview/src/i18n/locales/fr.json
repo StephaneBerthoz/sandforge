@@ -131,7 +131,7 @@
     "dismiss": "Ignorer",
     "refreshing": "Actualisation des donnees...",
     "lastUpdated": "Derniere mise a jour",
-    "selectOrg": "Selectionnez une org a surveiller",
+    "selectOrg": "Sélectionnez une org à surveiller",
     "viewFullReport": "Voir le rapport complet",
     "healthReport": "Rapport de sante",
     "period30d": "30j",
@@ -146,7 +146,7 @@
     "limitMax": "Max",
     "limitUsage": "Utilisation %",
     "limitStatus": "Statut",
-    "selectOrgDesc": "Choisissez une org connectee dans la liste ci-dessus pour commencer la surveillance.",
+    "selectOrgDesc": "Choisissez une org connectée pour voir sa santé, ses limites et ses jobs en direct.",
     "chooseOrg": "Choisir une org...",
     "autoRefreshOn": "Auto : ON",
     "autoRefreshOff": "Auto : OFF",
@@ -208,9 +208,11 @@
       "emptyDescription": "Cliquez sur Analyser pour evaluer la sante de votre org : utilisation API, stockage, complexite des metadonnees, couverture de code et securite."
     },
     "emptyState": {
-      "title": "Commencez a surveiller votre org",
-      "description": "Connectez un org Salesforce pour suivre les limites governor, l'utilisation API, le stockage et la sante de l'org en temps reel.",
-      "cta": "Selectionner un org"
+      "title": "Gardez un œil sur la santé de votre org",
+      "description": "Monitor suit les limites governor, l'usage API, le stockage et les jobs en temps réel — repérez les problèmes avant vos utilisateurs.",
+      "step2": "Choisissez l'org à surveiller",
+      "step3": "Suivez limites, jobs et santé en un coup d’œil",
+      "step4": "Soyez alerté avant que les limites ne soient atteintes"
     },
     "storage": {
       "title": "Repartition du stockage",
@@ -298,7 +300,14 @@
     "catSecurity": "Securite",
     "catConfiguration": "Configuration",
     "catContent": "Contenu",
-    "catOther": "Autre"
+    "catOther": "Autre",
+    "emptyState": {
+      "title": "Repérez les différences entre deux orgs",
+      "description": "Comparez métadonnées, permissions et dérive entre une org source et une cible — sachez exactement ce qui change avant de déployer.",
+      "step2": "Choisissez les orgs source et cible",
+      "step3": "Sélectionnez les catégories de métadonnées à comparer",
+      "step4": "Lancez la comparaison et passez les diffs en revue"
+    }
   },
   "precheck": {
     "title": "Pre-verification",
@@ -574,6 +583,13 @@
         "stepPreview": "Apercu",
         "stepExecute": "Execution"
       }
+    },
+    "emptyState": {
+      "title": "Remplissez votre sandbox de données de test réalistes",
+      "description": "Seed génère des données synthétiques — templates, IA, CSV ou autre org — pour développer et tester sans données de production.",
+      "step2": "Choisissez un template ou un mode : IA, CSV, Clone",
+      "step3": "Choisissez les objets et les volumes d'enregistrements",
+      "step4": "Exécutez puis consultez les résultats"
     }
   },
   "sync": {
@@ -759,6 +775,13 @@
         "editDelete": "Edit / Suppression",
         "createEdit": "Creation / Edit"
       }
+    },
+    "emptyState": {
+      "title": "Gardez deux orgs synchronisées",
+      "description": "Sync copie les données entre orgs — mapping de champs, transformations et règles de conflit — ex. rafraîchir une sandbox de dev depuis une partial copy.",
+      "step2": "Choisissez les orgs source et cible",
+      "step3": "Mappez les objets et les champs",
+      "step4": "Lancez la synchronisation et vérifiez les résultats"
     }
   },
   "dataops": {
@@ -884,9 +907,11 @@
     "errorRate": "Taux d'erreur",
     "anonymizedFields": "Modeles d'anonymisation",
     "emptyState": {
-      "title": "Protegez et gerez vos donnees",
-      "description": "Connectez un org Salesforce pour creer des sauvegardes, anonymiser les donnees sensibles et assurer la conformite.",
-      "cta": "Selectionner un org"
+      "title": "Protégez les données de votre org",
+      "description": "DataOps sauvegarde, restaure, anonymise et nettoie les données de votre org — outils RGPD et tableaux de qualité inclus.",
+      "step2": "Créez une sauvegarde avant toute opération risquée",
+      "step3": "Anonymisez les champs sensibles avec un template",
+      "step4": "Planifiez les nettoyages et suivez la qualité des données"
     }
   },
   "automation": {
@@ -1270,8 +1295,8 @@
     "welcomeSubtitle": "Forgez vos sandboxes Salesforce en toute confiance",
     "step1Title": "Connectez votre Org",
     "step1Desc": "Liez vos organisations Salesforce pour commencer",
-    "step2Title": "Explorez votre boite a outils",
-    "step2Desc": "Decouvrez les 6 modules qui alimentent votre workflow DevOps Salesforce",
+    "step2Title": "Trois façons de peupler votre sandbox",
+    "step2Desc": "Partez d'un enregistrement réel, générez des données synthétiques, ou rejouez un jeu figé après un refresh",
     "step3Title": "Configurer l'IA (Optionnel)",
     "step3Desc": "Ameliorez SandForge avec des insights et une generation de donnees IA",
     "getStarted": "Commencer",
@@ -1330,6 +1355,17 @@
       "a11yDesc": "Labels ARIA, navigation clavier et support haut contraste",
       "branding": "Nouveau branding",
       "brandingDesc": "Nouvelle identite SandForge avec logo et icones mis a jour"
+    },
+    "heroTitle": "Peuplez votre sandbox à partir d'un enregistrement réel",
+    "heroDesc": "Pointez SandForge sur un enregistrement de n'importe quelle org — il clone tout le graphe de relations dans votre sandbox. Rien à copier ? Générez ou rejouez un jeu de données.",
+    "openFrozen": "Ouvrir Jeu figé",
+    "paths": {
+      "forgeTitle": "Cloner depuis un enregistrement",
+      "forgeDesc": "Collez un ID d'enregistrement, découvrez son graphe de relations, forgez-le dans votre sandbox",
+      "seedTitle": "Générer des données synthétiques",
+      "seedDesc": "Templates, IA ou CSV — des données de test réalistes sans toucher à la production",
+      "frozenTitle": "Rejouer un jeu figé",
+      "frozenDesc": "Extrayez une fois, rejouez à l'identique après chaque refresh de sandbox"
     }
   },
   "help": {
@@ -1418,7 +1454,9 @@
     "dataopsTour": "Visite DataOps",
     "dataopsTourDesc": "Gerez les sauvegardes et la qualite des donnees",
     "automationTour": "Visite Automation",
-    "automationTourDesc": "Construisez des pipelines d'automatisation"
+    "automationTourDesc": "Construisez des pipelines d'automatisation",
+    "forgeTour": "Visite Forge",
+    "forgeTourDesc": "Collez un ID d'enregistrement, découvrez son graphe, forgez-le dans votre sandbox"
   },
   "emptyState": {
     "encouragement": "Vous venez de commencer !",
@@ -1435,7 +1473,12 @@
     "automationAction": "Construire votre premier pipeline",
     "automationEncouragement": "Automatisez les taches repetitives sans effort",
     "viewDocs": "Voir la documentation",
-    "startTour": "Demarrer la visite guidee"
+    "startTour": "Demarrer la visite guidee",
+    "connectViaSfdx": "Connectez une org via l'import SFDX",
+    "connectTwoViaSfdx": "Connectez deux orgs via l'import SFDX — source et cible",
+    "connectSecondViaSfdx": "Connectez une seconde org via l'import SFDX",
+    "connectOrg": "Connecter une org",
+    "selectOrgCta": "Sélectionner une org"
   },
   "home": {
     "title": "Tableau de bord",
@@ -1676,9 +1719,13 @@
     "smartLimitSuggested": "Org avec {{count}} enregistrements detectee — limite {{limit}}/objet appliquee",
     "smartLimitOverride": "Override",
     "emptyState": {
-      "title": "Explorez le schema de votre org",
-      "description": "Connectez un org Salesforce pour explorer ses relations, generer des plans de donnees et forger des jeux complets.",
-      "cta": "Selectionner un org"
+      "title": "Peuplez votre sandbox à partir d'un enregistrement réel",
+      "description": "Forge clone un enregistrement racine et tout son graphe de relations — Accounts, Contacts, Opportunities, Cases — vers votre sandbox, en réattribuant chaque ID.",
+      "step1Select": "Sélectionnez une org source",
+      "step2": "Collez l'ID d'un enregistrement racine (ex. un Account de recette)",
+      "step3": "Découvrez son graphe de relations",
+      "step4": "Ajustez profondeur, limite d'enregistrements et anonymisation",
+      "step5": "Exécutez vers votre sandbox — les IDs sont réattribués"
     }
   },
   "autopilot": {

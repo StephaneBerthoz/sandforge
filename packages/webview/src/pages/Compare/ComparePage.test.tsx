@@ -81,7 +81,19 @@ describe('ComparePage', () => {
   it('should show empty state with fewer than 2 orgs', () => {
     useOrgStore.setState({ orgs: [twoOrgs[0]] });
     render(<ComparePage />);
-    expect(screen.getAllByText('Select two orgs to compare').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('empty-state')).toBeDefined();
+    expect(screen.getByTestId('illustration-compare')).toBeDefined();
+    expect(screen.getByText('Spot differences between two orgs')).toBeDefined();
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+  });
+
+  it('should prompt for a second org in the empty state when exactly one org exists', () => {
+    useOrgStore.setState({ orgs: [twoOrgs[0]] });
+    render(<ComparePage />);
+    expect(screen.getByTestId('empty-step-0').textContent).toContain(
+      'Connect a second org via SFDX import',
+    );
+    expect(screen.getByTestId('empty-step-1').textContent).toContain('Pick source and target orgs');
   });
 
   it('should render the compare page', () => {

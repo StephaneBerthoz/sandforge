@@ -151,7 +151,13 @@ export const MonitorPage: React.FC = () => {
         module="monitor"
         title={t('monitor.emptyState.title')}
         description={t('monitor.emptyState.description')}
-        actionLabel={t('monitor.emptyState.cta')}
+        steps={[
+          t('emptyState.connectViaSfdx'),
+          t('monitor.emptyState.step2'),
+          t('monitor.emptyState.step3'),
+          t('monitor.emptyState.step4'),
+        ]}
+        actionLabel={t('emptyState.connectOrg')}
         onAction={() => navigate('orgs')}
       />
     );
@@ -174,7 +180,7 @@ export const MonitorPage: React.FC = () => {
             <p className="text-sm text-text-secondary">
               {t(
                 'monitor.selectOrgDesc',
-                'Choose a connected org to view real-time health, limits and jobs.',
+                'Choose a connected org to see its live health, limits and jobs.',
               )}
             </p>
           </div>

@@ -190,6 +190,16 @@ describe('MonitorPage', () => {
     expect(screen.getByTestId('empty-action-button')).toBeDefined();
   });
 
+  it('should show the monitoring journey steps and connect CTA when zero orgs', () => {
+    render(<MonitorPage />);
+    expect(screen.getByText('Keep an eye on your org health')).toBeDefined();
+    expect(screen.getByTestId('empty-step-0').textContent).toContain(
+      'Connect an org via SFDX import',
+    );
+    expect(screen.getByTestId('empty-step-1').textContent).toContain('Pick the org to watch');
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+  });
+
   it('should show org selector empty state when orgs exist but none selected', () => {
     useOrgStore.setState({
       selectedOrgId: null,
