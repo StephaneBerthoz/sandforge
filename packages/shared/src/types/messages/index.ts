@@ -28,6 +28,7 @@ export * from './scheduler.messages.js';
 export * from './realtime.messages.js';
 export * from './cache.messages.js';
 export * from './smart-action.messages.js';
+export * from './frozen.messages.js';
 
 import type {
   OrgListRequest,
@@ -342,6 +343,26 @@ import type {
   QuickSyncPreviewRequest,
   QuickSyncExecuteRequest,
 } from './smart-action.messages.js';
+import type {
+  FrozenConfigGetRequest,
+  FrozenConfigSaveRequest,
+  FrozenSelectRequest,
+  FrozenExtractRequest,
+  FrozenManifestGetRequest,
+  FrozenLoadRequest,
+  FrozenVerifyRequest,
+  FrozenStatusRequest,
+  FrozenConfigGetResponse,
+  FrozenConfigSaveResponse,
+  FrozenSelectResponse,
+  FrozenExtractResponse,
+  FrozenControlResultMessage,
+  FrozenManifestGetResponse,
+  FrozenLoadResponse,
+  FrozenLoadProgressMessage,
+  FrozenVerifyResultMessage,
+  FrozenStatusResponse,
+} from './frozen.messages.js';
 
 /** Message from WebView to Extension (requests) */
 export type WebViewToExtensionMessage =
@@ -516,7 +537,16 @@ export type WebViewToExtensionMessage =
   | QuickSyncSuggestObjectsRequest
   | QuickSyncDetectRelationshipsRequest
   | QuickSyncPreviewRequest
-  | QuickSyncExecuteRequest;
+  | QuickSyncExecuteRequest
+  // Frozen Reference Dataset
+  | FrozenConfigGetRequest
+  | FrozenConfigSaveRequest
+  | FrozenSelectRequest
+  | FrozenExtractRequest
+  | FrozenManifestGetRequest
+  | FrozenLoadRequest
+  | FrozenVerifyRequest
+  | FrozenStatusRequest;
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
@@ -660,4 +690,15 @@ export type ExtensionToWebViewMessage =
   | CacheInvalidateAllResponse
   | CacheStatsResponse
   // Smart Action
-  | SmartActionAnalyzeResponse;
+  | SmartActionAnalyzeResponse
+  // Frozen Reference Dataset
+  | FrozenConfigGetResponse
+  | FrozenConfigSaveResponse
+  | FrozenSelectResponse
+  | FrozenExtractResponse
+  | FrozenControlResultMessage
+  | FrozenManifestGetResponse
+  | FrozenLoadResponse
+  | FrozenLoadProgressMessage
+  | FrozenVerifyResultMessage
+  | FrozenStatusResponse;

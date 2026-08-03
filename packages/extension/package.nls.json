@@ -5,6 +5,7 @@
   "view.launcher": "SandForge",
   "command.openMonitor": "SandForge: Open Monitor",
   "command.openForge": "SandForge: Open Forge",
+  "command.openFrozen": "SandForge: Open Frozen Dataset",
   "command.openGrappe": "SandForge: Open Grappe",
   "command.openCompare": "SandForge: Open Compare",
   "command.openDataOps": "SandForge: Open DataOps",

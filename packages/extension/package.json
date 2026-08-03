@@ -84,6 +84,11 @@
         "icon": "$(flame)"
       },
       {
+        "command": "sandforge.openFrozen",
+        "title": "%command.openFrozen%",
+        "icon": "$(snowflake)"
+      },
+      {
         "command": "sandforge.openGrappe",
         "title": "%command.openGrappe%",
         "icon": "$(symbol-namespace)"

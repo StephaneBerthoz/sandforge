@@ -41,6 +41,7 @@ export * from './types/messages.types.js';
 export * from './types/precheck.types.js';
 export * from './types/settings.types.js';
 export * from './types/forge.types.js';
+export * from './types/frozen.types.js';
 export * from './types/quickSync.types.js';
 export * from './types/execution.types.js';
 export * from './types/smart-action.types.js';

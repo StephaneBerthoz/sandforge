@@ -47,6 +47,7 @@
 | [Compare](docs/modules/compare.md) | Metadata diff, permission matrix, and drift detection |
 | [DataOps](docs/modules/dataops.md) | Backup, restore, anonymization, and data quality |
 | [Automation](docs/modules/automation.md) | Visual pipeline builder with scheduling |
+| [Frozen Reference Dataset](docs/modules/frozen-dataset.md) | Extract once, pseudonymize deterministically, replay identically after every sandbox refresh |
 | [FAQ & Troubleshooting](docs/faq.md) | Common questions and solutions to frequent issues |
 
 ---

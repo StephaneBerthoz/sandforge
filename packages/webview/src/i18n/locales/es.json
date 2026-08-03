@@ -44,6 +44,7 @@
     "seed": "Seed",
     "sync": "Sync",
     "monitor": "Monitor",
+    "frozen": "Dataset congelado",
     "compare": "Comparar Org",
     "dataops": "DataOps",
     "automation": "Automatizacion",
@@ -1071,6 +1072,125 @@
     "openBrowser": "Abrir navegador",
     "notSupported": "Este metodo de autenticacion aun no esta soportado.",
     "sfdxHint": "Todas las orgs conectadas en Salesforce CLI se importaran automaticamente."
+  },
+  "frozen": {
+    "subtitle": "Extraer una vez, seudonimizar de forma determinista, recargar idénticamente tras cada actualización de sandbox",
+    "emptyState": {
+      "title": "Ninguna org conectada",
+      "description": "Conecte una org de Salesforce para crear o recargar un dataset de referencia congelado.",
+      "cta": "Seleccionar una org"
+    },
+    "status": {
+      "salt": "Huella de la sal",
+      "saltMissing": "Sal ausente",
+      "dataset": "Dataset congelado",
+      "records": "{{count}} registros",
+      "noDataset": "Ningún dataset congelado aún",
+      "selection": "Selección",
+      "noSelection": "Ninguna selección aún",
+      "lastVerify": "Última verificación"
+    },
+    "tabs": {
+      "extract": "Extraer",
+      "load": "Cargar"
+    },
+    "manifest": {
+      "version": "Dataset v{{version}}"
+    },
+    "config": {
+      "title": "Configuración del proyecto",
+      "rootObject": "Objeto raíz (expediente)",
+      "budget": "Presupuesto de volumen (registros)",
+      "axes": "Ejes de cobertura",
+      "addAxis": "Añadir eje",
+      "axisName": "Nombre",
+      "axisLabel": "Etiqueta",
+      "axisField": "Campo de filtro",
+      "axisSoql": "SOQL de agregado (axisValue)",
+      "removeAxis": "Quitar eje",
+      "edgeCases": "Casos límite",
+      "addEdgeCase": "Añadir caso límite",
+      "edgeName": "Nombre",
+      "edgeLabel": "Etiqueta",
+      "edgeWhere": "Fragmento WHERE",
+      "removeEdgeCase": "Quitar caso límite",
+      "advanced": "Configuración avanzada (JSON: entornos protegidos, claves de identidad, reglas de picklist, placeholders, mocks…)",
+      "invalidJson": "JSON no válido: la configuración avanzada debe ser un objeto JSON.",
+      "save": "Guardar configuración",
+      "saved": "Configuración guardada"
+    },
+    "selection": {
+      "title": "Selección por matriz de cobertura",
+      "run": "Ejecutar selección",
+      "volumetry": "{{total}} registros medidos (presupuesto: {{budget}})",
+      "combination": "Combinación",
+      "axes": "Valores de ejes",
+      "edgeCase": "Caso límite",
+      "empty": "Ninguna combinación retenida",
+      "uncovered": "{{count}} combinación(es) sin cobertura"
+    },
+    "extract": {
+      "title": "Extracción y seudonimización",
+      "run": "Ejecutar extracción",
+      "summary": "{{count}} registros congelados en {{files}} archivos"
+    },
+    "control": {
+      "check": "Control",
+      "result": "Resultado",
+      "pass": "PASS",
+      "fail": "FAIL",
+      "violations": "Infracciones",
+      "object": "Objeto",
+      "field": "Campo",
+      "detail": "Detalle"
+    },
+    "guards": {
+      "title": "Guardas de entrada",
+      "sandboxOnly": "Solo sandbox",
+      "protectedEnvs": "{{count}} entorno(s) protegido(s)",
+      "mocksConfigured": "Detección de mocks configurada",
+      "mocksNotConfigured": "Detección de mocks no configurada",
+      "saltOk": "Sal cargada",
+      "saltMissing": "Sal ausente"
+    },
+    "load": {
+      "targetOrg": "Org de destino (sandbox)",
+      "pilot": "Piloto (1 expediente)",
+      "reload": "Recarga sin refresco",
+      "run": "Ejecutar carga",
+      "runPilot": "Ejecutar piloto",
+      "progress": "Progreso"
+    },
+    "verify": {
+      "run": "Volver a verificar",
+      "title": "Verificación posterior a la carga",
+      "attempts": "{{count}} medición(es)",
+      "status": {
+        "passed": "Superada",
+        "failed": "Fallida",
+        "unstable": "Inestable"
+      }
+    },
+    "report": {
+      "title": "Informe de carga",
+      "status": {
+        "completed": "Completada",
+        "completed-with-errors": "Completada con errores"
+      },
+      "inserted": "Insertados",
+      "reused": "Reutilizados",
+      "skipped": "Omitidos (duplicados)",
+      "failed": "Fallidos",
+      "removals": "Campos retirados en la alineación",
+      "field": "Campo",
+      "reason": "Motivo",
+      "affected": "Registros",
+      "placeholders": "Placeholders técnicos",
+      "placeholder": "Placeholder",
+      "skippedList": "Registros omitidos (anti-duplicados nativo)",
+      "errors": "Errores",
+      "postLoad": "Pase 2: {{pass2}} enlaces de ciclo resueltos — PersonContact: {{personContact}} restaurados"
+    }
   },
   "forge": {
     "emptyState": {

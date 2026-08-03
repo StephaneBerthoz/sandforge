@@ -75,10 +75,11 @@ describe('useAppStore', () => {
   });
 
   it('should expose ALL_ROUTES with all module routes', () => {
-    expect(ALL_ROUTES).toHaveLength(15);
+    expect(ALL_ROUTES).toHaveLength(16);
     expect(ALL_ROUTES).toContain('home');
     expect(ALL_ROUTES).toContain('orgs');
     expect(ALL_ROUTES).toContain('forge');
+    expect(ALL_ROUTES).toContain('frozen');
     expect(ALL_ROUTES).toContain('grappe');
     expect(ALL_ROUTES).toContain('monitor');
     expect(ALL_ROUTES).toContain('seed');

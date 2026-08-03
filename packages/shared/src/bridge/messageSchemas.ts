@@ -391,6 +391,28 @@ export const SmartActionMessageSchema = z.discriminatedUnion('type', [
   msg('quicksync:execute'),
 ]);
 
+// ─── Domain: Frozen Reference Dataset ────────────────────────────────────────
+export const FrozenMessageSchema = z.discriminatedUnion('type', [
+  msg('frozen:config:get'),
+  msg('frozen:config:get:response'),
+  msg('frozen:config:save'),
+  msg('frozen:config:save:response'),
+  msg('frozen:select'),
+  msg('frozen:select:response'),
+  msg('frozen:extract'),
+  msg('frozen:extract:response'),
+  msg('frozen:control:result'),
+  msg('frozen:manifest:get'),
+  msg('frozen:manifest:get:response'),
+  msg('frozen:load'),
+  msg('frozen:load:response'),
+  msg('frozen:load:progress'),
+  msg('frozen:verify'),
+  msg('frozen:verify:result'),
+  msg('frozen:status'),
+  msg('frozen:status:response'),
+]);
+
 /**
  * Full bridge message surface — union of every domain union.
  *
@@ -414,6 +436,7 @@ export const BridgeMessageSchema = z.union([
   ConflictMessageSchema,
   CacheMessageSchema,
   SmartActionMessageSchema,
+  FrozenMessageSchema,
 ]);
 
 /** Inferred TS type of any valid bridge message (after parse). */

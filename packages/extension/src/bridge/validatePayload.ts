@@ -299,6 +299,95 @@ export const compareExecutePayloadSchema = compareOrgsPayloadSchema.extend({
   types: z.array(z.string().min(1).max(80)).min(1).max(50),
 });
 
+// ── frozen:* payload schemas ──────────────────────────────────────────────
+// Mirror the FrozenProjectConfig DTO (shared/types/frozen.types.ts). Every
+// list is bounded; SOQL fragments reuse the where-clause keyword guard.
+
+/** Semver string (dataset / rules versions). */
+const semverSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'Invalid semver');
+
+/** `Object.field` key used by placeholder/default/picklist rule maps. */
+const objectFieldKeySchema = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9_]*\.[A-Za-z][A-Za-z0-9_]*$/, 'Expected an Object.field key')
+  .max(170);
+
+export const frozenCoverageAxisPayloadSchema = z.object({
+  name: z.string().min(1).max(80),
+  label: z.string().min(1).max(200),
+  filterField: sfApiNameSchema,
+  // Aggregate SOQL enumerating axis values (SELECT ... AS axisValue). Bounded;
+  // DML keywords are rejected by the extractor's read-only query path.
+  valuesSoql: z.string().min(1).max(4000),
+});
+
+export const frozenEdgeCasePayloadSchema = z.object({
+  name: z.string().min(1).max(80),
+  label: z.string().min(1).max(200),
+  whereFragment: whereClauseSchema,
+});
+
+export const frozenPicklistRulePayloadSchema = z.union([
+  z.object({ action: z.literal('clear') }),
+  z.object({ action: z.literal('replace'), value: z.string().max(255) }),
+]);
+
+export const frozenProjectConfigPayloadSchema = z.object({
+  rootObject: sfApiNameSchema,
+  axes: z.array(frozenCoverageAxisPayloadSchema).max(20),
+  edgeCases: z.array(frozenEdgeCasePayloadSchema).max(50),
+  budgetMaxRecords: z.number().int().positive().max(100_000).optional(),
+  candidatesPerCombination: z.number().int().positive().max(20).optional(),
+  expectedObjects: z.array(sfApiNameSchema).max(100).optional(),
+  excludedFields: z.record(sfApiNameSchema, z.array(sfApiNameSchema).max(500)).optional(),
+  sasDir: z.string().min(1).max(500).optional(),
+  datasetDir: z.string().min(1).max(500).optional(),
+  rulesFilePath: z.string().min(1).max(500).optional(),
+  datasetVersion: semverSchema.optional(),
+  protectedOrgIds: z.array(orgIdSchema).max(50).optional(),
+  identityKeys: z.record(sfApiNameSchema, z.array(sfApiNameSchema).min(1).max(10)).optional(),
+  undeletableObjects: z.record(sfApiNameSchema, sfApiNameSchema).optional(),
+  requiredLookupPlaceholders: z
+    .record(
+      objectFieldKeySchema,
+      z.object({
+        name: z.string().min(1).max(200),
+        recordTypeDeveloperName: z.string().min(1).max(80).optional(),
+        targetObjectApiName: sfApiNameSchema.optional(),
+      }),
+    )
+    .optional(),
+  requiredFieldDefaults: z.record(objectFieldKeySchema, z.unknown()).optional(),
+  picklistRules: z.record(objectFieldKeySchema, frozenPicklistRulePayloadSchema).optional(),
+  defaultPicklistRule: frozenPicklistRulePayloadSchema.optional(),
+  duplicateErrorPatterns: z.array(z.string().min(1).max(200)).max(50).optional(),
+  mockDetection: z
+    .object({
+      metadataTypeApiName: sfApiNameSchema,
+      isMockedFieldApiName: sfApiNameSchema,
+    })
+    .optional(),
+  mandatoryLookups: z
+    .record(sfApiNameSchema, z.array(sfApiNameSchema).min(1).max(50))
+    .optional(),
+  presenceKeys: z.record(sfApiNameSchema, sfApiNameSchema).optional(),
+});
+
+export const frozenConfigSavePayloadSchema = z.object({
+  config: frozenProjectConfigPayloadSchema,
+});
+export const frozenSelectPayloadSchema = z.object({ sourceOrgId: orgIdSchema });
+export const frozenExtractPayloadSchema = z.object({
+  sourceOrgId: orgIdSchema,
+  author: z.string().min(1).max(120).optional(),
+});
+export const frozenLoadPayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  pilot: z.boolean().optional(),
+  reload: z.boolean().optional(),
+});
+export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
+
 /**
  * Validate a webview message payload against a zod schema. Returns parsed
  * data on success; on failure, posts a handler error and returns null so

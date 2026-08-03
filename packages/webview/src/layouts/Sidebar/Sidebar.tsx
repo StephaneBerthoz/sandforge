@@ -8,6 +8,7 @@ import {
   Shield,
   Zap,
   Flame,
+  Snowflake,
   Bot,
   BarChart3,
   Settings,
@@ -31,6 +32,7 @@ const iconMap: Record<string, LucideIcon> = {
   home: Home,
   orgs: Plug,
   forge: Flame,
+  frozen: Snowflake,
   monitor: Activity,
   compare: GitCompare,
   dataops: Shield,
@@ -70,6 +72,7 @@ const mainNav: NavItem[] = [
 
 const moduleNav: NavItem[] = [
   { route: 'monitor', labelKey: 'nav.monitor', icon: 'monitor' },
+  { route: 'frozen', labelKey: 'nav.frozen', icon: 'frozen' },
   { route: 'compare', labelKey: 'nav.compare', icon: 'compare' },
   { route: 'dataops', labelKey: 'nav.dataops', icon: 'dataops' },
   { route: 'automation', labelKey: 'nav.automation', icon: 'automation' },

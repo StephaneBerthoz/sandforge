@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Star,
   ArrowRight,
+  Snowflake,
 } from 'lucide-react';
 import { cn } from './theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
@@ -57,6 +58,12 @@ const MODULE_ITEMS: NavItem[] = [
     labelKey: 'nav.monitor',
     icon: <Activity className="w-4 h-4" />,
     accent: 'text-blue-400',
+  },
+  {
+    id: 'frozen',
+    labelKey: 'nav.frozen',
+    icon: <Snowflake className="w-4 h-4" />,
+    accent: 'text-cyan-400',
   },
   {
     id: 'compare',

@@ -5,6 +5,7 @@
   "view.launcher": "SandForge",
   "command.openMonitor": "SandForge : Ouvrir le moniteur",
   "command.openForge": "SandForge : Ouvrir Forge",
+  "command.openFrozen": "SandForge : Ouvrir Jeu de référence figé",
   "command.openGrappe": "SandForge : Ouvrir Grappe",
   "command.openCompare": "SandForge : Ouvrir Comparaison",
   "command.openDataOps": "SandForge : Ouvrir DataOps",

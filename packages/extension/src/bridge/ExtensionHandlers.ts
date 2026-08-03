@@ -37,6 +37,7 @@ import type { AIDiagnoseHandler } from './handlers/ai/AIDiagnoseHandler.js';
 import { AutopilotHandler } from './handlers/AutopilotHandler.js';
 import { ForgeHandler } from './handlers/ForgeHandler.js';
 import type { ForgeServices } from './handlers/ForgeHandler.js';
+import { FrozenDatasetHandler } from './handlers/FrozenDatasetHandler.js';
 import { MigrationHandler } from './handlers/MigrationHandler.js';
 import type { MigrationFileReader } from './handlers/MigrationHandler.js';
 import { ConfigHandler } from './handlers/ConfigHandler.js';
@@ -113,6 +114,7 @@ export class ExtensionHandlers {
   private readonly aiHandler: AIHandler;
   private readonly autopilotHandler: AutopilotHandler;
   private readonly forgeHandler: ForgeHandler;
+  private readonly frozenHandler: FrozenDatasetHandler;
   private readonly migrationHandler: MigrationHandler;
   private readonly configHandler: ConfigHandler;
   private readonly governanceHandler: GovernanceOpsHandler;
@@ -164,6 +166,7 @@ export class ExtensionHandlers {
     this.aiHandler = new AIHandler(this.handlerDeps);
     this.autopilotHandler = new AutopilotHandler(this.handlerDeps);
     this.forgeHandler = new ForgeHandler(this.handlerDeps);
+    this.frozenHandler = new FrozenDatasetHandler(this.handlerDeps);
     this.migrationHandler = new MigrationHandler(this.handlerDeps);
     this.configHandler = new ConfigHandler(this.handlerDeps);
     this.governanceHandler = new GovernanceOpsHandler(
@@ -499,6 +502,21 @@ export class ExtensionHandlers {
         'forge:target-preflight:request',
       ],
       this.forgeHandler,
+    );
+
+    // Frozen Reference Dataset
+    route(
+      [
+        'frozen:config:get',
+        'frozen:config:save',
+        'frozen:select',
+        'frozen:extract',
+        'frozen:manifest:get',
+        'frozen:load',
+        'frozen:verify',
+        'frozen:status',
+      ],
+      this.frozenHandler,
     );
 
     // Migration

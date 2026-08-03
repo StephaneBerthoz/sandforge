@@ -628,6 +628,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const moduleCommands: Array<{ command: string; moduleId: string; title: string }> = [
     { command: 'sandforge.openMonitor', moduleId: 'monitor', title: 'Monitor' },
     { command: 'sandforge.openForge', moduleId: 'forge', title: 'Forge' },
+    { command: 'sandforge.openFrozen', moduleId: 'frozen', title: 'Frozen Dataset' },
     { command: 'sandforge.openGrappe', moduleId: 'grappe', title: 'Grappe' },
     { command: 'sandforge.openCompare', moduleId: 'compare', title: 'Compare' },
     { command: 'sandforge.openDataOps', moduleId: 'dataops', title: 'DataOps' },

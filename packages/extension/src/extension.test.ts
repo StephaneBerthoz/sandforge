@@ -158,6 +158,7 @@ describe('extension', () => {
     const expectedCommands = [
       'sandforge.openMonitor',
       'sandforge.openForge',
+      'sandforge.openFrozen',
       'sandforge.openGrappe',
       'sandforge.openCompare',
       'sandforge.openDataOps',
@@ -191,10 +192,10 @@ describe('extension', () => {
 
     activate(context);
 
-    // 10 module commands + 1 cheers + 1 sandforge.ai config-change listener
+    // 11 module commands + 1 cheers + 1 sandforge.ai config-change listener
     // + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry
-    // + orgChange unsub + orgManager + offlineManager + performanceTracker + cacheManager = 22
-    expect(context.subscriptions.length).toBe(22);
+    // + orgChange unsub + orgManager + offlineManager + performanceTracker + cacheManager = 23
+    expect(context.subscriptions.length).toBe(23);
   });
 
   it('should deactivate without error', async () => {

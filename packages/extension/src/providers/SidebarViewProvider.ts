@@ -69,6 +69,7 @@ export class SidebarViewProvider {
             home: 'sandforge.openMonitor',
             monitor: 'sandforge.openMonitor',
             forge: 'sandforge.openForge',
+            frozen: 'sandforge.openFrozen',
             grappe: 'sandforge.openGrappe',
             compare: 'sandforge.openCompare',
             dataops: 'sandforge.openDataOps',
