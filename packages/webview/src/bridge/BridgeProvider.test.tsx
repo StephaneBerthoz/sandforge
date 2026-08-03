@@ -191,7 +191,7 @@ describe('BridgeProvider', () => {
   });
 
   it('should not auto-select when an org is already selected', () => {
-    useOrgStore.setState({ selectedOrgId: 'existing' });
+    useOrgStore.setState({ selectedOrgId: '1' });
 
     render(
       <BridgeProvider>
@@ -203,10 +203,52 @@ describe('BridgeProvider', () => {
       id: 'ext-auto-2',
       type: 'org:list:response',
       timestamp: Date.now(),
+      payload: { orgs: [createTestOrg('1'), createTestOrg('2')] },
+    });
+
+    expect(useOrgStore.getState().selectedOrgId).toBe('1');
+  });
+
+  it('should clear a stale selection when the selected org is gone from the list', () => {
+    // The webview persists selectedOrgId across reloads; if the org vanished
+    // from the extension config (reset, removed org, new profile), keeping it
+    // makes every module query an org that no longer exists.
+    useOrgStore.setState({ selectedOrgId: 'ghost-org' });
+
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-stale-1',
+      type: 'org:list:response',
+      timestamp: Date.now(),
       payload: { orgs: [createTestOrg('1')] },
     });
 
-    expect(useOrgStore.getState().selectedOrgId).toBe('existing');
+    // Stale id cleared, then auto-select kicks in on the connected org
+    expect(useOrgStore.getState().selectedOrgId).toBe('1');
+  });
+
+  it('should clear a stale selection to null when no org remains', () => {
+    useOrgStore.setState({ selectedOrgId: 'ghost-org' });
+
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-stale-2',
+      type: 'org:list:response',
+      timestamp: Date.now(),
+      payload: { orgs: [] },
+    });
+
+    expect(useOrgStore.getState().selectedOrgId).toBeNull();
   });
 
   it('should not auto-select when no connected orgs exist', () => {
