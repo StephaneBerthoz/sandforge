@@ -275,4 +275,73 @@ describe('SchemaCache', () => {
     expect(cache.estimatedBytes).toBeGreaterThan(bytesSmall);
     expect(cache.size).toBe(1);
   });
+
+  describe('byte cap calibration (realistic describe payloads)', () => {
+    /**
+     * Realistic Account-shaped describe: name/label/type/help text per field,
+     * picklist values on ~25% of fields, child relationships. Mirrors what a
+     * raw jsforce describe carries (the Forge cache stores a trimmed DTO, but
+     * the estimator must charge real content either way).
+     */
+    function buildRealisticDescribe(fieldCount: number): Record<string, unknown> {
+      const picklistCount = Math.floor(fieldCount / 4);
+      const fields = Array.from({ length: fieldCount }, (_, i) => ({
+        name: `CustomField${i}__c`,
+        label: `Custom Field ${i}`,
+        type: i < picklistCount ? 'picklist' : 'string',
+        inlineHelpText: `Help text for custom field ${i}, explaining its business purpose.`,
+        createable: true,
+        nillable: true,
+        ...(i < picklistCount
+          ? {
+              picklistValues: Array.from({ length: 8 }, (__, v) => ({
+                value: `Value${v}`,
+                label: `Value ${v}`,
+                active: true,
+              })),
+            }
+          : {}),
+      }));
+      const childRelationships = Array.from({ length: 25 }, (_, i) => ({
+        childSObject: `ChildObject${i}__c`,
+        field: `Parent${i}__c`,
+        relationshipName: `Children${i}__r`,
+        isCascadeDelete: false,
+      }));
+      return { name: 'Account', fields, childRelationships };
+    }
+
+    it('estimates a realistic Account describe at its content weight', () => {
+      const cache = new SchemaCache({ maxSize: 10, maxSizeBytes: 100_000_000 });
+      cache.set('org::Account', buildRealisticDescribe(130));
+
+      // Content-aware estimate: ~110 KB for this fixture. The previous flat
+      // heuristic (250 B/field) would report ~37 KB — outside this window.
+      expect(cache.estimatedBytes).toBeGreaterThan(80_000);
+      expect(cache.estimatedBytes).toBeLessThan(200_000);
+    });
+
+    it('actually triggers the byte cap with realistic describes', () => {
+      // Measure one entry, then size the cap at 2.5 entries.
+      const probe = new SchemaCache({ maxSize: 10, maxSizeBytes: 100_000_000 });
+      probe.set('probe', buildRealisticDescribe(130));
+      const byteCap = Math.floor(probe.estimatedBytes * 2.5);
+
+      const cache = new SchemaCache({ maxSize: 100, maxSizeBytes: byteCap });
+      cache.set('org::Account', buildRealisticDescribe(130));
+      vi.advanceTimersByTime(10);
+      cache.set('org::Contact', buildRealisticDescribe(120));
+      expect(cache.size).toBe(2); // two entries fit under the cap
+
+      vi.advanceTimersByTime(10);
+      cache.set('org::Case', buildRealisticDescribe(110));
+
+      // The third entry blows the byte budget — the LRU entry (Account) must
+      // be evicted, proving maxSizeBytes is a real cap, not a dead option.
+      expect(cache.size).toBe(2);
+      expect(cache.get('org::Account')).toBeUndefined();
+      expect(cache.get('org::Case')).toBeDefined();
+      expect(cache.estimatedBytes).toBeLessThanOrEqual(byteCap);
+    });
+  });
 });
