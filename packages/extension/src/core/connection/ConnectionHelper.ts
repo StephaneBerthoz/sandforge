@@ -5,6 +5,7 @@ import type { OrgManager } from './OrgManager';
 import { ConnectionPool } from './ConnectionPool';
 import { CircuitBreaker } from './CircuitBreaker';
 import { extractErrorMessage } from '../common/extractErrorMessage.js';
+import { isAuthError } from '../common/isAuthError.js';
 
 const MAX_BUFFER = 10 * 1024 * 1024;
 
@@ -106,9 +107,25 @@ async function refreshTokenViaCli(username: string): Promise<string> {
  * Create a jsforce Connection for a given org.
  *
  * 1. Reads credentials from OrgRegistry (SecretVault)
- * 2. Builds a jsforce.Connection
- * 3. On INVALID_SESSION_ID, attempts token refresh via SF CLI
- * 4. Persists the refreshed token back to SecretVault
+ * 2. Builds a jsforce.Connection and validates it with a lightweight identity() call
+ * 3. On an authentication error (INVALID_SESSION_ID, INVALID_AUTH_HEADER,
+ *    SESSION_EXPIRED, or HTTP 401), attempts ONE token refresh via the SF CLI,
+ *    persists the new token to SecretVault, and re-validates the rebuilt
+ *    connection ONCE
+ * 4. Propagates an actionable error when recovery fails
+ *
+ * Circuit breaker accounting: an auth failure recovered by the refresh is NOT
+ * recorded as a failure (an expired token is not an infrastructure problem);
+ * a failed refresh or failed retry IS recorded.
+ *
+ * Recovery scope / documented limit: authentication is recovered at connection
+ * *establishment* only. A token that expires mid-operation — after this
+ * function has returned its Connection — surfaces to the caller as the raw
+ * jsforce error. Request-level retry would require wrapping every jsforce
+ * entry point used by handlers and was rejected as too invasive. Likewise,
+ * pool hits skip re-validation by design, so a pooled connection whose token
+ * expired since validation is returned as-is; its next request fails fast and
+ * recovery kicks in on the following non-pooled getJsforceConnection call.
  */
 export async function getJsforceConnection(
   orgId: string,
@@ -166,16 +183,16 @@ export async function getJsforceConnection(
     return conn;
   } catch (err: unknown) {
     const latency = Date.now() - start;
-    circuitBreaker.recordFailure();
     connectionPool.remove(uid);
-    const message = extractErrorMessage(err);
 
-    // Token expired — try refreshing via SF CLI
-    if (message.includes('INVALID_SESSION_ID') || message.includes('Session expired')) {
+    // Authentication failure (expired/revoked token): attempt ONE token
+    // refresh via the SF CLI, then re-validate the rebuilt connection ONCE.
+    if (isAuthError(err)) {
       try {
         const newToken = await refreshTokenViaCli(org.username);
 
-        // Persist refreshed token
+        // Persist the refreshed token before retrying, so subsequent
+        // connections and pool lookups pick it up.
         await orgRegistry.saveOrg(org, {
           ...credentials,
           accessToken: newToken,
@@ -186,22 +203,29 @@ export async function getJsforceConnection(
           accessToken: newToken,
           version: apiVersion,
         });
+        await refreshedConn.identity();
 
-        // Record the refreshed connection in the pool
+        // Recovered: an expired token is not an infrastructure failure, so
+        // it must not count towards the circuit breaker threshold.
+        circuitBreaker.recordSuccess();
         connectionPool.acquire(uid, credentials.instanceUrl, newToken);
         connectionPool.recordLatency(uid, latency);
-
         return refreshedConn;
-      } catch (refreshErr: unknown) {
-        connectionPool.remove(uid);
-        const refreshMsg = extractErrorMessage(refreshErr);
+      } catch (recoveryErr: unknown) {
+        // Refresh failed or the new token was rejected too: this DOES count
+        // as a breaker failure, and the user gets an actionable message.
+        circuitBreaker.recordFailure();
+        const cause = extractErrorMessage(recoveryErr);
         throw new Error(
-          `Token expired for "${org.alias}" and refresh failed: ${refreshMsg}. ` +
-            'Try disconnecting and re-importing the org.',
+          `Authentication expired for org "${org.alias}". ` +
+            `Reconnect it from the Orgs page (SFDX import) or run: sf org login web --alias ${org.alias}. ` +
+            `(cause: ${cause})`,
         );
       }
     }
 
+    circuitBreaker.recordFailure();
+    const message = extractErrorMessage(err);
     throw new Error(`Connection failed for "${org.alias}": ${message}`);
   } finally {
     // Always release the half-open permit, on every success/failure/refresh
