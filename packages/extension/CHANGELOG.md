@@ -141,6 +141,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Tests: `recordId` test fixtures across `ForgeHandler.test.ts`, `ForgeOrchestrator.test.ts`, `GraphDiscoveryService.test.ts`, and `forge.schema.test.ts` now use 15-char strict IDs to satisfy the new regex (no behavior change — they were stand-ins anyway)
 
+## [1.2.4] - 2026-04-23
+
+**Milestone v1.2.3 « Scale & Complete » — shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone (7 phases, 18 plans, 50 requirements), tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry backfilled 2026-08 — it was only recorded in the root `CHANGELOG.md` and the `v1.2.4` tag message.)
+
+- Three seed modes: AI Personas (10 industry personas), CSV Import (drag-and-drop + validation), Clone from Org (topological insert + ID mapping)
+- Real-time sync lifecycle: CDC subscriptions, conflict resolution UI, execution history, cron scheduling
+- Streaming execution (async generator, >10K records) + background operations with native notifications
+- Enterprise UI: pagination, virtual scrolling, skeleton loading, notification center, keyboard shortcuts
+- Smart Actions on HomePage: analyzes org state and recommends best next action
+
+Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
+
 ## [1.2.3] - 2026-03-28
 
 **Scale & Complete** — Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
