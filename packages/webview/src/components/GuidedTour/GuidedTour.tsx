@@ -50,7 +50,7 @@ interface TooltipStyle {
   left: number;
 }
 
-/** 7 built-in tour definitions (general + one per module). */
+/** 8 built-in tour definitions (general + one per module). */
 export const BUILT_IN_TOURS: TourDefinition[] = [
   {
     id: 'general',
@@ -68,6 +68,19 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
         titleKey: 'status.connectedOrgs',
         descriptionKey: 'guidedTour.generalDesc',
         position: 'top',
+      },
+    ],
+  },
+  {
+    id: 'forge',
+    nameKey: 'guidedTour.forgeTour',
+    descriptionKey: 'guidedTour.forgeTourDesc',
+    steps: [
+      {
+        target: '[data-testid="forge-input"]',
+        titleKey: 'nav.forge',
+        descriptionKey: 'guidedTour.forgeTourDesc',
+        position: 'bottom',
       },
     ],
   },

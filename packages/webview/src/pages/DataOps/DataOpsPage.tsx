@@ -128,7 +128,13 @@ export const DataOpsPage: React.FC = () => {
         module="dataops"
         title={t('dataops.emptyState.title')}
         description={t('dataops.emptyState.description')}
-        actionLabel={t('dataops.emptyState.cta')}
+        steps={[
+          t('emptyState.connectViaSfdx'),
+          t('dataops.emptyState.step2'),
+          t('dataops.emptyState.step3'),
+          t('dataops.emptyState.step4'),
+        ]}
+        actionLabel={t('emptyState.connectOrg')}
         onAction={() => navigate('orgs')}
       />
     );

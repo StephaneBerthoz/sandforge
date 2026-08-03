@@ -121,6 +121,19 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('empty-action-button')).toBeDefined();
   });
 
+  it('should show the data protection journey steps in the empty state', () => {
+    useOrgStore.setState({ orgs: [] });
+    render(<DataOpsPage />);
+    expect(screen.getByText('Protect your org data')).toBeDefined();
+    expect(screen.getByTestId('empty-step-0').textContent).toContain(
+      'Connect an org via SFDX import',
+    );
+    expect(screen.getByTestId('empty-step-1').textContent).toContain(
+      'Create a backup before any risky operation',
+    );
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+  });
+
   it('should navigate to orgs when empty state CTA clicked', () => {
     useOrgStore.setState({ orgs: [] });
     render(<DataOpsPage />);

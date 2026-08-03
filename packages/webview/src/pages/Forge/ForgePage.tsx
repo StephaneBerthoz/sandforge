@@ -28,12 +28,20 @@ export const ForgePage: React.FC = () => {
   const navigate = useAppStore((s) => s.navigate);
 
   if (!selectedOrgId || orgs.length === 0) {
+    const noOrgs = orgs.length === 0;
     return (
       <EmptyState
         module="forge"
         title={t('forge.emptyState.title')}
         description={t('forge.emptyState.description')}
-        actionLabel={t('forge.emptyState.cta')}
+        steps={[
+          noOrgs ? t('emptyState.connectViaSfdx') : t('forge.emptyState.step1Select'),
+          t('forge.emptyState.step2'),
+          t('forge.emptyState.step3'),
+          t('forge.emptyState.step4'),
+          t('forge.emptyState.step5'),
+        ]}
+        actionLabel={noOrgs ? t('emptyState.connectOrg') : t('emptyState.selectOrgCta')}
         onAction={() => navigate('orgs')}
       />
     );

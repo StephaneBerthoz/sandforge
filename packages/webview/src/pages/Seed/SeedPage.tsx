@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Sparkles, Upload, Copy, ArrowLeft, Users } from 'lucide-react';
 import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
@@ -42,6 +43,7 @@ const AUTO_ADVANCE_THRESHOLD = 5;
 export const SeedPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const navigate = useAppStore((s) => s.navigate);
   const state = useSeedWizardState(t);
   const quickSeed = useQuickSeed();
   const [seedMode, setSeedMode] = useState<SeedMode>('select');
@@ -104,7 +106,21 @@ export const SeedPage: React.FC = () => {
   }, [setCurrentStep]);
 
   if (orgs.length === 0) {
-    return <EmptyState icon="database" title={t('seed.title')} description={t('org.noOrgs')} />;
+    return (
+      <EmptyState
+        module="seed"
+        title={t('seed.emptyState.title')}
+        description={t('seed.emptyState.description')}
+        steps={[
+          t('emptyState.connectViaSfdx'),
+          t('seed.emptyState.step2'),
+          t('seed.emptyState.step3'),
+          t('seed.emptyState.step4'),
+        ]}
+        actionLabel={t('emptyState.connectOrg')}
+        onAction={() => navigate('orgs')}
+      />
+    );
   }
 
   /* Determine page subtitle based on mode */

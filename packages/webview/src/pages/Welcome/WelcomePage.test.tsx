@@ -224,15 +224,46 @@ describe('WelcomePage', () => {
     expect(mockNavigate).toHaveBeenCalledWith('settings');
   });
 
-  it('should render module cards in step 2', () => {
+  it('should render the primary use case hero on the Bienvenue step', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    expect(screen.getByTestId('welcome-hero-usecase')).toBeDefined();
+    expect(screen.getByText('onboarding.heroTitle')).toBeDefined();
+    expect(screen.getByText('onboarding.heroDesc')).toBeDefined();
+  });
+
+  it('should render the three use-case path cards in step 2', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByText('common.next')); // 0 -> 1
     fireEvent.click(screen.getByText('common.next')); // 1 -> 2
-    expect(screen.getByTestId('module-card-monitor')).toBeDefined();
-    expect(screen.getByTestId('module-card-seed')).toBeDefined();
-    expect(screen.getByTestId('module-card-sync')).toBeDefined();
-    expect(screen.getByTestId('module-card-compare')).toBeDefined();
-    expect(screen.getByTestId('module-card-dataops')).toBeDefined();
-    expect(screen.getByTestId('module-card-automation')).toBeDefined();
+    expect(screen.getByTestId('path-card-forge')).toBeDefined();
+    expect(screen.getByTestId('path-card-seed')).toBeDefined();
+    expect(screen.getByTestId('path-card-frozen')).toBeDefined();
+  });
+
+  it('should navigate to forge when the forge path CTA is clicked', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByText('common.next')); // 0 -> 1
+    fireEvent.click(screen.getByText('common.next')); // 1 -> 2
+    fireEvent.click(screen.getByTestId('welcome-open-forge-btn'));
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('forge');
+  });
+
+  it('should navigate to seed when the seed path CTA is clicked', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByText('common.next')); // 0 -> 1
+    fireEvent.click(screen.getByText('common.next')); // 1 -> 2
+    fireEvent.click(screen.getByTestId('welcome-open-seed-btn'));
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('seed');
+  });
+
+  it('should navigate to frozen when the frozen path CTA is clicked', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByText('common.next')); // 0 -> 1
+    fireEvent.click(screen.getByText('common.next')); // 1 -> 2
+    fireEvent.click(screen.getByTestId('welcome-open-frozen-btn'));
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(mockNavigate).toHaveBeenCalledWith('frozen');
   });
 });

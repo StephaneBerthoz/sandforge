@@ -225,8 +225,8 @@ describe('markTourCompleted', () => {
 });
 
 describe('BUILT_IN_TOURS', () => {
-  it('should contain 7 built-in tours', () => {
-    expect(BUILT_IN_TOURS.length).toBe(7);
+  it('should contain 8 built-in tours', () => {
+    expect(BUILT_IN_TOURS.length).toBe(8);
   });
 
   it('should have unique IDs for each tour', () => {
@@ -241,7 +241,7 @@ describe('BUILT_IN_TOURS', () => {
   });
 
   it('should include module-specific tours', () => {
-    const moduleIds = ['monitor', 'seed', 'sync', 'compare', 'dataops', 'automation'];
+    const moduleIds = ['forge', 'monitor', 'seed', 'sync', 'compare', 'dataops', 'automation'];
     for (const id of moduleIds) {
       const tour = BUILT_IN_TOURS.find((t) => t.id === id);
       expect(tour).toBeDefined();
@@ -252,5 +252,12 @@ describe('BUILT_IN_TOURS', () => {
     for (const tour of BUILT_IN_TOURS) {
       expect(tour.steps.length).toBeGreaterThan(0);
     }
+  });
+
+  it('should target the forge input form in the forge tour', () => {
+    const forgeTour = BUILT_IN_TOURS.find((tour) => tour.id === 'forge');
+    expect(forgeTour).toBeDefined();
+    expect(forgeTour?.steps[0].target).toBe('[data-testid="forge-input"]');
+    expect(forgeTour?.descriptionKey).toBe('guidedTour.forgeTourDesc');
   });
 });

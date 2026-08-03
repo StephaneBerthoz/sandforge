@@ -175,7 +175,7 @@
     "limitMax": "Max",
     "limitUsage": "Usage %",
     "limitStatus": "Status",
-    "selectOrgDesc": "Choose a connected org from the dropdown above to begin monitoring.",
+    "selectOrgDesc": "Choose a connected org to see its live health, limits and jobs.",
     "chooseOrg": "Choose an org...",
     "autoRefreshOn": "Auto: ON",
     "autoRefreshOff": "Auto: OFF",
@@ -210,9 +210,11 @@
       "emptyDescription": "Click Scan to analyze your org health across API usage, storage, metadata complexity, code coverage, and security."
     },
     "emptyState": {
-      "title": "Start Monitoring Your Org",
-      "description": "Connect a Salesforce org to track governor limits, API usage, storage, and org health in real time.",
-      "cta": "Select an Org"
+      "title": "Keep an eye on your org health",
+      "description": "Monitor tracks governor limits, API usage, storage and jobs in real time — spot trouble before your users do.",
+      "step2": "Pick the org to watch",
+      "step3": "Track limits, jobs and health at a glance",
+      "step4": "Get alerted before limits are hit"
     },
     "storage": {
       "title": "Storage Breakdown",
@@ -309,7 +311,14 @@
     "catSecurity": "Security",
     "catConfiguration": "Configuration",
     "catContent": "Content",
-    "catOther": "Other"
+    "catOther": "Other",
+    "emptyState": {
+      "title": "Spot differences between two orgs",
+      "description": "Compare metadata, permissions and drift between a source and a target org — know exactly what changes before you deploy.",
+      "step2": "Pick source and target orgs",
+      "step3": "Select the metadata categories to diff",
+      "step4": "Run the comparison and review the diffs"
+    }
   },
   "precheck": {
     "title": "Pre-Check",
@@ -598,6 +607,13 @@
         "stepPreview": "Preview",
         "stepExecute": "Execute"
       }
+    },
+    "emptyState": {
+      "title": "Fill your sandbox with realistic test data",
+      "description": "Seed generates synthetic data — from templates, AI, CSV or another org — so you can build and test without production data.",
+      "step2": "Pick a template or a mode: AI, CSV, Clone",
+      "step3": "Choose objects and record volumes",
+      "step4": "Execute and review the results"
     }
   },
   "sync": {
@@ -818,6 +834,13 @@
         "editDelete": "Edit / Delete",
         "createEdit": "Create / Edit"
       }
+    },
+    "emptyState": {
+      "title": "Keep two orgs in sync",
+      "description": "Sync copies data between orgs — with field mapping, transforms and conflict rules — e.g. refresh a dev sandbox from a partial copy.",
+      "step2": "Pick source and target orgs",
+      "step3": "Map objects and fields",
+      "step4": "Run the sync and review the results"
     }
   },
   "dataops": {
@@ -943,9 +966,11 @@
     "errorRate": "Error Rate",
     "anonymizedFields": "Anonymized Templates",
     "emptyState": {
-      "title": "Protect and Manage Your Data",
-      "description": "Connect a Salesforce org to create backups, anonymize sensitive data, and ensure compliance.",
-      "cta": "Select an Org"
+      "title": "Protect your org data",
+      "description": "DataOps backs up, restores, anonymizes and cleans up your org data — with GDPR tooling and quality dashboards built in.",
+      "step2": "Create a backup before any risky operation",
+      "step3": "Anonymize sensitive fields with a template",
+      "step4": "Schedule cleanups and track data quality"
     }
   },
   "automation": {
@@ -1329,8 +1354,8 @@
     "welcomeSubtitle": "Forge your Salesforce sandboxes with confidence",
     "step1Title": "Connect Your Org",
     "step1Desc": "Link your Salesforce organizations to get started",
-    "step2Title": "Explore Your Toolkit",
-    "step2Desc": "Discover the 6 modules that power your Salesforce DevOps workflow",
+    "step2Title": "Three ways to populate your sandbox",
+    "step2Desc": "Start from a real record, generate synthetic data, or replay a frozen dataset after a refresh",
     "step3Title": "Configure AI (Optional)",
     "step3Desc": "Enhance SandForge with AI-powered insights and data generation",
     "getStarted": "Get Started",
@@ -1389,6 +1414,17 @@
       "a11yDesc": "ARIA labels, keyboard navigation, and high contrast support",
       "branding": "New Branding",
       "brandingDesc": "Fresh SandForge identity with updated logo and icons"
+    },
+    "heroTitle": "Populate your sandbox from a real record",
+    "heroDesc": "Point SandForge at a record in any org — it clones the whole relationship graph into your sandbox. No real data to copy? Generate or replay a dataset instead.",
+    "openFrozen": "Open Frozen Dataset",
+    "paths": {
+      "forgeTitle": "Clone from a record",
+      "forgeDesc": "Paste a record ID, discover its relationship graph, forge it into your sandbox",
+      "seedTitle": "Generate synthetic data",
+      "seedDesc": "Templates, AI or CSV — realistic test data without touching production",
+      "frozenTitle": "Replay a frozen dataset",
+      "frozenDesc": "Extract once, replay identically after every sandbox refresh"
     }
   },
   "help": {
@@ -1477,7 +1513,9 @@
     "dataopsTour": "DataOps Tour",
     "dataopsTourDesc": "Manage backups and data quality",
     "automationTour": "Automation Tour",
-    "automationTourDesc": "Build automation pipelines"
+    "automationTourDesc": "Build automation pipelines",
+    "forgeTour": "Forge Tour",
+    "forgeTourDesc": "Paste a record ID, discover its graph, forge it into your sandbox"
   },
   "emptyState": {
     "encouragement": "You're just getting started!",
@@ -1494,7 +1532,12 @@
     "automationAction": "Build your first pipeline",
     "automationEncouragement": "Automate repetitive tasks effortlessly",
     "viewDocs": "View documentation",
-    "startTour": "Start guided tour"
+    "startTour": "Start guided tour",
+    "connectViaSfdx": "Connect an org via SFDX import",
+    "connectTwoViaSfdx": "Connect two orgs via SFDX import — source and target",
+    "connectSecondViaSfdx": "Connect a second org via SFDX import",
+    "connectOrg": "Connect an Org",
+    "selectOrgCta": "Select an Org"
   },
   "home": {
     "title": "Dashboard",
@@ -1735,9 +1778,13 @@
     "quickStartTemplate": "Quick start ({{name}})",
     "quickStartTemplateHint": "Skip discovery and use the starter template's known object set. Record counts will be queried during execution.",
     "emptyState": {
-      "title": "Discover Your Org Schema",
-      "description": "Connect a Salesforce org to explore its object relationships, generate data plans, and forge complete datasets.",
-      "cta": "Select an Org"
+      "title": "Populate your sandbox from a real record",
+      "description": "Forge clones a root record and its whole relationship graph — Accounts, Contacts, Opportunities, Cases — into your sandbox, remapping every ID.",
+      "step1Select": "Select a source org",
+      "step2": "Paste a root record ID (e.g. an Account from UAT)",
+      "step3": "Discover its relationship graph",
+      "step4": "Tune depth, record limit and anonymization",
+      "step5": "Execute toward your sandbox — IDs are remapped"
     }
   },
   "autopilot": {

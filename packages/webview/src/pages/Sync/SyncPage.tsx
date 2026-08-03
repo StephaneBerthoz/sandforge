@@ -8,6 +8,7 @@ import type {
   FieldMapping,
 } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
@@ -164,6 +165,7 @@ const SyncGrappePanel: React.FC = () => {
 export const SyncPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const navigate = useAppStore((s) => s.navigate);
   const [quickSyncActive, setQuickSyncActive] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<SyncTab>('sync');
 
@@ -215,7 +217,21 @@ export const SyncPage: React.FC = () => {
 
   if (orgs.length < 2) {
     return (
-      <EmptyState icon="sync" title={t('sync.title')} description={t('sync.selectOrgsDesc')} />
+      <EmptyState
+        module="sync"
+        title={t('sync.emptyState.title')}
+        description={t('sync.emptyState.description')}
+        steps={[
+          orgs.length === 1
+            ? t('emptyState.connectSecondViaSfdx')
+            : t('emptyState.connectTwoViaSfdx'),
+          t('sync.emptyState.step2'),
+          t('sync.emptyState.step3'),
+          t('sync.emptyState.step4'),
+        ]}
+        actionLabel={t('emptyState.connectOrg')}
+        onAction={() => navigate('orgs')}
+      />
     );
   }
 

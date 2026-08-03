@@ -115,6 +115,33 @@ describe('ForgePage', () => {
     expect(mockNavigate).toHaveBeenCalledWith('orgs');
   });
 
+  it('should show the record-scoped journey steps in the empty state', () => {
+    mockOrgState = { orgs: [], selectedOrgId: null };
+    render(<ForgePage />);
+    expect(screen.getByText('Populate your sandbox from a real record')).toBeDefined();
+    expect(screen.getByTestId('empty-steps')).toBeDefined();
+    expect(screen.getByTestId('empty-step-0').textContent).toContain(
+      'Connect an org via SFDX import',
+    );
+    expect(screen.getByTestId('empty-step-1').textContent).toContain(
+      'Paste a root record ID (e.g. an Account from UAT)',
+    );
+    expect(screen.getByTestId('empty-step-4').textContent).toContain('IDs are remapped');
+  });
+
+  it('should offer the connect CTA when no orgs exist', () => {
+    mockOrgState = { orgs: [], selectedOrgId: null };
+    render(<ForgePage />);
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+  });
+
+  it('should offer the select CTA when orgs exist but none is selected', () => {
+    mockOrgState = { orgs: [{ id: 'org-1', alias: 'Dev' }], selectedOrgId: null };
+    render(<ForgePage />);
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Select an Org');
+    expect(screen.getByTestId('empty-step-0').textContent).toContain('Select a source org');
+  });
+
   it('should render with forge-page test id', () => {
     mockPhase = 'input';
     render(<ForgePage />);

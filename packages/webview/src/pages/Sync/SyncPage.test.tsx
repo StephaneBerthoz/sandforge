@@ -166,7 +166,26 @@ describe('SyncPage', () => {
   it('should show empty state when less than 2 orgs', () => {
     useOrgStore.setState({ orgs: [mockOrgs[0]] });
     render(<SyncPage />);
-    expect(screen.getByText('Choose source and target orgs')).toBeDefined();
+    expect(screen.getByTestId('empty-state')).toBeDefined();
+    expect(screen.getByTestId('illustration-sync')).toBeDefined();
+    expect(screen.getByText('Keep two orgs in sync')).toBeDefined();
+    expect(screen.getByTestId('empty-action-button').textContent).toBe('Connect an Org');
+  });
+
+  it('should prompt for a second org when exactly one org exists', () => {
+    useOrgStore.setState({ orgs: [mockOrgs[0]] });
+    render(<SyncPage />);
+    expect(screen.getByTestId('empty-step-0').textContent).toContain(
+      'Connect a second org via SFDX import',
+    );
+  });
+
+  it('should prompt for two orgs when none exist', () => {
+    useOrgStore.setState({ orgs: [] });
+    render(<SyncPage />);
+    expect(screen.getByTestId('empty-step-0').textContent).toContain(
+      'Connect two orgs via SFDX import',
+    );
   });
 
   it('should render sync page with wizard', () => {

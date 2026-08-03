@@ -88,7 +88,7 @@
     "dismiss": "非表示にする",
     "refreshing": "データを更新中...",
     "lastUpdated": "最終更新",
-    "selectOrg": "監視するOrgを選択してください",
+    "selectOrg": "監視するOrgを選択",
     "viewFullReport": "完全なレポートを表示",
     "healthReport": "健全性レポート",
     "limitReachedIn": "制限到達まで約{{hours}}時間",
@@ -119,10 +119,13 @@
     "orgFlows": "アクティブフロー",
     "orgInstance": "インスタンス",
     "emptyState": {
-      "title": "Start Monitoring Your Org",
-      "description": "Connect a Salesforce org to track governor limits, API usage, storage, and org health in real time.",
-      "cta": "Select an Org"
-    }
+      "title": "Orgの健全性を常に把握",
+      "description": "Monitorはガバナ制限、API使用量、ストレージ、ジョブをリアルタイムで追跡 — ユーザーに気づかれる前に問題を検出できます。",
+      "step2": "監視するOrgを選択",
+      "step3": "制限・ジョブ・健全性を一目で確認",
+      "step4": "制限到達前にアラートを受信"
+    },
+    "selectOrgDesc": "接続済みのOrgを選んで、健全性・制限・ジョブをライブ表示します。"
   },
   "compare": {
     "title": "Org比較",
@@ -164,7 +167,14 @@
     "deps": "依存関係",
     "riskReasons": "リスク要因",
     "dependencies": "依存関係",
-    "empty": "(空)"
+    "empty": "(空)",
+    "emptyState": {
+      "title": "2つのOrgの差分を検出",
+      "description": "ソースとターゲットのOrg間でメタデータ、権限、ドリフトを比較 — デプロイ前に変更内容を正確に把握できます。",
+      "step2": "ソースとターゲットのOrgを選択",
+      "step3": "比較するメタデータカテゴリを選択",
+      "step4": "比較を実行して差分を確認"
+    }
   },
   "precheck": {
     "title": "事前チェック",
@@ -365,6 +375,13 @@
         "stepPreview": "プレビュー",
         "stepExecute": "実行"
       }
+    },
+    "emptyState": {
+      "title": "リアルなテストデータでサンドボックスを満たす",
+      "description": "Seedは合成データを生成します — テンプレート、AI、CSV、または別のOrgから — 本番データなしで開発・テストできます。",
+      "step2": "テンプレートまたはモードを選択：AI、CSV、クローン",
+      "step3": "オブジェクトとレコード数を選択",
+      "step4": "実行して結果を確認"
     }
   },
   "sync": {
@@ -492,7 +509,14 @@
       }
     },
     "realtime": {
-      "comingSoon": "Requires CDC \u2014 Coming in v2.0"
+      "comingSoon": "Requires CDC — Coming in v2.0"
+    },
+    "emptyState": {
+      "title": "2つのOrgを同期",
+      "description": "SyncはOrg間でデータをコピーします — フィールドマッピング、変換、競合ルール付き — 例：部分コピーから開発用サンドボックスを更新。",
+      "step2": "ソースとターゲットのOrgを選択",
+      "step3": "オブジェクトとフィールドをマッピング",
+      "step4": "同期を実行して結果を確認"
     }
   },
   "dataops": {
@@ -604,9 +628,11 @@
     "runPIIScan": "PIIをスキャン",
     "noPII": "PIIフィールドは検出されませんでした。スキャンを実行してください。",
     "emptyState": {
-      "title": "Protect and Manage Your Data",
-      "description": "Connect a Salesforce org to create backups, anonymize sensitive data, and ensure compliance.",
-      "cta": "Select an Org"
+      "title": "Orgのデータを保護",
+      "description": "DataOpsはOrgデータのバックアップ、復元、匿名化、クリーンアップを行います — GDPRツールと品質ダッシュボード内蔵。",
+      "step2": "リスクのある操作の前にバックアップを作成",
+      "step3": "テンプレートで機密フィールドを匿名化",
+      "step4": "クリーンアップを計画しデータ品質を追跡"
     }
   },
   "automation": {
@@ -934,8 +960,8 @@
     "welcomeSubtitle": "自信を持ってSalesforce Sandboxを構築しましょう",
     "step1Title": "Orgを接続",
     "step1Desc": "Salesforce組織をリンクして始めましょう",
-    "step2Title": "ツールキットを探索",
-    "step2Desc": "Salesforce DevOpsワークフローを支える6つのモジュールをご覧ください",
+    "step2Title": "サンドボックスを満たす3つの方法",
+    "step2Desc": "実際のレコードから始める、合成データを生成する、またはリフレッシュ後に凍結データセットを再生する",
     "step3Title": "AIを設定（オプション）",
     "step3Desc": "AI分析とデータ生成でSandForgeを強化しましょう",
     "getStarted": "始める",
@@ -982,6 +1008,17 @@
       "a11yDesc": "ARIAラベル、キーボードナビゲーション、ハイコントラストサポート",
       "branding": "新しいブランディング",
       "brandingDesc": "更新されたロゴとアイコンによる新しいSandForgeアイデンティティ"
+    },
+    "heroTitle": "実際のレコードからサンドボックスを作成",
+    "heroDesc": "SandForgeを任意のOrgのレコードに向けるだけ — 関連グラフ全体をサンドボックスへ複製します。コピーするデータがない場合は、データセットを生成または再生できます。",
+    "openFrozen": "凍結データセットを開く",
+    "paths": {
+      "forgeTitle": "レコードから複製",
+      "forgeDesc": "レコードIDを貼り付け、関連グラフを検出し、サンドボックスへForge",
+      "seedTitle": "合成データを生成",
+      "seedDesc": "テンプレート、AI、CSV — 本番に触れずにリアルなテストデータ",
+      "frozenTitle": "凍結データセットを再生",
+      "frozenDesc": "一度抽出すれば、サンドボックスのリフレッシュ後も同一内容で再生"
     }
   },
   "help": {
@@ -1194,9 +1231,13 @@
   },
   "forge": {
     "emptyState": {
-      "title": "Discover Your Org Schema",
-      "description": "Connect a Salesforce org to explore its object relationships, generate data plans, and forge complete datasets.",
-      "cta": "Select an Org"
+      "title": "実際のレコードからサンドボックスを作成",
+      "description": "Forgeはルートレコードとその関連グラフ全体（Account、Contact、Opportunity、Case…）をサンドボックスへ複製し、すべてのIDを自動で付け替えます。",
+      "step1Select": "ソースOrgを選択",
+      "step2": "ルートレコードのIDを貼り付け（例：UATのAccount）",
+      "step3": "関連グラフを検出",
+      "step4": "深さ・レコード上限・匿名化を調整",
+      "step5": "サンドボックスへ実行 — IDは自動で付け替えられます"
     }
   },
   "autopilot": {
@@ -1246,5 +1287,16 @@
     "noFailures": "失敗した操作はありません",
     "errorDetails": "エラー詳細",
     "manualRetryTriggered": "手動再試行を開始しました"
+  },
+  "emptyState": {
+    "connectViaSfdx": "SFDXインポートでOrgを接続",
+    "connectTwoViaSfdx": "SFDXインポートで2つのOrgを接続 — ソースとターゲット",
+    "connectSecondViaSfdx": "SFDXインポートでもう1つのOrgを接続",
+    "connectOrg": "Orgを接続",
+    "selectOrgCta": "Orgを選択"
+  },
+  "guidedTour": {
+    "forgeTour": "Forgeツアー",
+    "forgeTourDesc": "レコードIDを貼り付け、グラフを検出し、サンドボックスへForge"
   }
 }
