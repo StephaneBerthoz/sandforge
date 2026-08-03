@@ -237,4 +237,118 @@ describe('useClone', () => {
     });
     expect(result.current.step).toBe('preview');
   });
+
+  /* ------------------------------------------------------------------ */
+  /* seed:clone:error channel (fail fast, no 30 s timeout)               */
+  /* ------------------------------------------------------------------ */
+
+  const dispatchCloneError = (message: string) => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: {
+          id: 'err-1',
+          type: 'seed:clone:error',
+          timestamp: Date.now(),
+          payload: { message, code: 'UNKNOWN', retryable: false },
+        },
+      }),
+    );
+  };
+
+  it('fails the preview immediately on seed:clone:error', () => {
+    mockPreviewState = {
+      mutate: mockPreviewMutate,
+      data: null,
+      loading: true,
+      error: null,
+      reset: mockPreviewReset,
+    };
+    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+
+    act(() => {
+      result.current.handleObjectToggle('Account');
+    });
+    act(() => {
+      result.current.handlePreview();
+    });
+    expect(result.current.executionStatus).toBe('previewing');
+
+    act(() => {
+      dispatchCloneError('Preview exploded');
+    });
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe('Preview exploded');
+    expect(mockPreviewReset).toHaveBeenCalled();
+  });
+
+  it('fails the execute immediately on seed:clone:error', () => {
+    mockExecuteState = {
+      mutate: mockExecuteMutate,
+      data: null,
+      loading: true,
+      error: null,
+      reset: mockExecuteReset,
+    };
+    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+
+    act(() => {
+      result.current.handleExecute();
+    });
+    expect(result.current.executionStatus).toBe('executing');
+
+    act(() => {
+      dispatchCloneError('Execute exploded');
+    });
+
+    expect(result.current.executionStatus).toBe('error');
+    expect(result.current.error).toBe('Execute exploded');
+    expect(mockExecuteReset).toHaveBeenCalled();
+  });
+
+  it('surfaces describe-source errors from seed:clone:error without touching status', () => {
+    mockDescribeState = {
+      mutate: mockDescribeMutate,
+      data: null,
+      loading: true,
+      error: null,
+      reset: mockDescribeReset,
+    };
+    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+
+    act(() => {
+      dispatchCloneError('Describe exploded');
+    });
+
+    expect(result.current.error).toBe('Describe exploded');
+    expect(result.current.executionStatus).toBe('idle');
+    expect(mockDescribeReset).toHaveBeenCalled();
+  });
+
+  it('ignores unrelated error channels', () => {
+    mockPreviewState = {
+      mutate: mockPreviewMutate,
+      data: null,
+      loading: true,
+      error: null,
+      reset: mockPreviewReset,
+    };
+    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'err-2',
+            type: 'seed:csv:error',
+            timestamp: Date.now(),
+            payload: { message: 'wrong channel', code: 'UNKNOWN', retryable: false },
+          },
+        }),
+      );
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.executionStatus).toBe('idle');
+  });
 });
