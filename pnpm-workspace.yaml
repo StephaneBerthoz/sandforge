@@ -1,6 +1,19 @@
 packages:
   - "packages/*"
 
+# Shared devDependency versions — referenced as "catalog:" from the package
+# manifests. Bump here, once. Only deps with a strictly identical range in
+# every consuming package belong here (e.g. @vitest/coverage-v8 stays out:
+# root uses ^1 while packages pin ^1.6.1).
+catalog:
+  "@typescript-eslint/eslint-plugin": "^7"
+  "@typescript-eslint/parser": "^7"
+  eslint: "^8"
+  eslint-config-prettier: "^9"
+  fast-check: "^3"
+  typescript: "~5.5"
+  vitest: "^1"
+
 # pnpm 11 build-script approvals (replaces onlyBuiltDependencies).
 # esbuild: required for the extension bundle. keytar: native secrets backend.
 # @vscode/vsce-sign: required by `vsce package`. core-js*: postinstall is a

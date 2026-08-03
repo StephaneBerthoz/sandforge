@@ -18,13 +18,13 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "@typescript-eslint/eslint-plugin": "^7",
-    "@typescript-eslint/parser": "^7",
+    "@typescript-eslint/eslint-plugin": "catalog:",
+    "@typescript-eslint/parser": "catalog:",
     "@vitest/coverage-v8": "^1.6.1",
-    "eslint": "^8",
-    "eslint-config-prettier": "^9",
-    "fast-check": "^3",
-    "typescript": "~5.5",
-    "vitest": "^1"
+    "eslint": "catalog:",
+    "eslint-config-prettier": "catalog:",
+    "fast-check": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
