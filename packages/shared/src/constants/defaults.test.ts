@@ -23,7 +23,13 @@ describe('DEFAULT_BATCH_SIZES', () => {
 
 describe('DEFAULT_TIMEOUTS', () => {
   it('should have all timeout values defined and positive', () => {
-    for (const key of ['connection', 'request', 'bulkJob', 'healthProbe', 'tokenRefresh'] as const) {
+    for (const key of [
+      'connection',
+      'request',
+      'bulkJob',
+      'healthProbe',
+      'tokenRefresh',
+    ] as const) {
       expect(DEFAULT_TIMEOUTS[key], `${key} should be defined`).toBeDefined();
     }
     for (const [key, value] of Object.entries(DEFAULT_TIMEOUTS)) {
