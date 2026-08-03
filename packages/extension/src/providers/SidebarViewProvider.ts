@@ -1,5 +1,5 @@
-import { randomBytes } from 'node:crypto';
 import type * as vscode from 'vscode';
+import { buildWebviewHtml } from './webviewHtml';
 
 /** Factory for URI path joining — uses vscode.Uri for type safety. */
 export type SidebarUriJoinPath = (base: vscode.Uri, ...segments: string[]) => vscode.Uri;
@@ -109,7 +109,11 @@ export class SidebarViewProvider {
     }
   }
 
-  /** Build the HTML content for the sidebar webview. */
+  /**
+   * Build the HTML content for the sidebar webview.
+   * The shell (strict CSP + crypto nonce) is shared with the panel
+   * manager — see ./webviewHtml.ts.
+   */
   private buildHtml(webview: vscode.Webview): string {
     const joinPath = this.uriJoinPath;
     const scriptUri = webview.asWebviewUri(
@@ -118,30 +122,13 @@ export class SidebarViewProvider {
     const styleUri = webview.asWebviewUri(
       joinPath(this.extensionUri, 'webview-dist', 'assets', 'style.css'),
     );
-    const nonce = this.generateNonce();
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource}; img-src ${webview.cspSource} data:;">
-  <link href="${String(styleUri)}" rel="stylesheet">
-  <title>SandForge Sidebar</title>
-</head>
-<body>
-  <div id="root"></div>
-  <script nonce="${nonce}">window.__SANDFORGE_MODULE__="sidepanel";</script>
-  <script nonce="${nonce}" src="${String(scriptUri)}"></script>
-</body>
-</html>`;
-  }
-
-  /**
-   * Generate a cryptographically-random ~32-character nonce for CSP script tags.
-   * Uses node:crypto so the nonce is unguessable — Math.random is a PRNG.
-   */
-  private generateNonce(): string {
-    return randomBytes(24).toString('base64url');
+    return buildWebviewHtml({
+      cspSource: webview.cspSource,
+      scriptUri,
+      styleUri,
+      title: 'SandForge Sidebar',
+      moduleId: 'sidepanel',
+    });
   }
 }
