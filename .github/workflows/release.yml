@@ -25,13 +25,12 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # pnpm version comes from the packageManager field in package.json
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -62,6 +61,12 @@ jobs:
 
       - name: Package VSIX
         run: pnpm package
+
+      # Fast pre-publish gates (version consistency, required manifest fields,
+      # icon/README/CHANGELOG presence, VSIX size < 5 MB, bundle size).
+      # Heavy steps are skipped — Validate and Package VSIX already ran above.
+      - name: Pre-publish checks
+        run: SKIP_BUILD_CHECKS=1 bash scripts/pre-publish-check.sh
 
       - name: Publish to Marketplace
         run: npx @vscode/vsce publish --packagePath sandforge.vsix

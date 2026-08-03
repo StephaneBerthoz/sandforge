@@ -10,6 +10,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { DataTable } from '../../components/ui/DataTable';
 
 /** AnonymizePanel component props. */
 export interface AnonymizePanelProps {
@@ -60,9 +61,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="anonymize-panel">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('dataops.anonymize')}
-        </h2>
+        <h2 className="text-sm font-semibold text-text-primary">{t('dataops.anonymize')}</h2>
         <Button
           variant="secondary"
           size="sm"
@@ -110,7 +109,7 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
             />
             <CardBody>
               <div className="flex flex-col gap-2">
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                <span className="text-xs text-text-secondary">
                   {selectedTemplate.rules.length} rules
                 </span>
                 <div className="flex flex-wrap gap-1">
@@ -150,36 +149,11 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
           <Card>
             <CardHeader title={t('dataops.previewAnonymization')} />
             <CardBody>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr>
-                      {Object.keys(previewData[0]).map((key) => (
-                        <th
-                          key={key}
-                          className="text-left px-2 py-1 text-[var(--vscode-descriptionForeground,#868686)]"
-                        >
-                          {key}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewData.map((row, i) => (
-                      <tr key={i}>
-                        {Object.values(row).map((val, j) => (
-                          <td
-                            key={j}
-                            className="px-2 py-1 text-[var(--vscode-editor-foreground,#d4d4d4)]"
-                          >
-                            {String(val ?? '')}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable
+                columns={Object.keys(previewData[0]).map((key) => ({ key, header: key }))}
+                data={previewData}
+                keyExtractor={(_row, i) => String(i)}
+              />
             </CardBody>
           </Card>
         </div>

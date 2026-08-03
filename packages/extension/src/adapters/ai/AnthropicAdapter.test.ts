@@ -194,9 +194,9 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
     const adapter = new AnthropicAdapter({ storage });
     const abortError = new MockAPIUserAbortError();
     mockMessagesCreate.mockRejectedValue(abortError);
-    await expect(
-      adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toBe(abortError);
+    await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toBe(
+      abortError,
+    );
   });
 
   it('SDK errors are re-wrapped with API-key shaped substrings redacted (P-04.7)', async () => {
@@ -207,12 +207,12 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
         '401 Unauthorized: header authorization=Bearer sk-ant-abc12345678901234567890123456789012345',
       ),
     );
-    await expect(
-      adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toThrow(/\*\*\*REDACTED\*\*\*/);
-    await expect(
-      adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.not.toThrow(/sk-ant-abc/);
+    await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow(
+      /\*\*\*REDACTED\*\*\*/,
+    );
+    await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.not.toThrow(
+      /sk-ant-abc/,
+    );
   });
 
   it('countTokens: delegates to messages.countTokens and returns inputTokens', async () => {
@@ -248,16 +248,14 @@ describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
     mockMessagesCreate.mockRejectedValue(new MockOverloadedError(529));
 
     for (let i = 0; i < 3; i++) {
-      await expect(
-        adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
-      ).rejects.toThrow();
+      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
     }
     expect(adapter.breaker.getState()).toBe('open');
 
     const callsBefore = mockMessagesCreate.mock.calls.length;
-    await expect(
-      adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
-    ).rejects.toThrow(/circuit breaker open/i);
+    await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow(
+      /circuit breaker open/i,
+    );
     expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore);
   });
 
@@ -292,7 +290,9 @@ describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
     mockMessagesCreate.mockRejectedValue(new MockAPIUserAbortError());
 
     for (let i = 0; i < 5; i++) {
-      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toBeTruthy();
+      await expect(
+        adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+      ).rejects.toBeTruthy();
     }
     expect(adapter.breaker.getState()).toBe('closed');
   });
@@ -307,7 +307,9 @@ describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
       .mockRejectedValueOnce(new MockOverloadedError());
 
     for (let i = 0; i < 4; i++) {
-      await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toBeTruthy();
+      await expect(
+        adapter.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+      ).rejects.toBeTruthy();
     }
     expect(adapter.breaker.getState()).toBe('open');
   });
@@ -490,7 +492,12 @@ describe('AnthropicAdapter — Plan 04-03 runTools', () => {
     const adapter = new AnthropicAdapter({ storage });
     mockBetaMessagesToolRunner.mockReturnValue(
       makeRunner([
-        { content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: 1, output_tokens: 1 }, model: 'm', stop_reason: 'end_turn' },
+        {
+          content: [{ type: 'text', text: 'ok' }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+          model: 'm',
+          stop_reason: 'end_turn',
+        },
       ]),
     );
     await adapter.runTools({ prompt: 'x', tools: [] });
@@ -505,7 +512,12 @@ describe('AnthropicAdapter — Plan 04-03 runTools', () => {
     const adapter = new AnthropicAdapter({ storage });
     mockBetaMessagesToolRunner.mockReturnValue(
       makeRunner([
-        { content: [{ type: 'text', text: '' }], usage: { input_tokens: 0, output_tokens: 0 }, model: 'm', stop_reason: 'end_turn' },
+        {
+          content: [{ type: 'text', text: '' }],
+          usage: { input_tokens: 0, output_tokens: 0 },
+          model: 'm',
+          stop_reason: 'end_turn',
+        },
       ]),
     );
     await adapter.runTools({ prompt: 'x', tools: [], maxIterations: 3 });
@@ -520,7 +532,12 @@ describe('AnthropicAdapter — Plan 04-03 runTools', () => {
     const adapter = new AnthropicAdapter({ storage });
     mockBetaMessagesToolRunner.mockReturnValue(
       makeRunner([
-        { content: [{ type: 'text', text: '' }], usage: { input_tokens: 0, output_tokens: 0 }, model: 'm', stop_reason: 'end_turn' },
+        {
+          content: [{ type: 'text', text: '' }],
+          usage: { input_tokens: 0, output_tokens: 0 },
+          model: 'm',
+          stop_reason: 'end_turn',
+        },
       ]),
     );
     await adapter.runTools({ prompt: 'x', tools: [] });
@@ -536,9 +553,11 @@ describe('AnthropicAdapter — Plan 04-03 runTools', () => {
     // toolRunner returns a runner whose iteration throws an overloaded error.
     mockBetaMessagesToolRunner.mockReturnValue({
       setRequestOptions: vi.fn(),
-      async *[Symbol.asyncIterator]() {
-        throw new MockOverloadedError(529);
-      },
+      // Plain async iterator (not a generator — require-yield): the first
+      // next() rejects, so runTools' for-await rethrows the overloaded error.
+      [Symbol.asyncIterator]: () => ({
+        next: () => Promise.reject(new MockOverloadedError(529)),
+      }),
     });
     for (let i = 0; i < 3; i++) {
       await expect(adapter.runTools({ prompt: 'x', tools: [] })).rejects.toThrow();
@@ -635,7 +654,14 @@ describe('AnthropicAdapter — Plan 04-05 vertical slice (5 calls → warn → p
     // 6th call: preflight blocks because total is already AT 100% — adding ANY input puts it over.
     const callsBefore = mockMessagesCreate.mock.calls.length;
     await expect(
-      adapter.chat({ messages: [{ role: 'user', content: 'this is a longer message that should be predicted at > 0 tokens' }] }),
+      adapter.chat({
+        messages: [
+          {
+            role: 'user',
+            content: 'this is a longer message that should be predicted at > 0 tokens',
+          },
+        ],
+      }),
     ).rejects.toThrow(/budget exceeded/i);
     expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore); // no SDK invocation
     const exceededCount = sentEnvelopes.filter((e) => e.type === 'ai:budget:exceeded').length;

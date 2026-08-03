@@ -41,6 +41,7 @@ export * from './types/messages.types.js';
 export * from './types/precheck.types.js';
 export * from './types/settings.types.js';
 export * from './types/forge.types.js';
+export * from './types/frozen.types.js';
 export * from './types/quickSync.types.js';
 export * from './types/execution.types.js';
 export * from './types/smart-action.types.js';
@@ -89,15 +90,10 @@ export * from './utils/format-utils.js';
 export * from './utils/hash-utils.js';
 export * from './utils/validation-utils.js';
 export * from './utils/execution-result.js';
-export * from './utils/cdcChannel.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';
 export * from './templates/forge-anonymization-presets.js';
-
-// Barrel exports — Services
-export { ConflictDiffService } from './services/ConflictDiffService.js';
-export type { ConflictFieldDiff, ThreeWayDiffResult } from './services/ConflictDiffService.js';
 
 // Barrel exports — I18n
 export * from './i18n/index.js';

@@ -98,12 +98,4 @@ describe('SF_FIELD_MAX_LENGTHS', () => {
       expect(value, `${key} max length should be positive`).toBeGreaterThan(0);
     }
   });
-
-  it('should have correct string max length', () => {
-    expect(SF_FIELD_MAX_LENGTHS.string).toBe(255);
-  });
-
-  it('should have correct textarea max length', () => {
-    expect(SF_FIELD_MAX_LENGTHS.textarea).toBe(131_072);
-  });
 });

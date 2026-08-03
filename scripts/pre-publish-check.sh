@@ -2,7 +2,16 @@
 # SandForge Pre-Publish Checks
 # Validates the extension is ready for Marketplace publication.
 # Usage: ./scripts/pre-publish-check.sh
+#
+# Env flags:
+#   SKIP_BUILD_CHECKS=1 — skip the heavy build steps (6: pnpm validate +
+#   package, 10: clean install + validate). Used by .github/workflows/release.yml,
+#   which already runs validate + package as its own steps before calling this
+#   script. The VSIX/bundle size checks (7, 11) still run — they only need the
+#   artifacts those earlier steps produced.
 set -euo pipefail
+
+SKIP_BUILD_CHECKS="${SKIP_BUILD_CHECKS:-0}"
 
 echo "=== SandForge Pre-Publish Checks ==="
 ERRORS=0
@@ -56,11 +65,15 @@ else
 fi
 
 # 6. Build and package
-echo "Building..."
-pnpm validate || { echo "FAIL: pnpm validate failed"; ERRORS=$((ERRORS + 1)); }
+if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then
+  echo "Building..."
+  pnpm validate || { echo "FAIL: pnpm validate failed"; ERRORS=$((ERRORS + 1)); }
 
-echo "Packaging VSIX..."
-pnpm package || { echo "FAIL: pnpm package failed"; ERRORS=$((ERRORS + 1)); }
+  echo "Packaging VSIX..."
+  pnpm package || { echo "FAIL: pnpm package failed"; ERRORS=$((ERRORS + 1)); }
+else
+  echo "SKIP: build + package (SKIP_BUILD_CHECKS=1 — caller already ran them)"
+fi
 
 # 7. VSIX size check (< 5 MB) — cross-platform using node
 if [[ -f "sandforge.vsix" ]]; then
@@ -93,8 +106,12 @@ WHEN_CLAUSES=$(node -p "
 echo "PASS: $WHEN_CLAUSES when-clauses found (syntax validated)"
 
 # 10. Clean install test
-echo "Running clean install validation..."
-pnpm install --frozen-lockfile && pnpm validate || { echo "FAIL: Clean install + validate failed"; ERRORS=$((ERRORS + 1)); }
+if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then
+  echo "Running clean install validation..."
+  pnpm install --frozen-lockfile && pnpm validate || { echo "FAIL: Clean install + validate failed"; ERRORS=$((ERRORS + 1)); }
+else
+  echo "SKIP: clean install validation (SKIP_BUILD_CHECKS=1)"
+fi
 
 # 11. Activation time check (MKT-08: < 2s)
 # Note: Precise activation time measurement requires running in VSCode via @vscode/test-electron.

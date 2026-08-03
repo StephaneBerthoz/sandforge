@@ -140,12 +140,7 @@ export class DescribeCache {
 
   // ─── internals ───────────────────────────────────────────────
 
-  private store(
-    orgId: string,
-    objectApiName: string,
-    fields: DescribedField[],
-    now: number,
-  ): void {
+  private store(orgId: string, objectApiName: string, fields: DescribedField[], now: number): void {
     let orgMap = this.cache.get(orgId);
     if (!orgMap) {
       orgMap = new Map();

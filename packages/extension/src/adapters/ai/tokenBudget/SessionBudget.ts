@@ -77,7 +77,8 @@ export class SessionBudget {
       cacheCreate: safeAdd(this.used.cacheCreate, usage.cacheCreate),
       total: 0, // recomputed below
     };
-    this.used.total = this.used.input + this.used.output + this.used.cacheRead + this.used.cacheCreate;
+    this.used.total =
+      this.used.input + this.used.output + this.used.cacheRead + this.used.cacheCreate;
     const state = this.snapshot();
     this.broker?.send({
       id: `budget-${Date.now()}`,

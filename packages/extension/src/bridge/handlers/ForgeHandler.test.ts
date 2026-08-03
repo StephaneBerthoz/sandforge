@@ -764,7 +764,7 @@ describe('ForgeHandler', () => {
       expect(startedPayload.description).toBe('Generating execution plan');
     });
 
-    it('emits operation:failed when planGenerator throws and error has code and retryable', async () => {
+    it('emits forge:plan:error only (no duplicate operation:failed) when planGenerator throws', async () => {
       const planGenerator = {
         generate: vi.fn().mockImplementation(() => {
           throw new Error('generation failed');
@@ -779,10 +779,13 @@ describe('ForgeHandler', () => {
       await handler.handle(msg);
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      // B8: single error channel — BridgeProvider auto-invokes ai:resolve-error
+      // on every operation:failed, so emitting both caused a parasitic
+      // duplicate AI call per forge failure.
       const failedCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'operation:failed',
       );
-      expect(failedCalls).toHaveLength(1);
+      expect(failedCalls).toHaveLength(0);
 
       const errCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'forge:plan:error',
@@ -963,7 +966,7 @@ describe('ForgeHandler', () => {
       expect(startedPayload.description).toBe('Comparing metadata schemas');
     });
 
-    it('emits operation:failed when compare throws and error has code', async () => {
+    it('emits forge:metadata-diff:error only (no duplicate operation:failed) when compare throws', async () => {
       const metadataDiff = {
         compare: vi.fn().mockRejectedValue(new Error('diff failed')),
       } as unknown as ForgeMetadataDiff;
@@ -977,10 +980,11 @@ describe('ForgeHandler', () => {
       await handler.handle(msg);
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      // B8: single error channel (see forge:plan test for the rationale).
       const failedCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'operation:failed',
       );
-      expect(failedCalls).toHaveLength(1);
+      expect(failedCalls).toHaveLength(0);
 
       const errCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'forge:metadata-diff:error',

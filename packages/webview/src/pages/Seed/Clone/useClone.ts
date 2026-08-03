@@ -6,6 +6,7 @@ import type {
   CloneExecutionResult,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
+import { useBridgeErrorChannel } from '../useBridgeErrorChannel';
 
 /** Clone wizard step identifiers. */
 export type CloneStep = 'source' | 'objects' | 'preview' | 'execute';
@@ -123,6 +124,28 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
     setExecutionStatus('error');
     if (error === null) setError(executeMutation.error);
   }
+
+  /* ------------------------------------------------------------------ */
+  /* Fail fast on the seed:clone:error channel                           */
+  /*                                                                     */
+  /* SeedCloneHandler reports describe/preview/execute failures on        */
+  /* `seed:clone:error` (no correlationId); without this listener the     */
+  /* mutation would only fail on the 30 s bridge timeout.                 */
+  /* ------------------------------------------------------------------ */
+  useBridgeErrorChannel('seed:clone:error', (message) => {
+    if (previewMutation.loading) {
+      previewMutation.reset();
+      setExecutionStatus('error');
+      setError(message);
+    } else if (executeMutation.loading) {
+      executeMutation.reset();
+      setExecutionStatus('error');
+      setError(message);
+    } else if (describeMutation.loading) {
+      describeMutation.reset();
+      setError(message);
+    }
+  });
 
   /* ------------------------------------------------------------------ */
   /* Handlers                                                            */

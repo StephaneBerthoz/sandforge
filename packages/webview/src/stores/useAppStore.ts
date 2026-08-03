@@ -5,6 +5,7 @@ export type ModuleRoute =
   | 'home'
   | 'orgs'
   | 'forge'
+  | 'frozen'
   | 'grappe'
   | 'monitor'
   | 'seed'
@@ -23,6 +24,7 @@ export const ALL_ROUTES: readonly ModuleRoute[] = [
   'home',
   'orgs',
   'forge',
+  'frozen',
   'grappe',
   'monitor',
   'seed',

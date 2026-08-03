@@ -14,6 +14,7 @@ const ROUTE_LABELS: Record<ModuleRoute, string> = {
   home: 'nav.home',
   orgs: 'nav.orgs',
   forge: 'nav.forge',
+  frozen: 'nav.frozen',
   grappe: 'nav.grappe',
   monitor: 'nav.monitor',
   seed: 'nav.seed',

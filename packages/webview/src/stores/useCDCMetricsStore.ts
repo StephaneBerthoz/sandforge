@@ -107,6 +107,11 @@ export function getUptimeSeconds(startedAt: string): number {
  * Listens for realtime:metrics:response and updates the store.
  */
 function handleMetricsMessage(event: MessageEvent): void {
+  // SECURITY: Validate origin — only accept messages from the VSCode webview
+  // host ('vscode-webview://...') or empty origin (tests, some environments).
+  if (event.origin && !event.origin.startsWith('vscode-webview://')) {
+    return;
+  }
   const message = event.data;
   if (!message || typeof message !== 'object' || !('type' in message)) return;
 

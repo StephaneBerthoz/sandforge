@@ -85,6 +85,15 @@ function filterJobs(jobs: JobDisplayInfo[], filter: JobFilter): JobDisplayInfo[]
 /**
  * Enhanced jobs table with grouping by Apex class, filtering, and status indicators.
  * Groups jobs into accordion-like expandable sections.
+ *
+ * Virtualization note (audit cycle 2): intentionally NOT virtualized. The
+ * accordion keeps groups collapsed by default, so only expanded groups' rows
+ * enter the DOM, and the monitor payload is bounded (recent jobs per poll).
+ * VirtualList would require fixed-height scroll containers per group (visual
+ * change) and make `job-row-*` assertions depend on jsdom overscan behavior.
+ * Memoized instead: props are flat and `jobs` identity is stable between
+ * polls, so the 10s `lastUpdatedStr` tick in useMonitorPageData no longer
+ * re-renders the accordion.
  */
 /** Export jobs to CSV and trigger download via data URI. */
 function exportJobsCsv(jobs: JobDisplayInfo[], filename: string): void {
@@ -122,7 +131,7 @@ function exportJobsCsv(jobs: JobDisplayInfo[], filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-export const JobsTable: React.FC<JobsTableProps> = ({ jobs, className }) => {
+export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className }) => {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<JobFilter>('all');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -363,4 +372,6 @@ export const JobsTable: React.FC<JobsTableProps> = ({ jobs, className }) => {
       </CardBody>
     </Card>
   );
-};
+});
+
+JobsTable.displayName = 'JobsTable';

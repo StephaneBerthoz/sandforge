@@ -31,6 +31,47 @@ async function execAsync(
 }
 
 /**
+ * Execute a command without a shell (POSIX argv-as-array hardening).
+ * Mirrors the RT-#8 pattern used by ConnectionHelper.refreshTokenViaCli:
+ * no shell means no interpolation, so args need no escaping.
+ */
+async function execFileAsync(
+  file: string,
+  args: string[],
+  options?: { timeout?: number },
+): Promise<{ stdout: string; stderr: string }> {
+  const { execFile } = await import('child_process');
+  const { promisify } = await import('util');
+  const result = await promisify(execFile)(file, args, {
+    maxBuffer: MAX_BUFFER,
+    windowsHide: true,
+    env: { ...process.env, NO_COLOR: '1' },
+    ...options,
+  });
+  return { stdout: String(result.stdout), stderr: String(result.stderr) };
+}
+
+/**
+ * Validate a Salesforce instance URL for CLI use.
+ * Must be an https:// URL whose hostname contains only shell-safe characters
+ * (letters, digits, dot, dash) — this is the shell-injection defense for the
+ * Windows exec branch of loginWeb.
+ */
+function validateInstanceUrl(instanceUrl: string): void {
+  let url: URL;
+  try {
+    url = new URL(instanceUrl);
+  } catch {
+    throw new Error(`Invalid instanceUrl: "${instanceUrl}"`);
+  }
+  if (url.protocol !== 'https:' || !/^[\w.-]+$/.test(url.hostname)) {
+    throw new Error(
+      `Invalid instanceUrl: "${instanceUrl}" — expected an https:// URL with a valid hostname`,
+    );
+  }
+}
+
+/**
  * Extract the first valid JSON object or array from a raw string.
  * SF CLI may emit warnings, ANSI escape codes, or other text before JSON.
  */
@@ -131,11 +172,31 @@ export class SfdxBridge {
 
   /** Execute sf org login web to open browser auth flow */
   async loginWeb(alias: string, instanceUrl: string): Promise<void> {
-    const parts = ['sf', 'org', 'login', 'web', '--instance-url', instanceUrl];
-    if (alias) {
-      parts.push('--alias', alias);
+    // Validate before any shell/exec use (audit RT-#8 hardening, same pattern
+    // as ConnectionHelper.refreshTokenViaCli). These checks are the only
+    // shell-injection defense on the Windows exec branch below.
+    if (alias && !/^[\w.-]+$/.test(alias)) {
+      throw new Error(`Invalid alias format: "${alias}"`);
     }
-    await execAsync(parts.join(' '), { timeout: 120_000 });
+    validateInstanceUrl(instanceUrl);
+
+    // POSIX: argv-as-array via execFile — no shell, no interpolation.
+    // Windows: `sf` resolves to `sf.cmd` which requires shell-based PATHEXT
+    // resolution, so keep exec there; the validated values (word/dot/dash
+    // alias + https URL) are shell-safe inside double quotes.
+    if (process.platform === 'win32') {
+      let command = `sf org login web --instance-url "${instanceUrl}"`;
+      if (alias) {
+        command += ` --alias "${alias}"`;
+      }
+      await execAsync(command, { timeout: 120_000 });
+    } else {
+      const args = ['org', 'login', 'web', '--instance-url', instanceUrl];
+      if (alias) {
+        args.push('--alias', alias);
+      }
+      await execFileAsync('sf', args, { timeout: 120_000 });
+    }
   }
 
   private dedupeByOrgId(entries: SfdxOrgEntry[]): SfdxOrgEntry[] {
@@ -155,11 +216,13 @@ export class SfdxBridge {
         ? ('Sandbox' as const)
         : ('Production' as const);
 
+    // Production orgs are critical; sandboxes may hold production-shaped data
+    // so they sit one tier above scratch orgs (medium vs low).
     const safetyTier =
       orgType === 'Production'
         ? OrgSafetyTier.CRITICAL
-        : orgType === 'Scratch'
-          ? OrgSafetyTier.LOW
+        : orgType === 'Sandbox'
+          ? OrgSafetyTier.MEDIUM
           : OrgSafetyTier.LOW;
 
     const org: SalesforceOrg = {

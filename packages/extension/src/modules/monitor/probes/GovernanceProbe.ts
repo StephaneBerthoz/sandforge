@@ -1,11 +1,7 @@
 import type { MetricSample } from '@sandforge/shared';
 
 import type { MonitorProbe, ProbePriority } from '../MonitorProbe.js';
-import type {
-  GovernanceEngine,
-  GovernancePolicy,
-  MetricValues,
-} from '../GovernanceEngine.js';
+import type { GovernanceEngine, GovernancePolicy, MetricValues } from '../GovernanceEngine.js';
 
 /**
  * Source of governance inputs — supplies the active policy (if any) and the

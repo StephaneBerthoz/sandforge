@@ -26,8 +26,6 @@ import type { PermissionMatrixRow } from './PermissionMatrix';
 import { SnapshotTimeline } from './SnapshotTimeline';
 import { DriftDashboard } from './DriftDashboard';
 import type { DriftResult } from './DriftDashboard';
-import { ImpactGraph } from './ImpactGraph';
-import type { ImpactAnalysis } from './ImpactGraph';
 import { DeployFromDiff } from './DeployFromDiff';
 import { enrichDiffs } from './enrichDiffs';
 import type { OrgSnapshot } from '@sandforge/shared';
@@ -41,7 +39,6 @@ export const ComparePage: React.FC = () => {
     { id: 'permissions', label: t('compare.permissions'), icon: 'shield' },
     { id: 'snapshots', label: t('compare.snapshots'), icon: 'history' },
     { id: 'drift', label: t('compare.drift'), icon: 'warning' },
-    { id: 'impact', label: t('compare.impact'), icon: 'references' },
     { id: 'deploy', label: t('compare.deploy'), icon: 'cloud-upload' },
   ];
   const orgs = useOrgStore((s) => s.orgs);
@@ -55,9 +52,7 @@ export const ComparePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   /** Bridge mutation: execute the comparison. */
-  const compareMutation = useBridgeMutation<CompareResult>('compare:execute', {
-    responseType: 'compare:start:response',
-  });
+  const compareMutation = useBridgeMutation<CompareResult>('compare:execute');
 
   const schemaAdvice = useSchemaAdvice();
 
@@ -78,12 +73,6 @@ export const ComparePage: React.FC = () => {
     'compare:drift',
     { sourceOrgId, targetOrgId },
     { skip: activeTab !== 'drift' || !sourceOrgId || !targetOrgId },
-  );
-
-  const impactQuery = useBridgeQuery<ImpactAnalysis>(
-    'compare:impact',
-    { sourceOrgId, targetOrgId },
-    { skip: activeTab !== 'impact' || !sourceOrgId || !targetOrgId },
   );
 
   /** Derive state from the bridge mutation. */
@@ -356,13 +345,6 @@ export const ComparePage: React.FC = () => {
               <Skeleton variant="rect" height="200px" />
             ) : (
               <DriftDashboard drift={driftQuery.data ?? undefined} />
-            ))}
-
-          {activeTab === 'impact' &&
-            (impactQuery.loading ? (
-              <Skeleton variant="rect" height="200px" />
-            ) : (
-              <ImpactGraph analysis={impactQuery.data ?? undefined} />
             ))}
 
           {activeTab === 'deploy' && <DeployFromDiff />}

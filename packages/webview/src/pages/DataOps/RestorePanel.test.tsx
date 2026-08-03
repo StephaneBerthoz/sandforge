@@ -28,7 +28,7 @@ describe('RestorePanel', () => {
 
   it('should show empty state when no backups', () => {
     render(<RestorePanel />);
-    expect(screen.getByText('dataops.selectBackup')).toBeDefined();
+    expect(screen.getByText('Select a backup to restore')).toBeDefined();
   });
 
   it('should show completed backups', () => {

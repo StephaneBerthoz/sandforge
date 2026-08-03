@@ -14,6 +14,7 @@ import type { MarketplaceListRequest, MarketplaceInstallRequest } from '@sandfor
 import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
+import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
 
 /** Message types handled by AutomationHandler. */
 const AUTOMATION_TYPES = new Set([
@@ -166,7 +167,13 @@ export class AutomationHandler implements DomainHandler {
 
       let result;
       try {
-        result = await orchestrator.execute(pipeline, variables, 'manual');
+        // `sandforge.pipeline.timeout` (manifest default 300 000 ms) bounds the
+        // wall-clock duration of a pipeline run.
+        const pipelineTimeout =
+          this.deps.services?.getSandforgeSetting?.('pipeline.timeout', 300_000) ?? 300_000;
+        result = await new TimeoutManager(pipelineTimeout).withTimeout('pipeline:execute', () =>
+          orchestrator.execute(pipeline, variables, 'manual'),
+        );
       } finally {
         // Release the event-emitter listener so the closure doesn't pin the
         // orchestrator + pipeline graph in memory after execution.
@@ -198,8 +205,10 @@ export class AutomationHandler implements DomainHandler {
     } catch (err: unknown) {
       this.activeOrchestrators.delete(operationId);
       this.activeOperationIds.delete(operationId);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), false);
-      sendHandlerError(this.deps, 'pipeline:run', 'pipeline:error', err);
+      // Single failure emission: `operation:failed` only (webview consumes it).
+      const isTimeout = err instanceof TimeoutError;
+      this.deps.log(`[ERR] pipeline:run: ${extractErrorMessage(err)}`);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), isTimeout);
     }
   }
 

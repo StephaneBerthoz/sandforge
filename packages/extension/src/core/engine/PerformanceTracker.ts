@@ -21,6 +21,9 @@ export interface PerformanceHistory {
 
 const DEGRADATION_THRESHOLD = 0.8;
 
+/** Maximum completed operations retained per module (FIFO eviction). */
+const MAX_HISTORY_PER_MODULE = 100;
+
 /**
  * Tracks the performance of operations across modules.
  * Maintains per-operation metrics and aggregated history
@@ -127,6 +130,11 @@ export class PerformanceTracker {
     const key = metrics.module;
     const existing = this.completedHistory.get(key) ?? [];
     existing.push(metrics);
+    // Cap per-module history — unbounded growth otherwise (long sessions
+    // running thousands of operations would pin every metrics object).
+    if (existing.length > MAX_HISTORY_PER_MODULE) {
+      existing.splice(0, existing.length - MAX_HISTORY_PER_MODULE);
+    }
     this.completedHistory.set(key, existing);
   }
 }

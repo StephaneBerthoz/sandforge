@@ -13,7 +13,7 @@ const mockLimits: ApiLimit[] = [
 describe('LimitsPanel', () => {
   it('should render the limits title', () => {
     render(<LimitsPanel limits={mockLimits} />);
-    expect(screen.getByText('monitor.limits')).toBeDefined();
+    expect(screen.getByText('API Limits')).toBeDefined();
   });
 
   it('should render limit count subtitle', () => {

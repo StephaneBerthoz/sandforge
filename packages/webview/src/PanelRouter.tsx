@@ -10,6 +10,7 @@ import { ReportsPage } from './pages/Reports/ReportsPage';
 import { SettingsPage } from './pages/Settings/SettingsPage';
 import { HelpPage } from './pages/Help/HelpPage';
 import { ForgePage } from './pages/Forge/ForgePage';
+import { FrozenPage } from './pages/Frozen/FrozenPage';
 import { GrappePage } from './pages/Grappe/GrappePage';
 import { AutopilotPage } from './pages/Autopilot/AutopilotPage';
 import { AIPage } from './pages/AI/AIPage';
@@ -20,6 +21,7 @@ const panelComponents: Record<string, React.FC> = {
   home: HomePage,
   orgs: OrgManagerPage,
   forge: ForgePage,
+  frozen: FrozenPage,
   grappe: GrappePage,
   monitor: MonitorPage,
   compare: ComparePage,

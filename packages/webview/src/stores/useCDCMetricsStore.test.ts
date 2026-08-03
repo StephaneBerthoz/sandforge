@@ -94,6 +94,32 @@ describe('useCDCMetricsStore', () => {
 
     expect(useCDCMetricsStore.getState().polling).toBe(true);
   });
+
+  it('should update metrics on realtime:metrics:response window message', () => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'realtime:metrics:response', payload: { metrics: fakeMetrics() } },
+      }),
+    );
+
+    const state = useCDCMetricsStore.getState();
+    expect(state.metrics).not.toBeNull();
+    expect(state.metrics?.eventsReceived).toBe(100);
+    expect(state.metricsHistory).toHaveLength(1);
+  });
+
+  it('should ignore messages from untrusted origins', () => {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: 'https://evil.example.com',
+        data: { type: 'realtime:metrics:response', payload: { metrics: fakeMetrics() } },
+      }),
+    );
+
+    const state = useCDCMetricsStore.getState();
+    expect(state.metrics).toBeNull();
+    expect(state.metricsHistory).toHaveLength(0);
+  });
 });
 
 describe('getEventsPerSecondHistory', () => {

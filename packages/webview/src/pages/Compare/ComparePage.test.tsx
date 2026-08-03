@@ -1,43 +1,10 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { OrgSafetyTier } from '@sandforge/shared';
 import { ComparePage } from './ComparePage';
-
-/* React Flow requires ResizeObserver. */
-beforeAll(() => {
-  if (typeof globalThis.ResizeObserver === 'undefined') {
-    globalThis.ResizeObserver = class ResizeObserver {
-      observe(): void {
-        /* noop */
-      }
-      unobserve(): void {
-        /* noop */
-      }
-      disconnect(): void {
-        /* noop */
-      }
-    };
-  }
-});
-
-/* Mock ReactFlow used by LiveGraph via ImpactGraph */
-vi.mock('reactflow', () => ({
-  __esModule: true,
-  default: ({ nodes, children }: { nodes: Array<{ id: string }>; children?: React.ReactNode }) => (
-    <div data-testid="mock-reactflow" data-nodes={nodes?.length ?? 0}>
-      {children}
-    </div>
-  ),
-  MiniMap: () => React.createElement('div', { 'data-testid': 'minimap' }),
-  Controls: () => React.createElement('div', { 'data-testid': 'controls' }),
-  Background: () => React.createElement('div', { 'data-testid': 'background' }),
-  Handle: () => React.createElement('div'),
-  Position: { Left: 'left', Right: 'right', Top: 'top', Bottom: 'bottom' },
-  getBezierPath: () => ['M 0 0', 0, 0] as const,
-}));
 
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */

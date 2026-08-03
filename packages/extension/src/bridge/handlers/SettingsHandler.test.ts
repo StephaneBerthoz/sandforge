@@ -103,14 +103,53 @@ describe('SettingsHandler', () => {
     expect(response.payload.enabled).toBe(false);
   });
 
-  it('handles telemetry:toggle with correlationId', async () => {
+  it('telemetry:status reports the real setting value and emitted event count', async () => {
+    deps.services = {
+      getSandforgeSetting: (key: string, fallback: unknown) =>
+        key === 'telemetry' ? true : fallback,
+      telemetry: { getTelemetryEventCount: () => 7 },
+    } as unknown as NonNullable<HandlerDeps['services']>;
+
+    await handler.handle(createMsg('telemetry:status'));
+
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.payload.enabled).toBe(true);
+    expect(response.payload.eventCount).toBe(7);
+    expect(response.payload.bufferSize).toBe(0);
+  });
+
+  it('telemetry:toggle persists the setting and responds with the persisted value', async () => {
+    const setSandforgeSetting = vi.fn().mockResolvedValue(undefined);
+    let current = false;
+    deps.services = {
+      setSandforgeSetting,
+      getSandforgeSetting: () => current,
+    } as unknown as NonNullable<HandlerDeps['services']>;
+    setSandforgeSetting.mockImplementation(async () => {
+      current = true;
+    });
+
+    const result = await handler.handle(createMsg('telemetry:toggle', { enabled: true }));
+    expect(result).toBe(true);
+
+    expect(setSandforgeSetting).toHaveBeenCalledWith('telemetry', true);
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('telemetry:toggle:response');
+    expect(response.correlationId).toBe('req-42');
+    expect(response.payload.success).toBe(true);
+    expect(response.payload.enabled).toBe(true);
+  });
+
+  it('telemetry:toggle answers honestly when the settings backend is unavailable', async () => {
     const result = await handler.handle(createMsg('telemetry:toggle', { enabled: true }));
     expect(result).toBe(true);
 
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.type).toBe('telemetry:toggle:response');
     expect(response.correlationId).toBe('req-42');
-    expect(response.payload.enabled).toBe(true);
+    expect(response.payload.success).toBe(false);
+    expect(response.payload.enabled).toBe(false);
+    expect(response.payload.error).toContain('not persisted');
   });
 
   it('handles connectivity:status with correlationId', async () => {

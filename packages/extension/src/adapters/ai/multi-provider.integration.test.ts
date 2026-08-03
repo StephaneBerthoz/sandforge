@@ -82,7 +82,9 @@ describe('multi-provider isolation — Plan 04-07 vertical slice', () => {
 
     hoisted.mockMessagesCreate.mockRejectedValue(new MockOverloadedError());
     for (let i = 0; i < 3; i++) {
-      await expect(anthropic.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
+      await expect(
+        anthropic.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+      ).rejects.toThrow();
     }
 
     expect(anthropic.breaker.getState()).toBe('open');
@@ -97,7 +99,9 @@ describe('multi-provider isolation — Plan 04-07 vertical slice', () => {
 
     hoisted.mockMessagesCreate.mockRejectedValue(new MockOverloadedError());
     for (let i = 0; i < 3; i++) {
-      await expect(anthropic.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.toThrow();
+      await expect(
+        anthropic.chat({ messages: [{ role: 'user', content: 'hi' }] }),
+      ).rejects.toThrow();
     }
     expect(anthropic.breaker.getState()).toBe('open');
 
@@ -143,10 +147,7 @@ describe('RT-#11 closure CI gate — zero regex-extract callsites in migrated AI
   it('AIAssistant.ts exists', async () => {
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
-    const src = await fs.readFile(
-      path.join(__dirname, '../../modules/ai/AIAssistant.ts'),
-      'utf8',
-    );
+    const src = await fs.readFile(path.join(__dirname, '../../modules/ai/AIAssistant.ts'), 'utf8');
     expect(src).toBeDefined();
   });
 
@@ -163,10 +164,7 @@ describe('RT-#11 closure CI gate — zero regex-extract callsites in migrated AI
   it('NL2SOQL.ts exists', async () => {
     const fs = await import('node:fs/promises');
     const path = await import('node:path');
-    const src = await fs.readFile(
-      path.join(__dirname, '../../modules/ai/NL2SOQL.ts'),
-      'utf8',
-    );
+    const src = await fs.readFile(path.join(__dirname, '../../modules/ai/NL2SOQL.ts'), 'utf8');
     expect(src).toBeDefined();
   });
 });

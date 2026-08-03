@@ -8,11 +8,12 @@ import {
 } from './adapters/index.js';
 import {
   createAIClientFactory,
-  type AIClient,
+  type AIClientFactory,
   type AIProviderType,
 } from './adapters/ai/index.js';
 import { SessionBudget, type BudgetBroker } from './adapters/ai/tokenBudget/index.js';
 import type { ConfigStore } from './core/storage/ConfigStore.js';
+import type { TelemetryAdapterOptions } from './adapters/telemetry/TelemetryAdapter.js';
 
 import { MonitorOrchestrator } from './modules/monitor/MonitorOrchestrator.js';
 import type { MonitorDependencies } from './modules/monitor/MonitorOrchestrator.js';
@@ -37,7 +38,7 @@ export interface CoreServices {
   storage: StorageAdapter;
   /** Telemetry + structured logger facade. */
   telemetry: TelemetryAdapter;
-  /** jsforce gateway with concurrency gate + retry. */
+  /** jsforce gateway with concurrency gate + describe cache. */
   salesforce: SalesforceAdapter;
   /** Safe filesystem wrapper constrained to workspace root. */
   fs: FsAdapter;
@@ -51,8 +52,36 @@ export interface CoreServices {
    * AI client factory, memoised per provider. The first call constructs
    * an `AnthropicAdapter` and lazily reads `sandforge.ai.anthropic.key`
    * from SecretStorage on its first SDK request — never at activate.
+   * Call `aiClient.invalidate()` when `sandforge.ai.*` settings change so
+   * the next call rebuilds adapters from the current provider/model.
    */
-  aiClient: (provider?: AIProviderType) => AIClient;
+  aiClient: AIClientFactory;
+  /**
+   * True when AI features are enabled via the `sandforge.ai.enabled`
+   * setting (default false). Read at call time so setting changes take
+   * effect without a reload.
+   */
+  isAIEnabled: () => boolean;
+  /**
+   * Read a `sandforge.*` VS Code setting (e.g. `'safety.auditLogging'`)
+   * with the manifest default as fallback. Read at call time so setting
+   * changes take effect without a reload. Handlers and core services use
+   * this instead of importing `vscode` themselves (keeps them testable).
+   */
+  getSandforgeSetting: <T>(key: string, fallback: T) => T;
+  /**
+   * Persist a `sandforge.*` VS Code setting at Global (user) scope.
+   * Optional so tests that construct partial Services bundles still compile;
+   * handlers must degrade honestly when it is absent.
+   * (`PromiseLike` because vscode's `WorkspaceConfiguration.update` returns a Thenable.)
+   */
+  setSandforgeSetting?: <T>(key: string, value: T) => PromiseLike<void>;
+  /**
+   * Absolute fs paths of the open workspace folders (empty when no folder is
+   * open). Used by file-ingest handlers (migration import) to bound webview-
+   * supplied paths to an allowed base. Optional for the same test reason.
+   */
+  getWorkspaceFolders?: () => string[];
   /**
    * Build a fresh `SessionBudget` for an AI panel session. Caller is
    * responsible for attaching it to the adapter
@@ -101,13 +130,27 @@ export interface Services extends CoreServices, OrchestratorFactories {}
  *           → orchestrator factories (capture the above)
  *
  * After wiring, `runSecretMigration` is invoked (fire-and-forget) to silently
- * move any legacy globalState credentials into SecretStorage.
+ * move legacy credentials (globalState and legacy SecretStorage AI keys) into
+ * their unified SecretStorage locations.
  *
  * @param context - The VSCode extension context.
+ * @param opts - Optional TelemetryAdapter options (e.g. a Pino destination
+ *   routed to the extension's OutputChannel instead of stdout).
  * @returns A fully wired Services object ready to be passed to handlers.
  */
-export function createServices(context: vscode.ExtensionContext): Services {
-  const telemetry = new TelemetryAdapter(context);
+export function createServices(
+  context: vscode.ExtensionContext,
+  opts?: TelemetryAdapterOptions,
+): Services {
+  // `sandforge.telemetry` (manifest default false) gates telemetry emissions
+  // (breadcrumbs / captureException) at the point of emission — read live so
+  // toggling the setting takes effect without a reload. The operational Pino
+  // logger (OutputChannel) is intentionally NOT gated.
+  const telemetry = new TelemetryAdapter(context, {
+    ...opts,
+    isEnabled: () =>
+      vscode.workspace.getConfiguration('sandforge').get<boolean>('telemetry', false),
+  });
   const storage = new StorageAdapter(context);
   const salesforce = new SalesforceAdapter(storage, telemetry);
   const fs = new FsAdapter(telemetry);
@@ -133,6 +176,16 @@ export function createServices(context: vscode.ExtensionContext): Services {
     salesforce,
     fs,
     aiClient,
+    isAIEnabled: () =>
+      vscode.workspace.getConfiguration('sandforge.ai').get<boolean>('enabled', false),
+    getSandforgeSetting: <T>(key: string, fallback: T): T =>
+      vscode.workspace.getConfiguration('sandforge').get<T>(key, fallback),
+    setSandforgeSetting: <T>(key: string, value: T): PromiseLike<void> =>
+      vscode.workspace
+        .getConfiguration('sandforge')
+        .update(key, value, vscode.ConfigurationTarget.Global),
+    getWorkspaceFolders: (): string[] =>
+      vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
     createSessionBudget: (sessionId, broker) => {
       const budget = vscode.workspace
         .getConfiguration('sandforge.ai')
@@ -144,7 +197,15 @@ export function createServices(context: vscode.ExtensionContext): Services {
         logger: telemetry.getLogger(),
       });
     },
-    monitorOrchestrator: (deps) => new MonitorOrchestrator(deps),
+    monitorOrchestrator: (deps) =>
+      new MonitorOrchestrator({
+        // `sandforge.monitor.persistTimeSeries` (manifest default off) feeds
+        // TimeSeriesStore disk persistence. An explicit caller value wins.
+        persistTimeSeries: vscode.workspace
+          .getConfiguration('sandforge.monitor')
+          .get<boolean>('persistTimeSeries', false),
+        ...deps,
+      }),
     seedOrchestrator: (deps) => new SeedOrchestrator(deps),
     syncOrchestrator: (deps) => new SyncOrchestrator(deps),
     compareOrchestrator: (deps) => new CompareOrchestrator(deps),
@@ -164,16 +225,52 @@ interface LegacyOrgRecord {
   [key: string]: unknown;
 }
 
+/** Unified SecretStorage key for the Anthropic API key (read by AnthropicAdapter). */
+const AI_SECRET_KEY = 'sandforge.ai.anthropic.key';
+
+/** Legacy globalState key holding the AI API key. */
+const AI_SECRET_KEY_LEGACY_GLOBALSTATE = 'ai.apiKey';
+
+/** Legacy SecretStorage keys holding the AI API key (migrated to AI_SECRET_KEY). */
+const AI_SECRET_KEYS_LEGACY = ['sandforge.ai-api-key', 'sandforge.ai:apiKey', 'ai:apiKey'];
+
+/**
+ * Move a legacy SecretStorage key to the unified AI key.
+ * Never overwrites an existing target value; the legacy key is deleted either
+ * way so the migration is idempotent.
+ *
+ * @returns true when a legacy value existed (and was migrated or superseded).
+ */
+async function migrateLegacySecretKey(
+  context: vscode.ExtensionContext,
+  oldKey: string,
+  newKey: string,
+): Promise<boolean> {
+  const value = await context.secrets.get(oldKey);
+  if (value === undefined || value === null) {
+    return false;
+  }
+  const existing = await context.secrets.get(newKey);
+  if (existing === undefined || existing === null) {
+    await context.secrets.store(newKey, value);
+  }
+  await context.secrets.delete(oldKey);
+  return true;
+}
+
 /**
  * Silently move legacy credentials from `globalState` into `SecretStorage`.
  *
  * Targets:
- *  - `ai.apiKey` → `sandforge.ai.anthropic.key`
+ *  - `ai.apiKey` (globalState) → `sandforge.ai.anthropic.key`
+ *  - legacy AI secret keys (`sandforge.ai-api-key`, `sandforge.ai:apiKey`,
+ *    `ai:apiKey`) → `sandforge.ai.anthropic.key`
  *  - `sandforge.${orgId}.accessToken` → same key in SecretStorage
  *  - `sandforge.${orgId}.refreshToken` → same key in SecretStorage
  *
- * Idempotent: keys already migrated (i.e. absent in globalState) are skipped
- * without failure. Emits a single telemetry breadcrumb summarising the run.
+ * Idempotent: keys already migrated (i.e. absent in globalState / SecretStorage)
+ * are skipped without failure. Emits a single telemetry breadcrumb summarising
+ * the run.
  *
  * @param storage - StorageAdapter instance.
  * @param telemetry - TelemetryAdapter for breadcrumb emission.
@@ -189,8 +286,17 @@ export async function runSecretMigration(
   let success = true;
 
   try {
-    if (await storage.migrateLegacyKey('ai.apiKey', 'sandforge.ai.anthropic.key', true)) {
+    if (await storage.migrateLegacyKey(AI_SECRET_KEY_LEGACY_GLOBALSTATE, AI_SECRET_KEY, true)) {
       count++;
+    }
+
+    // Legacy SecretStorage AI keys. `sandforge.ai-api-key` was written through
+    // SecretVault (prefix `sandforge.` + `ai-api-key`); `sandforge.ai:apiKey`
+    // is the prefixed form of the `ai:apiKey` key SeedOpsHandler used to read.
+    for (const oldKey of AI_SECRET_KEYS_LEGACY) {
+      if (await migrateLegacySecretKey(context, oldKey, AI_SECRET_KEY)) {
+        count++;
+      }
     }
 
     const orgIds = collectOrgIds(context);

@@ -1,12 +1,6 @@
 import { useState, useCallback } from 'react';
-import type { BaseMessage, BulkExecutionProgress } from '@sandforge/shared';
+import type { BulkExecutionProgress, ExecutionProgressMessage } from '@sandforge/shared';
 import { useMessageListener } from './useMessageBus';
-
-/** Message shape for execution:progress events. */
-interface ExecutionProgressMessage extends BaseMessage {
-  type: 'execution:progress';
-  payload: BulkExecutionProgress;
-}
 
 /**
  * Hook that subscribes to `execution:progress` messages and maintains

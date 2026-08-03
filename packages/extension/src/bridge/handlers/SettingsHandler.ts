@@ -84,7 +84,7 @@ export class SettingsHandler implements DomainHandler {
         this.handleTelemetryStatus(msg);
         return true;
       case 'telemetry:toggle':
-        this.handleTelemetryToggle(msg);
+        await this.handleTelemetryToggle(msg);
         return true;
       case 'connectivity:status':
         this.handleConnectivityStatus(msg);
@@ -207,24 +207,61 @@ export class SettingsHandler implements DomainHandler {
     this.deps.log(`[TX] plugins:unload:response (${pluginName})`);
   }
 
+  /**
+   * Report the real telemetry state: the `sandforge.telemetry` VS Code
+   * setting (manifest default false) plus the count of telemetry events
+   * actually emitted since activation. `bufferSize` is always 0 — Pino
+   * writes synchronously to its destination, there is no event buffer.
+   */
   private handleTelemetryStatus(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const enabled = this.deps.services?.getSandforgeSetting?.('telemetry', false) ?? false;
+    const eventCount = this.deps.services?.telemetry.getTelemetryEventCount() ?? 0;
     const response = buildResponse(this.deps, msg, 'telemetry:status:response', {
-      enabled: false,
-      eventCount: 0,
+      enabled,
+      eventCount,
       bufferSize: 0,
     });
     this.deps.broker.postToWebview(response);
   }
 
-  private handleTelemetryToggle(msg: BaseMessage): void {
+  /**
+   * Persist the telemetry opt-in to the `sandforge.telemetry` setting
+   * (Global scope). Responds with the value actually persisted; when the
+   * settings backend is unavailable (partial Services in tests), answers
+   * honestly with success: false instead of pretending the toggle worked.
+   */
+  private async handleTelemetryToggle(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const { enabled } = (msg as TelemetryToggleRequest).payload;
-    const response = buildResponse(this.deps, msg, 'telemetry:toggle:response', {
-      success: true,
-      enabled,
-    });
-    this.deps.broker.postToWebview(response);
+
+    if (!this.deps.services?.setSandforgeSetting) {
+      const response = buildResponse(this.deps, msg, 'telemetry:toggle:response', {
+        success: false,
+        enabled: this.deps.services?.getSandforgeSetting?.('telemetry', false) ?? false,
+        error: 'Settings backend not available — telemetry preference was not persisted.',
+      });
+      this.deps.broker.postToWebview(response);
+      return;
+    }
+
+    try {
+      await this.deps.services.setSandforgeSetting('telemetry', enabled);
+      const persisted = this.deps.services.getSandforgeSetting?.('telemetry', enabled) ?? enabled;
+      const response = buildResponse(this.deps, msg, 'telemetry:toggle:response', {
+        success: true,
+        enabled: persisted,
+      });
+      this.deps.broker.postToWebview(response);
+    } catch (err: unknown) {
+      this.deps.log(`[ERR] telemetry:toggle: ${extractErrorMessage(err)}`);
+      const response = buildResponse(this.deps, msg, 'telemetry:toggle:response', {
+        success: false,
+        enabled: this.deps.services.getSandforgeSetting?.('telemetry', false) ?? false,
+        error: extractErrorMessage(err),
+      });
+      this.deps.broker.postToWebview(response);
+    }
   }
 
   private handleConnectivityStatus(msg: BaseMessage): void {

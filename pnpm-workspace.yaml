@@ -1,7 +1,49 @@
 packages:
   - "packages/*"
 
+# Shared devDependency versions — referenced as "catalog:" from the package
+# manifests. Bump here, once. Only deps with a strictly identical range in
+# every consuming package belong here (e.g. @vitest/coverage-v8 stays out:
+# root uses ^1 while packages pin ^1.6.1).
+catalog:
+  "@typescript-eslint/eslint-plugin": "^7"
+  "@typescript-eslint/parser": "^7"
+  eslint: "^8"
+  eslint-config-prettier: "^9"
+  fast-check: "^3"
+  typescript: "~5.5"
+  vitest: "^1"
+
+# pnpm 11 build-script approvals (replaces onlyBuiltDependencies).
+# esbuild: required for the extension bundle. keytar: native secrets backend.
+# @vscode/vsce-sign: required by `vsce package`. core-js*: postinstall is a
+# funding banner only — stays blocked.
+allowBuilds:
+  '@vscode/vsce-sign': true
+  core-js: false
+  core-js-pure: false
+  esbuild: true
+  keytar: true
+
 onlyBuiltDependencies:
   - esbuild
   - "@vscode/vsce-sign"
   - keytar
+
+# Security overrides — all entries close high-severity CVEs surfaced by `pnpm audit`.
+# picomatch / lodash: see Round 1 commit 1b27ff9.
+# minimatch (3 ranges, one per major): ReDoS GHSA fixed in 3.0.5 — replacement
+# constrained to <4 so CJS-default consumers like @vscode/vsce keep working
+# (vsce uses `__importDefault(require('minimatch'))` which only works on 3.x).
+# vsce specifically pinned at 3.1.2 belt-and-braces.
+# rollup >=4.59.0: sourcemap-injection in older 4.x. flatted >=3.4.2: prototype
+# pollution. All devDep-only — they don't ship in the marketplace VSIX.
+overrides:
+  "picomatch@<4.0.4": ">=4.0.4"
+  "lodash@<4.18.0": ">=4.18.0"
+  "minimatch@<3.0.5": ">=3.0.5 <4"
+  "minimatch@>=9.0.0 <9.0.7": ">=9.0.7"
+  "minimatch@>=10.0.0 <10.2.3": ">=10.2.3"
+  "@vscode/vsce>minimatch": "3.1.2"
+  "rollup@>=4.0.0 <4.59.0": ">=4.59.0"
+  "flatted@<3.4.2": ">=3.4.2"

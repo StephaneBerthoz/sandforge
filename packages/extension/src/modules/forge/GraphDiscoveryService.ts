@@ -1,5 +1,6 @@
 import type { ForgeConfig, ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { logger } from '../../logger.js';
 
 /** Describe result for an object returned by the org connection. */
 export interface ObjectDescribe {
@@ -184,8 +185,7 @@ export class GraphDiscoveryService {
     const rootObject = await this.resolveRootObject(config);
     const t1 = Date.now();
     if (t1 - t0 > 2_000) {
-      // eslint-disable-next-line no-console
-      console.warn(
+      logger.warn(
         `[forge-discover] resolveRootObject took ${t1 - t0}ms (cold path, consider verifying describeGlobal cache state)`,
       );
     }

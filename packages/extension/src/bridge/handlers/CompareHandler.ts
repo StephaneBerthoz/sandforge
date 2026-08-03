@@ -2,6 +2,11 @@ import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, SF_API_VERSION } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
+import {
+  validatePayload,
+  compareExecutePayloadSchema,
+  compareOrgsPayloadSchema,
+} from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
@@ -59,11 +64,9 @@ export class CompareHandler implements DomainHandler {
 
   private async handleCompareStart(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (
-      msg as BaseMessage & {
-        payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
-      }
-    ).payload;
+    const parsed = validatePayload(compareExecutePayloadSchema, msg, 'compare:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const sourceConn = await getJsforceConnection(
@@ -192,8 +195,9 @@ export class CompareHandler implements DomainHandler {
    */
   private async handlePermissions(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } })
-      .payload;
+    const parsed = validatePayload(compareOrgsPayloadSchema, msg, 'compare:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const sourceConn = await getJsforceConnection(
@@ -288,8 +292,9 @@ export class CompareHandler implements DomainHandler {
    */
   private async handleSnapshots(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } })
-      .payload;
+    const parsed = validatePayload(compareOrgsPayloadSchema, msg, 'compare:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const sourceConn = await getJsforceConnection(
@@ -377,8 +382,9 @@ export class CompareHandler implements DomainHandler {
    */
   private async handleDrift(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } })
-      .payload;
+    const parsed = validatePayload(compareOrgsPayloadSchema, msg, 'compare:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const sourceConn = await getJsforceConnection(

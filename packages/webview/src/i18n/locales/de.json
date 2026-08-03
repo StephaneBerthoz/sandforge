@@ -44,6 +44,7 @@
     "seed": "Seed",
     "sync": "Sync",
     "monitor": "Monitor",
+    "frozen": "Frozen Dataset",
     "compare": "Org vergleichen",
     "dataops": "DataOps",
     "automation": "Automatisierung",
@@ -1071,6 +1072,125 @@
     "openBrowser": "Browser oeffnen",
     "notSupported": "Diese Authentifizierungsmethode wird noch nicht unterstuetzt.",
     "sfdxHint": "Alle verbundenen Orgs aus Salesforce CLI werden automatisch importiert."
+  },
+  "frozen": {
+    "subtitle": "Einmal extrahieren, deterministisch pseudonymisieren, nach jedem Sandbox-Refresh identisch wieder laden",
+    "emptyState": {
+      "title": "Keine Org verbunden",
+      "description": "Verbinden Sie eine Salesforce-Org, um einen eingefrorenen Referenzdatensatz zu erstellen oder erneut zu laden.",
+      "cta": "Org auswählen"
+    },
+    "status": {
+      "salt": "Salt-Fingerabdruck",
+      "saltMissing": "Salt fehlt",
+      "dataset": "Eingefrorener Datensatz",
+      "records": "{{count}} Datensätze",
+      "noDataset": "Noch kein Datensatz eingefroren",
+      "selection": "Auswahl",
+      "noSelection": "Noch keine Auswahl",
+      "lastVerify": "Letzte Prüfung"
+    },
+    "tabs": {
+      "extract": "Extrahieren",
+      "load": "Laden"
+    },
+    "manifest": {
+      "version": "Datensatz v{{version}}"
+    },
+    "config": {
+      "title": "Projektkonfiguration",
+      "rootObject": "Stammobjekt (Vorgang)",
+      "budget": "Volumenbudget (Datensätze)",
+      "axes": "Abdeckungsachsen",
+      "addAxis": "Achse hinzufügen",
+      "axisName": "Name",
+      "axisLabel": "Bezeichnung",
+      "axisField": "Filterfeld",
+      "axisSoql": "Aggregat-SOQL (axisValue)",
+      "removeAxis": "Achse entfernen",
+      "edgeCases": "Grenzfälle",
+      "addEdgeCase": "Grenzfall hinzufügen",
+      "edgeName": "Name",
+      "edgeLabel": "Bezeichnung",
+      "edgeWhere": "WHERE-Fragment",
+      "removeEdgeCase": "Grenzfall entfernen",
+      "advanced": "Erweiterte Konfiguration (JSON: geschützte Umgebungen, Identitätsschlüssel, Picklist-Regeln, Platzhalter, Mocks…)",
+      "invalidJson": "Ungültiges JSON — die erweiterte Konfiguration muss ein JSON-Objekt sein.",
+      "save": "Konfiguration speichern",
+      "saved": "Konfiguration gespeichert"
+    },
+    "selection": {
+      "title": "Abdeckungsmatrix-Auswahl",
+      "run": "Auswahl starten",
+      "volumetry": "{{total}} Datensätze gemessen (Budget: {{budget}})",
+      "combination": "Kombination",
+      "axes": "Achsenwerte",
+      "edgeCase": "Grenzfall",
+      "empty": "Keine Kombination ausgewählt",
+      "uncovered": "{{count}} nicht abgedeckte Kombination(en)"
+    },
+    "extract": {
+      "title": "Extraktion & Pseudonymisierung",
+      "run": "Extraktion starten",
+      "summary": "{{count}} Datensätze in {{files}} Dateien eingefroren"
+    },
+    "control": {
+      "check": "Prüfung",
+      "result": "Ergebnis",
+      "pass": "PASS",
+      "fail": "FAIL",
+      "violations": "Verstöße",
+      "object": "Objekt",
+      "field": "Feld",
+      "detail": "Detail"
+    },
+    "guards": {
+      "title": "Eingangsprüfungen",
+      "sandboxOnly": "Nur Sandbox",
+      "protectedEnvs": "{{count}} geschützte Umgebung(en)",
+      "mocksConfigured": "Mock-Erkennung konfiguriert",
+      "mocksNotConfigured": "Mock-Erkennung nicht konfiguriert",
+      "saltOk": "Salt geladen",
+      "saltMissing": "Salt fehlt"
+    },
+    "load": {
+      "targetOrg": "Ziel-Org (Sandbox)",
+      "pilot": "Pilot (1 Vorgang)",
+      "reload": "Neuladen ohne Refresh",
+      "run": "Ladevorgang starten",
+      "runPilot": "Pilot starten",
+      "progress": "Fortschritt"
+    },
+    "verify": {
+      "run": "Erneut prüfen",
+      "title": "Prüfung nach dem Laden",
+      "attempts": "{{count}} Messung(en)",
+      "status": {
+        "passed": "Bestanden",
+        "failed": "Fehlgeschlagen",
+        "unstable": "Instabil"
+      }
+    },
+    "report": {
+      "title": "Ladebericht",
+      "status": {
+        "completed": "Abgeschlossen",
+        "completed-with-errors": "Mit Fehlern abgeschlossen"
+      },
+      "inserted": "Eingefügt",
+      "reused": "Wiederverwendet",
+      "skipped": "Übersprungen (Duplikate)",
+      "failed": "Fehlgeschlagen",
+      "removals": "Beim Alignment entfernte Felder",
+      "field": "Feld",
+      "reason": "Grund",
+      "affected": "Datensätze",
+      "placeholders": "Technische Platzhalter",
+      "placeholder": "Platzhalter",
+      "skippedList": "Übersprungene Datensätze (native Duplikaterkennung)",
+      "errors": "Fehler",
+      "postLoad": "Pass 2: {{pass2}} Zyklusverknüpfungen aufgelöst — PersonContact: {{personContact}} wiederhergestellt"
+    }
   },
   "forge": {
     "emptyState": {

@@ -209,6 +209,11 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
  * Listens for realtime:events-batch, realtime:started, realtime:stopped, realtime:status:response.
  */
 function handleExtensionMessage(event: MessageEvent): void {
+  // SECURITY: Validate origin — only accept messages from the VSCode webview
+  // host ('vscode-webview://...') or empty origin (tests, some environments).
+  if (event.origin && !event.origin.startsWith('vscode-webview://')) {
+    return;
+  }
   const message = event.data;
   if (!message || typeof message !== 'object' || !('type' in message)) return;
 
@@ -279,7 +284,19 @@ function handleExtensionMessage(event: MessageEvent): void {
   }
 }
 
-// Register message listener
-if (typeof window !== 'undefined') {
+// HMR-safe listener registration — same pattern as useCDCMetricsStore:
+// without the guard, Vite's hot-module replace re-imports this module and
+// stacks N copies of the listener, duplicating every CDC event N times.
+let cdcLiveListenerRegistered = false;
+function registerCdcLiveListener(): void {
+  if (cdcLiveListenerRegistered || typeof window === 'undefined') return;
+  cdcLiveListenerRegistered = true;
   window.addEventListener('message', handleExtensionMessage);
+  if (typeof import.meta !== 'undefined' && import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      window.removeEventListener('message', handleExtensionMessage);
+      cdcLiveListenerRegistered = false;
+    });
+  }
 }
+registerCdcLiveListener();

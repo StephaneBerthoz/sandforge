@@ -11,20 +11,43 @@ const MAX_BUFFER = 10 * 1024 * 1024;
 /** Module-level singleton connection pool */
 const connectionPool = new ConnectionPool();
 
-/** Module-level singleton circuit breaker for identity validation calls */
-const circuitBreaker = new CircuitBreaker({
+/** Circuit breaker config — identical for every org. */
+const BREAKER_CONFIG = {
   failureThreshold: 3,
   resetTimeout: 30_000,
-});
+} as const;
+
+/**
+ * Per-org circuit breakers for identity validation calls, keyed by orgId.
+ * A shared singleton let one failing org block connections to every other
+ * org; per-org instances isolate the blast radius.
+ */
+const circuitBreakers = new Map<string, CircuitBreaker>();
 
 /** Get the singleton ConnectionPool instance (for testing/monitoring) */
 export function getConnectionPool(): ConnectionPool {
   return connectionPool;
 }
 
-/** Get the singleton CircuitBreaker instance (for testing/monitoring) */
-export function getCircuitBreaker(): CircuitBreaker {
-  return circuitBreaker;
+/**
+ * Get the CircuitBreaker for a given org, creating it on first access
+ * (for testing/monitoring).
+ */
+export function getCircuitBreaker(orgId: string): CircuitBreaker {
+  let breaker = circuitBreakers.get(orgId);
+  if (!breaker) {
+    breaker = new CircuitBreaker({ ...BREAKER_CONFIG });
+    circuitBreakers.set(orgId, breaker);
+  }
+  return breaker;
+}
+
+/** Reset and drop all per-org breakers (for testing). */
+export function resetCircuitBreakers(): void {
+  for (const breaker of circuitBreakers.values()) {
+    breaker.reset();
+  }
+  circuitBreakers.clear();
 }
 
 /**
@@ -55,11 +78,7 @@ async function refreshTokenViaCli(username: string): Promise<string> {
   const { stdout } =
     process.platform === 'win32'
       ? await promisify(exec)(`sf org display -u "${username}" --json`, opts)
-      : await promisify(execFile)(
-          'sf',
-          ['org', 'display', '-u', username, '--json'],
-          opts,
-        );
+      : await promisify(execFile)('sf', ['org', 'display', '-u', username, '--json'], opts);
 
   // eslint-disable-next-line no-control-regex -- Intentional ANSI escape code stripping
   const stripped = stdout.replace(/\u001b\[[0-9;]*m/g, '');
@@ -127,10 +146,11 @@ export async function getJsforceConnection(
     version: apiVersion,
   });
 
-  // Check circuit breaker before attempting validation
+  // Check this org's circuit breaker before attempting validation
+  const circuitBreaker = getCircuitBreaker(orgId);
   if (!circuitBreaker.acquirePermit()) {
     throw new Error(
-      `Circuit breaker is open for Salesforce API calls. ` +
+      `Circuit breaker is open for org "${org.alias}". ` +
         `Too many recent failures — retries paused. Try again shortly.`,
     );
   }
@@ -183,5 +203,11 @@ export async function getJsforceConnection(
     }
 
     throw new Error(`Connection failed for "${org.alias}": ${message}`);
+  } finally {
+    // Always release the half-open permit, on every success/failure/refresh
+    // path. Without this a failure in half-open leaves halfOpenInFlight stuck
+    // at 1 and canExecute() never returns true again — a total connection
+    // lockout for the org until the extension host restarts.
+    circuitBreaker.releasePermit();
   }
 }

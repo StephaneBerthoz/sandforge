@@ -1,4 +1,4 @@
-import type { BaseMessage, SyncConfig } from '@sandforge/shared';
+import type { BaseMessage, SyncConfig, SyncExecutionResult } from '@sandforge/shared';
 import {
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
@@ -15,25 +15,28 @@ import {
   sendOperationFailed,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
+import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
+import {
+  validatePayload,
+  syncExecutePayloadSchema,
+  syncConfigSavePayloadSchema,
+  syncConfigIdPayloadSchema,
+  syncDescribeGlobalPayloadSchema,
+  syncDescribeFieldsPayloadSchema,
+} from '../validatePayload.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
-import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
-import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
-import { FieldTypeValidator } from '../../modules/sync/FieldTypeValidator.js';
-import type { FieldDescriptor } from '../../modules/sync/FieldTypeValidator.js';
-
-/** Record count threshold above which streaming pipeline is used. */
-const STREAMING_THRESHOLD = 10_000;
+import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 
 /** Message types handled by SyncOpsHandler. */
 const SYNC_TYPES = new Set([
@@ -47,19 +50,13 @@ const SYNC_TYPES = new Set([
 ]);
 
 /**
- * Convert a describe field result to a FieldDescriptor for FieldTypeValidator.
- * Maps the jsforce describe shape to the validator's input type.
- */
-function toValidatorField(f: { name: string; type: string; length: number }): FieldDescriptor {
-  return { apiName: f.name, type: f.type, maxLength: f.length || undefined };
-}
-
-/**
  * Domain handler for sync-related webview-to-extension messages.
  *
  * Routes sync:* message types to schema description and data synchronization
  * operations between Salesforce orgs, with production guard checks,
  * performance tracking, retry, timeout, bulk API, and field type validation.
+ * Record writes are delegated to {@link BulkDataWriter}; this handler only
+ * orchestrates message handling, guards, and progress channels.
  */
 export class SyncOpsHandler implements DomainHandler {
   /**
@@ -77,6 +74,12 @@ export class SyncOpsHandler implements DomainHandler {
   /** Background operation registry for detached execution. */
   private registry?: BackgroundOperationRegistry;
 
+  /**
+   * Execution-history logger. Injected by ExtensionHandlers so every completed
+   * sync lands in SyncHistoryStore (powers the sync:history:* read surface).
+   */
+  private historyLogger?: SyncExecutionLogger;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.syncConfigStore = new SyncConfigStore(deps.configStore);
@@ -90,6 +93,15 @@ export class SyncOpsHandler implements DomainHandler {
    */
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
+  }
+
+  /**
+   * Inject the sync execution-history logger.
+   *
+   * @param logger - The shared SyncExecutionLogger instance.
+   */
+  setHistoryLogger(logger: SyncExecutionLogger): void {
+    this.historyLogger = logger;
   }
 
   /**
@@ -131,10 +143,10 @@ export class SyncOpsHandler implements DomainHandler {
   /** Save a sync configuration. */
   private async handleConfigSave(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncConfigSavePayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { config: Record<string, unknown> } })
-        .payload;
-      const config = payload.config as unknown as SyncConfig;
+      const config = parsed.config as unknown as SyncConfig;
       this.syncConfigStore.save(config);
       const response = buildResponse(this.deps, msg, 'sync:config:save:response', {
         success: true,
@@ -150,9 +162,10 @@ export class SyncOpsHandler implements DomainHandler {
   /** Load a sync configuration by ID. */
   private async handleConfigLoad(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncConfigIdPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
-      const config = this.syncConfigStore.load(payload.id);
+      const config = this.syncConfigStore.load(parsed.id);
       const response = buildResponse(this.deps, msg, 'sync:config:load:response', {
         config: (config as unknown as Record<string, unknown>) ?? null,
       });
@@ -187,9 +200,10 @@ export class SyncOpsHandler implements DomainHandler {
   /** Delete a sync configuration by ID. */
   private async handleConfigDelete(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(syncConfigIdPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     try {
-      const payload = (msg as BaseMessage & { payload: { id: string } }).payload;
-      const success = this.syncConfigStore.delete(payload.id);
+      const success = this.syncConfigStore.delete(parsed.id);
       const response = buildResponse(this.deps, msg, 'sync:config:delete:response', { success });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
@@ -209,12 +223,13 @@ export class SyncOpsHandler implements DomainHandler {
 
   private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(syncDescribeGlobalPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
     const config = this.getRobustnessConfig();
 
     try {
       const conn = await getJsforceConnection(
-        payload.orgId,
+        parsed.orgId,
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
@@ -237,11 +252,9 @@ export class SyncOpsHandler implements DomainHandler {
 
   private async handleDescribeFields(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (
-      msg as BaseMessage & {
-        payload: { sourceOrgId: string; targetOrgId: string; objectApiName: string };
-      }
-    ).payload;
+    const parsed = validatePayload(syncDescribeFieldsPayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     const config = this.getRobustnessConfig();
 
     try {
@@ -299,28 +312,179 @@ export class SyncOpsHandler implements DomainHandler {
 
   private async handleExecute(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { config: Record<string, unknown> } }).payload;
+    const parsed = validatePayload(syncExecutePayloadSchema, msg, 'sync:error', this.deps);
+    if (!parsed) return;
+    await this.startExecution(msg, parsed.config, 'manual');
+  }
+
+  /**
+   * Re-run a sync from a persisted history config snapshot (`sync:history:rerun`).
+   *
+   * The snapshot was produced by a previously validated config, but it
+   * round-trips through ConfigStore and the webview, so it is re-validated
+   * here before execution (defense-in-depth). Validation failures are
+   * reported on the `sync:history:error` channel the history store consumes.
+   *
+   * @param msg - The triggering `sync:history:rerun` message (correlation id source).
+   * @param snapshot - The raw config snapshot loaded from SyncHistoryStore.
+   */
+  async rerunFromSnapshot(msg: BaseMessage, snapshot: unknown): Promise<void> {
+    this.deps.log(`[RX] sync:history:rerun id=${msg.id}`);
+    const parsed = validatePayload(
+      syncExecutePayloadSchema,
+      { ...msg, payload: { config: snapshot } } as BaseMessage,
+      'sync:history:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    await this.startExecution(msg, parsed.config, 'rerun');
+  }
+
+  /**
+   * Execute a sync config on behalf of the sync schedule executor
+   * (`sync:schedule:*` tick loop, wired via ExtensionHandlers.startSyncScheduler).
+   *
+   * Unlike the fire-and-forget message path (`sync:execute`), this awaits the
+   * full execution and resolves with the orchestrator result so
+   * SyncScheduleExecutor can persist `lastRunAt`/`lastResult`. Lifecycle
+   * events still flow on the usual `operation:*` channels and the run lands
+   * in sync history with `triggeredBy: 'schedule'`.
+   *
+   * The config round-trips through ConfigStore, so it is re-validated here
+   * before execution (same defense-in-depth rule as rerunFromSnapshot) — an
+   * invalid config rejects the returned promise instead of posting to an
+   * error channel nobody is listening on at tick time.
+   *
+   * @param config - The schedule's persisted sync config.
+   * @returns The orchestrator result (status 'failure' on execution error).
+   */
+  async executeScheduled(config: SyncConfig): Promise<SyncExecutionResult> {
+    const parsed = syncExecutePayloadSchema.safeParse({ config });
+    if (!parsed.success) {
+      throw new Error(
+        `Scheduled sync config failed validation: ${parsed.error.issues
+          .map((i) => i.message)
+          .join('; ')}`,
+      );
+    }
+    const operationId = `sync:schedule:${crypto.randomUUID()}`;
+    const msg: BaseMessage = { id: operationId, type: 'sync:execute', timestamp: Date.now() };
+
+    // Fill per-object batch sizes from the `sandforge.sync.defaultBatchSize`
+    // setting when the stored config omitted them (same rule as startExecution).
+    const defaultBatchSize =
+      this.deps.services?.getSandforgeSetting?.('sync.defaultBatchSize', 200) ?? 200;
+    const filledConfig = {
+      ...parsed.data.config,
+      objects: parsed.data.config.objects.map((o) => ({
+        ...o,
+        batchSize: o.batchSize ?? defaultBatchSize,
+      })),
+    } as unknown as SyncConfig;
+
+    // Production guard on target org — same policy as manual runs. A blocked
+    // or declined run rejects so the scheduler marks the schedule as failed.
+    if (this.deps.infraServices?.productionGuard) {
+      const guard = this.deps.infraServices.productionGuard;
+      const targetOrg = this.deps.orgManager.getOrg(filledConfig.targetOrgId);
+      const guardRequest = {
+        orgId: filledConfig.targetOrgId,
+        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        operation: 'upsert' as const,
+        objectName: filledConfig.objects?.[0]?.objectApiName ?? 'SyncData',
+        recordCount: 1,
+        module: 'sync',
+      };
+      const check = guard.check(guardRequest);
+      guard.logOperation(guardRequest, check);
+      if (!check.allowed) {
+        throw new Error(
+          `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+        );
+      }
+      const confirmed = await guard.confirmIfNeeded(check);
+      if (!confirmed) {
+        throw new Error('Scheduled sync cancelled (production confirmation declined).');
+      }
+    }
+
+    this.dmlTracker.register(operationId, 'sync', 'upsert', filledConfig.objects?.length ?? 0);
+    this.activeOperationIds.add(operationId);
+    this.deps.infraServices?.performanceTracker?.start(operationId, 'sync');
+    sendOperationStarted(
+      this.deps,
+      operationId,
+      'sync',
+      `Scheduled sync of ${filledConfig.objects?.length ?? 0} object(s)`,
+    );
+
+    const abortController = new AbortController();
+    // executeSync never rejects (it reports on operation:failed and converts
+    // the outcome to a failure-status result), so no try/catch is needed here.
+    return this.executeSync(msg, filledConfig, operationId, abortController, 'schedule');
+  }
+
+  /**
+   * Shared execution entry point for `sync:execute` and `sync:history:rerun`:
+   * fills per-object batch sizes, runs the production guard, registers the
+   * operation, and dispatches the detached execution.
+   *
+   * @param msg - Triggering bridge message (correlation + operation id source).
+   * @param rawConfig - Payload-validated sync config (webview or history snapshot).
+   * @param triggeredBy - Origin marker persisted in the execution history entry.
+   */
+  private async startExecution(
+    msg: BaseMessage,
+    rawConfig: unknown,
+    triggeredBy: 'manual' | 'rerun',
+  ): Promise<void> {
     // Build a deterministic ID from the message ID to detect genuine duplicates
     const operationId = msg.id;
 
     try {
-      const config = payload.config as unknown as import('@sandforge/shared').SyncConfig;
+      // Fill per-object batch sizes from the `sandforge.sync.defaultBatchSize`
+      // setting when the webview omitted them.
+      const defaultBatchSize =
+        this.deps.services?.getSandforgeSetting?.('sync.defaultBatchSize', 200) ?? 200;
+      const parsedConfig = rawConfig as { objects: Array<{ batchSize?: number }> };
+      const config = {
+        ...parsedConfig,
+        objects: parsedConfig.objects.map((o) => ({
+          ...o,
+          batchSize: o.batchSize ?? defaultBatchSize,
+        })),
+      } as unknown as import('@sandforge/shared').SyncConfig;
 
       // Production guard check on target org
       if (this.deps.infraServices?.productionGuard) {
+        const guard = this.deps.infraServices.productionGuard;
         const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
-        const check = this.deps.infraServices.productionGuard.check({
+        const guardRequest = {
           orgId: config.targetOrgId,
           orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-          operation: 'upsert',
+          operation: 'upsert' as const,
           objectName: config.objects?.[0]?.objectApiName ?? 'SyncData',
           recordCount: 1,
           module: 'sync',
-        });
+        };
+        const check = guard.check(guardRequest);
+        guard.logOperation(guardRequest, check);
         if (!check.allowed) {
           throw new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           );
+        }
+        // `safety.requireProdConfirmation`: explicit user consent before
+        // writing to a production org.
+        const confirmed = await guard.confirmIfNeeded(check);
+        if (!confirmed) {
+          sendOperationFailed(
+            this.deps,
+            operationId,
+            'Operation cancelled by user (production confirmation declined).',
+            false,
+          );
+          return;
         }
       }
 
@@ -343,7 +507,13 @@ export class SyncOpsHandler implements DomainHandler {
       const abortController = new AbortController();
 
       // Build the execution promise (runs detached in the background)
-      const executionPromise = this.executeSync(msg, config, operationId, abortController);
+      const executionPromise = this.executeSync(
+        msg,
+        config,
+        operationId,
+        abortController,
+        triggeredBy,
+      );
 
       // Register with BackgroundOperationRegistry if available
       if (this.registry) {
@@ -356,21 +526,29 @@ export class SyncOpsHandler implements DomainHandler {
       // Return immediately -- execution continues in background
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
+      // Single failure emission: `operation:failed` is the channel the webview
+      // consumes (clears loading, error surface) — no duplicate `sync:error`.
+      this.deps.log(`[ERR] sync:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
     }
   }
 
   /**
    * Execute sync operation in the background.
    * Extracted from handleExecute to allow detached execution via BackgroundOperationRegistry.
+   *
+   * Resolves with the orchestrator result so scheduled executions
+   * (`executeScheduled`) can persist lastRunAt/lastResult; failures are
+   * reported on `operation:failed` and converted to a failure-status result
+   * rather than a rejection, keeping the registry's monitored promise clean.
    */
   private async executeSync(
     msg: BaseMessage,
     config: import('@sandforge/shared').SyncConfig,
     operationId: string,
     abortController: AbortController,
-  ): Promise<void> {
+    triggeredBy: 'manual' | 'rerun' | 'schedule',
+  ): Promise<SyncExecutionResult> {
     const robustnessConfig = this.getRobustnessConfig();
     let progressTracker: BulkJobProgressTracker | undefined;
     let unsubProgress: (() => void) | undefined;
@@ -396,7 +574,11 @@ export class SyncOpsHandler implements DomainHandler {
 
       // Build robustness utilities
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
-      const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
+      // `sandforge.sync.maxConcurrentOps` (manifest default 3) bounds the
+      // number of concurrent Bulk API jobs for sync operations.
+      const maxConcurrentOps =
+        this.deps.services?.getSandforgeSetting?.('sync.maxConcurrentOps', 3) ?? 3;
+      const bulkManager = new BulkApiManager(maxConcurrentOps);
       progressTracker = new BulkJobProgressTracker(bulkManager);
       unsubProgress = progressTracker.onProgress((progress) => {
         this.deps.broker.postToWebview({
@@ -406,425 +588,27 @@ export class SyncOpsHandler implements DomainHandler {
           payload: progress,
         } as unknown as import('@sandforge/shared').BaseMessage);
       });
-      const retryOp = new RetryableOperation({
+      // Build the record writer: mutualizes insert/upsert/update/delete across
+      // the streaming, Bulk API, and REST batch paths (see BulkDataWriter).
+      const writer = new BulkDataWriter({
+        connection: targetConn,
+        bulkExecutor,
+        bulkManager,
         retryConfig: robustnessConfig.retry,
-        onRetry: (attempt, classified, delay) => {
-          this.deps.log(
-            `[RETRY] sync attempt=${attempt} code=${classified.originalError.statusCode} delay=${delay}ms`,
+        describeTimeoutMs: robustnessConfig.timeouts.describe,
+        signal: abortController.signal,
+        onProgress: (processed, total, label) => {
+          sendOperationProgress(
+            this.deps,
+            operationId,
+            Math.round((processed / total) * 100),
+            processed,
+            total,
+            label,
           );
         },
+        log: (message) => this.deps.log(message),
       });
-      const handlerDeps = this.deps;
-      const fieldValidator = new FieldTypeValidator();
-
-      // Build jsforce CRUD functions for target org with retry + bulk + streaming
-      type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
-
-      const insertFn = async (
-        objectName: string,
-        records: Record<string, unknown>[],
-        batchSize: number,
-      ) => {
-        // Streaming path for large record sets
-        if (records.length > STREAMING_THRESHOLD) {
-          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Streaming insert ${objectName}`,
-              );
-            },
-          };
-          const streamResult = await chunkedExecutor.executeChunked(
-            bulkDeps,
-            objectName,
-            'insert',
-            chunkedExecutor.createChunkGenerator(records),
-            records.length,
-          );
-          return Array.from({ length: records.length }, (_, i) => ({
-            id:
-              i < streamResult.successCount
-                ? (streamResult.successIds[i] ?? `stream-${i}`)
-                : undefined,
-            success: i < streamResult.successCount,
-            errors:
-              i >= streamResult.successCount
-                ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error']
-                : ([] as string[]),
-          }));
-        }
-
-        if (bulkExecutor.shouldUseBulkApi(records.length)) {
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Bulk insert ${objectName}`,
-              );
-            },
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectName,
-            'insert',
-            records,
-          );
-          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-            success: i < bulkResult.successCount,
-            errors:
-              i >= bulkResult.successCount
-                ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-                : ([] as string[]),
-          }));
-        }
-
-        const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
-        for (let i = 0; i < records.length; i += batchSize) {
-          const batch = records.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            return targetConn.sobject(objectName).create(batch) as Promise<JsforceResult[]>;
-          });
-          if (retryResult.success && retryResult.result) {
-            for (const r of retryResult.result) {
-              outcomes.push({
-                id: r.id,
-                success: r.success,
-                errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-              });
-            }
-          } else {
-            outcomes.push(
-              ...batch.map(() => ({
-                success: false as const,
-                errors: [retryResult.error?.message ?? 'Insert failed after retries'],
-              })),
-            );
-          }
-        }
-        return outcomes;
-      };
-
-      const upsertFn = async (
-        objectName: string,
-        externalIdField: string,
-        records: Record<string, unknown>[],
-        batchSize: number,
-      ) => {
-        // Streaming path for large record sets
-        if (records.length > STREAMING_THRESHOLD) {
-          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Streaming upsert ${objectName}`,
-              );
-            },
-          };
-          const streamResult = await chunkedExecutor.executeChunked(
-            bulkDeps,
-            objectName,
-            'upsert',
-            chunkedExecutor.createChunkGenerator(records),
-            records.length,
-            externalIdField,
-          );
-          return Array.from({ length: records.length }, (_, i) => ({
-            id:
-              i < streamResult.successCount
-                ? (streamResult.successIds[i] ?? `stream-${i}`)
-                : undefined,
-            success: i < streamResult.successCount,
-            errors:
-              i >= streamResult.successCount
-                ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error']
-                : ([] as string[]),
-          }));
-        }
-
-        if (bulkExecutor.shouldUseBulkApi(records.length)) {
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Bulk upsert ${objectName}`,
-              );
-            },
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectName,
-            'upsert',
-            records,
-            externalIdField,
-          );
-          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-            success: i < bulkResult.successCount,
-            errors:
-              i >= bulkResult.successCount
-                ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-                : ([] as string[]),
-          }));
-        }
-
-        // Validate field types before upsert
-        const targetTimeout = new TimeoutManager(robustnessConfig.timeouts.describe);
-        const targetDesc = await targetTimeout.withTimeout(`describe-${objectName}`, () =>
-          targetConn.describe(objectName),
-        );
-        const targetFields = (
-          targetDesc.fields as Array<{
-            name: string;
-            type: string;
-            length: number;
-            createable: boolean;
-          }>
-        )
-          .filter((f) => f.createable)
-          .map(toValidatorField);
-        const sourceFields =
-          records.length > 0
-            ? Object.keys(records[0]).map((k) => ({ apiName: k, type: 'string' }))
-            : [];
-        const fieldMapping: Record<string, string> = {};
-        for (const sf of sourceFields) {
-          const matched = targetFields.find((tf) => tf.apiName === sf.apiName);
-          if (matched) {
-            fieldMapping[sf.apiName] = matched.apiName;
-          }
-        }
-        const validation = fieldValidator.validateMapping(sourceFields, targetFields, fieldMapping);
-        if (!validation.valid) {
-          this.deps.log(
-            `[WARN] Field type validation failed for upsert on ${objectName}: ${validation.errors.length} error(s)`,
-          );
-        }
-
-        const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
-        for (let i = 0; i < records.length; i += batchSize) {
-          const batch = records.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            return targetConn
-              .sobject(objectName)
-              .upsert(batch, externalIdField) as unknown as Promise<JsforceResult[]>;
-          });
-          if (retryResult.success && retryResult.result) {
-            for (const r of Array.isArray(retryResult.result)
-              ? retryResult.result
-              : [retryResult.result]) {
-              outcomes.push({
-                id: r.id,
-                success: r.success,
-                errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-              });
-            }
-          } else {
-            outcomes.push(
-              ...batch.map(() => ({
-                success: false as const,
-                errors: [retryResult.error?.message ?? 'Upsert failed after retries'],
-              })),
-            );
-          }
-        }
-        return outcomes;
-      };
-
-      const updateFn = async (
-        objectName: string,
-        records: Record<string, unknown>[],
-        batchSize: number,
-      ) => {
-        // Streaming path for large record sets
-        if (records.length > STREAMING_THRESHOLD) {
-          const chunkedExecutor = new ChunkedBulkExecutor({ signal: abortController.signal });
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Streaming update ${objectName}`,
-              );
-            },
-          };
-          const streamResult = await chunkedExecutor.executeChunked(
-            bulkDeps,
-            objectName,
-            'update',
-            chunkedExecutor.createChunkGenerator(records),
-            records.length,
-          );
-          return Array.from({ length: records.length }, (_, i) => ({
-            id:
-              i < streamResult.successCount
-                ? (streamResult.successIds[i] ?? `stream-${i}`)
-                : undefined,
-            success: i < streamResult.successCount,
-            errors:
-              i >= streamResult.successCount
-                ? [streamResult.errors[i - streamResult.successCount] ?? 'Streaming error']
-                : ([] as string[]),
-          }));
-        }
-
-        if (bulkExecutor.shouldUseBulkApi(records.length)) {
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Bulk update ${objectName}`,
-              );
-            },
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectName,
-            'update',
-            records,
-          );
-          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-            success: i < bulkResult.successCount,
-            errors:
-              i >= bulkResult.successCount
-                ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-                : ([] as string[]),
-          }));
-        }
-
-        const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
-        for (let i = 0; i < records.length; i += batchSize) {
-          const batch = records.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            return targetConn
-              .sobject(objectName)
-              .update(
-                batch as Array<Record<string, unknown> & { Id: string }>,
-              ) as unknown as Promise<JsforceResult[]>;
-          });
-          if (retryResult.success && retryResult.result) {
-            for (const r of Array.isArray(retryResult.result)
-              ? retryResult.result
-              : [retryResult.result]) {
-              outcomes.push({
-                id: r.id,
-                success: r.success,
-                errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-              });
-            }
-          } else {
-            outcomes.push(
-              ...batch.map(() => ({
-                success: false as const,
-                errors: [retryResult.error?.message ?? 'Update failed after retries'],
-              })),
-            );
-          }
-        }
-        return outcomes;
-      };
-
-      const deleteFn = async (objectName: string, recordIds: string[], batchSize: number) => {
-        if (bulkExecutor.shouldUseBulkApi(recordIds.length)) {
-          const bulkRecords = recordIds.map((id) => ({ Id: id }));
-          const bulkDeps: BulkApiExecutorDeps = {
-            connection: targetConn as unknown as BulkApiConnection,
-            bulkManager,
-            onProgress: (processed, total) => {
-              sendOperationProgress(
-                handlerDeps,
-                operationId,
-                Math.round((processed / total) * 100),
-                processed,
-                total,
-                `Bulk delete ${objectName}`,
-              );
-            },
-          };
-          const bulkResult = await bulkExecutor.executeBulk(
-            bulkDeps,
-            objectName,
-            'delete',
-            bulkRecords,
-          );
-          return Array.from({ length: bulkResult.totalRecords }, (_, i) => ({
-            id: i < bulkResult.successCount ? `bulk-${i}` : undefined,
-            success: i < bulkResult.successCount,
-            errors:
-              i >= bulkResult.successCount
-                ? [bulkResult.failures.find((f) => f.recordIndex === i)?.error ?? 'Bulk error']
-                : ([] as string[]),
-          }));
-        }
-
-        const outcomes: Array<{ id?: string; success: boolean; errors: string[] }> = [];
-        for (let i = 0; i < recordIds.length; i += batchSize) {
-          const batch = recordIds.slice(i, i + batchSize);
-          const retryResult = await retryOp.execute(async () => {
-            return targetConn.sobject(objectName).destroy(batch) as unknown as Promise<
-              JsforceResult[]
-            >;
-          });
-          if (retryResult.success && retryResult.result) {
-            for (const r of Array.isArray(retryResult.result)
-              ? retryResult.result
-              : [retryResult.result]) {
-              outcomes.push({
-                id: r.id,
-                success: r.success,
-                errors: r.success ? [] : [r.errors?.[0]?.message ?? 'Unknown error'],
-              });
-            }
-          } else {
-            outcomes.push(
-              ...batch.map(() => ({
-                success: false as const,
-                errors: [retryResult.error?.message ?? 'Delete failed after retries'],
-              })),
-            );
-          }
-        }
-        return outcomes;
-      };
 
       // Build query functions with retry wrapping and dynamic limits
       const queryRetryOp = new RetryableOperation({ retryConfig: robustnessConfig.retry });
@@ -873,10 +657,12 @@ export class SyncOpsHandler implements DomainHandler {
       const { IncrementalTracker } = await import('../../modules/sync/IncrementalTracker.js');
 
       const dataSync = new DataSync({
-        upsert: upsertFn,
-        insert: insertFn,
-        update: updateFn,
-        delete: deleteFn,
+        upsert: (objectName, externalIdField, records, batchSize) =>
+          writer.upsert(objectName, externalIdField, records, batchSize),
+        insert: (objectName, records, batchSize) => writer.insert(objectName, records, batchSize),
+        update: (objectName, records, batchSize) => writer.update(objectName, records, batchSize),
+        delete: (objectName, recordIds, batchSize) =>
+          writer.delete(objectName, recordIds, batchSize),
       });
       const metadataSync = new MetadataSync({
         fetchMetadata: async () => [],
@@ -944,6 +730,14 @@ export class SyncOpsHandler implements DomainHandler {
       checkApiLimits(sourceConn.limitInfo, 'sync:execute completion (source)');
       checkApiLimits(targetConn.limitInfo, 'sync:execute completion (target)');
 
+      // Persist the execution in the sync history (powers sync:history:*).
+      // A logging failure must never fail the sync itself — log and move on.
+      try {
+        this.historyLogger?.logExecution(config, result, triggeredBy);
+      } catch (historyErr: unknown) {
+        this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
+      }
+
       const response = buildResponse(
         this.deps,
         msg,
@@ -952,10 +746,27 @@ export class SyncOpsHandler implements DomainHandler {
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      return result;
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
+      // Single failure emission: `operation:failed` only (webview consumes it).
+      this.deps.log(`[ERR] sync:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
+      // Failure-status result (instead of a rejection) so scheduled executions
+      // can persist lastResult='failure' without an unhandled rejection in the
+      // BackgroundOperationRegistry's monitored promise.
+      return {
+        configId: config.id,
+        operationId,
+        status: 'failure',
+        objectResults: [],
+        totalProcessed: 0,
+        totalSuccess: 0,
+        totalFailed: 0,
+        totalSkipped: 0,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+      };
     } finally {
       progressTracker?.stopTracking(operationId);
       unsubProgress?.();
