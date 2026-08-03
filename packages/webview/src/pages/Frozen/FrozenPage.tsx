@@ -64,11 +64,7 @@ export const FrozenPage: React.FC = () => {
 
   return (
     <div className="flex flex-col gap-4 p-4" data-testid="frozen-page">
-      <PageHeader
-        title={t('nav.frozen')}
-        subtitle={t('frozen.subtitle')}
-        icon="snowflake"
-      />
+      <PageHeader title={t('nav.frozen')} subtitle={t('frozen.subtitle')} icon="snowflake" />
 
       {/* Status strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="frozen-status-strip">
@@ -76,9 +72,7 @@ export const FrozenPage: React.FC = () => {
           icon="key"
           label={t('frozen.status.salt')}
           value={
-            status?.salt.present
-              ? status.salt.fingerprint ?? ''
-              : t('frozen.status.saltMissing')
+            status?.salt.present ? (status.salt.fingerprint ?? '') : t('frozen.status.saltMissing')
           }
           variant={status?.salt.present ? 'success' : 'warning'}
         />
@@ -86,7 +80,11 @@ export const FrozenPage: React.FC = () => {
           icon="database"
           label={t('frozen.status.dataset')}
           value={status?.manifest ? `v${status.manifest.version}` : '—'}
-          subtitle={status?.manifest ? t('frozen.status.records', { count: recordCount }) : t('frozen.status.noDataset')}
+          subtitle={
+            status?.manifest
+              ? t('frozen.status.records', { count: recordCount })
+              : t('frozen.status.noDataset')
+          }
           variant={status?.manifest ? 'default' : 'warning'}
         />
         <KPICard

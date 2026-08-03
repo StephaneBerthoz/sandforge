@@ -154,9 +154,7 @@ describe('FrozenPage', () => {
   it('dispatches frozen:extract once a selection exists', () => {
     useFrozenStore.setState({
       selection: {
-        combinations: [
-          { combinationKey: 'type=RC', axisValues: { type: 'RC' } },
-        ],
+        combinations: [{ combinationKey: 'type=RC', axisValues: { type: 'RC' } }],
         uncovered: [],
         volumetry: { measured: { Case: 1 }, total: 1, budgetMax: 2500 },
         selectedAt: '2026-08-01T09:00:00Z',
@@ -264,7 +262,12 @@ describe('FrozenPage', () => {
         alignment: {
           excludedObjects: [],
           removals: [
-            { objectApiName: 'Case', field: 'LegacyField__c', reason: 'not-in-target', affectedRecords: 3 },
+            {
+              objectApiName: 'Case',
+              field: 'LegacyField__c',
+              reason: 'not-in-target',
+              affectedRecords: 3,
+            },
           ],
           adjustments: [],
           recordTypeIssues: [],
@@ -278,7 +281,11 @@ describe('FrozenPage', () => {
             inserted: 8,
             reused: 1,
             skippedDuplicates: [
-              { objectApiName: 'Case', referenceId: 'Case-000007', errors: ['DUPLICATES_DETECTED'] },
+              {
+                objectApiName: 'Case',
+                referenceId: 'Case-000007',
+                errors: ['DUPLICATES_DETECTED'],
+              },
             ],
             failed: [],
           },

@@ -415,7 +415,11 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
               </p>
               <DataTable
                 columns={[
-                  { key: 'combinationKey', header: t('frozen.selection.combination'), sortable: true },
+                  {
+                    key: 'combinationKey',
+                    header: t('frozen.selection.combination'),
+                    sortable: true,
+                  },
                   { key: 'axes', header: t('frozen.selection.axes') },
                   {
                     key: 'edgeCase',
@@ -451,9 +455,7 @@ export const FrozenExtractTab: React.FC<FrozenExtractTabProps> = ({ onRefetchSta
       <Card className="border border-subtle bg-surface-1">
         <CardBody className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-text-primary">
-              {t('frozen.extract.title')}
-            </h2>
+            <h2 className="text-sm font-semibold text-text-primary">{t('frozen.extract.title')}</h2>
             <Button
               variant="primary"
               size="sm"

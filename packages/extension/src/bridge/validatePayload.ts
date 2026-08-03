@@ -367,9 +367,7 @@ export const frozenProjectConfigPayloadSchema = z.object({
       isMockedFieldApiName: sfApiNameSchema,
     })
     .optional(),
-  mandatoryLookups: z
-    .record(sfApiNameSchema, z.array(sfApiNameSchema).min(1).max(50))
-    .optional(),
+  mandatoryLookups: z.record(sfApiNameSchema, z.array(sfApiNameSchema).min(1).max(50)).optional(),
   presenceKeys: z.record(sfApiNameSchema, sfApiNameSchema).optional(),
 });
 

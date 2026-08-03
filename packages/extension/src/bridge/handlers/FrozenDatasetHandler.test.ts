@@ -145,9 +145,7 @@ describe('FrozenDatasetHandler', () => {
     });
 
     it('rejects an invalid payload with INVALID_PAYLOAD', async () => {
-      await handler.handle(
-        buildMsg('frozen:config:save', { config: { rootObject: '1nvalid!' } }),
-      );
+      await handler.handle(buildMsg('frozen:config:save', { config: { rootObject: '1nvalid!' } }));
       const errors = posted(deps, 'frozen:config:save:error');
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.code).toBe('INVALID_PAYLOAD');

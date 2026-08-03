@@ -111,7 +111,10 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
   return (
     <div className="flex flex-col gap-4" data-testid="frozen-load-tab">
       {lastError && (
-        <ErrorBanner message={`${lastError.code}: ${lastError.message}`} data-testid="frozen-error" />
+        <ErrorBanner
+          message={`${lastError.code}: ${lastError.message}`}
+          data-testid="frozen-error"
+        />
       )}
 
       {/* ── Entry guards ──────────────────────────────────────────────── */}
@@ -134,9 +137,7 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
                 : t('frozen.guards.mocksNotConfigured')}
             </Badge>
             <Badge variant={status?.salt.present ? 'success' : 'warning'}>
-              {status?.salt.present
-                ? t('frozen.guards.saltOk')
-                : t('frozen.guards.saltMissing')}
+              {status?.salt.present ? t('frozen.guards.saltOk') : t('frozen.guards.saltMissing')}
             </Badge>
           </div>
         </CardBody>
@@ -210,49 +211,49 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
         <Card className="border border-subtle bg-surface-1">
           <CardBody>
             <div className="flex flex-col gap-2" data-testid="frozen-load-progress">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-text-primary">
-                {t('frozen.load.progress')}
-              </h2>
-              {latestProgress && (
-                <span className="text-[10px] text-text-muted tabular-nums">
-                  {latestProgress.progress}%
-                </span>
-              )}
-            </div>
-            {latestProgress && (
-              <div className="w-full h-1.5 rounded-full bg-surface-3 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-cyan-400 transition-all"
-                  style={{ width: `${latestProgress.progress}%` }}
-                  data-testid="frozen-load-progress-bar"
-                />
-              </div>
-            )}
-            <ul className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
-              {progress.slice(-20).map((event, index) => (
-                <li
-                  key={index}
-                  className="flex items-center gap-2 text-[11px] text-text-secondary"
-                >
-                  <Badge
-                    variant={
-                      event.status === 'error'
-                        ? 'error'
-                        : event.status === 'done'
-                          ? 'success'
-                          : 'info'
-                    }
-                  >
-                    {event.phase}
-                  </Badge>
-                  <span className="truncate">
-                    {event.objectName ? `${event.objectName} — ` : ''}
-                    {event.message}
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-text-primary">
+                  {t('frozen.load.progress')}
+                </h2>
+                {latestProgress && (
+                  <span className="text-[10px] text-text-muted tabular-nums">
+                    {latestProgress.progress}%
                   </span>
-                </li>
-              ))}
-            </ul>
+                )}
+              </div>
+              {latestProgress && (
+                <div className="w-full h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-cyan-400 transition-all"
+                    style={{ width: `${latestProgress.progress}%` }}
+                    data-testid="frozen-load-progress-bar"
+                  />
+                </div>
+              )}
+              <ul className="flex flex-col gap-0.5 max-h-40 overflow-y-auto">
+                {progress.slice(-20).map((event, index) => (
+                  <li
+                    key={index}
+                    className="flex items-center gap-2 text-[11px] text-text-secondary"
+                  >
+                    <Badge
+                      variant={
+                        event.status === 'error'
+                          ? 'error'
+                          : event.status === 'done'
+                            ? 'success'
+                            : 'info'
+                      }
+                    >
+                      {event.phase}
+                    </Badge>
+                    <span className="truncate">
+                      {event.objectName ? `${event.objectName} — ` : ''}
+                      {event.message}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </CardBody>
         </Card>
@@ -263,110 +264,110 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
         <Card className="border border-subtle bg-surface-1">
           <CardBody>
             <div className="flex flex-col gap-3" data-testid="frozen-load-report">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-text-primary">
-                {t('frozen.report.title')}
-              </h2>
-              <Badge variant={loadReport.status === 'completed' ? 'success' : 'warning'}>
-                {t(`frozen.report.status.${loadReport.status}`)}
-              </Badge>
-              <span className="text-[10px] text-text-muted">
-                {Math.round(loadReport.durationMs / 1000)}s
-              </span>
-            </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <KPICard
-                icon="database"
-                label={t('frozen.report.inserted')}
-                value={sumPerObject(loadReport, (o) => o.inserted)}
-                variant="success"
-              />
-              <KPICard
-                icon="history"
-                label={t('frozen.report.reused')}
-                value={sumPerObject(loadReport, (o) => o.reused)}
-              />
-              <KPICard
-                icon="debug-step-over"
-                label={t('frozen.report.skipped')}
-                value={sumPerObject(loadReport, (o) => o.skippedDuplicates.length)}
-                variant="warning"
-              />
-              <KPICard
-                icon="error"
-                label={t('frozen.report.failed')}
-                value={sumPerObject(loadReport, (o) => o.failed.length)}
-                variant={
-                  sumPerObject(loadReport, (o) => o.failed.length) > 0 ? 'error' : 'default'
-                }
-              />
-            </div>
-
-            {removalRows.length > 0 && (
-              <div data-testid="frozen-report-removals">
-                <span className="text-xs font-medium text-text-primary">
-                  {t('frozen.report.removals')}
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-text-primary">
+                  {t('frozen.report.title')}
+                </h2>
+                <Badge variant={loadReport.status === 'completed' ? 'success' : 'warning'}>
+                  {t(`frozen.report.status.${loadReport.status}`)}
+                </Badge>
+                <span className="text-[10px] text-text-muted">
+                  {Math.round(loadReport.durationMs / 1000)}s
                 </span>
-                <DataTable
-                  columns={[
-                    { key: 'field', header: t('frozen.report.field'), sortable: true },
-                    { key: 'reason', header: t('frozen.report.reason') },
-                    {
-                      key: 'affectedRecords',
-                      header: t('frozen.report.affected'),
-                      align: 'right' as const,
-                    },
-                  ]}
-                  data={removalRows}
-                  keyExtractor={(row) => row.key as string}
+              </div>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <KPICard
+                  icon="database"
+                  label={t('frozen.report.inserted')}
+                  value={sumPerObject(loadReport, (o) => o.inserted)}
+                  variant="success"
+                />
+                <KPICard
+                  icon="history"
+                  label={t('frozen.report.reused')}
+                  value={sumPerObject(loadReport, (o) => o.reused)}
+                />
+                <KPICard
+                  icon="debug-step-over"
+                  label={t('frozen.report.skipped')}
+                  value={sumPerObject(loadReport, (o) => o.skippedDuplicates.length)}
+                  variant="warning"
+                />
+                <KPICard
+                  icon="error"
+                  label={t('frozen.report.failed')}
+                  value={sumPerObject(loadReport, (o) => o.failed.length)}
+                  variant={
+                    sumPerObject(loadReport, (o) => o.failed.length) > 0 ? 'error' : 'default'
+                  }
                 />
               </div>
-            )}
 
-            {placeholderRows.length > 0 && (
-              <div data-testid="frozen-report-placeholders">
-                <span className="text-xs font-medium text-text-primary">
-                  {t('frozen.report.placeholders')}
-                </span>
-                <DataTable
-                  columns={[
-                    { key: 'field', header: t('frozen.report.field'), sortable: true },
-                    { key: 'placeholder', header: t('frozen.report.placeholder') },
-                    {
-                      key: 'affectedRecords',
-                      header: t('frozen.report.affected'),
-                      align: 'right' as const,
-                    },
-                  ]}
-                  data={placeholderRows}
-                  keyExtractor={(row) => row.key as string}
-                />
-              </div>
-            )}
+              {removalRows.length > 0 && (
+                <div data-testid="frozen-report-removals">
+                  <span className="text-xs font-medium text-text-primary">
+                    {t('frozen.report.removals')}
+                  </span>
+                  <DataTable
+                    columns={[
+                      { key: 'field', header: t('frozen.report.field'), sortable: true },
+                      { key: 'reason', header: t('frozen.report.reason') },
+                      {
+                        key: 'affectedRecords',
+                        header: t('frozen.report.affected'),
+                        align: 'right' as const,
+                      },
+                    ]}
+                    data={removalRows}
+                    keyExtractor={(row) => row.key as string}
+                  />
+                </div>
+              )}
 
-            {skippedRows.length > 0 && (
-              <div data-testid="frozen-report-skipped">
-                <span className="text-xs font-medium text-text-primary">
-                  {t('frozen.report.skippedList')}
-                </span>
-                <DataTable
-                  columns={[
-                    { key: 'object', header: t('frozen.control.object'), sortable: true },
-                    { key: 'referenceId', header: 'referenceId' },
-                    { key: 'errors', header: t('frozen.report.errors') },
-                  ]}
-                  data={skippedRows}
-                  keyExtractor={(row) => row.key as string}
-                />
-              </div>
-            )}
+              {placeholderRows.length > 0 && (
+                <div data-testid="frozen-report-placeholders">
+                  <span className="text-xs font-medium text-text-primary">
+                    {t('frozen.report.placeholders')}
+                  </span>
+                  <DataTable
+                    columns={[
+                      { key: 'field', header: t('frozen.report.field'), sortable: true },
+                      { key: 'placeholder', header: t('frozen.report.placeholder') },
+                      {
+                        key: 'affectedRecords',
+                        header: t('frozen.report.affected'),
+                        align: 'right' as const,
+                      },
+                    ]}
+                    data={placeholderRows}
+                    keyExtractor={(row) => row.key as string}
+                  />
+                </div>
+              )}
 
-            <p className="text-[11px] text-text-muted" data-testid="frozen-report-postload">
-              {t('frozen.report.postLoad', {
-                pass2: loadReport.pass2.resolved,
-                personContact: loadReport.personContact.restored,
-              })}
-            </p>
+              {skippedRows.length > 0 && (
+                <div data-testid="frozen-report-skipped">
+                  <span className="text-xs font-medium text-text-primary">
+                    {t('frozen.report.skippedList')}
+                  </span>
+                  <DataTable
+                    columns={[
+                      { key: 'object', header: t('frozen.control.object'), sortable: true },
+                      { key: 'referenceId', header: 'referenceId' },
+                      { key: 'errors', header: t('frozen.report.errors') },
+                    ]}
+                    data={skippedRows}
+                    keyExtractor={(row) => row.key as string}
+                  />
+                </div>
+              )}
+
+              <p className="text-[11px] text-text-muted" data-testid="frozen-report-postload">
+                {t('frozen.report.postLoad', {
+                  pass2: loadReport.pass2.resolved,
+                  personContact: loadReport.personContact.restored,
+                })}
+              </p>
             </div>
           </CardBody>
         </Card>
@@ -377,46 +378,46 @@ export const FrozenLoadTab: React.FC<FrozenLoadTabProps> = ({ onRefetchStatus })
         <Card className="border border-subtle bg-surface-1">
           <CardBody>
             <div className="flex flex-col gap-2" data-testid="frozen-verify-result">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-text-primary">
-                {t('frozen.verify.title')}
-              </h2>
-              <Badge
-                variant={
-                  verdict.status === 'passed'
-                    ? 'success'
-                    : verdict.status === 'unstable'
-                      ? 'warning'
-                      : 'error'
-                }
-              >
-                {t(`frozen.verify.status.${verdict.status}`)}
-              </Badge>
-              <span className="text-[10px] text-text-muted">
-                {t('frozen.verify.attempts', { count: verdict.attempts })}
-              </span>
-            </div>
-            <DataTable
-              columns={[
-                { key: 'name', header: t('frozen.control.check'), sortable: true },
-                {
-                  key: 'passed',
-                  header: t('frozen.control.result'),
-                  render: (row: Record<string, unknown>) => (
-                    <Badge variant={row.passed ? 'success' : 'error'}>
-                      {row.passed ? t('frozen.control.pass') : t('frozen.control.fail')}
-                    </Badge>
-                  ),
-                },
-                { key: 'detail', header: t('frozen.control.detail') },
-              ]}
-              data={verdict.checks.map((c) => ({
-                name: c.name,
-                passed: c.passed,
-                detail: c.detail,
-              }))}
-              keyExtractor={(row) => row.name as string}
-            />
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-text-primary">
+                  {t('frozen.verify.title')}
+                </h2>
+                <Badge
+                  variant={
+                    verdict.status === 'passed'
+                      ? 'success'
+                      : verdict.status === 'unstable'
+                        ? 'warning'
+                        : 'error'
+                  }
+                >
+                  {t(`frozen.verify.status.${verdict.status}`)}
+                </Badge>
+                <span className="text-[10px] text-text-muted">
+                  {t('frozen.verify.attempts', { count: verdict.attempts })}
+                </span>
+              </div>
+              <DataTable
+                columns={[
+                  { key: 'name', header: t('frozen.control.check'), sortable: true },
+                  {
+                    key: 'passed',
+                    header: t('frozen.control.result'),
+                    render: (row: Record<string, unknown>) => (
+                      <Badge variant={row.passed ? 'success' : 'error'}>
+                        {row.passed ? t('frozen.control.pass') : t('frozen.control.fail')}
+                      </Badge>
+                    ),
+                  },
+                  { key: 'detail', header: t('frozen.control.detail') },
+                ]}
+                data={verdict.checks.map((c) => ({
+                  name: c.name,
+                  passed: c.passed,
+                  detail: c.detail,
+                }))}
+                keyExtractor={(row) => row.name as string}
+              />
             </div>
           </CardBody>
         </Card>

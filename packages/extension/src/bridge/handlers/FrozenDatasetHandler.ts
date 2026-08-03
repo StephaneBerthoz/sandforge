@@ -555,8 +555,14 @@ export class FrozenDatasetHandler implements DomainHandler {
       if (!fs.existsSync(filePath)) return fallback;
       return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
     };
-    const recordTypes = readOptional<Record<string, FrozenRecordTypeRef[]>>('record-types.json', {});
-    const personContactSidecar = readOptional<PersonContactLink[]>('personcontact-sidecar.json', []);
+    const recordTypes = readOptional<Record<string, FrozenRecordTypeRef[]>>(
+      'record-types.json',
+      {},
+    );
+    const personContactSidecar = readOptional<PersonContactLink[]>(
+      'personcontact-sidecar.json',
+      [],
+    );
 
     return {
       dataset: {
@@ -602,7 +608,12 @@ export class FrozenDatasetHandler implements DomainHandler {
   // ── frozen:select ──────────────────────────────────────────────────────
 
   private async handleSelect(msg: BaseMessage): Promise<void> {
-    const parsed = validatePayload(frozenSelectPayloadSchema, msg, 'frozen:select:error', this.deps);
+    const parsed = validatePayload(
+      frozenSelectPayloadSchema,
+      msg,
+      'frozen:select:error',
+      this.deps,
+    );
     if (!parsed) return;
     const config = this.requireConfig(msg, 'frozen:select:error');
     if (!config) return;
@@ -655,17 +666,15 @@ export class FrozenDatasetHandler implements DomainHandler {
       };
 
       const selector = new CoverageMatrixSelector({ query, checkHealth, measureVolumetry });
-      const result = await new TimeoutManager(SELECT_TIMEOUT_MS).withTimeout(
-        'frozen:select',
-        () =>
-          selector.select({
-            rootObject: config.rootObject,
-            axes: config.axes,
-            edgeCases: config.edgeCases,
-            budgetMaxRecords: config.budgetMaxRecords,
-            candidatesPerCombination: config.candidatesPerCombination,
-            tokens,
-          }),
+      const result = await new TimeoutManager(SELECT_TIMEOUT_MS).withTimeout('frozen:select', () =>
+        selector.select({
+          rootObject: config.rootObject,
+          axes: config.axes,
+          edgeCases: config.edgeCases,
+          budgetMaxRecords: config.budgetMaxRecords,
+          candidatesPerCombination: config.candidatesPerCombination,
+          tokens,
+        }),
       );
 
       const selectionPath = writeSelectionToSas(sasDir, result, guard);
@@ -823,7 +832,12 @@ export class FrozenDatasetHandler implements DomainHandler {
         author,
       });
 
-      const writeResult = new FrozenDatasetWriter(guard).write(datasetDir, frozen, manifest, report);
+      const writeResult = new FrozenDatasetWriter(guard).write(
+        datasetDir,
+        frozen,
+        manifest,
+        report,
+      );
       const response = buildResponse(this.deps, msg, 'frozen:extract:response', {
         datasetDir: writeResult.dir,
         files: writeResult.files,
@@ -1004,7 +1018,12 @@ export class FrozenDatasetHandler implements DomainHandler {
   // ── frozen:verify ──────────────────────────────────────────────────────
 
   private async handleVerify(msg: BaseMessage): Promise<void> {
-    const parsed = validatePayload(frozenVerifyPayloadSchema, msg, 'frozen:verify:error', this.deps);
+    const parsed = validatePayload(
+      frozenVerifyPayloadSchema,
+      msg,
+      'frozen:verify:error',
+      this.deps,
+    );
     if (!parsed) return;
     const config = this.requireConfig(msg, 'frozen:verify:error');
     if (!config) return;
