@@ -45,12 +45,22 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     (msg) => {
       useOrgStore.getState().setOrgs(msg.payload.orgs);
 
-      // Auto-select first connected org when none selected
       const state = useOrgStore.getState();
-      if (!state.selectedOrgId && msg.payload.orgs.length > 0) {
+
+      // Reconcile a stale selection: the webview persists selectedOrgId across
+      // reloads, but the org may be gone from the extension config (config
+      // reset, org removed, new profile). A stale id makes every module query
+      // an org that no longer exists.
+      if (state.selectedOrgId && !msg.payload.orgs.some((o) => o.id === state.selectedOrgId)) {
+        state.selectOrg(null);
+      }
+
+      // Auto-select first connected org when none selected
+      const after = useOrgStore.getState();
+      if (!after.selectedOrgId && msg.payload.orgs.length > 0) {
         const connected = msg.payload.orgs.filter((o) => o.status === 'connected');
         if (connected.length > 0) {
-          state.selectOrg(connected[0].id);
+          after.selectOrg(connected[0].id);
         }
       }
     },
