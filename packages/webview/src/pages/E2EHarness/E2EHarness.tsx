@@ -66,6 +66,11 @@ const SeedAIHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'forge:ai:generate:response' && data.payload) {
@@ -159,6 +164,11 @@ const SyncConflictHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'sync:conflict:detected' && data.payload) {
@@ -260,6 +270,11 @@ const MonitorHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'monitor:metrics:response' && data.payload) {
@@ -335,6 +350,11 @@ const CdcHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'cdc:subscribe:response' && data.payload) {
@@ -449,6 +469,11 @@ const AIDiagnoseHarness: React.FC = () => {
 
   useEffect(() => {
     const handler = (ev: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview
+      // host ('vscode-webview://...') or empty origin (tests, some environments).
+      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
+        return;
+      }
       const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
       if (!data) return;
       if (data.type === 'monitor:failed-jobs:response' && data.payload) {
