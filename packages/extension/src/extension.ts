@@ -515,9 +515,7 @@ export function activate(context: vscode.ExtensionContext): void {
         logger: services.telemetry.getLogger(),
         dispatcher: {
           runAnonymous: async (script, orgId) => {
-            const { getJsforceConnection } = await import(
-              './core/connection/ConnectionHelper.js'
-            );
+            const { getJsforceConnection } = await import('./core/connection/ConnectionHelper.js');
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             const res = (await conn.tooling.executeAnonymous(script)) as {
               compiled: boolean;
@@ -526,7 +524,10 @@ export function activate(context: vscode.ExtensionContext): void {
               exceptionMessage?: string;
             };
             if (!res.compiled) {
-              return { ok: false, resultMessage: `Compile error: ${res.compileProblem ?? 'unknown'}` };
+              return {
+                ok: false,
+                resultMessage: `Compile error: ${res.compileProblem ?? 'unknown'}`,
+              };
             }
             if (!res.success) {
               return {

@@ -62,8 +62,7 @@ export class AIDiagnoseAdapter implements DomainHandler {
   /** Reply with an explicit not-configured error on the matching response channel. */
   private sendNotConfigured(msg: BaseMessage): void {
     if (msg.type === 'ai:diagnose') {
-      const runId =
-        (msg as { payload?: { runId?: string } }).payload?.runId ?? 'unknown';
+      const runId = (msg as { payload?: { runId?: string } }).payload?.runId ?? 'unknown';
       const response = buildResponse(this.deps, msg, 'ai:diagnose:response', {
         runId,
         error: { code: NOT_CONFIGURED_CODE, message: NOT_CONFIGURED_MESSAGE },

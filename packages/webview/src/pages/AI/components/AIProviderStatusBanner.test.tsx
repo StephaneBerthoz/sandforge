@@ -26,15 +26,17 @@ describe('AIProviderStatusBanner', () => {
   });
 
   it('renders nothing when state is closed', () => {
-    const { container } = render(
-      <AIProviderStatusBanner provider="anthropic" state="closed" />,
-    );
+    const { container } = render(<AIProviderStatusBanner provider="anthropic" state="closed" />);
     expect(container.firstChild).toBeNull();
   });
 
   it('renders yellow half-open banner without countdown', () => {
     render(
-      <AIProviderStatusBanner provider="anthropic" state="half-open" userMessageKey="ai.error.transient" />,
+      <AIProviderStatusBanner
+        provider="anthropic"
+        state="half-open"
+        userMessageKey="ai.error.transient"
+      />,
     );
     const banner = screen.getByTestId('ai-provider-status-banner');
     expect(banner).toBeTruthy();

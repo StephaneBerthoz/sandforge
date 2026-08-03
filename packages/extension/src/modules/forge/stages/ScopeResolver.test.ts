@@ -94,7 +94,12 @@ describe('getParentObjects', () => {
       [makeNode('Account'), makeNode('Contact'), makeNode('Case')],
       [
         LOOKUP_EDGE,
-        { sourceObject: 'Case', targetObject: 'Contact', relationshipName: 'Cases', type: 'lookup' },
+        {
+          sourceObject: 'Case',
+          targetObject: 'Contact',
+          relationshipName: 'Cases',
+          type: 'lookup',
+        },
       ],
     );
     expect(getParentObjects('Contact', graph)).toEqual(['Account', 'Case']);

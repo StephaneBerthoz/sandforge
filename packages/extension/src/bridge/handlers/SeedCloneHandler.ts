@@ -378,7 +378,8 @@ export class SeedCloneHandler implements DomainHandler {
           errors: [],
         };
         outcomes.forEach((outcome, i) => {
-          const sourceId = typeof sourceRecords[i]?.['Id'] === 'string' ? sourceRecords[i]['Id'] : '';
+          const sourceId =
+            typeof sourceRecords[i]?.['Id'] === 'string' ? sourceRecords[i]['Id'] : '';
           if (outcome.success) {
             objectResult.insertedCount++;
             if (sourceId && outcome.id) {

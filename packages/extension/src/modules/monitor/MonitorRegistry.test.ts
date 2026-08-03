@@ -241,9 +241,7 @@ describe('MonitorRegistry', () => {
       id: 'wired',
       intervalMs: 5_000,
       priority: 'normal',
-      run: vi.fn(async () => [
-        sample({ orgId: 'org-A', seriesId: 'wired.value', value: 7 }),
-      ]),
+      run: vi.fn(async () => [sample({ orgId: 'org-A', seriesId: 'wired.value', value: 7 })]),
     };
     registry.register(probe);
     registry.startOrg('org-A');

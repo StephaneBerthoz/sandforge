@@ -78,11 +78,7 @@ async function refreshTokenViaCli(username: string): Promise<string> {
   const { stdout } =
     process.platform === 'win32'
       ? await promisify(exec)(`sf org display -u "${username}" --json`, opts)
-      : await promisify(execFile)(
-          'sf',
-          ['org', 'display', '-u', username, '--json'],
-          opts,
-        );
+      : await promisify(execFile)('sf', ['org', 'display', '-u', username, '--json'], opts);
 
   // eslint-disable-next-line no-control-regex -- Intentional ANSI escape code stripping
   const stripped = stdout.replace(/\u001b\[[0-9;]*m/g, '');

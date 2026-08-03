@@ -47,9 +47,7 @@ export const MonitorLimitsSection: React.FC<MonitorLimitsSectionProps> = React.m
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() =>
-                  anomalyScan.mutate({ orgId: selectedOrgId, objectName: 'Account' })
-                }
+                onClick={() => anomalyScan.mutate({ orgId: selectedOrgId, objectName: 'Account' })}
                 disabled={anomalyScan.loading}
                 loading={anomalyScan.loading}
                 data-testid="anomaly-scan-btn"

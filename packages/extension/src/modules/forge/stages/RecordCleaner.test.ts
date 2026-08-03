@@ -86,7 +86,13 @@ describe('cleanNodeRecords', () => {
   it('applies owner mappings before insert', () => {
     const fields: FieldInfo[] = [
       { name: 'Id', queryable: true, createable: false, isReference: false },
-      { name: 'OwnerId', queryable: true, createable: true, isReference: true, referenceTo: ['User'] },
+      {
+        name: 'OwnerId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['User'],
+      },
     ];
     const remapper = new IdRemapper();
     remapper.add('005EX_EMPLOYEE', '005REMAPPED');
@@ -179,18 +185,16 @@ describe('cleanNodeRecords', () => {
 
 describe('describeTargetFieldSets', () => {
   it('returns the createable set and picklist whitelists', async () => {
-    const describeFields = vi
-      .fn<ForgeExecutorDeps['describeFields']>()
-      .mockResolvedValue([
-        { name: 'Id', queryable: true, createable: false, isReference: false },
-        {
-          name: 'Status',
-          queryable: true,
-          createable: true,
-          isReference: false,
-          picklistValues: ['Open'],
-        },
-      ]);
+    const describeFields = vi.fn<ForgeExecutorDeps['describeFields']>().mockResolvedValue([
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      {
+        name: 'Status',
+        queryable: true,
+        createable: true,
+        isReference: false,
+        picklistValues: ['Open'],
+      },
+    ]);
     const sets = await describeTargetFieldSets(describeFields, 'tgt', 'Case');
     expect(describeFields).toHaveBeenCalledWith('tgt', 'Case');
     expect(sets.creatable).toEqual(new Set(['Status']));

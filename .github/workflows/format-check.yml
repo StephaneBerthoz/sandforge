@@ -1,11 +1,8 @@
-name: Format Check (informational)
+name: Format Check
 
-# Non-blocking Prettier drift scan. Surfaces formatting drift on PRs
-# without failing the build — `pnpm validate` does NOT include
-# format:check today because the legacy baseline has ~950 files of
-# drift that need a single dedicated `pnpm format --write` PR. Until
-# that lands, this workflow keeps drift visible without blocking.
-# Promote to required check after the global format pass merges.
+# Blocking Prettier check. The global format pass has merged (drift is
+# now zero), so `pnpm format:check` enforces the baseline on push and
+# PR-diff formatting on pull requests.
 
 on:
   push:
@@ -15,7 +12,7 @@ on:
 
 jobs:
   format-check:
-    name: Prettier drift scan (non-blocking)
+    name: Prettier check (blocking)
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -58,8 +55,8 @@ jobs:
           fi
           echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
           set -e
-          # Always exit 0 — informational only.
-          exit 0
+          # Blocking: drift fails the check.
+          exit $CODE
 
       - name: Comment on PR if drift detected in changed files
         if: github.event_name == 'pull_request' && steps.format.outputs.exit_code != '0'
@@ -74,7 +71,7 @@ jobs:
               'One or more files in this PR have Prettier formatting drift.',
               'Run locally: `pnpm format` (writes) or `pnpm format:check` (verify).',
               '',
-              '_This check is informational and does not block merge — for now._',
+              '_This check is blocking: fix the drift to merge._',
             ].join('\n');
             const comments = await github.rest.issues.listComments({
               owner, repo, issue_number, per_page: 100,

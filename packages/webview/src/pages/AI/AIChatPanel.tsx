@@ -1,23 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type {
-  AIProviderStatusMessage,
-  AIBudgetStateMessage,
-} from '@sandforge/shared';
+import type { AIProviderStatusMessage, AIBudgetStateMessage } from '@sandforge/shared';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Spinner } from '../../components/ui/Spinner';
 import { useMessageListener } from '../../hooks/useMessageBus';
-import {
-  AIProviderStatusBanner,
-  type AIProviderState,
-} from './components/AIProviderStatusBanner';
-import {
-  TokenBudgetIndicator,
-  type TokenBudgetState,
-} from './components/TokenBudgetIndicator';
+import { AIProviderStatusBanner, type AIProviderState } from './components/AIProviderStatusBanner';
+import { TokenBudgetIndicator, type TokenBudgetState } from './components/TokenBudgetIndicator';
 
 /** Chat message for display. */
 export interface ChatMessageDisplay {
@@ -73,9 +64,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   });
 
   const [budgetState, setBudgetState] = useState<TokenBudgetState | null>(null);
-  useMessageListener<AIBudgetStateMessage>('ai:budget:state', (msg) =>
-    setBudgetState(msg.payload),
-  );
+  useMessageListener<AIBudgetStateMessage>('ai:budget:state', (msg) => setBudgetState(msg.payload));
 
   useEffect(() => {
     if (typeof messagesEndRef.current?.scrollIntoView === 'function') {

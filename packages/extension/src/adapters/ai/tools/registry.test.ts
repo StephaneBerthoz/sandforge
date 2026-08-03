@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import {
-  buildAllReadOnlyTools,
-  READ_ONLY_TOOL_NAMES,
-  type ToolDeps,
-} from './readOnlyTools.js';
+import { buildAllReadOnlyTools, READ_ONLY_TOOL_NAMES, type ToolDeps } from './readOnlyTools.js';
 import { READ_ONLY_NAME_REGEX } from './wrapTool.js';
 
 const fakeDeps: ToolDeps = { orgId: 'org-1' };
@@ -50,7 +46,12 @@ describe('AI tool registry — Pitfall #4 read-only fence', () => {
   it('validate_soql refuses DML keywords (DML_FORBIDDEN)', async () => {
     const tools = buildAllReadOnlyTools({
       orgId: 'org-1',
-      validateSoql: async () => ({ valid: true, errors: [], warnings: [], detectedAntipatterns: [] }),
+      validateSoql: async () => ({
+        valid: true,
+        errors: [],
+        warnings: [],
+        detectedAntipatterns: [],
+      }),
     });
     const validate = tools.find((t) => t.name === 'validate_soql')!;
     const result = JSON.parse(

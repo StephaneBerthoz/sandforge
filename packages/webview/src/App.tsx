@@ -140,9 +140,7 @@ export const App: React.FC = () => {
   // are delivered in Phase 04 (AI) and Phase 05 (CDC). The harness component
   // only exists in e2e builds (see LazyE2EHarness above).
   const harnessFlow =
-    LazyE2EHarness && typeof window !== 'undefined'
-      ? getHarnessFlow(window.location.search)
-      : null;
+    LazyE2EHarness && typeof window !== 'undefined' ? getHarnessFlow(window.location.search) : null;
   if (harnessFlow && LazyE2EHarness) {
     return (
       <ErrorBoundary>

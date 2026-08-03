@@ -59,7 +59,10 @@ describe('createMonitorOps', () => {
 
   describe('jobs health provider (real AsyncApexJob data)', () => {
     it('scores 100 with ok status when no recent job failed', async () => {
-      mockQueryAll.mockResolvedValue([makeJobRow('Completed', 'j1'), makeJobRow('Completed', 'j2')]);
+      mockQueryAll.mockResolvedValue([
+        makeJobRow('Completed', 'j1'),
+        makeJobRow('Completed', 'j2'),
+      ]);
       const ops = createMonitorOps(createDeps());
 
       const health = await ops.healthCheck.computeHealth('org-1');

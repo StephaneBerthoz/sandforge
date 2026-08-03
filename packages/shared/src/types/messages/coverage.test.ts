@@ -43,7 +43,10 @@ function readUnionBlock(indexSrc: string, unionName: string): string {
 
 function readZodLiterals(): string[] {
   // types/messages -> types -> src, then bridge/messageSchemas.ts
-  const schemaSrc = readFileSync(join(__dirname, '..', '..', 'bridge', 'messageSchemas.ts'), 'utf8');
+  const schemaSrc = readFileSync(
+    join(__dirname, '..', '..', 'bridge', 'messageSchemas.ts'),
+    'utf8',
+  );
   return [...schemaSrc.matchAll(ZOD_MSG_RE)].map((m) => m[1]);
 }
 

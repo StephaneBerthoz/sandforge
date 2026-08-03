@@ -92,10 +92,9 @@ describe('TimeSeriesStore — unit', () => {
     const store = new TimeSeriesStore({ now: FIXED_NOW });
     const cap = Math.ceil((7 * 24 * 60 * 60 * 1000) / 30_000);
     for (let i = 0; i < cap + 100; i++) {
-      store.record(
-        sample({ ts: new Date(BASE_MS + i * 1000).toISOString(), value: i }),
-        { intervalMs: 30_000 },
-      );
+      store.record(sample({ ts: new Date(BASE_MS + i * 1000).toISOString(), value: i }), {
+        intervalMs: 30_000,
+      });
     }
     const result = store.query('o1', 's1');
     expect(result.length).toBe(cap);
@@ -145,9 +144,7 @@ describe('TimeSeriesStore — unit', () => {
     const { store: cfg } = createMockConfigStore();
     const writer = new TimeSeriesStore({ configStore: cfg, persist: true, now: FIXED_NOW });
     for (let i = 1; i <= 5; i++) {
-      writer.record(
-        sample({ ts: new Date(BASE_MS + i * 60_000).toISOString(), value: i }),
-      );
+      writer.record(sample({ ts: new Date(BASE_MS + i * 60_000).toISOString(), value: i }));
     }
     await writer.flush();
     writer.dispose();

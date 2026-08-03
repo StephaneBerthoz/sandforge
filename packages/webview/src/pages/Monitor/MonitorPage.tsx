@@ -1,14 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  RefreshCw,
-  Clock,
-  Activity,
-  AlertTriangle,
-  WifiOff,
-  Plug,
-} from 'lucide-react';
+import { RefreshCw, Clock, Activity, AlertTriangle, WifiOff, Plug } from 'lucide-react';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';

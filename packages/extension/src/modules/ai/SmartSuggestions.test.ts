@@ -149,19 +149,17 @@ describe('SmartSuggestions', () => {
   // --- AI fallback ---
 
   it('should fall back to AI provider when no rules match', async () => {
-    const mockProvider = vi
-      .fn<AIProvider>()
-      .mockResolvedValue(
-        JSON.stringify([
-          {
-            title: 'AI Suggestion',
-            description: 'From AI',
-            impact: 'high',
-            confidence: 0.7,
-            action: 'ai_action',
-          },
-        ]),
-      );
+    const mockProvider = vi.fn<AIProvider>().mockResolvedValue(
+      JSON.stringify([
+        {
+          title: 'AI Suggestion',
+          description: 'From AI',
+          impact: 'high',
+          confidence: 0.7,
+          action: 'ai_action',
+        },
+      ]),
+    );
 
     const engineWithAI = new SmartSuggestions(mockProvider);
     const suggestions = await engineWithAI.suggest('unknown', { custom: true });

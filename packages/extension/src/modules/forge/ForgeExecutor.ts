@@ -16,11 +16,7 @@ import {
   sortNodesForExecution,
 } from './stages/ScopeResolver.js';
 import { OrphanExpander } from './stages/OrphanExpander.js';
-import {
-  cleanNodeRecords,
-  describeTargetFieldSets,
-  intersect,
-} from './stages/RecordCleaner.js';
+import { cleanNodeRecords, describeTargetFieldSets, intersect } from './stages/RecordCleaner.js';
 import { BatchWriter, type PendingFkUpdate } from './stages/BatchWriter.js';
 import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
 

@@ -100,11 +100,9 @@ export const metricSampleArb: fc.Arbitrary<MetricSample> = fc.record({
   value: fc.float({ min: -1e6, max: 1e6, noNaN: true, noDefaultInfinity: true }),
   unit: fc.option(fc.constantFrom('count', 'percent', 'bytes', 'ms'), { nil: undefined }),
   tags: fc.option(
-    fc.dictionary(
-      fc.string({ minLength: 1, maxLength: 20 }),
-      fc.string({ maxLength: 50 }),
-      { maxKeys: 5 },
-    ),
+    fc.dictionary(fc.string({ minLength: 1, maxLength: 20 }), fc.string({ maxLength: 50 }), {
+      maxKeys: 5,
+    }),
     { nil: undefined },
   ),
 });
@@ -182,17 +180,19 @@ export const driftEventArb: fc.Arbitrary<DriftEventPayload> = fc
  * Arbitrary CustomField describe-like record. Used by DriftDetector property
  * tests for `detectFieldDrift`. Generates an allowlistable-shaped record.
  */
-export const fieldDescribeArb: fc.Arbitrary<{ name: string } & Record<string, unknown>> = fc.record({
-  name: fc.string({ minLength: 1, maxLength: 30 }),
-  type: fc.constantFrom('Text', 'Email', 'Phone', 'Picklist', 'Number', 'Boolean'),
-  length: fc.option(fc.integer({ min: 1, max: 32_000 }), { nil: undefined }),
-  required: fc.boolean(),
-  externalId: fc.boolean(),
-  // Add some noise so canonicalization actually has work to do.
-  lastModifiedDate: fc
-    .date({ min: new Date('2020-01-01'), max: new Date('2030-01-01') })
-    .map((d) => d.toISOString()),
-});
+export const fieldDescribeArb: fc.Arbitrary<{ name: string } & Record<string, unknown>> = fc.record(
+  {
+    name: fc.string({ minLength: 1, maxLength: 30 }),
+    type: fc.constantFrom('Text', 'Email', 'Phone', 'Picklist', 'Number', 'Boolean'),
+    length: fc.option(fc.integer({ min: 1, max: 32_000 }), { nil: undefined }),
+    required: fc.boolean(),
+    externalId: fc.boolean(),
+    // Add some noise so canonicalization actually has work to do.
+    lastModifiedDate: fc
+      .date({ min: new Date('2020-01-01'), max: new Date('2030-01-01') })
+      .map((d) => d.toISOString()),
+  },
+);
 
 /** Arbitrary ObjectDescribe-like with `name` + `fields[]`. */
 export const objectDescribeArb: fc.Arbitrary<{

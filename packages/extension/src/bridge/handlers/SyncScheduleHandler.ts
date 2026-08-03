@@ -78,9 +78,7 @@ export class SyncScheduleHandler implements DomainHandler {
         scheduleStore: new SyncScheduleStore(this.deps.configStore),
         configStore: new SyncConfigStore(this.deps.configStore),
         onExecute: () =>
-          Promise.reject(
-            new Error('Scheduled sync execution is not wired to the sync engine yet'),
-          ),
+          Promise.reject(new Error('Scheduled sync execution is not wired to the sync engine yet')),
         notificationCenter: {
           notify: (level: string, title: string, message: string) => {
             this.deps.log(`[SyncSchedule] ${level}: ${title} — ${message}`);

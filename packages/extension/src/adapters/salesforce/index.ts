@@ -6,8 +6,4 @@ export {
   DEFAULT_DESCRIBE_TTL_MS,
   DEFAULT_DESCRIBE_MAX_ORGS,
 } from './DescribeCache.js';
-export type {
-  DescribedField,
-  DescribeCacheOptions,
-  DescribeCacheStats,
-} from './DescribeCache.js';
+export type { DescribedField, DescribeCacheOptions, DescribeCacheStats } from './DescribeCache.js';

@@ -148,7 +148,8 @@ export function createServices(
   // logger (OutputChannel) is intentionally NOT gated.
   const telemetry = new TelemetryAdapter(context, {
     ...opts,
-    isEnabled: () => vscode.workspace.getConfiguration('sandforge').get<boolean>('telemetry', false),
+    isEnabled: () =>
+      vscode.workspace.getConfiguration('sandforge').get<boolean>('telemetry', false),
   });
   const storage = new StorageAdapter(context);
   const salesforce = new SalesforceAdapter(storage, telemetry);

@@ -49,7 +49,8 @@ export const AIProviderStatusBanner: React.FC<AIProviderStatusBannerProps> = ({
   })();
 
   const key = userMessageKey ?? 'ai.error.unknown';
-  const fallback = key === 'ai.error.overloaded' ? 'AI provider temporarily overloaded.' : 'AI provider error.';
+  const fallback =
+    key === 'ai.error.overloaded' ? 'AI provider temporarily overloaded.' : 'AI provider error.';
   const message = t(key, { defaultValue: fallback, countdown });
 
   const colour =

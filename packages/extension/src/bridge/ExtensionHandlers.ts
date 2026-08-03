@@ -335,12 +335,7 @@ export class ExtensionHandlers {
 
     // Sync execution history (useSyncHistoryStore)
     route(
-      [
-        'sync:history:list',
-        'sync:history:detail',
-        'sync:history:rerun',
-        'sync:history:export',
-      ],
+      ['sync:history:list', 'sync:history:detail', 'sync:history:rerun', 'sync:history:export'],
       this.syncHistoryHandler,
     );
 

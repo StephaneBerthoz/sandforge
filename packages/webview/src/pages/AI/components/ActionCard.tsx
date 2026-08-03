@@ -111,11 +111,12 @@ export const ActionCard: React.FC<ActionCardProps> = ({
                   <span className="font-medium">{action.label}</span>
                 </div>
                 {state ? (
-                  <span
-                    className="text-xs"
-                    data-testid={`ai-action-card-state-${index}`}
-                  >
-                    {state.status === 'executed' ? 'Exécuté' : state.status === 'rejected' ? 'Rejeté' : 'Échec'}
+                  <span className="text-xs" data-testid={`ai-action-card-state-${index}`}>
+                    {state.status === 'executed'
+                      ? 'Exécuté'
+                      : state.status === 'rejected'
+                        ? 'Rejeté'
+                        : 'Échec'}
                   </span>
                 ) : action.requiresApproval ? (
                   <div className="flex gap-1">

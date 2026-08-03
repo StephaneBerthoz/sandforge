@@ -43,10 +43,7 @@ export interface ToolDeps {
   onTrace?: ToolTraceFn;
   /** Optional adapters injected by the consume site. */
   describe?: (sObject: string) => Promise<z.infer<typeof describeObjectOutput>>;
-  query?: (
-    soql: string,
-    limit: number,
-  ) => Promise<z.infer<typeof queryRecordsOutput>>;
+  query?: (soql: string, limit: number) => Promise<z.infer<typeof queryRecordsOutput>>;
   getLimits?: () => Promise<z.infer<typeof getLimitsOutput>>;
   getRecentErrors?: (
     args: z.infer<typeof getRecentErrorsInput>,

@@ -71,7 +71,6 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
-
 /** Minimal seed template that passes the seed:execute payload validation. */
 function validSeedTemplate(): Record<string, unknown> {
   return {
@@ -797,8 +796,7 @@ describe('SeedOpsHandler', () => {
   describe('payload validation', () => {
     it('rejects seed:execute with an injection-shaped objectApiName before touching the org', async () => {
       const template = validSeedTemplate();
-      (template.objects as Array<Record<string, unknown>>)[0].objectApiName =
-        "Account' OR '1'='1";
+      (template.objects as Array<Record<string, unknown>>)[0].objectApiName = "Account' OR '1'='1";
 
       const msg = {
         id: 'bad-seed',

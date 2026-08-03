@@ -7,7 +7,12 @@ import {
 } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { useForgeStore } from '../../stores/useForgeStore';
-import type { ForgeConfig, ForgeDepth, ForgeInputMode, ForgeTemplate } from '../../stores/useForgeStore';
+import type {
+  ForgeConfig,
+  ForgeDepth,
+  ForgeInputMode,
+  ForgeTemplate,
+} from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
@@ -139,14 +144,8 @@ export function useForgeForm(): ForgeFormState {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ---- Record preview (composed hook) ---- */
-  const {
-    preview,
-    previewLoading,
-    previewError,
-    handlePreview,
-    resetPreview,
-    closePreview,
-  } = useRecordPreview(recordId, sourceOrgId);
+  const { preview, previewLoading, previewError, handlePreview, resetPreview, closePreview } =
+    useRecordPreview(recordId, sourceOrgId);
 
   /* ---- Derived state ---- */
   const sourceOrg = useMemo(() => orgs.find((o) => o.id === sourceOrgId), [orgs, sourceOrgId]);

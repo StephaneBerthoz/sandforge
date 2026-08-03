@@ -1269,9 +1269,8 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'sync:config:list:response');
       expect(response).toBeDefined();
-      const payload = (
-        response as BaseMessage & { payload: { configs: Array<{ id: string }> } }
-      ).payload;
+      const payload = (response as BaseMessage & { payload: { configs: Array<{ id: string }> } })
+        .payload;
       expect(payload.configs).toHaveLength(1);
       expect(payload.configs[0].id).toBe('cfg-2');
     });
@@ -1331,9 +1330,8 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'sync:schedule:list:response');
       expect(response).toBeDefined();
-      const payload = (
-        response as BaseMessage & { payload: { schedules: Array<{ id: string }> } }
-      ).payload;
+      const payload = (response as BaseMessage & { payload: { schedules: Array<{ id: string }> } })
+        .payload;
       expect(payload.schedules).toHaveLength(1);
       expect(payload.schedules[0].id).toBe('sched-2');
     });
@@ -1342,9 +1340,7 @@ describe('ExtensionHandlers', () => {
       broker['dispatch'](msg('sync:schedule:upsert', { schedule: validSchedule('sched-3') }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      broker['dispatch'](
-        msg('sync:schedule:toggle', { scheduleId: 'sched-3', enabled: false }),
-      );
+      broker['dispatch'](msg('sync:schedule:toggle', { scheduleId: 'sched-3', enabled: false }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(2));
 
       const response = posted.find((p) => p.type === 'sync:schedule:toggle:response');
@@ -1360,9 +1356,7 @@ describe('ExtensionHandlers', () => {
     });
 
     it('sync:schedule:toggle should report NOT_FOUND for an unknown schedule', async () => {
-      broker['dispatch'](
-        msg('sync:schedule:toggle', { scheduleId: 'missing', enabled: false }),
-      );
+      broker['dispatch'](msg('sync:schedule:toggle', { scheduleId: 'missing', enabled: false }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       const errMsg = posted.find((p) => p.type === 'sync:schedule:error');
@@ -1391,16 +1385,13 @@ describe('ExtensionHandlers', () => {
         expect(posted.some((p) => p.type === 'sync:schedule:list:response')).toBe(true),
       );
       const listResponse = posted.find((p) => p.type === 'sync:schedule:list:response');
-      const listPayload = (
-        listResponse as BaseMessage & { payload: { schedules: unknown[] } }
-      ).payload;
+      const listPayload = (listResponse as BaseMessage & { payload: { schedules: unknown[] } })
+        .payload;
       expect(listPayload.schedules).toHaveLength(0);
     });
 
     it('sync:schedule:upsert should reject an invalid payload with INVALID_PAYLOAD', async () => {
-      broker['dispatch'](
-        msg('sync:schedule:upsert', { schedule: { id: 'sched-bad' } }),
-      );
+      broker['dispatch'](msg('sync:schedule:upsert', { schedule: { id: 'sched-bad' } }));
       await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
       const errMsg = posted.find((p) => p.type === 'sync:schedule:error');
@@ -1495,9 +1486,7 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'ai:conversation:list:response');
       expect(response).toBeDefined();
-      const payload = (
-        response as BaseMessage & { payload: { conversations: unknown[] } }
-      ).payload;
+      const payload = (response as BaseMessage & { payload: { conversations: unknown[] } }).payload;
       expect(payload.conversations).toEqual([]);
     });
   });
@@ -1564,9 +1553,8 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'sync:history:export:response');
       expect(response).toBeDefined();
-      const payload = (
-        response as BaseMessage & { payload: { data: string; format: string } }
-      ).payload;
+      const payload = (response as BaseMessage & { payload: { data: string; format: string } })
+        .payload;
       expect(payload.format).toBe('csv');
       expect(payload.data).toContain('configName');
     });
@@ -1694,8 +1682,8 @@ describe('ExtensionHandlers', () => {
           objects: [{ objectApiName: 'Account' }],
         }),
       );
-      await vi.waitFor(() =>
-        expect(posted.some((p) => p.type === 'seed:clone:execute:response')).toBe(true),
+      await vi.waitFor(
+        () => expect(posted.some((p) => p.type === 'seed:clone:execute:response')).toBe(true),
         { timeout: 10000 },
       );
 
@@ -1775,7 +1763,12 @@ describe('ExtensionHandlers', () => {
           objectApiName: 'Account',
           records: [{ Name: 'Acme' }, { Name: '' }],
           columnMappings: [
-            { csvHeader: 'Name', sfFieldApiName: 'Name', sfFieldType: 'string', sfFieldLength: 255 },
+            {
+              csvHeader: 'Name',
+              sfFieldApiName: 'Name',
+              sfFieldType: 'string',
+              sfFieldLength: 255,
+            },
           ],
         }),
       );
@@ -1807,7 +1800,12 @@ describe('ExtensionHandlers', () => {
           objectApiName: 'Account',
           records: [{ Name: 'Acme', NumberOfEmployees: '42' }],
           columnMappings: [
-            { csvHeader: 'Name', sfFieldApiName: 'Name', sfFieldType: 'string', sfFieldLength: 255 },
+            {
+              csvHeader: 'Name',
+              sfFieldApiName: 'Name',
+              sfFieldType: 'string',
+              sfFieldLength: 255,
+            },
             {
               csvHeader: 'NumberOfEmployees',
               sfFieldApiName: 'NumberOfEmployees',
@@ -1817,8 +1815,8 @@ describe('ExtensionHandlers', () => {
           ],
         }),
       );
-      await vi.waitFor(() =>
-        expect(posted.some((p) => p.type === 'seed:csv:execute:response')).toBe(true),
+      await vi.waitFor(
+        () => expect(posted.some((p) => p.type === 'seed:csv:execute:response')).toBe(true),
         { timeout: 10000 },
       );
 
@@ -1836,9 +1834,8 @@ describe('ExtensionHandlers', () => {
 
   describe('execution:manual-retry routing', () => {
     it('should answer execution:retry-status with canRetry:false (not replayable)', async () => {
-      const { BackgroundOperationRegistry } = await import(
-        '../core/engine/BackgroundOperationRegistry'
-      );
+      const { BackgroundOperationRegistry } =
+        await import('../core/engine/BackgroundOperationRegistry');
       const localBroker = new MessageBroker();
       const localPosted: BaseMessage[] = [];
       vi.spyOn(localBroker, 'postToWebview').mockImplementation((m) => {

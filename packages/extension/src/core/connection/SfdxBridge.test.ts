@@ -378,7 +378,15 @@ describe('SfdxBridge', () => {
         // POSIX: argv-as-array execFile — no shell, no interpolation
         expect(mockExecFile).toHaveBeenCalledWith(
           'sf',
-          ['org', 'login', 'web', '--instance-url', 'https://login.salesforce.com', '--alias', 'my-org'],
+          [
+            'org',
+            'login',
+            'web',
+            '--instance-url',
+            'https://login.salesforce.com',
+            '--alias',
+            'my-org',
+          ],
           expect.objectContaining({
             timeout: 120_000,
             maxBuffer: 10 * 1024 * 1024,

@@ -1,8 +1,4 @@
-import type {
-  ActiveOperation,
-  StateSyncMessage,
-  WebviewState,
-} from '@sandforge/shared';
+import type { ActiveOperation, StateSyncMessage, WebviewState } from '@sandforge/shared';
 import type { MessageBroker } from './MessageBroker';
 
 // `WebviewState` + `StateSyncMessage` live in `@sandforge/shared`

@@ -49,7 +49,7 @@ function validSyncConfig(): Record<string, unknown> {
         operation: 'upsert',
         externalIdField: 'Ext_Id__c',
         batchSize: 200,
-        where: "Name != null",
+        where: 'Name != null',
         fieldMappings: [],
         transformRules: [],
         excludedFields: [],
@@ -81,7 +81,11 @@ function validSeedTemplate(): Record<string, unknown> {
         insertOrder: 0,
         excludedFields: [],
         fieldRules: [
-          { fieldApiName: 'FirstName', ruleType: 'faker', config: { fakerMethod: 'person.firstName' } },
+          {
+            fieldApiName: 'FirstName',
+            ruleType: 'faker',
+            config: { fakerMethod: 'person.firstName' },
+          },
         ],
       },
     ],
@@ -150,13 +154,15 @@ describe('primitive schemas', () => {
   });
 
   it('whereClauseSchema accepts plain filters', () => {
-    expect(whereClauseSchema.safeParse("Name != null AND CreatedDate > 2024-01-01").success).toBe(
+    expect(whereClauseSchema.safeParse('Name != null AND CreatedDate > 2024-01-01').success).toBe(
       true,
     );
   });
 
   it('whereClauseSchema rejects subqueries and DML keywords', () => {
-    expect(whereClauseSchema.safeParse('Id IN (SELECT AccountId FROM Contact)').success).toBe(false);
+    expect(whereClauseSchema.safeParse('Id IN (SELECT AccountId FROM Contact)').success).toBe(
+      false,
+    );
     expect(whereClauseSchema.safeParse("Name = 'x' DELETE").success).toBe(false);
     expect(whereClauseSchema.safeParse('update me').success).toBe(false);
   });
@@ -187,8 +193,7 @@ describe('syncExecutePayloadSchema', () => {
 
   it('rejects WHERE clauses with subqueries', () => {
     const config = validSyncConfig();
-    (config.objects as Array<Record<string, unknown>>)[0].where =
-      'Id IN (SELECT Id FROM Contact)';
+    (config.objects as Array<Record<string, unknown>>)[0].where = 'Id IN (SELECT Id FROM Contact)';
     expect(syncExecutePayloadSchema.safeParse({ config }).success).toBe(false);
   });
 

@@ -173,7 +173,10 @@ export function normalizeBulkJobResults(
     };
 
     for (const row of rawResults.successfulResults ?? []) {
-      claim(typeof row['sf__Id'] === 'string' ? (row['sf__Id'] as string) : undefined, takeIndex(row));
+      claim(
+        typeof row['sf__Id'] === 'string' ? (row['sf__Id'] as string) : undefined,
+        takeIndex(row),
+      );
     }
     for (const row of rawResults.failedResults ?? []) {
       const error =

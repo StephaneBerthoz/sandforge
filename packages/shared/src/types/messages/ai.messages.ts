@@ -273,7 +273,13 @@ export interface AIDiagnoseRequestMessage extends BaseMessage {
     runId: string;
     orgId: string;
     errorContext: {
-      kind: 'bulk-job' | 'apex-deploy' | 'metadata-deploy' | 'test-run' | 'soql-analysis' | 'generic';
+      kind:
+        | 'bulk-job'
+        | 'apex-deploy'
+        | 'metadata-deploy'
+        | 'test-run'
+        | 'soql-analysis'
+        | 'generic';
       jobId?: string;
       file?: string;
       errorMessage: string;

@@ -204,9 +204,7 @@ export const listSObjectsOutput = z
 
 // ── 10. validate_soql ───────────────────────────────────────────────────────
 
-export const validateSoqlInput = z
-  .object({ soql: z.string().min(1).max(20_000) })
-  .strict();
+export const validateSoqlInput = z.object({ soql: z.string().min(1).max(20_000) }).strict();
 export const validateSoqlOutput = z
   .object({
     valid: z.boolean(),

@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-05-02
+
+**Forge Hardening Pass** — 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows. (Entry restored — it was only recorded in `packages/extension/CHANGELOG.md`.)
+
+### Added
+
+**Forge CLI (sandforge-clone)**
+- `--upsert` flag — use external Id upsert when available, skipping `DUPLICATE_VALUE` on re-runs of the same source records
+- `--expand-orphans` flag — single-hop expand orphan parent FKs (clones missing parents so child FKs resolve)
+- `--skip-preflight` flag — bypass the new pre-execute target row count
+- `--json` flag — machine-readable JSON summary on stdout for CI integration
+- `--exclude <obj.field>` (repeatable) — strip a specific field on a specific object before insert. BA opt-out for noisy long-text fields, calculated fields, or fields the target org doesn't have
+- `--owner-map <src=tgt>` (repeatable) — remap OwnerId from a source User Id to a target User Id. Use case: clone records authored by ex-employees onto a sandbox where their User no longer exists (otherwise INVALID_OWNER)
+- Pre-execute preflight showing existing rows in the target org for the first 30 nodes (with ⚠ flag for >1000 rows) so users know the blast radius before pulling the trigger
+
+**ForgeConfig (cross-sandbox dev/BA flow)**
+- `fieldExclusions: Record<string, string[]>` — per-object field skip list (Zod-validated, max 200 fields per object). Exposed via wizard config and CLI `--exclude`
+- `ownerMappings: Record<string, string>` — per-record OwnerId remap (Zod-validated, both sides must be 15/18-char Salesforce IDs, max 200 entries). Exposed via wizard config and CLI `--owner-map`
+- `objectSoqlFilters: Record<string, string>` — per-object SOQL WHERE filter appended via `AND (...)` to the scope clause. Lets BAs narrow a clone to a subset (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without changing graph topology. Zod-validated: max 512 chars per filter, max 50 filters, comment markers (`--`, `/*`, `*/`) and trailing semicolons rejected to block statement chaining. Exposed via wizard config and CLI `--filter`
+- `fieldMappings: Record<string, Record<string, string>>` — per-object source→target field rename for schema drift (managed-package re-key, namespace change, `__c`/`__pc` variant). Source key is dropped, value written under target name. Zod-validated: SF field-name regex on both sides, max 200 fields per object, max 50 objects. Exposed via wizard config and CLI `--map`
+
+**ForgeOrchestrator**
+- `dispose()` method — clears the discovery cache and listeners on extension shutdown / org disconnect
+
+**ForgeHandler**
+- New `forge:target-preflight:request` message type — webview can request per-object existing-row counts on the target before execute. Backend uses sequential SELECT COUNT() (parallel bursts trip rate limits on big orgs), 30 s timeout, max 100 objects per request, sentinel `existing: -1` for per-object failures so the whole batch isn't aborted by FLS issues. Powers the same preflight surface as the CLI
+
+**ExecutionSummary.remapTable**
+- New `remapTable: Record<string, string>` field on every execute summary — the full source→target ID mapping table. BA reconciliation: post-clone audit, "where did source X go on the target sandbox?", CSV export, checkpoint persistence
+- CLI: new `--remap-csv <file>` flag writes `sourceId,targetId` CSV (double-quoted, one mapping per row, header included)
+- CLI: `--json` output now embeds `result.remapTable` for CI consumers
+
+**Tests**
+- 22 regression tests pinning the audit-fix invariants (`audit-fixes.regression.test.ts`)
+- 5 Playwright E2E specs (Plan 02-03) covering: AI persona seed → execute, sync conflict resolve, monitor refresh + CSV export, CDC subscribe + event stream, AI diagnose + apply fix
+- 9 fixture factories + `MockBridge.stream()` helper for multi-event flows
+
+### Changed
+
+**Forge security (Zod hardening)**
+- `forgeConfigSchema.recordId` now regex-validated against the strict 15/18-char Salesforce ID pattern
+- `forgeConfigSchemaStrict` enforces the inputMode→required-field contract via cross-field refine
+- `forgeGraphNodeSchema.objectApiName` and `forgeGraphEdgeSchema.{sourceObject,targetObject}` regex-validated against the SObject API name pattern
+- `forgeGraphSchema` bounded to 2000 nodes / 20000 edges (defense-in-depth against DoS payloads)
+- `metadataDiffRequestPayloadSchema.objectApiNames` capped at 100 (was 500) to block API-limit DoS
+- `ForgeOrchestrator.cacheKeyFor` includes `targetOrgId`, `anonymizePII`, `expandOrphanParents`, `maxRecordsPerObject` so cache hits never silently swap configurations
+
+**Forge performance**
+- `ForgePlanGenerator` Tarjan SCC rewritten as iterative — no stack overflow on deep graphs (5000+ node chain verified)
+- `SchemaCache.estimateSize` now uses an O(1) structural heuristic (fields × 250 + childRel × 150) instead of `JSON.stringify`; `describeCache` byte cap restored to 200 MB, `describeGlobalCache` to 50 MB (eliminates the OOM risk introduced by the previous Infinity workaround while keeping the event loop unblocked)
+- `GraphDiscoveryService` adds `setImmediate`-based event-loop yield between BFS waves, with `setTimeout(0)` polyfill for non-Node test environments
+- Cold path breadcrumb (warns when `resolveRootObject` exceeds 2 s)
+- `parseObjectFromSOQL` now strips parens to fixed point so deeply nested subqueries don't trick the parser into picking the wrong root object
+- `IdRemapper.remapRecord` uses a single Map.get instead of has+get (3M lookups hot path on 50K-record / 30-field clones)
+
+**Forge correctness**
+- `orphanExpansionsUsed` counter now increments only on successful expansions, so a string of misses doesn't silently exhaust the budget before the eligible list has had a chance to succeed
+- Pass-2 dedup uses an explicit current/updated pattern with collision detection on the same field
+- `bringRootToFront` throws a clear error if the scoped root is missing or excluded (was silently producing disconnected clones)
+- Orphan expand syncs the scope cache so multi-hop children that pivot through the expanded parent stay in scope
+- `pickUpsertField` logs the chosen field and falls back to insert (instead of an unsafe alphabetical pick) when no candidate is non-null + unique across the batch
+- `summarizeRecordForError` handles `undefined` and objects via JSON.stringify-truncated output
+- `EXPANSION_EXCLUDED_OBJECTS` now mirrors the BFS-side exclusion list (BusinessProcess, DandBCompany, ProcessInstance, …) — orphan-expand stops burning API on system-managed entities
+- `sandforge-clone` CLI forces `referenceFallback='nullify'` (was 'keep' by default, which preserved invalid source IDs on cross-org clones)
+
+**Forge UX**
+- `handleDiscover` flushes throttled progress on the catch path so the wizard never freezes on stale counts after an abort
+- `handleExecute` reorders unsubscribe before flush so the terminal event delivers cleanly
+- `handleAbort` nulls the controller refs after `.abort()` to close a small race between sequential operations
+
+### Fixed
+
+- Tests: `recordId` test fixtures across `ForgeHandler.test.ts`, `ForgeOrchestrator.test.ts`, `GraphDiscoveryService.test.ts`, and `forge.schema.test.ts` now use 15-char strict IDs to satisfy the new regex (no behavior change — they were stand-ins anyway)
+
+## [1.2.4] - 2026-04-23
+
+**Milestone v1.2.3 « Scale & Complete » — shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone (7 phases, 18 plans, 50 requirements), tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry restored from the `v1.2.4` tag message.)
+
+- Three seed modes: AI Personas (10 industry personas), CSV Import (drag-and-drop + validation), Clone from Org (topological insert + ID mapping)
+- Real-time sync lifecycle: CDC subscriptions, conflict resolution UI, execution history, cron scheduling
+- Streaming execution (async generator, >10K records) + background operations with native notifications
+- Enterprise UI: pagination, virtual scrolling, skeleton loading, notification center, keyboard shortcuts
+- Smart Actions on HomePage: analyzes org state and recommends best next action
+
+Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
+
 ## [1.2.6] - 2026-05-05
 
 **Phase 03 Monitor v2 Core + Phase 04 AI Integration + close-out hardening.** Two milestone-track phases under v1.3.0, plus a six-bug close-out pass surfaced when the user actually installed the fresh VSIX.

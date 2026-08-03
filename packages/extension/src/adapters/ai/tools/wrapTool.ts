@@ -36,10 +36,7 @@ export interface WrapToolOptions<I extends z.ZodTypeAny, O extends z.ZodTypeAny>
   input: I;
   output: O;
   onTrace?: ToolTraceFn;
-  run: (
-    args: z.infer<I>,
-    ctx: { signal: AbortSignal },
-  ) => Promise<z.infer<O>>;
+  run: (args: z.infer<I>, ctx: { signal: AbortSignal }) => Promise<z.infer<O>>;
 }
 
 /**

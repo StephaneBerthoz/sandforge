@@ -62,9 +62,7 @@ describe('extractRecordId', () => {
   });
 
   it('should extract the ID from a URL ending with the ID', () => {
-    expect(extractRecordId('https://myorg.salesforce.com/001XXXXXXXXXXXX')).toBe(
-      '001XXXXXXXXXXXX',
-    );
+    expect(extractRecordId('https://myorg.salesforce.com/001XXXXXXXXXXXX')).toBe('001XXXXXXXXXXXX');
   });
 
   it('should return null for invalid input', () => {

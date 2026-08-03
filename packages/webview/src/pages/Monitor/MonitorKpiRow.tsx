@@ -69,10 +69,7 @@ export const MonitorKpiRow: React.FC<MonitorKpiRowProps> = React.memo(
 
     return (
       <PanelOverlay isRefreshing={isRefreshing}>
-        <div
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3"
-          data-testid="kpi-row"
-        >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3" data-testid="kpi-row">
           {/* Health */}
           <div className="rounded-lg border border-subtle bg-surface-1 p-4 flex flex-col items-center justify-center gap-1">
             {healthReport ? (

@@ -592,11 +592,12 @@ export class MonitorOpsHandler implements DomainHandler {
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      await conn
-        .sobject('AsyncApexJob')
-        .update({ Id: payload.jobId, Status: 'Aborted' } as Record<string, unknown> & {
-          Id: string;
-        });
+      await conn.sobject('AsyncApexJob').update({ Id: payload.jobId, Status: 'Aborted' } as Record<
+        string,
+        unknown
+      > & {
+        Id: string;
+      });
 
       const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', {
         jobId: payload.jobId,

@@ -79,11 +79,9 @@ describe('TokenBudgetIndicator', () => {
   });
 
   it('uses aria-live=polite for screen-reader announcements', () => {
-    render(
-      <TokenBudgetIndicator
-        state={mkState({ percent: 0, state: 'ok' })}
-      />,
+    render(<TokenBudgetIndicator state={mkState({ percent: 0, state: 'ok' })} />);
+    expect(screen.getByTestId('ai-token-budget-indicator').getAttribute('aria-live')).toBe(
+      'polite',
     );
-    expect(screen.getByTestId('ai-token-budget-indicator').getAttribute('aria-live')).toBe('polite');
   });
 });

@@ -69,7 +69,8 @@ export const ReviewAnonymizationTab: React.FC = () => {
     <div data-testid="review-anonymization-tab" className="flex flex-col gap-3">
       <p className="text-xs text-text-muted">
         {t('forge.review.anonymizationDesc', {
-          defaultValue: '{{count}} PII fields detected. Configure anonymization method per category.',
+          defaultValue:
+            '{{count}} PII fields detected. Configure anonymization method per category.',
           count: piiFieldCount,
         })}
       </p>

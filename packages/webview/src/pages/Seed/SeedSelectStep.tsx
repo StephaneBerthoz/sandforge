@@ -62,10 +62,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
   const handleToggleObject = useSeedWizardStore((s) => s.handleToggleObject);
 
   return (
-    <div
-      className="flex flex-col gap-[var(--sf-space-3)]"
-      data-testid="seed-step-select-content"
-    >
+    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-select-content">
       <div className="flex items-center gap-1.5">
         <InfoTooltip id="help.seed.selectObjects" content={t('help.seed.selectObjects')} />
       </div>
@@ -204,7 +201,8 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                   {nl2soql.data.explanation}
                 </span>
               )}
-              {(nl2soql.error ?? (nl2soql.data && !nl2soql.data.success ? nl2soql.data.error : null)) && (
+              {(nl2soql.error ??
+                (nl2soql.data && !nl2soql.data.success ? nl2soql.data.error : null)) && (
                 <span
                   className="text-xs text-[var(--vscode-errorForeground,#f48771)]"
                   role="alert"

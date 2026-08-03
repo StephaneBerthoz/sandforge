@@ -270,7 +270,11 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
     const errorCount = errorLogMonitor.getErrorCount(orgId);
     const score = Math.max(0, 100 - errorCount * 5);
     const status =
-      errorCount > 10 ? ('critical' as const) : errorCount > 3 ? ('warning' as const) : ('ok' as const);
+      errorCount > 10
+        ? ('critical' as const)
+        : errorCount > 3
+          ? ('warning' as const)
+          : ('ok' as const);
     return { name: 'recentErrors', status, score, message: `${errorCount} recent errors` };
   };
 

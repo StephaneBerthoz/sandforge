@@ -8,7 +8,10 @@ function fakeContext(): vscode.ExtensionContext {
 }
 
 /** Capture Pino output chunks for assertions. */
-function captureDestination(): { destination: { write: (chunk: string) => boolean }; chunks: string[] } {
+function captureDestination(): {
+  destination: { write: (chunk: string) => boolean };
+  chunks: string[];
+} {
   const chunks: string[] = [];
   const destination = {
     write: (chunk: string) => {

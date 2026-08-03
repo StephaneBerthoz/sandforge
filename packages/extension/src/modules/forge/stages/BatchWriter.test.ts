@@ -1,9 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  BatchWriter,
-  summarizeRecordForError,
-  type WriteNodeInput,
-} from './BatchWriter.js';
+import { BatchWriter, summarizeRecordForError, type WriteNodeInput } from './BatchWriter.js';
 import { IdRemapper } from '../IdRemapper.js';
 import { logger } from '../../../logger.js';
 import type { CleanedRecord } from './RecordCleaner.js';
@@ -68,11 +64,13 @@ function makeInput(
 
 function makeDeps(insertImpl?: InsertImpl): WriterDeps {
   return {
-    insertRecords: vi.fn<WriterDeps['insertRecords']>().mockImplementation(
-      insertImpl ??
-        (async (_orgId, _obj, recs) =>
-          recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }))),
-    ),
+    insertRecords: vi
+      .fn<WriterDeps['insertRecords']>()
+      .mockImplementation(
+        insertImpl ??
+          (async (_orgId, _obj, recs) =>
+            recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }))),
+      ),
   };
 }
 
@@ -170,7 +168,11 @@ describe('BatchWriter', () => {
     const input = makeInput(deps, [{ Id: '001OLD', ExternalKey__c: 'KEY-1' }], {
       records: [{ ExternalKey__c: 'KEY-1' }],
       cleanedRecords: [
-        { source: { Id: '001OLD', ExternalKey__c: 'KEY-1' }, cleaned: { ExternalKey__c: 'KEY-1' }, nullifiedFks: [] },
+        {
+          source: { Id: '001OLD', ExternalKey__c: 'KEY-1' },
+          cleaned: { ExternalKey__c: 'KEY-1' },
+          nullifiedFks: [],
+        },
       ],
       fieldInfos: fields,
       creatableFields: new Set(['ExternalKey__c']),

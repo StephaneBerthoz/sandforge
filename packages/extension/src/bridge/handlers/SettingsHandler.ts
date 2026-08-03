@@ -247,8 +247,7 @@ export class SettingsHandler implements DomainHandler {
 
     try {
       await this.deps.services.setSandforgeSetting('telemetry', enabled);
-      const persisted =
-        this.deps.services.getSandforgeSetting?.('telemetry', enabled) ?? enabled;
+      const persisted = this.deps.services.getSandforgeSetting?.('telemetry', enabled) ?? enabled;
       const response = buildResponse(this.deps, msg, 'telemetry:toggle:response', {
         success: true,
         enabled: persisted,

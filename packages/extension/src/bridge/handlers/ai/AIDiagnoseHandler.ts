@@ -42,9 +42,7 @@ import { DiagnoseResultSchema } from '@sandforge/shared';
 import type { AIClient } from '../../../adapters/ai/AIClient.js';
 import type { Logger, TelemetryAdapter } from '../../../adapters/telemetry/TelemetryAdapter.js';
 import { wrapAsUserData } from '../../../adapters/ai/safety/index.js';
-import {
-  DIAGNOSE_SYSTEM_PROMPT,
-} from '../../../adapters/ai/systemPrompts/index.js';
+import { DIAGNOSE_SYSTEM_PROMPT } from '../../../adapters/ai/systemPrompts/index.js';
 
 const FORBIDDEN_RAW_SUBSTRINGS = ['</user-data>'] as const;
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -141,8 +139,7 @@ export class AIDiagnoseHandler {
         tools: [], // Diagnose tool allowlist is wired at the consume site (extension.ts)
       });
 
-      const extractionPrompt =
-        `Based on your investigation, return a DiagnoseResult.\n\n${investigation.text}`;
+      const extractionPrompt = `Based on your investigation, return a DiagnoseResult.\n\n${investigation.text}`;
 
       const extraction = await this.aiClient.complete({
         prompt: extractionPrompt,
@@ -179,11 +176,7 @@ export class AIDiagnoseHandler {
         timestamp: this.now(),
         payload: { runId, error: { code, message } },
       } as AIDiagnoseResponseMessage);
-      this.telemetry?.addBreadcrumb(
-        `diagnose_error runId=${runId} code=${code}`,
-        'ai',
-        'error',
-      );
+      this.telemetry?.addBreadcrumb(`diagnose_error runId=${runId} code=${code}`, 'ai', 'error');
     }
   }
 
@@ -209,7 +202,12 @@ export class AIDiagnoseHandler {
     const payload = modifiedPayload ?? action.payload ?? '';
     try {
       const status = await this.dispatchAction(action, payload, entry.orgId);
-      return this.sendApproveResponse(runId, actionIndex, status.ok ? 'executed' : 'failed', status.resultMessage);
+      return this.sendApproveResponse(
+        runId,
+        actionIndex,
+        status.ok ? 'executed' : 'failed',
+        status.resultMessage,
+      );
     } catch (err) {
       const message = redact(err instanceof Error ? err.message : String(err));
       return this.sendApproveResponse(runId, actionIndex, 'failed', message);

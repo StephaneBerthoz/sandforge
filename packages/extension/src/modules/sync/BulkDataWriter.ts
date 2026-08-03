@@ -97,8 +97,7 @@ export class BulkDataWriter {
     return this.executeRestBatches(
       records,
       batchSize,
-      (batch) =>
-        this.deps.connection.sobject(objectName).create(batch) as Promise<JsforceResult[]>,
+      (batch) => this.deps.connection.sobject(objectName).create(batch) as Promise<JsforceResult[]>,
       'Insert failed after retries',
     );
   }
@@ -164,8 +163,8 @@ export class BulkDataWriter {
         this.deps.connection
           .sobject(objectName)
           .update(batch as Array<Record<string, unknown> & { Id: string }>) as unknown as Promise<
-            JsforceResult[]
-          >,
+          JsforceResult[]
+        >,
       'Update failed after retries',
     );
   }
@@ -336,7 +335,9 @@ export class BulkDataWriter {
       .filter((f) => f.createable)
       .map(toValidatorField);
     const sourceFields =
-      records.length > 0 ? Object.keys(records[0]).map((k) => ({ apiName: k, type: 'string' })) : [];
+      records.length > 0
+        ? Object.keys(records[0]).map((k) => ({ apiName: k, type: 'string' }))
+        : [];
     const fieldMapping: Record<string, string> = {};
     for (const sf of sourceFields) {
       const matched = targetFields.find((tf) => tf.apiName === sf.apiName);
@@ -344,7 +345,11 @@ export class BulkDataWriter {
         fieldMapping[sf.apiName] = matched.apiName;
       }
     }
-    const validation = this.fieldValidator.validateMapping(sourceFields, targetFields, fieldMapping);
+    const validation = this.fieldValidator.validateMapping(
+      sourceFields,
+      targetFields,
+      fieldMapping,
+    );
     if (!validation.valid) {
       this.deps.log(
         `[WARN] Field type validation failed for upsert on ${objectName}: ${validation.errors.length} error(s)`,

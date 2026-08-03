@@ -28,10 +28,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   const { t } = useTranslation();
 
   return (
-    <div
-      className="flex flex-col gap-[var(--sf-space-3)]"
-      data-testid="seed-step-results-content"
-    >
+    <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-results-content">
       {!executionResult ? (
         <div className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
           {t('common.noData')}

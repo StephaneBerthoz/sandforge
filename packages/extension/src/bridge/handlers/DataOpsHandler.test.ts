@@ -261,29 +261,41 @@ describe('DataOpsHandler', () => {
 
       const configStore = createInMemoryConfigStore();
       // Two pre-existing backups for org-1 (older timestamps) + one for org-2.
-      configStore.set('backup:old-1', {
-        operationId: 'old-1',
-        orgId: 'org-1',
-        objects: [{ objectApiName: 'Account', recordCount: 1 }],
-        timestamp: '2026-01-01T00:00:00.000Z',
-        totalRecords: 1,
-      }, 'backups');
+      configStore.set(
+        'backup:old-1',
+        {
+          operationId: 'old-1',
+          orgId: 'org-1',
+          objects: [{ objectApiName: 'Account', recordCount: 1 }],
+          timestamp: '2026-01-01T00:00:00.000Z',
+          totalRecords: 1,
+        },
+        'backups',
+      );
       configStore.set('backup:old-1:Account', [{ Id: 'r1' }], 'backups');
-      configStore.set('backup:old-2', {
-        operationId: 'old-2',
-        orgId: 'org-1',
-        objects: [{ objectApiName: 'Contact', recordCount: 1 }],
-        timestamp: '2026-02-01T00:00:00.000Z',
-        totalRecords: 1,
-      }, 'backups');
+      configStore.set(
+        'backup:old-2',
+        {
+          operationId: 'old-2',
+          orgId: 'org-1',
+          objects: [{ objectApiName: 'Contact', recordCount: 1 }],
+          timestamp: '2026-02-01T00:00:00.000Z',
+          totalRecords: 1,
+        },
+        'backups',
+      );
       configStore.set('backup:old-2:Contact', [{ Id: 'r2' }], 'backups');
-      configStore.set('backup:other-org', {
-        operationId: 'other-org',
-        orgId: 'org-2',
-        objects: [],
-        timestamp: '2025-01-01T00:00:00.000Z',
-        totalRecords: 0,
-      }, 'backups');
+      configStore.set(
+        'backup:other-org',
+        {
+          operationId: 'other-org',
+          orgId: 'org-2',
+          objects: [],
+          timestamp: '2025-01-01T00:00:00.000Z',
+          totalRecords: 0,
+        },
+        'backups',
+      );
 
       deps.configStore = configStore as unknown as HandlerDeps['configStore'];
       deps.services = {
