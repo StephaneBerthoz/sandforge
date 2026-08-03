@@ -40,7 +40,7 @@ parameters:
 variables:
   - group: SandForge-Credentials
   - name: nodeVersion
-    value: '20'
+    value: '22'
   - name: dryRunFlag
     ${{ if eq(parameters.dryRun, true) }}:
       value: '--dry-run'

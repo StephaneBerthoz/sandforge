@@ -18,7 +18,7 @@
 #     - SF_CLONE_RECORD_ID: Salesforce record Id to clone (e.g. 500...)
 #   - SLACK_WEBHOOK_URL (optional): failure notifications
 
-image: node:20
+image: node:22
 
 # Cache pnpm store across pipeline runs
 cache:
