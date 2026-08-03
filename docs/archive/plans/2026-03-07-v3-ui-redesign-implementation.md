@@ -8,7 +8,7 @@
 
 **Tech Stack:** React 18, Tailwind CSS 3, Framer Motion 11, React Flow 11, Recharts 2.12, Zustand 4, cmdk (new), d3-sankey (new via existing d3), Radix UI, i18next.
 
-**Design doc:** `docs/plans/2026-03-07-v3-ui-redesign-design.md`
+**Design doc:** `docs/archive/plans/2026-03-07-v3-ui-redesign-design.md`
 
 **Branch:** `feat/v3-autopilot`
 

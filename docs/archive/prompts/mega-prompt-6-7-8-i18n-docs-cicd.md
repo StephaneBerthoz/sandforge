@@ -1,0 +1,1 @@
+Voir le widget Copy dans Claude pour le contenu complet du méga-prompt #6+7+8.

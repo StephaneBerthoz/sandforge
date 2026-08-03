@@ -2,7 +2,7 @@
 
 **Date** : 2026-02-26
 **Objectif** : Transformer SandForge d'un outil fonctionnel (score 7.5/10) en un outil intelligent, performant et production-ready (cible 10/10)
-**Prompt Claude Code** : [`plans/CLAUDE-CODE-PROMPT.md`](plans/CLAUDE-CODE-PROMPT.md)
+**Prompt Claude Code** : [`CLAUDE-CODE-PROMPT.md`](CLAUDE-CODE-PROMPT.md)
 
 ---
 
@@ -244,4 +244,4 @@ graph TB
 
 ---
 
-*Ce plan est conçu pour être exécuté par Claude Code en mode agent autonome, phase par phase. Le prompt complet est dans [`plans/CLAUDE-CODE-PROMPT.md`](plans/CLAUDE-CODE-PROMPT.md).*
+*Ce plan est conçu pour être exécuté par Claude Code en mode agent autonome, phase par phase. Le prompt complet est dans [`CLAUDE-CODE-PROMPT.md`](CLAUDE-CODE-PROMPT.md).*

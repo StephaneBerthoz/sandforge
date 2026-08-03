@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript strict, Zod, Vitest, React 18, ReactFlow 11, Zustand 4, Tailwind, Framer Motion, jsforce v3, Winston
 
-**Design Doc:** `docs/plans/2026-03-07-autopilot-v3-design.md`
+**Design Doc:** `docs/archive/plans/2026-03-07-autopilot-v3-design.md`
 
 ---
 

@@ -6,7 +6,7 @@
 > not the marketplace artifact, and the test counts (4 600+) are from
 > 2026-02-26 — the project is now at v1.2.5 with 8 500+ tests.
 > For the current audit findings see
-> [`.planning/audit-2026-05-02-cross-cutting.md`](.planning/audit-2026-05-02-cross-cutting.md)
+> [`.planning/audit-2026-05-02-cross-cutting.md`](../../.planning/audit-2026-05-02-cross-cutting.md)
 > (50 findings across reviewer / red-team / perf-critic / fast-scout, sprint-1
 > hardening already merged into `master`).
 > Kept for historical reference only.

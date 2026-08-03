@@ -40,34 +40,25 @@ ci-examples/
   github-actions.yml
   gitlab-ci.yml
 docs/
+  ADR/
+  archive/
+    prompts/
+    plans/
+    phases/
+    AUDIT.md
+    FULL-PROMPT.md
+    README.md
   modules/
     automation.md
     compare.md
     dataops.md
+    frozen-dataset.md
     monitor.md
     seed.md
     sync.md
-  phases/
-    phase-00-bootstrap.md
-    phase-01-core-infrastructure.md
-    phase-02-seed-module.md
-    phase-03-sync-module.md
-    phase-04-monitor-module.md
-    phase-05-compare-module.md
-    phase-06-dataops-module.md
-    phase-07-automation-module.md
-    ... (5 more files)
-  plans/
-    2026-02-23-org-connection-fix.md
-    2026-03-07-autopilot-v3-design.md
-    2026-03-07-autopilot-v3-implementation.md
-    2026-03-07-v3-ui-redesign-design.md
-    2026-03-07-v3-ui-redesign-implementation.md
-    2026-03-08-graph-discovery-guardrails.md
   superpowers/
     plans/
     specs/
-  FULL-PROMPT.md
   USAGE-STRATEGY.md
   faq.md
   forge-quickstart.md
@@ -113,17 +104,6 @@ packages/
     tsconfig.json
     vite.config.e2e.ts
     ... (2 more files)
-phases/
-  phase-00-bootstrap.md
-plans/
-  2026-02-26-sandforge-intelligence-upgrade.md
-  BEST-IN-CLASS-PLAN.md
-  CLAUDE-CODE-PROMPT.md
-prompts/
-  mega-prompt-2-monitor-compare-pro.md
-  mega-prompt-3-4-seed-sync-dataops-automation-ai.md
-  mega-prompt-6-7-8-i18n-docs-cicd.md
-  mega-prompt-ALL-2-3-4-6-7-8.md
 reports/
   mutation/
     mutation.html
@@ -143,7 +123,6 @@ test/
     setup-test-org.sh
     teardown-test-org.sh
   FIXTURES-README.md
-AUDIT.md
 CHANGELOG.md
 CLAUDE.md
 CLAUDE.md.bak.1774862959

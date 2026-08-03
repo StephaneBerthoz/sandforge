@@ -1,5 +1,11 @@
 # 📋 STRATÉGIE D'UTILISATION AVEC CLAUDE CODE
 
+> **Note (2026-08)** : les fichiers de phases et le prompt complet ont été déplacés
+> sous [`docs/archive/`](./archive/README.md) — documents historiques de genèse,
+> non normatifs. Les chemins `docs/phases/` et `docs/FULL-PROMPT.md` cités
+> ci-dessous pointent désormais vers `docs/archive/phases/` et
+> `docs/archive/FULL-PROMPT.md`.
+
 ## Le problème
 
 Le prompt complet fait ~66KB (~20K tokens). C'est trop pour une seule session Claude Code
@@ -7,7 +13,7 @@ qui doit aussi garder du contexte pour le code qu'il génère.
 
 ## La solution : Découpage en phases
 
-Le projet est découpé en fichiers dans le dossier `docs/phases/`.
+Le projet est découpé en fichiers dans le dossier `docs/archive/phases/`.
 Chaque phase est un prompt autonome avec tout le contexte nécessaire.
 
 ## Structure des fichiers
@@ -64,11 +70,11 @@ mkdir sandforge && cd sandforge
 claude
 
 # 3. Première instruction :
-# "Lis CLAUDE.md puis docs/phases/phase-00-bootstrap.md et exécute le setup complet du monorepo."
+# "Lis CLAUDE.md puis docs/archive/phases/phase-00-bootstrap.md et exécute le setup complet du monorepo."
 
 # 4. Ensuite, phase par phase :
-# "Lis docs/phases/phase-01-shared.md et implémente tout le package shared."
-# "Lis docs/phases/phase-02-core-engine.md et implémente le core engine."
+# "Lis docs/archive/phases/phase-01-shared.md et implémente tout le package shared."
+# "Lis docs/archive/phases/phase-02-core-engine.md et implémente le core engine."
 # etc.
 ```
 
@@ -105,7 +111,7 @@ claude
 
 ```bash
 claude --dangerously-skip-permissions
-> "Tu es en mode agent autonome. Lis CLAUDE.md et le prompt complet dans docs/FULL-PROMPT.md. 
+> "Tu es en mode agent autonome. Lis CLAUDE.md et le prompt complet dans docs/archive/FULL-PROMPT.md. 
    Développe tout le projet phase par phase, du bootstrap au .vsix final. 
    Valide chaque phase (typecheck + lint + test + build) avant de passer à la suivante.
    Ne t'arrête que si un problème bloquant nécessite mon input.
