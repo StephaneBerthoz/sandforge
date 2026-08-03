@@ -6,7 +6,7 @@
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
-![VSIX](https://img.shields.io/badge/vsix-1.23%20MB-green)
+![VSIX](https://img.shields.io/badge/vsix-1.26%20MB-green)
 
 **Forge your Salesforce sandboxes.** A VSCode extension for ETL, data seeding, org monitoring, metadata comparison, compliance, and automation, all from a single WebView UI.
 
