@@ -5,6 +5,12 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.8] - 2026-08-03
+
+### Fixed
+
+- Bridge error surfacing: handler failures (expired connection, unreachable org) now show the actual error message instead of a generic 30-second timeout, on every bridge query and mutation. `monitor:refresh` is additionally bounded to 25 s so a stalled org cannot hang silently.
+
 ## [1.2.7] - 2026-08-03
 
 **Hardening marathon + Frozen Reference Dataset.** Two full audit cycles over the codebase, four fix waves, and one new module. Highlights: circuit breaker lockup fixed (per-org breakers, permits released on all paths), ~20 implemented-but-unrouted bridge messages wired (monitor alerts, seed templates, sync configs/history/schedules, seed clone/CSV, AI conversations), Bulk API results correctly mapped (they previously all counted as success with fabricated ids), shell injection and path traversal closed, Zod payload validation generalized, ~37 000 lines of verified dead code removed, ForgeExecutor split into a tested stage pipeline, extension activation refactored into src/composition/, bundle minified (6.7 MB to 2.3 MB), AI stack unified on one secret key with migration, manifest safety settings actually enforced. Full entry in the root changelog.
