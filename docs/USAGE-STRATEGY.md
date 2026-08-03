@@ -1,7 +1,7 @@
-# 📋 STRATÉGIE D'UTILISATION AVEC CLAUDE CODE
+# STRATÉGIE D'UTILISATION AVEC CLAUDE CODE
 
 > **Note (2026-08)** : les fichiers de phases et le prompt complet ont été déplacés
-> sous [`docs/archive/`](./archive/README.md) — documents historiques de genèse,
+> sous [`docs/archive/`](./archive/README.md), documents historiques de genèse,
 > non normatifs. Les chemins `docs/phases/` et `docs/FULL-PROMPT.md` cités
 > ci-dessous pointent désormais vers `docs/archive/phases/` et
 > `docs/archive/FULL-PROMPT.md`.

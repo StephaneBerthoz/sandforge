@@ -1,13 +1,13 @@
 # Contributing to SandForge
 
 Thanks for the interest. SandForge is a VS Code extension shipped to the
-marketplace. Patches are welcome — please follow the conventions below so
+marketplace. Patches are welcome. Please follow the conventions below so
 review stays fast.
 
 ## Prerequisites
 
 - **Node** 20+ (a `.nvmrc` is committed; run `nvm use` or `fnm use`).
-- **pnpm** 11 — pinned via the `packageManager` field in the root
+- **pnpm** 11, pinned via the `packageManager` field in the root
   `package.json` (`pnpm@11.18.0`). With Corepack enabled
   (`corepack enable`) the right version is selected automatically.
   `pnpm-workspace.yaml` uses pnpm ≥ 10 settings (`allowBuilds`,
@@ -38,7 +38,7 @@ scripts/           # repo-wide tooling (audit-disposables, soak-test, hooks)
 
 ## Commit conventions
 
-Conventional Commits — `<type>(<scope>): <subject>`. Types:
+Conventional Commits: `<type>(<scope>): <subject>`. Types:
 `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`, `style`,
 `ci`, `build`. Keep subject under 70 chars. Body explains the *why*.
 
@@ -47,10 +47,10 @@ Atomic commits preferred. Don't mix unrelated changes.
 A **pre-commit hook** (`scripts/git-hooks/pre-commit`, auto-installed via
 `core.hooksPath` by the root `prepare` script) runs on every commit:
 
-1. `pnpm -r typecheck` — the webview tsc is the historical blind spot of
+1. `pnpm -r typecheck`: the webview tsc is the historical blind spot of
    the extension-only vitest runs.
-2. A duplicate-top-level-key scan over `packages/webview/src/i18n/locales/*.json`
-   — `JSON.parse` silently keeps the second duplicate key, which once wiped
+2. A duplicate-top-level-key scan over `packages/webview/src/i18n/locales/*.json`:
+   `JSON.parse` silently keeps the second duplicate key, which once wiped
    whole module translations in production.
 
 Bypass with `--no-verify` only if you really have to (don't).
@@ -66,7 +66,7 @@ Bypass with `--no-verify` only if you really have to (don't).
 
 ## Tests
 
-- All new logic must have unit tests (`vitest`, colocated `*.test.ts` —
+- All new logic must have unit tests (`vitest`, colocated `*.test.ts`,
   one test file per source file, next to it).
 - Run per package: `pnpm --filter @sandforge/shared test`,
   `pnpm --filter sandforge test` (extension), `pnpm --filter @sandforge/webview test`.
@@ -85,7 +85,7 @@ Bypass with `--no-verify` only if you really have to (don't).
 - **TypeScript strict** everywhere (`tsconfig.base.json`: `strict`,
   `noImplicitReturns`, `noUnusedLocals/Parameters`,
   `noFallthroughCasesInSwitch`).
-- **`@typescript-eslint/no-explicit-any` is an error** — type the boundary
+- **`@typescript-eslint/no-explicit-any` is an error**: type the boundary
   or use `unknown` + narrowing.
 - **i18n**: any user-facing UI string must go through i18next in all
   **6 languages** (`en`, `fr`, `de`, `es`, `ja`, `pt-BR`) in
@@ -100,7 +100,7 @@ Bypass with `--no-verify` only if you really have to (don't).
   fails on any orphan in either direction. New message = both sides +
   the test stays green. See `docs/ADR/0002-message-contract-zero-drift.md`.
 - Shared devDependency versions come from the **pnpm catalog** in
-  `pnpm-workspace.yaml` (`"vitest": "catalog:"`) — bump them there, once.
+  `pnpm-workspace.yaml` (`"vitest": "catalog:"`), bump them there, once.
 
 ## Linting / formatting
 
@@ -119,7 +119,7 @@ fails the build if the result is not retained somewhere reasonable
 ## Security
 
 See [SECURITY.md](SECURITY.md) for the responsible disclosure flow.
-Do **not** open public issues for security findings — email instead.
+Do **not** open public issues for security findings; email instead.
 
 When changing code that touches credentials, SOQL/SOQL-like construction,
 CSP nonces, or the webview ↔ extension bridge, mention it explicitly in
@@ -129,15 +129,15 @@ the PR description so reviewers focus there.
 
 Releases are cut from `master` after `pnpm validate` is green.
 
-1. `./scripts/bump-version.sh <patch|minor|major|x.y.z>` — syncs the
+1. `./scripts/bump-version.sh <patch|minor|major|x.y.z>`: syncs the
    version across the workspace `package.json` files.
-2. Update `CHANGELOG.md` (root) and `packages/extension/CHANGELOG.md` —
-   keep both in semver-descending order.
-3. `./scripts/pre-publish-check.sh` — marketplace readiness gate
+2. Update `CHANGELOG.md` (root) and `packages/extension/CHANGELOG.md`.
+   Keep both in semver-descending order.
+3. `./scripts/pre-publish-check.sh`: marketplace readiness gate
    (validate + package + VSIX/bundle size checks).
 4. `pnpm package` builds the VSIX with `@vscode/vsce`
    (`--no-dependencies`, output `sandforge.vsix`).
-5. Tag `v*` — `.github/workflows/release.yml` takes over from the tag.
+5. Tag `v*`: `.github/workflows/release.yml` takes over from the tag.
 
 Maintainers handle versioning (SemVer).
 

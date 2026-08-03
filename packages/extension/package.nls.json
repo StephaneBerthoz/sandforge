@@ -1,6 +1,6 @@
 {
-  "displayName": "SandForge — Forge your Salesforce Sandboxes",
-  "description": "All-in-one Salesforce sandbox toolkit. Seed data with AI personas, CSV import, or org cloning. Sync orgs with real-time CDC and conflict resolution. Compare metadata, monitor limits, and automate pipelines — with streaming execution for large datasets.",
+  "displayName": "SandForge: Forge your Salesforce Sandboxes",
+  "description": "All-in-one Salesforce sandbox toolkit. Seed data with AI personas, CSV import, or org cloning. Sync orgs with real-time CDC and conflict resolution. Compare metadata, monitor limits, and automate pipelines, with streaming execution for large datasets.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",
   "command.openMonitor": "SandForge: Open Monitor",

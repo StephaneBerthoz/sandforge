@@ -1,12 +1,12 @@
-# Forge — Record-Scoped Clone
+# Forge: Record-Scoped Clone
 
 > Cloner un graphe de records cohérents depuis une sandbox source (partial-copy / full-copy) vers une sandbox dev sans cloner toutes les rangées de toutes les tables.
 
 ## Pourquoi
 
-Avant — `Forge` avec `inputMode: 'record'` *découvrait* le graphe à partir d'un record racine puis exécutait `SELECT * FROM Object` (sans `WHERE`) pour chaque node. Sur Mutuaide UAT2 partant d'un Case, ça représentait **261 858 records** copiés (Case ×11k, Account ×12k, Contact ×15k, InsurancePolicyCoverage ×155k…). Pas viable comme "jeu de données dev".
+Avant : `Forge` avec `inputMode: 'record'` *découvrait* le graphe à partir d'un record racine puis exécutait `SELECT * FROM Object` (sans `WHERE`) pour chaque node. Sur Mutuaide UAT2 partant d'un Case, ça représentait **261 858 records** copiés (Case ×11k, Account ×12k, Contact ×15k, InsurancePolicyCoverage ×155k…). Pas viable comme "jeu de données dev".
 
-Après — l'exécution est *scope-aware* : depuis le record racine, le moteur suit la transitive closure (parents via FK, enfants via reverse-lookup) et n'exécute que des SOQL avec `WHERE Id = …` ou `WHERE FK IN (cachedParentIds)`. Sur le même Case, **358 records** clonés au lieu de 261 858 (−99.86 %).
+Après : l'exécution est *scope-aware* : depuis le record racine, le moteur suit la transitive closure (parents via FK, enfants via reverse-lookup) et n'exécute que des SOQL avec `WHERE Id = …` ou `WHERE FK IN (cachedParentIds)`. Sur le même Case, **358 records** clonés au lieu de 261 858 (−99.86 %).
 
 ## Pipeline
 
@@ -44,7 +44,7 @@ ForgeOrchestrator.execute(graph, config)
 |---|---|---|
 | `rootRecordId` | — | enables scope-aware mode |
 | `rootObjectApiName` | — | resolved from `recordId` keyPrefix; required with `rootRecordId` |
-| `dryRun` | `false` | runs every step except `insertRecords` — used by the recipe |
+| `dryRun` | `false` | runs every step except `insertRecords`, used by the recipe |
 | `referenceFallback` | `'nullify'` (scoped) / `'keep'` (legacy) | what to do with FK fields whose value isn't in the IdRemapper |
 | `recordTypeMappings` | — | array of `{ sourceId, targetId, developerName }`; built via `RecordTypeMapper` |
 | `maxRecordsPerObject` | — (no cap) | append `LIMIT N` to every scoped query |
@@ -99,14 +99,14 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
 
 ## Known limitations
 
-- **Cycle 2-pass not yet implemented** — `Account ↔ Contact` and similar
+- **Cycle 2-pass not yet implemented**: `Account ↔ Contact` and similar
   cycles. The PlanGenerator detects them and proposes `nullable_lookup`
   but the executor does *not* perform the second-pass UPDATE.
   Required-FK records hit `REQUIRED_FIELD_MISSING` which is surfaced
   cleanly in the error panel.
-- **IN clause chunking** — at 4 000+ IDs per IN, Salesforce rejects the
+- **IN clause chunking**: at 4 000+ IDs per IN, Salesforce rejects the
   query. Not a concern for typical record-graph clones (rarely >200 IDs
   per object) but to be added before raw-graph mode.
-- **FLS profile awareness** — `Asset.RecordType ID not valid for the user`
+- **FLS profile awareness**: `Asset.RecordType ID not valid for the user`
   errors come from the running user's profile lacking access. The cloner
   reports them; resolution is org-side (assign permission set).

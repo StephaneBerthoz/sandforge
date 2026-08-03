@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-**Phase 03 — Monitor v2 Core**
+**Phase 03: Monitor v2 Core**
 - `MetricBus` typed Zod-validated pub/sub with 5 discriminated event subtypes
 - `TimeSeriesStore` per-(orgId, seriesId) ring buffer, 50 MB LRU cap, 7-day retention, opt-in disk persistence (`sandforge.monitor.persistTimeSeries` setting), 5-min flush + 15-min per-org rate limit, corruption recovery
 - `MonitorRegistry` single-tick scheduler with per-probe in-flight gate, drift accounting, hard timeout, visibility gating
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FleetSummaryService` + `MonitorOverviewPage` multi-org fleet landing with `ConnectionPool` reuse, `p-limit(3)`, 60-s per-org cache, exponential backoff
 - `useVisibilityGate` posts `monitor:visibility` on `document.visibilitychange`
 
-**Phase 04 — AI Integration**
+**Phase 04: AI Integration**
 - `AIClient` interface + `AnthropicAdapter` (chat / complete / countTokens / runTools / dispose) using `messages.parse + zodOutputFormat` for Zod-validated structured output
 - `OpenAIAdapter` + `CustomAdapter` stubs that satisfy the interface (constructor never throws, methods throw `AINotImplementedError` with provider-switch hint)
 - `AIClientFactory` per-provider memoisation; switching `sandforge.ai.provider` in Settings does NOT crash the extension
@@ -32,20 +32,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 10 read-only tools (`describe_object`, `query_records`, `get_limits`, `get_recent_errors`, `get_apex_log`, `get_metadata`, `get_alerts`, `get_anomalies`, `list_sobjects`, `validate_soql`) with `wrapTool` that enforces read-only naming regex + `READ-ONLY` description substring + Zod-validated input/output
 - Registry CI fence test rejects any future write-verb tool addition
 - `validate_soql` AND `query_records` reject DML keywords (defence in depth, `DML_FORBIDDEN` error code)
-- `AIDiagnoseHandler` — failed-job → diagnose flow with two-call pattern (`runTools` for context + `complete(schema)` for typed payload), `ActionProposalSchema`, 5 action kinds, approve-gate dispatcher
+- `AIDiagnoseHandler`: failed-job → diagnose flow with two-call pattern (`runTools` for context + `complete(schema)` for typed payload), `ActionProposalSchema`, 5 action kinds, approve-gate dispatcher
 - Webview `ActionCard` (Approve / Modify / Reject trio, scrollable rootCause, ≤5 actions, per-action state badges)
 - `AIProviderStatusBanner` (FR + EN copy, live mm:ss countdown to half-open transition)
 - `TokenBudgetIndicator` mini-bar with 4-field tooltip, `aria-live='polite'`, green/yellow/red colour states
-- `SessionBudget` class — per-panel-session token counter, sums all 4 token fields, debounced 80% warn, 100% hard refuse with preflight BEFORE the SDK call
+- `SessionBudget` class: per-panel-session token counter, sums all 4 token fields, debounced 80% warn, 100% hard refuse with preflight BEFORE the SDK call
 - `sandforge.ai.tokenBudgetMaxPerSession` setting (default 50000) with EN+FR NLS
 - `escapeUserData` / `wrapAsUserData` HTML-entity escape helpers + `DIAGNOSE_SYSTEM_PROMPT` / `SOQL_REVIEW_SYSTEM_PROMPT` / `ERROR_RESOLVE_SYSTEM_PROMPT` carrying the spotlight clause
-- Adversarial vitest spec — 7 jailbreak fixtures × 2 defence layers + 2 spotlight assertions (RT-#10 closure)
+- Adversarial vitest spec: 7 jailbreak fixtures × 2 defence layers + 2 spotlight assertions (RT-#10 closure)
 - `AIDiagnoseHandler` self-defence canary asserts the literal `</user-data>` substring NEVER appears in the body between the wrapper's open + close tags
 - 4 bridge envelopes (`ai:diagnose`, `ai:diagnose:response`, `ai:approve-action`, `ai:approve-action:response`) + 3 budget envelopes (`ai:budget:state`, `ai:budget:warn`, `ai:budget:exceeded`) + `ai:provider:status` + `ai:tool-trace`
 - 6 `ai.error.*` i18n keys (overloaded / rateLimit / auth / cancelled / transient / unknown) in EN + FR
 
 **Close-out wiring**
-- `sandforge.openAI` command + `Bot` icon + EN/FR NLS title + Ctrl+K palette entry — AI Assistant now reachable from the activity bar (SidePanel), the in-panel layout (Sidebar), the top bar route labels, and the command palette across all 11 surfaces
+- `sandforge.openAI` command + `Bot` icon + EN/FR NLS title + Ctrl+K palette entry: AI Assistant now reachable from the activity bar (SidePanel), the in-panel layout (Sidebar), the top bar route labels, and the command palette across all 11 surfaces
 
 **Tooling**
 - `scripts/git-hooks/pre-commit` runs `pnpm -r typecheck` + locale dup-key scan on every commit
@@ -53,11 +53,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **AIChatPanel.tsx ad-hoc message types** — replaced inline `BaseMessage & { payload: { ... } }` types for `ai:provider:status` / `ai:budget:state` (which were missing `id` + `timestamp`) with canonical `AIProviderStatusMessage` / `AIBudgetStateMessage` imports from `@sandforge/shared`. Webview tsc was failing on Phase 04 close — extension vitest never caught it because the inline type compiled fine in isolation.
-- **`pnpm.overrides` minimatch flipped vsce to incompatible major** — previous `<3.1.4: >=3.1.4` was a non-existent version (last 3.x is 3.1.2) that resolved vsce's `^3.0.3` to 9.x or 10.x, breaking vsce's CJS-default `__importDefault(require('minimatch'))` with `(0 , minimatch_1.default) is not a function`. Tightened lower bound to `<3.0.5` (the actual ReDoS-fix threshold per GHSA), constrained replacement to `>=3.0.5 <4` so CJS-default consumers stay on 3.x, plus `@vscode/vsce>minimatch: 3.1.2` path-scoped override belt-and-braces.
-- **AI panel was an orphan route** — `AIPage` was registered in `PanelRouter.tsx` but `'ai'` was missing from `ModuleRoute` type, `ALL_ROUTES`, `router.tsx routeComponents`, both sidebars (`SidePanel.tsx` + `Sidebar.tsx`), `TopBar ROUTE_LABELS`, `CommandPalette ROUTE_ICONS+LABEL_KEYS`, `extension.ts moduleCommands`, `SidebarViewProvider commandMap`, the package.json command contribution, and EN/FR NLS. The whole AI backend was unreachable from the user-facing UI.
-- **`BridgeProvider.tsx` contract drift on `ai:status:response`** — the listener read `msg.payload.available` but the canonical `AIStatusResponse` payload field is `enabled`. Silent typecheck-clean / runtime-broken — `setAiAvailable(undefined)` always made `aiAvailable === false` even when the API key was configured. Replaced ad-hoc inline type with `AIStatusResponse` import from shared so future renames break both sides at compile time.
-- **Duplicate top-level keys in EN + FR locale JSONs** — `monitor`, `dataops`, `execution` were each defined twice in `en.json` and `fr.json`. `JSON.parse` silently kept only the second value (which contained `liveOps` only for `monitor`), wiping out `monitor.title`, `monitor.limits`, `monitor.emptyState`, etc. The user saw raw i18n keys on the Monitor empty state. Programmatic deep-merge preserved both occurrences in all three keys; verified all 4 other locales (de, es, ja, pt-BR) clean.
+- **AIChatPanel.tsx ad-hoc message types**: replaced inline `BaseMessage & { payload: { ... } }` types for `ai:provider:status` / `ai:budget:state` (which were missing `id` + `timestamp`) with canonical `AIProviderStatusMessage` / `AIBudgetStateMessage` imports from `@sandforge/shared`. Webview tsc was failing on Phase 04 close; extension vitest never caught it because the inline type compiled fine in isolation.
+- **`pnpm.overrides` minimatch flipped vsce to incompatible major**: previous `<3.1.4: >=3.1.4` was a non-existent version (last 3.x is 3.1.2) that resolved vsce's `^3.0.3` to 9.x or 10.x, breaking vsce's CJS-default `__importDefault(require('minimatch'))` with `(0 , minimatch_1.default) is not a function`. Tightened lower bound to `<3.0.5` (the actual ReDoS-fix threshold per GHSA), constrained replacement to `>=3.0.5 <4` so CJS-default consumers stay on 3.x, plus `@vscode/vsce>minimatch: 3.1.2` path-scoped override belt-and-braces.
+- **AI panel was an orphan route**: `AIPage` was registered in `PanelRouter.tsx` but `'ai'` was missing from `ModuleRoute` type, `ALL_ROUTES`, `router.tsx routeComponents`, both sidebars (`SidePanel.tsx` + `Sidebar.tsx`), `TopBar ROUTE_LABELS`, `CommandPalette ROUTE_ICONS+LABEL_KEYS`, `extension.ts moduleCommands`, `SidebarViewProvider commandMap`, the package.json command contribution, and EN/FR NLS. The whole AI backend was unreachable from the user-facing UI.
+- **`BridgeProvider.tsx` contract drift on `ai:status:response`**: the listener read `msg.payload.available` but the canonical `AIStatusResponse` payload field is `enabled`. Silent typecheck-clean / runtime-broken. `setAiAvailable(undefined)` always made `aiAvailable === false` even when the API key was configured. Replaced ad-hoc inline type with `AIStatusResponse` import from shared so future renames break both sides at compile time.
+- **Duplicate top-level keys in EN + FR locale JSONs**: `monitor`, `dataops`, `execution` were each defined twice in `en.json` and `fr.json`. `JSON.parse` silently kept only the second value (which contained `liveOps` only for `monitor`), wiping out `monitor.title`, `monitor.limits`, `monitor.emptyState`, etc. The user saw raw i18n keys on the Monitor empty state. Programmatic deep-merge preserved both occurrences in all three keys; verified all 4 other locales (de, es, ja, pt-BR) clean.
 
 ### Changed
 
@@ -65,37 +65,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Prompt-injection defence verified adversarially** — `escapeUserData` HTML-entity-escapes `<` / `>` / `&`, strips NUL bytes, and `wrapAsUserData(label, value)` produces `<user-data label='${label}'>${escaped}</user-data>` where the label itself is also escaped. The spotlight clause in all 3 system prompts tells Claude `<user-data>` content is data, never instructions. 7 jailbreak fixtures (closing-tag breakout, nested-tag confusion, system-prompt impersonation, plain-text instruction, base64, unicode-lookalike, polyglot CDATA-like) all neutralised at the encoding layer with vitest assertions on both defence layers per fixture.
+- **Prompt-injection defence verified adversarially**: `escapeUserData` HTML-entity-escapes `<` / `>` / `&`, strips NUL bytes, and `wrapAsUserData(label, value)` produces `<user-data label='${label}'>${escaped}</user-data>` where the label itself is also escaped. The spotlight clause in all 3 system prompts tells Claude `<user-data>` content is data, never instructions. 7 jailbreak fixtures (closing-tag breakout, nested-tag confusion, system-prompt impersonation, plain-text instruction, base64, unicode-lookalike, polyglot CDATA-like) all neutralised at the encoding layer with vitest assertions on both defence layers per fixture.
 
 ## [1.2.5] - 2026-05-02
 
-**Forge Hardening Pass** — 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows.
+**Forge Hardening Pass**: 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows.
 
 ### Added
 
 **Forge CLI (sandforge-clone)**
-- `--upsert` flag — use external Id upsert when available, skipping `DUPLICATE_VALUE` on re-runs of the same source records
-- `--expand-orphans` flag — single-hop expand orphan parent FKs (clones missing parents so child FKs resolve)
-- `--skip-preflight` flag — bypass the new pre-execute target row count
-- `--json` flag — machine-readable JSON summary on stdout for CI integration
-- `--exclude <obj.field>` (repeatable) — strip a specific field on a specific object before insert. BA opt-out for noisy long-text fields, calculated fields, or fields the target org doesn't have
-- `--owner-map <src=tgt>` (repeatable) — remap OwnerId from a source User Id to a target User Id. Use case: clone records authored by ex-employees onto a sandbox where their User no longer exists (otherwise INVALID_OWNER)
-- Pre-execute preflight showing existing rows in the target org for the first 30 nodes (with ⚠ flag for >1000 rows) so users know the blast radius before pulling the trigger
+- `--upsert` flag: use external Id upsert when available, skipping `DUPLICATE_VALUE` on re-runs of the same source records
+- `--expand-orphans` flag: single-hop expand orphan parent FKs (clones missing parents so child FKs resolve)
+- `--skip-preflight` flag: bypass the new pre-execute target row count
+- `--json` flag: machine-readable JSON summary on stdout for CI integration
+- `--exclude <obj.field>` (repeatable): strip a specific field on a specific object before insert. BA opt-out for noisy long-text fields, calculated fields, or fields the target org doesn't have
+- `--owner-map <src=tgt>` (repeatable): remap OwnerId from a source User Id to a target User Id. Use case: clone records authored by ex-employees onto a sandbox where their User no longer exists (otherwise INVALID_OWNER)
+- Pre-execute preflight showing existing rows in the target org for the first 30 nodes (with a warning flag for >1000 rows) so users know the blast radius before pulling the trigger
 
 **ForgeConfig (cross-sandbox dev/BA flow)**
-- `fieldExclusions: Record<string, string[]>` — per-object field skip list (Zod-validated, max 200 fields per object). Exposed via wizard config and CLI `--exclude`
-- `ownerMappings: Record<string, string>` — per-record OwnerId remap (Zod-validated, both sides must be 15/18-char Salesforce IDs, max 200 entries). Exposed via wizard config and CLI `--owner-map`
-- `objectSoqlFilters: Record<string, string>` — per-object SOQL WHERE filter appended via `AND (...)` to the scope clause. Lets BAs narrow a clone to a subset (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without changing graph topology. Zod-validated: max 512 chars per filter, max 50 filters, comment markers (`--`, `/*`, `*/`) and trailing semicolons rejected to block statement chaining. Exposed via wizard config and CLI `--filter`
-- `fieldMappings: Record<string, Record<string, string>>` — per-object source→target field rename for schema drift (managed-package re-key, namespace change, `__c`/`__pc` variant). Source key is dropped, value written under target name. Zod-validated: SF field-name regex on both sides, max 200 fields per object, max 50 objects. Exposed via wizard config and CLI `--map`
+- `fieldExclusions: Record<string, string[]>`: per-object field skip list (Zod-validated, max 200 fields per object). Exposed via wizard config and CLI `--exclude`
+- `ownerMappings: Record<string, string>`: per-record OwnerId remap (Zod-validated, both sides must be 15/18-char Salesforce IDs, max 200 entries). Exposed via wizard config and CLI `--owner-map`
+- `objectSoqlFilters: Record<string, string>`: per-object SOQL WHERE filter appended via `AND (...)` to the scope clause. Lets BAs narrow a clone to a subset (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without changing graph topology. Zod-validated: max 512 chars per filter, max 50 filters, comment markers (`--`, `/*`, `*/`) and trailing semicolons rejected to block statement chaining. Exposed via wizard config and CLI `--filter`
+- `fieldMappings: Record<string, Record<string, string>>`: per-object source→target field rename for schema drift (managed-package re-key, namespace change, `__c`/`__pc` variant). Source key is dropped, value written under target name. Zod-validated: SF field-name regex on both sides, max 200 fields per object, max 50 objects. Exposed via wizard config and CLI `--map`
 
 **ForgeOrchestrator**
-- `dispose()` method — clears the discovery cache and listeners on extension shutdown / org disconnect
+- `dispose()` method: clears the discovery cache and listeners on extension shutdown / org disconnect
 
 **ForgeHandler**
-- New `forge:target-preflight:request` message type — webview can request per-object existing-row counts on the target before execute. Backend uses sequential SELECT COUNT() (parallel bursts trip rate limits on big orgs), 30 s timeout, max 100 objects per request, sentinel `existing: -1` for per-object failures so the whole batch isn't aborted by FLS issues. Powers the same preflight surface as the CLI
+- New `forge:target-preflight:request` message type: webview can request per-object existing-row counts on the target before execute. Backend uses sequential SELECT COUNT() (parallel bursts trip rate limits on big orgs), 30 s timeout, max 100 objects per request, sentinel `existing: -1` for per-object failures so the whole batch isn't aborted by FLS issues. Powers the same preflight surface as the CLI
 
 **ExecutionSummary.remapTable**
-- New `remapTable: Record<string, string>` field on every execute summary — the full source→target ID mapping table. BA reconciliation: post-clone audit, "where did source X go on the target sandbox?", CSV export, checkpoint persistence
+- New `remapTable: Record<string, string>` field on every execute summary: the full source→target ID mapping table. BA reconciliation: post-clone audit, "where did source X go on the target sandbox?", CSV export, checkpoint persistence
 - CLI: new `--remap-csv <file>` flag writes `sourceId,targetId` CSV (double-quoted, one mapping per row, header included)
 - CLI: `--json` output now embeds `result.remapTable` for CI consumers
 
@@ -115,7 +115,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ForgeOrchestrator.cacheKeyFor` includes `targetOrgId`, `anonymizePII`, `expandOrphanParents`, `maxRecordsPerObject` so cache hits never silently swap configurations
 
 **Forge performance**
-- `ForgePlanGenerator` Tarjan SCC rewritten as iterative — no stack overflow on deep graphs (5000+ node chain verified)
+- `ForgePlanGenerator` Tarjan SCC rewritten as iterative: no stack overflow on deep graphs (5000+ node chain verified)
 - `SchemaCache.estimateSize` now uses an O(1) structural heuristic (fields × 250 + childRel × 150) instead of `JSON.stringify`; `describeCache` byte cap restored to 200 MB, `describeGlobalCache` to 50 MB (eliminates the OOM risk introduced by the previous Infinity workaround while keeping the event loop unblocked)
 - `GraphDiscoveryService` adds `setImmediate`-based event-loop yield between BFS waves, with `setTimeout(0)` polyfill for non-Node test environments
 - Cold path breadcrumb (warns when `resolveRootObject` exceeds 2 s)
@@ -129,7 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Orphan expand syncs the scope cache so multi-hop children that pivot through the expanded parent stay in scope
 - `pickUpsertField` logs the chosen field and falls back to insert (instead of an unsafe alphabetical pick) when no candidate is non-null + unique across the batch
 - `summarizeRecordForError` handles `undefined` and objects via JSON.stringify-truncated output
-- `EXPANSION_EXCLUDED_OBJECTS` now mirrors the BFS-side exclusion list (BusinessProcess, DandBCompany, ProcessInstance, …) — orphan-expand stops burning API on system-managed entities
+- `EXPANSION_EXCLUDED_OBJECTS` now mirrors the BFS-side exclusion list (BusinessProcess, DandBCompany, ProcessInstance, …), so orphan-expand stops burning API on system-managed entities
 - `sandforge-clone` CLI forces `referenceFallback='nullify'` (was 'keep' by default, which preserved invalid source IDs on cross-org clones)
 
 **Forge UX**
@@ -139,11 +139,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Tests: `recordId` test fixtures across `ForgeHandler.test.ts`, `ForgeOrchestrator.test.ts`, `GraphDiscoveryService.test.ts`, and `forge.schema.test.ts` now use 15-char strict IDs to satisfy the new regex (no behavior change — they were stand-ins anyway)
+- Tests: `recordId` test fixtures across `ForgeHandler.test.ts`, `ForgeOrchestrator.test.ts`, `GraphDiscoveryService.test.ts`, and `forge.schema.test.ts` now use 15-char strict IDs to satisfy the new regex (no behavior change; they were stand-ins anyway)
 
 ## [1.2.4] - 2026-04-23
 
-**Milestone v1.2.3 « Scale & Complete » — shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone (7 phases, 18 plans, 50 requirements), tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry backfilled 2026-08 — it was only recorded in the root `CHANGELOG.md` and the `v1.2.4` tag message.)
+**Milestone v1.2.3 « Scale & Complete », shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone (7 phases, 18 plans, 50 requirements), tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry backfilled 2026-08; it was only recorded in the root `CHANGELOG.md` and the `v1.2.4` tag message.)
 
 - Three seed modes: AI Personas (10 industry personas), CSV Import (drag-and-drop + validation), Clone from Org (topological insert + ID mapping)
 - Real-time sync lifecycle: CDC subscriptions, conflict resolution UI, execution history, cron scheduling
@@ -155,7 +155,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.2.3] - 2026-03-28
 
-**Scale & Complete** — Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
+**Scale & Complete**: Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
 
 ### Added
 
@@ -266,7 +266,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.2.2] - 2026-03-27
 
-**Adoption-First: Sync & Seed Polish** — Making it dead simple to populate any Salesforce sandbox.
+**Adoption-First: Sync & Seed Polish**: one-click sync and seed flows to populate a Salesforce sandbox.
 
 ### Added
 
@@ -315,7 +315,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.2.1] - 2026-03-26
 
-**Monitor Enrichment & Wiring** — Live backend services, alerting, and governance.
+**Monitor Enrichment & Wiring**: Live backend services, alerting, and governance.
 
 ### Added
 
@@ -345,7 +345,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.2.0] - 2026-03-20
 
-**Forge UX & Reliability** — Bug fixes, UX polish, performance, accessibility.
+**Forge UX & Reliability**: Bug fixes, UX polish, performance, accessibility.
 
 ### Fixed
 
@@ -390,7 +390,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.1.0] - 2026-03-19
 
-**Stabilisation & Real-World Readiness** — Every module working end-to-end.
+**Stabilisation & Real-World Readiness**: Every module working end-to-end.
 
 ### Fixed
 
@@ -408,7 +408,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.0.0] - 2026-03-17
 
-**Marketplace-Ready Release** — First public version.
+**Marketplace-Ready Release**: First public version.
 
 ### Added
 

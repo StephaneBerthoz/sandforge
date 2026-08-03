@@ -9,18 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-**Frozen Reference Dataset module** — extract a business dataset once from a UAT sandbox, pseudonymize it deterministically (HMAC-SHA256 over `SANDFORGE_FROZEN_SALT`, never stored), freeze it with a manifest (salt fingerprint, volumetry, control outcomes), and replay it identically into refreshed dev sandboxes:
+**Frozen Reference Dataset module**: extract a business dataset once from a UAT sandbox, pseudonymize it deterministically (HMAC-SHA256 over `SANDFORGE_FROZEN_SALT`, never stored), freeze it with a manifest (salt fingerprint, volumetry, control outcomes), and replay it identically into refreshed dev sandboxes:
 
 - Bridge contract `frozen:*` (18 message types): config get/save, coverage-matrix selection, extraction + 4-point non-reidentification gate, manifest, replayable load (pilot mode, reload without refresh), throttled per-phase progress, chained read-only post-load verification, module status
-- New `FrozenDatasetHandler` (extension bridge): full lifecycle without UI — SasPathGuard-enforced sas outside the repo, redacted selection summaries (no source record ID crosses the bridge), Production Guard + entry guards (sandbox-only, protected envs, mocked-callout detection, empty dataset), ProductionGuard-audited DML via BulkDataWriter
-- New webview page (route `frozen`, sidebar + command `sandforge.openFrozen`): Extract tab (axes/budget config, selection matrix, extraction + gate result, manifest) and Load tab (target sandbox, pilot toggle, guards visibility, per-phase progress, full load report, post-load verdict) — i18n in 6 languages
+- New `FrozenDatasetHandler` (extension bridge): full lifecycle without UI: SasPathGuard-enforced sas outside the repo, redacted selection summaries (no source record ID crosses the bridge), Production Guard + entry guards (sandbox-only, protected envs, mocked-callout detection, empty dataset), ProductionGuard-audited DML via BulkDataWriter
+- New webview page (route `frozen`, sidebar + command `sandforge.openFrozen`): Extract tab (axes/budget config, selection matrix, extraction + gate result, manifest) and Load tab (target sandbox, pilot toggle, guards visibility, per-phase progress, full load report, post-load verdict), i18n in 6 languages
 - Docs: `docs/modules/frozen-dataset.md`
 
 ## [1.2.6] - 2026-05-05
 
 **Phase 03 Monitor v2 Core + Phase 04 AI Integration + close-out hardening.** Two milestone-track phases under v1.3.0, plus a six-bug close-out pass surfaced when the user actually installed the fresh VSIX.
 
-### Added — Phase 04 AI Integration (2026-05-05)
+### Added: Phase 04 AI Integration (2026-05-05)
 
 **Architecture**: Provider-agnostic `AIClient` interface + `AnthropicAdapter` functional + `OpenAIAdapter` / `CustomAdapter` stubs that satisfy the interface. Per-provider isolation via `AIClientFactory` (memoised) + per-provider `CircuitBreaker` (3 consecutive 529 → 5 min open). Per-AI-request `AbortController` (sibling-safe). Per-panel-session token budget with preflight refusal BEFORE the SDK call. Read-only tool surface (10 fine-grained tools, registry CI fence, DML refusal at 2 layers). `AIDiagnoseHandler` with two-call `runTools` + `complete(schema)` pattern. Webview surfaces: `AIChatPanel` + `AIProviderStatusBanner` + `TokenBudgetIndicator` + `ActionCard` (Approve / Modify / Reject trio). Prompt-injection defence verified adversarially across 7 jailbreak fixtures.
 
@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `EventEmitter` re-publishes state-change events. `cancelAll()` helper
   for panel-close cleanup. Snake_case `'half_open'` mapped to dashed
   `'half-open'` at the bridge boundary.
-- **errorClassifier** (`adapters/ai/errorClassifier.ts`) — pure helper
+- **errorClassifier** (`adapters/ai/errorClassifier.ts`): pure helper
   returning `{ kind, shouldTripBreaker, retryAfterMs?, userMessageKey,
   rawStatus? }`. 15 unit tests cover every branch + Retry-After parsing.
 - **Read-only tool surface** (10 tools under `adapters/ai/tools/`):
@@ -60,9 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `for-await` streaming + `randomUUID()` runId. Routes through
   `runWithBreaker`. Last-message usage wins (per-step usage from toolRunner
   would double-count cached tokens). `ai:tool-trace` bridge envelope
-  fires `start` / `success` / `error` per tool call (no payload contents
-  — privacy).
-- **AIDiagnoseHandler** (`bridge/handlers/ai/AIDiagnoseHandler.ts`) — NEW
+  fires `start` / `success` / `error` per tool call (no payload contents,
+  for privacy).
+- **AIDiagnoseHandler** (`bridge/handlers/ai/AIDiagnoseHandler.ts`): NEW
   file (does NOT modify existing `AIChatHandler` / `AIToolsHandler` /
   `AIAnalysisHandler`). Two-call pattern: `runTools` to gather
   investigation context, `complete(schema: DiagnoseResultSchema)` for
@@ -76,11 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wrapper's open + close tags. Catches a future regression in
   `escapeUserData` even if its own tests still pass.
 - **escapeUserData / wrapAsUserData / stringifyAndEscape** pure helpers
-  (`adapters/ai/safety/escapeUserData.ts`) — HTML-entity escape `<` /
-  `>` / `&` (in that order — reversing breaks idempotence-of-substring-shape),
+  (`adapters/ai/safety/escapeUserData.ts`): HTML-entity escape `<` /
+  `>` / `&` (in that order; reversing breaks idempotence-of-substring-shape),
   strip NUL bytes (never legitimate inside Anthropic prompts).
-  `wrapAsUserData(label, value)` — label itself is escaped (defence in
-  depth — labels can be untrusted in some flows).
+  `wrapAsUserData(label, value)`: label itself is escaped (defence in
+  depth: labels can be untrusted in some flows).
 - **3 system prompts** (`adapters/ai/systemPrompts/index.ts`):
   `DIAGNOSE_SYSTEM_PROMPT`, `SOQL_REVIEW_SYSTEM_PROMPT`,
   `ERROR_RESOLVE_SYSTEM_PROMPT`. All carry the spotlight clause:
@@ -95,7 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SessionBudget** class (`adapters/ai/tokenBudget/SessionBudget.ts`)
   tracks all 4 token fields per panel session. Soft cap at 80% fires
   ONCE per session (debounced). Hard cap at 100% blocks the next
-  request with a clean rejection — does NOT consume the breaker.
+  request with a clean rejection; does NOT consume the breaker.
   `estimateInputTokens` heuristic (chars/4 + 50/tool overhead) cheaper
   than a full SDK `countTokens` round-trip.
 - **`sandforge.ai.tokenBudgetMaxPerSession`** setting (default 50000)
@@ -104,18 +104,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extended with `runTools(opts)` so future stub adapters satisfy the
   contract.
 - **Webview AI surfaces**:
-  - `AIProviderStatusBanner` — FR + EN copy, live mm:ss countdown to
+  - `AIProviderStatusBanner`: FR + EN copy, live mm:ss countdown to
     half-open transition, `data-testid="ai-provider-status-banner"`,
     `aria-live`.
-  - `TokenBudgetIndicator` — mini-bar + numeric label, green/yellow/red
+  - `TokenBudgetIndicator`: mini-bar + numeric label, green/yellow/red
     colour states, 4-field tooltip, `aria-live='polite'`.
-  - `ActionCard` — confidence badge, scrollable rootCause, ≤5 actions
+  - `ActionCard`: confidence badge, scrollable rootCause, ≤5 actions
     (defence-in-depth slice), Approve/Modify/Reject trio for gated
     actions OR Exécuter button for read-only ones. Modify opens an
     inline textarea modal pre-filled with the action's payload.
 - **6 `ai.error.*` i18n keys** in EN + FR (overloaded / rateLimit /
   auth / cancelled / transient / unknown).
-- **AI panel reachable from the user-facing UI** — `sandforge.openAI`
+- **AI panel reachable from the user-facing UI**: `sandforge.openAI`
   command + `Bot` icon + EN/FR NLS title. Routed across all 11 surfaces:
   `ModuleRoute` type, `ALL_ROUTES`, `router.tsx routeComponents`,
   `Sidebar.tsx moduleNav`, `SidePanel.tsx MODULE_ITEMS`, `TopBar
@@ -126,9 +126,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Test impact**: 8745 → 8918 (+149 extension + +19 webview),
 0 regressions across the 4994-test extension suite.
 
-**Audit findings closed**: RT-#10 (prompt-injection — escape +
+**Audit findings closed**: RT-#10 (prompt-injection: escape +
 spotlight + adversarial test), RT-#11 (regex-extract JSON for new
-diagnose flow — `messages.parse + zodOutputFormat`).
+diagnose flow: `messages.parse + zodOutputFormat`).
 
 **Deferred to v1.4**: legacy module migration to
 `aiClient.complete(schema)` (`AIAssistant`, `ErrorResolver`, `NL2SOQL`).
@@ -136,7 +136,7 @@ Each carries its pre-Phase-04 regex-extract path until v1.4. New flows
 already use the schema-validated path. Sweep tests (file-existence
 only today) become enforceable when migration ships.
 
-### Fixed — Phase 04 close-out (2026-05-05)
+### Fixed: Phase 04 close-out (2026-05-05)
 
 Six chained regressions surfaced when the user installed the fresh
 VSIX after night autopilot claimed Phase 04 complete. Root cause: night
@@ -144,14 +144,14 @@ autopilot never ran `pnpm package` end-to-end, so webview tsc / VSIX
 production / vsce interop / nav wiring all stayed silently broken
 behind a green vitest suite.
 
-- **AIChatPanel.tsx ad-hoc message types** — replaced inline
+- **AIChatPanel.tsx ad-hoc message types**: replaced inline
   `BaseMessage & { payload: { ... } }` types for `ai:provider:status`
   / `ai:budget:state` (which were missing `id` + `timestamp`) with
   canonical `AIProviderStatusMessage` / `AIBudgetStateMessage` imports
   from `@sandforge/shared`. Webview tsc was failing on Phase 04 close;
   extension vitest never caught it because the inline type compiled
   fine in isolation.
-- **`pnpm.overrides` minimatch flipped vsce to incompatible major** —
+- **`pnpm.overrides` minimatch flipped vsce to incompatible major**:
   previous `<3.1.4: >=3.1.4` was a non-existent version (last 3.x is
   3.1.2) that resolved vsce's `^3.0.3` to 9.x or 10.x, breaking vsce's
   CJS-default `__importDefault(require('minimatch'))` with `(0 ,
@@ -160,14 +160,14 @@ behind a green vitest suite.
   GHSA), constrained replacement to `>=3.0.5 <4` so CJS-default
   consumers stay on 3.x, plus `@vscode/vsce>minimatch: 3.1.2`
   path-scoped override belt-and-braces.
-- **AI panel was an orphan route** — `AIPage` was registered in
+- **AI panel was an orphan route**: `AIPage` was registered in
   `PanelRouter.tsx` but `'ai'` was missing from 11 user-facing surfaces.
   The whole AI backend was unreachable from the UI. Wired
   `sandforge.openAI` command + `Bot` icon across all surfaces (see
   Added section above for full list). Two sidebars (`SidePanel.tsx` in
   the activity bar + `Sidebar.tsx` in the panel layout) both needed the
-  entry — Phase 04 missed both.
-- **`BridgeProvider.tsx` contract drift on `ai:status:response`** —
+  entry: Phase 04 missed both.
+- **`BridgeProvider.tsx` contract drift on `ai:status:response`**:
   the listener read `msg.payload.available` but the canonical
   `AIStatusResponse` payload field is `enabled`. Silent typecheck-clean
   (inline ad-hoc type) / runtime-broken (`undefined` →
@@ -175,7 +175,7 @@ behind a green vitest suite.
   when the API key was configured). Replaced inline type with
   `AIStatusResponse` import from shared so future renames break both
   sides at compile time, not just one.
-- **Duplicate top-level keys in EN + FR locale JSONs** — `monitor`,
+- **Duplicate top-level keys in EN + FR locale JSONs**: `monitor`,
   `dataops`, `execution` were each defined twice in `en.json` and
   `fr.json`. `JSON.parse` silently kept only the second value (which
   contained `liveOps` only for `monitor`), wiping out `monitor.title`,
@@ -184,23 +184,23 @@ behind a green vitest suite.
   both occurrences in all three keys; verified all 4 other locales
   (de, es, ja, pt-BR) clean.
 
-### Tooling — Phase 04 close-out
+### Tooling: Phase 04 close-out
 
 - **`scripts/git-hooks/pre-commit`** runs `pnpm -r typecheck` (catches
   webview tsc) AND a locale dup-key scan (catches the JSON.parse silent
   override) on every commit. Wired via `core.hooksPath = scripts/git-hooks`
   and auto-installed on `pnpm install` via the new `prepare` lifecycle
   in root `package.json`, so future clones get the guard for free.
-- **`pnpm setup:hooks`** script — `git config core.hooksPath
+- **`pnpm setup:hooks`** script: `git config core.hooksPath
   scripts/git-hooks`. Manual setup if `prepare` lifecycle is bypassed.
 
 ### Solution doc
 
-- `.planning/solutions/integration-issues/phase-04-ai-panel-orphan-and-contract-drift-2026-05-05.md`
-  — full write-up of the six chained regressions + the systemic
+- `.planning/solutions/integration-issues/phase-04-ai-panel-orphan-and-contract-drift-2026-05-05.md`:
+  full write-up of the six chained regressions + the systemic
   guardrail that closes them. Future phase close-outs should consult.
 
-### Added — Phase 03 Monitor v2 Core (2026-05-04)
+### Added: Phase 03 Monitor v2 Core (2026-05-04)
 
 **Architecture**: Probe → MonitorRegistry (single-tick) → MetricBus
 (typed Zod-validated pub/sub) → TimeSeriesStore + AnomalyEngine +
@@ -236,10 +236,10 @@ DriftDetector + ReportExporter + FleetSummaryService.
   in memory. 1000-sample × 5-series vertical slice exports both
   formats < 10 MB with valid magic bytes.
 - **FleetSummaryService + MonitorOverviewPage**: multi-org fleet
-  default landing — backend uses `ConnectionPool` reuse + `p-limit(3)` +
+  default landing: backend uses `ConnectionPool` reuse + `p-limit(3)` +
   60-s per-org cache + exponential backoff (60→120→240→600 s).
   Webview Zustand `useFleetStore` keyed as `Record<orgId, summary>`
-  (audit M5 fix — Map ban). `useVisibilityGate` posts `monitor:visibility`
+  (audit M5 fix: Map ban). `useVisibilityGate` posts `monitor:visibility`
   on `document.visibilitychange` so the extension pauses polling when
   the panel is hidden (audit M1).
 
@@ -249,11 +249,11 @@ DriftDetector + ReportExporter + FleetSummaryService.
 P-03.5, P-03.6, P-03.7, P-03.10.
 
 **Deferred to Phase 06 BP-01**:
-- ReportExporter bridge wire — needs `MonitorOrchestrator` singleton in
+- ReportExporter bridge wire: needs `MonitorOrchestrator` singleton in
   `services.ts` so handlers see the same `timeSeriesStore` instance
   across calls.
-- FleetSummaryService bridge wire — same dependency.
-- Stryker mutation testing — `stryker.conf.json` pins `vitest.dir =
+- FleetSummaryService bridge wire: same dependency.
+- Stryker mutation testing: `stryker.conf.json` pins `vitest.dir =
   packages/shared/`, extension-side mutants are never exercised
   (Phase 06 BP-04).
 
@@ -264,13 +264,13 @@ P-03.5, P-03.6, P-03.7, P-03.10.
 
 ### Fixed (post-Phase-03 hygiene)
 
-- **`ReportExporter.writePdfPart` stream listeners** — replaced
+- **`ReportExporter.writePdfPart` stream listeners**: replaced
   `stream.on('finish', …)` + `stream.on('error', …)` with `stream.once(…)`
   so the audit-disposables script accepts them as one-shot sinks
   (was 2 orphans, now 0). pdfkit's stream is one-shot per part anyway,
   so the semantic is unchanged; this is the right primitive.
 
-### Security (autonomous-improvement Round 1 — 2026-05-02)
+### Security (autonomous-improvement Round 1, 2026-05-02)
 
 - **UUID hardening sweep across 11 modules**: extends the audit C3/L1 fix
   beyond the 3 originally-touched files. Replaces the hand-rolled
@@ -288,7 +288,7 @@ P-03.5, P-03.6, P-03.7, P-03.10.
   Public format `{base36-ts}-{8hex}` preserved.
 - **`MessageBroker.nextControlId`** drops the unreachable Math.random
   fallback. Engines block already pins `node>=20` and the VS Code webview
-  exposes `globalThis.crypto.randomUUID` — the runtime feature-detect was
+  exposes `globalThis.crypto.randomUUID`. The runtime feature-detect was
   dead code.
 
 ### Fixed (test regressions surfaced post-audit)
@@ -325,14 +325,14 @@ P-03.5, P-03.6, P-03.7, P-03.10.
   fallback is stable. Closes one of the 7 `react-hooks/exhaustive-deps`
   warnings flagged by `pnpm -r lint`.
 
-### Security (devDep CVE chain — Round 2)
+### Security (devDep CVE chain, Round 2)
 
 - **`pnpm.overrides`**: forces `picomatch ≥ 4.0.4` (closes ReDoS
   GHSA-c2c7-rcm5-vvqj, transitive via `knip` → `fast-glob` →
   `micromatch` → `picomatch`) and `lodash ≥ 4.18.0` (closes code
   injection GHSA-r5fr-rjxr-66jc, transitive via `@vscode/vsce` →
-  `@secretlint`). Both are devDep-only — they don't ship in the
-  marketplace VSIX — but `pnpm audit --audit-level high` flagged them
+  `@secretlint`). Both are devDep-only (they don't ship in the
+  marketplace VSIX), but `pnpm audit --audit-level high` flagged them
   on every CI run. Resolves 6 of 17 high-severity findings (34 → 28
   total).
 
@@ -342,7 +342,7 @@ P-03.5, P-03.6, P-03.7, P-03.10.
   orphans > 0 and is wired into `pnpm validate`. CI (`.github/workflows/ci.yml`
   runs `pnpm validate`) will now fail PRs that introduce a listener /
   timer leak without a disposable sink.
-- **`test/FIXTURES-README.md`** removed (Phase 2 planning artifact —
+- **`test/FIXTURES-README.md`** removed (Phase 2 planning artifact:
   described `test/helpers/sf-mock.ts` and other paths that never got
   created; actual mocks live colocated with their consumers).
 
@@ -360,7 +360,7 @@ P-03.5, P-03.6, P-03.7, P-03.10.
   status check) and `*.bak` / `*.bak.*` (prevents recurrence of the
   stale `CLAUDE.md.bak.<unix-ts>` files the cross-cutting audit had to
   remove manually).
-- **`AUDIT.md`** prepended a deprecation banner — the v2.0.0 / 4 600-test
+- **`AUDIT.md`** prepended a deprecation banner: the v2.0.0 / 4 600-test
   numbers in the body are from 2026-02-26 and predate the public v1.2.5
   baseline. New audits live in `.planning/audit-YYYY-MM-DD-*.md`.
 - **`SECURITY.md`** (new): responsible disclosure flow for the
@@ -371,7 +371,7 @@ P-03.5, P-03.6, P-03.7, P-03.10.
   tracked via `panelSubscriptions` and disposed in `onDidDispose`).
   Audit now reports 0 orphans.
 
-### Security (post-audit hardening — 2026-05-02)
+### Security (post-audit hardening, 2026-05-02)
 
 - **CSP nonce now uses `crypto.randomBytes(24).toString('base64url')`** instead of
   `Math.random()` in `WebviewPanelManager` and `SidebarViewProvider`. The previous
@@ -421,27 +421,27 @@ P-03.5, P-03.6, P-03.7, P-03.10.
   calls in `ForgeExecutor` + `GraphDiscoveryService` carry inline
   `eslint-disable-next-line no-console` (matches existing rationale comments).
 
-### Added (Forge module — Wave 2 mini: orphan FK handling + RecordType mapping)
+### Added (Forge module, Wave 2 mini: orphan FK handling + RecordType mapping)
 
-- **`ExecuteOptions.referenceFallback: 'nullify' | 'keep'`** — controls what
+- **`ExecuteOptions.referenceFallback: 'nullify' | 'keep'`**: controls what
   happens when a reference field on a cloned record points to a record that
   was never cloned (User, Owner, an excluded parent, …). Defaults to
   `'nullify'` in scoped mode (so the insert is accepted with the FK left
   empty), `'keep'` outside scoped mode for legacy back-compat.
-- **`ExecuteOptions.recordTypeMappings`** — accepts a list of
+- **`ExecuteOptions.recordTypeMappings`**: accepts a list of
   `RecordTypeMapping` (built from the existing Sync `RecordTypeMapper`
   matched by `DeveloperName`) and applies it to every cloned record's
   `RecordTypeId` before insert. Records whose RecordTypeId has no mapping
   keep the source value (Salesforce will reject if not shared). The recipe
   pre-loads RecordTypes from both orgs and surfaces the mapping count in
   Phase B (e.g. `268 RecordType mapping(s) resolved` for MUT-UAT2 ↔ MUT-SBER).
-- **`ExecuteOptions.maxRecordsPerObject`** — optional per-object hard cap
+- **`ExecuteOptions.maxRecordsPerObject`**: optional per-object hard cap
   appended as `LIMIT N` to every scoped query. Keeps dev-sized clones
   bounded even when a node's natural scope pulls thousands of rows
   (typically `InsurancePolicyCoverage` / activity history on Mutuaide).
   Default: no cap.
 
-### Added (Forge module — Wave 2 v3: 2-pass cycle FK update)
+### Added (Forge module, Wave 2 v3: 2-pass cycle FK update)
 
 The previous waves nullified orphan FKs at insert time so cycle members
 (`Account ↔ Contact`, `Asset → Account` when Account hasn't been cloned
@@ -449,12 +449,12 @@ yet, …) wouldn't trip `INVALID_CROSS_REFERENCE_KEY`. That left the
 records correctly inserted but disconnected. Wave 2 v3 closes the
 loop with a second pass.
 
-- **`ExecutorDeps.updateRecords`** — optional dep mirroring `insertRecords`
+- **`ExecutorDeps.updateRecords`**: optional dep mirroring `insertRecords`
   but for bulk UPDATE. Production wiring uses `conn.sobject(name).update(...)`.
 - **`nullifyOrphanedFks` returns the list of nullified FKs** (field name
   + source-side ID + target object set) so the executor can replay them
   in pass 2.
-- **`pendingFkUpdates` queue** — per insert success, every nullified FK
+- **`pendingFkUpdates` queue**: per insert success, every nullified FK
   is queued with its target-org record ID. After the main loop completes,
   the executor groups updates by `(objectApiName, newId)`, looks up each
   source ref in the IdRemapper, and dispatches one batched UPDATE per
@@ -468,9 +468,9 @@ loop with a second pass.
   cycle), the no-op case (no nullified FKs), and the unresolved-FK error
   reporting.
 
-### Added (Forge module — Cross-org picklist value strip)
+### Added (Forge module, Cross-org picklist value strip)
 
-- **`FieldInfo.picklistValues`** — for picklist / multipicklist fields the
+- **`FieldInfo.picklistValues`**: for picklist / multipicklist fields the
   describe wiring now collects the *active* set of values on the target
   org. The cleaned-record step drops any source-side value that doesn't
   appear in the target's whitelist before insert, replacing the runtime
@@ -479,12 +479,12 @@ loop with a second pass.
   silent strip. Empty / missing whitelist = no validation, so non-restricted
   picklists are unaffected.
 
-### Added (Forge module — Wave 2.6 hardening from second real-org run)
+### Added (Forge module, Wave 2.6 hardening from second real-org run)
 
 Second Wave 3 run on a fresh Case (D00002635) revealed four more error
 classes; this commit fixes them all.
 
-- **`ReferenceDataMapper`** (new file) — instead of cloning canonical
+- **`ReferenceDataMapper`** (new file): instead of cloning canonical
   reference-data tables (BusinessHours, OperatingHours, ServiceOffer__c,
   ServiceTerritory…) the executor now resolves source IDs to existing
   target IDs via `WHERE Name IN (…)` (or `DeveloperName` when more
@@ -493,7 +493,7 @@ classes; this commit fixes them all.
   the first real-org run, and stops duplicating singletons. Wired into
   `ExecuteOptions.referenceDataObjects` (default
   `['BusinessHours', 'OperatingHours']`).
-- **`ExecutorDeps.isObjectCreatable`** — optional pre-flight check the
+- **`ExecutorDeps.isObjectCreatable`**: optional pre-flight check the
   executor consults before describing/querying a node. When the target
   org refuses inserts on the entity (read-only system tables like
   `CaseHistory`/`CaseHistory2`, audit logs, etc.), the node is skipped
@@ -501,10 +501,10 @@ classes; this commit fixes them all.
   treats `meta.createable !== false` as creatable to avoid false-skips
   when jsforce omits the flag.
 - **Strip Person Account `__pc` and `Name` fields when not a Person
-  Account** — `__pc`-suffixed fields and the auto-computed `Name` are
+  Account**: `__pc`-suffixed fields and the auto-computed `Name` are
   rejected on Business Account inserts (or vice-versa). The cleaned-record
   step now omits them when `IsPersonAccount !== true`.
-- **`FieldInfo.nillable`** — added to the executor field metadata so that
+- **`FieldInfo.nillable`**: added to the executor field metadata so that
   required-FK satisfiability can be reasoned about.
 - **`ExecutionObjectError.stage = 'scope'`** is now also used for
   read-only entity skips and for `ReferenceDataMapper` "unmatched" rows
@@ -516,30 +516,30 @@ Two consecutive Wave-3 runs proved the fixes work end-to-end:
 
 | Object | Wave 3 v2 | Wave 3 post-fixes |
 |---|---|---|
-| Case | ✓ inserted | DUPLICATE_VALUE on existing v2 record (expected) |
-| Contact | ✓ 50/50 | ✓ 1/1 (Person Account `Name` strip works) |
-| Account | ✗ 0/3 (`__pc`/`Name` errors) | ✓ 1/3 (Business Account succeeds; Person Account `Name` errors gone — remaining 2 fail on locale-restricted picklists, a Mutuaide-specific schema constraint) |
-| BusinessHours | ✗ FIELD_INTEGRITY (duplicate) | ✓ Mapped via reference-data lookup (1 resolved) |
-| CaseHistory2 | ✗ entity not insertable | Skipped via `isObjectCreatable` |
-| InsurancePolicy | n/a | REQUIRED_FIELD_MISSING surfaced as structured error (NameInsuredId required) — Wave 2 sampling-cap+orphan-record-skip will harden this next |
+| Case | OK inserted | DUPLICATE_VALUE on existing v2 record (expected) |
+| Contact | OK 50/50 | OK 1/1 (Person Account `Name` strip works) |
+| Account | FAIL 0/3 (`__pc`/`Name` errors) | OK 1/3 (Business Account succeeds; Person Account `Name` errors gone; remaining 2 fail on locale-restricted picklists, a Mutuaide-specific schema constraint) |
+| BusinessHours | FAIL FIELD_INTEGRITY (duplicate) | OK Mapped via reference-data lookup (1 resolved) |
+| CaseHistory2 | FAIL entity not insertable | Skipped via `isObjectCreatable` |
+| InsurancePolicy | n/a | REQUIRED_FIELD_MISSING surfaced as structured error (NameInsuredId required). Wave 2 sampling-cap+orphan-record-skip will harden this next |
 
 Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 3 new `RecordType-mapping` tests + 4 new orphan-FK tests). No regressions.
 
-### Added (Forge module — Wave 3 fixes from real-org learnings)
+### Added (Forge module, Wave 3 fixes from real-org learnings)
 
-- **Schema-drift defence** — the executor now also `describeFields` on the
+- **Schema-drift defence**: the executor now also `describeFields` on the
   *target* org and intersects with the source createable set before
   building the insert payload. Previously a custom field present on UAT2
   but missing on SBER (e.g. `TriggeringEvent2__c`) would surface as
   `INVALID_FIELD: No such column …` and fail the entire object's batch.
-- **Omit nullified FKs** — orphaned reference fields (no remap entry,
+- **Omit nullified FKs**: orphaned reference fields (no remap entry,
   e.g. `OwnerId` pointing at a User that was never cloned) are now
   *omitted* from the payload instead of being sent as explicit `null`.
   Salesforce was rejecting `OwnerId: null` with
   `INVALID_CROSS_REFERENCE_KEY: Owner ID: owner cannot be blank`; omitting
   the key lets the platform auto-assign the running user.
-- **`ExecutionSummary.errors`** + **`ForgeExecutionResult.errors`** —
+- **`ExecutionSummary.errors`** + **`ForgeExecutionResult.errors`**:
   per-object error reports `{ stage, failedCount, attemptedCount, samples }`
   surfaced from the executor up through the orchestrator and exposed in
   the `forge:execute:response` payload so the wizard can render an error
@@ -547,63 +547,63 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 
 #### Wave 3 first real-org run on Mutuaide UAT2 → MUT-SBER (Case 500AP00000fXeQsYAK)
 
-- 1st attempt: 0/52 ✓ — 3 systemic bugs found (above two + ref data).
-- 2nd attempt after fixes: **52/58 ✓ inserted on SBER** — Case (1/1),
+- 1st attempt: 0/52 inserted; 3 systemic bugs found (above two + ref data).
+- 2nd attempt after fixes: **52/58 inserted on SBER**: Case (1/1),
   Contact (50/50), GlobalContext__c (1/1). 6 remaining failures fall into
   3 known categories that map to upcoming Wave 2 hardening: Reference
   data (BusinessHours already exists → needs ReferenceDataMapper), FLS
   schema drift on Person Account `__pc` fields, and read-only system
   objects (`CaseHistory2`).
 
-### Added (Forge module — record-scoped clone, Wave 1 POC)
+### Added (Forge module, record-scoped clone, Wave 1 POC)
 
-- **`RecordScopeCache`** — per-execution cache (`Map<objectApiName, Set<recordId>>`) that records IDs collected from each wave so downstream nodes can scope their queries to the transitive closure of the root record.
-- **`ScopedSoqlBuilder`** — emits SOQL with `WHERE Id = '<rootId>'` for the root, `WHERE Id IN (...)` for objects already cached (including parent FK values seeded from earlier records), `WHERE FK IN (...)` for children of cached parents, or a zero-result query when no scoping path exists. Excluded targets (User, RecordType, ChangeEvent…) are filtered out so they never participate in scope SOQL.
-- **`ForgeExecutor` scoped + dry-run modes** — new `ExecuteOptions { rootRecordId, rootObjectApiName, dryRun }` parameter. When `rootRecordId` is set the executor switches to scoped mode: seeds the cache with the root, brings the root to the front of the topo order (so cycle waves don't starve the cache), uses `ScopedSoqlBuilder` per node, and propagates FK values from each query into the cache for multi-hop downstream scoping. `dryRun: true` runs every query but skips inserts — used by the recipe to preview cloning before any write.
-- **`FieldInfo.referenceTo`** — optional field on the executor describe contract so scope reasoning knows which parent each lookup points at (polymorphic-aware).
-- **`tools/recipe-forge-grappe.ts` Phase B** — read-only scoped dry-run report. Replaying the production executor against MUT-UAT2 → MUT-SBER for Case `500AP00000fXeQsYAK`: **261 858 records → 358** (−99.86%), 19 scoped queries, 0 write, 2 out-of-scope nodes correctly skipped.
-- **`.planning/improvements/forge-record-scoped/PLAN.md`** — roadmap for Wave 2 hardening (IN chunking, reverse-lookup propagation, cycle handling, orphan strategies, sampling cap) and Wave 3 real execution.
+- **`RecordScopeCache`**: per-execution cache (`Map<objectApiName, Set<recordId>>`) that records IDs collected from each wave so downstream nodes can scope their queries to the transitive closure of the root record.
+- **`ScopedSoqlBuilder`**: emits SOQL with `WHERE Id = '<rootId>'` for the root, `WHERE Id IN (...)` for objects already cached (including parent FK values seeded from earlier records), `WHERE FK IN (...)` for children of cached parents, or a zero-result query when no scoping path exists. Excluded targets (User, RecordType, ChangeEvent…) are filtered out so they never participate in scope SOQL.
+- **`ForgeExecutor` scoped + dry-run modes**: new `ExecuteOptions { rootRecordId, rootObjectApiName, dryRun }` parameter. When `rootRecordId` is set the executor switches to scoped mode: seeds the cache with the root, brings the root to the front of the topo order (so cycle waves don't starve the cache), uses `ScopedSoqlBuilder` per node, and propagates FK values from each query into the cache for multi-hop downstream scoping. `dryRun: true` runs every query but skips inserts, used by the recipe to preview cloning before any write.
+- **`FieldInfo.referenceTo`**: optional field on the executor describe contract so scope reasoning knows which parent each lookup points at (polymorphic-aware).
+- **`tools/recipe-forge-grappe.ts` Phase B**: read-only scoped dry-run report. Replaying the production executor against MUT-UAT2 → MUT-SBER for Case `500AP00000fXeQsYAK`: **261 858 records → 358** (−99.86%), 19 scoped queries, 0 write, 2 out-of-scope nodes correctly skipped.
+- **`.planning/improvements/forge-record-scoped/PLAN.md`**: roadmap for Wave 2 hardening (IN chunking, reverse-lookup propagation, cycle handling, orphan strategies, sampling cap) and Wave 3 real execution.
 
 ### Fixed (Forge module)
 
-- **Phantom 49-node SCC** in `GraphDiscoveryService` — `field.referenceTo` and `child.childRelationships` were emitting two edges per relationship in opposing directions, fooling Tarjan SCC into treating most of the graph as a single cycle. Edges are now unified as `parent→child` and deduped by `(source, target)`, with master-detail preferred over lookup on conflict.
-- **Wave plan ordered backwards** — `ForgePlanGenerator` was grouping by BFS depth (`node.level`), which placed Account/Contact in the *same* wave as Case (their child). Plan now groups by topological level computed via Kahn's algorithm on the included subgraph; nodes participating in a cycle are bucketed at `maxLevel + 1` so they execute after acyclic dependencies.
-- **Edges to excluded objects polluting cycle analysis** — `User`, `RecordType`, `ChangeEvent`, `History`, `Feed`, `Share` etc. were skipped from BFS traversal but still emitted as edge targets, inflating the edge count and confusing SCC. `addEdge` now filters excluded sources/targets at emission time.
+- **Phantom 49-node SCC** in `GraphDiscoveryService`: `field.referenceTo` and `child.childRelationships` were emitting two edges per relationship in opposing directions, fooling Tarjan SCC into treating most of the graph as a single cycle. Edges are now unified as `parent→child` and deduped by `(source, target)`, with master-detail preferred over lookup on conflict.
+- **Wave plan ordered backwards**: `ForgePlanGenerator` was grouping by BFS depth (`node.level`), which placed Account/Contact in the *same* wave as Case (their child). Plan now groups by topological level computed via Kahn's algorithm on the included subgraph; nodes participating in a cycle are bucketed at `maxLevel + 1` so they execute after acyclic dependencies.
+- **Edges to excluded objects polluting cycle analysis**: `User`, `RecordType`, `ChangeEvent`, `History`, `Feed`, `Share` etc. were skipped from BFS traversal but still emitted as edge targets, inflating the edge count and confusing SCC. `addEdge` now filters excluded sources/targets at emission time.
 
 ### Added (Forge module)
 
-- **`ForgeGraph.truncated` flag** — set to `true` when the BFS hit `DEFAULT_MAX_NODES` cap and the graph is incomplete; surfaced in the discovery result so callers can warn the user that some objects were skipped.
-- **`tools/recipe-forge-grappe.ts`** — read-only Phase A recipe script that replays the production discovery + plan pipeline against real orgs (sf CLI tokens), used to validate Forge behaviour against partial-copy sandboxes without writing to the target.
+- **`ForgeGraph.truncated` flag**: set to `true` when the BFS hit `DEFAULT_MAX_NODES` cap and the graph is incomplete; surfaced in the discovery result so callers can warn the user that some objects were skipped.
+- **`tools/recipe-forge-grappe.ts`**: read-only Phase A recipe script that replays the production discovery + plan pipeline against real orgs (sf CLI tokens), used to validate Forge behaviour against partial-copy sandboxes without writing to the target.
 
 ## [1.2.5] - 2026-05-02
 
-**Forge Hardening Pass** — 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows. (Entry restored — it was only recorded in `packages/extension/CHANGELOG.md`.)
+**Forge Hardening Pass**: 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows. (Entry restored; it was only recorded in `packages/extension/CHANGELOG.md`.)
 
 ### Added
 
 **Forge CLI (sandforge-clone)**
-- `--upsert` flag — use external Id upsert when available, skipping `DUPLICATE_VALUE` on re-runs of the same source records
-- `--expand-orphans` flag — single-hop expand orphan parent FKs (clones missing parents so child FKs resolve)
-- `--skip-preflight` flag — bypass the new pre-execute target row count
-- `--json` flag — machine-readable JSON summary on stdout for CI integration
-- `--exclude <obj.field>` (repeatable) — strip a specific field on a specific object before insert. BA opt-out for noisy long-text fields, calculated fields, or fields the target org doesn't have
-- `--owner-map <src=tgt>` (repeatable) — remap OwnerId from a source User Id to a target User Id. Use case: clone records authored by ex-employees onto a sandbox where their User no longer exists (otherwise INVALID_OWNER)
-- Pre-execute preflight showing existing rows in the target org for the first 30 nodes (with ⚠ flag for >1000 rows) so users know the blast radius before pulling the trigger
+- `--upsert` flag: use external Id upsert when available, skipping `DUPLICATE_VALUE` on re-runs of the same source records
+- `--expand-orphans` flag: single-hop expand orphan parent FKs (clones missing parents so child FKs resolve)
+- `--skip-preflight` flag: bypass the new pre-execute target row count
+- `--json` flag: machine-readable JSON summary on stdout for CI integration
+- `--exclude <obj.field>` (repeatable): strip a specific field on a specific object before insert. BA opt-out for noisy long-text fields, calculated fields, or fields the target org doesn't have
+- `--owner-map <src=tgt>` (repeatable): remap OwnerId from a source User Id to a target User Id. Use case: clone records authored by ex-employees onto a sandbox where their User no longer exists (otherwise INVALID_OWNER)
+- Pre-execute preflight showing existing rows in the target org for the first 30 nodes (with a warning flag for >1000 rows) so users know the blast radius before pulling the trigger
 
 **ForgeConfig (cross-sandbox dev/BA flow)**
-- `fieldExclusions: Record<string, string[]>` — per-object field skip list (Zod-validated, max 200 fields per object). Exposed via wizard config and CLI `--exclude`
-- `ownerMappings: Record<string, string>` — per-record OwnerId remap (Zod-validated, both sides must be 15/18-char Salesforce IDs, max 200 entries). Exposed via wizard config and CLI `--owner-map`
-- `objectSoqlFilters: Record<string, string>` — per-object SOQL WHERE filter appended via `AND (...)` to the scope clause. Lets BAs narrow a clone to a subset (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without changing graph topology. Zod-validated: max 512 chars per filter, max 50 filters, comment markers (`--`, `/*`, `*/`) and trailing semicolons rejected to block statement chaining. Exposed via wizard config and CLI `--filter`
-- `fieldMappings: Record<string, Record<string, string>>` — per-object source→target field rename for schema drift (managed-package re-key, namespace change, `__c`/`__pc` variant). Source key is dropped, value written under target name. Zod-validated: SF field-name regex on both sides, max 200 fields per object, max 50 objects. Exposed via wizard config and CLI `--map`
+- `fieldExclusions: Record<string, string[]>`: per-object field skip list (Zod-validated, max 200 fields per object). Exposed via wizard config and CLI `--exclude`
+- `ownerMappings: Record<string, string>`: per-record OwnerId remap (Zod-validated, both sides must be 15/18-char Salesforce IDs, max 200 entries). Exposed via wizard config and CLI `--owner-map`
+- `objectSoqlFilters: Record<string, string>`: per-object SOQL WHERE filter appended via `AND (...)` to the scope clause. Lets BAs narrow a clone to a subset (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without changing graph topology. Zod-validated: max 512 chars per filter, max 50 filters, comment markers (`--`, `/*`, `*/`) and trailing semicolons rejected to block statement chaining. Exposed via wizard config and CLI `--filter`
+- `fieldMappings: Record<string, Record<string, string>>`: per-object source→target field rename for schema drift (managed-package re-key, namespace change, `__c`/`__pc` variant). Source key is dropped, value written under target name. Zod-validated: SF field-name regex on both sides, max 200 fields per object, max 50 objects. Exposed via wizard config and CLI `--map`
 
 **ForgeOrchestrator**
-- `dispose()` method — clears the discovery cache and listeners on extension shutdown / org disconnect
+- `dispose()` method: clears the discovery cache and listeners on extension shutdown / org disconnect
 
 **ForgeHandler**
-- New `forge:target-preflight:request` message type — webview can request per-object existing-row counts on the target before execute. Backend uses sequential SELECT COUNT() (parallel bursts trip rate limits on big orgs), 30 s timeout, max 100 objects per request, sentinel `existing: -1` for per-object failures so the whole batch isn't aborted by FLS issues. Powers the same preflight surface as the CLI
+- New `forge:target-preflight:request` message type: webview can request per-object existing-row counts on the target before execute. Backend uses sequential SELECT COUNT() (parallel bursts trip rate limits on big orgs), 30 s timeout, max 100 objects per request, sentinel `existing: -1` for per-object failures so the whole batch isn't aborted by FLS issues. Powers the same preflight surface as the CLI
 
 **ExecutionSummary.remapTable**
-- New `remapTable: Record<string, string>` field on every execute summary — the full source→target ID mapping table. BA reconciliation: post-clone audit, "where did source X go on the target sandbox?", CSV export, checkpoint persistence
+- New `remapTable: Record<string, string>` field on every execute summary: the full source→target ID mapping table. BA reconciliation: post-clone audit, "where did source X go on the target sandbox?", CSV export, checkpoint persistence
 - CLI: new `--remap-csv <file>` flag writes `sourceId,targetId` CSV (double-quoted, one mapping per row, header included)
 - CLI: `--json` output now embeds `result.remapTable` for CI consumers
 
@@ -623,7 +623,7 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 - `ForgeOrchestrator.cacheKeyFor` includes `targetOrgId`, `anonymizePII`, `expandOrphanParents`, `maxRecordsPerObject` so cache hits never silently swap configurations
 
 **Forge performance**
-- `ForgePlanGenerator` Tarjan SCC rewritten as iterative — no stack overflow on deep graphs (5000+ node chain verified)
+- `ForgePlanGenerator` Tarjan SCC rewritten as iterative: no stack overflow on deep graphs (5000+ node chain verified)
 - `SchemaCache.estimateSize` now uses an O(1) structural heuristic (fields × 250 + childRel × 150) instead of `JSON.stringify`; `describeCache` byte cap restored to 200 MB, `describeGlobalCache` to 50 MB (eliminates the OOM risk introduced by the previous Infinity workaround while keeping the event loop unblocked)
 - `GraphDiscoveryService` adds `setImmediate`-based event-loop yield between BFS waves, with `setTimeout(0)` polyfill for non-Node test environments
 - Cold path breadcrumb (warns when `resolveRootObject` exceeds 2 s)
@@ -637,7 +637,7 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 - Orphan expand syncs the scope cache so multi-hop children that pivot through the expanded parent stay in scope
 - `pickUpsertField` logs the chosen field and falls back to insert (instead of an unsafe alphabetical pick) when no candidate is non-null + unique across the batch
 - `summarizeRecordForError` handles `undefined` and objects via JSON.stringify-truncated output
-- `EXPANSION_EXCLUDED_OBJECTS` now mirrors the BFS-side exclusion list (BusinessProcess, DandBCompany, ProcessInstance, …) — orphan-expand stops burning API on system-managed entities
+- `EXPANSION_EXCLUDED_OBJECTS` now mirrors the BFS-side exclusion list (BusinessProcess, DandBCompany, ProcessInstance, …), so orphan-expand stops burning API on system-managed entities
 - `sandforge-clone` CLI forces `referenceFallback='nullify'` (was 'keep' by default, which preserved invalid source IDs on cross-org clones)
 
 **Forge UX**
@@ -647,11 +647,11 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 
 ### Fixed
 
-- Tests: `recordId` test fixtures across `ForgeHandler.test.ts`, `ForgeOrchestrator.test.ts`, `GraphDiscoveryService.test.ts`, and `forge.schema.test.ts` now use 15-char strict IDs to satisfy the new regex (no behavior change — they were stand-ins anyway)
+- Tests: `recordId` test fixtures across `ForgeHandler.test.ts`, `ForgeOrchestrator.test.ts`, `GraphDiscoveryService.test.ts`, and `forge.schema.test.ts` now use 15-char strict IDs to satisfy the new regex (no behavior change; they were stand-ins anyway)
 
 ## [1.2.4] - 2026-04-23
 
-**Milestone v1.2.3 « Scale & Complete » — shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone (7 phases, 18 plans, 50 requirements), tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry restored from the `v1.2.4` tag message.)
+**Milestone v1.2.3 « Scale & Complete », shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone (7 phases, 18 plans, 50 requirements), tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry restored from the `v1.2.4` tag message.)
 
 - Three seed modes: AI Personas (10 industry personas), CSV Import (drag-and-drop + validation), Clone from Org (topological insert + ID mapping)
 - Real-time sync lifecycle: CDC subscriptions, conflict resolution UI, execution history, cron scheduling
@@ -663,7 +663,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.2.3] - 2026-03-28
 
-**Scale & Complete** — Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
+**Scale & Complete**: Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
 
 ### Added
 
@@ -774,7 +774,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.2.2] - 2026-03-27
 
-**Adoption-First: Sync & Seed Polish** — Making it dead simple to populate any Salesforce sandbox.
+**Adoption-First: Sync & Seed Polish**: one-click sync and seed flows to populate a Salesforce sandbox.
 
 ### Added
 
@@ -823,7 +823,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.2.1] - 2026-03-26
 
-**Monitor Enrichment & Wiring** — Live backend services, alerting, and governance.
+**Monitor Enrichment & Wiring**: Live backend services, alerting, and governance.
 
 ### Added
 
@@ -853,7 +853,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.2.0] - 2026-03-20
 
-**Forge UX & Reliability** — Bug fixes, UX polish, performance, accessibility.
+**Forge UX & Reliability**: Bug fixes, UX polish, performance, accessibility.
 
 ### Fixed
 
@@ -898,7 +898,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.1.0] - 2026-03-19
 
-**Stabilisation & Real-World Readiness** — Every module working end-to-end.
+**Stabilisation & Real-World Readiness**: Every module working end-to-end.
 
 ### Fixed
 
@@ -916,7 +916,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 ## [1.0.0] - 2026-03-17
 
-**Marketplace-Ready Release** — First public version.
+**Marketplace-Ready Release**: First public version.
 
 ### Added
 

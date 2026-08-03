@@ -1,4 +1,4 @@
-# 0001 — pnpm 11 settings migration
+# 0001: pnpm 11 settings migration
 
 **Status:** Accepted
 **Date:** 2026-08-03
@@ -18,7 +18,7 @@ contributors' pnpm clients made these settings behave inconsistently.
 
 - Pin the package manager: `"packageManager": "pnpm@11.18.0"` in the root
   `package.json`, plus `"engines": { "pnpm": ">=11" }`. Corepack /
-  `pnpm/action-setup@v4` both honor the pin — CI takes its pnpm version
+  `pnpm/action-setup@v4` both honor the pin. CI takes its pnpm version
   from the `packageManager` field, never from a workflow-level hardcode.
 - Keep all pnpm settings in `pnpm-workspace.yaml`:
   - `allowBuilds` (pnpm 11 spelling) approves `esbuild`, `keytar`,
@@ -38,5 +38,5 @@ contributors' pnpm clients made these settings behave inconsistently.
   fail fast instead of silently mis-resolving.
 - One file (`pnpm-workspace.yaml`) is the single place to audit for
   dependency policy; CI and local installs cannot diverge on pnpm version.
-- Changing an override is a deliberate, reviewable diff — that is the
+- Changing an override is a deliberate, reviewable diff: that is the
   point.

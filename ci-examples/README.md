@@ -1,6 +1,6 @@
 # SandForge CI/CD Examples
 
-Ready-to-use CI/CD pipeline configurations for automating what SandForge **actually ships** — no fictional CLI commands.
+Ready-to-use CI/CD pipeline configurations for automating what SandForge **actually ships**: no fictional CLI commands.
 
 ## What exists (and what doesn't)
 
@@ -18,7 +18,7 @@ Both scripts:
 - are invoked as `pnpm exec tsx packages/extension/cli/sandforge-<name>.ts ...`
 - delegate org authentication to the **Salesforce CLI** (`sf org display --target-org <alias>`), so `sf` must be installed and both orgs must be authenticated (in CI: `sf org login sfdxurl` with an `SFDX_AUTH_URL_*` secret)
 - require `pnpm install` + `pnpm build:shared` to have run first (they import `@sandforge/shared` and extension sources)
-- support `--dry-run` — the pipelines default to it so nothing is written unless you opt in
+- support `--dry-run`: the pipelines default to it so nothing is written unless you opt in
 
 ## Available Examples
 
@@ -31,10 +31,10 @@ Both scripts:
 
 Every pipeline implements the same four stages:
 
-1. **Quality gates** — `pnpm typecheck`, `pnpm test`, `pnpm build:extension` (minified esbuild bundle)
-2. **Clone** — `sandforge-clone.ts --dry-run --json --remap-csv` against sf-authenticated orgs (skipped unless org secrets are configured)
-3. **Cleanup** — `sandforge-cleanup.ts --dry-run` on the target sandbox
-4. **VSIX package** — `pnpm package`, uploaded/archived as an artifact
+1. **Quality gates**: `pnpm typecheck`, `pnpm test`, `pnpm build:extension` (minified esbuild bundle)
+2. **Clone**: `sandforge-clone.ts --dry-run --json --remap-csv` against sf-authenticated orgs (skipped unless org secrets are configured)
+3. **Cleanup**: `sandforge-cleanup.ts --dry-run` on the target sandbox
+4. **VSIX package**: `pnpm package`, uploaded/archived as an artifact
 
 ## Setup
 
@@ -50,7 +50,7 @@ The clone/cleanup stages authenticate via the Salesforce CLI. Store **sfdx auth 
 | `SF_CLONE_RECORD_ID` | Salesforce record Id to clone (15/18-char, e.g. `500...`) |
 | `SLACK_WEBHOOK_URL` | (Optional) Slack webhook for failure alerts |
 
-If `SANDFORGE_SF_ORGS` is not set, the pipelines still run quality gates and the VSIX package — the org-touching stages are skipped.
+If `SANDFORGE_SF_ORGS` is not set, the pipelines still run quality gates and the VSIX package; the org-touching stages are skipped.
 
 ### 2. Platform-specific instructions
 
@@ -96,12 +96,12 @@ All pipelines default to dry-run (no writes):
 Pipelines are scheduled every Monday at 6 AM UTC. Adjust the cron expression to your needs.
 
 ### Building only the VSIX
-The `package` stage is independent of org credentials — it always runs `pnpm package` (build shared → extension → webview → `vsce package`) and publishes `sandforge.vsix`.
+The `package` stage is independent of org credentials: it always runs `pnpm package` (build shared → extension → webview → `vsce package`) and publishes `sandforge.vsix`.
 
 ## Security Best Practices
 
-1. **Never commit credentials** — use platform-native secrets management
+1. **Never commit credentials**: use platform-native secrets management
 2. **Rotate sfdx auth URLs** regularly, especially after team changes
-3. **Use sandbox-only credentials** — never connect to production orgs in CI/CD
-4. **Keep dry-run on by default** — flip it off only for deliberate, reviewed runs
+3. **Use sandbox-only credentials**: never connect to production orgs in CI/CD
+4. **Keep dry-run on by default**: flip it off only for deliberate, reviewed runs
 5. **Enable audit logging** in your Salesforce orgs to track CI/CD operations
