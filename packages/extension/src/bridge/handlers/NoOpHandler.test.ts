@@ -1,11 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { NoOpHandler } from './NoOpHandler';
 import type { BaseMessage } from '@sandforge/shared';
+import { createMockBroker } from '../../test/mockFactories.js';
 
 function createMockDeps() {
   let idCounter = 0;
   return {
-    broker: { postToWebview: vi.fn() },
+    broker: createMockBroker(),
     nextId: () => `noop-${++idCounter}`,
   };
 }

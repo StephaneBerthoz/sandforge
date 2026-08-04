@@ -24,7 +24,7 @@ describe('SeedGrappeAdapter', () => {
 
   beforeEach(() => {
     idCounter = 0;
-    generateId = vi.fn<GenerateIdFn>(() => {
+    generateId = vi.fn<Parameters<GenerateIdFn>, ReturnType<GenerateIdFn>>(() => {
       idCounter++;
       return `gid-${idCounter}`;
     });

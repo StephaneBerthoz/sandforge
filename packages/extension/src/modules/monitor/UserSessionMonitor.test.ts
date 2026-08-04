@@ -40,7 +40,9 @@ describe('UserSessionMonitor', () => {
   let querySessions: QuerySessionsFn;
 
   beforeEach(() => {
-    querySessions = vi.fn<QuerySessionsFn>().mockResolvedValue(createMockSessions());
+    querySessions = vi
+      .fn<Parameters<QuerySessionsFn>, ReturnType<QuerySessionsFn>>()
+      .mockResolvedValue(createMockSessions());
     monitor = new UserSessionMonitor(querySessions);
   });
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyncScheduleExecutor } from './SyncScheduleExecutor';
 import type { SyncScheduleExecutorDeps } from './SyncScheduleExecutor';
+import type { SyncScheduleStore } from './SyncScheduleStore';
 import type { SyncScheduleEntry, SyncConfig, SyncExecutionResult } from '@sandforge/shared';
 
 /** Fixed "now" time for deterministic tests: 2026-03-27T12:00:00Z */
@@ -61,13 +62,14 @@ function createSuccessResult(): SyncExecutionResult {
 
 function createMockDeps(overrides?: Partial<SyncScheduleExecutorDeps>): SyncScheduleExecutorDeps {
   return {
+    // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
     scheduleStore: {
       loadAll: vi.fn(() => []),
       save: vi.fn(),
       load: vi.fn(),
       delete: vi.fn(() => true),
       list: vi.fn(() => []),
-    },
+    } as unknown as SyncScheduleStore,
     configStore: {
       load: vi.fn(() => createSyncConfig()),
     },
@@ -163,13 +165,14 @@ describe('SyncScheduleExecutor', () => {
         enabled: true,
       });
       deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
         scheduleStore: {
           loadAll: vi.fn(() => [entry]),
           save: vi.fn(),
           load: vi.fn(),
           delete: vi.fn(() => true),
           list: vi.fn(() => [entry]),
-        },
+        } as unknown as SyncScheduleStore,
       });
       executor = new SyncScheduleExecutor(deps);
       executor.start();
@@ -190,13 +193,14 @@ describe('SyncScheduleExecutor', () => {
         nextRunAt: '2026-03-27T09:00:00.000Z',
       });
       deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
         scheduleStore: {
           loadAll: vi.fn(() => [entry]),
           save: vi.fn(),
           load: vi.fn(),
           delete: vi.fn(() => true),
           list: vi.fn(() => [entry]),
-        },
+        } as unknown as SyncScheduleStore,
       });
       executor = new SyncScheduleExecutor(deps);
       executor.start();
@@ -212,13 +216,14 @@ describe('SyncScheduleExecutor', () => {
         enabled: true,
       });
       deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
         scheduleStore: {
           loadAll: vi.fn(() => [entry]),
           save: vi.fn(),
           load: vi.fn(),
           delete: vi.fn(() => true),
           list: vi.fn(() => [entry]),
-        },
+        } as unknown as SyncScheduleStore,
       });
       executor = new SyncScheduleExecutor(deps);
       executor.start();
@@ -237,13 +242,14 @@ describe('SyncScheduleExecutor', () => {
 
       const storeSave = vi.fn();
       deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
         scheduleStore: {
           loadAll: vi.fn(() => [entry]),
           save: storeSave,
           load: vi.fn(),
           delete: vi.fn(() => true),
           list: vi.fn(() => [entry]),
-        },
+        } as unknown as SyncScheduleStore,
         now: vi.fn(() => FIXED_NOW),
       });
       executor = new SyncScheduleExecutor(deps);
@@ -301,13 +307,14 @@ describe('SyncScheduleExecutor', () => {
         nextRunAt: '2026-03-27T09:00:00.000Z',
       });
       deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
         scheduleStore: {
           loadAll: vi.fn(() => [entry]),
           save: vi.fn(),
           load: vi.fn(),
           delete: vi.fn(() => true),
           list: vi.fn(() => [entry]),
-        },
+        } as unknown as SyncScheduleStore,
       });
       executor = new SyncScheduleExecutor(deps);
       executor.start();
@@ -335,13 +342,14 @@ describe('SyncScheduleExecutor', () => {
         throw new Error('Connection timeout');
       });
       deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
         scheduleStore: {
           loadAll: vi.fn(() => [entry]),
           save: vi.fn(),
           load: vi.fn(),
           delete: vi.fn(() => true),
           list: vi.fn(() => [entry]),
-        },
+        } as unknown as SyncScheduleStore,
         onExecute: failingExecute,
       });
       executor = new SyncScheduleExecutor(deps);
@@ -369,13 +377,14 @@ describe('SyncScheduleExecutor', () => {
   describe('start/stop', () => {
     it('should be idempotent when calling start multiple times', () => {
       deps = createMockDeps({
+        // Partial mock: SyncScheduleStore's private configStore ctor member can't be structurally mocked
         scheduleStore: {
           loadAll: vi.fn(() => []),
           save: vi.fn(),
           load: vi.fn(),
           delete: vi.fn(() => true),
           list: vi.fn(() => []),
-        },
+        } as unknown as SyncScheduleStore,
       });
       executor = new SyncScheduleExecutor(deps);
 

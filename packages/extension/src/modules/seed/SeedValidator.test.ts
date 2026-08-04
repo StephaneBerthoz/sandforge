@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { SeedValidator } from './SeedValidator';
 import type { SeedTemplate } from '@sandforge/shared';
 

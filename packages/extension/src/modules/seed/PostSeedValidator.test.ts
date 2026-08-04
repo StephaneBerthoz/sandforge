@@ -30,10 +30,12 @@ describe('PostSeedValidator', () => {
   let queryRecords: QueryRecordsFn;
 
   beforeEach(() => {
-    queryRecords = vi.fn<QueryRecordsFn>().mockResolvedValue({
-      records: [{ Id: '001A' }, { Id: '001B' }, { Id: '001C' }],
-      totalSize: 3,
-    });
+    queryRecords = vi
+      .fn<Parameters<QueryRecordsFn>, ReturnType<QueryRecordsFn>>()
+      .mockResolvedValue({
+        records: [{ Id: '001A' }, { Id: '001B' }, { Id: '001C' }],
+        totalSize: 3,
+      });
     validator = new PostSeedValidator(queryRecords);
   });
 

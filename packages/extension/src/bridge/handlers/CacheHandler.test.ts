@@ -2,11 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CacheHandler } from './CacheHandler';
 import { CacheManager } from '../../core/cache/CacheManager';
 import type { BaseMessage } from '@sandforge/shared';
+import { createMockBroker } from '../../test/mockFactories.js';
 
 function createDeps() {
   return {
     nextId: vi.fn(() => 'test-id'),
-    broker: { postToWebview: vi.fn() },
+    broker: createMockBroker(),
     log: vi.fn(),
   };
 }

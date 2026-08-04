@@ -18,7 +18,7 @@ describe('AIDataGenerator', () => {
 
   beforeEach(() => {
     callAI = vi
-      .fn<CallAIFn>()
+      .fn<Parameters<CallAIFn>, ReturnType<CallAIFn>>()
       .mockResolvedValue(JSON.stringify([{ Name: 'Acme Corp' }, { Name: 'Globex Inc' }]));
     generator = new AIDataGenerator(callAI);
   });

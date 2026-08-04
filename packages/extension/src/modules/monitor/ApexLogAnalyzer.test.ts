@@ -22,7 +22,7 @@ describe('ApexLogAnalyzer', () => {
 
   beforeEach(() => {
     fetchLogs = vi
-      .fn<FetchLogsFn>()
+      .fn<Parameters<FetchLogsFn>, ReturnType<FetchLogsFn>>()
       .mockResolvedValue([
         createMockLog({ id: 'log-1', durationMs: 1000, logSize: 5000 }),
         createMockLog({ id: 'log-2', durationMs: 8000, logSize: 60000 }),

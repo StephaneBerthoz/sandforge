@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import {
   ErrorResolver,
   type AIProvider,
@@ -36,11 +36,13 @@ function createMockAIResolution(overrides?: Partial<ErrorResolution>): string {
 }
 
 describe('ErrorResolver', () => {
-  let mockProvider: ReturnType<typeof vi.fn<AIProvider>>;
+  let mockProvider: Mock<Parameters<AIProvider>, ReturnType<AIProvider>>;
   let resolver: ErrorResolver;
 
   beforeEach(() => {
-    mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockAIResolution());
+    mockProvider = vi
+      .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+      .mockResolvedValue(createMockAIResolution());
     resolver = new ErrorResolver(mockProvider);
   });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AutopilotHandler } from './AutopilotHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
@@ -87,10 +87,8 @@ function scanMsg(id: string): BaseMessage {
 
 /** Extracts all messages posted to the webview. */
 function postedMessages(deps: HandlerDeps): Array<BaseMessage & { correlationId?: string }> {
-  const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-  return postToWebview.mock.calls.map(
-    (call: [BaseMessage & { correlationId?: string }]) => call[0],
-  );
+  const postToWebview = deps.broker.postToWebview as Mock<[BaseMessage], void>;
+  return postToWebview.mock.calls.map((call) => call[0]);
 }
 
 describe('AutopilotHandler', () => {
@@ -286,7 +284,7 @@ describe('AutopilotHandler', () => {
       payload: { complianceFramework: 'gdpr' },
     } as BaseMessage);
 
-    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    const postToWebview = deps.broker.postToWebview as Mock<[BaseMessage], void>;
     postToWebview.mockClear();
 
     // Execute
@@ -301,14 +299,11 @@ describe('AutopilotHandler', () => {
 
     // Expect: 2 processing + 2 completed/failed + 1 autopilot:completed = 5 calls
     const allCalls = postToWebview.mock.calls.map(
-      (
-        call: [
-          BaseMessage & {
-            correlationId?: string;
-            payload: { status?: string; objectName?: string };
-          },
-        ],
-      ) => call[0],
+      (call) =>
+        call[0] as BaseMessage & {
+          correlationId?: string;
+          payload: { status?: string; objectName?: string };
+        },
     );
 
     // Filter node-progress messages

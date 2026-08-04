@@ -43,7 +43,6 @@ function toCleaned(records: Record<string, unknown>[]): CleanedRecord[] {
 }
 
 function makeInput(
-  deps: WriterDeps,
   records: Record<string, unknown>[],
   overrides?: Partial<WriteNodeInput>,
 ): WriteNodeInput {
@@ -56,8 +55,8 @@ function makeInput(
     upsertMode: 'off',
     targetOrgId: 'tgt',
     remapper: new IdRemapper(),
-    waitIfPaused: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-    onProgress: vi.fn<(e: ForgeProgressEvent) => void>(),
+    waitIfPaused: vi.fn<[], Promise<void>>().mockResolvedValue(undefined),
+    onProgress: vi.fn<[e: ForgeProgressEvent], void>(),
     ...overrides,
   };
 }
@@ -65,7 +64,7 @@ function makeInput(
 function makeDeps(insertImpl?: InsertImpl): WriterDeps {
   return {
     insertRecords: vi
-      .fn<WriterDeps['insertRecords']>()
+      .fn<Parameters<InsertImpl>, ReturnType<InsertImpl>>()
       .mockImplementation(
         insertImpl ??
           (async (_orgId, _obj, recs) =>
@@ -75,12 +74,13 @@ function makeDeps(insertImpl?: InsertImpl): WriterDeps {
 }
 
 type InsertImpl = WriterDeps['insertRecords'];
+type UpsertFn = NonNullable<WriterDeps['upsertRecords']>;
 
 describe('BatchWriter', () => {
   it('splits records into REST batches of 200 and checkpoints between batches', async () => {
     const records = Array.from({ length: 500 }, (_, i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
     const deps = makeDeps();
-    const input = makeInput(deps, records);
+    const input = makeInput(records);
     const result = await new BatchWriter(deps).writeNode(input);
 
     expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[2].length)).toEqual([
@@ -107,7 +107,7 @@ describe('BatchWriter', () => {
         nullifiedFks: [{ field: 'ContactId', sourceRefId: '003OLD', targetObjects: ['Contact'] }],
       },
     ];
-    const input = makeInput(deps, [{ Id: '001OLD1', Name: 'A' }], {
+    const input = makeInput([{ Id: '001OLD1', Name: 'A' }], {
       records: [{ Name: 'A' }],
       cleanedRecords,
     });
@@ -127,7 +127,7 @@ describe('BatchWriter', () => {
 
   it('counts API-truncated results as failures with an explicit sample', async () => {
     const deps = makeDeps(async () => [{ id: '001NEW0', success: true, errors: [] }]);
-    const input = makeInput(deps, [
+    const input = makeInput([
       { Id: '001A', Name: 'A' },
       { Id: '001B', Name: 'B' },
     ]);
@@ -143,7 +143,7 @@ describe('BatchWriter', () => {
       recs.map(() => ({ id: '', success: false, errors: ['FAIL'] })),
     );
     const records = Array.from({ length: 10 }, (_, i) => ({ Id: `001${i}`, Name: `R${i}` }));
-    const result = await new BatchWriter(deps).writeNode(makeInput(deps, records));
+    const result = await new BatchWriter(deps).writeNode(makeInput(records));
 
     expect(result.failureCount).toBe(10);
     expect(result.errorSamples).toHaveLength(3);
@@ -151,7 +151,7 @@ describe('BatchWriter', () => {
 
   it('upserts on a unique external Id field when upsertMode=auto', async () => {
     const upsertRecords = vi
-      .fn<NonNullable<WriterDeps['upsertRecords']>>()
+      .fn<Parameters<UpsertFn>, ReturnType<UpsertFn>>()
       .mockResolvedValue([{ id: '001UP1', success: true, errors: [] }]);
     const deps: WriterDeps = { ...makeDeps(), upsertRecords };
     const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
@@ -165,7 +165,7 @@ describe('BatchWriter', () => {
         externalId: true,
       },
     ];
-    const input = makeInput(deps, [{ Id: '001OLD', ExternalKey__c: 'KEY-1' }], {
+    const input = makeInput([{ Id: '001OLD', ExternalKey__c: 'KEY-1' }], {
       records: [{ ExternalKey__c: 'KEY-1' }],
       cleanedRecords: [
         {
@@ -189,7 +189,7 @@ describe('BatchWriter', () => {
   });
 
   it('falls back to insert when no external Id candidate is unique across the batch', async () => {
-    const upsertRecords = vi.fn<NonNullable<WriterDeps['upsertRecords']>>().mockResolvedValue([]);
+    const upsertRecords = vi.fn<Parameters<UpsertFn>, ReturnType<UpsertFn>>().mockResolvedValue([]);
     const deps: WriterDeps = { ...makeDeps(), upsertRecords };
     const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const fields: FieldInfo[] = [
@@ -206,7 +206,7 @@ describe('BatchWriter', () => {
       { Id: '001A', ExternalKey__c: 'SAME' },
       { Id: '001B', ExternalKey__c: 'SAME' },
     ];
-    const input = makeInput(deps, dupes, {
+    const input = makeInput(dupes, {
       records: dupes.map((d) => ({ ExternalKey__c: d.ExternalKey__c })),
       fieldInfos: fields,
       creatableFields: new Set(['ExternalKey__c']),

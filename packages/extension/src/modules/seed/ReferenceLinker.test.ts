@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ReferenceLinker } from './ReferenceLinker';
 import type { SeedObjectConfig } from '@sandforge/shared';
 

@@ -38,7 +38,7 @@ describe('MetricBus', () => {
   describe('Test 1 — type-narrowed subscribe', () => {
     it('invokes a typed handler synchronously on emit', () => {
       const bus = new MetricBus();
-      const handler = vi.fn<(payload: MetricSample) => void>();
+      const handler = vi.fn<[payload: MetricSample], void>();
       bus.subscribe('monitor:metric', handler);
       const sample = buildSample();
       const ok = bus.emit('monitor:metric', sample);
@@ -220,24 +220,26 @@ describe('MetricBus', () => {
   describe('Test 7 — exhaustiveness compile guard (P-03.8)', () => {
     it('documents the assertNever pattern so adding a new discriminant fails the build', () => {
       // This test does not assert at runtime — its value is the comment +
-      // the @ts-expect-error guard below, which forces any future
-      // contributor to add a routing case in MetricBus.routeToBridge() before
-      // the union grows. The runtime expectation is just that assertNever
-      // throws — covered by the shared package's MetricEvent.test.ts.
+      // the exhaustiveness probe below, which documents the assertNever
+      // pattern: in real routing code an unhandled discriminant fails the
+      // `never` assignment, forcing any future contributor to add a routing
+      // case in MetricBus.routeToBridge() before the union grows. The
+      // runtime expectation is just that assertNever throws — covered by the
+      // shared package's MetricEvent.test.ts.
       //
-      // If this @ts-expect-error stops erroring, it means a new event type
-      // was added to MetricEventTypeMap WITHOUT updating the routing switch
-      // — fix MetricBus.routeToBridge() before regenerating this comment.
+      // If a new event type is added to MetricEventTypeMap WITHOUT updating
+      // the routing switch, that same `never` assignment in
+      // MetricBus.routeToBridge() stops compiling.
       const exhaustivenessProbe = (type: 'monitor:metric' | 'monitor:bogus:not-real') => {
         switch (type) {
           case 'monitor:metric':
             return 'ok';
-          // @ts-expect-error — the rogue branch is intentionally unhandled to
-          // illustrate that assertNever() catches missing cases at build time.
-          // If TypeScript ever stops complaining here, the union changed and
-          // MetricBus.routeToBridge() needs the same case added.
+          // The rogue branch is intentionally unhandled to illustrate the
+          // assertNever() pattern; the cast keeps this probe compiling while
+          // real routing code (MetricBus.routeToBridge()) would fail the
+          // build on a missing case.
           default: {
-            const x: never = type;
+            const x: never = type as never;
             return x;
           }
         }

@@ -18,7 +18,9 @@ describe('LimitsTracker', () => {
   let queryLimits: QueryLimitsFn;
 
   beforeEach(() => {
-    queryLimits = vi.fn<QueryLimitsFn>().mockResolvedValue(createMockLimits());
+    queryLimits = vi
+      .fn<Parameters<QueryLimitsFn>, ReturnType<QueryLimitsFn>>()
+      .mockResolvedValue(createMockLimits());
     tracker = new LimitsTracker(queryLimits);
   });
 

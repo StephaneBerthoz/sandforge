@@ -5,7 +5,7 @@ import type {
   AIRunToolsResult,
   AICompleteResult,
 } from '../../../adapters/ai/AIClient.js';
-import type { DiagnoseResult } from '@sandforge/shared';
+import type { DiagnoseResultSchema } from '@sandforge/shared';
 import { AIDiagnoseHandler, type DiagnoseBroker } from './AIDiagnoseHandler.js';
 
 const zeroUsage = () => ({ input: 0, output: 0, cacheRead: 0, cacheCreate: 0, total: 0 });
@@ -29,7 +29,7 @@ function makeClient(overrides: {
   const complete =
     overrides.complete ??
     vi.fn(
-      async (): Promise<AICompleteResult<DiagnoseResult>> => ({
+      async (): Promise<AICompleteResult<typeof DiagnoseResultSchema>> => ({
         payload: {
           summary: 'demo',
           rootCause: 'demo cause',

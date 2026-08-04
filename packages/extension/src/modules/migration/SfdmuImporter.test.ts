@@ -43,6 +43,7 @@ function createRealisticSfdmuExport(): SfdmuExport {
       {
         query: 'SELECT Id, Subject, Status FROM Case',
         operation: 'Readonly',
+        externalId: 'Id',
         objectName: 'Case',
         master: true,
         excludedFields: [],

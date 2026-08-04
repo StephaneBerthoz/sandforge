@@ -5,6 +5,7 @@ import type {
   AutopilotNodeProgressEvent,
   AutopilotNodeFailedEvent,
   ApiName,
+  ExecutionPlan,
 } from '@sandforge/shared';
 import {
   AutopilotExecutor,
@@ -61,6 +62,7 @@ function makePlan(
         preserve_format: 0,
         age_band: 0,
         generalize: 0,
+        constant: 0,
       },
       objectsWithPii: [],
     },

@@ -23,7 +23,7 @@ describe('MessageRouter', () => {
 
   describe('route', () => {
     it('should register a handler on the broker for the given type', () => {
-      const handler = vi.fn<MessageHandler>();
+      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
       router.route('org:list', handler);
 
       const brokerOnSpy = vi.spyOn(broker, 'on');
@@ -45,7 +45,7 @@ describe('MessageRouter', () => {
 
   describe('routePrefix', () => {
     it('should register handlers only for types matching the prefix', () => {
-      const handler = vi.fn<MessageHandler>();
+      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
       const types = ['org:list', 'org:connect', 'seed:execute', 'org:disconnect'];
 
       router.routePrefix('org:', types, handler);
@@ -54,7 +54,7 @@ describe('MessageRouter', () => {
     });
 
     it('should not register any routes if no types match the prefix', () => {
-      const handler = vi.fn<MessageHandler>();
+      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
       const types = ['seed:execute', 'sync:execute'];
 
       router.routePrefix('org:', types, handler);
@@ -65,9 +65,9 @@ describe('MessageRouter', () => {
 
   describe('routeAll', () => {
     it('should register handlers for all provided type-handler pairs', () => {
-      const orgHandler = vi.fn<MessageHandler>();
-      const seedHandler = vi.fn<MessageHandler>();
-      const syncHandler = vi.fn<MessageHandler>();
+      const orgHandler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const seedHandler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const syncHandler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
 
       router.routeAll({
         'org:list': orgHandler,
@@ -79,8 +79,8 @@ describe('MessageRouter', () => {
     });
 
     it('should dispatch messages to the correct handlers via the broker', () => {
-      const orgHandler = vi.fn<MessageHandler>();
-      const seedHandler = vi.fn<MessageHandler>();
+      const orgHandler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const seedHandler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
 
       router.routeAll({
         'org:list': orgHandler,
@@ -112,7 +112,7 @@ describe('MessageRouter', () => {
 
   describe('dispose', () => {
     it('should unsubscribe all registered routes from the broker', () => {
-      const handler = vi.fn<MessageHandler>();
+      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
       router.route('org:list', handler);
       router.route('seed:execute', handler);
 
@@ -124,7 +124,7 @@ describe('MessageRouter', () => {
     });
 
     it('should prevent disposed routes from receiving messages', () => {
-      const handler = vi.fn<MessageHandler>();
+      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
       router.route('org:list', handler);
 
       router.dispose();

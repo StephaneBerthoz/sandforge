@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { NL2SOQL, type AIProvider, type SchemaContext, type NL2SOQLResult } from './NL2SOQL';
 
 const MOCK_SCHEMA: SchemaContext = {
@@ -39,11 +39,13 @@ function createMockAIResponse(overrides?: Partial<NL2SOQLResult>): string {
 }
 
 describe('NL2SOQL', () => {
-  let mockProvider: ReturnType<typeof vi.fn<AIProvider>>;
+  let mockProvider: Mock<Parameters<AIProvider>, ReturnType<AIProvider>>;
   let converter: NL2SOQL;
 
   beforeEach(() => {
-    mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockAIResponse());
+    mockProvider = vi
+      .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+      .mockResolvedValue(createMockAIResponse());
     converter = new NL2SOQL(mockProvider);
   });
 

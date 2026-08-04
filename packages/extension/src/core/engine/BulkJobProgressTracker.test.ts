@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BulkJobProgressTracker } from './BulkJobProgressTracker';
 import { BulkApiManager } from './BulkApiManager';
 import type { BulkJobInfo } from './BulkApiManager';
+import type { BulkExecutionProgress } from '@sandforge/shared';
 
 function createJob(id: string, overrides?: Partial<BulkJobInfo>): BulkJobInfo {
   return {

@@ -203,7 +203,8 @@ describe('RetryStrategy', () => {
       const strategy = new RetryStrategy({ maxRetries: 5 });
       const config = strategy.getConfig();
 
-      (config as Record<string, number>).maxRetries = 99;
+      // Cast via unknown: Readonly<RetryConfig> has a boolean field, so it doesn't overlap Record<string, number>
+      (config as unknown as Record<string, number>).maxRetries = 99;
 
       expect(strategy.getConfig().maxRetries).toBe(5);
     });

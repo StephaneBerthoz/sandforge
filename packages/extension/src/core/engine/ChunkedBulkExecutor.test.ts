@@ -217,7 +217,7 @@ describe('ChunkedBulkExecutor', () => {
     const progressFn = deps.onProgress as ReturnType<typeof vi.fn>;
     // Upload phase progress calls: 2000/4000, then 4000/4000
     const uploadProgressCalls = progressFn.mock.calls.filter(
-      ([processed]: [number, number]) => processed === 2000 || processed === 4000,
+      ([processed]: number[]) => processed === 2000 || processed === 4000,
     );
     expect(uploadProgressCalls.length).toBeGreaterThanOrEqual(2);
     expect(uploadProgressCalls[0]).toEqual([2000, 4000]);

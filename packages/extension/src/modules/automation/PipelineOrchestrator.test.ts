@@ -42,7 +42,7 @@ function createMockDeps(): PipelineOrchestratorDependencies {
     } as unknown as PipelineOrchestratorDependencies['stepLibrary'],
     stepExecutor: {
       execute: vi
-        .fn<(step: unknown, ctx: unknown) => Promise<PipelineStepResult>>()
+        .fn<[step: unknown, ctx: unknown], Promise<PipelineStepResult>>()
         .mockImplementation(async (step: unknown): Promise<PipelineStepResult> => {
           const s = step as { id: string; name: string; type: string };
           return {

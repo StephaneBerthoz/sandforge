@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import * as fc from 'fast-check';
 import type { MetricSample } from '@sandforge/shared';
 import type { ConfigStore } from '../../core/storage/ConfigStore.js';
@@ -24,8 +24,8 @@ const FIXED_NOW = () => FAR_FUTURE_MS;
 function createMockConfigStore(): {
   store: ConfigStore;
   data: Record<string, string>;
-  setSpy: ReturnType<typeof vi.fn>;
-  deleteSpy: ReturnType<typeof vi.fn>;
+  setSpy: Mock<[key: string, value: unknown], void>;
+  deleteSpy: Mock<[key: string], boolean>;
 } {
   const data: Record<string, string> = {};
   const setSpy = vi.fn((key: string, value: unknown) => {

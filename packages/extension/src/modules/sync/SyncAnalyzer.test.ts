@@ -19,13 +19,19 @@ function makeObjConfig(overrides: Partial<SyncObjectConfig> = {}): SyncObjectCon
 
 function makeConfig(overrides: Partial<SyncConfig> = {}): SyncConfig {
   return {
+    id: 'cfg-1',
+    name: 'Test Config',
+    description: 'A test sync config',
     sourceOrgId: 'src-org',
     targetOrgId: 'tgt-org',
     direction: 'source_to_target',
     mode: 'full',
     conflictStrategy: 'source_wins',
     objects: [makeObjConfig()],
+    enableRollback: false,
     dryRun: false,
+    createdAt: '2026-03-01T00:00:00Z',
+    updatedAt: '2026-03-01T00:00:00Z',
     ...overrides,
   };
 }

@@ -149,7 +149,7 @@ describe('SmartSuggestions', () => {
   // --- AI fallback ---
 
   it('should fall back to AI provider when no rules match', async () => {
-    const mockProvider = vi.fn<AIProvider>().mockResolvedValue(
+    const mockProvider = vi.fn<Parameters<AIProvider>, ReturnType<AIProvider>>().mockResolvedValue(
       JSON.stringify([
         {
           title: 'AI Suggestion',
@@ -171,14 +171,18 @@ describe('SmartSuggestions', () => {
   });
 
   it('should handle AI provider returning invalid JSON gracefully', async () => {
-    const mockProvider = vi.fn<AIProvider>().mockResolvedValue('not valid json');
+    const mockProvider = vi
+      .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+      .mockResolvedValue('not valid json');
     const engineWithAI = new SmartSuggestions(mockProvider);
     const suggestions = await engineWithAI.suggest('unknown', {});
     expect(suggestions).toEqual([]);
   });
 
   it('should not call AI provider when built-in rules match', async () => {
-    const mockProvider = vi.fn<AIProvider>().mockResolvedValue('[]');
+    const mockProvider = vi
+      .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+      .mockResolvedValue('[]');
     const engineWithAI = new SmartSuggestions(mockProvider);
     await engineWithAI.suggest('seed', { errorCount: 1 });
     expect(mockProvider).not.toHaveBeenCalled();
@@ -186,7 +190,7 @@ describe('SmartSuggestions', () => {
 
   it('should apply dismissals to AI-generated suggestions', async () => {
     const mockProvider = vi
-      .fn<AIProvider>()
+      .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
       .mockResolvedValue(JSON.stringify([{ title: 'AI Tip', description: 'desc' }]));
 
     const engineWithAI = new SmartSuggestions(mockProvider);
@@ -198,7 +202,7 @@ describe('SmartSuggestions', () => {
 
   it('should default AI suggestion fields when missing', async () => {
     const mockProvider = vi
-      .fn<AIProvider>()
+      .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
       .mockResolvedValue(
         JSON.stringify([{ title: 'Minimal', description: 'Just title and desc' }]),
       );

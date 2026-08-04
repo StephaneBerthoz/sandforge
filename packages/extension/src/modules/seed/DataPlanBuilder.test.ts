@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { DataPlanBuilder, resolveInsertOrder } from './DataPlanBuilder';
 import type { SeedTemplate, SeedObjectConfig } from '@sandforge/shared';
 

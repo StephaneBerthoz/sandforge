@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
+import { OrgSafetyTier } from '@sandforge/shared';
 import { OrgRegistry } from './OrgRegistry';
 import { OrgManager } from './OrgManager';
 import { ConfigStore } from '../storage/ConfigStore';
@@ -31,7 +32,7 @@ function createTestOrg(id: string): SalesforceOrg {
     orgId: `00D${id}`,
     orgType: 'Sandbox',
     authMethod: 'oauth_web',
-    safetyTier: 'low' as const,
+    safetyTier: OrgSafetyTier.LOW,
     appearance: { color: '#00ff00', icon: 'cloud', position: 0 },
     metadata: { apiVersion: '59.0', edition: 'Developer', features: [] },
     status: 'connected',
