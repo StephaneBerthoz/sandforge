@@ -48,7 +48,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
 
   return (
     <div className={cn('flex flex-col gap-3', className)} data-testid="object-set-editor">
-      <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <span className="text-xs font-medium text-text-primary">
         {t('sync.objectSet')} ({entries.length})
       </span>
 
@@ -58,7 +58,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
             key={entry.objectApiName}
             className={cn(
               'flex flex-wrap items-center gap-2 px-2 py-2 rounded text-xs',
-              'border border-[var(--vscode-panel-border,#3c3c3c)]',
+              'border border-[var(--sf-border)]',
             )}
             data-testid={`object-entry-${entry.objectApiName}`}
           >
@@ -91,7 +91,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
               className="flex-1"
             />
             <button
-              className="text-[var(--vscode-errorForeground,#f48771)] hover:opacity-70 px-1"
+              className="text-[var(--sf-error)] hover:opacity-70 px-1"
               onClick={() => onRemove(i)}
               data-testid={`remove-obj-${entry.objectApiName}`}
             >
@@ -102,9 +102,7 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
       </div>
 
       {entries.length === 0 && (
-        <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-2">
-          {t('sync.noObjects')}
-        </p>
+        <p className="text-xs text-center text-text-secondary py-2">{t('sync.noObjects')}</p>
       )}
 
       {/* Add new object */}

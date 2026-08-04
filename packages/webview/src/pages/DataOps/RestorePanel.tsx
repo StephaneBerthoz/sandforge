@@ -32,9 +32,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
 
   return (
     <div className="flex flex-col gap-3" data-testid="restore-panel">
-      <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-        {t('dataops.restore')}
-      </h2>
+      <h2 className="text-sm font-semibold text-text-primary">{t('dataops.restore')}</h2>
 
       {isRestoring && restoreProgress && (
         <div data-testid="restore-progress">
@@ -84,7 +82,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
                 }
               />
               <CardBody>
-                <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                <div className="flex gap-4 text-xs text-text-secondary">
                   <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
                   <span>{backup.startTime}</span>
                 </div>

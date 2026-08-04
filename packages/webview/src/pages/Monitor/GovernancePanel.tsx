@@ -110,8 +110,8 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Shield className="w-5 h-5 text-[var(--vscode-editor-foreground,#d4d4d4)]" />
-          <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+          <Shield className="w-5 h-5 text-text-primary" />
+          <h2 className="text-sm font-semibold text-text-primary">
             {t('governance.title', 'Org Governance')}
           </h2>
         </div>
@@ -146,7 +146,7 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
         <Card>
           <CardBody>
             <div className="flex items-center justify-between" data-testid="compliance-score">
-              <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+              <span className="text-xs text-text-primary">
                 {t('governance.complianceScore', 'Compliance Score')}
               </span>
               <span className={`text-2xl font-bold ${scoreColor(complianceScore)}`}>
@@ -162,10 +162,7 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
         <CardHeader title={t('governance.policies', 'Policies')} />
         <CardBody>
           {policies.length === 0 ? (
-            <p
-              className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
-              data-testid="no-policies"
-            >
+            <p className="text-xs text-text-secondary" data-testid="no-policies">
               {t(
                 'governance.noPolicies',
                 'No governance policies configured. Add a policy to get started.',
@@ -179,16 +176,14 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                   data-testid={`policy-${policy.id}`}
                   className={`flex items-center justify-between p-2 rounded border cursor-pointer transition-colors ${
                     selectedPolicyId === policy.id
-                      ? 'border-[var(--vscode-focusBorder,#007acc)] bg-[var(--vscode-list-activeSelectionBackground,#04395e)]'
-                      : 'border-[var(--vscode-panel-border,#2b2b2b)] bg-[var(--vscode-editor-background,#1e1e1e)]'
+                      ? 'border-[var(--sf-accent)] bg-[var(--sf-bg-active)]'
+                      : 'border-[var(--sf-border)] bg-[var(--sf-bg-primary)]'
                   }`}
                   onClick={() => setSelectedPolicyId(policy.id)}
                 >
                   <div className="flex flex-col">
-                    <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {policy.name}
-                    </span>
-                    <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                    <span className="text-xs font-medium text-text-primary">{policy.name}</span>
+                    <span className="text-[10px] text-text-secondary">
                       {policy.description} — {policy.ruleCount} {t('governance.rules', 'rules')}
                     </span>
                   </div>
@@ -222,19 +217,17 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
                 <div
                   key={result.ruleId}
                   data-testid={`rule-result-${result.ruleId}`}
-                  className="flex items-start gap-2 p-2 rounded border border-[var(--vscode-panel-border,#2b2b2b)] bg-[var(--vscode-editor-background,#1e1e1e)]"
+                  className="flex items-start gap-2 p-2 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]"
                 >
                   {statusIcon(result.status)}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                      <span className="text-xs font-medium text-text-primary">
                         {result.ruleName}
                       </span>
                       <Badge variant={statusBadgeVariant(result.status)}>{result.status}</Badge>
                     </div>
-                    <p className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">
-                      {result.message}
-                    </p>
+                    <p className="text-[10px] text-text-secondary mt-0.5">{result.message}</p>
                   </div>
                 </div>
               ))}
@@ -250,10 +243,7 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
           <CardBody>
             <ul className="flex flex-col gap-1" data-testid="remediations">
               {remediations.map((item, idx) => (
-                <li
-                  key={idx}
-                  className="flex items-start gap-2 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]"
-                >
+                <li key={idx} className="flex items-start gap-2 text-xs text-text-primary">
                   <input type="checkbox" className="mt-0.5" />
                   <span>{item}</span>
                 </li>

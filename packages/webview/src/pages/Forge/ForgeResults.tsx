@@ -269,9 +269,9 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             onChange={(e) => setStatusFilter(e.target.value)}
             className={cn(
               'px-2 py-1 rounded text-xs',
-              'bg-[var(--vscode-input-background,#1e1e3a)]',
-              'text-[var(--vscode-input-foreground,#d4d4d4)]',
-              'border border-[var(--vscode-input-border,#3a3a5c)]',
+              'bg-[var(--sf-bg-input)]',
+              'text-[var(--sf-text-input)]',
+              'border border-[var(--sf-border-input)]',
             )}
           >
             <option value="all">{t('forge.filterByStatus')}</option>

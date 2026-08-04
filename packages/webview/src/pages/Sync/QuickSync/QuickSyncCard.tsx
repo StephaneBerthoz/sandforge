@@ -19,20 +19,16 @@ export const QuickSyncCard: React.FC<QuickSyncCardProps> = ({ onStart }) => {
   const { t } = useTranslation();
 
   return (
-    <Card className="border-[var(--vscode-focusBorder,#007fd4)]" data-testid="quick-sync-card">
+    <Card className="border-[var(--sf-accent)]" data-testid="quick-sync-card">
       <CardBody>
         <div className="flex items-center gap-4">
           <span
-            className="codicon codicon-zap text-2xl text-[var(--vscode-focusBorder,#007fd4)]"
+            className="codicon codicon-zap text-2xl text-[var(--sf-accent)]"
             aria-hidden="true"
           />
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-              {t('quickSync.title')}
-            </h3>
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">
-              {t('quickSync.subtitle')}
-            </p>
+            <h3 className="text-sm font-semibold text-text-primary">{t('quickSync.title')}</h3>
+            <p className="text-xs text-text-secondary mt-0.5">{t('quickSync.subtitle')}</p>
           </div>
           <Button variant="primary" size="md" onClick={onStart} data-testid="quick-sync-start-btn">
             {t('quickSync.start')}

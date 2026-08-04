@@ -115,11 +115,11 @@ export const StorageBreakdownPanel: React.FC = () => {
             </Pie>
             <Tooltip
               contentStyle={{
-                backgroundColor: 'var(--vscode-editor-background, #1e1e1e)',
-                border: '1px solid var(--vscode-panel-border, #3c3c3c)',
+                backgroundColor: 'var(--sf-bg-primary)',
+                border: '1px solid var(--sf-border)',
                 borderRadius: '6px',
               }}
-              itemStyle={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
+              itemStyle={{ color: 'var(--sf-text-primary)' }}
               formatter={(value: number) => formatNumber(value)}
             />
           </PieChart>

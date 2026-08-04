@@ -35,9 +35,7 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="backup-panel">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('dataops.backup')}
-        </h2>
+        <h2 className="text-sm font-semibold text-text-primary">{t('dataops.backup')}</h2>
         <Button
           variant="primary"
           size="sm"
@@ -80,7 +78,7 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
               }
             />
             <CardBody>
-              <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+              <div className="flex gap-4 text-xs text-text-secondary">
                 <span>
                   {t('dataops.backupSize')}: {formatFileSize(backup.totalSize)}
                 </span>

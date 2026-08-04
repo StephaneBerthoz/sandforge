@@ -48,9 +48,7 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
 
   return (
     <div className="flex flex-col gap-4" data-testid="quick-sync-org-step">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('quickSync.selectOrgs')}
-      </p>
+      <p className="text-xs text-text-secondary">{t('quickSync.selectOrgs')}</p>
 
       <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3">
         <Select
@@ -63,7 +61,7 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
         />
 
         <span
-          className="codicon codicon-arrow-right text-lg text-[var(--vscode-descriptionForeground,#868686)] pb-1.5"
+          className="codicon codicon-arrow-right text-lg text-text-secondary pb-1.5"
           aria-hidden="true"
         />
 
@@ -88,10 +86,7 @@ export const QuickSyncOrgStep: React.FC<QuickSyncOrgStepProps> = ({
             />
           )}
           {sourceOrg && targetOrg && (
-            <span
-              className="codicon codicon-arrow-right text-[var(--vscode-text-secondary)]"
-              aria-hidden="true"
-            />
+            <span className="codicon codicon-arrow-right text-text-secondary" aria-hidden="true" />
           )}
           {targetOrg && (
             <OrgBadge

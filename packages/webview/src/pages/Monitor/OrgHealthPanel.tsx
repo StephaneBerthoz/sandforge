@@ -91,7 +91,7 @@ const RadarChart: React.FC<{ dimensions: OrgHealthDimension[]; size?: number }> 
           key={`grid-${level}`}
           points={points}
           fill="none"
-          stroke="var(--vscode-input-background, #3c3c3c)"
+          stroke="var(--sf-bg-input)"
           strokeWidth={1}
           opacity={0.5}
         />,
@@ -112,7 +112,7 @@ const RadarChart: React.FC<{ dimensions: OrgHealthDimension[]; size?: number }> 
             y1={cy}
             x2={x}
             y2={y}
-            stroke="var(--vscode-input-background, #3c3c3c)"
+            stroke="var(--sf-bg-input)"
             strokeWidth={1}
             opacity={0.3}
           />

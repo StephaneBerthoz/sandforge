@@ -113,23 +113,18 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = React.memo(
         />
         <CardBody className="flex flex-col gap-2 max-h-60 overflow-y-auto">
           {activeAlerts.length === 0 ? (
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-4">
-              {t('monitor.noAlerts')}
-            </p>
+            <p className="text-xs text-text-secondary text-center py-4">{t('monitor.noAlerts')}</p>
           ) : (
             activeAlerts.map((alert) => (
               <div
                 key={alert.id}
                 className={cn(
                   'flex items-start gap-2 p-2 rounded border-l-3',
-                  'bg-[var(--vscode-editorWidget-background,#252526)]',
-                  'border border-[var(--vscode-panel-border,#3c3c3c)]',
-                  alert.severity === 'critical' &&
-                    'border-l-[var(--vscode-errorForeground,#f48771)]',
-                  alert.severity === 'warning' &&
-                    'border-l-[var(--vscode-editorWarning-foreground,#cca700)]',
-                  alert.severity === 'info' &&
-                    'border-l-[var(--vscode-editorInfo-foreground,#3794ff)]',
+                  'bg-[var(--sf-bg-card)]',
+                  'border border-[var(--sf-border)]',
+                  alert.severity === 'critical' && 'border-l-[var(--sf-error)]',
+                  alert.severity === 'warning' && 'border-l-[var(--sf-warning)]',
+                  alert.severity === 'info' && 'border-l-[var(--sf-info)]',
                 )}
                 data-testid={`alert-${alert.id}`}
               >
@@ -137,7 +132,7 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = React.memo(
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <Badge variant={severityVariant[alert.severity]}>{alert.severity}</Badge>
-                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                    <span className="text-xs text-text-secondary">
                       {new Intl.DateTimeFormat(undefined, {
                         hour: '2-digit',
                         minute: '2-digit',
@@ -145,10 +140,8 @@ export const AlertsPanel: React.FC<AlertsPanelProps> = React.memo(
                       }).format(new Date(alert.triggeredAt))}
                     </span>
                   </div>
-                  <p className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] mt-1">
-                    {alert.message}
-                  </p>
-                  <p className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] mt-0.5 font-mono">
+                  <p className="text-xs text-text-primary mt-1">{alert.message}</p>
+                  <p className="text-[10px] text-text-secondary mt-0.5 font-mono">
                     Value: {alert.currentValue} (threshold: {alert.threshold})
                   </p>
                   <div className="flex gap-2 mt-1.5">

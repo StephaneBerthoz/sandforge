@@ -148,7 +148,7 @@ describe('GovernancePanel', () => {
     render(<GovernancePanel policies={policies} />);
     fireEvent.click(screen.getByTestId('policy-pol-1'));
     const policyEl = screen.getByTestId('policy-pol-1');
-    expect(policyEl.className).toContain('focusBorder');
+    expect(policyEl.className).toContain('--sf-accent');
   });
 
   it('shows compliance score', () => {

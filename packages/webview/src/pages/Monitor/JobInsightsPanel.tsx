@@ -127,7 +127,7 @@ export const JobInsightsPanel: React.FC<JobInsightsPanelProps> = ({
               style={{
                 padding: 'var(--sf-space-3)',
                 borderRadius: 'var(--sf-radius-md)',
-                backgroundColor: 'var(--vscode-input-background, #3c3c3c)',
+                backgroundColor: 'var(--sf-bg-input)',
                 borderLeft: `3px solid ${severityBorderColor[insight.severity]}`,
               }}
             >

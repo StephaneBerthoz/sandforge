@@ -85,7 +85,7 @@ export const HealthGauge: React.FC<HealthGaugeProps> = ({ value, size = 120, cla
         <path
           d={bgArcPath}
           fill="none"
-          stroke="var(--vscode-input-background, #3c3c3c)"
+          stroke="var(--sf-bg-input)"
           strokeWidth={STROKE_WIDTH}
           strokeLinecap="round"
         />

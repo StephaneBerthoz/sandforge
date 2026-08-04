@@ -239,9 +239,9 @@ export const ForgeDiscovery: React.FC = () => {
             placeholder={t('forge.searchNodes')}
             className={cn(
               'w-full pl-8 pr-3 py-1.5 rounded-md text-xs',
-              'bg-[var(--vscode-input-background,#1e1e3a)]',
-              'text-[var(--vscode-input-foreground,#d4d4d4)]',
-              'border border-[var(--vscode-input-border,#3a3a5c)]',
+              'bg-[var(--sf-bg-input)]',
+              'text-[var(--sf-text-input)]',
+              'border border-[var(--sf-border-input)]',
               'focus:outline-none focus:border-forge/50',
             )}
           />

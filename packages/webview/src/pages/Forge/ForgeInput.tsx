@@ -157,9 +157,9 @@ export const ForgeInput: React.FC = () => {
                       placeholder={t('forge.recordIdPlaceholder')}
                       className={cn(
                         'flex-1 px-3 py-2 rounded-md text-sm font-mono',
-                        'bg-[var(--vscode-input-background,#1e1e3a)]',
-                        'text-[var(--vscode-input-foreground,#d4d4d4)]',
-                        'border border-[var(--vscode-input-border,#3a3a5c)]',
+                        'bg-[var(--sf-bg-input)]',
+                        'text-[var(--sf-text-input)]',
+                        'border border-[var(--sf-border-input)]',
                         'focus:outline-none focus:border-forge/50',
                       )}
                     />
@@ -176,8 +176,8 @@ export const ForgeInput: React.FC = () => {
                       title={t('forge.refreshPreview')}
                       className={cn(
                         'shrink-0 px-2.5 py-2 rounded-md text-sm transition-colors',
-                        'border border-[var(--vscode-input-border,#3a3a5c)]',
-                        'bg-[var(--vscode-input-background,#1e1e3a)]',
+                        'border border-[var(--sf-border-input)]',
+                        'bg-[var(--sf-bg-input)]',
                         'text-text-muted hover:text-forge hover:border-forge/50',
                         'disabled:opacity-40 disabled:cursor-not-allowed',
                       )}
@@ -212,9 +212,9 @@ export const ForgeInput: React.FC = () => {
                     rows={5}
                     className={cn(
                       'w-full px-3 py-2 rounded-md text-sm font-mono resize-y',
-                      'bg-[var(--vscode-input-background,#1e1e3a)]',
-                      'text-[var(--vscode-input-foreground,#d4d4d4)]',
-                      'border border-[var(--vscode-input-border,#3a3a5c)]',
+                      'bg-[var(--sf-bg-input)]',
+                      'text-[var(--sf-text-input)]',
+                      'border border-[var(--sf-border-input)]',
                       'focus:outline-none focus:border-forge/50',
                     )}
                   />
@@ -250,9 +250,9 @@ export const ForgeInput: React.FC = () => {
                     rows={4}
                     className={cn(
                       'w-full px-3 py-2 rounded-md text-sm resize-y',
-                      'bg-[var(--vscode-input-background,#1e1e3a)]',
-                      'text-[var(--vscode-input-foreground,#d4d4d4)]',
-                      'border border-[var(--vscode-input-border,#3a3a5c)]',
+                      'bg-[var(--sf-bg-input)]',
+                      'text-[var(--sf-text-input)]',
+                      'border border-[var(--sf-border-input)]',
                       'focus:outline-none focus:border-forge/50',
                     )}
                   />
@@ -285,9 +285,9 @@ export const ForgeInput: React.FC = () => {
               onChange={(e) => form.setRecordLimit(e.target.value)}
               className={cn(
                 'px-3 py-1.5 rounded-md text-xs',
-                'bg-[var(--vscode-input-background,#1e1e3a)]',
-                'text-[var(--vscode-input-foreground,#d4d4d4)]',
-                'border border-[var(--vscode-input-border,#3a3a5c)]',
+                'bg-[var(--sf-bg-input)]',
+                'text-[var(--sf-text-input)]',
+                'border border-[var(--sf-border-input)]',
                 'focus:outline-none focus:border-forge/50',
               )}
             >
