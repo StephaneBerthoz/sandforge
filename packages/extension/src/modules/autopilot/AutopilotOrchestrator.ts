@@ -122,13 +122,13 @@ export class AutopilotOrchestrator {
    * Step 1: Scan schemas on source and target orgs.
    * @param sourceConn - Connection to the source org.
    * @param targetConn - Connection to the target org.
-   * @param config - Autopilot configuration with selected objects.
+   * @param config - Object selection (empty = auto-detect all) and standard-object flag.
    * @returns Schema scan result with describes, dependencies, and record counts.
    */
   async scanSchemas(
     sourceConn: AutopilotConnection,
     targetConn: AutopilotConnection,
-    config: AutopilotConfig,
+    config: Pick<AutopilotConfig, 'selectedObjects' | 'includeStandardObjects'>,
   ): Promise<SchemaScanResult> {
     this.emitEvent({ type: 'scan-started', timestamp: new Date().toISOString() });
     const result = await this.deps.schemaScanner.scan(

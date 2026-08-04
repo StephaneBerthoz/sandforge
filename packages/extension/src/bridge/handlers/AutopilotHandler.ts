@@ -1,12 +1,19 @@
 import type {
   BaseMessage,
-  AutopilotScanSchemaRequest,
-  AutopilotGeneratePlanRequest,
-  AutopilotExecuteRequest,
-  AutopilotSkipNodeRequest,
+  AutopilotGraph,
+  ExecutionPlan,
+  ComplianceProfile,
+  AutopilotAnonymizationRule,
 } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
+import {
+  validatePayload,
+  autopilotScanSchemaPayloadSchema,
+  autopilotGeneratePlanPayloadSchema,
+  autopilotExecutePayloadSchema,
+  autopilotSkipNodePayloadSchema,
+} from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import type { AutopilotOrchestrator } from '../../modules/autopilot/AutopilotOrchestrator.js';
@@ -26,19 +33,50 @@ const AUTOPILOT_TYPES = new Set([
   'autopilot:compliance-report',
 ]);
 
+/** Max tracked operations; oldest non-executing entries are evicted beyond this. */
+const MAX_TRACKED_OPERATIONS = 10;
+
+/**
+ * Per-operation autopilot flow state (scan → plan → execute → report).
+ *
+ * One entry is created per `autopilot:scan-schema` request. The fixed message
+ * protocol carries no operation id, so follow-up requests attach to the most
+ * recently opened operation — the same "latest wins" semantics the previous
+ * shared-fields version had, minus the cross-operation clobbering: each
+ * request works on its own operation context and never re-reads shared fields
+ * after an `await`.
+ */
+interface AutopilotOperation {
+  /** Operation id (the scan-schema request id, echoed back as correlationId). */
+  readonly id: string;
+  /** Schema scan result, set once the scan completes. */
+  scanResult?: SchemaScanResult;
+  /** Dependency graph built from the scan result. */
+  graph?: AutopilotGraph;
+  /** Compliance profile built at generate-plan time. */
+  profile?: ComplianceProfile;
+  /** Anonymization rules derived from the profile. */
+  rules?: AutopilotAnonymizationRule[];
+  /** Execution plan generated from the graph. */
+  plan?: ExecutionPlan;
+}
+
 /**
  * Domain handler for autopilot-related webview-to-extension messages.
  *
  * Manages the full autopilot lifecycle: schema scanning, plan generation,
- * execution with pause/resume/skip, and compliance reporting.
+ * execution with pause/resume/skip, and compliance reporting. Flow state lives
+ * in per-operation contexts ({@link AutopilotOperation}) keyed by operation id,
+ * so concurrent scans/plans/executions cannot overwrite each other's state.
  */
 export class AutopilotHandler implements DomainHandler {
+  /** Tracked autopilot operations by operation id (bounded, oldest-first eviction). */
+  private readonly operations = new Map<string, AutopilotOperation>();
+  /** Operation that follow-up requests attach to (protocol carries no operation id). */
+  private currentOperationId?: string;
+  /** Operations currently inside executePlan — the target of pause/resume/skip. */
+  private readonly executingOperations = new Set<string>();
   private orchestrator?: AutopilotOrchestrator;
-  private scanResult?: SchemaScanResult;
-  private graph?: Parameters<AutopilotOrchestrator['generatePlan']>[0];
-  private rules?: Parameters<AutopilotOrchestrator['generatePlan']>[2];
-  private plan?: ReturnType<AutopilotOrchestrator['generatePlan']>;
-  private profile?: ReturnType<AutopilotOrchestrator['buildCompliance']>['profile'];
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
@@ -84,13 +122,46 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
+  /** Resolve the operation follow-up requests attach to (most recently opened). */
+  private resolveCurrentOperation(): AutopilotOperation | undefined {
+    return this.currentOperationId !== undefined
+      ? this.operations.get(this.currentOperationId)
+      : undefined;
+  }
+
+  /** Keep the operation map bounded; never evict an in-flight (executing) operation. */
+  private evictOldOperations(): void {
+    while (this.operations.size > MAX_TRACKED_OPERATIONS) {
+      const oldest = this.operations.keys().next();
+      if (oldest.done || this.executingOperations.has(oldest.value)) return;
+      this.operations.delete(oldest.value);
+      if (this.currentOperationId === oldest.value) {
+        this.currentOperationId = [...this.operations.keys()].pop();
+      }
+    }
+  }
+
   private async handleScanSchema(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
       return;
     }
-    const payload = (msg as AutopilotScanSchemaRequest).payload;
+    const parsed = validatePayload(
+      autopilotScanSchemaPayloadSchema,
+      msg,
+      'autopilot:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
+
+    const previousCurrentId = this.currentOperationId;
+    const operation: AutopilotOperation = { id: msg.id };
+    this.operations.set(msg.id, operation);
+    this.currentOperationId = msg.id;
+    this.evictOldOperations();
+
     try {
       const sourceConn = (await getJsforceConnection(
         payload.sourceOrgId,
@@ -105,13 +176,18 @@ export class AutopilotHandler implements DomainHandler {
       const scanResult = await this.orchestrator.scanSchemas(sourceConn, targetConn, {
         selectedObjects: payload.selectedObjects,
         includeStandardObjects: payload.includeStandardObjects,
-      } as Parameters<AutopilotOrchestrator['scanSchemas']>[2]);
-      this.scanResult = scanResult;
+      });
+      operation.scanResult = scanResult;
       const graph = this.orchestrator.buildGraph(scanResult);
-      this.graph = graph;
+      operation.graph = graph;
       const response = buildResponse(this.deps, msg, 'autopilot:schema-result', { graph });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
+      // Roll back the failed operation so the previous healthy one stays current.
+      this.operations.delete(msg.id);
+      if (this.currentOperationId === msg.id) {
+        this.currentOperationId = previousCurrentId;
+      }
       sendHandlerError(this.deps, 'autopilot:scan-schema', 'autopilot:error', err);
       sendNotification(
         this.deps,
@@ -128,7 +204,8 @@ export class AutopilotHandler implements DomainHandler {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
       return;
     }
-    if (!this.graph) {
+    const operation = this.resolveCurrentOperation();
+    if (!operation?.graph) {
       sendNotification(
         this.deps,
         'error',
@@ -137,16 +214,28 @@ export class AutopilotHandler implements DomainHandler {
       );
       return;
     }
-    const payload = (msg as AutopilotGeneratePlanRequest).payload;
+    const parsed = validatePayload(
+      autopilotGeneratePlanPayloadSchema,
+      msg,
+      'autopilot:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
+
     try {
       const { profile, rules } = this.orchestrator.buildCompliance(payload.complianceFramework, []);
-      this.profile = profile;
-      this.rules = rules;
-      const plan = this.orchestrator.generatePlan(this.graph, payload.complianceFramework, rules);
-      this.plan = plan;
+      operation.profile = profile;
+      operation.rules = rules;
+      const plan = this.orchestrator.generatePlan(
+        operation.graph,
+        payload.complianceFramework,
+        rules,
+      );
+      operation.plan = plan;
       const response = buildResponse(this.deps, msg, 'autopilot:plan-ready', {
         plan,
-        graph: this.graph,
+        graph: operation.graph,
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
@@ -166,7 +255,8 @@ export class AutopilotHandler implements DomainHandler {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
       return;
     }
-    if (!this.plan || !this.graph || !this.rules || !this.scanResult) {
+    const operation = this.resolveCurrentOperation();
+    if (!operation?.plan || !operation.graph || !operation.rules || !operation.scanResult) {
       sendNotification(
         this.deps,
         'error',
@@ -175,24 +265,36 @@ export class AutopilotHandler implements DomainHandler {
       );
       return;
     }
-    const payload = (msg as AutopilotExecuteRequest).payload;
+    const parsed = validatePayload(
+      autopilotExecutePayloadSchema,
+      msg,
+      'autopilot:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
+
+    // Capture per-operation state in locals: a concurrent scan/plan request
+    // must not be able to swap this operation's data while executePlan is awaited.
+    const { plan, graph, rules, scanResult } = operation;
+    this.executingOperations.add(operation.id);
     try {
-      if (payload.grappeThreshold && this.orchestrator) {
+      if (payload.grappeThreshold) {
         this.deps.log(`[GRAPPE] autopilot threshold set to ${payload.grappeThreshold}`);
       }
 
       // Send node-progress 'processing' for all nodes in each wave before execution
-      for (const wave of this.plan.waves) {
+      for (const wave of plan.waves) {
         for (const objectApiName of wave.objects) {
           this.sendNodeProgress(msg, String(objectApiName), 'processing', wave.order);
         }
       }
 
       const result = await this.orchestrator.executePlan(
-        this.plan,
-        this.graph,
-        this.rules,
-        this.scanResult.recordCounts,
+        plan,
+        graph,
+        rules,
+        scanResult.recordCounts,
       );
 
       // Send node-progress 'completed' or 'failed' per node based on execution result
@@ -200,12 +302,12 @@ export class AutopilotHandler implements DomainHandler {
       const failedSet = new Set(result.failedObjects);
       const skippedSet = new Set(result.skippedObjects);
 
-      for (const wave of this.plan.waves) {
+      for (const wave of plan.waves) {
         for (const objectApiName of wave.objects) {
           const name = String(objectApiName);
           if (completedSet.has(name)) {
             this.sendNodeProgress(msg, name, 'completed', wave.order, {
-              recordCount: this.scanResult?.recordCounts.get(name) ?? 0,
+              recordCount: scanResult.recordCounts.get(name) ?? 0,
               failureCount: 0,
             });
           } else if (failedSet.has(name)) {
@@ -237,6 +339,8 @@ export class AutopilotHandler implements DomainHandler {
         'Autopilot',
         `Execution failed: ${extractErrorMessage(err)}`,
       );
+    } finally {
+      this.executingOperations.delete(operation.id);
     }
   }
 
@@ -266,10 +370,19 @@ export class AutopilotHandler implements DomainHandler {
     this.deps.broker.postToWebview(progressMsg);
   }
 
+  /** Whether at least one operation is currently executing. */
+  private hasExecutingOperation(): boolean {
+    return this.executingOperations.size > 0;
+  }
+
   private handlePause(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
+      return;
+    }
+    if (!this.hasExecutingOperation()) {
+      sendNotification(this.deps, 'warning', 'Autopilot', 'No autopilot execution in progress.');
       return;
     }
     try {
@@ -292,6 +405,10 @@ export class AutopilotHandler implements DomainHandler {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
       return;
     }
+    if (!this.hasExecutingOperation()) {
+      sendNotification(this.deps, 'warning', 'Autopilot', 'No autopilot execution in progress.');
+      return;
+    }
     try {
       this.orchestrator.resume();
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution resumed.');
@@ -312,7 +429,18 @@ export class AutopilotHandler implements DomainHandler {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
       return;
     }
-    const payload = (msg as AutopilotSkipNodeRequest).payload;
+    const parsed = validatePayload(
+      autopilotSkipNodePayloadSchema,
+      msg,
+      'autopilot:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
+    if (!this.hasExecutingOperation()) {
+      sendNotification(this.deps, 'warning', 'Autopilot', 'No autopilot execution in progress.');
+      return;
+    }
     try {
       this.orchestrator.skip(payload.objectApiName);
       sendNotification(this.deps, 'info', 'Autopilot', `Skipped node: ${payload.objectApiName}`);
@@ -328,7 +456,8 @@ export class AutopilotHandler implements DomainHandler {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
       return;
     }
-    if (!this.profile || !this.rules || !this.scanResult) {
+    const operation = this.resolveCurrentOperation();
+    if (!operation?.profile || !operation.rules || !operation.scanResult) {
       sendNotification(
         this.deps,
         'error',
@@ -339,12 +468,12 @@ export class AutopilotHandler implements DomainHandler {
     }
     try {
       const report = this.orchestrator.generateReport(
-        this.profile,
-        this.rules,
-        this.scanResult.recordCounts,
+        operation.profile,
+        operation.rules,
+        operation.scanResult.recordCounts,
         '',
         '',
-        this.scanResult.totalObjectsScanned,
+        operation.scanResult.totalObjectsScanned,
       );
       const response = buildResponse(this.deps, msg, 'autopilot:compliance-report', { report });
       this.deps.broker.postToWebview(response);
