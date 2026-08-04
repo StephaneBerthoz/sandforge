@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
 import { ForgeResults } from './ForgeResults';
 
 /* ---- Mocks ---- */
@@ -10,7 +11,7 @@ const mockForgeAgain = vi.fn();
 const mockSetPhase = vi.fn();
 const mockSetGraph = vi.fn();
 
-const makeMockGraph = () => ({
+const makeMockGraph = (): ForgeGraph => ({
   nodes: [
     {
       objectApiName: 'Account',
@@ -92,7 +93,7 @@ const makeMockResult = () => ({
   timestamp: '2026-03-20T10:00:00.000Z',
 });
 
-const makeErrorNode = () => ({
+const makeErrorNode = (): ForgeGraphNode => ({
   objectApiName: 'Opportunity',
   recordCount: 8,
   fieldCount: 12,

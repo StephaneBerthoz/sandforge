@@ -55,7 +55,7 @@ describe('updateGraphNodeStatus', () => {
   });
 
   it('handles empty array', () => {
-    const result = updateGraphNodeStatus([], 'Account', 'running');
+    const result = updateGraphNodeStatus([] as TestNode[], 'Account', 'running');
     expect(result).toEqual([]);
   });
 });

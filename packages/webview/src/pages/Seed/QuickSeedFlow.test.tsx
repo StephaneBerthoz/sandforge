@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 import '../../i18n';
 import { QuickSeedFlow } from './QuickSeedFlow';
 import type { QuickSeedState } from './useQuickSeed';
+import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg, SeedTemplate, SeedExecutionResult } from '@sandforge/shared';
 
 /* ------------------------------------------------------------------ */
@@ -44,11 +45,15 @@ const mockOrgs: SalesforceOrg[] = [
     alias: 'dev1',
     username: 'user@dev1.com',
     instanceUrl: 'https://dev1.sf.com',
-    orgType: 'sandbox',
+    orgId: '00D000000000001',
+    orgType: 'Sandbox',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#0070d2', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
     status: 'connected',
-    safetyTier: 'low',
-    apiVersion: '59.0',
     lastConnected: '2024-01-01T00:00:00Z',
+    tags: [],
   },
 ];
 

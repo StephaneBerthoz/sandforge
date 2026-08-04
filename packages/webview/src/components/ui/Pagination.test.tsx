@@ -5,7 +5,7 @@ import { Pagination } from './Pagination';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, defaultValue: string, opts?: Record<string, unknown>) => {
+    t: (_key: string, defaultValue: string, opts?: Record<string, unknown>) => {
       if (!opts) return defaultValue;
       let result = defaultValue;
       for (const [k, v] of Object.entries(opts)) {

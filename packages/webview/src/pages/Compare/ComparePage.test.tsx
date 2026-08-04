@@ -1,9 +1,9 @@
-import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { OrgSafetyTier } from '@sandforge/shared';
+import type { SalesforceOrg } from '@sandforge/shared';
 import { ComparePage } from './ComparePage';
 
 /* ------------------------------------------------------------------ */
@@ -34,7 +34,7 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
-const twoOrgs = [
+const twoOrgs: SalesforceOrg[] = [
   {
     id: 'org-1',
     alias: 'Dev',
@@ -44,6 +44,8 @@ const twoOrgs = [
     orgType: 'Sandbox' as const,
     authMethod: 'oauth_web' as const,
     safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#0070d2', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
     status: 'connected' as const,
     lastConnected: '2024-01-01T00:00:00Z',
     tags: [],
@@ -57,6 +59,8 @@ const twoOrgs = [
     orgType: 'Production' as const,
     authMethod: 'oauth_web' as const,
     safetyTier: OrgSafetyTier.CRITICAL,
+    appearance: { color: '#c23934', icon: 'cloud', position: 1 },
+    metadata: { apiVersion: '59.0', edition: 'Enterprise Edition', features: [] },
     status: 'connected' as const,
     lastConnected: '2024-01-01T00:00:00Z',
     tags: [],

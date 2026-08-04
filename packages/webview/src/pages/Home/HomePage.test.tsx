@@ -5,6 +5,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
 import { HomePage } from './HomePage';
+import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 
 /* ------------------------------------------------------------------ */
@@ -105,10 +106,13 @@ function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
     instanceUrl: 'https://dev-sandbox.salesforce.com',
     orgId: '00D000000000001',
     orgType: 'Sandbox',
-    authMethod: 'oauth',
-    safetyTier: 'low',
-    appearance: { color: '#3B82F6', icon: 'cloud' },
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#3B82F6', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
     status: 'connected',
+    lastConnected: '2024-01-01T00:00:00Z',
+    tags: [],
     ...overrides,
   };
 }

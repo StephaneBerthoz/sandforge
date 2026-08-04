@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import type { TFunction } from 'i18next';
 
 import { useSeedPIIScan } from './useSeedPIIScan';
 
@@ -27,7 +28,7 @@ vi.mock('../../stores/useNotificationStore', () => ({
   useNotificationStore: () => mockAddNotification,
 }));
 
-const mockT = (key: string) => key;
+const mockT: TFunction = ((key: string) => key) as unknown as TFunction;
 
 describe('useSeedPIIScan', () => {
   beforeEach(() => {

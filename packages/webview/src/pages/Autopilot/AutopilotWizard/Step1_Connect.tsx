@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { SalesforceOrg } from '@sandforge/shared';
+import { OrgSafetyTier } from '@sandforge/shared';
 import { cn } from '../../../theme';
 
 /** Step1Connect component props. */
@@ -17,11 +18,12 @@ export interface Step1ConnectProps {
   readonly onTargetSelect: (orgId: string) => void;
 }
 
-/** Tier color mapping for org cards. */
-const tierColors: Record<string, string> = {
-  safe: 'border-green-600',
-  caution: 'border-amber-500',
-  danger: 'border-red-600',
+/** Tier color mapping for org cards (keyed by OrgSafetyTier values). */
+const tierColors: Record<OrgSafetyTier, string> = {
+  [OrgSafetyTier.LOW]: 'border-green-600',
+  [OrgSafetyTier.MEDIUM]: 'border-amber-500',
+  [OrgSafetyTier.HIGH]: 'border-orange-600',
+  [OrgSafetyTier.CRITICAL]: 'border-red-600',
 };
 
 /** Step 1: Select source and target orgs. */
@@ -49,8 +51,9 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
         {orgs.map((org) => {
           const isSelected = org.id === selectedId;
           const isDisabled = org.id === disabledId;
-          const tierClass =
-            tierColors[org.safetyTier ?? ''] ?? 'border-[var(--vscode-panel-border,#3c3c3c)]';
+          const tierClass = org.safetyTier
+            ? tierColors[org.safetyTier]
+            : 'border-[var(--vscode-panel-border,#3c3c3c)]';
 
           return (
             <button
