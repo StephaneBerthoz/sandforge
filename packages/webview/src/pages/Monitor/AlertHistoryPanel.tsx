@@ -138,7 +138,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
           defaultValue: '{{count}} events',
         })}
         action={
-          <div className="flex items-center gap-1 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+          <div className="flex items-center gap-1 text-xs text-text-secondary">
             <Clock className="h-3 w-3" />
             <span>{t('monitor.alertHistoryTimeline', 'Timeline')}</span>
           </div>
@@ -150,7 +150,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
       >
         {history.length === 0 ? (
           <p
-            className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-6"
+            className="text-xs text-text-secondary text-center py-6"
             data-testid="alert-history-empty"
           >
             {t('monitor.noAlertHistory', 'No alert history yet')}
@@ -165,17 +165,17 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
               >
                 {/* Date group header */}
                 <div className="flex items-center gap-2 mt-1 mb-0.5">
-                  <span className="text-[10px] font-semibold text-[var(--vscode-descriptionForeground,#868686)] uppercase tracking-wider">
+                  <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider">
                     {dateKey}
                   </span>
-                  <div className="flex-1 h-px bg-[var(--vscode-panel-border,#3c3c3c)]" />
+                  <div className="flex-1 h-px bg-[var(--sf-border)]" />
                 </div>
 
                 {/* Alert entries for this date */}
                 {alerts.map((alert) => (
                   <div
                     key={alert.id}
-                    className="flex items-start gap-2 p-2 rounded bg-[var(--vscode-editorWidget-background,#252526)] border border-[var(--vscode-panel-border,#3c3c3c)]"
+                    className="flex items-start gap-2 p-2 rounded bg-[var(--sf-bg-card)] border border-[var(--sf-border)]"
                     data-testid={`history-entry-${alert.id}`}
                   >
                     {/* Left: Status icon */}
@@ -195,10 +195,8 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
                           </Badge>
                         </span>
                       </div>
-                      <p className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] mt-1 leading-snug">
-                        {alert.message}
-                      </p>
-                      <p className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] mt-0.5 font-mono">
+                      <p className="text-xs text-text-primary mt-1 leading-snug">{alert.message}</p>
+                      <p className="text-[10px] text-text-secondary mt-0.5 font-mono">
                         {t('monitor.alertValue', 'Value')}: {alert.currentValue} (
                         {t('monitor.alertThreshold', 'threshold')}: {alert.threshold})
                       </p>
@@ -207,7 +205,7 @@ export const AlertHistoryPanel: React.FC<AlertHistoryPanelProps> = ({ className 
                     {/* Right: Timestamps */}
                     <div className="shrink-0 text-right flex flex-col gap-0.5">
                       <span
-                        className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+                        className="text-[10px] text-text-secondary"
                         data-testid={`triggered-time-${alert.id}`}
                       >
                         {timeFmt.format(new Date(alert.triggeredAt))}

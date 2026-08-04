@@ -55,7 +55,7 @@ export const HealthScoreGauge: React.FC<HealthScoreGaugeProps> = ({
           cy={config.size / 2}
           r={radius}
           fill="none"
-          stroke="var(--vscode-input-background, #3c3c3c)"
+          stroke="var(--sf-bg-input)"
           strokeWidth={config.stroke}
         />
         <circle
@@ -76,14 +76,7 @@ export const HealthScoreGauge: React.FC<HealthScoreGaugeProps> = ({
         className="absolute flex flex-col items-center justify-center"
         style={{ width: config.size, height: config.size }}
       >
-        <span
-          className={cn(
-            'font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]',
-            config.textSize,
-          )}
-        >
-          {clamped}
-        </span>
+        <span className={cn('font-bold text-text-primary', config.textSize)}>{clamped}</span>
         <span className={cn('font-medium', config.labelSize)} style={{ color }}>
           {label}
         </span>

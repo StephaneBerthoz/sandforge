@@ -65,9 +65,7 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ avai
       {/* Header with status and start/stop */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-[var(--sf-space-2)]">
-          <h3 className="text-sm font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {t('sync.realtime.title')}
-          </h3>
+          <h3 className="text-sm font-medium text-text-primary">{t('sync.realtime.title')}</h3>
           <span data-testid="cdc-status-badge">
             <Badge variant={statusVariantMap[status]}>{t(`sync.realtime.status.${status}`)}</Badge>
           </span>
@@ -115,9 +113,7 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ avai
               </label>
             ))}
             {availableObjects.length === 0 && (
-              <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                {t('sync.realtime.noObjects')}
-              </p>
+              <p className="text-xs text-text-secondary">{t('sync.realtime.noObjects')}</p>
             )}
           </div>
         </CardBody>

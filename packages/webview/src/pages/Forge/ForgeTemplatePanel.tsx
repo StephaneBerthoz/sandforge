@@ -43,9 +43,9 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
             placeholder={t('forge.templateName')}
             className={cn(
               'px-3 py-1.5 rounded-md text-sm',
-              'bg-[var(--vscode-input-background,#1e1e3a)]',
-              'text-[var(--vscode-input-foreground,#d4d4d4)]',
-              'border border-[var(--vscode-input-border,#3a3a5c)]',
+              'bg-[var(--sf-bg-input)]',
+              'text-[var(--sf-text-input)]',
+              'border border-[var(--sf-border-input)]',
               'focus:outline-none focus:border-forge/50',
             )}
           />
@@ -57,9 +57,9 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
             placeholder={t('forge.templateDescription')}
             className={cn(
               'px-3 py-1.5 rounded-md text-sm',
-              'bg-[var(--vscode-input-background,#1e1e3a)]',
-              'text-[var(--vscode-input-foreground,#d4d4d4)]',
-              'border border-[var(--vscode-input-border,#3a3a5c)]',
+              'bg-[var(--sf-bg-input)]',
+              'text-[var(--sf-text-input)]',
+              'border border-[var(--sf-border-input)]',
               'focus:outline-none focus:border-forge/50',
             )}
           />
@@ -165,9 +165,9 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                   data-testid="forge-template-edit-name"
                   className={cn(
                     'px-2 py-1 rounded text-sm',
-                    'bg-[var(--vscode-input-background,#1e1e3a)]',
-                    'text-[var(--vscode-input-foreground,#d4d4d4)]',
-                    'border border-[var(--vscode-input-border,#3a3a5c)]',
+                    'bg-[var(--sf-bg-input)]',
+                    'text-[var(--sf-text-input)]',
+                    'border border-[var(--sf-border-input)]',
                   )}
                 />
                 <input
@@ -177,9 +177,9 @@ export const ForgeTemplatePanel: React.FC<ForgeTemplatePanelProps> = ({
                   data-testid="forge-template-edit-desc"
                   className={cn(
                     'px-2 py-1 rounded text-xs',
-                    'bg-[var(--vscode-input-background,#1e1e3a)]',
-                    'text-[var(--vscode-input-foreground,#d4d4d4)]',
-                    'border border-[var(--vscode-input-border,#3a3a5c)]',
+                    'bg-[var(--sf-bg-input)]',
+                    'text-[var(--sf-text-input)]',
+                    'border border-[var(--sf-border-input)]',
                   )}
                 />
                 <div className="flex gap-1">

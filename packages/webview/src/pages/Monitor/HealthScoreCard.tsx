@@ -75,7 +75,7 @@ const RadialGauge: React.FC<{ score: number; size?: number }> = ({ score, size =
       <path
         d={bgPath}
         fill="none"
-        stroke="var(--vscode-input-background, #3c3c3c)"
+        stroke="var(--sf-bg-input)"
         strokeWidth={8}
         strokeLinecap="round"
       />
@@ -238,7 +238,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-[var(--sf-radius-lg)] bg-[var(--vscode-editor-background,#1e1e1e)] border border-[var(--vscode-panel-border,#3c3c3c)] shadow-[var(--sf-shadow-lg)] p-[var(--sf-space-4)]">
+      <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-[var(--sf-radius-lg)] bg-[var(--sf-bg-primary)] border border-[var(--sf-border)] shadow-[var(--sf-shadow-lg)] p-[var(--sf-space-4)]">
         <div className="flex items-center justify-between mb-[var(--sf-space-4)]">
           <h2 className="text-lg font-semibold text-[var(--sf-text-primary)]">
             {t('monitor.healthReport', 'Health Report')}
@@ -286,7 +286,7 @@ const HealthReportModal: React.FC<{ report: HealthReport; onClose: () => void }>
                 {catFactors.map((factor) => (
                   <div
                     key={factor.name}
-                    className="p-[var(--sf-space-2)] rounded-[var(--sf-radius-md)] bg-[var(--vscode-input-background,#3c3c3c)]"
+                    className="p-[var(--sf-space-2)] rounded-[var(--sf-radius-md)] bg-[var(--sf-bg-input)]"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-[var(--sf-space-1)]">

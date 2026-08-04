@@ -62,7 +62,7 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
 
   return (
     <div className={cn('flex flex-col gap-3', className)} data-testid="transform-builder">
-      <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <span className="text-xs font-medium text-text-primary">
         {t('sync.transforms')} ({rules.length})
       </span>
 
@@ -75,7 +75,7 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
               key={i}
               className={cn(
                 'flex items-center gap-2 px-2 py-1.5 rounded text-xs',
-                'border border-[var(--vscode-panel-border,#3c3c3c)]',
+                'border border-[var(--sf-border)]',
               )}
               data-testid={`transform-${i}`}
             >
@@ -90,7 +90,7 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
                 />
               ))}
               <button
-                className="text-[var(--vscode-errorForeground,#f48771)] hover:opacity-70 px-1 ml-auto"
+                className="text-[var(--sf-error)] hover:opacity-70 px-1 ml-auto"
                 onClick={() => onRemoveRule(i)}
                 data-testid={`remove-transform-${i}`}
               >
@@ -102,9 +102,7 @@ export const TransformBuilder: React.FC<TransformBuilderProps> = ({
       </div>
 
       {rules.length === 0 && (
-        <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-2">
-          {t('common.noData')}
-        </p>
+        <p className="text-xs text-center text-text-secondary py-2">{t('common.noData')}</p>
       )}
 
       {/* Add new rule */}

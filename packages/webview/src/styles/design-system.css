@@ -54,6 +54,7 @@
   --sf-text-secondary: var(--vscode-descriptionForeground);
   --sf-text-muted: var(--vscode-disabledForeground);
   --sf-text-link: var(--vscode-textLink-foreground);
+  --sf-text-input: var(--vscode-input-foreground, var(--sf-text-primary));
 
   --sf-border: var(--vscode-widget-border, var(--vscode-panel-border));
   --sf-border-subtle: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.2));
@@ -69,7 +70,9 @@
   --sf-success: var(--vscode-testing-iconPassed, #4ec9b0);
   --sf-warning: var(--vscode-editorWarning-foreground, #cca700);
   --sf-error: var(--vscode-errorForeground, #f48771);
+  --sf-error-icon: var(--vscode-testing-iconFailed, #f48771);
   --sf-info: var(--vscode-editorInfo-foreground, #3794ff);
+  --sf-error-bg: var(--vscode-inputValidation-errorBackground, #5a1d1d);
 
   /* Shadows */
   --sf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);

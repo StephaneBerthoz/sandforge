@@ -39,7 +39,7 @@ export const SyncTemplatePicker: React.FC<SyncTemplatePickerProps> = ({ onApply,
               <Badge variant="default">{t(`sync.modes.${template.mode}`)}</Badge>
               <Badge variant="default">{t(`sync.conflicts.${template.conflictStrategy}`)}</Badge>
             </div>
-            <p className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+            <p className="text-[10px] text-text-secondary">
               {template.objects.map((o) => o.objectApiName).join(', ')}
             </p>
             <Button

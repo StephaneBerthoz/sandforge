@@ -47,9 +47,7 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="quality-dashboard">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('dataops.quality')}
-        </h2>
+        <h2 className="text-sm font-semibold text-text-primary">{t('dataops.quality')}</h2>
         <Button
           variant="primary"
           size="sm"
@@ -71,9 +69,7 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
 
       {results.length > 0 && (
         <div className="flex items-center gap-3" data-testid="quality-summary">
-          <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-            {t('dataops.qualityScore')}:
-          </span>
+          <span className="text-xs text-text-secondary">{t('dataops.qualityScore')}:</span>
           <Badge variant={scoreVariant(avgScore)}>{avgScore}%</Badge>
         </div>
       )}
@@ -93,19 +89,17 @@ export const QualityDashboard: React.FC<QualityDashboardProps> = ({
               <div className="flex flex-col gap-2">
                 {result.rules.map((rule) => (
                   <div key={rule.fieldApiName + rule.ruleType} className="flex items-center gap-2">
-                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-24">
+                    <span className="text-xs text-text-secondary w-24">
                       {t(RULE_LABELS[rule.ruleType])}
                     </span>
-                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-16">
-                      {rule.fieldApiName}
-                    </span>
+                    <span className="text-xs text-text-secondary w-16">{rule.fieldApiName}</span>
                     <ProgressBar
                       value={rule.passRate}
                       variant={scoreVariant(rule.passRate)}
                       size="sm"
                       className="flex-1"
                     />
-                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] w-12 text-right">
+                    <span className="text-xs text-text-secondary w-12 text-right">
                       {Math.round(rule.passRate)}%
                     </span>
                   </div>

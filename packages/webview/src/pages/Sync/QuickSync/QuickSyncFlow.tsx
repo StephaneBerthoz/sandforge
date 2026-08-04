@@ -38,7 +38,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex items-center gap-1 text-xs text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline focus:outline-none self-start"
+        className="inline-flex items-center gap-1 text-xs text-[var(--sf-text-link)] hover:underline focus:outline-none self-start"
         data-testid="quick-sync-back-to-wizard"
       >
         <span className="codicon codicon-arrow-left" aria-hidden="true" />
@@ -51,7 +51,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
           <React.Fragment key={s.id}>
             {i > 0 && (
               <span
-                className="codicon codicon-chevron-right text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+                className="codicon codicon-chevron-right text-[10px] text-text-secondary"
                 aria-hidden="true"
               />
             )}
@@ -102,7 +102,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
       {/* Error display */}
       {state.error && (
         <div
-          className="text-xs text-[var(--vscode-errorForeground,#f48771)] p-2 rounded bg-[var(--vscode-inputValidation-errorBackground,#5a1d1d)]"
+          className="text-xs text-[var(--sf-error)] p-2 rounded bg-[var(--sf-error-bg)]"
           data-testid="quick-sync-error"
         >
           {state.error}

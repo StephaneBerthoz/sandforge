@@ -87,9 +87,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
           onClick={onToggleIncluded}
           className={cn(
             'relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors',
-            node.included
-              ? 'bg-[var(--sf-accent,#F97316)]'
-              : 'bg-[var(--vscode-input-background,#3c3c3c)]',
+            node.included ? 'bg-[var(--sf-accent,#F97316)]' : 'bg-[var(--sf-bg-input)]',
           )}
         >
           <span

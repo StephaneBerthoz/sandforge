@@ -28,24 +28,20 @@ export const LimitsPanel: React.FC<LimitsPanelProps> = ({ limits, className }) =
       <CardHeader title={t('monitor.limits')} subtitle={`${limits.length} limits tracked`} />
       <CardBody className="flex flex-col gap-3 max-h-80 overflow-y-auto">
         {sorted.length === 0 ? (
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-4">
-            {t('common.noData')}
-          </p>
+          <p className="text-xs text-text-secondary text-center py-4">{t('common.noData')}</p>
         ) : (
           sorted.map((limit) => (
             <div key={limit.name} data-testid={`limit-${limit.name}`}>
               <div className="flex justify-between items-center mb-0.5">
-                <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] truncate">
-                  {limit.name}
-                </span>
+                <span className="text-xs text-text-primary truncate">{limit.name}</span>
                 <span
                   className={cn(
                     'text-[10px] font-mono',
                     limit.usedPercent >= 90
-                      ? 'text-[var(--vscode-errorForeground,#f48771)]'
+                      ? 'text-[var(--sf-error)]'
                       : limit.usedPercent >= 70
-                        ? 'text-[var(--vscode-editorWarning-foreground,#cca700)]'
-                        : 'text-[var(--vscode-descriptionForeground,#868686)]',
+                        ? 'text-[var(--sf-warning)]'
+                        : 'text-text-secondary',
                   )}
                 >
                   {limit.remaining.toLocaleString()} / {limit.max.toLocaleString()}

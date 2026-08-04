@@ -58,10 +58,10 @@ export const SettingsExportPanel: React.FC<SettingsExportPanelProps> = ({ onExpo
             <textarea
               ref={textareaRef}
               className="w-full h-32 px-3 py-2 text-xs font-mono rounded border resize-none
-              bg-[var(--vscode-input-background,#3c3c3c)]
-              text-[var(--vscode-input-foreground,#ccc)]
-              border-[var(--vscode-input-border,#3c3c3c)]
-              focus:border-[var(--vscode-focusBorder,#007fd4)] outline-none"
+              bg-[var(--sf-bg-input)]
+              text-[var(--sf-text-input)]
+              border-[var(--sf-border-input)]
+              focus:border-[var(--sf-accent)] outline-none"
               placeholder={t('settings.importPlaceholder', 'Paste settings JSON here...')}
               value={importText}
               onChange={(e) => {
@@ -83,18 +83,12 @@ export const SettingsExportPanel: React.FC<SettingsExportPanelProps> = ({ onExpo
               </Button>
 
               {importStatus === 'success' && (
-                <span
-                  className="text-xs text-[var(--vscode-testing-iconPassed,#73c991)]"
-                  data-testid="import-success"
-                >
+                <span className="text-xs text-[var(--sf-success)]" data-testid="import-success">
                   {t('settings.importSuccess', 'Settings imported successfully')}
                 </span>
               )}
               {importStatus === 'error' && (
-                <span
-                  className="text-xs text-[var(--vscode-testing-iconFailed,#f48771)]"
-                  data-testid="import-error"
-                >
+                <span className="text-xs text-[var(--sf-error-icon)]" data-testid="import-error">
                   {t('settings.importError', 'Invalid settings JSON')}
                 </span>
               )}

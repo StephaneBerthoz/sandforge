@@ -260,7 +260,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                       gap: 'var(--sf-space-2)',
                       width: '100%',
                       padding: 'var(--sf-space-2) var(--sf-space-3)',
-                      backgroundColor: 'var(--vscode-input-background, #3c3c3c)',
+                      backgroundColor: 'var(--sf-bg-input)',
                       border: 'none',
                       cursor: 'pointer',
                       color: 'var(--sf-text-primary)',

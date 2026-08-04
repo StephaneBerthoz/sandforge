@@ -75,9 +75,9 @@ export const ForgeDepthChips: React.FC<ForgeDepthChipsProps> = ({
             data-testid="forge-depth-custom-input"
             className={cn(
               'w-16 px-2 py-1.5 rounded-full text-xs text-center',
-              'bg-[var(--vscode-input-background,#1e1e3a)]',
-              'text-[var(--vscode-input-foreground,#d4d4d4)]',
-              'border border-[var(--vscode-input-border,#3a3a5c)]',
+              'bg-[var(--sf-bg-input)]',
+              'text-[var(--sf-text-input)]',
+              'border border-[var(--sf-border-input)]',
             )}
           />
         )}

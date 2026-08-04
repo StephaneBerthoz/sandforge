@@ -39,9 +39,7 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="cleanup-panel">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('dataops.cleanup')}
-        </h2>
+        <h2 className="text-sm font-semibold text-text-primary">{t('dataops.cleanup')}</h2>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={onArchive} data-testid="archive-btn">
             {t('dataops.archive')}
@@ -66,10 +64,7 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({
       )}
 
       {recommendations.length > 0 && (
-        <div
-          className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
-          data-testid="savings-summary"
-        >
+        <div className="text-xs text-text-secondary" data-testid="savings-summary">
           {t('dataops.storageSaved')}: {formatFileSize(totalSavings)}
         </div>
       )}
@@ -88,7 +83,7 @@ export const CleanupPanel: React.FC<CleanupPanelProps> = ({
             />
             <CardBody>
               <div className="flex items-center justify-between">
-                <div className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                <div className="text-xs text-text-secondary">
                   <p>{rec.reason}</p>
                   <p className="mt-1">
                     {t('dataops.storageSaved')}: {formatFileSize(rec.estimatedSaving)}
