@@ -146,4 +146,36 @@ describe('ConfigHandler', () => {
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(response.payload.valid).toBe(false);
   });
+
+  describe('payload validation', () => {
+    it('rejects config:export with an unknown category (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-export',
+        type: 'config:export',
+        timestamp: Date.now(),
+        payload: { categories: ['bogusCategory'] },
+      } as unknown as BaseMessage;
+
+      expect(await handler.handle(msg)).toBe(true);
+
+      const errMsg = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(errMsg.type).toBe('config:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects config:import without overwrite flag (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-import',
+        type: 'config:import',
+        timestamp: Date.now(),
+        payload: { json: '{}' },
+      } as unknown as BaseMessage;
+
+      expect(await handler.handle(msg)).toBe(true);
+
+      const errMsg = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(errMsg.type).toBe('config:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

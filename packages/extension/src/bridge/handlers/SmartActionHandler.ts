@@ -1,6 +1,7 @@
 import type { BaseMessage, SmartActionRecommendation } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
+import { validatePayload, smartActionAnalyzePayloadSchema } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { SmartActionAnalyzer } from '../../modules/ai/SmartActionAnalyzer.js';
 
@@ -62,22 +63,16 @@ export class SmartActionHandler implements DomainHandler {
    * @param msg - The analyze request message.
    */
   private async handleAnalyze(msg: BaseMessage): Promise<void> {
+    const parsed = validatePayload(
+      smartActionAnalyzePayloadSchema,
+      msg,
+      'smart-action:error',
+      this.deps,
+    );
+    if (!parsed) return;
     try {
-      const payload = (
-        msg as unknown as { payload?: { targetOrgId: string; sourceOrgId?: string } }
-      ).payload;
-      const targetOrgId = payload?.targetOrgId ?? '';
-      const sourceOrgId = payload?.sourceOrgId;
-
-      if (!targetOrgId) {
-        sendHandlerError(
-          this.deps,
-          'smart-action:analyze',
-          'smart-action:error',
-          new Error('targetOrgId is required'),
-        );
-        return;
-      }
+      const targetOrgId = parsed.targetOrgId;
+      const sourceOrgId = parsed.sourceOrgId;
 
       const cacheKey = `smart-action:${targetOrgId}`;
       const cached = this.cache.get(cacheKey);

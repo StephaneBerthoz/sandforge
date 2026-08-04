@@ -1,12 +1,13 @@
 import type { BaseMessage } from '@sandforge/shared';
-import type {
-  AINL2SOQLRequest,
-  AIResolveErrorRequest,
-  AIPersonasRequest,
-  AIGeneratePipelineRequest,
-} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
+import {
+  validatePayload,
+  aiNl2SoqlPayloadSchema,
+  aiResolveErrorPayloadSchema,
+  aiPersonasPayloadSchema,
+  aiGeneratePipelinePayloadSchema,
+} from '../../validatePayload.js';
 import type { AIModules } from '../AIHandler.js';
 import type { AIAssistant } from '../../../modules/ai/AIAssistant.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
@@ -75,7 +76,9 @@ export class AIToolsHandler implements DomainHandler {
 
   private async handleNL2SOQL(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { query, orgId } = (msg as AINL2SOQLRequest).payload;
+    const parsed = validatePayload(aiNl2SoqlPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { query, orgId } = parsed;
     try {
       if (!this.aiModules?.nl2soql) {
         throw new Error('AI not configured. Set your API key in Settings > AI.');
@@ -108,7 +111,9 @@ export class AIToolsHandler implements DomainHandler {
 
   private async handleResolveError(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { errorMessage, errorCode, module, context } = (msg as AIResolveErrorRequest).payload;
+    const parsed = validatePayload(aiResolveErrorPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { errorMessage, errorCode, module, context } = parsed;
     try {
       if (!this.aiModules?.errorResolver) {
         throw new Error(
@@ -141,7 +146,9 @@ export class AIToolsHandler implements DomainHandler {
 
   private async handlePersonas(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { action, description } = (msg as AIPersonasRequest).payload;
+    const parsed = validatePayload(aiPersonasPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { action, description } = parsed;
     try {
       if (!this.aiModules?.personaManager) {
         throw new Error(
@@ -201,7 +208,9 @@ export class AIToolsHandler implements DomainHandler {
 
   private async handleGeneratePipeline(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { description, orgIds } = (msg as AIGeneratePipelineRequest).payload;
+    const parsed = validatePayload(aiGeneratePipelinePayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { description, orgIds } = parsed;
     try {
       if (!this.aiModules?.pipelineGenerator) {
         throw new Error(

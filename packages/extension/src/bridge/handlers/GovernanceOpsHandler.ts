@@ -2,6 +2,13 @@ import type { BaseMessage } from '@sandforge/shared';
 import { SF_API_VERSION } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
+import {
+  validatePayload,
+  governancePolicyIdPayloadSchema,
+  governancePolicySavePayloadSchema,
+  governancePoliciesImportPayloadSchema,
+  governanceEvaluatePayloadSchema,
+} from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { GovernancePolicyStore } from '../../modules/monitor/GovernancePolicyStore.js';
 import {
@@ -9,7 +16,6 @@ import {
   GovernancePolicySchema,
 } from '../../modules/monitor/GovernanceEngine.js';
 import type {
-  GovernancePolicy,
   GovernanceEvaluationResult,
   MetricValues,
 } from '../../modules/monitor/GovernanceEngine.js';
@@ -132,9 +138,15 @@ export class GovernanceOpsHandler implements DomainHandler {
    * @param msg - The incoming request message with policyId payload.
    */
   private handlePolicyGet(msg: BaseMessage): void {
+    const parsed = validatePayload(
+      governancePolicyIdPayloadSchema,
+      msg,
+      'governance:error',
+      this.deps,
+    );
+    if (!parsed) return;
     try {
-      const payload = msg as BaseMessage & { payload: { policyId: string } };
-      const policy = this.store.getById(payload.payload.policyId) ?? null;
+      const policy = this.store.getById(parsed.policyId) ?? null;
       const response = buildResponse(this.deps, msg, 'governance:policy:result', { policy });
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:result');
@@ -148,20 +160,26 @@ export class GovernanceOpsHandler implements DomainHandler {
    * @param msg - The incoming request message with policy payload.
    */
   private handlePolicySave(msg: BaseMessage): void {
+    const parsed = validatePayload(
+      governancePolicySavePayloadSchema,
+      msg,
+      'governance:error',
+      this.deps,
+    );
+    if (!parsed) return;
     try {
-      const payload = msg as BaseMessage & { payload: { policy: GovernancePolicy } };
-      const parsed = GovernancePolicySchema.safeParse(payload.payload.policy);
-      if (!parsed.success) {
+      const policyParsed = GovernancePolicySchema.safeParse(parsed.policy);
+      if (!policyParsed.success) {
         sendHandlerError(
           this.deps,
           'governance:policy:save',
           'governance:policy:save:response',
-          new Error(`Validation failed: ${parsed.error.message}`),
+          new Error(`Validation failed: ${policyParsed.error.message}`),
           'VALIDATION_ERROR',
         );
         return;
       }
-      this.store.save(parsed.data);
+      this.store.save(policyParsed.data);
       const response = buildResponse(this.deps, msg, 'governance:policy:save:response', {
         success: true,
       });
@@ -177,9 +195,15 @@ export class GovernanceOpsHandler implements DomainHandler {
    * @param msg - The incoming request message with policyId payload.
    */
   private handlePolicyDelete(msg: BaseMessage): void {
+    const parsed = validatePayload(
+      governancePolicyIdPayloadSchema,
+      msg,
+      'governance:error',
+      this.deps,
+    );
+    if (!parsed) return;
     try {
-      const payload = msg as BaseMessage & { payload: { policyId: string } };
-      const success = this.store.delete(payload.payload.policyId);
+      const success = this.store.delete(parsed.policyId);
       const response = buildResponse(this.deps, msg, 'governance:policy:delete:response', {
         success,
       });
@@ -212,9 +236,15 @@ export class GovernanceOpsHandler implements DomainHandler {
    * @param msg - The incoming request message with json payload.
    */
   private handlePoliciesImport(msg: BaseMessage): void {
+    const parsed = validatePayload(
+      governancePoliciesImportPayloadSchema,
+      msg,
+      'governance:error',
+      this.deps,
+    );
+    if (!parsed) return;
     try {
-      const payload = msg as BaseMessage & { payload: { json: string } };
-      const count = this.store.importPolicies(payload.payload.json);
+      const count = this.store.importPolicies(parsed.json);
       const response = buildResponse(this.deps, msg, 'governance:policies:import:response', {
         success: true,
         count,
@@ -241,23 +271,29 @@ export class GovernanceOpsHandler implements DomainHandler {
    * @param msg - The incoming request message with policyId and orgId payload.
    */
   private async handleEvaluate(msg: BaseMessage): Promise<void> {
+    const parsed = validatePayload(
+      governanceEvaluatePayloadSchema,
+      msg,
+      'governance:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
     try {
-      const payload = msg as BaseMessage & { payload: { policyId: string; orgId: string } };
-
-      const policy = this.store.getById(payload.payload.policyId);
+      const policy = this.store.getById(payload.policyId);
       if (!policy) {
         sendHandlerError(
           this.deps,
           'governance:evaluate',
           'governance:evaluate:response',
-          new Error(`Policy not found: ${payload.payload.policyId}`),
+          new Error(`Policy not found: ${payload.policyId}`),
           'NOT_FOUND',
         );
         return;
       }
 
       const conn = await getJsforceConnection(
-        payload.payload.orgId,
+        payload.orgId,
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
@@ -278,7 +314,7 @@ export class GovernanceOpsHandler implements DomainHandler {
             this.alertEngine.evaluate(
               `governance:${ruleResult.ruleId}`,
               ruleResult.actualValue,
-              payload.payload.orgId,
+              payload.orgId,
             );
           }
         }

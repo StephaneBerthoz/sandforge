@@ -453,4 +453,63 @@ describe('GovernanceOpsHandler', () => {
     };
     expect(lastCall.payload.success).toBe(true);
   });
+
+  describe('payload validation', () => {
+    it('rejects governance:evaluate without orgId (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-eval',
+        type: 'governance:evaluate',
+        timestamp: Date.now(),
+        payload: { policyId: 'test-policy-1' },
+      } as BaseMessage & { payload: { policyId: string } };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('governance:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects governance:policy:save with a non-object policy (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-save',
+        type: 'governance:policy:save',
+        timestamp: Date.now(),
+        payload: { policy: 'not-an-object' },
+      } as BaseMessage & { payload: { policy: unknown } };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('governance:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects governance:policy:delete without policyId (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-delete',
+        type: 'governance:policy:delete',
+        timestamp: Date.now(),
+        payload: {},
+      } as BaseMessage & { payload: Record<string, never> };
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('governance:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

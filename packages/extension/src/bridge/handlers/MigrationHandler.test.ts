@@ -180,5 +180,27 @@ describe('MigrationHandler', () => {
       const response = lastResponse();
       expect(response.payload.error).toContain('READ_ATTEMPTED');
     });
+
+    it('rejects a non-string filePath with INVALID_PAYLOAD before any read', async () => {
+      await handler.handle(createMsg('migration:import', { filePath: 42 }));
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('migration:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects migration:import-sfdmu without filePath (INVALID_PAYLOAD)', async () => {
+      await handler.handle(createMsg('migration:import-sfdmu', {}));
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('migration:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
   });
 });

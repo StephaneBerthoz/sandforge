@@ -1,7 +1,14 @@
-import type { BaseMessage, QuickSyncConfig } from '@sandforge/shared';
+import type { BaseMessage } from '@sandforge/shared';
 import { QuickSyncConfigSchema } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
+import {
+  validatePayload,
+  quickSyncSuggestObjectsPayloadSchema,
+  quickSyncDetectRelationshipsPayloadSchema,
+  quickSyncPreviewPayloadSchema,
+  quickSyncExecutePayloadSchema,
+} from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { SmartObjectSuggester } from '../../modules/sync/SmartObjectSuggester.js';
 import { RelationshipDetector } from '../../modules/sync/RelationshipDetector.js';
@@ -76,12 +83,18 @@ export class QuickSyncHandler implements DomainHandler {
    */
   private async handleSuggestObjects(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string; alreadySelected: string[] } })
-      .payload;
+    const parsed = validatePayload(
+      quickSyncSuggestObjectsPayloadSchema,
+      msg,
+      'quicksync:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
-        payload.orgId,
+        payload.orgId ?? '',
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
@@ -111,24 +124,22 @@ export class QuickSyncHandler implements DomainHandler {
    */
   private async handleDetectRelationships(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (
-      msg as BaseMessage & {
-        payload: {
-          orgId: string;
-          objectApiName: string;
-          alreadySelected: string[];
-          availableObjects: string[];
-        };
-      }
-    ).payload;
+    const parsed = validatePayload(
+      quickSyncDetectRelationshipsPayloadSchema,
+      msg,
+      'quicksync:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
-        payload.orgId,
+        payload.orgId ?? '',
         this.deps.orgRegistry,
         this.deps.orgManager,
       );
-      const describeResult = await conn.describe(payload.objectApiName);
+      const describeResult = await conn.describe(payload.objectApiName ?? '');
 
       const fields: DescribeFieldInfo[] = (
         describeResult.fields as Array<{
@@ -145,10 +156,10 @@ export class QuickSyncHandler implements DomainHandler {
       }));
 
       const suggestions = this.relationshipDetector.detect(
-        payload.objectApiName,
+        payload.objectApiName ?? '',
         fields,
-        payload.alreadySelected,
-        payload.availableObjects,
+        payload.alreadySelected ?? [],
+        payload.availableObjects ?? [],
       );
 
       const response = buildResponse(this.deps, msg, 'quicksync:detect-relationships:response', {
@@ -167,11 +178,14 @@ export class QuickSyncHandler implements DomainHandler {
    */
   private async handlePreview(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (
-      msg as BaseMessage & {
-        payload: { sourceOrgId: string; selectedObjects: string[]; parentObjects?: string[] };
-      }
-    ).payload;
+    const parsed = validatePayload(
+      quickSyncPreviewPayloadSchema,
+      msg,
+      'quicksync:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const conn = await getJsforceConnection(
@@ -212,7 +226,14 @@ export class QuickSyncHandler implements DomainHandler {
    */
   private async handleExecute(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { config: QuickSyncConfig } }).payload;
+    const parsed = validatePayload(
+      quickSyncExecutePayloadSchema,
+      msg,
+      'quicksync:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       // Validate with Zod

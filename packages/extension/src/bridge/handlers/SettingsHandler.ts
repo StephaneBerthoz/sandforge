@@ -1,14 +1,16 @@
 import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
+import {
+  validatePayload,
+  settingsUpdatePayloadSchema,
+  hintDismissPayloadSchema,
+  telemetryTogglePayloadSchema,
+  pluginsLoadPayloadSchema,
+  pluginsUnloadPayloadSchema,
+} from '../validatePayload.js';
 import type { OnboardingService } from '../../core/onboarding/OnboardingService.js';
 import type { HintTracker } from '../../core/onboarding/HintTracker.js';
-import type {
-  HintDismissRequest,
-  TelemetryToggleRequest,
-  PluginsLoadRequest,
-  PluginsUnloadRequest,
-} from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Message types handled by SettingsHandler. */
@@ -104,7 +106,9 @@ export class SettingsHandler implements DomainHandler {
 
   private handleSettingsUpdate(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { key: string; value: unknown } }).payload;
+    const parsed = validatePayload(settingsUpdatePayloadSchema, msg, 'settings:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     this.deps.configStore.set(payload.key, payload.value, 'settings');
 
@@ -135,8 +139,9 @@ export class SettingsHandler implements DomainHandler {
   private handleHintDismiss(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (this.hintTracker) {
-      const payload = (msg as HintDismissRequest).payload;
-      this.hintTracker.markHintSeen(payload.hintId).catch((err) => {
+      const parsed = validatePayload(hintDismissPayloadSchema, msg, 'settings:error', this.deps);
+      if (!parsed) return;
+      this.hintTracker.markHintSeen(parsed.hintId).catch((err) => {
         this.deps.log(`[ERR] Failed to mark hint seen: ${extractErrorMessage(err)}`);
       });
     }
@@ -153,7 +158,9 @@ export class SettingsHandler implements DomainHandler {
 
   private async handlePluginsLoad(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { pluginPath } = (msg as PluginsLoadRequest).payload;
+    const parsed = validatePayload(pluginsLoadPayloadSchema, msg, 'settings:error', this.deps);
+    if (!parsed) return;
+    const { pluginPath } = parsed;
     try {
       const { PluginManager } = await import('../../core/plugins/PluginManager.js');
       const fsImpl = {
@@ -199,7 +206,9 @@ export class SettingsHandler implements DomainHandler {
 
   private handlePluginsUnload(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { pluginName } = (msg as PluginsUnloadRequest).payload;
+    const parsed = validatePayload(pluginsUnloadPayloadSchema, msg, 'settings:error', this.deps);
+    if (!parsed) return;
+    const { pluginName } = parsed;
     const response = buildResponse(this.deps, msg, 'plugins:unload:response', {
       success: true,
     });
@@ -233,7 +242,9 @@ export class SettingsHandler implements DomainHandler {
    */
   private async handleTelemetryToggle(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { enabled } = (msg as TelemetryToggleRequest).payload;
+    const parsed = validatePayload(telemetryTogglePayloadSchema, msg, 'settings:error', this.deps);
+    if (!parsed) return;
+    const { enabled } = parsed;
 
     if (!this.deps.services?.setSandforgeSetting) {
       const response = buildResponse(this.deps, msg, 'telemetry:toggle:response', {

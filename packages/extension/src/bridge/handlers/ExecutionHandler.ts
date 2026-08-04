@@ -1,6 +1,12 @@
 import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
+import {
+  validatePayload,
+  executionAbortPayloadSchema,
+  executionStatusPayloadSchema,
+  executionManualRetryPayloadSchema,
+} from '../validatePayload.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
 /** Message types handled by ExecutionHandler. */
@@ -65,8 +71,14 @@ export class ExecutionHandler implements DomainHandler {
    */
   private handleManualRetry(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { executionId: string; objectName: string } })
-      .payload;
+    const parsed = validatePayload(
+      executionManualRetryPayloadSchema,
+      msg,
+      'execution:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const payload = parsed;
     const operation = this.registry.get(payload.executionId);
     const response = buildResponse(this.deps, msg, 'execution:retry-status', {
       executionId: payload.executionId,
@@ -93,8 +105,16 @@ export class ExecutionHandler implements DomainHandler {
   private async handleAbort(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
-      const payload = (msg as BaseMessage & { payload: { operationId: string } }).payload;
-      const operationId = payload.operationId;
+      const parsed = validatePayload(
+        executionAbortPayloadSchema,
+        msg,
+        'execution:error',
+        this.deps,
+      );
+      if (!parsed) return;
+      // NOTE: the current webview (useRetryManager) sends `executionId`; the
+      // historical contract is `operationId`. Both are accepted by the schema.
+      const operationId = parsed.operationId ?? parsed.executionId ?? '';
 
       if (!this.registry.has(operationId)) {
         const response = buildResponse(this.deps, msg, 'execution:abort:response', {
@@ -127,8 +147,14 @@ export class ExecutionHandler implements DomainHandler {
   private async handleStatus(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
-      const payload = (msg as BaseMessage & { payload: { operationId: string } }).payload;
-      const operationId = payload.operationId;
+      const parsed = validatePayload(
+        executionStatusPayloadSchema,
+        msg,
+        'execution:error',
+        this.deps,
+      );
+      if (!parsed) return;
+      const operationId = parsed.operationId;
       const operation = this.registry.get(operationId);
 
       if (!operation) {

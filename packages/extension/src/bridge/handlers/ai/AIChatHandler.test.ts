@@ -490,4 +490,36 @@ describe('AIChatHandler', () => {
     handler.setAIAssistant(mockAssistant);
     expect(handler.getAIAssistant()).toBe(mockAssistant);
   });
+
+  describe('payload validation', () => {
+    it('rejects ai:chat without conversationId (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('ai:chat', { message: 'hi' }));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('ai:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects ai:save-key without apiKey (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('ai:save-key', {}));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('ai:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+      expect(deps.secretVault.storeSecret).not.toHaveBeenCalled();
+    });
+
+    it('rejects ai:conversation:delete with a non-string conversationId', async () => {
+      const result = await handler.handle(
+        createMsg('ai:conversation:delete', { conversationId: 7 }),
+      );
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('ai:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

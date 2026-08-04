@@ -10,7 +10,14 @@ import {
 } from './HandlerTypes.js';
 import type { PipelineOrchestrator } from '../../modules/automation/PipelineOrchestrator.js';
 import type { PipelineMarketplace } from '../../modules/automation/PipelineMarketplace.js';
-import type { MarketplaceListRequest, MarketplaceInstallRequest } from '@sandforge/shared';
+import {
+  validatePayload,
+  pipelineRunPayloadSchema,
+  pipelineSavePayloadSchema,
+  operationIdPayloadSchema,
+  marketplaceListPayloadSchema,
+  marketplaceInstallPayloadSchema,
+} from '../validatePayload.js';
 import { PIPELINE_TEMPLATES } from '../templates/pipelineTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { sendHandlerError } from './HandlerTypes.js';
@@ -98,11 +105,9 @@ export class AutomationHandler implements DomainHandler {
 
   private async handlePipelineRun(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (
-      msg as BaseMessage & {
-        payload: { pipeline: Record<string, unknown>; variables?: Record<string, string> };
-      }
-    ).payload;
+    const parsed = validatePayload(pipelineRunPayloadSchema, msg, 'pipeline:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
     const operationId = crypto.randomUUID();
 
     try {
@@ -223,7 +228,9 @@ export class AutomationHandler implements DomainHandler {
 
   private handleOperationCancel(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { operationId: string } }).payload;
+    const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     const orchestrator = this.activeOrchestrators.get(payload.operationId);
     if (orchestrator) {
@@ -244,7 +251,9 @@ export class AutomationHandler implements DomainHandler {
 
   private handleOperationPause(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { operationId: string } }).payload;
+    const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     const orchestrator = this.activeOrchestrators.get(payload.operationId);
     if (orchestrator) {
@@ -265,7 +274,9 @@ export class AutomationHandler implements DomainHandler {
 
   private handleOperationResume(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { operationId: string } }).payload;
+    const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     const orchestrator = this.activeOrchestrators.get(payload.operationId);
     if (orchestrator) {
@@ -338,9 +349,9 @@ export class AutomationHandler implements DomainHandler {
   private handlePipelineSave(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
-      const payload = (
-        msg as BaseMessage & { payload: { id: string; config: Record<string, unknown> } }
-      ).payload;
+      const parsed = validatePayload(pipelineSavePayloadSchema, msg, 'pipeline:error', this.deps);
+      if (!parsed) return;
+      const payload = parsed;
       const pipelineId = payload.id || crypto.randomUUID();
       const storageKey = `pipeline:saved:${pipelineId}`;
       this.deps.configStore.set(
@@ -369,7 +380,13 @@ export class AutomationHandler implements DomainHandler {
       if (!this.pipelineMarketplace) {
         throw new Error('Pipeline Marketplace not available.');
       }
-      const payload = (msg as MarketplaceListRequest).payload;
+      const payload = validatePayload(
+        marketplaceListPayloadSchema,
+        msg,
+        'pipeline:error',
+        this.deps,
+      );
+      if (payload === null) return;
       let templates;
       if (payload?.query) {
         templates = this.pipelineMarketplace.search(payload.query);
@@ -403,7 +420,14 @@ export class AutomationHandler implements DomainHandler {
 
   private handleMarketplaceInstall(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { templateId } = (msg as MarketplaceInstallRequest).payload;
+    const parsed = validatePayload(
+      marketplaceInstallPayloadSchema,
+      msg,
+      'pipeline:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const { templateId } = parsed;
     try {
       if (!this.pipelineMarketplace) {
         throw new Error('Pipeline Marketplace not available.');

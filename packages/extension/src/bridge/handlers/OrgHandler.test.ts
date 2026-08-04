@@ -63,4 +63,25 @@ describe('OrgHandler', () => {
     expect(response.correlationId).toBe('req-99');
     expect(response.payload.status).toBe('disconnected');
   });
+
+  describe('payload validation', () => {
+    it('rejects org:disconnect without orgId (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('org:disconnect', {}));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('org:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+      expect(deps.orgRegistry.removeOrg).not.toHaveBeenCalled();
+    });
+
+    it('rejects org:connect without authMethod (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('org:connect', { orgId: '' }));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('org:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

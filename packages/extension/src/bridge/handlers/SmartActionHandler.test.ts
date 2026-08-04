@@ -105,4 +105,24 @@ describe('SmartActionHandler', () => {
     const handled = await handler.handle(msg);
     expect(handled).toBe(true);
   });
+
+  describe('payload validation', () => {
+    it('rejects smart-action:analyze without targetOrgId (INVALID_PAYLOAD)', async () => {
+      const msg: BaseMessage & { payload: Record<string, unknown> } = {
+        id: 'req-bad',
+        type: 'smart-action:analyze',
+        timestamp: Date.now(),
+        payload: {},
+      };
+      const handled = await handler.handle(msg);
+      expect(handled).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('smart-action:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

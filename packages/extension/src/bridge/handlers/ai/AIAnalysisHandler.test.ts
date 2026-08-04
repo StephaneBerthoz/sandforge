@@ -145,4 +145,26 @@ describe('AIAnalysisHandler', () => {
     expect(response.payload.success).toBe(true);
     expect(response.correlationId).toBe('msg-1');
   });
+
+  describe('payload validation', () => {
+    it('rejects ai:anomaly-scan with a non-API-name objectName (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(
+        createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account WHERE Id != null' }),
+      );
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('ai:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects ai:schema-advice without orgId (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('ai:schema-advice', {}));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('ai:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

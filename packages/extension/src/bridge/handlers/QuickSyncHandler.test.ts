@@ -258,4 +258,76 @@ describe('QuickSyncHandler', () => {
     expect(response.payload.suggestions).toHaveLength(1);
     expect(response.payload.suggestions[0].parentObject).toBe('Account');
   });
+
+  describe('payload validation', () => {
+    it('rejects quicksync:preview with non-array selectedObjects (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-preview',
+        type: 'quicksync:preview',
+        timestamp: Date.now(),
+        payload: { sourceOrgId: 'org-1', selectedObjects: 'Account' },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('quicksync:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    it('rejects quicksync:execute with an invalid config object name (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-execute',
+        type: 'quicksync:execute',
+        timestamp: Date.now(),
+        payload: {
+          config: {
+            sourceOrgId: 'org-src',
+            targetOrgId: 'org-tgt',
+            selectedObjects: ['Account; DELETE'],
+          },
+        },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('quicksync:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    it('still accepts the flat webview shape for quicksync:suggest-objects', async () => {
+      mockGetConn.mockResolvedValue({
+        describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
+        limitInfo: undefined,
+      } as never);
+
+      // The current webview sends `{ sourceOrgId }` (see QuickSyncObjectStep).
+      const msg = {
+        id: 'req-suggest-flat',
+        type: 'quicksync:suggest-objects',
+        timestamp: Date.now(),
+        payload: { sourceOrgId: 'org-1' },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code?: string };
+      };
+      expect(errMsg.payload.code).not.toBe('INVALID_PAYLOAD');
+    });
+  });
 });

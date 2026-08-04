@@ -1,8 +1,13 @@
 import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
+import {
+  validatePayload,
+  configExportPayloadSchema,
+  configImportPayloadSchema,
+  configValidatePayloadSchema,
+} from '../validatePayload.js';
 import { ConfigProfileManager } from '../../core/config/ConfigProfileManager.js';
-import type { ConfigCategory } from '../../core/config/ConfigProfileManager.js';
 
 /** Message types handled by ConfigHandler. */
 const CONFIG_TYPES = new Set([
@@ -54,7 +59,9 @@ export class ConfigHandler implements DomainHandler {
 
   private handleExport(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { categories: ConfigCategory[] } }).payload;
+    const parsed = validatePayload(configExportPayloadSchema, msg, 'config:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const result = this.profileManager.exportProfile(payload.categories);
@@ -75,8 +82,9 @@ export class ConfigHandler implements DomainHandler {
 
   private handleImport(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { json: string; overwrite: boolean } })
-      .payload;
+    const parsed = validatePayload(configImportPayloadSchema, msg, 'config:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const result = this.profileManager.importProfile(payload.json, payload.overwrite);
@@ -113,7 +121,9 @@ export class ConfigHandler implements DomainHandler {
 
   private handleValidate(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { json: string } }).payload;
+    const parsed = validatePayload(configValidatePayloadSchema, msg, 'config:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     try {
       const result = this.profileManager.validateProfile(payload.json);
