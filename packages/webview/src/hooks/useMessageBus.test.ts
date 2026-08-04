@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
 import type { BaseMessage } from '@sandforge/shared';
@@ -69,8 +70,8 @@ describe('useSendMessage', () => {
 });
 
 describe('useMessageListener', () => {
-  let addEventSpy: ReturnType<typeof vi.spyOn>;
-  let removeEventSpy: ReturnType<typeof vi.spyOn>;
+  let addEventSpy: MockInstance;
+  let removeEventSpy: MockInstance;
 
   beforeEach(() => {
     addEventSpy = vi.spyOn(window, 'addEventListener');

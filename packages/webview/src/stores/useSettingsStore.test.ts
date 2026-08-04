@@ -98,7 +98,9 @@ describe('useSettingsStore', () => {
     const json = JSON.stringify({ language: 'fr', unknownKey: 'value' });
     getState().importSettings(json);
     expect(getState().settings.language).toBe('fr');
-    expect((getState().settings as Record<string, unknown>)['unknownKey']).toBeUndefined();
+    expect(
+      (getState().settings as unknown as Record<string, unknown>)['unknownKey'],
+    ).toBeUndefined();
   });
 
   it('should preserve existing settings for missing keys on import', () => {

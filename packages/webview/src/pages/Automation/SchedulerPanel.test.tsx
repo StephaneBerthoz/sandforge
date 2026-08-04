@@ -4,7 +4,7 @@ import '../../i18n';
 import { SchedulerPanel } from './SchedulerPanel';
 
 // Mock hooks
-const mockQueryData = vi.fn<() => Record<string, unknown> | null>().mockReturnValue(null);
+const mockQueryData = vi.fn<[], Record<string, unknown> | null>().mockReturnValue(null);
 const mockQueryRefetch = vi.fn();
 const mockMutate = vi.fn();
 

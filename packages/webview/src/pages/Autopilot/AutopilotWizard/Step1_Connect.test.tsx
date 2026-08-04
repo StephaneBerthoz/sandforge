@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
 import { Step1Connect } from './Step1_Connect';
+import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 
 const mockOrgs: SalesforceOrg[] = [
@@ -10,28 +11,30 @@ const mockOrgs: SalesforceOrg[] = [
     alias: 'DevSandbox',
     username: 'dev@test.com',
     instanceUrl: 'https://dev.salesforce.com',
+    orgId: '00D000000000001',
     status: 'connected',
-    orgType: 'sandbox',
-    safetyTier: 'safe',
-    accessToken: '',
-    refreshToken: '',
-    apiVersion: '59.0',
-    connectedAt: '2026-01-01T00:00:00Z',
-    lastUsedAt: '2026-01-01T00:00:00Z',
+    orgType: 'Sandbox',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#0070d2', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+    lastConnected: '2026-01-01T00:00:00Z',
+    tags: [],
   },
   {
     id: 'org-2',
     alias: 'QASandbox',
     username: 'qa@test.com',
     instanceUrl: 'https://qa.salesforce.com',
+    orgId: '00D000000000002',
     status: 'connected',
-    orgType: 'sandbox',
-    safetyTier: 'caution',
-    accessToken: '',
-    refreshToken: '',
-    apiVersion: '59.0',
-    connectedAt: '2026-01-01T00:00:00Z',
-    lastUsedAt: '2026-01-01T00:00:00Z',
+    orgType: 'Sandbox',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.MEDIUM,
+    appearance: { color: '#0070d2', icon: 'cloud', position: 1 },
+    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+    lastConnected: '2026-01-01T00:00:00Z',
+    tags: [],
   },
 ];
 

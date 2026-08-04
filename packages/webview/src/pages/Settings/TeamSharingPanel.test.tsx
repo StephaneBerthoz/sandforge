@@ -4,7 +4,7 @@ import { TeamSharingPanel } from './TeamSharingPanel';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, defaultValue: string, params?: Record<string, unknown>) => {
+    t: (_key: string, defaultValue: string, params?: Record<string, unknown>) => {
       if (params) {
         let result = defaultValue;
         for (const [k, v] of Object.entries(params)) {

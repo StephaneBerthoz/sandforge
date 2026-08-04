@@ -173,6 +173,9 @@ describe('generateLimitsCsv', () => {
     ];
     const trends = {
       DailyApiRequests: {
+        limitName: 'DailyApiRequests',
+        direction: 'up' as const,
+        changePercent: 5,
         sparklineData: [50, 60, 70, 80, 90],
         predictedTimeToLimit: 5,
       },

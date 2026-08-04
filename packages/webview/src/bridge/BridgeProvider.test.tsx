@@ -4,6 +4,7 @@ import { BridgeProvider } from './BridgeProvider';
 import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
+import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { resetMessageCounter } from './messageHelpers';
 
@@ -32,7 +33,7 @@ function createTestOrg(id: string): SalesforceOrg {
     orgId: `00D${id}`,
     orgType: 'Sandbox',
     authMethod: 'oauth_web',
-    safetyTier: 'low' as const,
+    safetyTier: OrgSafetyTier.LOW,
     appearance: { color: '#00ff00', icon: 'cloud', position: 0 },
     metadata: { apiVersion: '59.0', edition: 'Developer', features: [] },
     status: 'connected',

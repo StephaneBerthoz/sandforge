@@ -1,20 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import { OrgSafetyTier } from '@sandforge/shared';
+import type { SalesforceOrg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { AutomationPage } from './AutomationPage';
 
-const mockOrgs = [
+const mockOrgs: SalesforceOrg[] = [
   {
     id: 'org-1',
     alias: 'dev1',
     username: 'user@dev1.com',
     instanceUrl: 'https://dev1.salesforce.com',
-    orgType: 'sandbox' as const,
-    status: 'connected' as const,
-    safetyTier: 'low' as const,
-    apiVersion: '59.0',
+    orgId: '00D000000000001',
+    orgType: 'Sandbox',
+    authMethod: 'oauth_web',
+    safetyTier: OrgSafetyTier.LOW,
+    appearance: { color: '#0070d2', icon: 'cloud', position: 0 },
+    metadata: { apiVersion: '59.0', edition: 'Developer Edition', features: [] },
+    status: 'connected',
     lastConnected: '2024-01-01T00:00:00Z',
+    tags: [],
   },
 ];
 

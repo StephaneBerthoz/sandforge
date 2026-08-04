@@ -20,7 +20,9 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('AIProviderStatusBanner', () => {
-  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: false }));
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+  });
   afterEach(() => {
     vi.useRealTimers();
   });

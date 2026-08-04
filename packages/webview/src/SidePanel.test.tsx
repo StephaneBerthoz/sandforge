@@ -5,6 +5,7 @@ import { SidePanel } from './SidePanel';
 import { useRecentOpsStore } from './stores/useRecentOpsStore';
 import { useOrgStore } from './stores/useOrgStore';
 import { useFavoritesStore } from './stores/useFavoritesStore';
+import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 
 const mockPostMessage = vi.fn();
@@ -35,10 +36,10 @@ const mockOrg: SalesforceOrg = {
   username: 'dev@test.com',
   instanceUrl: 'https://test.salesforce.com',
   orgId: '00D000000000001',
-  orgType: 'sandbox',
-  authMethod: 'oauth2',
-  safetyTier: 'development',
-  appearance: { color: '#0000ff', emoji: '' },
+  orgType: 'Sandbox',
+  authMethod: 'oauth_web',
+  safetyTier: OrgSafetyTier.LOW,
+  appearance: { color: '#0000ff', icon: '', position: 0 },
   metadata: { apiVersion: '59.0', edition: 'Developer', features: [] },
   status: 'connected',
   lastConnected: '2026-03-07T00:00:00.000Z',

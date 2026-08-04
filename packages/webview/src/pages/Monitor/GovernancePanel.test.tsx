@@ -5,7 +5,7 @@ import type { GovernancePolicySummary, GovernanceRuleDisplay } from './Governanc
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, defaultValue: string) => defaultValue,
+    t: (_key: string, defaultValue: string) => defaultValue,
   }),
 }));
 

@@ -1,11 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import type { MetadataComponentType } from '@sandforge/shared';
 import { CategorySelector, ALL_COMPONENT_TYPES, CATEGORY_GROUPS } from './CategorySelector';
 
 describe('CategorySelector', () => {
   const defaultProps = {
-    selected: [] as string[],
+    selected: [] as MetadataComponentType[],
     onChange: vi.fn(),
   };
 

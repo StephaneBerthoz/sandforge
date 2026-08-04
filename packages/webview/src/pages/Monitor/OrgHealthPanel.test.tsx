@@ -4,16 +4,16 @@ import '../../i18n';
 import { OrgHealthPanel } from './OrgHealthPanel';
 
 // Mock stores and hooks
-const mockSelectedOrgId = vi.fn<() => string | null>().mockReturnValue('org-1');
+const mockSelectedOrgId = vi.fn<[], string | null>().mockReturnValue('org-1');
 vi.mock('../../stores/useOrgStore', () => ({
   useOrgStore: (selector: (s: Record<string, unknown>) => unknown) =>
     selector({ selectedOrgId: mockSelectedOrgId() }),
 }));
 
 const mockMutate = vi.fn();
-const mockMutationData = vi.fn<() => Record<string, unknown> | null>().mockReturnValue(null);
-const mockMutationLoading = vi.fn<() => boolean>().mockReturnValue(false);
-const mockMutationError = vi.fn<() => string | null>().mockReturnValue(null);
+const mockMutationData = vi.fn<[], Record<string, unknown> | null>().mockReturnValue(null);
+const mockMutationLoading = vi.fn<[], boolean>().mockReturnValue(false);
+const mockMutationError = vi.fn<[], string | null>().mockReturnValue(null);
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: () => ({
