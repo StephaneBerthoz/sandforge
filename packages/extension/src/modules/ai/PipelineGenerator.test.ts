@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { PipelineGenerator, type OrgInfo, type GeneratedPipeline } from './PipelineGenerator';
 import type { AIProvider } from './SmartSuggestions';
 
@@ -9,11 +9,11 @@ const testOrgs: OrgInfo[] = [
 ];
 
 describe('PipelineGenerator', () => {
-  let mockProvider: ReturnType<typeof vi.fn<AIProvider>>;
+  let mockProvider: Mock<Parameters<AIProvider>, ReturnType<AIProvider>>;
   let generator: PipelineGenerator;
 
   beforeEach(() => {
-    mockProvider = vi.fn<AIProvider>().mockResolvedValue('{}');
+    mockProvider = vi.fn<Parameters<AIProvider>, ReturnType<AIProvider>>().mockResolvedValue('{}');
     generator = new PipelineGenerator(mockProvider);
   });
 

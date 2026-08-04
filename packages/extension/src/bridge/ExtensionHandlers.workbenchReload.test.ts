@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { ExtensionHandlers } from './ExtensionHandlers';
-import type { ExtensionHandlersDeps } from './ExtensionHandlers';
+import type { CommandExecutor, ExtensionHandlersDeps } from './ExtensionHandlers';
 import { MessageBroker } from './MessageBroker';
 import { MessageRouter } from './MessageRouter';
 import { WebviewStateSync } from './WebviewStateSync';
@@ -48,7 +49,7 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
   let broker: MessageBroker;
   let router: MessageRouter;
   let handlers: ExtensionHandlers;
-  let executeCommand: ReturnType<typeof vi.fn>;
+  let executeCommand: Mock<Parameters<CommandExecutor>, ReturnType<CommandExecutor>>;
 
   beforeEach(() => {
     broker = new MessageBroker();
@@ -63,7 +64,9 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
     const authProvider = new AuthProvider();
     const sfdxBridge = createMockSfdxBridge();
 
-    executeCommand = vi.fn().mockResolvedValue(undefined);
+    executeCommand = vi
+      .fn<Parameters<CommandExecutor>, ReturnType<CommandExecutor>>()
+      .mockResolvedValue(undefined);
 
     const deps: ExtensionHandlersDeps = {
       log: () => {},

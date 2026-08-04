@@ -201,7 +201,7 @@ describe('ExtensionHandlers', () => {
         orgId: '00D1',
         orgType: 'Sandbox',
         authMethod: 'oauth_web',
-        safetyTier: 'low',
+        safetyTier: OrgSafetyTier.LOW,
         appearance: { color: '#000', icon: 'cloud', position: 0 },
         metadata: { apiVersion: '59.0', edition: 'Dev', features: [] },
         status: 'connected',
@@ -376,7 +376,7 @@ describe('ExtensionHandlers', () => {
         orgId: '00D1',
         orgType: 'Sandbox',
         authMethod: 'oauth_web',
-        safetyTier: 'low',
+        safetyTier: OrgSafetyTier.LOW,
         appearance: { color: '#000', icon: 'cloud', position: 0 },
         metadata: { apiVersion: '59.0', edition: 'Dev', features: [] },
         status: 'connected',
@@ -1081,7 +1081,7 @@ describe('ExtensionHandlers', () => {
         orgId: '00D2',
         orgType: 'Production',
         authMethod: 'oauth_web',
-        safetyTier: 'high',
+        safetyTier: OrgSafetyTier.HIGH,
         appearance: { color: '#ff0000', icon: 'cloud', position: 0 },
         metadata: { apiVersion: '62.0', edition: 'Enterprise', features: [] },
         status: 'connected',
@@ -1090,7 +1090,7 @@ describe('ExtensionHandlers', () => {
       });
 
       // Set up production guard
-      const { ProductionGuard } = await import('../core/precheck/ProductionGuard');
+      const { ProductionGuard } = await import('../core/precheck/ProductionGuard.js');
       const guard = new ProductionGuard();
       handlers.setInfraServices({
         productionGuard: guard,
@@ -1835,7 +1835,7 @@ describe('ExtensionHandlers', () => {
   describe('execution:manual-retry routing', () => {
     it('should answer execution:retry-status with canRetry:false (not replayable)', async () => {
       const { BackgroundOperationRegistry } =
-        await import('../core/engine/BackgroundOperationRegistry');
+        await import('../core/engine/BackgroundOperationRegistry.js');
       const localBroker = new MessageBroker();
       const localPosted: BaseMessage[] = [];
       vi.spyOn(localBroker, 'postToWebview').mockImplementation((m) => {

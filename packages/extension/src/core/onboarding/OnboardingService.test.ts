@@ -4,7 +4,7 @@ import { OnboardingService } from './OnboardingService';
 describe('OnboardingService', () => {
   let service: OnboardingService;
   let store: Map<string, string>;
-  const mockUpdate = vi.fn<(key: string, value: string) => Promise<void>>();
+  const mockUpdate = vi.fn<[key: string, value: string], Promise<void>>();
 
   beforeEach(() => {
     store = new Map();

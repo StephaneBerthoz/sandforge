@@ -55,7 +55,9 @@ describe('DeploymentTracker', () => {
   let queryDeployments: QueryDeploymentsFn;
 
   beforeEach(() => {
-    queryDeployments = vi.fn<QueryDeploymentsFn>().mockResolvedValue(createMockDeployments());
+    queryDeployments = vi
+      .fn<Parameters<QueryDeploymentsFn>, ReturnType<QueryDeploymentsFn>>()
+      .mockResolvedValue(createMockDeployments());
     tracker = new DeploymentTracker(queryDeployments);
   });
 

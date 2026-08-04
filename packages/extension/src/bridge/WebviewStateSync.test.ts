@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { ActiveOperation } from '@sandforge/shared';
+import type { MockInstance } from 'vitest';
+import type { ActiveOperation, BaseMessage } from '@sandforge/shared';
 import { MessageBroker } from './MessageBroker';
 import { WebviewStateSync } from './WebviewStateSync';
 import type { WebviewState, StateSyncMessage } from './WebviewStateSync';
@@ -19,7 +20,7 @@ function makeOp(id: string): ActiveOperation {
 describe('WebviewStateSync', () => {
   let broker: MessageBroker;
   let stateSync: WebviewStateSync;
-  let postToWebviewSpy: ReturnType<typeof vi.spyOn>;
+  let postToWebviewSpy: MockInstance<[message: BaseMessage], void>;
 
   beforeEach(() => {
     vi.useFakeTimers();

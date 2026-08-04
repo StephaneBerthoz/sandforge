@@ -35,20 +35,20 @@ describe('CloneRecordFetcher', () => {
       totalSize: 3,
       records: [{ Id: '001', Name: 'A', attributes: { type: 'Contact' } }],
       nextRecordsUrl: '/services/data/v59.0/query/01g-next',
-    } as unknown as ReturnType<typeof conn.query>);
+    } as unknown as Awaited<ReturnType<typeof conn.query>>);
 
     mockQueryMore.mockResolvedValueOnce({
       done: false,
       totalSize: 3,
       records: [{ Id: '002', Name: 'B', attributes: { type: 'Contact' } }],
       nextRecordsUrl: '/services/data/v59.0/query/01g-next2',
-    } as unknown as ReturnType<typeof conn.queryMore>);
+    } as unknown as Awaited<ReturnType<typeof conn.queryMore>>);
 
     mockQueryMore.mockResolvedValueOnce({
       done: true,
       totalSize: 3,
       records: [{ Id: '003', Name: 'C', attributes: { type: 'Contact' } }],
-    } as unknown as ReturnType<typeof conn.queryMore>);
+    } as unknown as Awaited<ReturnType<typeof conn.queryMore>>);
 
     const records = await fetcher.fetchRecords(conn, 'Contact');
 
@@ -68,7 +68,7 @@ describe('CloneRecordFetcher', () => {
       done: true,
       totalSize: 42,
       records: [],
-    } as unknown as ReturnType<typeof conn.query>);
+    } as unknown as Awaited<ReturnType<typeof conn.query>>);
 
     const count = await fetcher.countRecords(conn, 'Account');
     expect(count).toBe(42);
@@ -82,7 +82,7 @@ describe('CloneRecordFetcher', () => {
       done: true,
       totalSize: 5,
       records: [],
-    } as unknown as ReturnType<typeof conn.query>);
+    } as unknown as Awaited<ReturnType<typeof conn.query>>);
 
     await fetcher.countRecords(conn, 'Account', "Type = 'Customer'");
     const soql = mockQuery.mock.calls[0][0] as string;
@@ -98,7 +98,7 @@ describe('CloneRecordFetcher', () => {
         { Id: '001', Name: 'X', attributes: { type: 'Account' } },
         { Id: '002', Name: 'Y', attributes: { type: 'Account' } },
       ],
-    } as unknown as ReturnType<typeof conn.query>);
+    } as unknown as Awaited<ReturnType<typeof conn.query>>);
 
     const records = await fetcher.fetchSample(conn, 'Account', 5);
     expect(records).toHaveLength(2);
@@ -113,7 +113,7 @@ describe('CloneRecordFetcher', () => {
       done: true,
       totalSize: 0,
       records: [],
-    } as unknown as ReturnType<typeof conn.query>);
+    } as unknown as Awaited<ReturnType<typeof conn.query>>);
 
     const records = await fetcher.fetchRecords(conn, 'EmptyObject__c');
     expect(records).toEqual([]);

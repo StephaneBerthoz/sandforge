@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AIAssistant, type AICallFn, type AIModelConfig, type AICallResult } from './AIAssistant';
 
 const mockConfig: AIModelConfig = {
@@ -17,11 +17,11 @@ const mockResult: AICallResult = {
 };
 
 describe('AIAssistant', () => {
-  let mockCallFn: ReturnType<typeof vi.fn<AICallFn>>;
+  let mockCallFn: Mock<Parameters<AICallFn>, ReturnType<AICallFn>>;
   let assistant: AIAssistant;
 
   beforeEach(() => {
-    mockCallFn = vi.fn<AICallFn>().mockResolvedValue(mockResult);
+    mockCallFn = vi.fn<Parameters<AICallFn>, ReturnType<AICallFn>>().mockResolvedValue(mockResult);
     assistant = new AIAssistant(mockCallFn, mockConfig);
   });
 

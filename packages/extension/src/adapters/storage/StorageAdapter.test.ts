@@ -40,6 +40,10 @@ class MockMemento implements vscode.Memento {
 class MockSecretStorage implements vscode.SecretStorage {
   private data = new Map<string, string>();
 
+  async keys(): Promise<string[]> {
+    return Array.from(this.data.keys());
+  }
+
   async get(key: string): Promise<string | undefined> {
     return this.data.get(key);
   }

@@ -4,7 +4,7 @@ import { HintTracker } from './HintTracker';
 describe('HintTracker', () => {
   let tracker: HintTracker;
   let store: Map<string, string>;
-  const mockUpdate = vi.fn<(key: string, value: string) => Promise<void>>();
+  const mockUpdate = vi.fn<[key: string, value: string], Promise<void>>();
 
   beforeEach(() => {
     store = new Map();

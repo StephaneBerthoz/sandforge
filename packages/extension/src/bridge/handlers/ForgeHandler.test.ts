@@ -13,6 +13,7 @@ import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
 import type { ForgeMetadataDiff } from '../../modules/forge/ForgeMetadataDiff.js';
+import type { DiscoveryOptions } from '../../modules/forge/GraphDiscoveryService.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -251,7 +252,7 @@ describe('ForgeHandler', () => {
     it('posts discovery progress events to webview with correlationId', async () => {
       const config = createMockConfig();
       vi.mocked(orchestrator.discover).mockImplementation(
-        async (_config: unknown, options?: { onProgress?: (event: unknown) => void }) => {
+        async (_config: ForgeConfig, options?: DiscoveryOptions) => {
           options?.onProgress?.({
             objectApiName: 'Account',
             discoveredCount: 1,
@@ -310,7 +311,7 @@ describe('ForgeHandler', () => {
       const config = createMockConfig();
       let capturedListener: ProgressListener | undefined;
 
-      vi.mocked(orchestrator.on).mockImplementation((_type: string, listener: ProgressListener) => {
+      vi.mocked(orchestrator.on).mockImplementation((_type, listener) => {
         capturedListener = listener;
         return vi.fn();
       });

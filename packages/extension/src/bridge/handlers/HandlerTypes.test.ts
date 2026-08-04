@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { sendHandlerError, sendNotification, buildResponse } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { createMockBroker } from '../../test/mockFactories.js';
 
 /**
  * Creates a minimal mock of the handler deps required by sendHandlerError.
@@ -9,7 +10,7 @@ function createMockDeps() {
   let idCounter = 0;
   return {
     log: vi.fn(),
-    broker: { postToWebview: vi.fn() },
+    broker: createMockBroker(),
     nextId: () => String(++idCounter),
   };
 }
@@ -27,9 +28,7 @@ describe('sendHandlerError', () => {
     sendHandlerError(deps, 'seed:execute', 'seed:error', new Error('invalid template'));
 
     expect(deps.broker.postToWebview).toHaveBeenCalledTimes(1);
-    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
-      type: string;
-      id: string;
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: { message: string; code: string; retryable: boolean };
     };
     expect(posted.type).toBe('seed:error');
@@ -41,7 +40,7 @@ describe('sendHandlerError', () => {
     const deps = createMockDeps();
     sendHandlerError(deps, 'sync:error', 'sync:error', new Error('fail'));
 
-    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: { message: string; code: string; retryable: boolean };
     };
     expect(posted.payload.code).toBe('UNKNOWN');
@@ -59,7 +58,7 @@ describe('sendHandlerError', () => {
       true,
     );
 
-    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: { message: string; code: string; retryable: boolean };
     };
     expect(posted.payload.code).toBe('TIMEOUT');
@@ -76,7 +75,7 @@ describe('sendHandlerError', () => {
       'EXECUTE_ERROR',
     );
 
-    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: { message: string; code: string; retryable: boolean };
     };
     expect(posted.payload.code).toBe('EXECUTE_ERROR');
@@ -95,7 +94,7 @@ describe('sendHandlerError', () => {
     sendHandlerError(deps, 'monitor:refresh', 'monitor:error', 'raw string error');
 
     expect(deps.log).toHaveBeenCalledWith('[ERR] monitor:refresh: raw string error');
-    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: { message: string };
     };
     expect(posted.payload.message).toBe('raw string error');
@@ -148,8 +147,7 @@ describe('sendNotification', () => {
     sendNotification(deps, 'error', 'Test', 'Something went wrong');
 
     expect(deps.broker.postToWebview).toHaveBeenCalledTimes(1);
-    const posted = deps.broker.postToWebview.mock.calls[0][0] as {
-      type: string;
+    const posted = deps.broker.postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: { level: string; title: string; message: string };
     };
     expect(posted.type).toBe('notification');

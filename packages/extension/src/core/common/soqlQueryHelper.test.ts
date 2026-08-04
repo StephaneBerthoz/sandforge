@@ -17,7 +17,11 @@ function createMockConnection(): {
   };
 }
 
-function makeQueryResult<T>(records: T[], done: boolean, nextRecordsUrl?: string): QueryResult<T> {
+function makeQueryResult<T extends Record<string, unknown>>(
+  records: T[],
+  done: boolean,
+  nextRecordsUrl?: string,
+): QueryResult<T> {
   return {
     done,
     totalSize: records.length,

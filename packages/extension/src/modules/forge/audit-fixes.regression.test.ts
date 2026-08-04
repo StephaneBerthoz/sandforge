@@ -281,48 +281,49 @@ describe('Audit RT-004 — discoveryCache key separates by all material params',
     };
   }
 
+  // cacheKeyFor is private — reach it through a structural type with an
+  // `as unknown` cast. Intersecting with the class instead collapses to
+  // `never` because the private member makes the two types incompatible.
+  type WithKey = { cacheKeyFor: (c: ForgeConfig) => string };
+
   it('different targetOrgId produces different cache keys', () => {
     const orch = makeOrchestrator();
-    // Access via private — TS sees it through `as unknown` cast in test only.
-    type WithKey = ForgeOrchestrator & { cacheKeyFor: (c: ForgeConfig) => string };
-    const k1 = (orch as WithKey).cacheKeyFor(makeConfig({ targetOrgId: 'tgt-a' }));
-    const k2 = (orch as WithKey).cacheKeyFor(makeConfig({ targetOrgId: 'tgt-b' }));
+    const k1 = (orch as unknown as WithKey).cacheKeyFor(makeConfig({ targetOrgId: 'tgt-a' }));
+    const k2 = (orch as unknown as WithKey).cacheKeyFor(makeConfig({ targetOrgId: 'tgt-b' }));
     expect(k1).not.toBe(k2);
   });
 
   it('different anonymizePII produces different cache keys', () => {
     const orch = makeOrchestrator();
-    type WithKey = ForgeOrchestrator & { cacheKeyFor: (c: ForgeConfig) => string };
-    const k1 = (orch as WithKey).cacheKeyFor(makeConfig({ anonymizePII: false }));
-    const k2 = (orch as WithKey).cacheKeyFor(makeConfig({ anonymizePII: true }));
+    const k1 = (orch as unknown as WithKey).cacheKeyFor(makeConfig({ anonymizePII: false }));
+    const k2 = (orch as unknown as WithKey).cacheKeyFor(makeConfig({ anonymizePII: true }));
     expect(k1).not.toBe(k2);
   });
 
   it('different expandOrphanParents produces different cache keys', () => {
     const orch = makeOrchestrator();
-    type WithKey = ForgeOrchestrator & { cacheKeyFor: (c: ForgeConfig) => string };
-    const k1 = (orch as WithKey).cacheKeyFor(makeConfig({ expandOrphanParents: false }));
-    const k2 = (orch as WithKey).cacheKeyFor(makeConfig({ expandOrphanParents: true }));
+    const k1 = (orch as unknown as WithKey).cacheKeyFor(makeConfig({ expandOrphanParents: false }));
+    const k2 = (orch as unknown as WithKey).cacheKeyFor(makeConfig({ expandOrphanParents: true }));
     expect(k1).not.toBe(k2);
   });
 
   it('different maxRecordsPerObject produces different cache keys', () => {
     const orch = makeOrchestrator();
-    type WithKey = ForgeOrchestrator & { cacheKeyFor: (c: ForgeConfig) => string };
-    const k1 = (orch as WithKey).cacheKeyFor(makeConfig({ maxRecordsPerObject: 100 }));
-    const k2 = (orch as WithKey).cacheKeyFor(makeConfig({ maxRecordsPerObject: 500 }));
+    const k1 = (orch as unknown as WithKey).cacheKeyFor(makeConfig({ maxRecordsPerObject: 100 }));
+    const k2 = (orch as unknown as WithKey).cacheKeyFor(makeConfig({ maxRecordsPerObject: 500 }));
     expect(k1).not.toBe(k2);
   });
 
   it('identical configs produce the same cache key (cache hit)', () => {
     const orch = makeOrchestrator();
-    type WithKey = ForgeOrchestrator & { cacheKeyFor: (c: ForgeConfig) => string };
     const c = makeConfig({
       anonymizePII: true,
       expandOrphanParents: true,
       maxRecordsPerObject: 50,
     });
-    expect((orch as WithKey).cacheKeyFor(c)).toBe((orch as WithKey).cacheKeyFor({ ...c }));
+    expect((orch as unknown as WithKey).cacheKeyFor(c)).toBe(
+      (orch as unknown as WithKey).cacheKeyFor({ ...c }),
+    );
   });
 });
 

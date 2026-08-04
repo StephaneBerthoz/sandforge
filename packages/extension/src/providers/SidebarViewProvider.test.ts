@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type * as vscode from 'vscode';
 import { SidebarViewProvider } from './SidebarViewProvider';
 
 describe('SidebarViewProvider', () => {
-  const extensionUri = { toString: () => '/ext' };
-  const uriJoinPath = (base: unknown, ...segments: string[]) => ({
-    toString: () => `${String(base)}/${segments.join('/')}`,
-  });
+  // Partial mock: Uri used only as an opaque value (localResourceRoots + joinPath base)
+  const extensionUri = { toString: () => '/ext' } as unknown as vscode.Uri;
+  const uriJoinPath = (base: unknown, ...segments: string[]) =>
+    // Partial mock: only toString() exercised by buildHtml
+    ({ toString: () => `${String(base)}/${segments.join('/')}` }) as unknown as vscode.Uri;
   const executeCommand = vi.fn().mockResolvedValue(undefined);
 
   let provider: SidebarViewProvider;

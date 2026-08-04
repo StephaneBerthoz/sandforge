@@ -23,11 +23,11 @@ describe('SeedTemplateManager', () => {
 
   beforeEach(() => {
     idCounter = 0;
-    generateId = vi.fn<GenerateIdFn>(() => {
+    generateId = vi.fn<Parameters<GenerateIdFn>, ReturnType<GenerateIdFn>>(() => {
       idCounter++;
       return `id-${idCounter}`;
     });
-    now = vi.fn<NowFn>().mockReturnValue('2026-01-15T10:00:00Z');
+    now = vi.fn<Parameters<NowFn>, ReturnType<NowFn>>().mockReturnValue('2026-01-15T10:00:00Z');
     manager = new SeedTemplateManager(generateId, now);
   });
 

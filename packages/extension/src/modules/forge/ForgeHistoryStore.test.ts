@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeHistoryStore } from './ForgeHistoryStore.js';
 import type { ForgeExecutionResult } from '@sandforge/shared';
 
-const mockGet = vi.fn<(key: string) => unknown>();
-const mockUpdate = vi.fn<(key: string, value: unknown) => Promise<void>>();
+const mockGet = vi.fn<[key: string], unknown>();
+const mockUpdate = vi.fn<[key: string, value: unknown], Promise<void>>();
 
 function createStore(): ForgeHistoryStore {
   return new ForgeHistoryStore({ get: mockGet, update: mockUpdate });

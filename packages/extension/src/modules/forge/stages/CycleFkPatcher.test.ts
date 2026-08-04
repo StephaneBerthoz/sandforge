@@ -4,6 +4,8 @@ import { IdRemapper } from '../IdRemapper.js';
 import type { PendingFkUpdate } from './BatchWriter.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent } from '../ForgeExecutor.js';
 
+type UpdateRecordsFn = NonNullable<ForgeExecutorDeps['updateRecords']>;
+
 function makePending(overrides?: Partial<PendingFkUpdate>): PendingFkUpdate {
   return {
     objectApiName: 'Account',
@@ -20,18 +22,18 @@ function makeInput(overrides?: Partial<CycleFkPatchInput>): CycleFkPatchInput {
     pendingFkUpdates: [],
     remapper: new IdRemapper(),
     updateRecords: vi
-      .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+      .fn<Parameters<UpdateRecordsFn>, ReturnType<UpdateRecordsFn>>()
       .mockResolvedValue([{ id: '001NEW1', success: true, errors: [] }]),
     targetOrgId: 'tgt',
     enabled: true,
-    onProgress: vi.fn<(e: ForgeProgressEvent) => void>(),
+    onProgress: vi.fn<[e: ForgeProgressEvent], void>(),
     ...overrides,
   };
 }
 
 describe('patchCycleFkUpdates', () => {
   it('does nothing when disabled, when updateRecords is missing, or when no FK is pending', async () => {
-    const onProgress = vi.fn<(e: ForgeProgressEvent) => void>();
+    const onProgress = vi.fn<[e: ForgeProgressEvent], void>();
     const pending = [makePending()];
 
     expect(
@@ -48,7 +50,7 @@ describe('patchCycleFkUpdates', () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');
     const updateRecords = vi
-      .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+      .fn<Parameters<UpdateRecordsFn>, ReturnType<UpdateRecordsFn>>()
       .mockResolvedValue([{ id: '001NEW1', success: true, errors: [] }]);
     const input = makeInput({
       remapper,
@@ -77,7 +79,7 @@ describe('patchCycleFkUpdates', () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');
     const updateRecords = vi
-      .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+      .fn<Parameters<UpdateRecordsFn>, ReturnType<UpdateRecordsFn>>()
       .mockResolvedValue([{ id: 'x', success: true, errors: [] }]);
     const input = makeInput({
       remapper,
@@ -132,7 +134,7 @@ describe('patchCycleFkUpdates', () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');
     const updateRecords = vi
-      .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+      .fn<Parameters<UpdateRecordsFn>, ReturnType<UpdateRecordsFn>>()
       .mockResolvedValue([{ id: '', success: false, errors: ['INVALID_FIELD'] }]);
     const input = makeInput({
       remapper,
@@ -152,7 +154,7 @@ describe('patchCycleFkUpdates', () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');
     const updateRecords = vi
-      .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
+      .fn<Parameters<UpdateRecordsFn>, ReturnType<UpdateRecordsFn>>()
       .mockRejectedValue(new Error('ECONNRESET'));
     const input = makeInput({
       remapper,

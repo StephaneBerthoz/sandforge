@@ -5,30 +5,56 @@ import type { ForgeConfig } from '@sandforge/shared';
 
 function createMockDeps(): GraphDiscoveryDeps {
   return {
-    describeObject: vi.fn<GraphDiscoveryDeps['describeObject']>().mockResolvedValue({
-      name: 'Account',
-      fields: [
-        { name: 'Id', type: 'id', referenceTo: [], relationshipName: null, isMasterDetail: false },
-        {
-          name: 'Name',
-          type: 'string',
-          referenceTo: [],
-          relationshipName: null,
-          isMasterDetail: false,
-        },
-      ],
-      childRelationships: [],
-    }),
-    queryCount: vi.fn<GraphDiscoveryDeps['queryCount']>().mockResolvedValue(10),
-    detectPII: vi.fn<GraphDiscoveryDeps['detectPII']>().mockReturnValue([]),
-    describeGlobal: vi.fn<GraphDiscoveryDeps['describeGlobal']>().mockResolvedValue([
-      { name: 'Account', keyPrefix: '001' },
-      { name: 'Contact', keyPrefix: '003' },
-      { name: 'Opportunity', keyPrefix: '006' },
-      { name: 'Lead', keyPrefix: '00Q' },
-      { name: 'Case', keyPrefix: '500' },
-      { name: 'CustomObj__c', keyPrefix: 'a0B' },
-    ]),
+    describeObject: vi
+      .fn<
+        Parameters<GraphDiscoveryDeps['describeObject']>,
+        ReturnType<GraphDiscoveryDeps['describeObject']>
+      >()
+      .mockResolvedValue({
+        name: 'Account',
+        fields: [
+          {
+            name: 'Id',
+            type: 'id',
+            referenceTo: [],
+            relationshipName: null,
+            isMasterDetail: false,
+          },
+          {
+            name: 'Name',
+            type: 'string',
+            referenceTo: [],
+            relationshipName: null,
+            isMasterDetail: false,
+          },
+        ],
+        childRelationships: [],
+      }),
+    queryCount: vi
+      .fn<
+        Parameters<GraphDiscoveryDeps['queryCount']>,
+        ReturnType<GraphDiscoveryDeps['queryCount']>
+      >()
+      .mockResolvedValue(10),
+    detectPII: vi
+      .fn<
+        Parameters<GraphDiscoveryDeps['detectPII']>,
+        ReturnType<GraphDiscoveryDeps['detectPII']>
+      >()
+      .mockReturnValue([]),
+    describeGlobal: vi
+      .fn<
+        Parameters<GraphDiscoveryDeps['describeGlobal']>,
+        ReturnType<GraphDiscoveryDeps['describeGlobal']>
+      >()
+      .mockResolvedValue([
+        { name: 'Account', keyPrefix: '001' },
+        { name: 'Contact', keyPrefix: '003' },
+        { name: 'Opportunity', keyPrefix: '006' },
+        { name: 'Lead', keyPrefix: '00Q' },
+        { name: 'Case', keyPrefix: '500' },
+        { name: 'CustomObj__c', keyPrefix: 'a0B' },
+      ]),
   };
 }
 

@@ -36,7 +36,7 @@ function createMockDeps(): MonitorDependencies {
       getActiveAlerts: vi.fn().mockReturnValue([]),
     } as unknown as MonitorDependencies['alertEngine'],
     healthCheck: {
-      computeHealth: vi.fn<(orgId: string) => Promise<OrgHealthStatus>>().mockResolvedValue({
+      computeHealth: vi.fn<[orgId: string], Promise<OrgHealthStatus>>().mockResolvedValue({
         orgId: 'org-1',
         overall: 'healthy',
         apiLimitsStatus: 'ok',

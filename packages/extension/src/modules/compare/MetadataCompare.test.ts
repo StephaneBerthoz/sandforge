@@ -11,7 +11,9 @@ describe('MetadataCompare', () => {
 
   beforeEach(() => {
     diffEngine = new DiffEngine();
-    fetchMetadata = vi.fn<FetchMetadataFn>().mockResolvedValue(new Map());
+    fetchMetadata = vi
+      .fn<Parameters<FetchMetadataFn>, ReturnType<FetchMetadataFn>>()
+      .mockResolvedValue(new Map());
     metadataCompare = new MetadataCompare(fetchMetadata, diffEngine);
   });
 
