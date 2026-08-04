@@ -171,4 +171,24 @@ describe('SettingsHandler', () => {
     const result = await handler.handle(createMsg('onboarding:reset'));
     expect(result).toBe(true);
   });
+
+  describe('payload validation', () => {
+    it('rejects settings:update without key (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('settings:update', { value: 'fr' }));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('settings:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects telemetry:toggle with a non-boolean enabled (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('telemetry:toggle', { enabled: 'yes' }));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('settings:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

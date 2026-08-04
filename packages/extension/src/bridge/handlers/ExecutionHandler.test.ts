@@ -221,4 +221,65 @@ describe('ExecutionHandler', () => {
       expect(response.payload.operations).toEqual([]);
     });
   });
+
+  describe('payload validation', () => {
+    it('rejects execution:status without operationId (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-status',
+        type: 'execution:status',
+        timestamp: Date.now(),
+        payload: {},
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('execution:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects execution:manual-retry without objectName (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-retry',
+        type: 'execution:manual-retry',
+        timestamp: Date.now(),
+        payload: { executionId: 'op-1' },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('execution:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('accepts execution:abort with the webview executionId shape', async () => {
+      const msg = {
+        id: 'abort-flat',
+        type: 'execution:abort',
+        timestamp: Date.now(),
+        // useRetryManager sends `{ executionId, objectName }` (no operationId).
+        payload: { executionId: 'ghost', objectName: 'Account' },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { success: boolean; error?: string; code?: string };
+      };
+      expect(response.type).toBe('execution:abort:response');
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.code).not.toBe('INVALID_PAYLOAD');
+    });
+  });
 });

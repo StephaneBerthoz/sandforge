@@ -1,12 +1,13 @@
 import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
-import type {
-  AIAnomalyScanRequest,
-  AISuggestionsRequest,
-  AISchemaAdviceRequest,
-} from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
+import {
+  validatePayload,
+  aiAnomalyScanPayloadSchema,
+  aiSuggestionsPayloadSchema,
+  aiSchemaAdvicePayloadSchema,
+} from '../../validatePayload.js';
 import type { AIModules } from '../AIHandler.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
@@ -58,7 +59,9 @@ export class AIAnalysisHandler implements DomainHandler {
 
   private async handleAnomalyScan(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { orgId, objectName, sampleSize } = (msg as AIAnomalyScanRequest).payload;
+    const parsed = validatePayload(aiAnomalyScanPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { orgId, objectName, sampleSize } = parsed;
     try {
       if (!this.aiModules?.anomalyDetector) {
         throw new Error(
@@ -96,7 +99,9 @@ export class AIAnalysisHandler implements DomainHandler {
 
   private async handleSuggestions(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { module, context } = (msg as AISuggestionsRequest).payload;
+    const parsed = validatePayload(aiSuggestionsPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { module, context } = parsed;
     try {
       if (!this.aiModules?.smartSuggestions) {
         throw new Error(
@@ -127,7 +132,9 @@ export class AIAnalysisHandler implements DomainHandler {
 
   private async handleSchemaAdvice(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { orgId, objectNames } = (msg as AISchemaAdviceRequest).payload;
+    const parsed = validatePayload(aiSchemaAdvicePayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { orgId, objectNames } = parsed;
     try {
       if (!this.aiModules?.schemaAdvisor) {
         throw new Error(

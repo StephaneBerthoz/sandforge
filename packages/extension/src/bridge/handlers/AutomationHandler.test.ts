@@ -256,4 +256,82 @@ describe('AutomationHandler', () => {
     expect(response.type).toBe('pipeline:error');
     expect(response.payload.message).toBe('store failed');
   });
+
+  describe('payload validation', () => {
+    it('rejects pipeline:save without config (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-save',
+        type: 'pipeline:save',
+        timestamp: Date.now(),
+        payload: { id: 'p-1' },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('pipeline:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects operation:cancel with a non-string operationId (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-cancel',
+        type: 'operation:cancel',
+        timestamp: Date.now(),
+        payload: { operationId: 42 },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('pipeline:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects pipeline:execute with a malformed pipeline (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-run',
+        type: 'pipeline:execute',
+        timestamp: Date.now(),
+        payload: { pipeline: { name: '' } },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('pipeline:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects marketplace:install without templateId (INVALID_PAYLOAD)', async () => {
+      const msg = {
+        id: 'bad-install',
+        type: 'marketplace:install',
+        timestamp: Date.now(),
+        payload: {},
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code: string };
+      };
+      expect(errMsg.type).toBe('pipeline:error');
+      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

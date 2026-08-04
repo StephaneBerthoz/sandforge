@@ -2,6 +2,11 @@ import type { BaseMessage, SalesforceOrg, OrgConnectRequest } from '@sandforge/s
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendNotification } from './HandlerTypes.js';
+import {
+  validatePayload,
+  orgConnectPayloadSchema,
+  orgDisconnectPayloadSchema,
+} from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Message types handled by OrgHandler. */
@@ -53,7 +58,9 @@ export class OrgHandler implements DomainHandler {
 
   private async handleOrgConnect(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as OrgConnectRequest).payload;
+    const parsed = validatePayload(orgConnectPayloadSchema, msg, 'org:error', this.deps);
+    if (!parsed) return;
+    const payload: OrgConnectRequest['payload'] = parsed;
 
     switch (payload.authMethod) {
       case 'sfdx_import':
@@ -280,7 +287,9 @@ export class OrgHandler implements DomainHandler {
 
   private async handleOrgDisconnect(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { orgId: string } }).payload;
+    const parsed = validatePayload(orgDisconnectPayloadSchema, msg, 'org:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     await this.deps.orgRegistry.removeOrg(payload.orgId);
 

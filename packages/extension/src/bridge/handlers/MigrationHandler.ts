@@ -1,12 +1,13 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type {
-  BaseMessage,
-  MigrationImportRequest,
-  MigrationImportSfdmuRequest,
-} from '@sandforge/shared';
+import type { BaseMessage } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
+import {
+  validatePayload,
+  migrationImportPayloadSchema,
+  migrationImportSfdmuPayloadSchema,
+} from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** File reader interface for migration services. */
@@ -127,7 +128,9 @@ export class MigrationHandler implements DomainHandler {
 
   private async handleImport(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { filePath } = (msg as MigrationImportRequest).payload;
+    const parsed = validatePayload(migrationImportPayloadSchema, msg, 'migration:error', this.deps);
+    if (!parsed) return;
+    const { filePath } = parsed;
     try {
       if (!this.fileReader) {
         throw new Error('Migration services not available.');
@@ -160,7 +163,14 @@ export class MigrationHandler implements DomainHandler {
 
   private async handleImportSfdmu(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { filePath } = (msg as MigrationImportSfdmuRequest).payload;
+    const parsed = validatePayload(
+      migrationImportSfdmuPayloadSchema,
+      msg,
+      'migration:error',
+      this.deps,
+    );
+    if (!parsed) return;
+    const { filePath } = parsed;
     try {
       if (!this.fileReader) {
         throw new Error('Migration services not available.');

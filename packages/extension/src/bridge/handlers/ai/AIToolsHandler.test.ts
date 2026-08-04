@@ -148,4 +148,24 @@ describe('AIToolsHandler', () => {
     expect(response.payload.success).toBe(true);
     expect(response.correlationId).toBe('msg-1');
   });
+
+  describe('payload validation', () => {
+    it('rejects ai:personas with an unknown action (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('ai:personas', { action: 'delete' }));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('ai:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it('rejects ai:nl2soql without orgId (INVALID_PAYLOAD)', async () => {
+      const result = await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts' }));
+      expect(result).toBe(true);
+
+      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(response.type).toBe('ai:error');
+      expect(response.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
 });

@@ -1,8 +1,14 @@
 import type { BaseMessage } from '@sandforge/shared';
 import { AI_CONFIG, AI_PROVIDER } from '@sandforge/shared';
-import type { AISaveKeyRequest } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
+import {
+  validatePayload,
+  aiChatPayloadSchema,
+  aiConversationCreatePayloadSchema,
+  aiConversationIdPayloadSchema,
+  aiSaveKeyPayloadSchema,
+} from '../../validatePayload.js';
 import type { AIAssistant, Conversation } from '../../../modules/ai/AIAssistant.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 
@@ -198,8 +204,9 @@ export class AIChatHandler implements DomainHandler {
 
   private async handleChat(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { conversationId: string; message: string } })
-      .payload;
+    const parsed = validatePayload(aiChatPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     if (!this.aiAssistant) {
       const errResponse = buildResponse(this.deps, msg, 'ai:error', {
@@ -240,7 +247,9 @@ export class AIChatHandler implements DomainHandler {
 
   private handleConversationCreate(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { title: string } }).payload;
+    const parsed = validatePayload(aiConversationCreatePayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     if (!this.aiAssistant) {
       const errResponse = buildResponse(this.deps, msg, 'ai:error', {
@@ -268,7 +277,9 @@ export class AIChatHandler implements DomainHandler {
 
   private handleConversationLoad(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { conversationId: string } }).payload;
+    const parsed = validatePayload(aiConversationIdPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     // First try in-memory (if AI assistant is active)
     if (this.aiAssistant) {
@@ -330,7 +341,9 @@ export class AIChatHandler implements DomainHandler {
 
   private handleConversationDelete(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const payload = (msg as BaseMessage & { payload: { conversationId: string } }).payload;
+    const parsed = validatePayload(aiConversationIdPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const payload = parsed;
 
     // Remove from in-memory if AI assistant is active
     if (this.aiAssistant) {
@@ -370,7 +383,9 @@ export class AIChatHandler implements DomainHandler {
 
   private async handleSaveKey(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const { apiKey } = (msg as AISaveKeyRequest).payload;
+    const parsed = validatePayload(aiSaveKeyPayloadSchema, msg, 'ai:error', this.deps);
+    if (!parsed) return;
+    const { apiKey } = parsed;
     try {
       await this.deps.secretVault.storeSecret(AI_API_KEY_SECRET, apiKey);
       const response = buildResponse(this.deps, msg, 'ai:save-key:response', {

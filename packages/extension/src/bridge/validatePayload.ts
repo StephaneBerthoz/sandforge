@@ -4,6 +4,9 @@ import {
   syncObjectConfigSchema,
   seedConfigSchema,
   seedObjectConfigSchema,
+  complianceFrameworkTypeSchema,
+  anonymizationMethodSchema,
+  QuickSyncConfigSchema,
 } from '@sandforge/shared';
 import { z } from 'zod';
 import type { HandlerDeps } from './handlers/HandlerTypes.js';
@@ -385,6 +388,298 @@ export const frozenLoadPayloadSchema = z.object({
   reload: z.boolean().optional(),
 });
 export const frozenVerifyPayloadSchema = z.object({ targetOrgId: orgIdSchema });
+
+// ── autopilot:* payload schemas ─────────────────────────────────────────────
+// Mirror the shared request contracts (shared/types/messages/autopilot.messages.ts).
+// Fields the handler never reads stay optional so a partial payload that used
+// to work keeps working; every field the handler consumes is validated.
+
+/** Scan request: both orgs, optional explicit object selection (empty = auto-detect). */
+export const autopilotScanSchemaPayloadSchema = z.object({
+  sourceOrgId: orgIdSchema,
+  targetOrgId: orgIdSchema,
+  selectedObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST),
+  includeStandardObjects: z.boolean(),
+});
+
+/** Plan request: the framework is the only field the handler consumes. */
+export const autopilotGeneratePlanPayloadSchema = z.object({
+  complianceFramework: complianceFrameworkTypeSchema,
+  maxRecordsPerObject: z.number().int().nonnegative().max(MAX_SEED_RECORDS_PER_OBJECT).optional(),
+  objectFilters: z.record(whereClauseSchema).optional(),
+  overrides: z
+    .array(
+      z.object({
+        objectApiName: sfApiNameSchema,
+        fieldApiName: sfApiNameSchema,
+        method: z.union([anonymizationMethodSchema, z.literal('skip')]),
+      }),
+    )
+    .max(500)
+    .optional(),
+});
+
+/** Execute request: 0 disables the grappe threshold (handler acts on truthy values only). */
+export const autopilotExecutePayloadSchema = z.object({
+  grappeThreshold: z.number().int().nonnegative(),
+});
+
+export const autopilotSkipNodePayloadSchema = z.object({
+  objectApiName: sfApiNameSchema,
+});
+
+// ── quicksync:* payload schemas ─────────────────────────────────────────────
+// Mirror what the QuickSync webview flow posts (useQuickSyncFlow,
+// QuickSyncObjectStep). NOTE: the webview currently sends `sourceOrgId` /
+// `selectedObjects` where the handler historically read `orgId` /
+// `objectApiName` — a pre-existing webview↔handler mismatch. Both spellings
+// stay accepted so no currently-working payload breaks; the schema bounds
+// types and sizes without picking a side.
+
+export const quickSyncSuggestObjectsPayloadSchema = z
+  .object({
+    orgId: orgIdSchema.optional(),
+    sourceOrgId: orgIdSchema.optional(),
+    alreadySelected: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
+  })
+  .passthrough();
+
+export const quickSyncDetectRelationshipsPayloadSchema = z
+  .object({
+    orgId: orgIdSchema.optional(),
+    sourceOrgId: orgIdSchema.optional(),
+    objectApiName: sfApiNameSchema.optional(),
+    alreadySelected: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
+    selectedObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
+    availableObjects: z.array(sfApiNameSchema).max(500).optional(),
+  })
+  .passthrough();
+
+export const quickSyncPreviewPayloadSchema = z
+  .object({
+    sourceOrgId: orgIdSchema,
+    // Sent by the webview flow; not consumed by the handler today.
+    targetOrgId: orgIdSchema.optional(),
+    selectedObjects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+    parentObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
+  })
+  .passthrough();
+
+/** Quick Sync config as sent inside `quicksync:execute` (`{ config }`). */
+export const quickSyncConfigPayloadSchema = QuickSyncConfigSchema.extend({
+  sourceOrgId: orgIdSchema,
+  targetOrgId: orgIdSchema,
+  selectedObjects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
+  parentObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).default([]),
+}).passthrough();
+
+export const quickSyncExecutePayloadSchema = z
+  .object({
+    config: quickSyncConfigPayloadSchema.optional(),
+    // Flat shape posted by the current webview flow (useQuickSyncFlow). The
+    // handler only reads `config`; the flat fields stay accepted (and ignored)
+    // so the current webview payload is not rejected outright.
+    sourceOrgId: orgIdSchema.optional(),
+    targetOrgId: orgIdSchema.optional(),
+    selectedObjects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST).optional(),
+    parentObjects: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
+  })
+  .passthrough();
+
+// ── ai:* payload schemas ──────────────────────────────────────────────────
+// Mirror what AIPage / useAIFeatures / BridgeProvider / useSeedNL2SOQL post.
+
+/** Bounded free-text prompt sent to the AI provider. */
+const aiPromptSchema = z.string().min(1).max(50_000);
+
+export const aiChatPayloadSchema = z.object({
+  conversationId: opaqueIdSchema,
+  // Empty messages stay legal (the webview input guards them) — bound only.
+  message: z.string().max(50_000),
+});
+export const aiConversationCreatePayloadSchema = z.object({
+  title: z.string().min(1).max(300),
+});
+export const aiConversationIdPayloadSchema = z.object({ conversationId: opaqueIdSchema });
+export const aiSaveKeyPayloadSchema = z.object({
+  apiKey: z.string().min(1).max(500),
+});
+
+export const aiAnomalyScanPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  objectName: sfApiNameSchema,
+  sampleSize: z.number().int().positive().max(10_000).optional(),
+});
+export const aiSuggestionsPayloadSchema = z.object({
+  module: z.string().min(1).max(50),
+  context: z.record(z.unknown()).optional(),
+});
+export const aiSchemaAdvicePayloadSchema = z.object({
+  orgId: orgIdSchema,
+  objectNames: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
+});
+
+export const aiNl2SoqlPayloadSchema = z.object({
+  query: z.string().min(1).max(2_000),
+  orgId: orgIdSchema,
+});
+export const aiResolveErrorPayloadSchema = z.object({
+  errorMessage: z.string().min(1).max(10_000),
+  errorCode: z.string().max(100).optional(),
+  module: z.string().min(1).max(50),
+  context: z.record(z.unknown()).optional(),
+});
+export const aiPersonasPayloadSchema = z.object({
+  action: z.enum(['list', 'create']),
+  // Required only for `create`; the handler answers with a graceful
+  // `success: false` when it is missing (existing webview flow).
+  description: aiPromptSchema.optional(),
+});
+export const aiGeneratePipelinePayloadSchema = z.object({
+  description: aiPromptSchema,
+  orgIds: z.array(orgIdSchema).max(50).optional(),
+});
+
+// ── migration:* payload schemas ───────────────────────────────────────────
+// Mirror the shared request contracts (no current webview emitter). The
+// handler re-validates the path against traversal after parsing.
+
+export const migrationImportPayloadSchema = z.object({
+  filePath: z.string().min(1).max(2_000),
+  format: z.string().max(50).optional(),
+});
+export const migrationImportSfdmuPayloadSchema = z.object({
+  filePath: z.string().min(1).max(2_000),
+});
+
+// ── execution:* payload schemas ───────────────────────────────────────────
+// Mirror what useRetryManager / ErrorRecoveryPanel post. NOTE: useRetryManager
+// sends `{ executionId, objectName }` for execution:abort where the handler
+// reads `operationId` (pre-existing mismatch) — both stay accepted.
+
+export const executionAbortPayloadSchema = z
+  .object({
+    operationId: opaqueIdSchema.optional(),
+    executionId: opaqueIdSchema.optional(),
+    objectName: z.string().min(1).max(200).optional(),
+  })
+  .passthrough();
+export const executionStatusPayloadSchema = z.object({ operationId: opaqueIdSchema });
+export const executionManualRetryPayloadSchema = z.object({
+  executionId: opaqueIdSchema,
+  objectName: z.string().min(1).max(200),
+});
+
+// ── governance:* payload schemas ──────────────────────────────────────────
+// Mirror what GovernancePanel posts. `policy` is deep-validated by
+// GovernancePolicySchema inside the handler (VALIDATION_ERROR path) — here we
+// only require an object.
+
+export const governancePolicyIdPayloadSchema = z.object({ policyId: opaqueIdSchema });
+export const governancePolicySavePayloadSchema = z.object({
+  policy: z.record(z.unknown()),
+});
+export const governancePoliciesImportPayloadSchema = z.object({
+  json: z.string().min(1).max(5_000_000),
+});
+export const governanceEvaluatePayloadSchema = z.object({
+  policyId: opaqueIdSchema,
+  orgId: orgIdSchema,
+});
+
+// ── config:* payload schemas ──────────────────────────────────────────────
+// Mirror what ConfigProfilePanel posts.
+
+/** Config profile categories (mirrors ConfigCategory in ConfigProfileManager). */
+export const configCategorySchema = z.enum([
+  'syncMappings',
+  'forgePlans',
+  'pipelines',
+  'anonymizationTemplates',
+  'settings',
+]);
+
+export const configExportPayloadSchema = z.object({
+  categories: z.array(configCategorySchema).min(1).max(50),
+});
+export const configImportPayloadSchema = z.object({
+  json: z.string().min(1).max(5_000_000),
+  overwrite: z.boolean(),
+});
+export const configValidatePayloadSchema = z.object({
+  json: z.string().min(1).max(5_000_000),
+});
+
+// ── org:* payload schemas ─────────────────────────────────────────────────
+// Mirror what OrgManagerPage posts. `authMethod` stays a bounded string (not
+// an enum): the handler has an explicit default branch that warns on
+// not-yet-supported methods — rejecting them here would lose that UX.
+
+export const orgConnectPayloadSchema = z
+  .object({
+    // The webview sends '' for fresh connections (no org id yet).
+    orgId: z.string().max(128),
+    authMethod: z.string().min(1).max(50),
+    alias: z.string().max(100).optional(),
+    loginUrl: z.string().max(500).optional(),
+    username: z.string().max(300).optional(),
+    password: z.string().max(500).optional(),
+    securityToken: z.string().max(100).optional(),
+  })
+  .passthrough();
+export const orgDisconnectPayloadSchema = z.object({ orgId: orgIdSchema });
+
+// ── settings:* / onboarding / plugins / telemetry payload schemas ──────────
+// Mirror what useSettingsPageData posts; plugins/telemetry/hint follow the
+// shared request contracts (no current webview emitter).
+
+export const settingsUpdatePayloadSchema = z.object({
+  key: z.string().min(1).max(200),
+  value: z.unknown(),
+});
+export const hintDismissPayloadSchema = z.object({ hintId: opaqueIdSchema });
+export const telemetryTogglePayloadSchema = z.object({ enabled: z.boolean() });
+export const pluginsLoadPayloadSchema = z.object({
+  pluginPath: z.string().min(1).max(1_000),
+});
+export const pluginsUnloadPayloadSchema = z.object({
+  pluginName: z.string().min(1).max(200),
+});
+
+// ── smart-action:* payload schemas ──────────────────────────────────────────
+// Mirror what useSmartAction posts.
+
+export const smartActionAnalyzePayloadSchema = z.object({
+  targetOrgId: orgIdSchema,
+  sourceOrgId: orgIdSchema.optional(),
+});
+
+// ── automation:* (pipeline / operation / marketplace) payload schemas ──────
+// Mirror what useAutomationPageData / MonitorPage post.
+
+export const pipelineRunPayloadSchema = z.object({
+  pipeline: z
+    .object({
+      name: z.string().min(1).max(200),
+      steps: z.array(z.record(z.unknown())).max(200),
+    })
+    .passthrough(),
+  variables: z.record(z.string().max(2_000)).optional(),
+});
+export const pipelineSavePayloadSchema = z.object({
+  // Empty id stays legal: the handler falls back to crypto.randomUUID().
+  id: z.string().max(200),
+  config: z.record(z.unknown()),
+});
+export const operationIdPayloadSchema = z.object({ operationId: opaqueIdSchema });
+export const marketplaceListPayloadSchema = z
+  .object({
+    category: z.string().max(100).optional(),
+    query: z.string().max(500).optional(),
+  })
+  .passthrough()
+  .optional();
+export const marketplaceInstallPayloadSchema = z.object({ templateId: opaqueIdSchema });
 
 /**
  * Validate a webview message payload against a zod schema. Returns parsed
