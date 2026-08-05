@@ -8,6 +8,7 @@ import {
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  sendHandlerError,
 } from './HandlerTypes.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
@@ -173,6 +174,9 @@ export class DataOpsHandler implements DomainHandler {
     if (this.activeOrgOperations.has(lockKey)) {
       const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
       this.deps.log(`[WARN] ${message}`);
+      // Settle the in-flight useBridgeMutation listener on dataops:error
+      // (same dual-channel contract as the catch below).
+      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', new Error(message));
       sendOperationFailed(this.deps, operationId, message, false);
       return;
     }
@@ -181,6 +185,12 @@ export class DataOpsHandler implements DomainHandler {
     try {
       if (this.dmlTracker.isDuplicate(operationId)) {
         this.deps.log(`[WARN] Duplicate backup operation detected: ${operationId}`);
+        sendHandlerError(
+          this.deps,
+          'dataops:backup',
+          'dataops:error',
+          new Error(`Duplicate operation: ${operationId}`),
+        );
         sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false);
         return;
       }
@@ -276,8 +286,12 @@ export class DataOpsHandler implements DomainHandler {
       this.dmlTracker.markCompleted(operationId);
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
-      // Single failure emission: `operation:failed` only (webview consumes it).
-      this.deps.log(`[ERR] dataops:backup: ${extractErrorMessage(err)}`);
+      // Dual channel, single display: `operation:failed` carries the lifecycle
+      // (webview clears global loading + auto AI-resolver); `dataops:error` is
+      // the `<domain>:error` channel useBridgeMutation listens on — it settles
+      // the in-flight mutation with the real message. The webview surfaces the
+      // error from dataops:error only, so the user sees it exactly once.
+      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     } finally {
       this.activeOrgOperations.delete(lockKey);
@@ -327,6 +341,7 @@ export class DataOpsHandler implements DomainHandler {
     if (this.activeOrgOperations.has(lockKey)) {
       const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
       this.deps.log(`[WARN] ${message}`);
+      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', new Error(message));
       sendOperationFailed(this.deps, rollbackOpId, message, false);
       return;
     }
@@ -335,6 +350,12 @@ export class DataOpsHandler implements DomainHandler {
     try {
       if (this.dmlTracker.isDuplicate(rollbackOpId)) {
         this.deps.log(`[WARN] Duplicate rollback operation detected: ${rollbackOpId}`);
+        sendHandlerError(
+          this.deps,
+          'dataops:rollback',
+          'dataops:error',
+          new Error(`Duplicate operation: ${rollbackOpId}`),
+        );
         sendOperationFailed(this.deps, rollbackOpId, `Duplicate operation: ${rollbackOpId}`, false);
         return;
       }
@@ -394,6 +415,12 @@ export class DataOpsHandler implements DomainHandler {
           this.deps.log(
             `[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${flsCheck.reason}`,
           );
+          sendHandlerError(
+            this.deps,
+            'dataops:rollback',
+            'dataops:error',
+            new Error(flsCheck.reason),
+          );
           sendOperationFailed(this.deps, rollbackOpId, flsCheck.reason, false);
           return;
         }
@@ -443,8 +470,8 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       this.dmlTracker.markFailed(rollbackOpId);
-      // Single failure emission: `operation:failed` only (webview consumes it).
-      this.deps.log(`[ERR] dataops:rollback: ${extractErrorMessage(err)}`);
+      // Dual channel, single display (see handleBackup).
+      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', err);
       sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true);
     } finally {
       this.activeOrgOperations.delete(lockKey);
@@ -481,12 +508,9 @@ export class DataOpsHandler implements DomainHandler {
         // writing to a production org.
         const confirmed = await guard.confirmIfNeeded(check);
         if (!confirmed) {
-          sendOperationFailed(
-            this.deps,
-            operationId,
-            'Operation cancelled by user (production confirmation declined).',
-            false,
-          );
+          const message = 'Operation cancelled by user (production confirmation declined).';
+          sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', new Error(message));
+          sendOperationFailed(this.deps, operationId, message, false);
           return;
         }
       }
@@ -561,6 +585,12 @@ export class DataOpsHandler implements DomainHandler {
           this.deps.log(
             `[WARN] CRUD/FLS check failed for anonymize on ${safeObj}: ${flsCheck.reason}`,
           );
+          sendHandlerError(
+            this.deps,
+            'dataops:anonymize',
+            'dataops:error',
+            new Error(flsCheck.reason),
+          );
           sendOperationFailed(this.deps, operationId, flsCheck.reason, false);
           return;
         }
@@ -622,8 +652,8 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      // Single failure emission: `operation:failed` only (webview consumes it).
-      this.deps.log(`[ERR] dataops:anonymize: ${extractErrorMessage(err)}`);
+      // Dual channel, single display (see handleBackup).
+      sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     }
   }

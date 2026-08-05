@@ -20,6 +20,7 @@ import type { PipelineMarketplace } from '../modules/automation/PipelineMarketpl
  *    `execution:*` routes. Keep the call order in `applyLateServices`.
  *
  * 2. **Async setters** — `setForgeOrchestrator` (see `./forgeComposition.ts`),
+ *    `setAutopilotOrchestrator` (see `./autopilotComposition.ts`),
  *    `setAIAssistant` / `setAIModules` / `setAIDiagnoseHandler` (see
  *    `./aiComposition.ts`) — resolve AFTER `registerAll`, because they depend
  *    on dynamic imports deliberately kept off the activation hot path.
