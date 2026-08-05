@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { useWebviewPersistedState } from '../../../hooks/useWebviewPersistedState';
@@ -97,31 +97,59 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
   );
   const [error, setError] = useWebviewPersistedState<string | null>('quickSyncError', null);
 
-  const previewMutation = useBridgeMutation<QuickSyncPreview>('quicksync:preview');
-  const executeMutation = useBridgeMutation<SyncExecutionResult>('quicksync:execute');
+  const previewMutation = useBridgeMutation<{ preview: QuickSyncPreview }>('quicksync:preview');
+  // `quicksync:execute` prepares the run: the extension auto-maps fields and
+  // answers with a full SyncConfig. The actual execution is delegated to the
+  // existing SyncOpsHandler flow by relaying that config to `sync:execute`.
+  const prepareMutation = useBridgeMutation<{
+    syncConfig: Record<string, unknown>;
+    objectCount: number;
+  }>('quicksync:execute');
+  const syncMutation = useBridgeMutation<SyncExecutionResult>('sync:execute');
 
-  // Sync preview mutation response into state
+  // Sync preview mutation response into state (handler wraps it in { preview })
   useEffect(() => {
     if (previewMutation.data) {
-      setPreview(previewMutation.data);
+      setPreview(previewMutation.data.preview);
     }
     if (previewMutation.error) {
       setError(previewMutation.error);
     }
   }, [previewMutation.data, previewMutation.error, setPreview, setError]);
 
-  // Sync execute mutation response into state
+  // Keep the latest sync mutate in a ref: `useBridgeMutation`'s mutate is not
+  // guaranteed stable, and the relay effect must fire only when the prepared
+  // config arrives — not on every render.
+  const syncMutateRef = useRef(syncMutation.mutate);
+  syncMutateRef.current = syncMutation.mutate;
+
+  // Relay the prepared SyncConfig to the real execution flow
   useEffect(() => {
-    if (executeMutation.data) {
-      setResult(executeMutation.data);
+    if (prepareMutation.data) {
+      syncMutateRef.current({ config: prepareMutation.data.syncConfig });
+    }
+  }, [prepareMutation.data]);
+
+  // Prepare-step failures surface on quicksync:error
+  useEffect(() => {
+    if (prepareMutation.error) {
+      setError(prepareMutation.error);
+      setIsExecuting(false);
+    }
+  }, [prepareMutation.error, setError, setIsExecuting]);
+
+  // Sync execution mutation response into state
+  useEffect(() => {
+    if (syncMutation.data) {
+      setResult(syncMutation.data);
       setIsExecuting(false);
       setStep('results');
     }
-    if (executeMutation.error) {
-      setError(executeMutation.error);
+    if (syncMutation.error) {
+      setError(syncMutation.error);
       setIsExecuting(false);
     }
-  }, [executeMutation.data, executeMutation.error, setResult, setIsExecuting, setStep, setError]);
+  }, [syncMutation.data, syncMutation.error, setResult, setIsExecuting, setStep, setError]);
 
   const setSourceOrg = useCallback(
     (orgId: string) => {
@@ -200,13 +228,15 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     setIsExecuting(true);
     setError(null);
     setStep('executing');
-    executeMutation.mutate({
-      sourceOrgId: draft.sourceOrgId,
-      targetOrgId: draft.targetOrgId,
-      selectedObjects: draft.selectedObjects,
-      parentObjects: draft.parentObjects,
+    prepareMutation.mutate({
+      config: {
+        sourceOrgId: draft.sourceOrgId,
+        targetOrgId: draft.targetOrgId,
+        selectedObjects: draft.selectedObjects,
+        parentObjects: draft.parentObjects,
+      },
     });
-  }, [draft, executeMutation, setIsExecuting, setError, setStep]);
+  }, [draft, prepareMutation, setIsExecuting, setError, setStep]);
 
   const reset = useCallback(() => {
     setDraft(INITIAL_DRAFT);
@@ -216,7 +246,8 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     setIsExecuting(false);
     setError(null);
     previewMutation.reset();
-    executeMutation.reset();
+    prepareMutation.reset();
+    syncMutation.reset();
   }, [
     setDraft,
     setStep,
@@ -225,7 +256,8 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     setIsExecuting,
     setError,
     previewMutation,
-    executeMutation,
+    prepareMutation,
+    syncMutation,
   ]);
 
   const state: QuickSyncFlowState = {

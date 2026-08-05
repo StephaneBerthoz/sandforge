@@ -430,11 +430,11 @@ export const autopilotSkipNodePayloadSchema = z.object({
 
 // ── quicksync:* payload schemas ─────────────────────────────────────────────
 // Mirror what the QuickSync webview flow posts (useQuickSyncFlow,
-// QuickSyncObjectStep). NOTE: the webview currently sends `sourceOrgId` /
-// `selectedObjects` where the handler historically read `orgId` /
-// `objectApiName` — a pre-existing webview↔handler mismatch. Both spellings
-// stay accepted so no currently-working payload breaks; the schema bounds
-// types and sizes without picking a side.
+// QuickSyncObjectStep). The canonical shapes are the ones the handler consumes
+// (`orgId` / `objectApiName` / `{ config }`); the earlier flat spellings
+// (`sourceOrgId`, top-level execute fields) stay accepted so no previously
+// working payload breaks — the schema bounds types and sizes without picking
+// a side.
 
 export const quickSyncSuggestObjectsPayloadSchema = z
   .object({
@@ -476,9 +476,9 @@ export const quickSyncConfigPayloadSchema = QuickSyncConfigSchema.extend({
 export const quickSyncExecutePayloadSchema = z
   .object({
     config: quickSyncConfigPayloadSchema.optional(),
-    // Flat shape posted by the current webview flow (useQuickSyncFlow). The
-    // handler only reads `config`; the flat fields stay accepted (and ignored)
-    // so the current webview payload is not rejected outright.
+    // Legacy flat shape previously posted by the webview flow
+    // (useQuickSyncFlow). The handler only reads `config`; the flat fields
+    // stay accepted (and ignored) so old payloads are not rejected outright.
     sourceOrgId: orgIdSchema.optional(),
     targetOrgId: orgIdSchema.optional(),
     selectedObjects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST).optional(),

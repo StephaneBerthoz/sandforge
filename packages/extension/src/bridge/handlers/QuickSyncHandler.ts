@@ -120,7 +120,11 @@ export class QuickSyncHandler implements DomainHandler {
 
   /**
    * Detect parent object dependencies for a given object.
-   * Payload: { orgId, objectApiName, alreadySelected, availableObjects }
+   * Payload: { orgId, objectApiName, alreadySelected, availableObjects? }
+   *
+   * `availableObjects` is optional: the QuickSync webview wizard does not know
+   * the org's full object catalogue, so when it is omitted the list is derived
+   * from `describeGlobal` (same createable+queryable filter as suggestions).
    */
   private async handleDetectRelationships(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -155,11 +159,24 @@ export class QuickSyncHandler implements DomainHandler {
         relationshipName: f.relationshipName ?? null,
       }));
 
+      // Fall back to the live org catalogue when the caller cannot provide it.
+      const availableObjects =
+        payload.availableObjects ??
+        (
+          (await conn.describeGlobal()).sobjects as Array<{
+            name: string;
+            createable: boolean;
+            queryable: boolean;
+          }>
+        )
+          .filter((s) => s.createable && s.queryable)
+          .map((s) => s.name);
+
       const suggestions = this.relationshipDetector.detect(
         payload.objectApiName ?? '',
         fields,
         payload.alreadySelected ?? [],
-        payload.availableObjects ?? [],
+        availableObjects,
       );
 
       const response = buildResponse(this.deps, msg, 'quicksync:detect-relationships:response', {

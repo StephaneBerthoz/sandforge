@@ -55,19 +55,22 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [relationshipBanner, setRelationshipBanner] = useState<RelationshipBanner | null>(null);
 
-  // Fetch smart object suggestions
-  const suggestionsQuery = useBridgeQuery<SmartObjectSuggestion[]>(
+  // Fetch smart object suggestions (handler payload: { orgId, alreadySelected })
+  const suggestionsQuery = useBridgeQuery<{ suggestions: SmartObjectSuggestion[] }>(
     'quicksync:suggest-objects',
-    { sourceOrgId },
+    { orgId: sourceOrgId, alreadySelected: selectedObjects },
     { skip: !sourceOrgId },
   );
 
-  // Detect relationships mutation
-  const detectRelationships = useBridgeMutation<RelationshipSuggestion[]>(
+  // Detect relationships mutation (handler payload: { orgId, objectApiName, alreadySelected })
+  const detectRelationships = useBridgeMutation<{ suggestions: RelationshipSuggestion[] }>(
     'quicksync:detect-relationships',
   );
 
-  const suggestions = useMemo(() => suggestionsQuery.data ?? [], [suggestionsQuery.data]);
+  const suggestions = useMemo(
+    () => suggestionsQuery.data?.suggestions ?? [],
+    [suggestionsQuery.data],
+  );
 
   // Available objects from suggestions for the search dropdown
   const availableForSearch = useMemo(() => {
@@ -87,8 +90,9 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
     (apiName: string) => {
       onAddObject(apiName);
       detectRelationships.mutate({
-        sourceOrgId,
-        selectedObjects: [...selectedObjects, apiName],
+        orgId: sourceOrgId,
+        objectApiName: apiName,
+        alreadySelected: [...selectedObjects, apiName],
       });
     },
     [onAddObject, detectRelationships, sourceOrgId, selectedObjects],
@@ -96,8 +100,9 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
 
   // Show relationship banner when detection returns results
   useEffect(() => {
-    if (detectRelationships.data && detectRelationships.data.length > 0) {
-      const suggestion = detectRelationships.data[0];
+    const detected = detectRelationships.data?.suggestions;
+    if (detected && detected.length > 0) {
+      const suggestion = detected[0];
       if (
         !selectedObjects.includes(suggestion.parentObject) &&
         !parentObjects.includes(suggestion.parentObject)
