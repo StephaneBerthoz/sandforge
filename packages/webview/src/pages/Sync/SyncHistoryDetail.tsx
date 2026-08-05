@@ -28,13 +28,13 @@ export const SyncHistoryDetail: React.FC = () => {
 
   return (
     <div
-      className="flex flex-col gap-[var(--sf-space-3)] p-[var(--sf-space-3)] border border-[var(--vscode-panel-border)] rounded"
+      className="flex flex-col gap-[var(--sf-space-3)] p-[var(--sf-space-3)] border border-[var(--sf-border)] rounded"
       data-testid="sync-history-detail"
     >
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-[var(--sf-space-2)]">
-          <h4 className="text-sm font-semibold text-[var(--vscode-editor-foreground)]">
+          <h4 className="text-sm font-semibold text-text-primary">
             {configSnapshot.name ?? t('sync.history.detailTitle')}
           </h4>
           <Badge variant={statusVariant[result.status] ?? 'default'}>
@@ -43,7 +43,7 @@ export const SyncHistoryDetail: React.FC = () => {
         </div>
         <button
           type="button"
-          className="text-xs px-2 py-1 rounded bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+          className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
           onClick={clearSelection}
           data-testid="detail-close-btn"
           aria-label={t('common.close')}
@@ -53,7 +53,7 @@ export const SyncHistoryDetail: React.FC = () => {
       </div>
 
       {/* Meta info */}
-      <div className="flex gap-[var(--sf-space-3)] text-xs text-[var(--vscode-descriptionForeground)]">
+      <div className="flex gap-[var(--sf-space-3)] text-xs text-text-secondary">
         <span>{format(new Date(startTime), 'yyyy-MM-dd HH:mm:ss')}</span>
         <span>
           {t('sync.history.triggeredBy')}:{' '}
@@ -71,12 +71,8 @@ export const SyncHistoryDetail: React.FC = () => {
         <Card>
           <CardBody>
             <div className="text-center">
-              <div className="text-lg font-bold text-[var(--vscode-editor-foreground)]">
-                {result.totalProcessed}
-              </div>
-              <div className="text-[10px] text-[var(--vscode-descriptionForeground)]">
-                {t('sync.totalProcessed')}
-              </div>
+              <div className="text-lg font-bold text-text-primary">{result.totalProcessed}</div>
+              <div className="text-[10px] text-text-secondary">{t('sync.totalProcessed')}</div>
             </div>
           </CardBody>
         </Card>
@@ -86,33 +82,23 @@ export const SyncHistoryDetail: React.FC = () => {
               <div className="text-lg font-bold text-[var(--sf-color-success,#4ec9b0)]">
                 {result.totalSuccess}
               </div>
-              <div className="text-[10px] text-[var(--vscode-descriptionForeground)]">
-                {t('sync.totalSuccess')}
-              </div>
+              <div className="text-[10px] text-text-secondary">{t('sync.totalSuccess')}</div>
             </div>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <div className="text-center">
-              <div className="text-lg font-bold text-[var(--vscode-errorForeground,#f48771)]">
-                {result.totalFailed}
-              </div>
-              <div className="text-[10px] text-[var(--vscode-descriptionForeground)]">
-                {t('sync.totalFailed')}
-              </div>
+              <div className="text-lg font-bold text-[var(--sf-error)]">{result.totalFailed}</div>
+              <div className="text-[10px] text-text-secondary">{t('sync.totalFailed')}</div>
             </div>
           </CardBody>
         </Card>
         <Card>
           <CardBody>
             <div className="text-center">
-              <div className="text-lg font-bold text-[var(--vscode-descriptionForeground)]">
-                {result.totalSkipped}
-              </div>
-              <div className="text-[10px] text-[var(--vscode-descriptionForeground)]">
-                {t('sync.totalSkipped')}
-              </div>
+              <div className="text-lg font-bold text-text-secondary">{result.totalSkipped}</div>
+              <div className="text-[10px] text-text-secondary">{t('sync.totalSkipped')}</div>
             </div>
           </CardBody>
         </Card>
@@ -120,7 +106,7 @@ export const SyncHistoryDetail: React.FC = () => {
 
       {/* Per-object results */}
       <div className="flex flex-col gap-[var(--sf-space-2)]">
-        <h5 className="text-xs font-semibold text-[var(--vscode-editor-foreground)]">
+        <h5 className="text-xs font-semibold text-text-primary">
           {t('sync.history.objectResults')}
         </h5>
         {result.objectResults.map((obj) => (
@@ -137,7 +123,7 @@ export const SyncHistoryDetail: React.FC = () => {
                 <span className="text-[var(--sf-color-success,#4ec9b0)]">
                   {t('sync.history.successCount')}: {obj.success}
                 </span>
-                <span className="text-[var(--vscode-errorForeground,#f48771)]">
+                <span className="text-[var(--sf-error)]">
                   {t('sync.history.failedCount')}: {obj.failed}
                 </span>
                 <span>
@@ -147,7 +133,7 @@ export const SyncHistoryDetail: React.FC = () => {
               {obj.errors.length > 0 && (
                 <div className="mt-1">
                   {obj.errors.map((err, i) => (
-                    <p key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">
+                    <p key={i} className="text-[10px] text-[var(--sf-error)]">
                       {err}
                     </p>
                   ))}
@@ -160,10 +146,10 @@ export const SyncHistoryDetail: React.FC = () => {
 
       {/* Config snapshot summary */}
       <div className="flex flex-col gap-[var(--sf-space-1)]">
-        <h5 className="text-xs font-semibold text-[var(--vscode-editor-foreground)]">
+        <h5 className="text-xs font-semibold text-text-primary">
           {t('sync.history.configSnapshot')}
         </h5>
-        <div className="flex gap-[var(--sf-space-2)] text-[10px] text-[var(--vscode-descriptionForeground)] flex-wrap">
+        <div className="flex gap-[var(--sf-space-2)] text-[10px] text-text-secondary flex-wrap">
           <Badge variant="default">{t(`sync.directions.${configSnapshot.direction}`)}</Badge>
           <Badge variant="default">{t(`sync.modes.${configSnapshot.mode}`)}</Badge>
           <span>
@@ -180,7 +166,7 @@ export const SyncHistoryDetail: React.FC = () => {
       <div className="flex justify-end">
         <button
           type="button"
-          className="text-xs px-3 py-1.5 rounded bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)]"
+          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)]"
           onClick={() => rerun(selectedEntry.id)}
           data-testid="rerun-btn"
         >

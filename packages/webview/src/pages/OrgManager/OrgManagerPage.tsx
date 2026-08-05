@@ -227,17 +227,15 @@ export const OrgManagerPage: React.FC = () => {
     <div className="flex flex-col gap-4" data-testid="org-manager-page">
       {/* Banner with integrated auth methods */}
       <div
-        className="rounded-lg border border-[var(--vscode-panel-border,#3c3c3c)] bg-[var(--vscode-editor-background,#1e1e1e)] overflow-hidden"
+        className="rounded-lg border border-[var(--sf-border)] bg-[var(--sf-bg-primary)] overflow-hidden"
         data-testid="org-connect-banner"
       >
         {/* Header row */}
         <div className="flex items-center gap-3 px-4 py-3">
-          <Plug className="w-5 h-5 text-[var(--vscode-descriptionForeground,#868686)] shrink-0" />
+          <Plug className="w-5 h-5 text-text-secondary shrink-0" />
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-              {t('org.title')}
-            </h2>
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">
+            <h2 className="text-sm font-semibold text-text-primary">{t('org.title')}</h2>
+            <p className="text-xs text-text-secondary mt-0.5">
               {orgs.length > 0
                 ? t('org.bannerConnected', { count: connectedOrgs.length, total: orgs.length })
                 : t('org.bannerEmpty')}
@@ -257,8 +255,8 @@ export const OrgManagerPage: React.FC = () => {
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium',
                   'border transition-all',
                   isActive
-                    ? 'bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)] border-[var(--vscode-button-background,#0e639c)]'
-                    : 'bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] border-transparent hover:bg-[var(--vscode-button-secondaryHoverBackground,#45494e)]',
+                    ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] border-[var(--sf-button-bg)]'
+                    : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] border-transparent hover:bg-[var(--sf-button-secondary-hover)]',
                   isNotSupported && 'opacity-50',
                   isConnecting && 'pointer-events-none opacity-60',
                 )}
@@ -281,15 +279,15 @@ export const OrgManagerPage: React.FC = () => {
         {/* Inline form — expands when a method with form is selected */}
         {activeMethod && (activeMethod === 'oauth_web' || activeMethod === 'usernamePassword') && (
           <div
-            className="border-t border-[var(--vscode-panel-border,#3c3c3c)] bg-[var(--vscode-sideBar-background,#252526)] px-4 py-3"
+            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-3"
             data-testid="org-inline-form"
           >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+              <span className="text-xs font-semibold text-text-primary">
                 {t(AUTH_METHODS.find((m) => m.method === activeMethod)?.labelKey ?? '')}
               </span>
               <button
-                className="text-[var(--vscode-descriptionForeground,#868686)] hover:text-[var(--vscode-editor-foreground,#d4d4d4)] transition-colors"
+                className="text-text-secondary hover:text-text-primary transition-colors"
                 onClick={() => {
                   setActiveMethod(null);
                   resetForm();
@@ -368,15 +366,13 @@ export const OrgManagerPage: React.FC = () => {
         {/* Not supported message for JWT / Device */}
         {activeMethod && (activeMethod === 'jwt' || activeMethod === 'oauth_device') && (
           <div
-            className="border-t border-[var(--vscode-panel-border,#3c3c3c)] bg-[var(--vscode-sideBar-background,#252526)] px-4 py-3"
+            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-3"
             data-testid="org-inline-not-supported"
           >
             <div className="flex items-center justify-between">
-              <p className="text-xs text-[var(--vscode-descriptionForeground,#888)]">
-                {t('auth.notSupported')}
-              </p>
+              <p className="text-xs text-text-secondary">{t('auth.notSupported')}</p>
               <button
-                className="text-[var(--vscode-descriptionForeground,#868686)] hover:text-[var(--vscode-editor-foreground,#d4d4d4)] transition-colors"
+                className="text-text-secondary hover:text-text-primary transition-colors"
                 onClick={() => setActiveMethod(null)}
               >
                 <X className="w-4 h-4" />
@@ -387,7 +383,7 @@ export const OrgManagerPage: React.FC = () => {
       </div>
 
       {orgListQuery.error && (
-        <div className="text-[var(--vscode-errorForeground,#f48771)]" data-testid="org-list-error">
+        <div className="text-[var(--sf-error)]" data-testid="org-list-error">
           {orgListQuery.error}
         </div>
       )}

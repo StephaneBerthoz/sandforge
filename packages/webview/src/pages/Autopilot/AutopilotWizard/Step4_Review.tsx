@@ -57,9 +57,7 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="step4-review">
-      <p className="text-sm text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('autopilot.step4.description')}
-      </p>
+      <p className="text-sm text-text-secondary">{t('autopilot.step4.description')}</p>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <StatCard
@@ -98,30 +96,30 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
         />
       </div>
 
-      <div className="flex flex-col gap-2 p-3 rounded border border-[var(--vscode-panel-border,#3c3c3c)] bg-[var(--vscode-editor-background,#1e1e1e)]">
-        <span className="text-sm font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <div className="flex flex-col gap-2 p-3 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]">
+        <span className="text-sm font-medium text-text-primary">
           {t('autopilot.step4.connectionSummary')}
         </span>
-        <div className="flex items-center gap-2 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="flex items-center gap-2 text-xs text-text-secondary">
           <span>
             {t('autopilot.step4.source')}: {sourceOrgId}
           </span>
-          <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">&rarr;</span>
+          <span className="text-text-primary">&rarr;</span>
           <span>
             {t('autopilot.step4.target')}: {targetOrgId}
           </span>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 p-3 rounded border border-[var(--vscode-panel-border,#3c3c3c)] bg-[var(--vscode-editor-background,#1e1e1e)]">
-        <span className="text-sm font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <div className="flex flex-col gap-2 p-3 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]">
+        <span className="text-sm font-medium text-text-primary">
           {t('autopilot.step4.selectedObjects')}
         </span>
         <div className="flex flex-wrap gap-1">
           {selectedObjects.map((obj) => (
             <span
               key={obj}
-              className="px-2 py-0.5 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-editor-foreground,#d4d4d4)]"
+              className="px-2 py-0.5 text-xs rounded bg-[var(--sf-bg-input)] text-text-primary"
             >
               {obj}
             </span>
@@ -157,13 +155,8 @@ interface StatCardProps {
 
 /** Stat card component for the review step. */
 const StatCard: React.FC<StatCardProps> = ({ label, value, testId }) => (
-  <div
-    className="flex flex-col gap-1 p-3 rounded bg-[var(--vscode-input-background,#3c3c3c)]"
-    data-testid={testId}
-  >
-    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">{label}</span>
-    <span className="text-lg font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-      {value}
-    </span>
+  <div className="flex flex-col gap-1 p-3 rounded bg-[var(--sf-bg-input)]" data-testid={testId}>
+    <span className="text-xs text-text-secondary">{label}</span>
+    <span className="text-lg font-semibold text-text-primary">{value}</span>
   </div>
 );

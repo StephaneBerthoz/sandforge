@@ -11,7 +11,7 @@ export const NodeDetail: React.FC = () => {
   if (!selectedNode) {
     return (
       <div
-        className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+        className="flex items-center justify-center py-8 text-sm text-text-secondary"
         data-testid="node-detail-empty"
       >
         {t('autopilot.control.noNodeSelected')}
@@ -26,9 +26,7 @@ export const NodeDetail: React.FC = () => {
     <div className="flex flex-col gap-3" data-testid="node-detail">
       {/* Object Name */}
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {selectedNode.objectApiName}
-        </h4>
+        <h4 className="text-sm font-semibold text-text-primary">{selectedNode.objectApiName}</h4>
         <span
           className="px-2 py-0.5 text-[10px] rounded-full font-medium uppercase"
           data-testid="node-status-badge"
@@ -39,13 +37,13 @@ export const NodeDetail: React.FC = () => {
 
       {/* Progress */}
       <div className="flex flex-col gap-1">
-        <div className="flex justify-between text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="flex justify-between text-xs text-text-secondary">
           <span>{t('common.progress')}</span>
           <span>{selectedNode.progress}%</span>
         </div>
-        <div className="w-full h-2 rounded bg-[var(--vscode-input-background,#3c3c3c)]">
+        <div className="w-full h-2 rounded bg-[var(--sf-bg-input)]">
           <div
-            className="h-full rounded bg-[var(--vscode-progressBar-background,#0e70c0)] transition-all duration-300"
+            className="h-full rounded bg-[var(--sf-progress-bg)] transition-all duration-300"
             style={{ width: `${selectedNode.progress}%` }}
           />
         </div>
@@ -54,19 +52,15 @@ export const NodeDetail: React.FC = () => {
       {/* Record Count */}
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-            {t('autopilot.control.recordsProcessed')}
-          </span>
-          <span className="font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+          <span className="text-text-secondary">{t('autopilot.control.recordsProcessed')}</span>
+          <span className="font-medium text-text-primary">
             {selectedNode.successCount?.toLocaleString() ?? 0} /{' '}
             {selectedNode.recordCount.toLocaleString()}
           </span>
         </div>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-            {t('autopilot.control.errors')}
-          </span>
-          <span className="font-medium text-[var(--vscode-errorForeground,#f48771)]">
+          <span className="text-text-secondary">{t('autopilot.control.errors')}</span>
+          <span className="font-medium text-[var(--sf-error)]">
             {selectedNode.failureCount ?? 0}
           </span>
         </div>
@@ -75,14 +69,14 @@ export const NodeDetail: React.FC = () => {
       {/* PII Fields */}
       {piiFields.length > 0 && (
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+          <span className="text-xs text-text-secondary">
             {t('autopilot.control.piiFields')} ({piiFields.length})
           </span>
           <div className="flex flex-wrap gap-1">
             {piiFields.map((field) => (
               <span
                 key={field}
-                className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#d4d4d4)]"
+                className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]"
               >
                 {field}
               </span>

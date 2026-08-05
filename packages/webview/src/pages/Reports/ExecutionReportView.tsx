@@ -46,21 +46,15 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                 <Card
                   hoverable
                   onClick={() => onSelectReport?.(report.id)}
-                  className={
-                    selectedReportId === report.id
-                      ? 'ring-1 ring-[var(--vscode-focusBorder,#007fd4)]'
-                      : ''
-                  }
+                  className={selectedReportId === report.id ? 'ring-1 ring-[var(--sf-accent)]' : ''}
                 >
                   <CardBody>
                     <div className="flex items-center justify-between">
                       <div className="flex flex-col gap-1">
-                        <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                        <span className="text-xs font-medium text-text-primary">
                           {report.title}
                         </span>
-                        <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-                          {report.summary}
-                        </span>
+                        <span className="text-[10px] text-text-secondary">{report.summary}</span>
                       </div>
                       <Badge variant="info">{formatReportType(report.type)}</Badge>
                     </div>
@@ -81,13 +75,13 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                     <div className="flex flex-wrap gap-2">
                       <Badge variant="default">{selectedReport.metadata.module}</Badge>
                       {selectedReport.metadata.recordCount !== undefined && (
-                        <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                        <span className="text-[10px] text-text-secondary">
                           {selectedReport.metadata.recordCount}{' '}
                           {t('reports.recordCount').toLowerCase()}
                         </span>
                       )}
                       {selectedReport.metadata.duration !== undefined && (
-                        <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                        <span className="text-[10px] text-text-secondary">
                           {(selectedReport.metadata.duration / 1000).toFixed(1)}s
                         </span>
                       )}
@@ -96,19 +90,19 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                     {/* Sections */}
                     {selectedReport.sections.map((section, i) => (
                       <div key={i} className="flex flex-col gap-1">
-                        <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                        <span className="text-xs font-medium text-text-primary">
                           {section.title}
                         </span>
                         {section.type === 'table' && Array.isArray(section.content['rows']) && (
                           <div
                             data-testid="report-table"
-                            className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+                            className="text-[10px] text-text-secondary"
                           >
                             {(section.content['rows'] as Record<string, unknown>[]).map(
                               (row, ri) => (
                                 <div
                                   key={ri}
-                                  className="flex gap-2 py-0.5 border-b border-[var(--vscode-panel-border,#3c3c3c)]"
+                                  className="flex gap-2 py-0.5 border-b border-[var(--sf-border)]"
                                 >
                                   {Object.entries(row).map(([k, v]) => (
                                     <span key={k}>
@@ -121,7 +115,7 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                           </div>
                         )}
                         {section.type === 'text' && section.content['text'] != null && (
-                          <p className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                          <p className="text-[10px] text-text-secondary">
                             {String(section.content['text'])}
                           </p>
                         )}
@@ -142,7 +136,7 @@ export const ExecutionReportView: React.FC<ExecutionReportViewProps> = ({
                       <button
                         data-testid="export-report-btn"
                         onClick={() => onExport(selectedReport.id)}
-                        className="self-start px-3 py-1 text-xs rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)]"
+                        className="self-start px-3 py-1 text-xs rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)]"
                       >
                         {t('reports.exportReport')}
                       </button>

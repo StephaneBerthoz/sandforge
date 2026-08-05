@@ -115,10 +115,7 @@ export const HelpPage: React.FC = () => {
 
   return (
     <div className="flex flex-col p-6 max-w-3xl mx-auto" data-testid="help-page">
-      <h1
-        className="text-2xl font-bold mb-1"
-        style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
-      >
+      <h1 className="text-2xl font-bold mb-1" style={{ color: 'var(--sf-text-primary)' }}>
         {t('help.title')}
       </h1>
       <p className="text-sm mb-4" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
@@ -134,9 +131,9 @@ export const HelpPage: React.FC = () => {
           placeholder={t('help.searchPlaceholder')}
           className="w-full px-3 py-2 text-sm rounded"
           style={{
-            background: 'var(--vscode-input-background, #3c3c3c)',
-            border: '1px solid var(--vscode-input-border, #3c3c3c)',
-            color: 'var(--vscode-input-foreground, #d4d4d4)',
+            background: 'var(--sf-bg-input)',
+            border: '1px solid var(--sf-border-input)',
+            color: 'var(--sf-text-input)',
           }}
           data-testid="help-search"
           aria-label={t('help.searchPlaceholder')}
@@ -163,19 +160,15 @@ export const HelpPage: React.FC = () => {
               key={section.id}
               className="rounded-lg overflow-hidden"
               style={{
-                border: '1px solid var(--vscode-panel-border, #3c3c3c)',
+                border: '1px solid var(--sf-border)',
               }}
               data-testid={`help-section-${section.id}`}
             >
               <button
                 className="w-full flex items-center justify-between px-4 py-3 text-left text-sm font-medium transition-colors"
                 style={{
-                  background: isOpen
-                    ? 'var(--vscode-list-activeSelectionBackground, #094771)'
-                    : 'var(--vscode-editorWidget-background, #252526)',
-                  color: isOpen
-                    ? 'var(--vscode-list-activeSelectionForeground, #fff)'
-                    : 'var(--vscode-editor-foreground, #d4d4d4)',
+                  background: isOpen ? 'var(--sf-bg-active)' : 'var(--sf-bg-card)',
+                  color: isOpen ? 'var(--sf-text-active)' : 'var(--sf-text-primary)',
                 }}
                 onClick={() => toggleSection(section.id)}
                 aria-expanded={isOpen}
@@ -199,7 +192,7 @@ export const HelpPage: React.FC = () => {
                   role="region"
                   aria-labelledby={section.id}
                   style={{
-                    background: 'var(--vscode-editor-background, #1e1e1e)',
+                    background: 'var(--sf-bg-primary)',
                     color: 'var(--sf-text-secondary, #868686)',
                     whiteSpace: 'pre-line',
                   }}
@@ -214,10 +207,7 @@ export const HelpPage: React.FC = () => {
 
       {/* Salesforce Documentation Links */}
       <div className="mt-6">
-        <h2
-          className="text-lg font-semibold mb-3"
-          style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
-        >
+        <h2 className="text-lg font-semibold mb-3" style={{ color: 'var(--sf-text-primary)' }}>
           {t('help.sfDocs')}
         </h2>
         <div className="flex flex-col gap-2">
@@ -229,18 +219,15 @@ export const HelpPage: React.FC = () => {
               rel="noopener noreferrer"
               className="flex items-center gap-3 p-3 rounded-lg transition-colors"
               style={{
-                background: 'var(--vscode-editorWidget-background, #252526)',
-                border: '1px solid var(--vscode-panel-border, #3c3c3c)',
-                color: 'var(--vscode-textLink-foreground, #3794ff)',
+                background: 'var(--sf-bg-card)',
+                border: '1px solid var(--sf-border)',
+                color: 'var(--sf-text-link)',
                 textDecoration: 'none',
               }}
               data-testid={`sf-link-${link.titleKey}`}
             >
               <div>
-                <h3
-                  className="text-sm font-medium"
-                  style={{ color: 'var(--vscode-textLink-foreground, #3794ff)' }}
-                >
+                <h3 className="text-sm font-medium" style={{ color: 'var(--sf-text-link)' }}>
                   {t(link.titleKey)}
                 </h3>
                 <p

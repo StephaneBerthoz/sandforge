@@ -82,19 +82,19 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
   return (
     <div className={className} data-testid="category-selector">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-xs font-medium text-text-primary">
           {t('compare.categories', 'Categories')} ({selected.length}/{ALL_COMPONENT_TYPES.length})
         </span>
         <div className="flex gap-2">
           <button
-            className="text-[10px] text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline"
+            className="text-[10px] text-[var(--sf-text-link)] hover:underline"
             onClick={selectAll}
             data-testid="select-all-btn"
           >
             {t('compare.selectAll', 'Select All')}
           </button>
           <button
-            className="text-[10px] text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline"
+            className="text-[10px] text-[var(--sf-text-link)] hover:underline"
             onClick={clearAll}
             data-testid="clear-all-btn"
           >
@@ -120,9 +120,7 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
                 data-testid={`cat-group-toggle-${group.label}`}
                 className={cn(
                   'text-[10px] font-semibold mb-1 cursor-pointer',
-                  allGroupSelected
-                    ? 'text-[var(--vscode-textLink-foreground,#3794ff)]'
-                    : 'text-[var(--vscode-descriptionForeground,#868686)]',
+                  allGroupSelected ? 'text-[var(--sf-text-link)]' : 'text-text-secondary',
                 )}
                 style={{ background: 'none', border: 'none', padding: 0 }}
               >
@@ -139,8 +137,8 @@ export const CategorySelector: React.FC<CategorySelectorProps> = ({
                       className={cn(
                         'px-2 py-1 text-[10px] rounded border transition-colors',
                         isSelected
-                          ? 'bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#ffffff)] border-[var(--vscode-button-background,#0e639c)]'
-                          : 'bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border-[var(--vscode-panel-border,#3c3c3c)] hover:border-[var(--vscode-focusBorder,#007fd4)]',
+                          ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] border-[var(--sf-button-bg)]'
+                          : 'bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border-[var(--sf-border)] hover:border-[var(--sf-accent)]',
                       )}
                       role="checkbox"
                       aria-checked={isSelected}

@@ -138,7 +138,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           >
             {conversations.length === 0 && (
               <p
-                className="text-xs text-[var(--vscode-descriptionForeground,#868686)] px-2 py-4 text-center"
+                className="text-xs text-text-secondary px-2 py-4 text-center"
                 data-testid="no-conversations"
               >
                 {t('ai.noConversations', 'No conversations yet')}
@@ -150,8 +150,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 tabIndex={0}
                 className={`flex items-center justify-between w-full px-2 py-1.5 text-xs rounded text-left transition-colors ${
                   conv.id === activeConversationId
-                    ? 'bg-[var(--vscode-list-activeSelectionBackground,#094771)] text-[var(--vscode-list-activeSelectionForeground,#fff)]'
-                    : 'text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]'
+                    ? 'bg-[var(--sf-bg-active)] text-[var(--sf-text-active)]'
+                    : 'text-text-primary hover:bg-[var(--sf-bg-hover)]'
                 }`}
                 onClick={() => onSelectConversation?.(conv.id)}
                 onKeyDown={(e) => {
@@ -210,7 +210,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                   >
                     {messages.length === 0 && (
                       <p
-                        className="text-sm text-[var(--vscode-descriptionForeground,#868686)] text-center py-8"
+                        className="text-sm text-text-secondary text-center py-8"
                         data-testid="no-messages"
                       >
                         {t('ai.noMessages', 'Send a message to start the conversation')}
@@ -225,8 +225,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                         <div
                           className={`max-w-[80%] px-3 py-2 rounded-lg text-sm whitespace-pre-wrap ${
                             msg.role === 'user'
-                              ? 'bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)]'
-                              : 'bg-[var(--vscode-editor-inactiveSelectionBackground,#3a3d41)] text-[var(--vscode-editor-foreground,#d4d4d4)]'
+                              ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
+                              : 'bg-[var(--sf-bg-inactive-selection)] text-text-primary'
                           }`}
                           data-testid={`message-bubble-${msg.role}`}
                         >
@@ -250,10 +250,10 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
               <div className="flex gap-[var(--sf-space-2)]" data-testid="chat-input-area">
                 <textarea
                   className="flex-1 px-3 py-2 text-sm rounded border resize-none
-                    bg-[var(--vscode-input-background,#3c3c3c)]
-                    text-[var(--vscode-input-foreground,#ccc)]
-                    border-[var(--vscode-input-border,#3c3c3c)]
-                    focus:border-[var(--vscode-focusBorder,#007fd4)] outline-none"
+                    bg-[var(--sf-bg-input)]
+                    text-[var(--sf-text-input)]
+                    border-[var(--sf-border-input)]
+                    focus:border-[var(--sf-accent)] outline-none"
                   rows={2}
                   placeholder={t(
                     'ai.placeholder',

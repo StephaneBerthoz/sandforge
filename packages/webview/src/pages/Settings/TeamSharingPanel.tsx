@@ -90,8 +90,8 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
     <div data-testid="team-sharing-panel" className="flex flex-col gap-3">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <Users className="w-5 h-5 text-[var(--vscode-editor-foreground,#d4d4d4)]" />
-        <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <Users className="w-5 h-5 text-text-primary" />
+        <h2 className="text-sm font-semibold text-text-primary">
           {t('team.title', 'Team Configuration Sharing')}
         </h2>
       </div>
@@ -101,17 +101,14 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
         <CardHeader title={t('team.share', 'Share Configuration')} />
         <CardBody>
           <div className="flex flex-col gap-2">
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+            <p className="text-xs text-text-secondary">
               {t('team.shareDescription', 'Select categories to share with your team.')}
             </p>
 
             {/* Category checkboxes */}
             <div className="flex flex-col gap-1" data-testid="share-categories">
               {categories.map((cat) => (
-                <label
-                  key={cat.id}
-                  className="flex items-center gap-2 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]"
-                >
+                <label key={cat.id} className="flex items-center gap-2 text-xs text-text-primary">
                   <input
                     type="checkbox"
                     checked={selectedCategories.includes(cat.id)}
@@ -126,7 +123,7 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
 
             {/* Author name */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+              <label className="text-xs text-text-secondary">
                 {t('team.authorName', 'Author (optional)')}
               </label>
               <input
@@ -135,7 +132,7 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
                 value={authorName}
                 onChange={(e) => setAuthorName(e.target.value)}
                 placeholder={t('team.authorPlaceholder', 'Your name')}
-                className="px-2 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border border-[var(--vscode-input-border,#3c3c3c)]"
+                className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
               />
             </div>
 
@@ -159,7 +156,7 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
                   readOnly
                   value={sharedBundle}
                   rows={4}
-                  className="px-2 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border border-[var(--vscode-input-border,#3c3c3c)] font-mono resize-none"
+                  className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] font-mono resize-none"
                 />
                 <Button
                   variant="secondary"
@@ -190,7 +187,7 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
         <CardHeader title={t('team.import', 'Import Configuration')} />
         <CardBody>
           <div className="flex flex-col gap-2">
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+            <p className="text-xs text-text-secondary">
               {t('team.importDescription', 'Paste a config bundle from a team member to import.')}
             </p>
 
@@ -200,12 +197,12 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
               onChange={(e) => setImportText(e.target.value)}
               placeholder={t('team.importPlaceholder', 'Paste config bundle here...')}
               rows={4}
-              className="px-2 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border border-[var(--vscode-input-border,#3c3c3c)] font-mono resize-none"
+              className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] font-mono resize-none"
             />
 
             {/* Merge strategy */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+              <label className="text-xs text-text-secondary">
                 {t('team.mergeStrategy', 'Merge Strategy')}
               </label>
               <Select
@@ -268,9 +265,7 @@ export const TeamSharingPanel: React.FC<TeamSharingPanelProps> = ({
                     data-testid={`conflict-${conflict.key}`}
                     className="p-2 rounded border border-amber-500/30 bg-amber-500/5 text-xs"
                   >
-                    <span className="font-mono text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {conflict.key}
-                    </span>
+                    <span className="font-mono text-text-primary">{conflict.key}</span>
                   </div>
                 ))}
               </div>

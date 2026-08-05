@@ -62,9 +62,7 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="step3-compliance">
-      <p className="text-sm text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('autopilot.step3.description')}
-      </p>
+      <p className="text-sm text-text-secondary">{t('autopilot.step3.description')}</p>
 
       <div className="flex flex-col gap-2" data-testid="framework-options">
         {FRAMEWORK_OPTIONS.map((option) => {
@@ -75,8 +73,8 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
               className={cn(
                 'flex items-start gap-3 p-3 rounded border-2 cursor-pointer transition-colors',
                 isSelected
-                  ? 'bg-[var(--vscode-list-activeSelectionBackground,#094771)] border-[var(--vscode-focusBorder,#007fd4)]'
-                  : 'bg-[var(--vscode-editor-background,#1e1e1e)] border-[var(--vscode-panel-border,#3c3c3c)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
+                  ? 'bg-[var(--sf-bg-active)] border-[var(--sf-accent)]'
+                  : 'bg-[var(--sf-bg-primary)] border-[var(--sf-border)] hover:bg-[var(--sf-bg-hover)]',
               )}
               data-testid={`framework-${option.value}`}
             >
@@ -86,26 +84,24 @@ export const Step3Compliance: React.FC<Step3ComplianceProps> = ({
                 value={option.value}
                 checked={isSelected}
                 onChange={() => onSelect(option.value)}
-                className="mt-1 accent-[var(--vscode-focusBorder,#007fd4)]"
+                className="mt-1 accent-[var(--sf-accent)]"
               />
               <div className="flex items-center gap-3 flex-1">
                 <span
                   className={cn(
                     'w-8 h-8 rounded flex items-center justify-center text-sm font-bold shrink-0',
                     isSelected
-                      ? 'bg-[var(--vscode-focusBorder,#007fd4)] text-white'
-                      : 'bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-descriptionForeground,#868686)]',
+                      ? 'bg-[var(--sf-accent)] text-white'
+                      : 'bg-[var(--sf-bg-input)] text-text-secondary',
                   )}
                 >
                   {option.icon}
                 </span>
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <span className="text-sm font-medium text-text-primary">
                     {t(option.labelKey)}
                   </span>
-                  <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                    {t(option.descriptionKey)}
-                  </span>
+                  <span className="text-xs text-text-secondary">{t(option.descriptionKey)}</span>
                 </div>
               </div>
             </label>

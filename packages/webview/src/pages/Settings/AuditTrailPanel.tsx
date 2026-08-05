@@ -132,8 +132,8 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <FileText className="w-5 h-5 text-[var(--vscode-editor-foreground,#d4d4d4)]" />
-          <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+          <FileText className="w-5 h-5 text-text-primary" />
+          <h2 className="text-sm font-semibold text-text-primary">
             {t('audit.title', 'Audit Trail')}
           </h2>
           {total !== undefined && (
@@ -220,17 +220,11 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
       <Card>
         <CardBody>
           {loading ? (
-            <p
-              className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
-              data-testid="audit-loading"
-            >
+            <p className="text-xs text-text-secondary" data-testid="audit-loading">
               {t('common.loading', 'Loading...')}
             </p>
           ) : filteredEntries.length === 0 ? (
-            <p
-              className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
-              data-testid="audit-empty"
-            >
+            <p className="text-xs text-text-secondary" data-testid="audit-empty">
               {t('audit.noEntries', 'No audit entries found.')}
             </p>
           ) : (
@@ -238,90 +232,76 @@ export const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
               {filteredEntries.map((entry) => (
                 <div key={entry.id} data-testid={`audit-entry-${entry.id}`}>
                   <div
-                    className="flex items-center gap-2 p-2 rounded border border-[var(--vscode-panel-border,#2b2b2b)] bg-[var(--vscode-editor-background,#1e1e1e)] cursor-pointer hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]"
+                    className="flex items-center gap-2 p-2 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)] cursor-pointer hover:bg-[var(--sf-bg-hover)]"
                     onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
                   >
                     {expandedId === entry.id ? (
-                      <ChevronDown className="w-3 h-3 text-[var(--vscode-descriptionForeground,#868686)]" />
+                      <ChevronDown className="w-3 h-3 text-text-secondary" />
                     ) : (
-                      <ChevronRight className="w-3 h-3 text-[var(--vscode-descriptionForeground,#868686)]" />
+                      <ChevronRight className="w-3 h-3 text-text-secondary" />
                     )}
                     <Badge variant={statusBadge(entry.status)}>{entry.status}</Badge>
-                    <span className="text-xs font-mono text-[var(--vscode-descriptionForeground,#868686)]">
+                    <span className="text-xs font-mono text-text-secondary">
                       {entry.operationType}
                     </span>
-                    <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] flex-1 truncate">
+                    <span className="text-xs text-text-primary flex-1 truncate">
                       {entry.description}
                     </span>
-                    <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] whitespace-nowrap">
+                    <span className="text-[10px] text-text-secondary whitespace-nowrap">
                       {formatDuration(entry.durationMs)}
                     </span>
-                    <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] whitespace-nowrap">
+                    <span className="text-[10px] text-text-secondary whitespace-nowrap">
                       {formatTimestamp(entry.timestamp)}
                     </span>
                   </div>
                   {/* Detail panel */}
                   {expandedId === entry.id && (
                     <div
-                      className="ml-6 p-2 border-l-2 border-[var(--vscode-panel-border,#2b2b2b)] mt-1"
+                      className="ml-6 p-2 border-l-2 border-[var(--sf-border)] mt-1"
                       data-testid={`audit-detail-${entry.id}`}
                     >
                       <div className="grid grid-cols-2 gap-1 text-xs">
-                        <span className="text-[var(--vscode-descriptionForeground,#868686)]">
+                        <span className="text-text-secondary">
                           {t('audit.operationType', 'Operation')}:
                         </span>
-                        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                          {entry.operationType}
-                        </span>
+                        <span className="text-text-primary">{entry.operationType}</span>
 
                         {entry.orgId && (
                           <>
-                            <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-                              {t('audit.org', 'Org')}:
-                            </span>
-                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                              {entry.orgId}
-                            </span>
+                            <span className="text-text-secondary">{t('audit.org', 'Org')}:</span>
+                            <span className="text-text-primary">{entry.orgId}</span>
                           </>
                         )}
 
                         {entry.user && (
                           <>
-                            <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-                              {t('audit.user', 'User')}:
-                            </span>
-                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                              {entry.user}
-                            </span>
+                            <span className="text-text-secondary">{t('audit.user', 'User')}:</span>
+                            <span className="text-text-primary">{entry.user}</span>
                           </>
                         )}
 
                         {entry.recordCount !== undefined && (
                           <>
-                            <span className="text-[var(--vscode-descriptionForeground,#868686)]">
+                            <span className="text-text-secondary">
                               {t('audit.records', 'Records')}:
                             </span>
-                            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                              {entry.recordCount}
-                            </span>
+                            <span className="text-text-primary">{entry.recordCount}</span>
                           </>
                         )}
 
-                        <span className="text-[var(--vscode-descriptionForeground,#868686)]">
+                        <span className="text-text-secondary">
                           {t('audit.duration', 'Duration')}:
                         </span>
-                        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                        <span className="text-text-primary">
                           {formatDuration(entry.durationMs)}
                         </span>
 
                         {entry.error && (
                           <>
-                            <span className="text-[var(--vscode-errorForeground,#f48771)]">
+                            <span className="text-[var(--sf-error)]">
                               {t('audit.error', 'Error')}:
                             </span>
-                            <span className="text-[var(--vscode-errorForeground,#f48771)]">
-                              {entry.error}
-                            </span>
+                            <span className="text-[var(--sf-error)]">{entry.error}</span>
                           </>
                         )}
                       </div>

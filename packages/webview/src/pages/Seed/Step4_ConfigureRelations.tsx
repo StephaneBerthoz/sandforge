@@ -68,9 +68,7 @@ export const Step4ConfigureRelations: React.FC<Step4ConfigureRelationsProps> = (
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-configure-relations">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('seed.configureRelationsDesc')}
-      </p>
+      <p className="text-xs text-text-secondary">{t('seed.configureRelationsDesc')}</p>
 
       {/* ERD Mini-Map */}
       {erdNodes.length > 0 && (
@@ -173,9 +171,7 @@ export const Step4ConfigureRelations: React.FC<Step4ConfigureRelationsProps> = (
 
       {/* Manual relation configuration */}
       {relations.length === 0 && erdNodes.length === 0 && (
-        <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4">
-          {t('seed.noDependencies')}
-        </p>
+        <p className="text-xs text-center text-text-secondary py-4">{t('seed.noDependencies')}</p>
       )}
 
       <div className="flex flex-col gap-2">
@@ -184,7 +180,7 @@ export const Step4ConfigureRelations: React.FC<Step4ConfigureRelationsProps> = (
             key={i}
             className={cn(
               'flex items-center gap-2 p-2 rounded text-xs',
-              'border border-[var(--vscode-panel-border,#3c3c3c)]',
+              'border border-[var(--sf-border)]',
             )}
             data-testid={`relation-${i}`}
           >
@@ -194,9 +190,9 @@ export const Step4ConfigureRelations: React.FC<Step4ConfigureRelationsProps> = (
               onChange={(e) => onChangeRelation(i, 'childObject', e.target.value)}
               placeholder={t('seed.selectField')}
             />
-            <span className="text-[var(--vscode-descriptionForeground,#868686)]">.</span>
+            <span className="text-text-secondary">.</span>
             <input
-              className="w-28 px-1.5 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#d4d4d4)] border border-[var(--vscode-input-border,#3c3c3c)]"
+              className="w-28 px-1.5 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
               value={rel.childField}
               onChange={(e) => onChangeRelation(i, 'childField', e.target.value)}
               placeholder="lookupField"
@@ -208,15 +204,15 @@ export const Step4ConfigureRelations: React.FC<Step4ConfigureRelationsProps> = (
               onChange={(e) => onChangeRelation(i, 'parentObject', e.target.value)}
               placeholder={t('seed.selectField')}
             />
-            <span className="text-[var(--vscode-descriptionForeground,#868686)]">.</span>
+            <span className="text-text-secondary">.</span>
             <input
-              className="w-28 px-1.5 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#d4d4d4)] border border-[var(--vscode-input-border,#3c3c3c)]"
+              className="w-28 px-1.5 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
               value={rel.parentField}
               onChange={(e) => onChangeRelation(i, 'parentField', e.target.value)}
               placeholder="Id"
             />
             <button
-              className="text-[var(--vscode-errorForeground,#f48771)] hover:opacity-70 px-1"
+              className="text-[var(--sf-error)] hover:opacity-70 px-1"
               onClick={() => onRemoveRelation(i)}
               data-testid={`remove-relation-${i}`}
             >
@@ -227,7 +223,7 @@ export const Step4ConfigureRelations: React.FC<Step4ConfigureRelationsProps> = (
       </div>
 
       <button
-        className="text-xs text-[var(--vscode-focusBorder,#007fd4)] hover:underline self-start"
+        className="text-xs text-[var(--sf-accent)] hover:underline self-start"
         onClick={onAddRelation}
         data-testid="add-relation-btn"
       >

@@ -73,10 +73,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <Card>
               <CardBody>
                 <div className="flex flex-col items-center">
-                  <span className="text-lg font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <span className="text-lg font-bold text-text-primary">
                     {summary.totalOperations}
                   </span>
-                  <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                  <span className="text-[10px] text-text-secondary">
                     {t('reports.totalOperations')}
                   </span>
                 </div>
@@ -88,7 +88,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                   <span className="text-lg font-bold text-[var(--sf-success)]">
                     {summary.successRate.toFixed(1)}%
                   </span>
-                  <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                  <span className="text-[10px] text-text-secondary">
                     {t('reports.successRate')}
                   </span>
                 </div>
@@ -97,10 +97,10 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <Card>
               <CardBody>
                 <div className="flex flex-col items-center">
-                  <span className="text-lg font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <span className="text-lg font-bold text-text-primary">
                     {(summary.avgDuration / 1000).toFixed(1)}s
                   </span>
-                  <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                  <span className="text-[10px] text-text-secondary">
                     {t('reports.avgDuration')}
                   </span>
                 </div>
@@ -112,9 +112,7 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                   <span className="text-lg font-bold text-[var(--sf-error)]">
                     {summary.errorRate.toFixed(1)}%
                   </span>
-                  <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-                    {t('reports.errorRate')}
-                  </span>
+                  <span className="text-[10px] text-text-secondary">{t('reports.errorRate')}</span>
                 </div>
               </CardBody>
             </Card>
@@ -129,19 +127,14 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               <div data-testid="ops-chart" style={{ width: '100%', height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={opsChartData}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="var(--vscode-panel-border, #3c3c3c)"
-                    />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
                     <XAxis
                       dataKey="time"
-                      tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }}
+                      tick={{ fontSize: 10, fill: 'var(--sf-text-secondary)' }}
                     />
-                    <YAxis
-                      tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }}
-                    />
+                    <YAxis tick={{ fontSize: 10, fill: 'var(--sf-text-secondary)' }} />
                     <Tooltip />
-                    <Bar dataKey="value" fill="var(--vscode-textLink-foreground, #3794ff)" />
+                    <Bar dataKey="value" fill="var(--sf-text-link)" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -157,17 +150,12 @@ export const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               <div data-testid="error-chart" style={{ width: '100%', height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={errorChartData}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="var(--vscode-panel-border, #3c3c3c)"
-                    />
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--sf-border)" />
                     <XAxis
                       dataKey="time"
-                      tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }}
+                      tick={{ fontSize: 10, fill: 'var(--sf-text-secondary)' }}
                     />
-                    <YAxis
-                      tick={{ fontSize: 10, fill: 'var(--vscode-descriptionForeground, #868686)' }}
-                    />
+                    <YAxis tick={{ fontSize: 10, fill: 'var(--sf-text-secondary)' }} />
                     <Tooltip />
                     <Line
                       type="monotone"

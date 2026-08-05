@@ -266,7 +266,7 @@ export const CommandPalette: React.FC = () => {
                 <Command.Input
                   value={search}
                   onValueChange={setSearch}
-                  className="flex-1 bg-transparent text-sm text-[var(--vscode-editor-foreground,#d4d4d4)] placeholder-[var(--vscode-descriptionForeground,#868686)] outline-none"
+                  className="flex-1 bg-transparent text-sm text-text-primary placeholder-[var(--sf-text-secondary)] outline-none"
                   placeholder={t('commandPalette.placeholder')}
                   data-testid="command-palette-input"
                 />
@@ -278,7 +278,7 @@ export const CommandPalette: React.FC = () => {
                 data-testid="command-palette-results"
               >
                 <Command.Empty
-                  className="px-4 py-6 text-center text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+                  className="px-4 py-6 text-center text-sm text-text-secondary"
                   data-testid="command-palette-no-results"
                 >
                   {t('commandPalette.noResults')}
@@ -288,7 +288,7 @@ export const CommandPalette: React.FC = () => {
                   <Command.Group
                     key={group}
                     heading={groupHeading(group)}
-                    className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--vscode-descriptionForeground,#868686)]"
+                    className="[&_[cmdk-group-heading]]:px-4 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-text-secondary"
                   >
                     {items.map((item) => (
                       <Command.Item
@@ -296,12 +296,12 @@ export const CommandPalette: React.FC = () => {
                         value={item.label}
                         keywords={item.keywords}
                         onSelect={() => handleSelect(item)}
-                        className="flex items-center gap-3 w-full px-4 py-2 text-sm cursor-pointer transition-colors text-[var(--vscode-editor-foreground,#d4d4d4)] data-[selected=true]:bg-[var(--vscode-list-activeSelectionBackground,#094771)] data-[selected=true]:text-[var(--vscode-list-activeSelectionForeground,#fff)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]"
+                        className="flex items-center gap-3 w-full px-4 py-2 text-sm cursor-pointer transition-colors text-text-primary data-[selected=true]:bg-[var(--sf-bg-active)] data-[selected=true]:text-[var(--sf-text-active)] hover:bg-[var(--sf-bg-hover)]"
                         data-testid={`command-palette-item-${item.id}`}
                       >
                         {item.icon && <Icon name={item.icon} />}
                         <span className="flex-1">{item.label}</span>
-                        <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                        <span className="text-xs text-text-secondary">
                           {groupHeading(item.group)}
                         </span>
                       </Command.Item>
@@ -317,11 +317,11 @@ export const CommandPalette: React.FC = () => {
                   data-testid="command-palette-recent"
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--vscode-descriptionForeground,#868686)]">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">
                       {t('commandPalette.recentSearches')}
                     </span>
                     <button
-                      className="text-[10px] text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline"
+                      className="text-[10px] text-[var(--sf-text-link)] hover:underline"
                       onClick={clearRecentSearches}
                       data-testid="clear-recent-btn"
                     >
@@ -332,7 +332,7 @@ export const CommandPalette: React.FC = () => {
                     {recentSearches.map((rs) => (
                       <button
                         key={rs}
-                        className="px-2 py-0.5 text-xs rounded bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#fff)] hover:opacity-80"
+                        className="px-2 py-0.5 text-xs rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)] hover:opacity-80"
                         onClick={() => setSearch(rs)}
                         data-testid="recent-search-item"
                       >
