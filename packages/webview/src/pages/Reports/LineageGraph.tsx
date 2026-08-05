@@ -17,7 +17,7 @@ export interface LineageGraphProps {
 const nodeTypeColors: Record<string, string> = {
   source: 'var(--sf-info, #3794ff)',
   transform: 'var(--sf-warning, #F59E0B)',
-  filter: 'var(--vscode-debugIcon-breakpointForeground, #A855F7)',
+  filter: 'var(--sf-breakpoint-icon)',
   destination: 'var(--sf-success, #10B981)',
 };
 
@@ -54,9 +54,9 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
         style: {
-          background: 'var(--vscode-editorWidget-background, #252526)',
-          color: 'var(--vscode-editor-foreground, #d4d4d4)',
-          border: `2px solid ${nodeTypeColors[node.type] ?? 'var(--vscode-panel-border, #3c3c3c)'}`,
+          background: 'var(--sf-bg-card)',
+          color: 'var(--sf-text-primary)',
+          border: `2px solid ${nodeTypeColors[node.type] ?? 'var(--sf-border)'}`,
           borderRadius: '6px',
           padding: '8px 12px',
           fontSize: '11px',
@@ -74,8 +74,8 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
         (edge.recordCount
           ? `${edge.recordCount} ${edge.recordCount === 1 ? 'record' : 'records'}`
           : undefined),
-      style: { stroke: 'var(--vscode-panel-border, #3c3c3c)' },
-      labelStyle: { fontSize: 9, fill: 'var(--vscode-descriptionForeground, #868686)' },
+      style: { stroke: 'var(--sf-border)' },
+      labelStyle: { fontSize: 9, fill: 'var(--sf-text-secondary)' },
     }));
 
     return { nodes: flowNodes, edges: flowEdges };
@@ -100,7 +100,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
               </div>
 
               {/* Stats */}
-              <div className="flex gap-3 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+              <div className="flex gap-3 text-[10px] text-[var(--sf-text-secondary)]">
                 <span>
                   {lineage.nodes.length} {t('reports.nodes').toLowerCase()}
                 </span>
@@ -124,7 +124,7 @@ export const LineageGraph: React.FC<LineageGraphProps> = ({ lineage, className }
                       nodes.length * 40,
                     ),
                   }}
-                  className={cn('border border-[var(--vscode-panel-border,#3c3c3c)] rounded')}
+                  className={cn('border border-[var(--sf-border)] rounded')}
                   data-testid="lineage-flow"
                 >
                   <ReactFlow

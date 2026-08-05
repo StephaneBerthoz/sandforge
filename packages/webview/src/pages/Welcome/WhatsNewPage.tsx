@@ -125,7 +125,7 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
     <div
       className="flex flex-col items-center justify-center min-h-full p-6"
       data-testid="whats-new-page"
-      style={{ background: 'var(--vscode-editor-background, #1e1e1e)' }}
+      style={{ background: 'var(--sf-bg-primary)' }}
     >
       <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--sf-accent, #E8A838)' }}>
         {t('onboarding.whatsNewTitle')}
@@ -141,16 +141,13 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
             className="flex items-start gap-3 p-3 rounded-lg"
             data-testid={`feature-${feature.titleKey}`}
             style={{
-              background: 'var(--vscode-editorWidget-background, #252526)',
-              border: '1px solid var(--vscode-panel-border, #3c3c3c)',
+              background: 'var(--sf-bg-card)',
+              border: '1px solid var(--sf-border)',
             }}
           >
             <span className="shrink-0 mt-0.5">{CATEGORY_ICONS[feature.category]}</span>
             <div className="flex-1">
-              <h3
-                className="text-sm font-semibold"
-                style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
-              >
+              <h3 className="text-sm font-semibold" style={{ color: 'var(--sf-text-primary)' }}>
                 {t(feature.titleKey)}
               </h3>
               <p className="text-xs mt-0.5" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
@@ -179,7 +176,7 @@ export const WhatsNewPage: React.FC<WhatsNewPageProps> = ({ version, onDismiss }
         <button
           className="text-xs underline bg-transparent border-none cursor-pointer"
           data-testid="changelog-link"
-          style={{ color: 'var(--vscode-textLink-foreground, #3794ff)' }}
+          style={{ color: 'var(--sf-text-link)' }}
           type="button"
         >
           {t('onboarding.viewChangelog')}

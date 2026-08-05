@@ -52,15 +52,15 @@ const RetryRow: React.FC<{
 
   return (
     <div
-      className="flex flex-col gap-2 p-3 rounded bg-[var(--vscode-input-background,#3c3c3c)]"
+      className="flex flex-col gap-2 p-3 rounded bg-[var(--sf-bg-input)]"
       data-testid="retry-row"
     >
       <div className="flex items-center gap-2">
         <StatusIcon status={status} />
-        <span className="text-sm font-medium text-[var(--vscode-editor-foreground)]">
+        <span className="text-sm font-medium text-[var(--sf-text-primary)]">
           {status.objectName}
         </span>
-        <span className="text-xs text-[var(--vscode-descriptionForeground)] ml-auto">
+        <span className="text-xs text-[var(--sf-text-secondary)] ml-auto">
           {t('retry.attemptOf', {
             current: status.attemptNumber,
             max: status.maxAttempts,
@@ -71,7 +71,7 @@ const RetryRow: React.FC<{
 
       {/* Error message - truncated, expandable */}
       <button
-        className="text-xs text-left text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-editor-foreground)] cursor-pointer bg-transparent border-none p-0"
+        className="text-xs text-left text-[var(--sf-text-secondary)] hover:text-[var(--sf-text-primary)] cursor-pointer bg-transparent border-none p-0"
         onClick={() => setExpanded(!expanded)}
         data-testid="error-toggle"
         aria-expanded={expanded}
@@ -83,7 +83,7 @@ const RetryRow: React.FC<{
 
       {expanded && (
         <div
-          className="text-xs p-2 rounded bg-[var(--vscode-editor-background,#1e1e1e)] text-[var(--vscode-descriptionForeground)] break-all"
+          className="text-xs p-2 rounded bg-[var(--sf-bg-primary)] text-[var(--sf-text-secondary)] break-all"
           data-testid="error-details"
         >
           <div className="font-medium mb-1">{t('retry.errorDetails', 'Error Details')}</div>
@@ -153,7 +153,7 @@ export const ErrorRecoveryPanel: React.FC<ErrorRecoveryPanelProps> = ({
 
   return (
     <div className={cn('flex flex-col gap-4 p-4', className)} data-testid="error-recovery-panel">
-      <h3 className="text-sm font-semibold text-[var(--vscode-editor-foreground)]">
+      <h3 className="text-sm font-semibold text-[var(--sf-text-primary)]">
         {t('retry.title', 'Error Recovery')}
       </h3>
 

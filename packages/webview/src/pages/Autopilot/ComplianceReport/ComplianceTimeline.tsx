@@ -44,7 +44,7 @@ export const ComplianceTimeline: React.FC = () => {
   if (entries.length === 0) {
     return (
       <div
-        className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+        className="flex items-center justify-center py-8 text-sm text-[var(--sf-text-secondary)]"
         data-testid="compliance-timeline-empty"
       >
         {t('common.noData')}
@@ -57,19 +57,17 @@ export const ComplianceTimeline: React.FC = () => {
       {entries.map((entry, idx) => (
         <div
           key={`${entry.objectName}-${idx}`}
-          className="flex items-start gap-3 px-3 py-2 rounded bg-[var(--vscode-editor-background,#1e1e1e)]"
+          className="flex items-start gap-3 px-3 py-2 rounded bg-[var(--sf-bg-primary)]"
         >
-          <div className="w-2 h-2 mt-1.5 rounded-full bg-[var(--vscode-progressBar-background,#0e70c0)] shrink-0" />
+          <div className="w-2 h-2 mt-1.5 rounded-full bg-[var(--sf-progress-bg)] shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+              <span className="text-xs font-medium text-[var(--sf-text-primary)]">
                 {entry.objectName}
               </span>
-              <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-                {entry.timestamp}
-              </span>
+              <span className="text-[10px] text-[var(--sf-text-secondary)]">{entry.timestamp}</span>
             </div>
-            <div className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+            <div className="text-[10px] text-[var(--sf-text-secondary)]">
               {entry.event} — {entry.fieldsAnonymized}{' '}
               {t('autopilot.control.piiFields').toLowerCase()}
             </div>

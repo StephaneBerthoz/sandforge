@@ -323,7 +323,7 @@ export const ComparePage: React.FC = () => {
             <span className="text-[var(--sf-warning)]">
               ~{result.summary.modified} {t('compare.modified')}
             </span>
-            <span className="text-[var(--vscode-descriptionForeground,#868686)]">
+            <span className="text-[var(--sf-text-secondary)]">
               ={result.summary.unchanged} {t('compare.unchanged')}
             </span>
           </div>
@@ -385,7 +385,7 @@ export const ComparePage: React.FC = () => {
 
       {/* No results state */}
       {!result && !isRunning && (
-        <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-8">
+        <p className="text-xs text-[var(--sf-text-secondary)] text-center py-8">
           {t('compare.noResults')}
         </p>
       )}

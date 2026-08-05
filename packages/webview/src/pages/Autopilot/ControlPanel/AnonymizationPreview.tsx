@@ -11,7 +11,7 @@ export const AnonymizationPreview: React.FC = () => {
   if (!selectedNode) {
     return (
       <div
-        className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+        className="flex items-center justify-center py-8 text-sm text-[var(--sf-text-secondary)]"
         data-testid="anonymization-preview-empty"
       >
         {t('autopilot.control.noNodeSelected')}
@@ -24,7 +24,7 @@ export const AnonymizationPreview: React.FC = () => {
   if (nodeRules.length === 0) {
     return (
       <div
-        className="flex items-center justify-center py-8 text-sm text-[var(--vscode-descriptionForeground,#868686)]"
+        className="flex items-center justify-center py-8 text-sm text-[var(--sf-text-secondary)]"
         data-testid="anonymization-preview-no-rules"
       >
         {t('autopilot.step3.none')}
@@ -36,7 +36,7 @@ export const AnonymizationPreview: React.FC = () => {
     <div className="flex flex-col gap-2" data-testid="anonymization-preview">
       <table className="w-full text-xs">
         <thead>
-          <tr className="text-left text-[var(--vscode-descriptionForeground,#868686)]">
+          <tr className="text-left text-[var(--sf-text-secondary)]">
             <th className="py-1 px-2 font-medium">{t('autopilot.report.field')}</th>
             <th className="py-1 px-2 font-medium">{t('autopilot.report.method')}</th>
             <th className="py-1 px-2 font-medium">{t('autopilot.report.category')}</th>
@@ -46,17 +46,11 @@ export const AnonymizationPreview: React.FC = () => {
           {nodeRules.map((rule) => (
             <tr
               key={`${rule.objectApiName}-${rule.fieldApiName}`}
-              className="border-t border-[var(--vscode-panel-border,#3c3c3c)]"
+              className="border-t border-[var(--sf-border)]"
             >
-              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {rule.fieldApiName}
-              </td>
-              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {rule.method}
-              </td>
-              <td className="py-1 px-2 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {rule.piiCategory}
-              </td>
+              <td className="py-1 px-2 text-[var(--sf-text-primary)]">{rule.fieldApiName}</td>
+              <td className="py-1 px-2 text-[var(--sf-text-primary)]">{rule.method}</td>
+              <td className="py-1 px-2 text-[var(--sf-text-primary)]">{rule.piiCategory}</td>
             </tr>
           ))}
         </tbody>

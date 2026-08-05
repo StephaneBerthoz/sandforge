@@ -100,9 +100,9 @@ export const HintBubble: React.FC<HintBubbleProps> = ({
       <div
         className="relative rounded-lg px-3 py-2 max-w-xs shadow-lg"
         style={{
-          background: 'var(--vscode-editorWidget-background, #252526)',
+          background: 'var(--sf-bg-card)',
           border: '1px solid var(--sf-accent, #E8A838)',
-          color: 'var(--vscode-editor-foreground, #d4d4d4)',
+          color: 'var(--sf-text-primary)',
           fontSize: 'var(--sf-font-size-sm, 12px)',
         }}
       >
@@ -120,7 +120,7 @@ export const HintBubble: React.FC<HintBubbleProps> = ({
             className="mb-2 rounded px-2 py-1"
             data-testid={`hint-examples-${hintId}`}
             style={{
-              background: 'var(--vscode-editor-background, #1e1e1e)',
+              background: 'var(--sf-bg-primary)',
               fontSize: '11px',
             }}
           >
@@ -144,7 +144,7 @@ export const HintBubble: React.FC<HintBubbleProps> = ({
             rel="noopener noreferrer"
             className="text-xs underline mb-2 block"
             data-testid={`hint-doc-link-${hintId}`}
-            style={{ color: 'var(--vscode-textLink-foreground, #3794ff)' }}
+            style={{ color: 'var(--sf-text-link)' }}
           >
             {t('help.viewDocs')}
           </a>

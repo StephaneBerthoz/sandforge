@@ -52,9 +52,7 @@ export const PanelRouter: React.FC<PanelRouterProps> = ({ moduleId }) => {
   if (!Component) {
     return (
       <div className="flex items-center justify-center h-full" data-testid="panel-unknown">
-        <p className="text-[var(--vscode-descriptionForeground,#868686)]">
-          Unknown module: {moduleId}
-        </p>
+        <p className="text-[var(--sf-text-secondary)]">Unknown module: {moduleId}</p>
       </div>
     );
   }

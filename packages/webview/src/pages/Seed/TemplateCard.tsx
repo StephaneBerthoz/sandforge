@@ -36,9 +36,7 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({ item, onUseThis }) =
       />
       <CardBody>
         <div className="flex flex-col gap-3">
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-            {displayDescription}
-          </p>
+          <p className="text-xs text-[var(--sf-text-secondary)]">{displayDescription}</p>
 
           <div className="flex gap-2">
             <Badge variant="default">

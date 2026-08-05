@@ -83,6 +83,8 @@
   --sf-warning: var(--vscode-editorWarning-foreground, #cca700);
   --sf-error: var(--vscode-errorForeground, #f48771);
   --sf-error-icon: var(--vscode-testing-iconFailed, #f48771);
+  --sf-warning-icon: var(--vscode-notificationsWarningIcon-foreground, #cca700);
+  --sf-breakpoint-icon: var(--vscode-debugIcon-breakpointForeground, #a855f7);
   --sf-info: var(--vscode-editorInfo-foreground, #3794ff);
   --sf-info-bg: var(--vscode-editorInfo-background, #063b49);
   --sf-info-border: var(--vscode-editorInfo-border, #007acc);

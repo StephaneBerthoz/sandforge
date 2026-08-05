@@ -73,7 +73,7 @@ export const RiskScoreCard: React.FC<RiskScoreCardProps> = ({ report, className 
                 cy={gaugeSize / 2}
                 r={radius}
                 fill="none"
-                stroke="var(--vscode-input-background, #3c3c3c)"
+                stroke="var(--sf-bg-input)"
                 strokeWidth={strokeWidth}
               />
               <circle

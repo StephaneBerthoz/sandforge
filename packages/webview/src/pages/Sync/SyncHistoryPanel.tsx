@@ -136,13 +136,13 @@ export const SyncHistoryPanel: React.FC = () => {
         <>
           {/* Header bar */}
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[var(--vscode-editor-foreground)]">
+            <h3 className="text-sm font-semibold text-[var(--sf-text-primary)]">
               {t('sync.history.title')}
             </h3>
             <div className="flex items-center gap-[var(--sf-space-2)]">
               <button
                 type="button"
-                className="text-xs px-2 py-1 rounded bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+                className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
                 onClick={() => exportHistory('csv')}
                 data-testid="export-csv-btn"
               >
@@ -150,7 +150,7 @@ export const SyncHistoryPanel: React.FC = () => {
               </button>
               <button
                 type="button"
-                className="text-xs px-2 py-1 rounded bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+                className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
                 onClick={() => exportHistory('json')}
                 data-testid="export-json-btn"
               >
@@ -158,7 +158,7 @@ export const SyncHistoryPanel: React.FC = () => {
               </button>
               <button
                 type="button"
-                className="text-xs px-2 py-1 rounded bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+                className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
                 onClick={() => fetchHistory()}
                 data-testid="refresh-btn"
               >

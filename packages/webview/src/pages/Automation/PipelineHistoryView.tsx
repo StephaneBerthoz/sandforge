@@ -48,7 +48,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
 
   return (
     <div className="flex flex-col gap-2" data-testid="pipeline-history">
-      <h3 className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
         {t('automation.history')}
       </h3>
       {entries.map((entry) => (
@@ -64,7 +64,7 @@ export const PipelineHistoryView: React.FC<PipelineHistoryViewProps> = ({
               }
             />
             <CardBody>
-              <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+              <div className="flex gap-4 text-xs text-[var(--sf-text-secondary)]">
                 <span>
                   {t('automation.triggeredBy')}: {t(`automation.triggerTypes.${entry.triggeredBy}`)}
                 </span>

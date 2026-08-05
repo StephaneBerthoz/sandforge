@@ -48,10 +48,10 @@ export const TemplateGallery: React.FC<TemplateGalleryProps> = ({ onSelectTempla
   return (
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="template-gallery">
       <div>
-        <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <h2 className="text-sm font-semibold text-[var(--sf-text-primary)]">
           {t('seed.gallery.title')}
         </h2>
-        <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">
+        <p className="text-xs text-[var(--sf-text-secondary)] mt-0.5">
           {t('seed.gallery.subtitle')}
         </p>
       </div>

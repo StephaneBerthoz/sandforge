@@ -134,7 +134,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
     <div
       className="flex flex-col items-center justify-center min-h-full p-6"
       data-testid="welcome-page"
-      style={{ background: 'var(--vscode-editor-background, #1e1e1e)' }}
+      style={{ background: 'var(--sf-bg-primary)' }}
     >
       {/* Animated Progress Bar */}
       <div
@@ -172,10 +172,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
         {step === 0 && (
           <div data-testid="welcome-step-bienvenue" className="text-center">
             <div className="text-6xl mb-4">{'\uD83D\uDD25'}</div>
-            <h2
-              className="text-xl font-semibold mb-2"
-              style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
-            >
+            <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-primary)' }}>
               {t('onboarding.bienvenueTitle')}
             </h2>
             <p className="mb-2" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
@@ -204,10 +201,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
               </p>
             </div>
             <div className="mb-4">
-              <p
-                className="text-sm font-medium mb-3"
-                style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
-              >
+              <p className="text-sm font-medium mb-3" style={{ color: 'var(--sf-text-primary)' }}>
                 {t('onboarding.chooseLanguage')}
               </p>
               <div className="flex gap-3 justify-center">
@@ -231,10 +225,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
         {step === 1 && (
           <div data-testid="welcome-step-1" className="text-center">
             <div className="text-5xl mb-4">{'\u26A1'}</div>
-            <h2
-              className="text-xl font-semibold mb-2"
-              style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
-            >
+            <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-primary)' }}>
               {t('onboarding.step1Title')}
             </h2>
             <p className="mb-6" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
@@ -259,7 +250,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
           <div data-testid="welcome-step-2">
             <h2
               className="text-xl font-semibold mb-2 text-center"
-              style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
+              style={{ color: 'var(--sf-text-primary)' }}
             >
               {t('onboarding.step2Title')}
             </h2>
@@ -276,7 +267,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
                     <div className="text-3xl">{path.icon}</div>
                     <h3
                       className="text-sm font-semibold"
-                      style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
+                      style={{ color: 'var(--sf-text-primary)' }}
                     >
                       {t(path.titleKey)}
                     </h3>
@@ -305,10 +296,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
         {step === 3 && (
           <div data-testid="welcome-step-3" className="text-center">
             <div className="text-5xl mb-4">{'\uD83E\uDD16'}</div>
-            <h2
-              className="text-xl font-semibold mb-2"
-              style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
-            >
+            <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--sf-text-primary)' }}>
               {t('onboarding.step3Title')}
             </h2>
             <p className="mb-6" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
@@ -333,10 +321,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
             <p className="mb-4" style={{ color: 'var(--sf-text-secondary, #868686)' }}>
               {t('onboarding.step4Desc')}
             </p>
-            <p
-              className="text-sm mb-6"
-              style={{ color: 'var(--vscode-editor-foreground, #d4d4d4)' }}
-            >
+            <p className="text-sm mb-6" style={{ color: 'var(--sf-text-primary)' }}>
               {orgType === 'production'
                 ? t('onboarding.suggestMonitor')
                 : t('onboarding.suggestSeedAndSync')}

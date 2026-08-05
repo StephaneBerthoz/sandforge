@@ -91,16 +91,16 @@ export const AuditTrailViewer: React.FC<AuditTrailViewerProps> = ({ entries, cla
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Badge variant={getActionVariant(entry.action)}>{entry.action}</Badge>
-                        <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                        <span className="text-xs text-[var(--sf-text-primary)]">
                           {entry.module}
                         </span>
                       </div>
-                      <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                      <span className="text-[10px] text-[var(--sf-text-secondary)]">
                         {entry.timestamp.slice(0, 19).replace('T', ' ')}
                       </span>
                     </div>
                     {Object.keys(entry.details).length > 0 && (
-                      <div className="mt-1 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                      <div className="mt-1 text-[10px] text-[var(--sf-text-secondary)]">
                         {Object.entries(entry.details).map(([k, v]) => (
                           <span key={k} className="mr-2">
                             {k}: {String(v)}
