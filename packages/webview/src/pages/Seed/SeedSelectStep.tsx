@@ -101,14 +101,12 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
             {/* Inline volume inputs for selected objects */}
             {selectedObjects.length > 0 && (
               <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-xs font-medium text-text-primary">
                   {t('seed.recordCount')}
                 </span>
                 {selectedObjects.map((obj) => (
                   <div key={obj} className="flex items-center gap-2 text-xs">
-                    <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {obj}
-                    </span>
+                    <span className="w-40 truncate text-text-primary">{obj}</span>
                     <Input
                       type="number"
                       min={1}
@@ -136,9 +134,7 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                   .filter((r: PIIObjectResult) => r.piiFields.length > 0)
                   .map((r: PIIObjectResult) => (
                     <div key={r.objectName} className="flex flex-col gap-1">
-                      <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                        {r.objectName}
-                      </span>
+                      <span className="text-xs font-medium text-text-primary">{r.objectName}</span>
                       <div className="flex flex-wrap gap-1">
                         {r.piiFields.map((f: PIIObjectResult['piiFields'][number]) => (
                           <Badge key={`${r.objectName}-${f.fieldName}`} variant="warning">
@@ -154,10 +150,10 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
 
             {/* NL2SOQL Helper */}
             <div
-              className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-[var(--vscode-input-border,#3c3c3c)] bg-[var(--vscode-editor-background)]"
+              className="flex flex-col gap-[var(--sf-space-2)] p-[var(--sf-space-3)] rounded border border-[var(--sf-border-input)] bg-[var(--sf-bg-primary)]"
               data-testid="nl2soql-helper"
             >
-              <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+              <span className="text-xs font-medium text-text-primary">
                 {t('seed.nl2soqlTitle')}
               </span>
               <div className="flex gap-[var(--sf-space-2)] items-end">
@@ -184,11 +180,11 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
               </div>
               {nl2soql.data?.soql && (
                 <div className="relative group" data-testid="nl2soql-result">
-                  <pre className="text-xs p-2.5 rounded bg-[var(--vscode-input-background,#3c3c3c)] font-mono text-[var(--vscode-editor-foreground,#d4d4d4)] overflow-x-auto whitespace-pre-wrap">
+                  <pre className="text-xs p-2.5 rounded bg-[var(--sf-bg-input)] font-mono text-text-primary overflow-x-auto whitespace-pre-wrap">
                     {nl2soql.data.soql}
                   </pre>
                   <button
-                    className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={() => navigator.clipboard.writeText(nl2soql.data?.soql ?? '')}
                     data-testid="nl2soql-copy"
                   >
@@ -197,14 +193,12 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
                 </div>
               )}
               {nl2soql.data?.explanation && (
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                  {nl2soql.data.explanation}
-                </span>
+                <span className="text-xs text-text-secondary">{nl2soql.data.explanation}</span>
               )}
               {(nl2soql.error ??
                 (nl2soql.data && !nl2soql.data.success ? nl2soql.data.error : null)) && (
                 <span
-                  className="text-xs text-[var(--vscode-errorForeground,#f48771)]"
+                  className="text-xs text-[var(--sf-error)]"
                   role="alert"
                   data-testid="nl2soql-error"
                 >

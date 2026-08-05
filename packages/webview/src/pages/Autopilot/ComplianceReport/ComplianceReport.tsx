@@ -60,11 +60,9 @@ export const ComplianceReport: React.FC = () => {
     <div className="flex flex-col gap-4 p-4" data-testid="compliance-report">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('autopilot.report.title')}
-        </h3>
+        <h3 className="text-base font-semibold text-text-primary">{t('autopilot.report.title')}</h3>
         <button
-          className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] transition-colors"
+          className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] transition-colors"
           onClick={handleExportJson}
           data-testid="compliance-export-json"
         >
@@ -74,51 +72,41 @@ export const ComplianceReport: React.FC = () => {
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="flex flex-col gap-0.5 p-3 rounded bg-[var(--vscode-editor-background,#1e1e1e)]">
-          <span className="text-[10px] uppercase tracking-wider text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="flex flex-col gap-0.5 p-3 rounded bg-[var(--sf-bg-primary)]">
+          <span className="text-[10px] uppercase tracking-wider text-text-secondary">
             {t('autopilot.report.framework')}
           </span>
-          <span
-            className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]"
-            data-testid="report-framework"
-          >
+          <span className="text-sm font-semibold text-text-primary" data-testid="report-framework">
             {frameworkLabel}
           </span>
         </div>
-        <div className="flex flex-col gap-0.5 p-3 rounded bg-[var(--vscode-editor-background,#1e1e1e)]">
-          <span className="text-[10px] uppercase tracking-wider text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="flex flex-col gap-0.5 p-3 rounded bg-[var(--sf-bg-primary)]">
+          <span className="text-[10px] uppercase tracking-wider text-text-secondary">
             {t('autopilot.report.status')}
           </span>
-          <span
-            className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]"
-            data-testid="report-status"
-          >
+          <span className="text-sm font-semibold text-text-primary" data-testid="report-status">
             {t(`autopilot.report.${overallStatus}`)}
           </span>
         </div>
-        <div className="flex flex-col gap-0.5 p-3 rounded bg-[var(--vscode-editor-background,#1e1e1e)]">
-          <span className="text-[10px] uppercase tracking-wider text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="flex flex-col gap-0.5 p-3 rounded bg-[var(--sf-bg-primary)]">
+          <span className="text-[10px] uppercase tracking-wider text-text-secondary">
             {t('autopilot.report.piiDetected')}
           </span>
-          <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {piiDetected}
-          </span>
+          <span className="text-sm font-semibold text-text-primary">{piiDetected}</span>
         </div>
-        <div className="flex flex-col gap-0.5 p-3 rounded bg-[var(--vscode-editor-background,#1e1e1e)]">
-          <span className="text-[10px] uppercase tracking-wider text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="flex flex-col gap-0.5 p-3 rounded bg-[var(--sf-bg-primary)]">
+          <span className="text-[10px] uppercase tracking-wider text-text-secondary">
             {t('autopilot.report.piiAnonymized')}
           </span>
-          <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {piiAnonymized}
-          </span>
+          <span className="text-sm font-semibold text-text-primary">{piiAnonymized}</span>
         </div>
       </div>
 
       {/* Rules table */}
-      <div className="rounded border border-[var(--vscode-panel-border,#3c3c3c)] overflow-hidden">
+      <div className="rounded border border-[var(--sf-border)] overflow-hidden">
         <table className="w-full text-xs" data-testid="compliance-rules-table">
           <thead>
-            <tr className="bg-[var(--vscode-editor-background,#1e1e1e)] text-left text-[var(--vscode-descriptionForeground,#868686)]">
+            <tr className="bg-[var(--sf-bg-primary)] text-left text-text-secondary">
               <th className="py-2 px-3 font-medium">{t('autopilot.report.object')}</th>
               <th className="py-2 px-3 font-medium">{t('autopilot.report.field')}</th>
               <th className="py-2 px-3 font-medium">{t('autopilot.report.category')}</th>
@@ -129,10 +117,7 @@ export const ComplianceReport: React.FC = () => {
           <tbody>
             {rules.length === 0 ? (
               <tr>
-                <td
-                  colSpan={5}
-                  className="py-4 text-center text-[var(--vscode-descriptionForeground,#868686)]"
-                >
+                <td colSpan={5} className="py-4 text-center text-text-secondary">
                   {t('common.noData')}
                 </td>
               </tr>
@@ -140,23 +125,13 @@ export const ComplianceReport: React.FC = () => {
               rules.map((rule) => (
                 <tr
                   key={`${rule.objectApiName}-${rule.fieldApiName}`}
-                  className="border-t border-[var(--vscode-panel-border,#3c3c3c)]"
+                  className="border-t border-[var(--sf-border)]"
                 >
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                    {rule.objectApiName}
-                  </td>
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                    {rule.fieldApiName}
-                  </td>
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                    {rule.piiCategory}
-                  </td>
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                    {rule.method}
-                  </td>
-                  <td className="py-1.5 px-3 text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                    {rule.method}
-                  </td>
+                  <td className="py-1.5 px-3 text-text-primary">{rule.objectApiName}</td>
+                  <td className="py-1.5 px-3 text-text-primary">{rule.fieldApiName}</td>
+                  <td className="py-1.5 px-3 text-text-primary">{rule.piiCategory}</td>
+                  <td className="py-1.5 px-3 text-text-primary">{rule.method}</td>
+                  <td className="py-1.5 px-3 text-text-primary">{rule.method}</td>
                 </tr>
               ))
             )}
@@ -166,7 +141,7 @@ export const ComplianceReport: React.FC = () => {
 
       {/* Timeline */}
       <div>
-        <h4 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)] mb-2">
+        <h4 className="text-sm font-semibold text-text-primary mb-2">
           {t('autopilot.report.title')} — Timeline
         </h4>
         <ComplianceTimeline />

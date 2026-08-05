@@ -143,7 +143,7 @@ const ConflictsTabContent: React.FC = () => {
           <ConflictResolutionPanel conflict={selectedConflict} />
         ) : (
           <div
-            className="flex items-center justify-center h-full text-xs text-[var(--vscode-descriptionForeground)]"
+            className="flex items-center justify-center h-full text-xs text-text-secondary"
             data-testid="conflict-placeholder"
           >
             {t('sync.conflictResolution.selectConflict')}
@@ -299,7 +299,7 @@ export const SyncPage: React.FC = () => {
 
       {/* Tab navigation */}
       <div
-        className="flex gap-0 border-b border-[var(--vscode-panel-border)]"
+        className="flex gap-0 border-b border-[var(--sf-border)]"
         role="tablist"
         data-testid="sync-tabs"
       >
@@ -311,8 +311,8 @@ export const SyncPage: React.FC = () => {
             aria-selected={activeTab === tab}
             className={`text-xs px-4 py-2 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === tab
-                ? 'border-[var(--vscode-focusBorder)] text-[var(--vscode-editor-foreground)] font-semibold'
-                : 'border-transparent text-[var(--vscode-descriptionForeground)] hover:text-[var(--vscode-editor-foreground)]'
+                ? 'border-[var(--sf-accent)] text-text-primary font-semibold'
+                : 'border-transparent text-text-secondary hover:text-text-primary'
             }`}
             onClick={() => setActiveTab(tab)}
             data-testid={`tab-${tab}`}
@@ -373,9 +373,7 @@ export const SyncPage: React.FC = () => {
           {/* Step 0: Select orgs + Configure objects (merged) */}
           {currentStep === 0 && (
             <div className="flex flex-col gap-4" data-testid="sync-step-orgs">
-              <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                {t('sync.selectOrgsDesc')}
-              </p>
+              <p className="text-xs text-text-secondary">{t('sync.selectOrgsDesc')}</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Select
                   label={t('sync.source')}
@@ -416,7 +414,7 @@ export const SyncPage: React.FC = () => {
               {/* Template picker — only show when both orgs are selected */}
               {sourceOrgId && targetOrgId && (
                 <details className="mt-2" data-testid="sync-template-section">
-                  <summary className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)] cursor-pointer">
+                  <summary className="text-xs font-semibold text-text-primary cursor-pointer">
                     {t('sync.templates.title')}
                   </summary>
                   <div className="mt-2">
@@ -516,9 +514,7 @@ export const SyncPage: React.FC = () => {
           {/* Step 3: Review */}
           {currentStep === 3 && (
             <div className="flex flex-col gap-3" data-testid="sync-step-review">
-              <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                {t('sync.reviewDesc')}
-              </p>
+              <p className="text-xs text-text-secondary">{t('sync.reviewDesc')}</p>
 
               {/* PII scan warnings */}
               {piiWarnings.length > 0 && (
@@ -539,13 +535,13 @@ export const SyncPage: React.FC = () => {
                 <Badge variant="default">{t(`sync.directions.${direction}`)}</Badge>
                 <Badge variant="default">{t(`sync.modes.${mode}`)}</Badge>
                 <Badge variant="default">{t(`sync.conflicts.${conflictStrategy}`)}</Badge>
-                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-text-primary">
                   {objectEntries.length} {t('sync.objectSet').toLowerCase()}
                 </span>
-                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-text-primary">
                   {mappings.length} {t('sync.fieldMapping').toLowerCase()}
                 </span>
-                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-text-primary">
                   {transforms.length} {t('sync.transforms').toLowerCase()}
                 </span>
               </div>
@@ -559,9 +555,7 @@ export const SyncPage: React.FC = () => {
           {/* Step 4: Execute */}
           {currentStep === 4 && (
             <div className="flex flex-col gap-3" data-testid="sync-step-execute">
-              <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                {t('sync.executeDesc')}
-              </p>
+              <p className="text-xs text-text-secondary">{t('sync.executeDesc')}</p>
               <ProgressBar
                 value={overallPercent}
                 max={100}
@@ -569,10 +563,7 @@ export const SyncPage: React.FC = () => {
                 showPercent
                 variant={overallPercent >= 100 ? 'success' : 'default'}
               />
-              <div
-                className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
-                data-testid="sync-elapsed"
-              >
+              <div className="text-[10px] text-text-secondary" data-testid="sync-elapsed">
                 {(elapsedMs / 1000).toFixed(1)}s
               </div>
               <SyncGrappePanel />
@@ -583,9 +574,7 @@ export const SyncPage: React.FC = () => {
           {currentStep === 5 && (
             <div className="flex flex-col gap-3" data-testid="sync-step-results">
               {!result ? (
-                <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4">
-                  {t('common.noData')}
-                </p>
+                <p className="text-xs text-center text-text-secondary py-4">{t('common.noData')}</p>
               ) : (
                 <>
                   <div
@@ -606,7 +595,7 @@ export const SyncPage: React.FC = () => {
                       {t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong>
                     </span>
                     {result.totalFailed > 0 && (
-                      <span className="text-[var(--vscode-errorForeground,#f48771)]">
+                      <span className="text-[var(--sf-error)]">
                         {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
                       </span>
                     )}
@@ -620,10 +609,7 @@ export const SyncPage: React.FC = () => {
                       {obj.errors.length > 0 && (
                         <CardBody>
                           {obj.errors.map((err, i) => (
-                            <p
-                              key={i}
-                              className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
-                            >
+                            <p key={i} className="text-[10px] text-[var(--sf-error)]">
                               {err}
                             </p>
                           ))}

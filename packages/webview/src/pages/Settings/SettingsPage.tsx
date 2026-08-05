@@ -91,9 +91,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   return (
     <div data-testid="settings-page" className="flex flex-col gap-3 p-4">
-      <h1 className="text-lg font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-        {t('settings.title')}
-      </h1>
+      <h1 className="text-lg font-bold text-text-primary">{t('settings.title')}</h1>
 
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -112,9 +110,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <div className="flex flex-col gap-3">
                   {/* Language */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {t('settings.language')}
-                    </label>
+                    <label className="text-xs text-text-primary">{t('settings.language')}</label>
                     <Select
                       data-testid="language-select"
                       aria-label={t('settings.language')}
@@ -129,9 +125,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
                   {/* Theme */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {t('settings.theme')}
-                    </label>
+                    <label className="text-xs text-text-primary">{t('settings.theme')}</label>
                     <Select
                       data-testid="theme-select"
                       aria-label={t('settings.theme')}
@@ -147,7 +141,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
                   {/* Default Batch Size */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <label className="text-xs text-text-primary">
                       {t('settings.defaultBatchSize')}
                     </label>
                     <input
@@ -156,13 +150,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       aria-label={t('settings.defaultBatchSize')}
                       value={settings.defaultBatchSize}
                       onChange={(e) => updateSetting('defaultBatchSize', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border border-[var(--vscode-input-border,#3c3c3c)]"
+                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
                     />
                   </div>
 
                   {/* Max Concurrent Ops */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <label className="text-xs text-text-primary">
                       {t('settings.maxConcurrentOps')}
                     </label>
                     <input
@@ -171,7 +165,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       aria-label={t('settings.maxConcurrentOps')}
                       value={settings.maxConcurrentOps}
                       onChange={(e) => updateSetting('maxConcurrentOps', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border border-[var(--vscode-input-border,#3c3c3c)]"
+                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
                     />
                   </div>
                 </div>
@@ -194,9 +188,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <div className="flex flex-col gap-3">
                   {/* Status */}
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {t('settings.aiStatus')}
-                    </span>
+                    <span className="text-xs text-text-primary">{t('settings.aiStatus')}</span>
                     <Badge variant={aiStatus?.enabled ? 'success' : 'default'}>
                       {aiStatus?.enabled ? t('settings.aiEnabled') : t('settings.aiDisabled')}
                     </Badge>
@@ -204,20 +196,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
                   {aiStatus?.enabled && (
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                        {t('settings.aiModel')}
-                      </span>
-                      <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] font-mono">
-                        {aiStatus!.model}
-                      </span>
+                      <span className="text-xs text-text-secondary">{t('settings.aiModel')}</span>
+                      <span className="text-xs text-text-primary font-mono">{aiStatus!.model}</span>
                     </div>
                   )}
 
                   {/* API Key */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {t('settings.aiApiKey')}
-                    </label>
+                    <label className="text-xs text-text-primary">{t('settings.aiApiKey')}</label>
                     <div className="flex gap-2">
                       <div className="flex-1">
                         <Input
@@ -245,23 +231,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       </Button>
                     </div>
                     {aiKeySaved && (
-                      <span
-                        className="text-xs text-[var(--vscode-testing-iconPassed,#73c991)]"
-                        data-testid="ai-key-saved"
-                      >
+                      <span className="text-xs text-[var(--sf-success)]" data-testid="ai-key-saved">
                         {t('settings.aiKeySaved')}
                       </span>
                     )}
                     {aiKeyError && (
-                      <span className="text-xs text-[var(--vscode-errorForeground,#f48771)]">
-                        {aiKeyError}
-                      </span>
+                      <span className="text-xs text-[var(--sf-error)]">{aiKeyError}</span>
                     )}
                   </div>
 
-                  <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                    {t('settings.aiHint')}
-                  </p>
+                  <p className="text-xs text-text-secondary">{t('settings.aiHint')}</p>
                 </div>
               </CardBody>
             </Card>
@@ -281,7 +260,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <CardBody>
                 <div className="flex flex-col gap-3">
                   {/* Enable Notifications */}
-                  <label className="flex items-center gap-2 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <label className="flex items-center gap-2 text-xs text-text-primary">
                     <input
                       data-testid="enable-notifications-checkbox"
                       type="checkbox"
@@ -292,7 +271,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   </label>
 
                   {/* Sound Alerts */}
-                  <label className="flex items-center gap-2 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <label className="flex items-center gap-2 text-xs text-text-primary">
                     <input
                       data-testid="sound-alerts-checkbox"
                       type="checkbox"
@@ -304,7 +283,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
                   {/* Auto-Refresh Interval */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <label className="text-xs text-text-primary">
                       {t('settings.autoRefreshInterval')}
                     </label>
                     <input
@@ -312,7 +291,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       type="number"
                       value={settings.autoRefreshInterval}
                       onChange={(e) => updateSetting('autoRefreshInterval', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border border-[var(--vscode-input-border,#3c3c3c)]"
+                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
                     />
                   </div>
                 </div>
@@ -335,7 +314,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <div className="flex flex-col gap-3">
                   {/* Enable Grappe */}
                   <div className="flex flex-col gap-0.5">
-                    <label className="flex items-center gap-2 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <label className="flex items-center gap-2 text-xs text-text-primary">
                       <input
                         data-testid="enable-grappe-checkbox"
                         type="checkbox"
@@ -344,14 +323,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       />
                       {t('settings.enableGrappe')}
                     </label>
-                    <p className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] ml-5">
+                    <p className="text-[10px] text-text-secondary ml-5">
                       {t('settings.enableGrappeDesc')}
                     </p>
                   </div>
 
                   {/* Grappe Threshold */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <label className="text-xs text-text-primary">
                       {t('settings.grappeThreshold')}
                     </label>
                     <input
@@ -359,29 +338,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       type="number"
                       value={settings.grappeThreshold}
                       onChange={(e) => updateSetting('grappeThreshold', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border border-[var(--vscode-input-border,#3c3c3c)]"
+                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
                     />
                   </div>
 
                   {/* API Timeout */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {t('settings.apiTimeout')}
-                    </label>
+                    <label className="text-xs text-text-primary">{t('settings.apiTimeout')}</label>
                     <input
                       data-testid="api-timeout-input"
                       type="number"
                       value={settings.apiTimeout}
                       onChange={(e) => updateSetting('apiTimeout', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#cccccc)] border border-[var(--vscode-input-border,#3c3c3c)]"
+                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
                     />
                   </div>
 
                   {/* Log Level */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                      {t('settings.logLevel')}
-                    </label>
+                    <label className="text-xs text-text-primary">{t('settings.logLevel')}</label>
                     <Select
                       data-testid="log-level-select"
                       options={[
@@ -438,22 +413,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     plugins.map((plugin) => (
                       <div
                         key={plugin.name}
-                        className="flex items-center justify-between p-2 rounded border border-[var(--vscode-panel-border,#2b2b2b)] bg-[var(--vscode-editor-background,#1e1e1e)]"
+                        className="flex items-center justify-between p-2 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]"
                         data-testid={`plugin-${plugin.name}`}
                       >
                         <div className="flex flex-col">
-                          <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                          <span className="text-xs font-medium text-text-primary">
                             {plugin.name}{' '}
-                            <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-                              v{plugin.version}
-                            </span>
+                            <span className="text-text-secondary">v{plugin.version}</span>
                           </span>
-                          <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                            {plugin.description}
-                          </span>
+                          <span className="text-xs text-text-secondary">{plugin.description}</span>
                         </div>
                         <span
-                          className={`text-xs px-2 py-0.5 rounded ${plugin.enabled ? 'text-[var(--vscode-testing-iconPassed,#73c991)] bg-[var(--vscode-testing-iconPassed,#73c991)]/10' : 'text-[var(--vscode-descriptionForeground,#868686)] bg-[var(--vscode-descriptionForeground,#868686)]/10'}`}
+                          className={`text-xs px-2 py-0.5 rounded ${plugin.enabled ? 'text-[var(--sf-success)] bg-[var(--sf-success)]/10' : 'text-text-secondary bg-[var(--sf-text-secondary)]/10'}`}
                         >
                           {plugin.enabled
                             ? t('settings.pluginEnabled')
@@ -462,9 +433,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                      {t('settings.noPlugins')}
-                    </p>
+                    <p className="text-xs text-text-secondary">{t('settings.noPlugins')}</p>
                   )}
                 </div>
               </CardBody>
@@ -485,11 +454,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <CardBody>
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <span className="text-xs text-text-primary">
                       {t('settings.telemetryStatus')}
                     </span>
                     <span
-                      className={`text-xs font-medium ${telemetryEnabled ? 'text-[var(--vscode-testing-iconPassed,#73c991)]' : 'text-[var(--vscode-descriptionForeground,#868686)]'}`}
+                      className={`text-xs font-medium ${telemetryEnabled ? 'text-[var(--sf-success)]' : 'text-text-secondary'}`}
                     >
                       {telemetryEnabled
                         ? t('settings.telemetryEnabled')
@@ -497,20 +466,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <span className="text-xs text-text-primary">
                       {t('settings.telemetryEventCount')}
                     </span>
-                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                      0
-                    </span>
+                    <span className="text-xs text-text-secondary">0</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <span className="text-xs text-text-primary">
                       {t('settings.telemetryBufferSize')}
                     </span>
-                    <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                      0
-                    </span>
+                    <span className="text-xs text-text-secondary">0</span>
                   </div>
                   <Button
                     data-testid="telemetry-toggle-btn"

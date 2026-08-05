@@ -225,16 +225,16 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
   );
 
   const inputClass =
-    'w-full px-2 py-1 text-xs rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] focus:outline-none focus:border-[var(--vscode-focusBorder)]';
-  const labelClass = 'text-[10px] font-semibold text-[var(--vscode-editor-foreground)] mb-1';
+    'w-full px-2 py-1 text-xs rounded border border-[var(--sf-border-input)] bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] focus:outline-none focus:border-[var(--sf-accent)]';
+  const labelClass = 'text-[10px] font-semibold text-text-primary mb-1';
 
   return (
     <form
-      className="flex flex-col gap-[var(--sf-space-3)] p-[var(--sf-space-3)] border border-[var(--vscode-panel-border)] rounded"
+      className="flex flex-col gap-[var(--sf-space-3)] p-[var(--sf-space-3)] border border-[var(--sf-border)] rounded"
       onSubmit={handleSubmit}
       data-testid="cron-schedule-builder"
     >
-      <h4 className="text-sm font-semibold text-[var(--vscode-editor-foreground)]">
+      <h4 className="text-sm font-semibold text-text-primary">
         {t('sync.schedules.builderTitle')}
       </h4>
 
@@ -273,7 +273,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       <div className="flex gap-[var(--sf-space-2)]">
         <button
           type="button"
-          className={`text-xs px-3 py-1 rounded ${mode === 'simple' ? 'bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)]' : 'bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)]'}`}
+          className={`text-xs px-3 py-1 rounded ${mode === 'simple' ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]' : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]'}`}
           onClick={() => setMode('simple')}
           data-testid="mode-simple-btn"
         >
@@ -281,7 +281,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         </button>
         <button
           type="button"
-          className={`text-xs px-3 py-1 rounded ${mode === 'advanced' ? 'bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)]' : 'bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)]'}`}
+          className={`text-xs px-3 py-1 rounded ${mode === 'advanced' ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]' : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]'}`}
           onClick={() => setMode('advanced')}
           data-testid="mode-advanced-btn"
         >
@@ -355,8 +355,8 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                     type="button"
                     className={`text-[10px] px-2 py-1 rounded ${
                       dayOfWeek.includes(day)
-                        ? 'bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)]'
-                        : 'bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)]'
+                        ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]'
+                        : 'bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)]'
                     }`}
                     onClick={() => {
                       setDayOfWeek((prev) =>
@@ -405,9 +405,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
             placeholder="* * * * *"
             data-testid="raw-cron-input"
           />
-          <p className="text-[10px] text-[var(--vscode-descriptionForeground)] mt-1">
-            {t('sync.schedules.cronHelp')}
-          </p>
+          <p className="text-[10px] text-text-secondary mt-1">{t('sync.schedules.cronHelp')}</p>
         </div>
       )}
 
@@ -440,12 +438,10 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       <div className="flex flex-col gap-[var(--sf-space-1)]">
         <label className={labelClass}>{t('sync.schedules.options')}</label>
         <div className="flex items-center gap-[var(--sf-space-2)]">
-          <label className="text-[10px] text-[var(--vscode-editor-foreground)]">
-            {t('sync.schedules.maxRetries')}
-          </label>
+          <label className="text-[10px] text-text-primary">{t('sync.schedules.maxRetries')}</label>
           <input
             type="number"
-            className="w-16 px-1 py-0.5 text-xs rounded border border-[var(--vscode-input-border)] bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)]"
+            className="w-16 px-1 py-0.5 text-xs rounded border border-[var(--sf-border-input)] bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]"
             value={maxRetries}
             onChange={(e) => setMaxRetries(Number(e.target.value))}
             min={0}
@@ -453,7 +449,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
             data-testid="max-retries-input"
           />
         </div>
-        <label className="flex items-center gap-1 text-[10px] text-[var(--vscode-editor-foreground)]">
+        <label className="flex items-center gap-1 text-[10px] text-text-primary">
           <input
             type="checkbox"
             checked={notifyOnComplete}
@@ -462,7 +458,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           />
           {t('sync.schedules.notifyOnComplete')}
         </label>
-        <label className="flex items-center gap-1 text-[10px] text-[var(--vscode-editor-foreground)]">
+        <label className="flex items-center gap-1 text-[10px] text-text-primary">
           <input
             type="checkbox"
             checked={notifyOnFailure}
@@ -475,7 +471,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
       {/* Preview */}
       <div
-        className="text-[10px] text-[var(--vscode-descriptionForeground)] bg-[var(--vscode-editor-background)] rounded p-2"
+        className="text-[10px] text-text-secondary bg-[var(--sf-bg-primary)] rounded p-2"
         data-testid="cron-preview"
       >
         <span className="font-semibold">{t('sync.schedules.preview')}:</span>{' '}
@@ -486,7 +482,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       <div className="flex justify-end gap-[var(--sf-space-2)]">
         <button
           type="button"
-          className="text-xs px-3 py-1.5 rounded bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]"
+          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
           onClick={onCancel}
           data-testid="cancel-btn"
         >
@@ -494,7 +490,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
         </button>
         <button
           type="submit"
-          className="text-xs px-3 py-1.5 rounded bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)]"
+          className="text-xs px-3 py-1.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)]"
           data-testid="submit-btn"
         >
           <Icon name="check" /> {t('common.save')}

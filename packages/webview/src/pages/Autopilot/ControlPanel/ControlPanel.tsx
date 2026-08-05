@@ -53,24 +53,19 @@ export const ControlPanel: React.FC = () => {
   return (
     <div className="flex flex-col h-full" data-testid="control-panel">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-[var(--vscode-panel-border,#3c3c3c)]">
-        <h3 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('autopilot.control.title')}
-        </h3>
+      <div className="px-4 py-3 border-b border-[var(--sf-border)]">
+        <h3 className="text-sm font-semibold text-text-primary">{t('autopilot.control.title')}</h3>
       </div>
 
       {/* Tabs */}
-      <div
-        className="flex border-b border-[var(--vscode-panel-border,#3c3c3c)]"
-        data-testid="control-tabs"
-      >
+      <div className="flex border-b border-[var(--sf-border)]" data-testid="control-tabs">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             className={`flex-1 px-2 py-1.5 text-[10px] font-medium transition-colors ${
               activeTab === tab.id
-                ? 'text-[var(--vscode-editor-foreground,#d4d4d4)] border-b-2 border-[var(--vscode-focusBorder,#007fd4)]'
-                : 'text-[var(--vscode-descriptionForeground,#868686)] hover:text-[var(--vscode-editor-foreground,#d4d4d4)]'
+                ? 'text-text-primary border-b-2 border-[var(--sf-accent)]'
+                : 'text-text-secondary hover:text-text-primary'
             }`}
             onClick={() => setActiveTab(tab.id)}
             data-testid={`control-tab-${tab.id}`}
@@ -91,18 +86,18 @@ export const ControlPanel: React.FC = () => {
       {/* Action Buttons */}
       {isExecuting && (
         <div
-          className="flex gap-2 px-4 py-3 border-t border-[var(--vscode-panel-border,#3c3c3c)]"
+          className="flex gap-2 px-4 py-3 border-t border-[var(--sf-border)]"
           data-testid="control-actions"
         >
           <button
-            className="flex-1 px-3 py-1.5 text-xs font-medium rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] transition-colors"
+            className="flex-1 px-3 py-1.5 text-xs font-medium rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] transition-colors"
             onClick={handlePauseResume}
             data-testid="control-pause-resume"
           >
             {isPaused ? t('autopilot.control.resume') : t('autopilot.control.pause')}
           </button>
           <button
-            className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--sf-bg-input)] text-text-primary hover:bg-[var(--sf-bg-hover)] transition-colors disabled:opacity-50"
             onClick={handleSkipNode}
             disabled={!selectedNodeName}
             data-testid="control-skip"
@@ -110,7 +105,7 @@ export const ControlPanel: React.FC = () => {
             {t('autopilot.control.skip')}
           </button>
           <button
-            className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--sf-bg-input)] text-text-primary hover:bg-[var(--sf-bg-hover)] transition-colors disabled:opacity-50"
             onClick={handleRetryFailed}
             disabled={failedCount === 0}
             data-testid="control-retry"

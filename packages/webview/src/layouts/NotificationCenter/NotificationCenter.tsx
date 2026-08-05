@@ -89,7 +89,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
       className={cn(
         'absolute top-0 right-0 h-full w-80 z-40',
         'glass-overlay',
-        'border-l border-[var(--vscode-panel-border,#3c3c3c)]',
+        'border-l border-[var(--sf-border)]',
         'shadow-xl flex flex-col',
       )}
       role="region"
@@ -97,15 +97,15 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
       data-testid="notification-center"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--vscode-panel-border,#3c3c3c)]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--sf-border)]">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+          <span className="text-sm font-semibold text-text-primary">
             {t('notifications.title')}
           </span>
           {unreadCount > 0 && <Badge variant="info">{unreadCount}</Badge>}
         </div>
         <button
-          className="text-xs text-[var(--vscode-descriptionForeground,#868686)] hover:text-[var(--vscode-editor-foreground,#d4d4d4)]"
+          className="text-xs text-text-secondary hover:text-text-primary"
           onClick={onClose}
           aria-label={t('common.close', 'Close')}
         >
@@ -115,7 +115,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
 
       {/* Mark all / Clear all */}
       {notifications.length > 0 && (
-        <div className="flex gap-2 px-3 py-1.5 border-b border-[var(--vscode-panel-border,#3c3c3c)]">
+        <div className="flex gap-2 px-3 py-1.5 border-b border-[var(--sf-border)]">
           <Button variant="ghost" size="sm" onClick={markAllRead}>
             {t('notifications.markAllRead')}
           </Button>
@@ -127,7 +127,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
 
       {/* Level filter tabs */}
       <div
-        className="flex gap-1 px-3 py-1.5 border-b border-[var(--vscode-panel-border,#3c3c3c)]"
+        className="flex gap-1 px-3 py-1.5 border-b border-[var(--sf-border)]"
         data-testid="notification-level-filters"
         role="tablist"
         aria-label={t('common.filter', 'Filter')}
@@ -141,7 +141,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
               'text-[10px] px-2 py-0.5 rounded-full transition-colors',
               filterLevel === tab.value
                 ? 'bg-[var(--sf-accent,#E8A838)] text-[var(--sf-bg-card,#12121A)] font-semibold'
-                : 'text-[var(--vscode-descriptionForeground,#868686)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
+                : 'text-text-secondary hover:bg-[var(--sf-bg-hover)]',
             )}
             onClick={() => setFilterLevel(tab.value)}
             data-testid={`filter-level-${tab.value}`}
@@ -153,7 +153,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
 
       {/* Category filter */}
       <div
-        className="flex gap-1 px-3 py-1.5 border-b border-[var(--vscode-panel-border,#3c3c3c)] flex-wrap"
+        className="flex gap-1 px-3 py-1.5 border-b border-[var(--sf-border)] flex-wrap"
         data-testid="notification-category-filters"
       >
         {CATEGORY_OPTIONS.map((opt) => (
@@ -163,7 +163,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
               'text-[10px] px-2 py-0.5 rounded-full transition-colors',
               filterCategory === opt.value
                 ? 'bg-[var(--sf-accent,#E8A838)] text-[var(--sf-bg-card,#12121A)] font-semibold'
-                : 'text-[var(--vscode-descriptionForeground,#868686)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
+                : 'text-text-secondary hover:bg-[var(--sf-bg-hover)]',
             )}
             onClick={() => setFilterCategory(opt.value)}
             data-testid={`filter-category-${opt.value}`}
@@ -174,12 +174,12 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
       </div>
 
       {/* Search */}
-      <div className="px-3 py-1.5 border-b border-[var(--vscode-panel-border,#3c3c3c)]">
+      <div className="px-3 py-1.5 border-b border-[var(--sf-border)]">
         <div className="flex items-center gap-1.5 rounded bg-[var(--sf-bg-input,#262635)] px-2 py-1">
-          <Search className="w-3 h-3 text-[var(--vscode-descriptionForeground,#868686)] shrink-0" />
+          <Search className="w-3 h-3 text-text-secondary shrink-0" />
           <input
             type="text"
-            className="flex-1 bg-transparent text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] outline-none placeholder:text-[var(--vscode-descriptionForeground,#868686)]"
+            className="flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-secondary"
             placeholder={t('notifications.searchPlaceholder', 'Search notifications...')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -192,7 +192,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
       <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
         {filteredNotifications.length === 0 ? (
           <p
-            className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-8"
+            className="text-xs text-center text-text-secondary py-8"
             data-testid="notification-empty-state"
           >
             {notifications.length === 0
@@ -205,7 +205,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
             {todayNotifications.length > 0 && (
               <>
                 <div
-                  className="text-[10px] font-semibold text-[var(--vscode-descriptionForeground,#868686)] px-1 py-1 uppercase tracking-wider"
+                  className="text-[10px] font-semibold text-text-secondary px-1 py-1 uppercase tracking-wider"
                   data-testid="date-group-today"
                 >
                   {t('notifications.today', 'Today')}
@@ -227,7 +227,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ open, on
             {earlierNotifications.length > 0 && (
               <>
                 <div
-                  className="text-[10px] font-semibold text-[var(--vscode-descriptionForeground,#868686)] px-1 py-1 uppercase tracking-wider"
+                  className="text-[10px] font-semibold text-text-secondary px-1 py-1 uppercase tracking-wider"
                   data-testid="date-group-earlier"
                 >
                   {t('notifications.earlier', 'Earlier')}

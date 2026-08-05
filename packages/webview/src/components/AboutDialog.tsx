@@ -86,9 +86,9 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => 
         data-testid="about-dialog"
         className={cn(
           'rounded-lg p-0 backdrop:bg-black/50',
-          'bg-[var(--vscode-editor-background,#1e1e1e)]',
-          'text-[var(--vscode-editor-foreground,#d4d4d4)]',
-          'border border-[var(--vscode-panel-border,#3c3c3c)]',
+          'bg-[var(--sf-bg-primary)]',
+          'text-text-primary',
+          'border border-[var(--sf-border)]',
           'shadow-xl max-w-sm w-full',
         )}
         aria-labelledby="about-dialog-title"
@@ -103,7 +103,7 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => 
             <h2 id="about-dialog-title" className="text-lg font-bold">
               SandForge v1.0.0
             </h2>
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-1">
+            <p className="text-xs text-text-secondary mt-1">
               {t('onboarding.bienvenueDesc', 'Forge your Salesforce sandboxes with confidence.')}
             </p>
           </div>
@@ -114,15 +114,15 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => 
               href="https://sandforge.dev/docs"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline"
+              className="text-[var(--sf-text-link)] hover:underline"
             >
               {t('help.documentation', 'Documentation')}
             </a>
           </div>
 
           {/* Credits */}
-          <div className="border-t border-[var(--vscode-panel-border,#3c3c3c)] pt-3 w-full">
-            <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+          <div className="border-t border-[var(--sf-border)] pt-3 w-full">
+            <p className="text-xs text-text-secondary">
               {t('about.credits', 'Crafted with passion by the SandForge team')}
             </p>
           </div>
@@ -130,7 +130,7 @@ export const AboutDialog: React.FC<AboutDialogProps> = ({ isOpen, onClose }) => 
           <button
             type="button"
             onClick={onClose}
-            className="mt-2 px-4 py-1.5 text-sm rounded font-medium bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--vscode-focusBorder,#007fd4)]"
+            className="mt-2 px-4 py-1.5 text-sm rounded font-medium bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
           >
             {t('common.close')}
           </button>

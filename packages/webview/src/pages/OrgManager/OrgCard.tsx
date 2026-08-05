@@ -47,10 +47,10 @@ export const OrgCard: React.FC<OrgCardProps> = ({
     <div
       className={cn(
         'rounded-lg border p-3 cursor-pointer transition-all',
-        'bg-[var(--vscode-editor-background,#1e1e1e)]',
+        'bg-[var(--sf-bg-primary)]',
         selected
-          ? 'border-[var(--vscode-focusBorder,#007fd4)] ring-1 ring-[var(--vscode-focusBorder,#007fd4)]'
-          : 'border-[var(--vscode-panel-border,#3c3c3c)] hover:border-[var(--vscode-focusBorder,#007fd4)]',
+          ? 'border-[var(--sf-accent)] ring-1 ring-[var(--sf-accent)]'
+          : 'border-[var(--sf-border)] hover:border-[var(--sf-accent)]',
       )}
       onClick={() => onSelect(org.id)}
       role="button"
@@ -68,9 +68,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
         >
           {envLabel}
         </span>
-        <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)] truncate flex-1">
-          {org.alias}
-        </span>
+        <span className="text-sm font-semibold text-text-primary truncate flex-1">{org.alias}</span>
         <div className="flex items-center gap-1.5 shrink-0">
           <span
             className={cn('w-2 h-2 rounded-full', statusDotColor[org.status] ?? 'bg-gray-400')}
@@ -82,7 +80,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       </div>
 
       {/* Row 2: Username + instance */}
-      <div className="mt-1.5 flex items-center gap-3 text-[11px] text-[var(--vscode-descriptionForeground,#868686)]">
+      <div className="mt-1.5 flex items-center gap-3 text-[11px] text-text-secondary">
         <span className="truncate">{org.username}</span>
         <span className="opacity-40">|</span>
         <span className="truncate">{org.instanceUrl}</span>
@@ -94,7 +92,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
           {org.tags.map((tag) => (
             <span
               key={tag}
-              className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#fff)]"
+              className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]"
             >
               {tag}
             </span>
@@ -105,7 +103,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
       {/* Row 4: Actions */}
       <div className="mt-2 flex gap-2 justify-end">
         <button
-          className="text-xs text-[var(--vscode-textLink-foreground,#3794ff)] hover:underline"
+          className="text-xs text-[var(--sf-text-link)] hover:underline"
           onClick={(e) => {
             e.stopPropagation();
             onEdit(org);
@@ -114,7 +112,7 @@ export const OrgCard: React.FC<OrgCardProps> = ({
           {t('common.edit')}
         </button>
         <button
-          className="text-xs text-[var(--vscode-errorForeground,#f48771)] hover:underline"
+          className="text-xs text-[var(--sf-error)] hover:underline"
           onClick={(e) => {
             e.stopPropagation();
             onDisconnect(org.id);

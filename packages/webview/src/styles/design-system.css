@@ -42,36 +42,46 @@
   --sf-radius-lg: 8px;
   --sf-radius-xl: 12px;
 
-  /* Colours — 100% VSCode tokens */
-  --sf-bg-primary: var(--vscode-editor-background);
-  --sf-bg-secondary: var(--vscode-sideBar-background);
-  --sf-bg-card: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-  --sf-bg-hover: var(--vscode-list-hoverBackground);
-  --sf-bg-active: var(--vscode-list-activeSelectionBackground);
-  --sf-bg-input: var(--vscode-input-background);
+  /* Colours — 100% VSCode tokens (hex fallbacks centralised here, never in components) */
+  --sf-bg-primary: var(--vscode-editor-background, #1e1e1e);
+  --sf-bg-secondary: var(--vscode-sideBar-background, #252526);
+  --sf-bg-card: var(--vscode-editorWidget-background, var(--vscode-editor-background, #1e1e1e));
+  --sf-bg-hover: var(--vscode-list-hoverBackground, #2a2d2e);
+  --sf-bg-active: var(--vscode-list-activeSelectionBackground, #094771);
+  --sf-bg-inactive-selection: var(--vscode-editor-inactiveSelectionBackground, #3a3d41);
+  --sf-bg-input: var(--vscode-input-background, #3c3c3c);
+  --sf-bg-dropdown: var(--vscode-dropdown-background, #3c3c3c);
 
-  --sf-text-primary: var(--vscode-editor-foreground);
-  --sf-text-secondary: var(--vscode-descriptionForeground);
-  --sf-text-muted: var(--vscode-disabledForeground);
-  --sf-text-link: var(--vscode-textLink-foreground);
+  --sf-text-primary: var(--vscode-editor-foreground, #d4d4d4);
+  --sf-text-secondary: var(--vscode-descriptionForeground, #868686);
+  --sf-text-muted: var(--vscode-disabledForeground, #6b6b6b);
+  --sf-text-link: var(--vscode-textLink-foreground, #3794ff);
   --sf-text-input: var(--vscode-input-foreground, var(--sf-text-primary));
+  --sf-text-active: var(--vscode-list-activeSelectionForeground, #fff);
 
-  --sf-border: var(--vscode-widget-border, var(--vscode-panel-border));
+  --sf-border: var(--vscode-widget-border, var(--vscode-panel-border, #3c3c3c));
   --sf-border-subtle: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.2));
   --sf-border-input: var(--vscode-input-border, var(--sf-border));
 
-  --sf-accent: var(--vscode-focusBorder);
-  --sf-button-bg: var(--vscode-button-background);
-  --sf-button-fg: var(--vscode-button-foreground);
-  --sf-button-hover: var(--vscode-button-hoverBackground);
-  --sf-button-secondary-bg: var(--vscode-button-secondaryBackground);
-  --sf-button-secondary-fg: var(--vscode-button-secondaryForeground);
+  --sf-accent: var(--vscode-focusBorder, #007fd4);
+  --sf-button-bg: var(--vscode-button-background, #0e639c);
+  --sf-button-fg: var(--vscode-button-foreground, #fff);
+  --sf-button-hover: var(--vscode-button-hoverBackground, #1177bb);
+  --sf-button-secondary-bg: var(--vscode-button-secondaryBackground, #3a3d41);
+  --sf-button-secondary-fg: var(--vscode-button-secondaryForeground, #fff);
+  --sf-button-secondary-hover: var(--vscode-button-secondaryHoverBackground, #45494e);
+
+  --sf-badge-bg: var(--vscode-badge-background, #4d4d4d);
+  --sf-badge-fg: var(--vscode-badge-foreground, #fff);
+  --sf-progress-bg: var(--vscode-progressBar-background, #0e70c0);
 
   --sf-success: var(--vscode-testing-iconPassed, #4ec9b0);
   --sf-warning: var(--vscode-editorWarning-foreground, #cca700);
   --sf-error: var(--vscode-errorForeground, #f48771);
   --sf-error-icon: var(--vscode-testing-iconFailed, #f48771);
   --sf-info: var(--vscode-editorInfo-foreground, #3794ff);
+  --sf-info-bg: var(--vscode-editorInfo-background, #063b49);
+  --sf-info-border: var(--vscode-editorInfo-border, #007acc);
   --sf-error-bg: var(--vscode-inputValidation-errorBackground, #5a1d1d);
 
   /* Shadows */

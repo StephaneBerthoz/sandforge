@@ -21,11 +21,9 @@ export const ComplianceStatus: React.FC = () => {
     <div className="flex flex-col gap-3" data-testid="compliance-status">
       {/* Framework badge */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-          {t('autopilot.report.framework')}:
-        </span>
+        <span className="text-xs text-text-secondary">{t('autopilot.report.framework')}:</span>
         <span
-          className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded-full bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#d4d4d4)]"
+          className="px-2 py-0.5 text-[10px] font-semibold uppercase rounded-full bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]"
           data-testid="framework-badge"
         >
           {frameworkLabel}
@@ -34,29 +32,21 @@ export const ComplianceStatus: React.FC = () => {
 
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="flex flex-col gap-0.5 p-2 rounded bg-[var(--vscode-editor-background,#1e1e1e)]">
-          <span className="text-lg font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {rules.length}
-          </span>
-          <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-            {t('autopilot.report.rule')}
-          </span>
+        <div className="flex flex-col gap-0.5 p-2 rounded bg-[var(--sf-bg-primary)]">
+          <span className="text-lg font-bold text-text-primary">{rules.length}</span>
+          <span className="text-[10px] text-text-secondary">{t('autopilot.report.rule')}</span>
         </div>
-        <div className="flex flex-col gap-0.5 p-2 rounded bg-[var(--vscode-editor-background,#1e1e1e)]">
-          <span className="text-lg font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {piiFieldCount}
-          </span>
-          <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="flex flex-col gap-0.5 p-2 rounded bg-[var(--sf-bg-primary)]">
+          <span className="text-lg font-bold text-text-primary">{piiFieldCount}</span>
+          <span className="text-[10px] text-text-secondary">
             {t('autopilot.control.piiFields')}
           </span>
         </div>
-        <div className="flex flex-col gap-0.5 p-2 rounded bg-[var(--vscode-editor-background,#1e1e1e)]">
-          <span className="text-lg font-bold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <div className="flex flex-col gap-0.5 p-2 rounded bg-[var(--sf-bg-primary)]">
+          <span className="text-lg font-bold text-text-primary">
             {objectsWithPii} / {totalNodes}
           </span>
-          <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
-            {t('common.object')}
-          </span>
+          <span className="text-[10px] text-text-secondary">{t('common.object')}</span>
         </div>
       </div>
     </div>

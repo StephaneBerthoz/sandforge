@@ -44,16 +44,14 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
     testIdPrefix: string,
   ): React.ReactNode => (
     <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid={`${testIdPrefix}-selector`}>
-      <span className="text-sm font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-        {label}
-      </span>
+      <span className="text-sm font-medium text-text-primary">{label}</span>
       <div className="grid grid-cols-1 gap-2 max-h-48 overflow-y-auto">
         {orgs.map((org) => {
           const isSelected = org.id === selectedId;
           const isDisabled = org.id === disabledId;
           const tierClass = org.safetyTier
             ? tierColors[org.safetyTier]
-            : 'border-[var(--vscode-panel-border,#3c3c3c)]';
+            : 'border-[var(--sf-border)]';
 
           return (
             <button
@@ -61,8 +59,8 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
               className={cn(
                 'flex items-center gap-3 p-3 rounded border-2 text-left transition-colors',
                 isSelected
-                  ? 'bg-[var(--vscode-list-activeSelectionBackground,#094771)] border-[var(--vscode-focusBorder,#007fd4)]'
-                  : `bg-[var(--vscode-editor-background,#1e1e1e)] ${tierClass} hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]`,
+                  ? 'bg-[var(--sf-bg-active)] border-[var(--sf-accent)]'
+                  : `bg-[var(--sf-bg-primary)] ${tierClass} hover:bg-[var(--sf-bg-hover)]`,
                 isDisabled && 'opacity-40 cursor-not-allowed',
               )}
               onClick={() => !isDisabled && onSelect(org.id)}
@@ -76,23 +74,19 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
                 )}
               />
               <div className="flex flex-col min-w-0">
-                <span className="text-sm font-medium text-[var(--vscode-editor-foreground,#d4d4d4)] truncate">
+                <span className="text-sm font-medium text-text-primary truncate">
                   {org.alias || org.username}
                 </span>
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] truncate">
-                  {org.instanceUrl}
-                </span>
+                <span className="text-xs text-text-secondary truncate">{org.instanceUrl}</span>
               </div>
               {org.safetyTier && (
-                <span className="ml-auto text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-                  {org.safetyTier}
-                </span>
+                <span className="ml-auto text-xs text-text-secondary">{org.safetyTier}</span>
               )}
             </button>
           );
         })}
         {orgs.length === 0 && (
-          <p className="text-sm text-[var(--vscode-descriptionForeground,#868686)] py-4 text-center">
+          <p className="text-sm text-text-secondary py-4 text-center">
             {t('autopilot.step1.noOrgs')}
           </p>
         )}
@@ -102,9 +96,7 @@ export const Step1Connect: React.FC<Step1ConnectProps> = ({
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="step1-connect">
-      <p className="text-sm text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('autopilot.step1.description')}
-      </p>
+      <p className="text-sm text-text-secondary">{t('autopilot.step1.description')}</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--sf-space-4)]">
         {renderOrgSelector(
           t('autopilot.step1.sourceOrg'),

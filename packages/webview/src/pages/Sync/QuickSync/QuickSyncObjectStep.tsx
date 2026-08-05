@@ -128,13 +128,11 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
 
   return (
     <div className="flex flex-col gap-4" data-testid="quick-sync-object-step">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('quickSync.selectObjects')}
-      </p>
+      <p className="text-xs text-text-secondary">{t('quickSync.selectObjects')}</p>
 
       {/* Suggested objects chips */}
       <div data-testid="quick-sync-suggestions">
-        <p className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)] mb-2">
+        <p className="text-xs font-medium text-text-primary mb-2">
           {t('quickSync.suggestedObjects')}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -168,14 +166,11 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
       {/* Relationship detection banner */}
       {relationshipBanner && (
         <div
-          className="flex items-center gap-3 p-3 rounded-lg bg-[var(--vscode-editorInfo-background,#063b49)] border border-[var(--vscode-editorInfo-border,#007acc)]"
+          className="flex items-center gap-3 p-3 rounded-lg bg-[var(--sf-info-bg)] border border-[var(--sf-info-border)]"
           data-testid="relationship-banner"
         >
-          <span
-            className="codicon codicon-info text-[var(--vscode-editorInfo-foreground,#3794ff)]"
-            aria-hidden="true"
-          />
-          <span className="text-xs flex-1 text-[var(--vscode-editor-foreground,#d4d4d4)]">
+          <span className="codicon codicon-info text-[var(--sf-info)]" aria-hidden="true" />
+          <span className="text-xs flex-1 text-text-primary">
             {t('quickSync.addParent', {
               parent: relationshipBanner.parentObject,
               child: relationshipBanner.childObject,
@@ -207,19 +202,19 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder={t('quickSync.searchObjects')}
-          className="w-full px-2 py-1.5 text-sm rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#d4d4d4)] border border-[var(--vscode-input-border,#3c3c3c)] focus:outline-none focus:border-[var(--vscode-focusBorder,#007fd4)]"
+          className="w-full px-2 py-1.5 text-sm rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] focus:outline-none focus:border-[var(--sf-accent)]"
           data-testid="quick-sync-object-search"
         />
         {searchTerm && filteredObjects.length > 0 && (
           <div
-            className="mt-1 max-h-32 overflow-y-auto rounded border border-[var(--vscode-panel-border,#3c3c3c)] bg-[var(--vscode-dropdown-background,#3c3c3c)]"
+            className="mt-1 max-h-32 overflow-y-auto rounded border border-[var(--sf-border)] bg-[var(--sf-bg-dropdown)]"
             data-testid="quick-sync-search-results"
           >
             {filteredObjects.map((name) => (
               <button
                 key={name}
                 type="button"
-                className="w-full text-left px-2 py-1 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] focus:outline-none"
+                className="w-full text-left px-2 py-1 text-xs text-text-primary hover:bg-[var(--sf-bg-hover)] focus:outline-none"
                 onClick={() => {
                   handleAddObject(name);
                   setSearchTerm('');
@@ -236,9 +231,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
       {/* Selected objects */}
       <div data-testid="quick-sync-selected-objects">
         {selectedObjects.length === 0 ? (
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] italic">
-            {t('quickSync.noObjectsSelected')}
-          </p>
+          <p className="text-xs text-text-secondary italic">{t('quickSync.noObjectsSelected')}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {selectedObjects.map((name) => {
@@ -256,7 +249,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
                   <button
                     type="button"
                     onClick={() => onRemoveObject(name)}
-                    className="codicon codicon-close text-[10px] text-[var(--vscode-descriptionForeground,#868686)] hover:text-[var(--vscode-errorForeground,#f48771)] focus:outline-none"
+                    className="codicon codicon-close text-[10px] text-text-secondary hover:text-[var(--sf-error)] focus:outline-none"
                     aria-label={`Remove ${name}`}
                     data-testid={`remove-object-${name}`}
                   />

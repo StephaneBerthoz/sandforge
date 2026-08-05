@@ -46,9 +46,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       />
       <CardBody className="flex flex-col gap-0 max-h-96 overflow-y-auto">
         {changedItems.length === 0 ? (
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-4">
-            {t('common.noData')}
-          </p>
+          <p className="text-xs text-text-secondary text-center py-4">{t('common.noData')}</p>
         ) : (
           <>
             {/* Diff item list */}
@@ -57,9 +55,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 <button
                   key={`${item.componentType}-${item.fullName}`}
                   className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 text-left text-xs border-b border-[var(--vscode-panel-border,#3c3c3c)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
-                    selectedItem?.fullName === item.fullName &&
-                      'bg-[var(--vscode-list-activeSelectionBackground,#094771)]',
+                    'flex items-center gap-2 px-3 py-1.5 text-left text-xs border-b border-[var(--sf-border)] hover:bg-[var(--sf-bg-hover)]',
+                    selectedItem?.fullName === item.fullName && 'bg-[var(--sf-bg-active)]',
                   )}
                   onClick={() => onSelectItem?.(item)}
                   data-testid={`diff-item-${item.fullName}`}
@@ -74,12 +71,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                   >
                     {statusSymbol[item.status]}
                   </span>
-                  <span className="text-[var(--vscode-descriptionForeground,#868686)] w-28 truncate">
-                    {item.componentType}
-                  </span>
-                  <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] flex-1 truncate">
-                    {item.fullName}
-                  </span>
+                  <span className="text-text-secondary w-28 truncate">{item.componentType}</span>
+                  <span className="text-text-primary flex-1 truncate">{item.fullName}</span>
                   <Badge variant={statusVariant[item.status]}>{item.status}</Badge>
                 </button>
               ))}
@@ -88,23 +81,19 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             {/* Inline diff view for selected item */}
             {selectedItem && (selectedItem.sourceValue || selectedItem.targetValue) && (
               <div
-                className="mt-2 border border-[var(--vscode-panel-border,#3c3c3c)] rounded"
+                className="mt-2 border border-[var(--sf-border)] rounded"
                 data-testid="diff-content"
               >
                 <div className="grid grid-cols-2 gap-0 text-[10px] font-mono">
-                  <div className="p-2 bg-[rgba(239,68,68,0.05)] border-r border-[var(--vscode-panel-border,#3c3c3c)]">
-                    <div className="text-[var(--vscode-descriptionForeground,#868686)] mb-1 font-sans font-medium">
-                      Source
-                    </div>
-                    <pre className="whitespace-pre-wrap text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <div className="p-2 bg-[rgba(239,68,68,0.05)] border-r border-[var(--sf-border)]">
+                    <div className="text-text-secondary mb-1 font-sans font-medium">Source</div>
+                    <pre className="whitespace-pre-wrap text-text-primary">
                       {selectedItem.sourceValue ?? '(empty)'}
                     </pre>
                   </div>
                   <div className="p-2 bg-[rgba(16,185,129,0.05)]">
-                    <div className="text-[var(--vscode-descriptionForeground,#868686)] mb-1 font-sans font-medium">
-                      Target
-                    </div>
-                    <pre className="whitespace-pre-wrap text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <div className="text-text-secondary mb-1 font-sans font-medium">Target</div>
+                    <pre className="whitespace-pre-wrap text-text-primary">
                       {selectedItem.targetValue ?? '(empty)'}
                     </pre>
                   </div>

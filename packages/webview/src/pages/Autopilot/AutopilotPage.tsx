@@ -123,17 +123,15 @@ export const AutopilotPage: React.FC = () => {
   if (showReport) {
     return (
       <div className="flex flex-col h-full" data-testid="autopilot-page">
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--vscode-panel-border,#3c3c3c)]">
+        <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--sf-border)]">
           <button
-            className="px-3 py-1 text-xs rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] transition-colors"
+            className="px-3 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-text-primary hover:bg-[var(--sf-bg-hover)] transition-colors"
             onClick={() => setShowReport(false)}
             data-testid="back-from-report"
           >
             {t('common.back')}
           </button>
-          <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {t('autopilot.report.title')}
-          </h2>
+          <h2 className="text-sm font-semibold text-text-primary">{t('autopilot.report.title')}</h2>
         </div>
         <div className="flex-1 overflow-y-auto">
           <ComplianceReport />
@@ -154,13 +152,11 @@ export const AutopilotPage: React.FC = () => {
     return (
       <div className="flex flex-col h-full" data-testid="autopilot-page">
         {/* Header with title and optional report button */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--vscode-panel-border,#3c3c3c)]">
-          <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {t('autopilot.title')}
-          </h2>
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--sf-border)]">
+          <h2 className="text-sm font-semibold text-text-primary">{t('autopilot.title')}</h2>
           {step === 'completed' && (
             <button
-              className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)] transition-colors"
+              className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)] transition-colors"
               onClick={() => setShowReport(true)}
               data-testid="view-compliance-report"
             >
@@ -173,7 +169,7 @@ export const AutopilotPage: React.FC = () => {
         {/* Split view: graph placeholder (left 60%) + control panel (right 40%) */}
         <div className="flex flex-1 overflow-hidden">
           <div
-            className="w-[60%] overflow-hidden border-r border-[var(--vscode-panel-border,#3c3c3c)]"
+            className="w-[60%] overflow-hidden border-r border-[var(--sf-border)]"
             data-testid="autopilot-graph-area"
           >
             <AutopilotGraph />

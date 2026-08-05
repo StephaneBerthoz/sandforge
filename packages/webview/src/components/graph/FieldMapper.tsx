@@ -132,15 +132,12 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
   return (
     <div
       ref={containerRef}
-      className={cn(
-        'flex flex-col gap-3 bg-[var(--vscode-editor-background,#1e1e1e)] rounded-xl p-4',
-        className,
-      )}
+      className={cn('flex flex-col gap-3 bg-[var(--sf-bg-primary)] rounded-xl p-4', className)}
       data-testid="field-mapper"
     >
       {/* Header with auto-match button */}
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-xs font-medium text-text-primary">
           {t('sync.fieldMapping')} ({mappings.length})
         </span>
         {onAutoMatch && (
@@ -173,10 +170,10 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                 className={cn(
                   'px-3 text-xs font-mono rounded-full border transition-colors text-left truncate',
                   isMapped
-                    ? 'bg-[var(--vscode-focusBorder,#007fd4)] bg-opacity-20 border-[var(--vscode-focusBorder,#007fd4)] text-[var(--vscode-editor-foreground,#d4d4d4)]'
+                    ? 'bg-[var(--sf-accent)] bg-opacity-20 border-[var(--sf-accent)] text-text-primary'
                     : isSelected
-                      ? 'bg-[var(--vscode-list-activeSelectionBackground,#094771)] border-[var(--vscode-focusBorder,#007fd4)] text-[var(--vscode-editor-foreground,#d4d4d4)] ring-1 ring-[var(--vscode-focusBorder,#007fd4)]'
-                      : 'bg-[var(--vscode-input-background,#3c3c3c)] border-[var(--vscode-panel-border,#3c3c3c)] text-[var(--vscode-descriptionForeground,#868686)] hover:border-[var(--vscode-focusBorder,#007fd4)] hover:text-[var(--vscode-editor-foreground,#d4d4d4)]',
+                      ? 'bg-[var(--sf-bg-active)] border-[var(--sf-accent)] text-text-primary ring-1 ring-[var(--sf-accent)]'
+                      : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-text-secondary hover:border-[var(--sf-accent)] hover:text-text-primary',
                   isMapped && 'cursor-default',
                 )}
                 style={{ height: PILL_HEIGHT, minWidth: 140, maxWidth: 180 }}
@@ -211,10 +208,10 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                 key={`${mapping.sourceField}-${mapping.targetField}`}
                 d={`M0,${y1} C${midX},${y1} ${midX},${y2} ${SVG_WIDTH},${y2}`}
                 fill="none"
-                stroke="var(--vscode-focusBorder,#007fd4)"
+                stroke="var(--sf-accent)"
                 strokeWidth={2}
                 opacity={0.7}
-                className="cursor-pointer hover:opacity-100 hover:stroke-[var(--vscode-errorForeground,#f48771)]"
+                className="cursor-pointer hover:opacity-100 hover:stroke-[var(--sf-error)]"
                 onClick={() => handlePathClick(index)}
                 data-testid={`field-mapper-path-${mapping.sourceField}-${mapping.targetField}`}
               />
@@ -237,10 +234,10 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
                 className={cn(
                   'px-3 text-xs font-mono rounded-full border transition-colors text-left truncate',
                   isMapped
-                    ? 'bg-[#4ec9b0] bg-opacity-20 border-[#4ec9b0] text-[var(--vscode-editor-foreground,#d4d4d4)]'
+                    ? 'bg-[#4ec9b0] bg-opacity-20 border-[#4ec9b0] text-text-primary'
                     : isClickable
-                      ? 'bg-[var(--vscode-input-background,#3c3c3c)] border-dashed border-[var(--vscode-focusBorder,#007fd4)] text-[var(--vscode-editor-foreground,#d4d4d4)] animate-pulse'
-                      : 'bg-[var(--vscode-input-background,#3c3c3c)] border-[var(--vscode-panel-border,#3c3c3c)] text-[var(--vscode-descriptionForeground,#868686)]',
+                      ? 'bg-[var(--sf-bg-input)] border-dashed border-[var(--sf-accent)] text-text-primary animate-pulse'
+                      : 'bg-[var(--sf-bg-input)] border-[var(--sf-border)] text-text-secondary',
                 )}
                 style={{ height: PILL_HEIGHT, minWidth: 140, maxWidth: 180 }}
                 onClick={() => handleTargetClick(field)}
@@ -256,7 +253,7 @@ export const FieldMapper: React.FC<FieldMapperProps> = ({
 
       {/* Hint text */}
       {mappings.length === 0 && (
-        <p className="text-[10px] text-center text-[var(--vscode-descriptionForeground,#868686)]">
+        <p className="text-[10px] text-center text-text-secondary">
           {t('sync.fieldMapperHint', {
             defaultValue: 'Click a source field, then a target field to create a mapping',
           })}

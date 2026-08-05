@@ -149,7 +149,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         <button
           type="button"
           onClick={() => setShowBulkSource(true)}
-          className="text-xs px-2 py-1 rounded bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] hover:bg-[var(--vscode-button-secondaryHoverBackground,#45494e)]"
+          className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
           data-testid="bulk-source-btn"
         >
           {t('sync.conflictResolution.applySourceAll')}
@@ -157,7 +157,7 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         <button
           type="button"
           onClick={() => setShowBulkTarget(true)}
-          className="text-xs px-2 py-1 rounded bg-[var(--vscode-button-secondaryBackground,#3a3d41)] text-[var(--vscode-button-secondaryForeground,#fff)] hover:bg-[var(--vscode-button-secondaryHoverBackground,#45494e)]"
+          className="text-xs px-2 py-1 rounded bg-[var(--sf-button-secondary-bg)] text-[var(--sf-button-secondary-fg)] hover:bg-[var(--sf-button-secondary-hover)]"
           data-testid="bulk-target-btn"
         >
           {t('sync.conflictResolution.applyTargetAll')}
@@ -216,13 +216,13 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
                     type="text"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    className="px-1 py-0.5 text-[10px] rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#d4d4d4)] border border-[var(--vscode-input-border,#3c3c3c)] w-24"
+                    className="px-1 py-0.5 text-[10px] rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] w-24"
                     data-testid={`manual-input-${field}`}
                   />
                   <button
                     type="button"
                     onClick={() => confirmManualEdit(field)}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)]"
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)]"
                     data-testid={`manual-confirm-${field}`}
                   >
                     OK
@@ -258,8 +258,8 @@ export const ConflictResolutionPanel: React.FC<ConflictResolutionPanelProps> = (
         className={cn(
           'text-xs px-3 py-1.5 rounded font-medium transition-colors',
           allFieldsResolved
-            ? 'bg-[var(--vscode-button-background,#0e639c)] text-[var(--vscode-button-foreground,#fff)] hover:bg-[var(--vscode-button-hoverBackground,#1177bb)]'
-            : 'bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-disabledForeground,#6b6b6b)] cursor-not-allowed',
+            ? 'bg-[var(--sf-button-bg)] text-[var(--sf-button-fg)] hover:bg-[var(--sf-button-hover)]'
+            : 'bg-[var(--sf-bg-input)] text-text-muted cursor-not-allowed',
         )}
         data-testid="apply-resolution-btn"
       >
