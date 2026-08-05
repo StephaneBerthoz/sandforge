@@ -19,6 +19,7 @@ import {
   wireBackgroundNotifications,
 } from './composition/backgroundComposition';
 import { initForgeComposition } from './composition/forgeComposition';
+import { initAutopilotComposition } from './composition/autopilotComposition';
 import { initAIComposition, registerAIConfigListener } from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
@@ -127,6 +128,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // NOT_INITIALIZED / AI_NOT_CONFIGURED until then — contract documented in
   // composition/lateServices.ts).
   initForgeComposition({ handlers, orgRegistry, orgManager, configStore, piiDetector, log });
+  void initAutopilotComposition({ handlers, log });
   const runAI = (): Promise<void> =>
     initAIComposition({ services, secretVault, handlers, broker, orgRegistry, orgManager, log });
   runAI().catch((err) => log(`Failed to init AI: ${String(err)}`));

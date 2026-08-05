@@ -264,6 +264,83 @@ describe('SyncOpsHandler', () => {
     });
   });
 
+  describe('sync:error channel', () => {
+    /** Extracts all messages posted to the webview. */
+    function postedMessages(): Array<
+      BaseMessage & { payload: { message?: string; error?: string } }
+    > {
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      return postToWebview.mock.calls.map((c) => c[0]);
+    }
+
+    it('emits sync:error with the real message exactly once when executeSync fails', async () => {
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: '1',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      };
+
+      await handler.handle(msg);
+
+      const posted = postedMessages();
+      const syncErrors = posted.filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0].payload.message).toBe('connection failed');
+      // The operation:failed lifecycle message is preserved alongside.
+      const opFailed = posted.filter((m) => m.type === 'operation:failed');
+      expect(opFailed).toHaveLength(1);
+      expect(opFailed[0].payload.error).toBe('connection failed');
+    });
+
+    it('emits sync:error exactly once on pre-flight failure (production guard blocked)', async () => {
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: false,
+            blockedReason: 'prod org write blocked',
+            impactSummary: 'writes to production',
+          }),
+          logOperation: vi.fn(),
+          confirmIfNeeded: vi.fn(),
+        },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: '1',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      };
+
+      await handler.handle(msg);
+
+      const posted = postedMessages();
+      const syncErrors = posted.filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0].payload.message).toContain('prod org write blocked');
+      expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+
+    it('scheduled executions still convert failure to a failure-status result and emit sync:error once', async () => {
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      const result = await handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+
+      expect(result.status).toBe('failure');
+      const posted = postedMessages();
+      expect(posted.filter((m) => m.type === 'sync:error')).toHaveLength(1);
+      expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+  });
+
   describe('robustness integration', () => {
     it('wraps describe-global with TimeoutManager', async () => {
       const describeGlobalFn = vi.fn().mockResolvedValue({

@@ -478,12 +478,11 @@ export class SyncOpsHandler implements DomainHandler {
         // writing to a production org.
         const confirmed = await guard.confirmIfNeeded(check);
         if (!confirmed) {
-          sendOperationFailed(
-            this.deps,
-            operationId,
-            'Operation cancelled by user (production confirmation declined).',
-            false,
-          );
+          const message = 'Operation cancelled by user (production confirmation declined).';
+          // Settle the in-flight useBridgeMutation listener on sync:error
+          // (same dual-channel contract as the catch paths below).
+          sendHandlerError(this.deps, 'sync:execute', 'sync:error', new Error(message));
+          sendOperationFailed(this.deps, operationId, message, false);
           return;
         }
       }
@@ -491,6 +490,12 @@ export class SyncOpsHandler implements DomainHandler {
       // Check for duplicate operation
       if (this.dmlTracker.isDuplicate(operationId)) {
         this.deps.log(`[WARN] Duplicate sync operation detected: ${operationId}`);
+        sendHandlerError(
+          this.deps,
+          'sync:execute',
+          'sync:error',
+          new Error(`Duplicate operation: ${operationId}`),
+        );
         sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false);
         return;
       }
@@ -526,9 +531,12 @@ export class SyncOpsHandler implements DomainHandler {
       // Return immediately -- execution continues in background
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
-      // Single failure emission: `operation:failed` is the channel the webview
-      // consumes (clears loading, error surface) — no duplicate `sync:error`.
-      this.deps.log(`[ERR] sync:execute: ${extractErrorMessage(err)}`);
+      // Dual channel, single display: `operation:failed` carries the lifecycle
+      // (webview clears global loading + auto AI-resolver); `sync:error` is the
+      // `<domain>:error` channel useBridgeMutation listens on — it settles the
+      // in-flight mutation with the real message. The webview surfaces the
+      // error from sync:error only, so the user sees it exactly once.
+      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     }
   }
@@ -749,8 +757,11 @@ export class SyncOpsHandler implements DomainHandler {
       return result;
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
-      // Single failure emission: `operation:failed` only (webview consumes it).
-      this.deps.log(`[ERR] sync:execute: ${extractErrorMessage(err)}`);
+      // Dual channel, single display (see startExecution): operation:failed
+      // carries the lifecycle, sync:error settles the in-flight mutation with
+      // the real message. Scheduled runs have no listener — the extra message
+      // is simply ignored.
+      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
       // Failure-status result (instead of a rejection) so scheduled executions
       // can persist lastResult='failure' without an unhandled rejection in the

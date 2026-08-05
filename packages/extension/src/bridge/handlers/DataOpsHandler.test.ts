@@ -170,6 +170,80 @@ describe('DataOpsHandler', () => {
     });
   });
 
+  describe('dataops:error channel', () => {
+    /** Extracts all messages posted to the webview. */
+    function postedMessages(): Array<
+      BaseMessage & { payload: { message?: string; error?: string } }
+    > {
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      return postToWebview.mock.calls.map((c) => c[0]);
+    }
+
+    it('emits dataops:error with the real message exactly once when backup fails', async () => {
+      // Pin the connection mock explicitly — this file registers several
+      // hoisted vi.mock factories for ConnectionHelper, so the resolved
+      // implementation is set per-test rather than via a new factory
+      // (same rule as the backup-retention test below).
+      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
+        getJsforceConnection: vi.fn(),
+      }));
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockRejectedValue(new Error('connection failed'));
+
+      const msg: BaseMessage & { payload: { orgId: string; objects: string[] } } = {
+        id: 'msg-b1',
+        type: 'dataops:backup',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-123', objects: ['Account'] },
+      };
+
+      await handler.handle(msg);
+
+      const posted = postedMessages();
+      const errors = posted.filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toBe('connection failed');
+      // The operation:failed lifecycle message is preserved alongside.
+      const opFailed = posted.filter((m) => m.type === 'operation:failed');
+      expect(opFailed).toHaveLength(1);
+      expect(opFailed[0].payload.error).toBe('connection failed');
+
+      vi.restoreAllMocks();
+    });
+
+    it('emits dataops:error once when anonymize is declined at the production guard', async () => {
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: {
+          check: vi.fn().mockReturnValue({ allowed: true }),
+          logOperation: vi.fn(),
+          confirmIfNeeded: vi.fn().mockResolvedValue(false),
+        },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      const msg: BaseMessage & {
+        payload: { orgId: string; templateId: string; objects: string[] };
+      } = {
+        id: 'msg-a1',
+        type: 'dataops:anonymize',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-123', templateId: 'tmpl-1', objects: ['Account'] },
+      };
+
+      await handler.handle(msg);
+
+      const posted = postedMessages();
+      const errors = posted.filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toBe(
+        'Operation cancelled by user (production confirmation declined).',
+      );
+      expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+  });
+
   describe('payload validation', () => {
     it('rejects dataops:backup with injection-shaped object names', async () => {
       const msg = {
