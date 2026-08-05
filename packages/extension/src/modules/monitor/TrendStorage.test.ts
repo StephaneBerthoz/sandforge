@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { LimitsSnapshot } from '@sandforge/shared';
 import { TrendStorage } from './TrendStorage';
 import { ConfigStore } from '../../core/storage/ConfigStore';
@@ -37,6 +37,12 @@ describe('TrendStorage', () => {
     configStore = new ConfigStore(backend);
     configStore.initialize();
     storage = new TrendStorage(configStore);
+  });
+
+  afterEach(() => {
+    // Restore real timers: leaked fake timers poison other test files that
+    // share the same vitest worker (e.g. SeedOpsHandler's real-timeout test).
+    vi.useRealTimers();
   });
 
   describe('record()', () => {

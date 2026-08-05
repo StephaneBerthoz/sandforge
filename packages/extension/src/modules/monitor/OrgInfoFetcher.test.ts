@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OrgInfoFetcher } from './OrgInfoFetcher';
 import type { OrgInfoConnection } from './OrgInfoFetcher';
 
@@ -27,6 +27,12 @@ describe('OrgInfoFetcher', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-02-24T12:00:00Z'));
     fetcher = new OrgInfoFetcher(5 * 60 * 1000);
+  });
+
+  afterEach(() => {
+    // Restore real timers: leaked fake timers poison other test files that
+    // share the same vitest worker (e.g. SeedOpsHandler's real-timeout test).
+    vi.useRealTimers();
   });
 
   it('should fetch org info from connection', async () => {
