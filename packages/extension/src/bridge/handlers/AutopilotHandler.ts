@@ -5,6 +5,7 @@ import type {
   ComplianceProfile,
   AutopilotAnonymizationRule,
 } from '@sandforge/shared';
+import { orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -49,6 +50,12 @@ const MAX_TRACKED_OPERATIONS = 10;
 interface AutopilotOperation {
   /** Operation id (the scan-schema request id, echoed back as correlationId). */
   readonly id: string;
+  /**
+   * Target org captured at scan time. The execute payload carries no org id
+   * (fixed message protocol), so the production guard resolves the org tier
+   * from this value when the operation reaches `autopilot:execute`.
+   */
+  readonly targetOrgId: string;
   /** Schema scan result, set once the scan completes. */
   scanResult?: SchemaScanResult;
   /** Dependency graph built from the scan result. */
@@ -157,7 +164,7 @@ export class AutopilotHandler implements DomainHandler {
     const payload = parsed;
 
     const previousCurrentId = this.currentOperationId;
-    const operation: AutopilotOperation = { id: msg.id };
+    const operation: AutopilotOperation = { id: msg.id, targetOrgId: payload.targetOrgId };
     this.operations.set(msg.id, operation);
     this.currentOperationId = msg.id;
     this.evictOldOperations();
@@ -277,6 +284,43 @@ export class AutopilotHandler implements DomainHandler {
     // Capture per-operation state in locals: a concurrent scan/plan request
     // must not be able to swap this operation's data while executePlan is awaited.
     const { plan, graph, rules, scanResult } = operation;
+
+    // Production guard check on the target org — same policy as sync/seed
+    // runs. The guard instance comes from backgroundComposition and reaches
+    // this handler via infraServices (same wiring as SyncOpsHandler). The
+    // tier is resolved from the target org captured at scan time (the
+    // execute payload carries no org id — fixed message protocol). Covers
+    // every insert below: executePlan is the only path that writes.
+    if (this.deps.infraServices?.productionGuard) {
+      const guard = this.deps.infraServices.productionGuard;
+      const targetOrg = this.deps.orgManager.getOrg(operation.targetOrgId);
+      const guardRequest = {
+        orgId: operation.targetOrgId,
+        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        operation: 'insert' as const,
+        objectName: plan.waves[0]?.objects[0] ?? 'AutopilotData',
+        recordCount: Array.from(scanResult.recordCounts.values()).reduce((s, c) => s + c, 0),
+        module: 'autopilot',
+      };
+      const check = guard.check(guardRequest);
+      guard.logOperation(guardRequest, check);
+      if (!check.allowed) {
+        const message = `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
+        sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', new Error(message));
+        sendNotification(this.deps, 'error', 'Autopilot', message);
+        return;
+      }
+      // `safety.requireProdConfirmation`: explicit user consent before
+      // writing to a production org.
+      const confirmed = await guard.confirmIfNeeded(check);
+      if (!confirmed) {
+        const message = 'Operation cancelled by user (production confirmation declined).';
+        sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', new Error(message));
+        sendNotification(this.deps, 'error', 'Autopilot', message);
+        return;
+      }
+    }
+
     this.executingOperations.add(operation.id);
     try {
       if (payload.grappeThreshold) {

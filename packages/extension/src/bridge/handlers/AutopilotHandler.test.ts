@@ -682,4 +682,158 @@ describe('AutopilotHandler', () => {
       expect(orchestrator.pause).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('production guard', () => {
+    const GUARD_PLAN = {
+      waves: [{ order: 0, objects: ['Account'], dependsOn: [] }],
+      totalRecords: 5,
+      estimatedDurationSec: 1,
+      estimatedApiCalls: 2,
+      complianceFramework: 'none',
+      anonymizationSummary: { totalRules: 0, rulesByType: {} },
+      cycleResolutions: [],
+    };
+
+    /** Wires a mock ProductionGuard into deps.infraServices and returns its spies. */
+    function wireGuard(behavior: {
+      allowed: boolean;
+      requiresConfirmation?: boolean;
+      blockedReason?: string;
+      confirmed?: boolean;
+    }): { check: Mock; logOperation: Mock; confirmIfNeeded: Mock } {
+      const check = vi.fn().mockReturnValue({
+        allowed: behavior.allowed,
+        requiresConfirmation: behavior.requiresConfirmation ?? false,
+        requiresApproval: false,
+        blockedReason: behavior.blockedReason,
+        warnings: [],
+        impactSummary: 'INSERT 5 Account record(s) on production org tgt [module: autopilot]',
+      });
+      const logOperation = vi.fn();
+      const confirmIfNeeded = vi.fn().mockResolvedValue(behavior.confirmed ?? true);
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: { check, logOperation, confirmIfNeeded },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      return { check, logOperation, confirmIfNeeded };
+    }
+
+    /** Runs scan → generate-plan so the operation is ready for execute. */
+    async function scanAndPlan(orchestrator: ReturnType<typeof createMockOrchestrator>) {
+      handler.setOrchestrator(orchestrator);
+      mockGetConn.mockResolvedValue({} as never);
+      await handler.handle(scanMsg('scan-guard'));
+      await handler.handle({
+        id: 'plan-guard',
+        type: 'autopilot:generate-plan',
+        timestamp: Date.now(),
+        payload: { complianceFramework: 'gdpr' },
+      } as BaseMessage);
+      const postToWebview = deps.broker.postToWebview as Mock<[BaseMessage], void>;
+      postToWebview.mockClear();
+    }
+
+    function executeMsg(): BaseMessage {
+      return {
+        id: 'exec-guard',
+        type: 'autopilot:execute',
+        timestamp: Date.now(),
+        payload: { grappeThreshold: 0 },
+      } as BaseMessage;
+    }
+
+    function mockTargetOrgType(orgType: string): void {
+      (deps.orgManager.getOrg as Mock).mockReturnValue({ orgType });
+    }
+
+    it('asks for production confirmation before executing on a production target', async () => {
+      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: true });
+      mockTargetOrgType('Production');
+      const orchestrator = createMockOrchestrator({
+        generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
+      });
+      await scanAndPlan(orchestrator);
+
+      await handler.handle(executeMsg());
+
+      // The tier is resolved from the scanned target org ('tgt').
+      expect(guard.check).toHaveBeenCalledTimes(1);
+      expect(guard.check.mock.calls[0][0]).toMatchObject({
+        orgId: 'tgt',
+        orgTier: 'production',
+        operation: 'insert',
+        module: 'autopilot',
+      });
+      expect(guard.confirmIfNeeded).toHaveBeenCalledTimes(1);
+      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
+      const completed = postedMessages(deps).find((m) => m.type === 'autopilot:completed');
+      expect(completed).toBeDefined();
+    });
+
+    it('blocks the execution when the guard refuses — no insert, actionable autopilot:error', async () => {
+      const guard = wireGuard({
+        allowed: false,
+        blockedReason: 'insert is not allowed on production org tgt',
+      });
+      mockTargetOrgType('Production');
+      const orchestrator = createMockOrchestrator({
+        generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
+      });
+      await scanAndPlan(orchestrator);
+
+      await handler.handle(executeMsg());
+
+      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.confirmIfNeeded).not.toHaveBeenCalled();
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
+      expect(errors).toHaveLength(1);
+      expect(
+        (errors[0] as BaseMessage & { payload: { message: string } }).payload.message,
+      ).toContain('insert is not allowed on production org tgt');
+    });
+
+    it('cancels the execution when the user declines the production confirmation', async () => {
+      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: false });
+      mockTargetOrgType('Production');
+      const orchestrator = createMockOrchestrator({
+        generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
+      });
+      await scanAndPlan(orchestrator);
+
+      await handler.handle(executeMsg());
+
+      expect(guard.confirmIfNeeded).toHaveBeenCalledTimes(1);
+      expect(orchestrator.executePlan).not.toHaveBeenCalled();
+      const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
+      expect(errors).toHaveLength(1);
+      expect(
+        (errors[0] as BaseMessage & { payload: { message: string } }).payload.message,
+      ).toContain('production confirmation declined');
+    });
+
+    it('lets sandbox executions through and audits them via logOperation', async () => {
+      const guard = wireGuard({ allowed: true, requiresConfirmation: false });
+      mockTargetOrgType('Sandbox');
+      const orchestrator = createMockOrchestrator({
+        generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
+      });
+      await scanAndPlan(orchestrator);
+
+      await handler.handle(executeMsg());
+
+      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.logOperation.mock.calls[0][0]).toMatchObject({
+        orgId: 'tgt',
+        orgTier: 'development',
+        module: 'autopilot',
+      });
+      expect(orchestrator.executePlan).toHaveBeenCalledTimes(1);
+      const errors = postedMessages(deps).filter((m) => m.type === 'autopilot:error');
+      expect(errors).toHaveLength(0);
+    });
+  });
 });

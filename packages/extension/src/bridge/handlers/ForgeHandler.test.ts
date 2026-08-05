@@ -439,6 +439,152 @@ describe('ForgeHandler', () => {
     });
   });
 
+  describe('production guard', () => {
+    /** Wires a mock ProductionGuard into deps.infraServices and returns its spies. */
+    function wireGuard(behavior: {
+      allowed: boolean;
+      requiresConfirmation?: boolean;
+      blockedReason?: string;
+      confirmed?: boolean;
+    }): {
+      check: ReturnType<typeof vi.fn>;
+      logOperation: ReturnType<typeof vi.fn>;
+      confirmIfNeeded: ReturnType<typeof vi.fn>;
+    } {
+      const check = vi.fn().mockReturnValue({
+        allowed: behavior.allowed,
+        requiresConfirmation: behavior.requiresConfirmation ?? false,
+        requiresApproval: false,
+        blockedReason: behavior.blockedReason,
+        warnings: [],
+        impactSummary: 'INSERT 10 Account record(s) on production org tgt-org [module: forge]',
+      });
+      const logOperation = vi.fn();
+      const confirmIfNeeded = vi.fn().mockResolvedValue(behavior.confirmed ?? true);
+      deps.infraServices = {
+        performanceTracker: { start: vi.fn(), complete: vi.fn() },
+        productionGuard: { check, logOperation, confirmIfNeeded },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      return { check, logOperation, confirmIfNeeded };
+    }
+
+    function mockTargetOrgType(orgType: string): void {
+      vi.mocked(deps.orgManager.getOrg).mockReturnValue({
+        orgType,
+      } as unknown as ReturnType<HandlerDeps['orgManager']['getOrg']>);
+    }
+
+    it('asks for production confirmation before executing on a production target', async () => {
+      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: true });
+      mockTargetOrgType('Production');
+
+      const msg = buildMsg('forge:execute', {
+        graph: createMockGraph(),
+        config: createMockConfig(),
+      });
+      await handler.handle(msg);
+
+      // The tier is resolved from the target org of the forge config.
+      expect(guard.check).toHaveBeenCalledTimes(1);
+      expect(guard.check.mock.calls[0][0]).toMatchObject({
+        orgId: 'tgt-org',
+        orgTier: 'production',
+        operation: 'insert',
+        module: 'forge',
+      });
+      expect(guard.confirmIfNeeded).toHaveBeenCalledTimes(1);
+      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const responses = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:execute:response',
+      );
+      expect(responses).toHaveLength(1);
+    });
+
+    it('blocks the execution when the guard refuses — no write, forge:execute:error', async () => {
+      const guard = wireGuard({
+        allowed: false,
+        blockedReason: 'insert is not allowed on production org tgt-org',
+      });
+      mockTargetOrgType('Production');
+
+      const msg = buildMsg('forge:execute', {
+        graph: createMockGraph(),
+        config: createMockConfig(),
+      });
+      await handler.handle(msg);
+
+      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.confirmIfNeeded).not.toHaveBeenCalled();
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const errCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:execute:error',
+      );
+      expect(errCalls).toHaveLength(1);
+      const errPayload = (
+        errCalls[0][0] as BaseMessage & {
+          payload: { message: string; code: string; retryable: boolean };
+        }
+      ).payload;
+      expect(errPayload.message).toContain('insert is not allowed on production org tgt-org');
+      expect(errPayload.code).toBe('GUARD_BLOCKED');
+    });
+
+    it('cancels the execution when the user declines the production confirmation', async () => {
+      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: false });
+      mockTargetOrgType('Production');
+
+      const msg = buildMsg('forge:execute', {
+        graph: createMockGraph(),
+        config: createMockConfig(),
+      });
+      await handler.handle(msg);
+
+      expect(guard.confirmIfNeeded).toHaveBeenCalledTimes(1);
+      expect(orchestrator.execute).not.toHaveBeenCalled();
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const errCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:execute:error',
+      );
+      expect(errCalls).toHaveLength(1);
+      const errPayload = (
+        errCalls[0][0] as BaseMessage & {
+          payload: { message: string; code: string; retryable: boolean };
+        }
+      ).payload;
+      expect(errPayload.message).toContain('production confirmation declined');
+      expect(errPayload.code).toBe('GUARD_DECLINED');
+    });
+
+    it('lets sandbox executions through and audits them via logOperation', async () => {
+      const guard = wireGuard({ allowed: true, requiresConfirmation: false });
+      mockTargetOrgType('Sandbox');
+
+      const msg = buildMsg('forge:execute', {
+        graph: createMockGraph(),
+        config: createMockConfig(),
+      });
+      await handler.handle(msg);
+
+      expect(guard.logOperation).toHaveBeenCalledTimes(1);
+      expect(guard.logOperation.mock.calls[0][0]).toMatchObject({
+        orgId: 'tgt-org',
+        orgTier: 'development',
+        module: 'forge',
+      });
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+      const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const errCalls = postCalls.filter(
+        (call) => (call[0] as BaseMessage).type === 'forge:execute:error',
+      );
+      expect(errCalls).toHaveLength(0);
+    });
+  });
+
   describe('forge:pause', () => {
     it('delegates to orchestrator.pause', async () => {
       const msg = buildMsg('forge:pause');
