@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../../i18n';
+import type { RelationshipSuggestion } from '@sandforge/shared';
 import { QuickSyncObjectStep } from './QuickSyncObjectStep';
 
 /* ------------------------------------------------------------------ */
@@ -19,23 +20,22 @@ const mockSuggestions = [
   { objectApiName: 'Case', label: 'Case', isAvailable: false, isAlreadySelected: false },
 ];
 
+const mockUseBridgeQuery = vi.fn();
 vi.mock('../../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => ({
-    data: mockSuggestions,
-    loading: false,
-    error: null,
-    refetch: vi.fn(),
-  }),
+  useBridgeQuery: (...args: unknown[]) => mockUseBridgeQuery(...args),
 }));
 
+const mockDetectMutate = vi.fn();
+let mockDetectState: {
+  mutate: typeof mockDetectMutate;
+  data: { suggestions: RelationshipSuggestion[] } | null;
+  loading: boolean;
+  error: string | null;
+  reset: ReturnType<typeof vi.fn>;
+};
+
 vi.mock('../../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: vi.fn(),
-    data: null,
-    loading: false,
-    error: null,
-    reset: vi.fn(),
-  }),
+  useBridgeMutation: () => mockDetectState,
 }));
 
 describe('QuickSyncObjectStep', () => {
@@ -53,6 +53,30 @@ describe('QuickSyncObjectStep', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // The handler answers with a wrapped payload: { suggestions: [...] }
+    mockUseBridgeQuery.mockReturnValue({
+      data: { suggestions: mockSuggestions },
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    mockDetectState = {
+      mutate: mockDetectMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    };
+  });
+
+  it('requests suggestions with the canonical { orgId, alreadySelected } payload', () => {
+    render(<QuickSyncObjectStep {...defaultProps} selectedObjects={['Lead']} />);
+
+    expect(mockUseBridgeQuery).toHaveBeenCalledWith(
+      'quicksync:suggest-objects',
+      { orgId: 'org-1', alreadySelected: ['Lead'] },
+      { skip: false },
+    );
   });
 
   it('renders suggestion chips', () => {
@@ -73,6 +97,84 @@ describe('QuickSyncObjectStep', () => {
     fireEvent.click(screen.getByTestId('suggestion-chip-Account'));
 
     expect(onAddObject).toHaveBeenCalledWith('Account');
+  });
+
+  it('posts the canonical detect-relationships payload when an object is added', () => {
+    render(<QuickSyncObjectStep {...defaultProps} selectedObjects={['Lead']} />);
+
+    fireEvent.click(screen.getByTestId('suggestion-chip-Account'));
+
+    expect(mockDetectMutate).toHaveBeenCalledWith({
+      orgId: 'org-1',
+      objectApiName: 'Account',
+      alreadySelected: ['Lead', 'Account'],
+    });
+  });
+
+  it('shows the relationship banner when detection returns a parent suggestion', () => {
+    mockDetectState.data = {
+      suggestions: [
+        {
+          childObject: 'Contact',
+          parentObject: 'Account',
+          lookupField: 'AccountId',
+          relationshipType: 'lookup',
+          suggestedInsertOrder: 0,
+        },
+      ],
+    };
+    render(<QuickSyncObjectStep {...defaultProps} selectedObjects={['Contact']} />);
+
+    expect(screen.getByTestId('relationship-banner')).toBeDefined();
+  });
+
+  it('adding the parent from the banner calls onAddParentObject', () => {
+    const onAddParentObject = vi.fn();
+    mockDetectState.data = {
+      suggestions: [
+        {
+          childObject: 'Contact',
+          parentObject: 'Account',
+          lookupField: 'AccountId',
+          relationshipType: 'lookup',
+          suggestedInsertOrder: 0,
+        },
+      ],
+    };
+    render(
+      <QuickSyncObjectStep
+        {...defaultProps}
+        selectedObjects={['Contact']}
+        onAddParentObject={onAddParentObject}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('relationship-add-btn'));
+
+    expect(onAddParentObject).toHaveBeenCalledWith('Account');
+  });
+
+  it('does not show the banner when the parent is already selected', () => {
+    mockDetectState.data = {
+      suggestions: [
+        {
+          childObject: 'Contact',
+          parentObject: 'Account',
+          lookupField: 'AccountId',
+          relationshipType: 'lookup',
+          suggestedInsertOrder: 0,
+        },
+      ],
+    };
+    render(
+      <QuickSyncObjectStep
+        {...defaultProps}
+        selectedObjects={['Contact', 'Account']}
+        parentObjects={['Account']}
+      />,
+    );
+
+    expect(screen.queryByTestId('relationship-banner')).toBeNull();
   });
 
   it('shows selected objects as removable badges', () => {

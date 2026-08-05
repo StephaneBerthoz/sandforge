@@ -259,6 +259,53 @@ describe('QuickSyncHandler', () => {
     expect(response.payload.suggestions[0].parentObject).toBe('Account');
   });
 
+  it('derives availableObjects from describeGlobal when the payload omits them', async () => {
+    // Canonical webview shape: no availableObjects (the wizard does not know
+    // the org catalogue). The handler must fall back to describeGlobal or the
+    // detector would silently drop every parent suggestion.
+    const describeGlobal = vi.fn().mockResolvedValue({
+      sobjects: [
+        { name: 'Account', createable: true, queryable: true },
+        { name: 'Case', createable: false, queryable: true }, // filtered out
+      ],
+    });
+    mockGetConn.mockResolvedValue({
+      describe: vi.fn().mockResolvedValue({
+        fields: [
+          {
+            name: 'AccountId',
+            type: 'reference',
+            referenceTo: ['Account'],
+            relationshipName: 'Account',
+          },
+        ],
+      }),
+      describeGlobal,
+      limitInfo: undefined,
+    } as never);
+
+    const msg: BaseMessage & {
+      payload: { orgId: string; objectApiName: string; alreadySelected: string[] };
+    } = {
+      id: 'req-detect-fallback',
+      type: 'quicksync:detect-relationships',
+      timestamp: Date.now(),
+      payload: { orgId: 'org-1', objectApiName: 'Contact', alreadySelected: ['Contact'] },
+    };
+
+    const result = await handler.handle(msg);
+    expect(result).toBe(true);
+    expect(describeGlobal).toHaveBeenCalledTimes(1);
+
+    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      payload: { suggestions: Array<{ parentObject: string }> };
+    };
+    expect(response.type).toBe('quicksync:detect-relationships:response');
+    expect(response.payload.suggestions).toHaveLength(1);
+    expect(response.payload.suggestions[0].parentObject).toBe('Account');
+  });
+
   describe('payload validation', () => {
     it('rejects quicksync:preview with non-array selectedObjects (INVALID_PAYLOAD)', async () => {
       const msg = {
@@ -306,13 +353,14 @@ describe('QuickSyncHandler', () => {
       expect(mockGetConn).not.toHaveBeenCalled();
     });
 
-    it('still accepts the flat webview shape for quicksync:suggest-objects', async () => {
+    it('still accepts the legacy flat shape for quicksync:suggest-objects', async () => {
       mockGetConn.mockResolvedValue({
         describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
         limitInfo: undefined,
       } as never);
 
-      // The current webview sends `{ sourceOrgId }` (see QuickSyncObjectStep).
+      // Legacy spelling (`sourceOrgId`) stays schema-accepted for backward
+      // compatibility, though the handler reads the canonical `orgId`.
       const msg = {
         id: 'req-suggest-flat',
         type: 'quicksync:suggest-objects',
@@ -327,6 +375,32 @@ describe('QuickSyncHandler', () => {
       const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
         payload: { code?: string };
       };
+      expect(errMsg.payload.code).not.toBe('INVALID_PAYLOAD');
+    });
+
+    it('still accepts the legacy flat shape for quicksync:execute (schema-level)', async () => {
+      // Legacy flat fields pass the payload schema; the handler then fails on
+      // the missing `config` with a handler error — never INVALID_PAYLOAD.
+      const msg = {
+        id: 'req-execute-flat',
+        type: 'quicksync:execute',
+        timestamp: Date.now(),
+        payload: {
+          sourceOrgId: 'org-src',
+          targetOrgId: 'org-tgt',
+          selectedObjects: ['Account'],
+          parentObjects: [],
+        },
+      } as unknown as BaseMessage;
+
+      const result = await handler.handle(msg);
+      expect(result).toBe(true);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
+        payload: { code?: string };
+      };
+      expect(errMsg.type).toBe('quicksync:error');
       expect(errMsg.payload.code).not.toBe('INVALID_PAYLOAD');
     });
   });
