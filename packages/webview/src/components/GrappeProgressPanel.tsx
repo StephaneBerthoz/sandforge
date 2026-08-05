@@ -47,8 +47,8 @@ export const GrappeProgressPanel: React.FC = () => {
       data-testid="grappe-panel"
       className={cn(
         'rounded border p-3 flex flex-col gap-2',
-        'border-[var(--vscode-panel-border,#3c3c3c)]',
-        'bg-[var(--vscode-editor-background,#1e1e1e)]',
+        'border-[var(--sf-border)]',
+        'bg-[var(--sf-bg-primary)]',
       )}
     >
       {/* Header */}
@@ -57,7 +57,7 @@ export const GrappeProgressPanel: React.FC = () => {
           <Badge variant={active ? 'warning' : 'success'}>
             {active ? t('grappe.active', 'Grappe') : t('grappe.completed', 'Completed')}
           </Badge>
-          <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+          <span className="text-xs text-[var(--sf-text-primary)]">
             {t('grappe.partitions', 'Partitions')}: {completedPartitions}/{totalPartitions}
           </span>
         </div>
@@ -66,7 +66,7 @@ export const GrappeProgressPanel: React.FC = () => {
             {t(`grappe.pressure.${backPressureLevel}`, backPressureLevel)}
           </Badge>
           {apiUsagePercent > 0 && (
-            <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+            <span className="text-[10px] text-[var(--sf-text-secondary)]">
               API {apiUsagePercent}%
             </span>
           )}
@@ -83,7 +83,7 @@ export const GrappeProgressPanel: React.FC = () => {
 
       {/* Stats */}
       <div
-        className="flex gap-4 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+        className="flex gap-4 text-[10px] text-[var(--sf-text-secondary)]"
         data-testid="grappe-stats"
       >
         <span>
@@ -91,11 +91,11 @@ export const GrappeProgressPanel: React.FC = () => {
         </span>
         {!active && (
           <>
-            <span className="text-[var(--vscode-testing-iconPassed,#73c991)]">
+            <span className="text-[var(--sf-success)]">
               {totalProcessed.toLocaleString()} {t('grappe.processed', 'processed')}
             </span>
             {totalFailed > 0 && (
-              <span className="text-[var(--vscode-errorForeground,#f48771)]">
+              <span className="text-[var(--sf-error)]">
                 {totalFailed.toLocaleString()} {t('grappe.failed', 'failed')}
               </span>
             )}
@@ -115,11 +115,9 @@ export const GrappeProgressPanel: React.FC = () => {
                 className="flex items-center gap-2 text-[10px]"
                 data-testid={`grappe-partition-${p.grappeId}`}
               >
-                <span className="w-28 truncate text-[var(--vscode-descriptionForeground,#868686)]">
-                  {p.grappeId}
-                </span>
+                <span className="w-28 truncate text-[var(--sf-text-secondary)]">{p.grappeId}</span>
                 <ProgressBar value={p.percentage} max={100} size="sm" className="flex-1" />
-                <span className="w-12 text-right text-[var(--vscode-descriptionForeground,#868686)]">
+                <span className="w-12 text-right text-[var(--sf-text-secondary)]">
                   {p.percentage}%
                 </span>
               </div>

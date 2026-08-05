@@ -32,49 +32,6 @@
       // VSCode variable mapping (single source of truth).
       "files": ["src/components/ui/**/*", "src/styles/**/*", "src/theme/**/*"],
       "rules": { "no-restricted-syntax": "off" }
-    },
-    {
-      // Legacy backlog — files not yet migrated to tokens. EXPLICIT list so no
-      // NEW file can introduce var(--vscode-*): the gate bites everywhere else.
-      // Migration protocol: migrate a file to tokens, then DELETE its line here.
-      "files": [
-        "src/PanelRouter.tsx",
-        "src/components/GrappeProgressPanel.tsx",
-        "src/components/LoadingScreen.tsx",
-        "src/components/GuidedTour/GuidedTour.tsx",
-        "src/components/HintBubble/HintBubble.tsx",
-        "src/components/execution/ErrorRecoveryPanel.tsx",
-        "src/components/execution/ObjectProgressPanel.tsx",
-        "src/pages/AI/AIPage.tsx",
-        "src/pages/Automation/PipelineCanvas.tsx",
-        "src/pages/Automation/PipelineHistoryView.tsx",
-        "src/pages/Automation/SchedulerCalendar.tsx",
-        "src/pages/Automation/StepPalette.tsx",
-        "src/pages/Automation/TriggerConfigPanel.tsx",
-        "src/pages/Autopilot/AutopilotWizard/AutopilotWizard.tsx",
-        "src/pages/Autopilot/ComplianceReport/ComplianceTimeline.tsx",
-        "src/pages/Autopilot/ControlPanel/AnonymizationPreview.tsx",
-        "src/pages/Compare/ComparePage.tsx",
-        "src/pages/Compare/DiffDetailModal.tsx",
-        "src/pages/Compare/DiffGroupAccordion.tsx",
-        "src/pages/Compare/DriftDashboard.tsx",
-        "src/pages/Compare/OrgSelector.tsx",
-        "src/pages/Compare/RiskScoreCard.tsx",
-        "src/pages/Home/HomePage.tsx",
-        "src/pages/Home/SmartActionCard.tsx",
-        "src/pages/Reports/AuditTrailViewer.tsx",
-        "src/pages/Reports/LineageGraph.tsx",
-        "src/pages/Sync/ConflictListPanel.tsx",
-        "src/pages/Sync/SyncHistoryPanel.tsx",
-        "src/pages/Sync/QuickSync/QuickSyncPreviewStep.tsx",
-        "src/pages/Welcome/WelcomePage.tsx",
-        "src/pages/Welcome/WhatsNewPage.tsx",
-        "src/pages/Seed/ERDMiniMap.tsx",
-        "src/pages/Seed/TemplateCard.tsx",
-        "src/pages/Seed/TemplateCustomizeModal.tsx",
-        "src/pages/Seed/TemplateGallery.tsx"
-      ],
-      "rules": { "no-restricted-syntax": "off" }
     }
   ]
 }

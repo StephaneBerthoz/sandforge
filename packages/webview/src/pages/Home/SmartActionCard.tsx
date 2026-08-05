@@ -79,7 +79,7 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
         <CardBody>
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <ActionIcon className="w-5 h-5 text-[var(--vscode-focusBorder,#007fd4)]" />
+              <ActionIcon className="w-5 h-5 text-[var(--sf-accent)]" />
               <span className="text-sm text-text-primary font-medium">
                 {t('home.smartAction.confirmMsg', {
                   action: t(`home.smartAction.action.${recommendation.action}`),
@@ -117,11 +117,11 @@ export const SmartActionCard: React.FC<SmartActionCardProps> = ({
         <div
           className={cn(
             'flex items-center justify-between gap-4',
-            'border-l-4 border-l-[var(--vscode-focusBorder,#007fd4)] pl-3 -ml-4',
+            'border-l-4 border-l-[var(--sf-accent)] pl-3 -ml-4',
           )}
         >
           <div className="flex items-center gap-3 flex-1 min-w-0">
-            <ActionIcon className="w-5 h-5 shrink-0 text-[var(--vscode-focusBorder,#007fd4)]" />
+            <ActionIcon className="w-5 h-5 shrink-0 text-[var(--sf-accent)]" />
             <div className="flex flex-col gap-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-text-primary truncate">

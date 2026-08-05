@@ -69,6 +69,6 @@ describe('PipelineCanvas', () => {
   it('should highlight selected step', () => {
     render(<PipelineCanvas steps={steps} selectedStepId="s2" />);
     const step = screen.getByTestId('canvas-step-s2');
-    expect(step.className).toContain('focusBorder');
+    expect(step.className).toContain('--sf-accent');
   });
 });

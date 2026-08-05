@@ -81,7 +81,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             {t('sync.totalSuccess')}: <strong>{result.totalSuccess}</strong>
           </span>
           {result.totalFailed > 0 && (
-            <span className="text-[var(--vscode-errorForeground,#f48771)]">
+            <span className="text-[var(--sf-error)]">
               {t('sync.totalFailed')}: <strong>{result.totalFailed}</strong>
             </span>
           )}
@@ -95,7 +95,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             {obj.errors.length > 0 && (
               <CardBody>
                 {obj.errors.map((err, i) => (
-                  <p key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">
+                  <p key={i} className="text-[10px] text-[var(--sf-error)]">
                     {err}
                   </p>
                 ))}
@@ -115,15 +115,13 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
   // Before execution — preview view
   return (
     <div className="flex flex-col gap-4" data-testid="quick-sync-preview-step">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('quickSync.preview')}
-      </p>
+      <p className="text-xs text-[var(--sf-text-secondary)]">{t('quickSync.preview')}</p>
 
       {preview && (
         <>
           {/* Summary bar */}
           <div
-            className="flex items-center gap-4 text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]"
+            className="flex items-center gap-4 text-xs text-[var(--sf-text-primary)]"
             data-testid="quick-sync-preview-summary"
           >
             <Badge variant="info">
@@ -146,10 +144,10 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
             {preview.objects.map((obj) => (
               <div
                 key={obj.objectApiName}
-                className="flex items-center justify-between px-3 py-2 rounded bg-[var(--vscode-editor-background,#1e1e1e)] border border-[var(--vscode-panel-border,#3c3c3c)]"
+                className="flex items-center justify-between px-3 py-2 rounded bg-[var(--sf-bg-primary)] border border-[var(--sf-border)]"
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <span className="text-xs font-medium text-[var(--sf-text-primary)]">
                     {obj.objectApiName}
                   </span>
                   {obj.isParentDependency && (
@@ -158,7 +156,7 @@ export const QuickSyncPreviewStep: React.FC<QuickSyncPreviewStepProps> = ({
                     </Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-4 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                <div className="flex items-center gap-4 text-[10px] text-[var(--sf-text-secondary)]">
                   <span>{obj.recordCount} records</span>
                   <span>{obj.estimatedApiCalls} API</span>
                 </div>

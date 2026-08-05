@@ -84,10 +84,10 @@ export const ObjectProgressPanel: React.FC<ObjectProgressPanelProps> = ({
       {/* Overall progress */}
       <div className="flex flex-col gap-1">
         <div className="flex justify-between items-center">
-          <span className="text-sm font-medium text-[var(--vscode-editor-foreground)]">
+          <span className="text-sm font-medium text-[var(--sf-text-primary)]">
             {t('execution.overallProgress', 'Overall Progress')}
           </span>
-          <span className="text-xs text-[var(--vscode-descriptionForeground)]">
+          <span className="text-xs text-[var(--sf-text-secondary)]">
             {t('execution.elapsed', {
               time: formatElapsed(progress.elapsedMs),
               defaultValue: 'Elapsed: {{time}}',
@@ -102,9 +102,7 @@ export const ObjectProgressPanel: React.FC<ObjectProgressPanelProps> = ({
         {progress.objects.map((obj) => (
           <div key={obj.jobId} className="flex flex-col gap-1" data-testid="object-progress-row">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-[var(--vscode-editor-foreground)]">
-                {obj.objectName}
-              </span>
+              <span className="text-sm text-[var(--sf-text-primary)]">{obj.objectName}</span>
               <span className={cn('text-xs px-2 py-0.5 rounded', stateBadgeClass(obj.state))}>
                 {t(`execution.${obj.state}`, obj.state)}
               </span>
@@ -115,7 +113,7 @@ export const ObjectProgressPanel: React.FC<ObjectProgressPanelProps> = ({
               showPercent
               variant={stateToVariant(obj.state)}
             />
-            <div className="flex justify-between text-xs text-[var(--vscode-descriptionForeground)]">
+            <div className="flex justify-between text-xs text-[var(--sf-text-secondary)]">
               <span>
                 {t('execution.recordsOf', {
                   processed: obj.recordsProcessed,

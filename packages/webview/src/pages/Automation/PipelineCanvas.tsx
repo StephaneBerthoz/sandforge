@@ -61,14 +61,10 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
         return (
           <div key={step.id} className="flex items-center gap-2">
             {/* Connection line */}
-            {index > 0 && (
-              <div className="w-0.5 h-4 bg-[var(--vscode-panel-border,#3c3c3c)] mx-auto -mt-2 -mb-2" />
-            )}
+            {index > 0 && <div className="w-0.5 h-4 bg-[var(--sf-border)] mx-auto -mt-2 -mb-2" />}
             <div
               className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
-                isSelected
-                  ? 'border-[var(--vscode-focusBorder,#007fd4)]'
-                  : 'border-[var(--vscode-panel-border,#3c3c3c)]'
+                isSelected ? 'border-[var(--sf-accent)]' : 'border-[var(--sf-border)]'
               }`}
               onClick={() => onSelectStep?.(step.id)}
               role="button"
@@ -79,16 +75,14 @@ export const PipelineCanvas: React.FC<PipelineCanvasProps> = ({
               data-testid={`canvas-step-${step.id}`}
             >
               <div className={`w-2 h-2 rounded-full ${colorClass}`} />
-              <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {step.name}
-              </span>
+              <span className="text-xs font-medium text-[var(--sf-text-primary)]">{step.name}</span>
               <Badge variant="default">{step.type}</Badge>
               {step.continueOnError && (
                 <Badge variant="warning">{t('automation.continueOnError')}</Badge>
               )}
               {onRemoveStep && (
                 <button
-                  className="text-xs text-[var(--vscode-descriptionForeground,#868686)] hover:text-red-400 ml-auto"
+                  className="text-xs text-[var(--sf-text-secondary)] hover:text-red-400 ml-auto"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRemoveStep(step.id);

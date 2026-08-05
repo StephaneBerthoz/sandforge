@@ -49,7 +49,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
   return (
     <div className="flex flex-col gap-3" data-testid="trigger-config">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
           {t('automation.triggers')}
         </h3>
         <div className="flex items-center gap-2">
@@ -113,7 +113,7 @@ export const TriggerConfigPanel: React.FC<TriggerConfigPanelProps> = ({
             {trigger.type === 'schedule' && (
               <CardBody>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                  <span className="text-xs text-[var(--sf-text-secondary)]">
                     {t('automation.cronExpression')}:
                   </span>
                   <Input

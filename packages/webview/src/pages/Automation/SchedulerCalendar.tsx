@@ -51,7 +51,7 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled 
       </span>
       <div className="opacity-50 pointer-events-none mt-2">
         <div className="flex flex-col gap-3">
-          <h3 className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+          <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
             {t('automation.scheduler')}
           </h3>
           {scheduled.map((item) => (
@@ -67,7 +67,7 @@ export const SchedulerCalendar: React.FC<SchedulerCalendarProps> = ({ scheduled 
                   }
                 />
                 <CardBody>
-                  <div className="flex gap-4 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                  <div className="flex gap-4 text-xs text-[var(--sf-text-secondary)]">
                     <span>{t('automation.triggerTypes.' + item.trigger.type)}</span>
                     {item.nextFireTime && (
                       <span>

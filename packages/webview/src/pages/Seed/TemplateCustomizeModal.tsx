@@ -67,9 +67,7 @@ export const TemplateCustomizeModal: React.FC<TemplateCustomizeModalProps> = ({
       <div className="flex flex-col gap-2" data-testid="template-customize-modal">
         {template.objects.map((obj) => (
           <div key={obj.objectApiName} className="flex items-center gap-3 text-xs">
-            <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">
-              {obj.objectApiName}
-            </span>
+            <span className="w-40 truncate text-[var(--sf-text-primary)]">{obj.objectApiName}</span>
             <Input
               type="number"
               min={1}

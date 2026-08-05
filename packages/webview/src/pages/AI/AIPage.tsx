@@ -152,13 +152,13 @@ export const AIPage: React.FC = () => {
                   cx="24"
                   cy="24"
                   r="20"
-                  stroke="var(--vscode-descriptionForeground, #868686)"
+                  stroke="var(--sf-text-secondary)"
                   strokeWidth="1.5"
                   strokeDasharray="4 4"
                 />
                 <path
                   d="M24 14l2 6h6l-5 4 2 6-5-4-5 4 2-6-5-4h6l2-6z"
-                  fill="var(--vscode-descriptionForeground, #868686)"
+                  fill="var(--sf-text-secondary)"
                   fillOpacity="0.3"
                 />
               </svg>

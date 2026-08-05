@@ -56,19 +56,19 @@ export const StepPalette: React.FC<StepPaletteProps> = ({ onAddStep }) => {
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-palette">
-      <h3 className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <h3 className="text-xs font-semibold text-[var(--sf-text-primary)]">
         {t('automation.steps')}
       </h3>
       {grouped.map(({ category, steps }) => (
         <div key={category}>
-          <span className="text-[10px] uppercase text-[var(--vscode-descriptionForeground,#868686)]">
+          <span className="text-[10px] uppercase text-[var(--sf-text-secondary)]">
             {t(`automation.stepCategories.${category}`)}
           </span>
           <div className="flex flex-wrap gap-1 mt-1">
             {steps.map((entry) => (
               <button
                 key={entry.type}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[var(--vscode-panel-border,#3c3c3c)] hover:border-[var(--vscode-focusBorder,#007fd4)] transition-colors bg-[var(--vscode-editor-background,#1e1e1e)]"
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs border border-[var(--sf-border)] hover:border-[var(--sf-accent)] transition-colors bg-[var(--sf-bg-primary)]"
                 onClick={() => onAddStep?.(entry.type)}
                 data-testid={`palette-${entry.type}`}
               >

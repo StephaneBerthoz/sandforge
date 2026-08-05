@@ -283,7 +283,7 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
                   fill="var(--sf-text-primary, #d4d4d4)"
                   fontSize="11"
                   fontWeight="600"
-                  fontFamily="var(--vscode-font-family)"
+                  fontFamily="var(--sf-font-family)"
                 >
                   {node.label.length > 18 ? `${node.label.slice(0, 16)}..` : node.label}
                 </text>
@@ -294,7 +294,7 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
                   y={pos.y + 38}
                   fill="var(--sf-text-muted, #868686)"
                   fontSize="10"
-                  fontFamily="var(--vscode-font-family)"
+                  fontFamily="var(--sf-font-family)"
                 >
                   {node.recordCount.toLocaleString()} {t('seed.records', 'records')}
                 </text>
@@ -317,7 +317,7 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
                       fontSize="9"
                       fontWeight="700"
                       textAnchor="middle"
-                      fontFamily="var(--vscode-font-family)"
+                      fontFamily="var(--sf-font-family)"
                     >
                       {order}
                     </text>
@@ -332,7 +332,7 @@ export const ERDMiniMap: React.FC<ERDMiniMapProps> = ({
                     fill="var(--sf-warning, #F59E0B)"
                     fontSize="8"
                     textAnchor="middle"
-                    fontFamily="var(--vscode-font-family)"
+                    fontFamily="var(--sf-font-family)"
                   >
                     {t('seed.autoAdded', 'auto')}
                   </text>

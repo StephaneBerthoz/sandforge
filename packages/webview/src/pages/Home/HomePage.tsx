@@ -193,7 +193,7 @@ export const HomePage: React.FC = () => {
                 className={cn(
                   'flex-1 rounded border border-subtle bg-surface-2 px-3 py-1.5 text-sm',
                   'text-text-primary placeholder:text-text-muted',
-                  'focus:outline-none focus:ring-1 focus:ring-[var(--vscode-focusBorder,#007fd4)]',
+                  'focus:outline-none focus:ring-1 focus:ring-[var(--sf-accent)]',
                 )}
                 data-testid="forge-record-input"
               />
@@ -360,10 +360,10 @@ export const HomePage: React.FC = () => {
         <Card data-testid="getting-started-card">
           <CardHeader title={t('home.gettingStarted')} />
           <CardBody>
-            <p className="text-sm text-[var(--vscode-descriptionForeground,#868686)] mb-4">
+            <p className="text-sm text-[var(--sf-text-secondary)] mb-4">
               {t('home.gettingStartedDesc')}
             </p>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-[var(--vscode-editor-foreground,#d4d4d4)]">
+            <ol className="list-decimal list-inside space-y-2 text-sm text-[var(--sf-text-primary)]">
               <li>{t('home.step1')}</li>
               <li>{t('home.step2')}</li>
               <li>{t('home.step3')}</li>

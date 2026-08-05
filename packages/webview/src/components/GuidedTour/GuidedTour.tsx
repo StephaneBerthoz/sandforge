@@ -317,9 +317,9 @@ export const GuidedTour: React.FC<GuidedTourProps> = ({ steps, tourId, onComplet
         style={{
           top: tooltipPosition.top,
           left: tooltipPosition.left,
-          background: 'var(--vscode-editorWidget-background, #252526)',
+          background: 'var(--sf-bg-card)',
           border: '1px solid var(--sf-accent, #E8A838)',
-          color: 'var(--vscode-editor-foreground, #d4d4d4)',
+          color: 'var(--sf-text-primary)',
           animation: 'fadeIn 0.3s ease-out',
           transform:
             position === 'top' || position === 'bottom' ? 'translateX(-50%)' : 'translateY(-50%)',

@@ -66,14 +66,14 @@ export const DriftDashboard: React.FC<DriftDashboardProps> = ({ drift, className
       <CardHeader title={t('compare.drift')} />
       <CardBody>
         {!drift || drift.driftedComponents.length === 0 ? (
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-4">
+          <p className="text-xs text-[var(--sf-text-secondary)] text-center py-4">
             {t('compare.noDrift')}
           </p>
         ) : (
           <div className="flex flex-col gap-3" data-testid="drift-dashboard">
             {/* Drift score */}
             <div className="flex items-center gap-3">
-              <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
+              <span className="text-xs text-[var(--sf-text-primary)]">
                 {t('compare.driftScore')}
               </span>
               <div className="flex-1">
@@ -94,7 +94,7 @@ export const DriftDashboard: React.FC<DriftDashboardProps> = ({ drift, className
                 <div key={group.componentType} data-testid={`drift-group-${group.componentType}`}>
                   {/* Group header */}
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <span className="text-xs font-medium text-[var(--sf-text-primary)]">
                       {group.componentType}
                     </span>
                     <span data-testid={`drift-group-count-${group.componentType}`}>
@@ -108,7 +108,7 @@ export const DriftDashboard: React.FC<DriftDashboardProps> = ({ drift, className
                         key={`${comp.componentType}-${comp.fullName}`}
                         className={cn(
                           'flex items-center gap-2 px-2 py-1 rounded text-xs',
-                          'bg-[var(--vscode-editorWidget-background,#252526)]',
+                          'bg-[var(--sf-bg-card)]',
                         )}
                         data-testid={`drift-item-${comp.fullName}`}
                       >
@@ -123,13 +123,13 @@ export const DriftDashboard: React.FC<DriftDashboardProps> = ({ drift, className
                         >
                           {comp.changeType}
                         </Badge>
-                        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] flex-1 truncate">
+                        <span className="text-[var(--sf-text-primary)] flex-1 truncate">
                           {comp.fullName}
                         </span>
                         {/* Who changed what, when */}
                         {comp.lastModifiedBy && (
                           <span
-                            className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] truncate max-w-[100px]"
+                            className="text-[10px] text-[var(--sf-text-secondary)] truncate max-w-[100px]"
                             data-testid={`drift-modified-by-${comp.fullName}`}
                           >
                             {comp.lastModifiedBy}
@@ -137,7 +137,7 @@ export const DriftDashboard: React.FC<DriftDashboardProps> = ({ drift, className
                         )}
                         {comp.lastModifiedDate && (
                           <span
-                            className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+                            className="text-[10px] text-[var(--sf-text-secondary)]"
                             data-testid={`drift-modified-date-${comp.fullName}`}
                           >
                             {comp.lastModifiedDate}
