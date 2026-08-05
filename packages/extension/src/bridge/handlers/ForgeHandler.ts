@@ -5,6 +5,7 @@ import type {
   ComplianceFrameworkType,
 } from '@sandforge/shared';
 import { forgeConfigSchema, forgeGraphSchema, forgeTemplateSchema } from '@sandforge/shared';
+import { orgTypeToGuardTier } from '@sandforge/shared';
 import { z } from 'zod';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
@@ -463,6 +464,54 @@ export class ForgeHandler implements DomainHandler {
     const parsed = parsePayload(executePayloadSchema, msg, 'forge:execute:error', this.deps);
     if (!parsed) return;
     const { graph, config } = parsed;
+
+    // Production guard check on the target org — same policy as sync/seed
+    // runs (guard instance from backgroundComposition via infraServices).
+    // Covers every write path below: BatchWriter insert/upsert, orphan-parent
+    // expansion inserts and the pass-2 cycle-FK updates all flow through
+    // orchestrator.execute, which runs only after this gate.
+    if (this.deps.infraServices?.productionGuard) {
+      const guard = this.deps.infraServices.productionGuard;
+      const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
+      const guardRequest = {
+        orgId: config.targetOrgId,
+        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+        operation: 'insert' as const,
+        objectName: graph.nodes?.[0]?.objectApiName ?? 'ForgeData',
+        recordCount: graph.totalRecords ?? 0,
+        module: 'forge',
+      };
+      const check = guard.check(guardRequest);
+      guard.logOperation(guardRequest, check);
+      if (!check.allowed) {
+        // Single error channel (see handleDiscover): forge:execute:error
+        // only — no duplicate operation:failed / parasitic ai:resolve-error.
+        sendHandlerError(
+          this.deps,
+          'forge:execute',
+          'forge:execute:error',
+          new Error(
+            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+          ),
+          'GUARD_BLOCKED',
+        );
+        return;
+      }
+      // `safety.requireProdConfirmation`: explicit user consent before
+      // writing to a production org.
+      const confirmed = await guard.confirmIfNeeded(check);
+      if (!confirmed) {
+        sendHandlerError(
+          this.deps,
+          'forge:execute',
+          'forge:execute:error',
+          new Error('Operation cancelled by user (production confirmation declined).'),
+          'GUARD_DECLINED',
+          true,
+        );
+        return;
+      }
+    }
 
     // Build a deterministic ID from payload content to detect genuine duplicates
     const configKey = `${config.sourceOrgId}:${config.targetOrgId}:${config.recordId ?? ''}`;
