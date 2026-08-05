@@ -52,8 +52,15 @@ export interface AutopilotOrchestratorDeps {
   planGenerator: ExecutionPlanGenerator;
   /** Record ID remapper for lookup fields. */
   remapper: RecordIdRemapper;
-  /** Plan executor with pause/resume/skip. */
-  executor: AutopilotExecutor;
+  /**
+   * Factory creating a fresh plan executor per execution. Pause/skip state
+   * lives on the executor instance, so one instance per execution is what
+   * isolates concurrent (and successive) runs from each other — a shared
+   * singleton would leak `paused`/`skippedObjects` across executions.
+   * Construction is trivial (deps + batch size), so per-execution instances
+   * cost nothing.
+   */
+  createExecutor: () => AutopilotExecutor;
   /** Grappe adapter for parallel partitioning. */
   grappeAdapter: AutopilotGrappeAdapter;
   /** Grappe mode configuration. */
@@ -86,6 +93,18 @@ export type OrchestratorEventListener = (event: AutopilotEvent) => void;
 export class AutopilotOrchestrator {
   private readonly deps: AutopilotOrchestratorDeps;
   private eventListeners: OrchestratorEventListener[] = [];
+  /**
+   * Executors currently inside `execute()`, most recently started last.
+   * pause/resume/skip target the latest one — the fixed message protocol
+   * carries no operation id, so "latest wins" matches the handler semantics.
+   */
+  private readonly runningExecutors: AutopilotExecutor[] = [];
+  /**
+   * Skips registered while no execution is running. They are applied to the
+   * next execution (historical "skip before execute" semantics) and consumed,
+   * so they never leak into executions beyond that one.
+   */
+  private readonly pendingSkips = new Set<string>();
 
   /** @param deps - Injected dependencies for all sub-services. */
   constructor(deps: AutopilotOrchestratorDeps) {
@@ -227,7 +246,19 @@ export class AutopilotOrchestrator {
     }
 
     this.emitEvent({ type: 'execution-started', timestamp: new Date().toISOString() });
-    const result = await this.deps.executor.execute(plan, graph.edges, rules, recordCounts);
+    // One executor per execution: pause/skip state is per-run, never shared.
+    const executor = this.deps.createExecutor();
+    for (const skipped of this.pendingSkips) {
+      executor.skip(skipped);
+    }
+    this.pendingSkips.clear();
+    this.runningExecutors.push(executor);
+    let result: ExecutionResult;
+    try {
+      result = await executor.execute(plan, graph.edges, rules, recordCounts);
+    } finally {
+      this.runningExecutors.splice(this.runningExecutors.indexOf(executor), 1);
+    }
     this.emitEvent({ type: 'execution-completed', timestamp: new Date().toISOString() });
 
     if (grappeActive) {
@@ -282,21 +313,37 @@ export class AutopilotOrchestrator {
     );
   }
 
-  /** Pause execution. Delegates to the executor. */
-  pause(): void {
-    this.deps.executor.pause();
-  }
-
-  /** Resume execution after a pause. Delegates to the executor. */
-  resume(): void {
-    this.deps.executor.resume();
+  /** Most recently started execution still running ("latest wins" target). */
+  private latestRunningExecutor(): AutopilotExecutor | undefined {
+    return this.runningExecutors[this.runningExecutors.length - 1];
   }
 
   /**
-   * Skip an object during execution.
+   * Pause the most recently started running execution. Other simultaneous
+   * executions keep running; a pause with no execution in flight is a no-op
+   * (it must not leak into the next execution).
+   */
+  pause(): void {
+    this.latestRunningExecutor()?.pause();
+  }
+
+  /** Resume the most recently started running execution after a pause. */
+  resume(): void {
+    this.latestRunningExecutor()?.resume();
+  }
+
+  /**
+   * Skip an object during execution. Targets the most recently started
+   * running execution; when nothing is running the skip is held and applied
+   * to the next execution only (see {@link pendingSkips}).
    * @param objectApiName - The object to skip.
    */
   skip(objectApiName: string): void {
-    this.deps.executor.skip(objectApiName);
+    const running = this.latestRunningExecutor();
+    if (running) {
+      running.skip(objectApiName);
+      return;
+    }
+    this.pendingSkips.add(objectApiName);
   }
 }

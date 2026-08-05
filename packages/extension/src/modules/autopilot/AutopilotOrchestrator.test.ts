@@ -12,7 +12,14 @@ import type {
   PIIFieldDetection,
   AutopilotAnonymizationRule,
 } from '@sandforge/shared';
-import type { ExecutionResult } from './AutopilotExecutor';
+import {
+  AutopilotExecutor,
+  type ExecutionResult,
+  type InsertFn,
+  type InsertResult,
+} from './AutopilotExecutor';
+import type { SmartAnonymizer } from './SmartAnonymizer';
+import type { RecordIdRemapper } from './RecordIdRemapper';
 
 /** Helper: create a minimal FieldDescribeResult. */
 function mockField(name: string, overrides?: Partial<FieldDescribeResult>): FieldDescribeResult {
@@ -119,14 +126,23 @@ function mockProfile(): ComplianceProfile {
   };
 }
 
-/** Helper: create mock deps. */
-function createMockDeps(): AutopilotOrchestratorDeps {
+/** Mock of the per-execution executor produced by the createExecutor factory. */
+interface ExecutorMock {
+  execute: ReturnType<typeof vi.fn>;
+  pause: ReturnType<typeof vi.fn>;
+  resume: ReturnType<typeof vi.fn>;
+  skip: ReturnType<typeof vi.fn>;
+}
+
+/** Helper: create mock deps. Each call to createExecutor produces a fresh tracked mock. */
+function createMockDeps(): { deps: AutopilotOrchestratorDeps; executors: ExecutorMock[] } {
   const scanResult = mockScanResult();
   const graph = mockGraph();
   const plan = mockPlan();
   const profile = mockProfile();
+  const executors: ExecutorMock[] = [];
 
-  return {
+  const deps: AutopilotOrchestratorDeps = {
     schemaScanner: {
       scan: vi.fn().mockResolvedValue(scanResult),
     } as unknown as AutopilotOrchestratorDeps['schemaScanner'],
@@ -161,26 +177,101 @@ function createMockDeps(): AutopilotOrchestratorDeps {
       generate: vi.fn().mockReturnValue(plan),
     } as unknown as AutopilotOrchestratorDeps['planGenerator'],
     remapper: {} as unknown as AutopilotOrchestratorDeps['remapper'],
-    executor: {
-      execute: vi.fn().mockResolvedValue({
-        totalSuccess: 100,
-        totalFailure: 0,
-        totalSkipped: 0,
-        elapsedMs: 5000,
-        completedObjects: ['Account'],
-        failedObjects: [],
-        skippedObjects: [],
-      } satisfies ExecutionResult),
-      pause: vi.fn(),
-      resume: vi.fn(),
-      skip: vi.fn(),
-    } as unknown as AutopilotOrchestratorDeps['executor'],
+    createExecutor: vi.fn(() => {
+      const executor: ExecutorMock = {
+        execute: vi.fn().mockResolvedValue({
+          totalSuccess: 100,
+          totalFailure: 0,
+          totalSkipped: 0,
+          elapsedMs: 5000,
+          completedObjects: ['Account'],
+          failedObjects: [],
+          skippedObjects: [],
+        } satisfies ExecutionResult),
+        pause: vi.fn(),
+        resume: vi.fn(),
+        skip: vi.fn(),
+      };
+      executors.push(executor);
+      return executor;
+    }) as unknown as AutopilotOrchestratorDeps['createExecutor'],
     grappeAdapter: {
       shouldUseGrappe: vi.fn().mockReturnValue(false),
       partition: vi.fn().mockReturnValue([]),
       getThreshold: vi.fn().mockReturnValue(5000),
       getPartitionSize: vi.fn().mockReturnValue(2000),
     } as unknown as AutopilotOrchestratorDeps['grappeAdapter'],
+  };
+  return { deps, executors };
+}
+
+/**
+ * Helper: deps whose factory builds REAL AutopilotExecutor instances, each
+ * with its own query/insert mocks — used to prove per-execution state
+ * isolation (pause/skip) rather than mock-level delegation.
+ */
+function createRealExecutorDeps(): {
+  deps: AutopilotOrchestratorDeps;
+  created: Array<{
+    executor: AutopilotExecutor;
+    query: ReturnType<typeof vi.fn>;
+    insert: InsertFn;
+  }>;
+} {
+  const { deps } = createMockDeps();
+  const created: Array<{
+    executor: AutopilotExecutor;
+    query: ReturnType<typeof vi.fn>;
+    insert: InsertFn;
+  }> = [];
+  deps.createExecutor = () => {
+    const query = vi.fn();
+    const insert: InsertFn = vi.fn(
+      async (_obj: string, records: Record<string, unknown>[]): Promise<InsertResult> => ({
+        successIds: records.map((r) => `t_${String(r.Id)}`),
+        sourceIds: records.map((r) => String(r.Id)),
+        errors: [],
+      }),
+    );
+    const executor = new AutopilotExecutor({
+      query,
+      insert,
+      anonymizer: { anonymize: vi.fn() } as unknown as SmartAnonymizer,
+      remapper: {
+        remapRecords: vi.fn(),
+        registerMappings: vi.fn(),
+      } as unknown as RecordIdRemapper,
+      batchSize: 2,
+    });
+    created.push({ executor, query, insert });
+    return executor;
+  };
+  return { deps, created };
+}
+
+/** Creates a manually-resolved promise for in-flight concurrency tests. */
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (err: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Helper: two-wave plan (Account → Contact) for skip-isolation tests. */
+function twoWavePlan(): ExecutionPlan {
+  return {
+    ...mockPlan(),
+    waves: [
+      { order: 0, objects: ['Account'], dependsOn: [] },
+      { order: 1, objects: ['Contact'], dependsOn: [0] },
+    ],
   };
 }
 
@@ -213,10 +304,11 @@ function mockConnection(): {
 
 describe('AutopilotOrchestrator', () => {
   let deps: AutopilotOrchestratorDeps;
+  let executors: ExecutorMock[];
   let orchestrator: AutopilotOrchestrator;
 
   beforeEach(() => {
-    deps = createMockDeps();
+    ({ deps, executors } = createMockDeps());
     orchestrator = new AutopilotOrchestrator(deps);
   });
 
@@ -324,19 +416,47 @@ describe('AutopilotOrchestrator', () => {
   });
 
   describe('pause/resume/skip', () => {
-    it('pause delegates to executor', () => {
+    it('pause delegates to the running executor', async () => {
+      const run = orchestrator.executePlan(mockPlan(), mockGraph(), [], new Map());
+      // The executor is created synchronously; execute() is still awaited.
       orchestrator.pause();
-      expect(deps.executor.pause).toHaveBeenCalledTimes(1);
+      expect(executors[0].pause).toHaveBeenCalledTimes(1);
+      await run;
     });
 
-    it('resume delegates to executor', () => {
+    it('resume delegates to the running executor', async () => {
+      const run = orchestrator.executePlan(mockPlan(), mockGraph(), [], new Map());
       orchestrator.resume();
-      expect(deps.executor.resume).toHaveBeenCalledTimes(1);
+      expect(executors[0].resume).toHaveBeenCalledTimes(1);
+      await run;
     });
 
-    it('skip delegates to executor with object name', () => {
+    it('skip delegates to the running executor with object name', async () => {
+      const run = orchestrator.executePlan(mockPlan(), mockGraph(), [], new Map());
       orchestrator.skip('Account');
-      expect(deps.executor.skip).toHaveBeenCalledWith('Account');
+      expect(executors[0].skip).toHaveBeenCalledWith('Account');
+      await run;
+    });
+
+    it('pause with no running execution is a no-op and does not leak into the next one', async () => {
+      orchestrator.pause();
+      await orchestrator.executePlan(mockPlan(), mockGraph(), [], new Map());
+      expect(executors[0].pause).not.toHaveBeenCalled();
+    });
+
+    it('skip with no running execution is applied to the next execution only', async () => {
+      orchestrator.skip('Account');
+
+      await orchestrator.executePlan(mockPlan(), mockGraph(), [], new Map());
+      expect(executors[0].skip).toHaveBeenCalledWith('Account');
+      // The held skip is applied before the execution starts.
+      expect(executors[0].skip.mock.invocationCallOrder[0]).toBeLessThan(
+        executors[0].execute.mock.invocationCallOrder[0],
+      );
+
+      // Consumed: the following execution starts clean.
+      await orchestrator.executePlan(mockPlan(), mockGraph(), [], new Map());
+      expect(executors[1].skip).not.toHaveBeenCalled();
     });
   });
 
@@ -379,5 +499,132 @@ describe('AutopilotOrchestrator', () => {
       orchestrator.generatePlan(mockGraph(), 'gdpr', []);
       expect(events).toHaveLength(1);
     });
+  });
+});
+
+describe('AutopilotOrchestrator — execution isolation (real executors)', () => {
+  const recordCounts = () =>
+    new Map([
+      ['Account', 1],
+      ['Contact', 1],
+    ]);
+
+  it('pausing one execution does not pause a simultaneous one', async () => {
+    const { deps, created } = createRealExecutorDeps();
+    const orchestrator = new AutopilotOrchestrator(deps);
+    // 4 records at batchSize 2 → each executor hits checkPause() a second time,
+    // which is where a paused executor would block mid-execution.
+    const counts = new Map([['Account', 4]]);
+
+    const gateA = deferred<Record<string, unknown>[]>();
+    const runA = orchestrator.executePlan(mockPlan(), mockGraph(), [], counts);
+    created[0].query.mockImplementationOnce(() => gateA.promise).mockResolvedValue([]);
+    const pausedA: string[] = [];
+    created[0].executor.on('paused', () => pausedA.push('paused'));
+
+    const gateB = deferred<Record<string, unknown>[]>();
+    const runB = orchestrator.executePlan(mockPlan(), mockGraph(), [], counts);
+    created[1].query.mockImplementationOnce(() => gateB.promise).mockResolvedValue([]);
+    const pausedB: string[] = [];
+    created[1].executor.on('paused', () => pausedB.push('paused'));
+
+    // Targets the most recently started execution (B), never A.
+    orchestrator.pause();
+
+    // A completes on its own — with the old shared executor it would have
+    // deadlocked here on the shared pause state.
+    gateA.resolve([{ Id: 'a1' }, { Id: 'a2' }]);
+    const resultA = await runA;
+    expect(resultA.totalSuccess).toBe(2);
+    expect(pausedA).toHaveLength(0);
+
+    // B runs into its own pause gate after the first batch and stays paused.
+    gateB.resolve([{ Id: 'b1' }, { Id: 'b2' }]);
+    let bSettled = false;
+    void runB.then(() => {
+      bSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(pausedB).toHaveLength(1);
+    expect(bSettled).toBe(false);
+
+    orchestrator.resume();
+    const resultB = await runB;
+    expect(bSettled).toBe(true);
+    expect(resultB.totalSuccess).toBe(2);
+  });
+
+  it('skipping an object targets one execution only, not simultaneous ones', async () => {
+    const { deps, created } = createRealExecutorDeps();
+    const orchestrator = new AutopilotOrchestrator(deps);
+    const plan = twoWavePlan();
+
+    const gateA = deferred<Record<string, unknown>[]>();
+    const runA = orchestrator.executePlan(plan, mockGraph(), [], recordCounts());
+    created[0].query.mockImplementationOnce(() => gateA.promise).mockResolvedValue([{ Id: 'c1' }]);
+
+    const gateB = deferred<Record<string, unknown>[]>();
+    const runB = orchestrator.executePlan(plan, mockGraph(), [], recordCounts());
+    created[1].query.mockImplementationOnce(() => gateB.promise).mockResolvedValue([{ Id: 'c2' }]);
+
+    // Both executions are parked in wave 0; the skip lands on B (latest) only.
+    orchestrator.skip('Contact');
+
+    gateA.resolve([{ Id: 'a1' }]);
+    const resultA = await runA;
+    expect(resultA.skippedObjects).toEqual([]);
+    expect(resultA.completedObjects).toEqual(['Account', 'Contact']);
+    expect(created[0].query.mock.calls.map((c) => c[0])).toContain('Contact');
+
+    gateB.resolve([{ Id: 'b1' }]);
+    const resultB = await runB;
+    expect(resultB.skippedObjects).toEqual(['Contact']);
+    expect(resultB.totalSkipped).toBe(1);
+    expect(resultB.completedObjects).toEqual(['Account']);
+    // B never queried the skipped object.
+    expect(created[1].query.mock.calls.map((c) => c[0])).not.toContain('Contact');
+  });
+
+  it('skips from a finished execution do not leak into the next one', async () => {
+    const { deps, created } = createRealExecutorDeps();
+    const orchestrator = new AutopilotOrchestrator(deps);
+    const plan = twoWavePlan();
+
+    const gate1 = deferred<Record<string, unknown>[]>();
+    const run1 = orchestrator.executePlan(plan, mockGraph(), [], recordCounts());
+    created[0].query.mockImplementationOnce(() => gate1.promise).mockResolvedValue([{ Id: 'c1' }]);
+    orchestrator.skip('Contact');
+    gate1.resolve([{ Id: 'a1' }]);
+    const result1 = await run1;
+    expect(result1.skippedObjects).toEqual(['Contact']);
+
+    // Second execution: fresh executor, no leftover skippedObjects.
+    const run2 = orchestrator.executePlan(plan, mockGraph(), [], recordCounts());
+    created[1].query.mockResolvedValue([{ Id: 'x1' }]);
+    const result2 = await run2;
+    expect(result2.skippedObjects).toEqual([]);
+    expect(result2.completedObjects).toEqual(['Account', 'Contact']);
+  });
+
+  it('a skip registered before any execution applies to the next execution only', async () => {
+    const { deps, created } = createRealExecutorDeps();
+    const orchestrator = new AutopilotOrchestrator(deps);
+    const plan = twoWavePlan();
+
+    // Historical "skip before execute" semantics, with nothing running.
+    orchestrator.skip('Contact');
+
+    const run1 = orchestrator.executePlan(plan, mockGraph(), [], recordCounts());
+    created[0].query.mockResolvedValue([{ Id: 'x1' }]);
+    const result1 = await run1;
+    expect(result1.skippedObjects).toEqual(['Contact']);
+    expect(created[0].query.mock.calls.map((c) => c[0])).not.toContain('Contact');
+
+    // The held skip was consumed: the next execution runs Contact normally.
+    const run2 = orchestrator.executePlan(plan, mockGraph(), [], recordCounts());
+    created[1].query.mockResolvedValue([{ Id: 'x1' }]);
+    const result2 = await run2;
+    expect(result2.skippedObjects).toEqual([]);
+    expect(result2.completedObjects).toEqual(['Account', 'Contact']);
   });
 });

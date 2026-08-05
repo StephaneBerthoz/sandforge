@@ -540,6 +540,43 @@ export const aiGeneratePipelinePayloadSchema = z.object({
   orgIds: z.array(orgIdSchema).max(50).optional(),
 });
 
+// ── ai:diagnose / ai:approve-action payload schemas ─────────────────────────
+// Mirror AIDiagnoseRequestMessage / AIApproveActionRequestMessage
+// (shared/types/messages/ai.messages.ts). The diagnose flow answers with its
+// own specialised error envelopes (ai:diagnose:response /
+// ai:approve-action:response), so AIDiagnoseAdapter parses with these schemas
+// directly instead of going through validatePayload()'s generic
+// sendHandlerError path.
+
+/** Diagnose error context as sent by the webview (failed job / deploy / test run). */
+export const aiDiagnoseErrorContextSchema = z.object({
+  kind: z.enum([
+    'bulk-job',
+    'apex-deploy',
+    'metadata-deploy',
+    'test-run',
+    'soql-analysis',
+    'generic',
+  ]),
+  jobId: opaqueIdSchema.optional(),
+  file: z.string().max(2_000).optional(),
+  errorMessage: z.string().max(50_000),
+  debugLogTail: z.string().max(500_000).optional(),
+  classifierVerdict: z.string().max(10_000).optional(),
+});
+
+export const aiDiagnosePayloadSchema = z.object({
+  runId: opaqueIdSchema,
+  orgId: orgIdSchema,
+  errorContext: aiDiagnoseErrorContextSchema,
+});
+
+export const aiApproveActionPayloadSchema = z.object({
+  runId: opaqueIdSchema,
+  actionIndex: z.number().int().nonnegative().max(1_000),
+  modifiedPayload: z.string().max(500_000).optional(),
+});
+
 // ── migration:* payload schemas ───────────────────────────────────────────
 // Mirror the shared request contracts (no current webview emitter). The
 // handler re-validates the path against traversal after parsing.
