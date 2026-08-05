@@ -94,13 +94,13 @@ export const SnapshotTimeline: React.FC<SnapshotTimelineProps> = ({
       />
       <CardBody className="max-h-60 overflow-y-auto">
         {sorted.length === 0 ? (
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-4">
+          <p className="text-xs text-[var(--sf-text-secondary)] text-center py-4">
             {t('compare.noSnapshots')}
           </p>
         ) : (
           <div className="relative pl-4" data-testid="snapshot-timeline">
             {/* Vertical timeline line */}
-            <div className="absolute left-1.5 top-0 bottom-0 w-px bg-[var(--vscode-panel-border,#3c3c3c)]" />
+            <div className="absolute left-1.5 top-0 bottom-0 w-px bg-[var(--sf-border)]" />
             {sorted.map((snapshot) => {
               const isSelected = selectedIds.includes(snapshot.id);
               return (
@@ -115,7 +115,7 @@ export const SnapshotTimeline: React.FC<SnapshotTimelineProps> = ({
                       'absolute -left-[10.5px] top-1.5 w-2 h-2 rounded-full',
                       isSelected
                         ? 'bg-[var(--sf-warning,#F59E0B)] ring-2 ring-[var(--sf-warning,#F59E0B)] ring-opacity-40'
-                        : 'bg-[var(--vscode-textLink-foreground,#3794ff)]',
+                        : 'bg-[var(--sf-text-link)]',
                     )}
                   />
                   <button
@@ -124,8 +124,8 @@ export const SnapshotTimeline: React.FC<SnapshotTimelineProps> = ({
                       'border',
                       isSelected
                         ? 'border-[var(--sf-warning,#F59E0B)] bg-[rgba(245,158,11,0.08)]'
-                        : 'border-[var(--vscode-panel-border,#3c3c3c)]',
-                      'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
+                        : 'border-[var(--sf-border)]',
+                      'hover:bg-[var(--sf-bg-hover)]',
                     )}
                     onClick={() => {
                       handleToggleSelect(snapshot.id);
@@ -134,13 +134,13 @@ export const SnapshotTimeline: React.FC<SnapshotTimelineProps> = ({
                     data-testid={`snapshot-select-${snapshot.id}`}
                   >
                     <div>
-                      <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                      <span className="text-xs font-medium text-[var(--sf-text-primary)]">
                         {snapshot.name}
                       </span>
-                      <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] ml-2">
+                      <span className="text-[10px] text-[var(--sf-text-secondary)] ml-2">
                         {formatDate(snapshot.createdAt)}
                       </span>
-                      <div className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                      <div className="text-[10px] text-[var(--sf-text-secondary)]">
                         {t('common.componentCount', { count: snapshot.componentCount })} &middot;{' '}
                         {t('common.typeCount', { count: snapshot.componentTypes.length })}
                       </div>

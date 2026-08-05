@@ -126,7 +126,7 @@ export const DiffDetailModal: React.FC<DiffDetailModalProps> = ({ diff, onClose,
           <span
             style={{
               flex: 1,
-              fontSize: 'var(--sf-font-size-base)',
+              fontSize: 'var(--sf-font-size)',
               fontWeight: 600,
               color: 'var(--sf-text-primary)',
               fontFamily: 'monospace',

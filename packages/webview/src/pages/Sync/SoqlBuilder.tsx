@@ -39,7 +39,7 @@ export const SoqlBuilder: React.FC<SoqlBuilderProps> = ({
 
   return (
     <div className={cn('flex flex-col gap-3', className)} data-testid="soql-builder">
-      <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <span className="text-xs font-medium text-[var(--sf-text-primary)]">
         {t('sync.soqlQuery')}
       </span>
 
@@ -47,9 +47,9 @@ export const SoqlBuilder: React.FC<SoqlBuilderProps> = ({
       <pre
         className={cn(
           'text-[10px] p-3 rounded overflow-x-auto',
-          'bg-[var(--vscode-input-background,#3c3c3c)]',
-          'text-[var(--vscode-editor-foreground,#d4d4d4)]',
-          'border border-[var(--vscode-panel-border,#3c3c3c)]',
+          'bg-[var(--sf-bg-input)]',
+          'text-[var(--sf-text-primary)]',
+          'border border-[var(--sf-border)]',
         )}
         data-testid="soql-preview"
       >
@@ -58,7 +58,7 @@ export const SoqlBuilder: React.FC<SoqlBuilderProps> = ({
 
       {/* Field selection */}
       <div className="flex flex-col gap-1">
-        <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] font-medium">
+        <span className="text-[10px] text-[var(--sf-text-secondary)] font-medium">
           {t('sync.sourceField')}
         </span>
         <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
@@ -70,8 +70,8 @@ export const SoqlBuilder: React.FC<SoqlBuilderProps> = ({
                 className={cn(
                   'px-2 py-0.5 rounded text-[10px] border transition-colors',
                   isSelected
-                    ? 'bg-[var(--vscode-focusBorder,#007fd4)] text-white border-transparent'
-                    : 'text-[var(--vscode-descriptionForeground,#868686)] border-[var(--vscode-panel-border,#3c3c3c)] hover:border-[var(--vscode-focusBorder,#007fd4)]',
+                    ? 'bg-[var(--sf-accent)] text-white border-transparent'
+                    : 'text-[var(--sf-text-secondary)] border-[var(--sf-border)] hover:border-[var(--sf-accent)]',
                 )}
                 onClick={() => onToggleField(field)}
                 role="checkbox"

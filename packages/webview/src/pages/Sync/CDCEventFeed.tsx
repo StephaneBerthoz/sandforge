@@ -39,19 +39,19 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
 
   return (
     <div
-      className="flex items-center gap-[var(--sf-space-2)] px-2 py-1 text-[11px] border-b border-[var(--vscode-panel-border)] hover:bg-[var(--vscode-list-hoverBackground)]"
+      className="flex items-center gap-[var(--sf-space-2)] px-2 py-1 text-[11px] border-b border-[var(--sf-border)] hover:bg-[var(--sf-bg-hover)]"
       data-testid={`cdc-event-row-${index}`}
     >
       {/* Timestamp */}
       <span
-        className="w-[60px] shrink-0 text-[var(--vscode-descriptionForeground,#868686)]"
+        className="w-[60px] shrink-0 text-[var(--sf-text-secondary)]"
         title={event.commitTimestamp}
       >
         {formatRelativeTime(event.commitTimestamp)}
       </span>
 
       {/* Object name */}
-      <span className="w-[100px] shrink-0 font-medium text-[var(--vscode-editor-foreground,#d4d4d4)] truncate">
+      <span className="w-[100px] shrink-0 font-medium text-[var(--sf-text-primary)] truncate">
         {event.objectApiName}
       </span>
 
@@ -64,12 +64,12 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
 
       {/* Record IDs */}
       <span
-        className="flex-1 truncate text-[var(--vscode-descriptionForeground,#868686)]"
+        className="flex-1 truncate text-[var(--sf-text-secondary)]"
         title={event.recordIds.join(', ')}
       >
         {visibleIds.join(', ')}
         {hiddenCount > 0 && (
-          <span className="ml-1 text-[var(--vscode-descriptionForeground)]">
+          <span className="ml-1 text-[var(--sf-text-secondary)]">
             {t('sync.realtime.nMore', { count: hiddenCount })}
           </span>
         )}
@@ -78,14 +78,11 @@ const EventRow: React.FC<{ event: CDCFeedEvent; index: number }> = ({ event, ind
       {/* Applied status */}
       <span className="w-[20px] shrink-0 text-center">
         {event.error ? (
-          <span
-            className="codicon codicon-error text-[var(--vscode-errorForeground,#f48771)]"
-            title={event.error}
-          />
+          <span className="codicon codicon-error text-[var(--sf-error)]" title={event.error} />
         ) : event.applied ? (
-          <span className="codicon codicon-check text-[var(--vscode-testing-iconPassed,#73c991)]" />
+          <span className="codicon codicon-check text-[var(--sf-success)]" />
         ) : (
-          <span className="codicon codicon-loading codicon-modifier-spin text-[var(--vscode-descriptionForeground,#868686)]" />
+          <span className="codicon codicon-loading codicon-modifier-spin text-[var(--sf-text-secondary)]" />
         )}
       </span>
     </div>
@@ -104,7 +101,7 @@ export const CDCEventFeed: React.FC = () => {
   return (
     <div className="flex flex-col flex-1 min-h-0" data-testid="cdc-event-feed">
       {/* Header */}
-      <div className="flex items-center gap-[var(--sf-space-2)] px-2 py-1 text-[10px] font-semibold text-[var(--vscode-descriptionForeground,#868686)] border-b border-[var(--vscode-panel-border)] uppercase tracking-wider">
+      <div className="flex items-center gap-[var(--sf-space-2)] px-2 py-1 text-[10px] font-semibold text-[var(--sf-text-secondary)] border-b border-[var(--sf-border)] uppercase tracking-wider">
         <span className="w-[60px] shrink-0">{t('common.time', 'Time')}</span>
         <span className="w-[100px] shrink-0">{t('common.object', 'Object')}</span>
         <span className="w-[70px] shrink-0">{t('common.type', 'Type')}</span>
@@ -114,7 +111,7 @@ export const CDCEventFeed: React.FC = () => {
 
       {/* Event list */}
       {events.length === 0 ? (
-        <div className="flex items-center justify-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="flex items-center justify-center py-8 text-xs text-[var(--sf-text-secondary)]">
           {t('sync.realtime.noEvents')}
         </div>
       ) : (
@@ -131,7 +128,7 @@ export const CDCEventFeed: React.FC = () => {
 
       {/* Footer */}
       <div
-        className="flex items-center justify-between px-2 py-1 text-[10px] text-[var(--vscode-descriptionForeground,#868686)] border-t border-[var(--vscode-panel-border)]"
+        className="flex items-center justify-between px-2 py-1 text-[10px] text-[var(--sf-text-secondary)] border-t border-[var(--sf-border)]"
         data-testid="cdc-event-count"
       >
         <span>

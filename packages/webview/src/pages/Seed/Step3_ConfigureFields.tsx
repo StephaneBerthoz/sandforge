@@ -102,12 +102,9 @@ const ObjectPanel: React.FC<{
   };
 
   return (
-    <div
-      key={obj.objectApiName}
-      className="border border-[var(--vscode-panel-border,#3c3c3c)] rounded"
-    >
+    <div key={obj.objectApiName} className="border border-[var(--sf-border)] rounded">
       <button
-        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)] hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]"
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-[var(--sf-text-primary)] hover:bg-[var(--sf-bg-hover)]"
         onClick={() =>
           setExpandedObject(expandedObject === obj.objectApiName ? '' : obj.objectApiName)
         }
@@ -132,7 +129,7 @@ const ObjectPanel: React.FC<{
           {hasSuggestions && onApplySmartSuggestions && (
             <div className="flex items-center">
               <button
-                className="text-[10px] text-[var(--vscode-focusBorder,#007fd4)] hover:underline"
+                className="text-[10px] text-[var(--sf-accent)] hover:underline"
                 onClick={() => onApplySmartSuggestions(obj.objectApiName)}
                 data-testid={`smart-suggest-${obj.objectApiName}`}
               >
@@ -162,19 +159,15 @@ const ObjectPanel: React.FC<{
                 key={field.fieldApiName}
                 className={cn(
                   'flex items-center gap-2 p-2 rounded text-xs',
-                  'bg-[var(--vscode-input-background,#3c3c3c)]',
+                  'bg-[var(--sf-bg-input)]',
                 )}
                 data-testid={`field-${obj.objectApiName}-${field.fieldApiName}`}
               >
                 <div className="w-32 truncate">
-                  <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                    {field.label}
-                  </span>
+                  <span className="text-[var(--sf-text-primary)]">{field.label}</span>
                   {field.required && <span className="text-red-400 ml-0.5">*</span>}
                 </div>
-                <span className="w-16 text-[var(--vscode-descriptionForeground,#868686)] truncate">
-                  {field.type}
-                </span>
+                <span className="w-16 text-[var(--sf-text-secondary)] truncate">{field.type}</span>
                 <Select
                   options={ruleOptions}
                   value={field.ruleType}
@@ -366,9 +359,7 @@ export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-configure-fields">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('seed.configureFieldsDesc')}
-      </p>
+      <p className="text-xs text-[var(--sf-text-secondary)]">{t('seed.configureFieldsDesc')}</p>
 
       {/* Search filter for large configs */}
       {useGroupedView && (

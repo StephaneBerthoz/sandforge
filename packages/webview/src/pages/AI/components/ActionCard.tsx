@@ -29,9 +29,9 @@ export interface ActionCardProps {
 }
 
 const CONFIDENCE_BADGE: Record<DiagnoseResultDisplay['confidence'], string> = {
-  high: 'bg-[var(--sf-color-bg-ok,#16a34a)] text-white',
-  medium: 'bg-[var(--sf-color-bg-warning,#eab308)] text-white',
-  low: 'bg-[var(--sf-color-bg-error,#dc2626)] text-white',
+  high: 'bg-[var(--sf-success)] text-white',
+  medium: 'bg-[var(--sf-warning)] text-white',
+  low: 'bg-[var(--sf-error)] text-white',
 };
 
 const KIND_LABELS: Record<ActionKind, string> = {
@@ -79,7 +79,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({
   return (
     <div
       data-testid={`ai-action-card-${runId}`}
-      className="rounded border border-[var(--sf-color-border,#d1d5db)] p-4 my-2 bg-[var(--sf-color-bg-card,#fafafa)]"
+      className="rounded border border-[var(--sf-border)] p-4 my-2 bg-[var(--sf-bg-card)]"
     >
       <div className="flex items-center gap-2 mb-2">
         <span
@@ -90,7 +90,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({
         </span>
         <h3 className="font-semibold text-sm">{result.summary.slice(0, 120)}</h3>
       </div>
-      <p className="text-xs text-[var(--sf-color-text-muted,#6b7280)] mb-3 max-h-32 overflow-y-auto">
+      <p className="text-xs text-[var(--sf-text-muted)] mb-3 max-h-32 overflow-y-auto">
         {result.rootCause}
       </p>
 
@@ -101,11 +101,11 @@ export const ActionCard: React.FC<ActionCardProps> = ({
             <li
               key={index}
               data-testid={`ai-action-card-action-${index}`}
-              className="flex flex-col gap-1 p-2 rounded border border-[var(--sf-color-border-soft,#e5e7eb)]"
+              className="flex flex-col gap-1 p-2 rounded border border-[var(--sf-border-subtle)]"
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="font-mono text-[var(--sf-color-text-muted,#6b7280)]">
+                  <span className="font-mono text-[var(--sf-text-muted)]">
                     {KIND_LABELS[action.kind]}
                   </span>
                   <span className="font-medium">{action.label}</span>
@@ -124,7 +124,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({
                       type="button"
                       data-testid={`ai-action-card-approve-${index}`}
                       onClick={() => onApprove(index)}
-                      className="px-2 py-0.5 text-xs rounded bg-[var(--sf-color-bg-primary,#2563eb)] text-white"
+                      className="px-2 py-0.5 text-xs rounded bg-[var(--sf-button-bg)] text-white"
                     >
                       Approuver
                     </button>
@@ -150,16 +150,14 @@ export const ActionCard: React.FC<ActionCardProps> = ({
                     type="button"
                     data-testid={`ai-action-card-execute-${index}`}
                     onClick={() => onExecute?.(index)}
-                    className="px-2 py-0.5 text-xs rounded bg-[var(--sf-color-bg-secondary,#6b7280)] text-white"
+                    className="px-2 py-0.5 text-xs rounded bg-[var(--sf-button-secondary-bg)] text-white"
                   >
                     Exécuter
                   </button>
                 )}
               </div>
               {action.riskNote && (
-                <p className="text-xs text-[var(--sf-color-text-warning,#854d0e)]">
-                  ⚠ {action.riskNote}
-                </p>
+                <p className="text-xs text-[var(--sf-warning)]">⚠ {action.riskNote}</p>
               )}
               {editingIndex === index && (
                 <div data-testid={`ai-action-card-modify-modal-${index}`} className="mt-2">
@@ -174,7 +172,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({
                       type="button"
                       data-testid={`ai-action-card-modify-save-${index}`}
                       onClick={() => saveModify(index)}
-                      className="px-2 py-0.5 text-xs rounded bg-[var(--sf-color-bg-primary,#2563eb)] text-white"
+                      className="px-2 py-0.5 text-xs rounded bg-[var(--sf-button-bg)] text-white"
                     >
                       Enregistrer & Approuver
                     </button>
@@ -189,7 +187,7 @@ export const ActionCard: React.FC<ActionCardProps> = ({
                 </div>
               )}
               {state?.message && (
-                <p className="text-xs text-[var(--sf-color-text-muted,#6b7280)]">{state.message}</p>
+                <p className="text-xs text-[var(--sf-text-muted)]">{state.message}</p>
               )}
             </li>
           );

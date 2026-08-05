@@ -88,12 +88,8 @@ export const OrgEditDialog: React.FC<OrgEditDialogProps> = ({ org, open, onClose
           data-testid="edit-alias-input"
         />
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)]">
-            {t('org.username')}:
-          </span>
-          <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-            {org?.username}
-          </span>
+          <span className="text-xs text-[var(--sf-text-primary)]">{t('org.username')}:</span>
+          <span className="text-xs text-[var(--sf-text-secondary)]">{org?.username}</span>
         </div>
         <Select
           label={t('org.safetyTier')}

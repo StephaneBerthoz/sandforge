@@ -19,6 +19,7 @@
     sans-serif
   );
   --sf-font-size: var(--vscode-font-size, 13px);
+  --sf-font-size-xs: calc(var(--sf-font-size) - 2px);
   --sf-font-size-sm: calc(var(--sf-font-size) - 1px);
   --sf-font-size-lg: calc(var(--sf-font-size) + 2px);
   --sf-font-size-xl: calc(var(--sf-font-size) + 5px);
@@ -51,6 +52,8 @@
   --sf-bg-inactive-selection: var(--vscode-editor-inactiveSelectionBackground, #3a3d41);
   --sf-bg-input: var(--vscode-input-background, #3c3c3c);
   --sf-bg-dropdown: var(--vscode-dropdown-background, #3c3c3c);
+  --sf-bg-disabled: var(--vscode-input-background, #3c3c3c);
+  --sf-bg-toolbar-hover: var(--vscode-toolbar-hoverBackground, #2a2d2e);
 
   --sf-text-primary: var(--vscode-editor-foreground, #d4d4d4);
   --sf-text-secondary: var(--vscode-descriptionForeground, #868686);
@@ -58,6 +61,7 @@
   --sf-text-link: var(--vscode-textLink-foreground, #3794ff);
   --sf-text-input: var(--vscode-input-foreground, var(--sf-text-primary));
   --sf-text-active: var(--vscode-list-activeSelectionForeground, #fff);
+  --sf-text-placeholder: var(--vscode-input-placeholderForeground, #6b6b6b);
 
   --sf-border: var(--vscode-widget-border, var(--vscode-panel-border, #3c3c3c));
   --sf-border-subtle: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.2));
@@ -83,6 +87,7 @@
   --sf-info-bg: var(--vscode-editorInfo-background, #063b49);
   --sf-info-border: var(--vscode-editorInfo-border, #007acc);
   --sf-error-bg: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  --sf-warning-bg: var(--vscode-inputValidation-warningBackground, #352a05);
 
   /* Shadows */
   --sf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);

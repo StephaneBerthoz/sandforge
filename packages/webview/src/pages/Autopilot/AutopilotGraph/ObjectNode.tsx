@@ -94,7 +94,7 @@ export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
       variants={pulseVariants}
       animate={isActive ? 'active' : 'idle'}
       className={cn(
-        'rounded-lg border-2 bg-[var(--vscode-editor-background,#1e1e1e)] shadow-md',
+        'rounded-lg border-2 bg-[var(--sf-bg-primary)] shadow-md',
         'min-w-[180px] px-3 py-2',
         borderColor,
         data.isSelected && 'ring-2 ring-blue-400',
@@ -105,7 +105,7 @@ export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
       {/* Header row: object name + PII lock */}
       <div className="mb-1 flex items-center justify-between gap-2">
         <span
-          className="truncate text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]"
+          className="truncate text-sm font-semibold text-[var(--sf-text-primary)]"
           title={data.objectApiName}
         >
           {data.objectApiName}

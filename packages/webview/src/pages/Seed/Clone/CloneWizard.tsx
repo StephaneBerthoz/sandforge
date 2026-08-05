@@ -163,14 +163,14 @@ export const CloneWizard: React.FC<CloneWizardProps> = ({ onBack }) => {
           <>
             {clone.executionStatus === 'executing' ? (
               <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-executing">
-                <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
                   {t('seed.running')}
                 </span>
                 {clone.selectedObjects.map((obj) => (
                   <div key={obj.objectApiName} className="flex items-center gap-2 text-xs">
                     <Badge variant="info">{obj.objectApiName}</Badge>
-                    <div className="flex-1 h-2 rounded-full bg-[var(--vscode-input-background,#3c3c3c)] overflow-hidden">
-                      <div className="h-full bg-[var(--vscode-focusBorder,#007fd4)] animate-pulse w-1/2 rounded-full" />
+                    <div className="flex-1 h-2 rounded-full bg-[var(--sf-bg-input)] overflow-hidden">
+                      <div className="h-full bg-[var(--sf-accent)] animate-pulse w-1/2 rounded-full" />
                     </div>
                   </div>
                 ))}

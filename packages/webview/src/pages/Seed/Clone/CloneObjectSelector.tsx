@@ -67,7 +67,7 @@ export const CloneObjectSelector: React.FC<CloneObjectSelectorProps> = ({
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-object-selector">
       {/* Header with selected count */}
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
           {t('seed.clone.objectSelector.title')}
         </span>
         <Badge variant="info">
@@ -95,22 +95,18 @@ export const CloneObjectSelector: React.FC<CloneObjectSelectorProps> = ({
           return (
             <div key={obj.name} className="flex flex-col">
               <label
-                className="flex items-center gap-[var(--sf-space-2)] px-[var(--sf-space-2)] py-[var(--sf-space-1)] rounded cursor-pointer hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)] text-xs"
+                className="flex items-center gap-[var(--sf-space-2)] px-[var(--sf-space-2)] py-[var(--sf-space-1)] rounded cursor-pointer hover:bg-[var(--sf-bg-hover)] text-xs"
                 data-testid={`clone-obj-${obj.name}`}
               >
                 <input
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => onObjectToggle(obj.name)}
-                  className="accent-[var(--vscode-focusBorder,#007fd4)]"
+                  className="accent-[var(--sf-accent)]"
                   data-testid={`clone-obj-check-${obj.name}`}
                 />
-                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] font-medium">
-                  {obj.label}
-                </span>
-                <span className="text-[var(--vscode-descriptionForeground,#868686)]">
-                  {obj.name}
-                </span>
+                <span className="text-[var(--sf-text-primary)] font-medium">{obj.label}</span>
+                <span className="text-[var(--sf-text-secondary)]">{obj.name}</span>
               </label>
 
               {/* WHERE clause input -- shown only for selected objects */}
@@ -126,7 +122,7 @@ export const CloneObjectSelector: React.FC<CloneObjectSelectorProps> = ({
                     className="text-xs"
                     data-testid={`clone-where-input-${obj.name}`}
                   />
-                  <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+                  <span className="text-[10px] text-[var(--sf-text-secondary)]">
                     {t('seed.clone.objectSelector.whereHint')}
                   </span>
                 </div>
@@ -136,7 +132,7 @@ export const CloneObjectSelector: React.FC<CloneObjectSelectorProps> = ({
         })}
 
         {filteredObjects.length === 0 && (
-          <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-4">
+          <span className="text-xs text-[var(--sf-text-secondary)] text-center py-4">
             {t('seed.noObjects')}
           </span>
         )}

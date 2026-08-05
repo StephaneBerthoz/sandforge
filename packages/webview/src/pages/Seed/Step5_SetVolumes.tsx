@@ -29,24 +29,16 @@ export const Step5SetVolumes: React.FC<Step5SetVolumesProps> = ({
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-set-volumes">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('seed.setVolumesDesc')}
-      </p>
+      <p className="text-xs text-[var(--sf-text-secondary)]">{t('seed.setVolumesDesc')}</p>
 
       <div className="grid grid-cols-[1fr_120px_120px] gap-2 text-xs">
-        <span className="font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('seed.selectObjects')}
-        </span>
-        <span className="font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('seed.recordCount')}
-        </span>
-        <span className="font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-          {t('seed.batchSize')}
-        </span>
+        <span className="font-medium text-[var(--sf-text-primary)]">{t('seed.selectObjects')}</span>
+        <span className="font-medium text-[var(--sf-text-primary)]">{t('seed.recordCount')}</span>
+        <span className="font-medium text-[var(--sf-text-primary)]">{t('seed.batchSize')}</span>
 
         {volumes.map((vol) => (
           <React.Fragment key={vol.objectApiName}>
-            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] flex items-center">
+            <span className="text-[var(--sf-text-primary)] flex items-center">
               {vol.label} ({vol.objectApiName})
             </span>
             <Input
@@ -70,10 +62,7 @@ export const Step5SetVolumes: React.FC<Step5SetVolumesProps> = ({
         ))}
       </div>
 
-      <div
-        className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
-        data-testid="total-records"
-      >
+      <div className="text-xs text-[var(--sf-text-secondary)]" data-testid="total-records">
         {t('seed.totalRecords')}: {totalRecords}
       </div>
     </div>

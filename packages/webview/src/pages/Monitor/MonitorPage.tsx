@@ -130,14 +130,18 @@ export const MonitorPage: React.FC = () => {
     undefined,
     { responseType: 'monitor:live-operations:response', skip: !selectedOrgId },
   );
+  // AutomationHandler reports operation:* failures on the pipeline channel.
   const cancelOp = useBridgeMutation<{ success: boolean }>('operation:cancel', {
     responseType: 'operation:cancel:response',
+    errorType: 'pipeline:error',
   });
   const pauseOp = useBridgeMutation<{ success: boolean }>('operation:pause', {
     responseType: 'operation:pause:response',
+    errorType: 'pipeline:error',
   });
   const resumeOp = useBridgeMutation<{ success: boolean }>('operation:resume', {
     responseType: 'operation:resume:response',
+    errorType: 'pipeline:error',
   });
   const liveOperations = liveOpsQuery.data?.operations ?? [];
 

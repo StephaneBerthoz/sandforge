@@ -20,7 +20,7 @@ export const PanelApp: React.FC<PanelAppProps> = ({ moduleId }) => {
     <BridgeProvider>
       <ProtocolMismatchBanner />
       <div
-        className="h-screen w-full overflow-auto bg-[var(--vscode-editor-background,#1e1e1e)] text-[var(--vscode-editor-foreground,#d4d4d4)]"
+        className="h-screen w-full overflow-auto bg-[var(--sf-bg-primary)] text-[var(--sf-text-primary)]"
         data-testid="panel-app"
       >
         <PanelRouter moduleId={moduleId} />

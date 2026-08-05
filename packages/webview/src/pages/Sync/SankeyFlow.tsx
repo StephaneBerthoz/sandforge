@@ -38,10 +38,7 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
   if (nodes.length === 0) {
     return (
       <div
-        className={cn(
-          'text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-4',
-          className,
-        )}
+        className={cn('text-xs text-center text-[var(--sf-text-secondary)] py-4', className)}
         data-testid="sankey-flow"
       >
         {t('common.noData')}
@@ -73,7 +70,7 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
 
   return (
     <div className={className} data-testid="sankey-flow">
-      <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)] block mb-2">
+      <span className="text-xs font-medium text-[var(--sf-text-primary)] block mb-2">
         {t('sync.dataFlow')}
       </span>
       <svg
@@ -94,7 +91,7 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
               key={i}
               d={`M${src.x + nodeWidth},${src.y} C${midX},${src.y} ${midX},${tgt.y} ${tgt.x},${tgt.y}`}
               fill="none"
-              stroke="var(--vscode-focusBorder,#007fd4)"
+              stroke="var(--sf-accent)"
               strokeWidth={strokeWidth}
               opacity={0.3}
               data-testid={`link-${link.sourceId}-${link.targetId}`}
@@ -113,7 +110,7 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
                 y={pos.y - 10}
                 width={nodeWidth}
                 height={20}
-                fill="var(--vscode-focusBorder,#007fd4)"
+                fill="var(--sf-accent)"
                 rx={3}
               />
               <text
@@ -121,7 +118,7 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
                 y={pos.y + 4}
                 textAnchor="end"
                 fontSize={10}
-                fill="var(--vscode-editor-foreground,#d4d4d4)"
+                fill="var(--sf-text-primary)"
               >
                 {node.label}
               </text>
@@ -147,7 +144,7 @@ export const SankeyFlow: React.FC<SankeyFlowProps> = ({
                 x={pos.x + nodeWidth + 4}
                 y={pos.y + 4}
                 fontSize={10}
-                fill="var(--vscode-editor-foreground,#d4d4d4)"
+                fill="var(--sf-text-primary)"
               >
                 {node.label}
               </text>

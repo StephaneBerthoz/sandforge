@@ -79,43 +79,43 @@ export const PermissionMatrix: React.FC<PermissionMatrixProps> = ({
               placeholder={t('compare.filterObjects')}
               className={cn(
                 'w-full px-2 py-1.5 text-sm rounded',
-                'bg-[var(--vscode-input-background,#3c3c3c)]',
-                'text-[var(--vscode-input-foreground,#d4d4d4)]',
-                'border border-[var(--vscode-input-border,#3c3c3c)]',
-                'placeholder:text-[var(--vscode-input-placeholderForeground,#6b6b6b)]',
-                'focus:outline-none focus:border-[var(--vscode-focusBorder,#007fd4)]',
+                'bg-[var(--sf-bg-input)]',
+                'text-[var(--sf-text-input)]',
+                'border border-[var(--sf-border-input)]',
+                'placeholder:text-[var(--sf-text-placeholder)]',
+                'focus:outline-none focus:border-[var(--sf-accent)]',
               )}
             />
           </div>
         )}
         {filteredRows.length === 0 ? (
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-4">
+          <p className="text-xs text-[var(--sf-text-secondary)] text-center py-4">
             {t('common.noData')}
           </p>
         ) : (
           <table className="w-full text-[10px]" data-testid="perm-matrix">
             <thead>
               {/* Profile/role column grouping headers */}
-              <tr className="text-[var(--vscode-descriptionForeground,#868686)] border-b border-[var(--vscode-panel-border,#3c3c3c)]">
+              <tr className="text-[var(--sf-text-secondary)] border-b border-[var(--sf-border)]">
                 <th className="pb-2 pr-3 text-left font-medium" rowSpan={2}>
                   {t('common.object')}
                 </th>
                 <th
-                  className="pb-1 text-center font-medium border-b border-[var(--vscode-panel-border,#3c3c3c)]"
+                  className="pb-1 text-center font-medium border-b border-[var(--sf-border)]"
                   colSpan={4}
                   data-testid="perm-group-source"
                 >
                   {sourceLabel}
                 </th>
                 <th
-                  className="pb-1 text-center font-medium border-b border-[var(--vscode-panel-border,#3c3c3c)]"
+                  className="pb-1 text-center font-medium border-b border-[var(--sf-border)]"
                   colSpan={4}
                   data-testid="perm-group-target"
                 >
                   {targetLabel}
                 </th>
               </tr>
-              <tr className="text-[var(--vscode-descriptionForeground,#868686)] border-b border-[var(--vscode-panel-border,#3c3c3c)]">
+              <tr className="text-[var(--sf-text-secondary)] border-b border-[var(--sf-border)]">
                 {[sourceLabel, targetLabel].map((label) =>
                   crudKeys.map((k) => (
                     <th key={`${label}-${k}`} className="pb-1 text-center font-normal w-8">
@@ -130,12 +130,12 @@ export const PermissionMatrix: React.FC<PermissionMatrixProps> = ({
                 <tr
                   key={row.objectName}
                   className={cn(
-                    'border-b border-[var(--vscode-panel-border,#3c3c3c)] last:border-0',
+                    'border-b border-[var(--sf-border)] last:border-0',
                     row.hasDifference && 'bg-[rgba(245,158,11,0.05)]',
                   )}
                   data-testid={`perm-row-${row.objectName}`}
                 >
-                  <td className="py-1 pr-3 text-[var(--vscode-editor-foreground,#d4d4d4)] font-mono truncate max-w-[120px]">
+                  <td className="py-1 pr-3 text-[var(--sf-text-primary)] font-mono truncate max-w-[120px]">
                     {row.objectName}
                   </td>
                   {crudKeys.map((k) => (

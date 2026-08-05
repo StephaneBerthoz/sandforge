@@ -40,14 +40,14 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="clone-source-picker">
-      <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
         {t('seed.clone.sourcePicker.title')}
       </span>
 
       <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-[var(--sf-space-4)]">
         {/* Source org column */}
         <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="clone-source-column">
-          <span className="text-xs font-medium text-[var(--vscode-descriptionForeground,#868686)]">
+          <span className="text-xs font-medium text-[var(--sf-text-secondary)]">
             {t('seed.clone.sourcePicker.sourceLabel')}
           </span>
           <Select
@@ -78,15 +78,15 @@ export const CloneSourcePicker: React.FC<CloneSourcePickerProps> = ({
           data-testid="clone-direction-arrow"
           aria-label={t('seed.clone.sourcePicker.direction')}
         >
-          <ArrowRight size={24} className="text-[var(--vscode-focusBorder,#007fd4)]" />
+          <ArrowRight size={24} className="text-[var(--sf-accent)]" />
         </div>
 
         {/* Target org column (read-only) */}
         <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="clone-target-column">
-          <span className="text-xs font-medium text-[var(--vscode-descriptionForeground,#868686)]">
+          <span className="text-xs font-medium text-[var(--sf-text-secondary)]">
             {t('seed.clone.sourcePicker.targetLabel')}
           </span>
-          <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+          <span className="text-xs text-[var(--sf-text-secondary)]">
             {t('seed.clone.sourcePicker.targetHint')}
           </span>
           {targetOrg && (

@@ -58,13 +58,13 @@ export const DeployFromDiff: React.FC<DeployFromDiffProps> = ({
       />
       <CardBody>
         {!suggestion || suggestion.components.length === 0 ? (
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] text-center py-4">
+          <p className="text-xs text-[var(--sf-text-secondary)] text-center py-4">
             {t('common.noData')}
           </p>
         ) : (
           <div className="flex flex-col gap-3" data-testid="deploy-builder">
             {/* Estimation row */}
-            <div className="flex gap-4 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+            <div className="flex gap-4 text-[10px] text-[var(--sf-text-secondary)]">
               <span>
                 {t('compare.estimatedDuration')}: {Math.round(suggestion.estimatedDuration / 1000)}s
               </span>
@@ -80,21 +80,21 @@ export const DeployFromDiff: React.FC<DeployFromDiffProps> = ({
                   key={comp.fullName}
                   className={cn(
                     'flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs',
-                    'border border-[var(--vscode-panel-border,#3c3c3c)]',
-                    'hover:bg-[var(--vscode-list-hoverBackground,#2a2d2e)]',
+                    'border border-[var(--sf-border)]',
+                    'hover:bg-[var(--sf-bg-hover)]',
                     comp.action === 'skip' && 'opacity-50',
                   )}
                   onClick={() => onToggleComponent?.(comp.fullName)}
                   data-testid={`deploy-comp-${comp.fullName}`}
                 >
                   <Badge variant={actionVariant[comp.action]}>{comp.action}</Badge>
-                  <span className="text-[var(--vscode-descriptionForeground,#868686)] w-24 truncate">
+                  <span className="text-[var(--sf-text-secondary)] w-24 truncate">
                     {comp.componentType}
                   </span>
-                  <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] flex-1 truncate">
+                  <span className="text-[var(--sf-text-primary)] flex-1 truncate">
                     {comp.fullName}
                   </span>
-                  <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)] truncate max-w-[100px]">
+                  <span className="text-[10px] text-[var(--sf-text-secondary)] truncate max-w-[100px]">
                     {comp.reason}
                   </span>
                 </button>
@@ -104,13 +104,13 @@ export const DeployFromDiff: React.FC<DeployFromDiffProps> = ({
             {/* Risk list */}
             {suggestion.risks.length > 0 && (
               <div className="flex flex-col gap-1" data-testid="deploy-risks">
-                <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-xs font-medium text-[var(--sf-text-primary)]">
                   {t('compare.risks')}
                 </span>
                 {suggestion.risks.map((risk, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-2 text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
+                    className="flex items-center gap-2 text-[10px] text-[var(--sf-text-secondary)]"
                     data-testid={`risk-${i}`}
                   >
                     <Badge variant={riskVariant[risk.risk]}>{risk.risk}</Badge>

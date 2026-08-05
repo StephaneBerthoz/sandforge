@@ -68,22 +68,22 @@ export const PersonaPreviewPopover: React.FC<PersonaPreviewPopoverProps> = ({
   return (
     <div
       ref={popoverRef}
-      className="absolute z-50 max-w-[400px] rounded border shadow-lg bg-[var(--vscode-editorWidget-background,#252526)] border-[var(--vscode-editorWidget-border,#454545)] text-[var(--vscode-editor-foreground,#d4d4d4)]"
+      className="absolute z-50 max-w-[400px] rounded border shadow-lg bg-[var(--sf-bg-card)] border-[var(--sf-border-subtle)] text-[var(--sf-text-primary)]"
       data-testid="persona-preview-popover"
       role="dialog"
       aria-label={t('seed.persona.preview.title')}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--vscode-editorWidget-border,#454545)]">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--sf-border-subtle)]">
         <div className="flex flex-col">
           <span className="text-xs font-semibold">{persona.name}</span>
-          <span className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+          <span className="text-[10px] text-[var(--sf-text-secondary)]">
             {t('seed.persona.preview.sampleData')}
           </span>
         </div>
         <button
           onClick={onClose}
-          className="p-0.5 rounded hover:bg-[var(--vscode-toolbar-hoverBackground,#2a2d2e)] text-[var(--vscode-descriptionForeground,#868686)]"
+          className="p-0.5 rounded hover:bg-[var(--sf-bg-toolbar-hover)] text-[var(--sf-text-secondary)]"
           data-testid="preview-close-btn"
           aria-label={t('common.close')}
         >
@@ -101,7 +101,7 @@ export const PersonaPreviewPopover: React.FC<PersonaPreviewPopoverProps> = ({
             className="text-[10px]"
           />
         ) : (
-          <p className="text-xs text-center py-4 text-[var(--vscode-descriptionForeground,#868686)]">
+          <p className="text-xs text-center py-4 text-[var(--sf-text-secondary)]">
             {t('common.noData')}
           </p>
         )}

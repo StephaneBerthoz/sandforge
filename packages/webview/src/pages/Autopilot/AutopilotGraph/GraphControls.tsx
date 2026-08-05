@@ -34,7 +34,7 @@ export const GraphControls: React.FC<{
   return (
     <div
       data-testid="graph-controls"
-      className="absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-md border border-gray-600 bg-[var(--vscode-editor-background,#1e1e1e)] p-1 shadow-lg"
+      className="absolute right-3 top-3 z-10 flex flex-col gap-1 rounded-md border border-gray-600 bg-[var(--sf-bg-primary)] p-1 shadow-lg"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
