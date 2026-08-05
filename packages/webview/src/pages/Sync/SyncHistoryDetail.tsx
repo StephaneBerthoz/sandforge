@@ -79,7 +79,7 @@ export const SyncHistoryDetail: React.FC = () => {
         <Card>
           <CardBody>
             <div className="text-center">
-              <div className="text-lg font-bold text-[var(--sf-color-success,#4ec9b0)]">
+              <div className="text-lg font-bold text-[var(--sf-success)]">
                 {result.totalSuccess}
               </div>
               <div className="text-[10px] text-text-secondary">{t('sync.totalSuccess')}</div>
@@ -120,7 +120,7 @@ export const SyncHistoryDetail: React.FC = () => {
                 <span>
                   {t('sync.history.processed')}: {obj.processed}
                 </span>
-                <span className="text-[var(--sf-color-success,#4ec9b0)]">
+                <span className="text-[var(--sf-success)]">
                   {t('sync.history.successCount')}: {obj.success}
                 </span>
                 <span className="text-[var(--sf-error)]">

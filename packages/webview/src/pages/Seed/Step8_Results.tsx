@@ -23,7 +23,7 @@ export const Step8Results: React.FC<Step8ResultsProps> = ({ result }) => {
   if (!result) {
     return (
       <div
-        className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]"
+        className="text-center py-8 text-xs text-[var(--sf-text-secondary)]"
         data-testid="step-results"
       >
         {t('common.noData')}
@@ -40,22 +40,20 @@ export const Step8Results: React.FC<Step8ResultsProps> = ({ result }) => {
 
   return (
     <div className="flex flex-col gap-3" data-testid="step-results">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('seed.resultsDesc')}
-      </p>
+      <p className="text-xs text-[var(--sf-text-secondary)]">{t('seed.resultsDesc')}</p>
 
       {/* Summary */}
       <div className="flex items-center gap-3 text-xs" data-testid="result-summary">
         <Badge variant={statusVariant[result.status]}>{statusLabel}</Badge>
-        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-[var(--sf-text-primary)]">
           {t('seed.recordsCreated')}: <strong>{result.totalRecordsCreated}</strong>
         </span>
         {result.totalRecordsFailed > 0 && (
-          <span className="text-[var(--vscode-errorForeground,#f48771)]">
+          <span className="text-[var(--sf-error)]">
             {t('seed.recordsFailed')}: <strong>{result.totalRecordsFailed}</strong>
           </span>
         )}
-        <span className="text-[var(--vscode-descriptionForeground,#868686)]">
+        <span className="text-[var(--sf-text-secondary)]">
           {t('seed.executionTime')}: {(result.duration / 1000).toFixed(1)}s
         </span>
       </div>
@@ -75,7 +73,7 @@ export const Step8Results: React.FC<Step8ResultsProps> = ({ result }) => {
             <CardBody>
               <div className="flex flex-col gap-1">
                 {obj.errors.map((err, i) => (
-                  <p key={i} className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]">
+                  <p key={i} className="text-[10px] text-[var(--sf-error)]">
                     {err}
                   </p>
                 ))}

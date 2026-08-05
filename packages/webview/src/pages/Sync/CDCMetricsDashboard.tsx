@@ -168,7 +168,7 @@ export const CDCMetricsDashboard: React.FC = () => {
       {/* Card 1: Throughput */}
       <div
         data-testid="cdc-metric-throughput"
-        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-surface)]"
+        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
         <div className="text-xs text-[var(--sf-text-muted)] mb-1">
           {t('sync.realtime.metricsPanel.throughput')}
@@ -185,7 +185,7 @@ export const CDCMetricsDashboard: React.FC = () => {
       {/* Card 2: Replication Lag */}
       <div
         data-testid="cdc-metric-lag"
-        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-surface)]"
+        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
         <div className="text-xs text-[var(--sf-text-muted)] mb-1">
           {t('sync.realtime.metricsPanel.lag')}
@@ -211,7 +211,7 @@ export const CDCMetricsDashboard: React.FC = () => {
       {/* Card 3: Events Applied */}
       <div
         data-testid="cdc-metric-applied"
-        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-surface)]"
+        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
         <div className="text-xs text-[var(--sf-text-muted)] mb-1">
           {t('sync.realtime.metricsPanel.applied')}
@@ -224,7 +224,7 @@ export const CDCMetricsDashboard: React.FC = () => {
       {/* Card 4: Events Failed */}
       <div
         data-testid="cdc-metric-failed"
-        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-surface)]"
+        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
         <div className="text-xs text-[var(--sf-text-muted)] mb-1">
           {t('sync.realtime.metricsPanel.failed')}
@@ -239,7 +239,7 @@ export const CDCMetricsDashboard: React.FC = () => {
       {/* Card 5: Error Rate */}
       <div
         data-testid="cdc-metric-error-rate"
-        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-surface)]"
+        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
         <div className="text-xs text-[var(--sf-text-muted)] mb-1">
           {t('sync.realtime.metricsPanel.errorRate')}
@@ -252,7 +252,7 @@ export const CDCMetricsDashboard: React.FC = () => {
       {/* Card 6: Uptime */}
       <div
         data-testid="cdc-metric-uptime"
-        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-surface)]"
+        className="rounded-lg border border-[var(--sf-border)] p-3 bg-[var(--sf-bg-card)]"
       >
         <div className="text-xs text-[var(--sf-text-muted)] mb-1">
           {t('sync.realtime.metricsPanel.uptime')}

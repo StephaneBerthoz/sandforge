@@ -97,25 +97,19 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
           {visible.map((error, i) => (
             <div
               key={`${error.row}-${error.column}-${i}`}
-              className="flex gap-2 text-xs py-1 border-b border-[var(--vscode-panel-border,#3c3c3c)] last:border-b-0"
+              className="flex gap-2 text-xs py-1 border-b border-[var(--sf-border)] last:border-b-0"
             >
               <Badge variant="default">{t('seed.csv.validation.row', { row: error.row })}</Badge>
-              <span className="font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {error.column}
-              </span>
-              <span className="text-[var(--vscode-descriptionForeground,#868686)] truncate">
-                {error.message}
-              </span>
+              <span className="font-medium text-[var(--sf-text-primary)]">{error.column}</span>
+              <span className="text-[var(--sf-text-secondary)] truncate">{error.message}</span>
               {error.value && (
-                <code className="text-[var(--vscode-errorForeground,#f48771)] text-[10px]">
-                  {error.value}
-                </code>
+                <code className="text-[var(--sf-error)] text-[10px]">{error.value}</code>
               )}
             </div>
           ))}
           {remaining > 0 && (
             <span
-              className="text-xs text-[var(--vscode-descriptionForeground,#868686)] py-1"
+              className="text-xs text-[var(--sf-text-secondary)] py-1"
               data-testid={`more-errors-${errorType}`}
             >
               {t('seed.csv.validation.andMore', { count: remaining })}
@@ -130,9 +124,9 @@ export const CsvValidationPanel: React.FC<CsvValidationPanelProps> = ({
     <div className="flex flex-col gap-4" data-testid="csv-validation-panel">
       {/* Error summary */}
       <div className="flex items-center gap-2">
-        <AlertTriangle className="w-5 h-5 text-[var(--vscode-errorForeground,#f48771)]" />
+        <AlertTriangle className="w-5 h-5 text-[var(--sf-error)]" />
         <span
-          className="text-sm font-medium text-[var(--vscode-errorForeground,#f48771)]"
+          className="text-sm font-medium text-[var(--sf-error)]"
           data-testid="validation-error-count"
         >
           {t('seed.csv.validation.errors', { count: validationResult.errors.length })}

@@ -126,17 +126,17 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                       ? t('seed.partial')
                       : t('seed.failed')}
                 </Badge>
-                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-[var(--sf-text-primary)]">
                   {t('seed.recordsCreated')}:{' '}
                   <strong>{quickSeed.executionResult.totalRecordsCreated}</strong>
                 </span>
                 {quickSeed.executionResult.totalRecordsFailed > 0 && (
-                  <span className="text-[var(--vscode-errorForeground,#f48771)]">
+                  <span className="text-[var(--sf-error)]">
                     {t('seed.recordsFailed')}:{' '}
                     <strong>{quickSeed.executionResult.totalRecordsFailed}</strong>
                   </span>
                 )}
-                <span className="text-[var(--vscode-descriptionForeground,#868686)]">
+                <span className="text-[var(--sf-text-secondary)]">
                   {t('seed.executionTime')}:{' '}
                   {(quickSeed.executionResult.duration / 1000).toFixed(1)}s
                 </span>
@@ -156,10 +156,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
                     <CardBody>
                       <div className="flex flex-col gap-1">
                         {obj.errors.map((err, i) => (
-                          <p
-                            key={i}
-                            className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
-                          >
+                          <p key={i} className="text-[10px] text-[var(--sf-error)]">
                             {err}
                           </p>
                         ))}
@@ -189,7 +186,7 @@ export const QuickSeedFlow: React.FC<QuickSeedFlowProps> = ({ quickSeed, orgs })
               </div>
             </>
           ) : (
-            <div className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+            <div className="text-center py-8 text-xs text-[var(--sf-text-secondary)]">
               {t('common.noData')}
             </div>
           )}

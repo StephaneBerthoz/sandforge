@@ -95,14 +95,14 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({
         title={persona.name}
         action={
           <div className="flex items-center gap-2">
-            <IconComponent className="w-4 h-4 text-[var(--vscode-focusBorder,#007fd4)]" />
+            <IconComponent className="w-4 h-4 text-[var(--sf-accent)]" />
             {isCustom && <Badge variant="info">{t('seed.persona.card.custom')}</Badge>}
           </div>
         }
       />
       <CardBody>
         <div className="flex flex-col gap-3">
-          <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] line-clamp-2">
+          <p className="text-xs text-[var(--sf-text-secondary)] line-clamp-2">
             {persona.description}
           </p>
 

@@ -48,11 +48,14 @@ export const DataOpsPage: React.FC = () => {
   /** Bridge query: load saved backups. */
   const backupsQuery = useBridgeQuery<{ backups: BackupResult[] }>('backup:list', undefined, {
     responseType: 'backup:list:result',
+    // DataOpsHandler reports failures on the dataops domain channel.
+    errorType: 'dataops:error',
   });
 
   /** Bridge mutation: create a backup. */
   const backupMutation = useBridgeMutation<Record<string, unknown>>('backup:execute', {
     responseType: 'dataops:backup:response',
+    errorType: 'dataops:error',
   });
 
   /** Bridge mutation: anonymize data. */

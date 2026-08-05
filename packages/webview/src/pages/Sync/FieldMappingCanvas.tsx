@@ -86,7 +86,7 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
   return (
     <div className={cn('flex flex-col gap-3', className)} data-testid="field-mapping-canvas">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-xs font-medium text-[var(--sf-text-primary)]">
           {t('sync.fieldMapping')} ({mappings.length})
         </span>
         {onAutoMap && (
@@ -103,17 +103,13 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
             key={i}
             className={cn(
               'flex items-center gap-2 px-2 py-1.5 rounded text-xs',
-              'border border-[var(--vscode-panel-border,#3c3c3c)]',
+              'border border-[var(--sf-border)]',
             )}
             data-testid={`mapping-${i}`}
           >
-            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] w-32 truncate">
-              {m.sourceField}
-            </span>
+            <span className="text-[var(--sf-text-primary)] w-32 truncate">{m.sourceField}</span>
             <Badge variant="default">{'\u2192'}</Badge>
-            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] w-32 truncate">
-              {m.targetField}
-            </span>
+            <span className="text-[var(--sf-text-primary)] w-32 truncate">{m.targetField}</span>
             <Select
               options={typeOptions}
               value={m.type}
@@ -121,7 +117,7 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
               className="w-28"
             />
             <button
-              className="text-[var(--vscode-errorForeground,#f48771)] hover:opacity-70 px-1"
+              className="text-[var(--sf-error)] hover:opacity-70 px-1"
               onClick={() => onRemoveMapping(i)}
               data-testid={`remove-mapping-${i}`}
             >
@@ -132,7 +128,7 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
       </div>
 
       {mappings.length === 0 && autoMapSuggestions.length === 0 && (
-        <p className="text-xs text-center text-[var(--vscode-descriptionForeground,#868686)] py-2">
+        <p className="text-xs text-center text-[var(--sf-text-secondary)] py-2">
           {t('sync.unmapped')}
         </p>
       )}
@@ -154,13 +150,9 @@ export const FieldMappingCanvas: React.FC<FieldMappingCanvasProps> = ({
               )}
               data-testid={`suggestion-${i}`}
             >
-              <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] w-28 truncate">
-                {s.sourceField}
-              </span>
+              <span className="text-[var(--sf-text-primary)] w-28 truncate">{s.sourceField}</span>
               <Badge variant="default">{'\u2192'}</Badge>
-              <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] w-28 truncate">
-                {s.targetField}
-              </span>
+              <span className="text-[var(--sf-text-primary)] w-28 truncate">{s.targetField}</span>
               <Badge
                 variant={
                   s.confidence >= 0.8 ? 'success' : s.confidence >= 0.5 ? 'warning' : 'default'

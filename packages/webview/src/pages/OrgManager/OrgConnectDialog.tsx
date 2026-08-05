@@ -172,15 +172,11 @@ export const OrgConnectDialog: React.FC<OrgConnectDialogProps> = ({
         )}
 
         {isNotSupported && (
-          <p className="text-sm text-[var(--vscode-descriptionForeground,#888)]">
-            {t('auth.notSupported')}
-          </p>
+          <p className="text-sm text-[var(--sf-text-secondary)]">{t('auth.notSupported')}</p>
         )}
 
         {isSfdxImport && (
-          <p className="text-sm text-[var(--vscode-descriptionForeground,#888)]">
-            {t('auth.sfdxHint')}
-          </p>
+          <p className="text-sm text-[var(--sf-text-secondary)]">{t('auth.sfdxHint')}</p>
         )}
       </div>
     </Dialog>

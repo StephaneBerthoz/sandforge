@@ -227,7 +227,7 @@ export const GDPRPanel: React.FC<GDPRPanelProps> = ({
               'text-xs px-3 py-1.5 rounded font-medium',
               newDSREmail.trim()
                 ? 'bg-[var(--sf-info,#3B82F6)] text-white cursor-pointer'
-                : 'bg-[var(--sf-bg-disabled,#3c3c3c)] text-[var(--sf-text-muted,#868686)] cursor-not-allowed',
+                : 'bg-[var(--sf-bg-disabled)] text-[var(--sf-text-muted,#868686)] cursor-not-allowed',
             )}
             data-testid="create-dsr-btn"
           >
@@ -304,7 +304,7 @@ export const GDPRPanel: React.FC<GDPRPanelProps> = ({
               className={cn(
                 'text-[10px] px-2 py-1 rounded font-medium',
                 isScanning
-                  ? 'bg-[var(--sf-bg-disabled,#3c3c3c)] text-[var(--sf-text-muted,#868686)] cursor-not-allowed'
+                  ? 'bg-[var(--sf-bg-disabled)] text-[var(--sf-text-muted,#868686)] cursor-not-allowed'
                   : 'bg-[var(--sf-warning,#F59E0B)] text-black cursor-pointer',
               )}
               data-testid="scan-pii-btn"

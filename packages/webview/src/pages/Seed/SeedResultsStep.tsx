@@ -30,7 +30,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
   return (
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="seed-step-results-content">
       {!executionResult ? (
-        <div className="text-center py-8 text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+        <div className="text-center py-8 text-xs text-[var(--sf-text-secondary)]">
           {t('common.noData')}
         </div>
       ) : (
@@ -44,15 +44,15 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                   ? t('seed.partial')
                   : t('seed.failed')}
             </Badge>
-            <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+            <span className="text-[var(--sf-text-primary)]">
               {t('seed.recordsCreated')}: <strong>{executionResult.totalRecordsCreated}</strong>
             </span>
             {executionResult.totalRecordsFailed > 0 && (
-              <span className="text-[var(--vscode-errorForeground,#f48771)]">
+              <span className="text-[var(--sf-error)]">
                 {t('seed.recordsFailed')}: <strong>{executionResult.totalRecordsFailed}</strong>
               </span>
             )}
-            <span className="text-[var(--vscode-descriptionForeground,#868686)]">
+            <span className="text-[var(--sf-text-secondary)]">
               {t('seed.executionTime')}: {(executionResult.duration / 1000).toFixed(1)}s
             </span>
           </div>
@@ -72,10 +72,7 @@ export const SeedResultsStep: React.FC<SeedResultsStepProps> = ({
                 <CardBody>
                   <div className="flex flex-col gap-1">
                     {obj.errors.map((err, i) => (
-                      <p
-                        key={i}
-                        className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
-                      >
+                      <p key={i} className="text-[10px] text-[var(--sf-error)]">
                         {err}
                       </p>
                     ))}

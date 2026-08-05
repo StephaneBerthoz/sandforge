@@ -174,7 +174,7 @@ export const AutopilotGraph: React.FC = () => {
                 return colors[status] ?? '#6b7280';
               }}
               maskColor="rgba(0,0,0,0.6)"
-              className="!bg-[var(--vscode-editor-background,#1e1e1e)]"
+              className="!bg-[var(--sf-bg-primary)]"
             />
           )}
         </ReactFlow>

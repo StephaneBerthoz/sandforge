@@ -24,9 +24,7 @@ export const Step1SelectOrg: React.FC<Step1SelectOrgProps> = ({
 
   return (
     <div className="flex flex-col gap-4" data-testid="step-select-org">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('seed.selectOrgDesc')}
-      </p>
+      <p className="text-xs text-[var(--sf-text-secondary)]">{t('seed.selectOrgDesc')}</p>
       <Select
         label={t('seed.selectOrg')}
         options={options}

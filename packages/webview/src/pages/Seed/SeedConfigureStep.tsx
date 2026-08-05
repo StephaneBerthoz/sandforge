@@ -83,14 +83,12 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
               <div className="flex flex-col gap-3" data-testid="seed-advanced-settings">
                 {/* Batch size per object */}
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <span className="text-xs font-medium text-[var(--sf-text-primary)]">
                     {t('seed.batchSize')}
                   </span>
                   {selectedObjects.map((obj) => (
                     <div key={obj} className="flex items-center gap-2 text-xs">
-                      <span className="w-40 truncate text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                        {obj}
-                      </span>
+                      <span className="w-40 truncate text-[var(--sf-text-primary)]">{obj}</span>
                       <Input
                         type="number"
                         min={1}
@@ -108,25 +106,25 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
 
                 {/* Relations handling */}
                 <div className="flex flex-col gap-1">
-                  <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <span className="text-xs font-medium text-[var(--sf-text-primary)]">
                     {t('seed.configureRelations')}
                   </span>
                   {relations.length === 0 && (
-                    <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                    <p className="text-xs text-[var(--sf-text-secondary)]">
                       {t('seed.noDependencies')}
                     </p>
                   )}
                   {relations.map((rel, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
-                      <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                      <span className="text-[var(--sf-text-primary)]">
                         {rel.childObject}.{rel.childField}
                       </span>
                       <Badge variant="default">{'→'}</Badge>
-                      <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                      <span className="text-[var(--sf-text-primary)]">
                         {rel.parentObject}.{rel.parentField}
                       </span>
                       <button
-                        className="text-[var(--vscode-errorForeground,#f48771)] hover:opacity-70 px-1"
+                        className="text-[var(--sf-error)] hover:opacity-70 px-1"
                         onClick={() => handleRemoveRelation(i)}
                         data-testid={`remove-relation-${i}`}
                       >
@@ -135,7 +133,7 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
                     </div>
                   ))}
                   <button
-                    className="text-xs text-[var(--vscode-focusBorder,#007fd4)] hover:underline self-start"
+                    className="text-xs text-[var(--sf-accent)] hover:underline self-start"
                     onClick={handleAddRelation}
                     data-testid="add-relation-btn"
                   >

@@ -132,14 +132,14 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
               key={step.id}
               className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${
                 isCurrent
-                  ? 'bg-[var(--vscode-list-activeSelectionBackground,#094771)] font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]'
+                  ? 'bg-[var(--sf-bg-active)] font-semibold text-[var(--sf-text-primary)]'
                   : isCompleted
-                    ? 'text-[var(--vscode-descriptionForeground,#868686)]'
-                    : 'text-[var(--vscode-disabledForeground,#6b6b6b)] opacity-50'
+                    ? 'text-[var(--sf-text-secondary)]'
+                    : 'text-[var(--sf-text-muted)] opacity-50'
               }`}
               data-testid={`csv-indicator-${step.id}`}
             >
-              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--vscode-input-background,#3c3c3c)]">
+              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold bg-[var(--sf-bg-input)]">
                 {i + 1}
               </span>
               {t(step.labelKey)}
@@ -221,7 +221,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
             {csv.validateLoading || csv.executionStatus === 'validating' ? (
               <div className="flex flex-col items-center gap-3 py-6">
                 <Skeleton variant="rect" height="100px" />
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                <span className="text-xs text-[var(--sf-text-secondary)]">
                   {t('seed.csv.validation.title')}...
                 </span>
               </div>
@@ -240,7 +240,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
           <div className="flex flex-col gap-4" data-testid="csv-step-execute">
             {csv.executionStatus === 'idle' && (
               <div className="flex flex-col items-center gap-3 py-6">
-                <span className="text-sm text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                <span className="text-sm text-[var(--sf-text-primary)]">
                   {t('seed.csv.wizard.execute')}
                 </span>
                 <Badge variant="default">
@@ -260,7 +260,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
             {csv.executionStatus === 'executing' && (
               <div className="flex flex-col items-center gap-3 py-6" data-testid="csv-executing">
                 <Skeleton variant="rect" height="60px" />
-                <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                <span className="text-xs text-[var(--sf-text-secondary)]">
                   {t('seed.csv.wizard.executing')}
                 </span>
               </div>
@@ -279,10 +279,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
                 {csv.executionResult.errors.length > 0 && (
                   <div className="flex flex-col gap-1 max-w-md">
                     {csv.executionResult.errors.slice(0, 5).map((err, i) => (
-                      <span
-                        key={i}
-                        className="text-[10px] text-[var(--vscode-errorForeground,#f48771)]"
-                      >
+                      <span key={i} className="text-[10px] text-[var(--sf-error)]">
                         {err}
                       </span>
                     ))}
@@ -298,7 +295,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
       </div>
 
       {/* Navigation bar */}
-      <div className="flex justify-between items-center pt-2 border-t border-[var(--vscode-panel-border,#3c3c3c)]">
+      <div className="flex justify-between items-center pt-2 border-t border-[var(--sf-border)]">
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={onBack} data-testid="csv-cancel-button">
             {t('seed.csv.wizard.cancel')}

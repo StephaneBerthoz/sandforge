@@ -131,7 +131,7 @@ export const PersonaCustomizePanel: React.FC<PersonaCustomizePanelProps> = ({
             />
           ))}
 
-          <div className="flex gap-2 pt-2 border-t border-[var(--vscode-editorWidget-border,#454545)]">
+          <div className="flex gap-2 pt-2 border-t border-[var(--sf-border-subtle)]">
             <Button
               variant="secondary"
               size="sm"
@@ -168,11 +168,11 @@ interface FieldRowProps {
 const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate, t }) => {
   return (
     <div
-      className="flex flex-col gap-1 p-2 rounded bg-[var(--vscode-input-background,#3c3c3c)]"
+      className="flex flex-col gap-1 p-2 rounded bg-[var(--sf-bg-input)]"
       data-testid={`field-row-${fieldName}`}
     >
       <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)] flex-1">
+        <span className="text-xs font-medium text-[var(--sf-text-primary)] flex-1">
           {fieldName}
         </span>
         <Badge variant="default">{pattern.generator}</Badge>
@@ -181,7 +181,7 @@ const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate,
 
       {pattern.generator === 'range' && edit && (
         <div className="flex gap-2 items-center mt-1">
-          <label className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+          <label className="text-[10px] text-[var(--sf-text-secondary)]">
             {t('seed.persona.customize.rangeMin')}
           </label>
           <Input
@@ -191,7 +191,7 @@ const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate,
             className="w-20 text-xs"
             data-testid={`field-min-${fieldName}`}
           />
-          <label className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+          <label className="text-[10px] text-[var(--sf-text-secondary)]">
             {t('seed.persona.customize.rangeMax')}
           </label>
           <Input
@@ -206,7 +206,7 @@ const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate,
 
       {(pattern.generator === 'random_pick' || pattern.generator === 'weighted_pick') && edit && (
         <div className="flex flex-col gap-1 mt-1">
-          <label className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]">
+          <label className="text-[10px] text-[var(--sf-text-secondary)]">
             {t('seed.persona.customize.values')}
           </label>
           <Input
@@ -226,7 +226,7 @@ const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate,
             {pattern.examples.slice(0, 3).map((ex, i) => (
               <span
                 key={i}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--vscode-badge-background,#4d4d4d)] text-[var(--vscode-badge-foreground,#d4d4d4)]"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--sf-badge-bg)] text-[var(--sf-badge-fg)]"
               >
                 {ex}
               </span>

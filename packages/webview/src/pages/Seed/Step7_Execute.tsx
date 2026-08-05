@@ -49,9 +49,7 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
 
   return (
     <div className="flex flex-col gap-4" data-testid="step-execute">
-      <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
-        {t('seed.executeDesc')}
-      </p>
+      <p className="text-xs text-[var(--sf-text-secondary)]">{t('seed.executeDesc')}</p>
 
       {/* Overall progress */}
       <ProgressBar
@@ -62,10 +60,7 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
         variant={overallPercent >= 100 ? 'success' : 'default'}
       />
 
-      <div
-        className="text-[10px] text-[var(--vscode-descriptionForeground,#868686)]"
-        data-testid="elapsed-time"
-      >
+      <div className="text-[10px] text-[var(--sf-text-secondary)]" data-testid="elapsed-time">
         {t('seed.executionTime')}: {(elapsedMs / 1000).toFixed(1)}s
       </div>
 
@@ -78,12 +73,12 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
               key={obj.objectApiName}
               className={cn(
                 'flex items-center gap-3 px-3 py-2 rounded text-xs',
-                'border border-[var(--vscode-panel-border,#3c3c3c)]',
+                'border border-[var(--sf-border)]',
               )}
               data-testid={`progress-${obj.objectApiName}`}
             >
               <Badge variant={statusVariant[obj.status]}>{obj.status}</Badge>
-              <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] w-40 truncate">
+              <span className="text-[var(--sf-text-primary)] w-40 truncate">
                 {obj.objectApiName}
               </span>
               <ProgressBar
@@ -94,11 +89,11 @@ export const Step7Execute: React.FC<Step7ExecuteProps> = ({
                 size="sm"
                 className="flex-1"
               />
-              <span className="text-[var(--vscode-descriptionForeground,#868686)] w-20 text-right">
+              <span className="text-[var(--sf-text-secondary)] w-20 text-right">
                 {obj.completed}/{obj.total}
               </span>
               {obj.failed > 0 && (
-                <span className="text-[var(--vscode-errorForeground,#f48771)]">
+                <span className="text-[var(--sf-error)]">
                   {obj.failed} {t('seed.failed').toLowerCase()}
                 </span>
               )}

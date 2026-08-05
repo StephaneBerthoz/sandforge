@@ -56,7 +56,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
 
   return (
     <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="clone-preview-panel">
-      <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
         {t('seed.clone.preview.title')}
       </span>
 
@@ -67,15 +67,12 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
           <div className="flex flex-col gap-1" data-testid="clone-insert-order">
             {previewResult.insertOrder.map((objectName, index) => (
               <div key={objectName} className="flex items-center gap-2">
-                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-[var(--vscode-focusBorder,#007fd4)] text-white text-[10px] font-bold shrink-0">
+                <span className="w-5 h-5 flex items-center justify-center rounded-full bg-[var(--sf-accent)] text-white text-[10px] font-bold shrink-0">
                   {index + 1}
                 </span>
                 <Badge variant="default">{objectName}</Badge>
                 {index < previewResult.insertOrder.length - 1 && (
-                  <ArrowDown
-                    size={12}
-                    className="text-[var(--vscode-descriptionForeground,#868686)] ml-1"
-                  />
+                  <ArrowDown size={12} className="text-[var(--sf-text-secondary)] ml-1" />
                 )}
               </div>
             ))}
@@ -93,11 +90,11 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
                 key={obj.objectApiName}
                 className="flex items-center justify-between text-xs px-2 py-1"
               >
-                <span className="text-[var(--vscode-editor-foreground,#d4d4d4)] font-medium">
+                <span className="text-[var(--sf-text-primary)] font-medium">
                   {obj.objectApiName}
                 </span>
                 <div className="flex items-center gap-2">
-                  <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                  <span className="text-[var(--sf-text-primary)]">
                     {obj.recordCount} {t('seed.records')}
                   </span>
                   {obj.relationships.length > 0 && (
@@ -108,14 +105,9 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
                 </div>
               </div>
             ))}
-            <div className="flex items-center justify-between text-xs px-2 py-2 border-t border-[var(--vscode-panel-border,#3c3c3c)] font-semibold">
-              <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
-                {t('seed.totalRecords')}
-              </span>
-              <span
-                className="text-[var(--vscode-editor-foreground,#d4d4d4)]"
-                data-testid="clone-total-records"
-              >
+            <div className="flex items-center justify-between text-xs px-2 py-2 border-t border-[var(--sf-border)] font-semibold">
+              <span className="text-[var(--sf-text-primary)]">{t('seed.totalRecords')}</span>
+              <span className="text-[var(--sf-text-primary)]" data-testid="clone-total-records">
                 {totalRecords} {t('seed.records')}, {totalRelationships} {t('seed.dependencies')}
               </span>
             </div>
@@ -150,7 +142,7 @@ export const ClonePreviewPanel: React.FC<ClonePreviewPanelProps> = ({
                     enableVirtualization={false}
                   />
                 ) : (
-                  <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                  <span className="text-xs text-[var(--sf-text-secondary)]">
                     {t('common.noData')}
                   </span>
                 ),

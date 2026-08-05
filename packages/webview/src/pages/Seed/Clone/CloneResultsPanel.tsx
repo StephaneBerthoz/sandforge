@@ -94,7 +94,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         {/* ID Mappings */}
         {paginatedMappings.length > 0 && (
           <>
-            <span className="text-xs font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+            <span className="text-xs font-medium text-[var(--sf-text-primary)]">
               {t('seed.clone.results.idMapping')}
             </span>
             <DataTable
@@ -123,7 +123,7 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         {/* Errors */}
         {objResult.errors.length > 0 && (
           <>
-            <span className="text-xs font-medium text-[var(--vscode-errorForeground,#f48771)]">
+            <span className="text-xs font-medium text-[var(--sf-error)]">
               {t('seed.clone.results.failed')} ({objResult.errors.length})
             </span>
             <DataTable
@@ -142,25 +142,25 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
     <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="clone-results-panel">
       {/* Overall status */}
       <div className="flex items-center gap-3" data-testid="clone-results-summary">
-        <span className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-sm font-semibold text-[var(--sf-text-primary)]">
           {t('seed.clone.results.title')}
         </span>
         <Badge variant={STATUS_VARIANT[result.status] ?? 'default'}>{result.status}</Badge>
-        <span className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+        <span className="text-xs text-[var(--sf-text-secondary)]">
           {t('seed.clone.results.duration')}: {formattedDuration}s
         </span>
       </div>
 
       {/* Summary counts */}
       <div className="flex items-center gap-4 text-xs" data-testid="clone-results-counts">
-        <span className="text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <span className="text-[var(--sf-text-primary)]">
           {t('seed.clone.results.summary')}: {result.totalSourceRecords} {t('seed.records')}
         </span>
         <span className="text-emerald-400">
           {t('seed.clone.results.inserted')}: {result.totalInserted}
         </span>
         {result.totalFailed > 0 && (
-          <span className="text-[var(--vscode-errorForeground,#f48771)]">
+          <span className="text-[var(--sf-error)]">
             {t('seed.clone.results.failed')}: {result.totalFailed}
           </span>
         )}

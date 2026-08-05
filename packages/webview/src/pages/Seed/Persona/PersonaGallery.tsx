@@ -76,10 +76,10 @@ export const PersonaGallery: React.FC<PersonaGalleryProps> = ({ onPersonaSelecte
     <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="persona-gallery">
       {/* Header */}
       <div>
-        <h2 className="text-sm font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+        <h2 className="text-sm font-semibold text-[var(--sf-text-primary)]">
           {t('seed.persona.title')}
         </h2>
-        <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-0.5">
+        <p className="text-xs text-[var(--sf-text-secondary)] mt-0.5">
           {t('seed.persona.subtitle')}
         </p>
       </div>
@@ -121,17 +121,17 @@ export const PersonaGallery: React.FC<PersonaGalleryProps> = ({ onPersonaSelecte
               <CardBody>
                 <div className="flex flex-col gap-3 py-2">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-[var(--vscode-focusBorder,#007fd4)]" />
-                    <span className="text-xs font-semibold text-[var(--vscode-editor-foreground,#d4d4d4)]">
+                    <Sparkles className="w-5 h-5 text-[var(--sf-accent)]" />
+                    <span className="text-xs font-semibold text-[var(--sf-text-primary)]">
                       {t('seed.persona.card.createCustom')}
                     </span>
                   </div>
-                  <p className="text-xs text-[var(--vscode-descriptionForeground,#868686)]">
+                  <p className="text-xs text-[var(--sf-text-secondary)]">
                     {t('seed.persona.card.createCustomDesc')}
                   </p>
                   <textarea
                     ref={textareaRef}
-                    className="w-full text-xs p-2 rounded bg-[var(--vscode-input-background,#3c3c3c)] text-[var(--vscode-input-foreground,#d4d4d4)] border border-[var(--vscode-input-border,#3c3c3c)] resize-none"
+                    className="w-full text-xs p-2 rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)] resize-none"
                     rows={3}
                     placeholder="e.g., Restaurant chain with menus, reservations, and customer loyalty..."
                     value={hook.customDescription}

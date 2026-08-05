@@ -43,7 +43,7 @@ export const CsvPreview: React.FC<CsvPreviewProps> = ({ headers, rows, totalRowC
 
   return (
     <div className="flex flex-col gap-2" data-testid="csv-preview">
-      <span className="text-sm font-medium text-[var(--vscode-editor-foreground,#d4d4d4)]">
+      <span className="text-sm font-medium text-[var(--sf-text-primary)]">
         {t('seed.csv.preview.title')}
       </span>
       <DataTable<Record<string, string>>
@@ -52,10 +52,7 @@ export const CsvPreview: React.FC<CsvPreviewProps> = ({ headers, rows, totalRowC
         keyExtractor={(_row, index) => String(index)}
         striped
       />
-      <span
-        className="text-xs text-[var(--vscode-descriptionForeground,#868686)]"
-        data-testid="csv-preview-count"
-      >
+      <span className="text-xs text-[var(--sf-text-secondary)]" data-testid="csv-preview-count">
         {t('seed.csv.preview.showing', { shown: rows.length, total: totalRowCount })}
       </span>
     </div>
