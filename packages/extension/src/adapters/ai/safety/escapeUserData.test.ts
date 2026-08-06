@@ -46,12 +46,14 @@ describe('escapeUserData', () => {
     expect(escapeUserData(null)).toBe('');
   });
 
-  it('handles a very long string in <50ms (50_000 < chars)', () => {
+  it('handles a very long string (50_000 chars) in linear time', () => {
     const start = Date.now();
     const result = escapeUserData('<'.repeat(50_000));
     const elapsed = Date.now() - start;
     expect(result.length).toBe(50_000 * 4); // each '<' → '&lt;'
-    expect(elapsed).toBeLessThan(50);
+    // Smoke bound against a quadratic implementation (50k² would take
+    // seconds), not a benchmark: generous enough for loaded CI workers.
+    expect(elapsed).toBeLessThan(1_000);
   });
 
   it('idempotence is NOT expected — re-escape DOES double-encode (intentional)', () => {

@@ -1,4 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, SyncHistoryEntry } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
@@ -8,6 +8,8 @@ import {
   executionManualRetryPayloadSchema,
 } from '../validatePayload.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import type { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
+import type { SyncOpsHandler } from './SyncOpsHandler.js';
 
 /** Message types handled by ExecutionHandler. */
 const EXECUTION_TYPES = new Set([
@@ -26,9 +28,13 @@ const EXECUTION_TYPES = new Set([
 export class ExecutionHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
   /** @param registry - Background operation registry for tracking operations. */
+  /** @param syncHistoryStore - Sync execution history (replay source for manual retry). */
+  /** @param syncOps - Sync handler owning the rerun execution engine. */
   constructor(
     private readonly deps: HandlerDeps,
     private readonly registry: BackgroundOperationRegistry,
+    private readonly syncHistoryStore?: SyncHistoryStore,
+    private readonly syncOps?: SyncOpsHandler,
   ) {}
 
   /**
@@ -51,7 +57,7 @@ export class ExecutionHandler implements DomainHandler {
         await this.handleList(msg);
         return true;
       case 'execution:manual-retry':
-        this.handleManualRetry(msg);
+        await this.handleManualRetry(msg);
         return true;
       default:
         return false;
@@ -61,15 +67,18 @@ export class ExecutionHandler implements DomainHandler {
   /**
    * Handle a manual retry request from the ErrorRecoveryPanel.
    *
-   * Honest minimal behaviour: the extension does not persist failed-operation
-   * configs for replay (only sync executions are replayable, via
-   * `sync:history:rerun`), so a manual retry cannot actually re-run the
-   * operation. Instead of dropping the message silently, answer on the exact
-   * channel the webview consumes — `execution:retry-status` — with
-   * `canRetry: false` so the panel disables the retry button and surfaces the
-   * "retries exhausted" state instead of waiting forever.
+   * Sync executions are replayable: their config snapshot is persisted in
+   * {@link SyncHistoryStore} (written by SyncExecutionLogger on every completed
+   * run). When the failed execution is found there, it is relaunched through
+   * {@link SyncOpsHandler.rerunFromSnapshot} — same guards as `sync:history:rerun`
+   * (Zod re-validation, ProductionGuard) and the usual `operation:*` lifecycle
+   * events. Every other module keeps the honest `canRetry: false` answer:
+   * its configuration was never persisted for replay.
+   *
+   * Both outcomes answer on the exact channel the webview consumes —
+   * `execution:retry-status` — so the panel leaves its pending state.
    */
-  private handleManualRetry(msg: BaseMessage): void {
+  private async handleManualRetry(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       executionManualRetryPayloadSchema,
@@ -80,20 +89,88 @@ export class ExecutionHandler implements DomainHandler {
     if (!parsed) return;
     const payload = parsed;
     const operation = this.registry.get(payload.executionId);
+
+    const replayEntry = this.findReplayableSyncEntry(payload.executionId, operation?.module);
+    if (replayEntry && this.syncOps) {
+      // Acknowledge before relaunching: the retry-status row is replaced
+      // (useRetryManager merges on executionId+objectName), which disables the
+      // retry button and clears the stale error. `canAbort: false` is honest —
+      // the rerun gets its own operation id (msg.id), so the panel's abort
+      // button (bound to the old executionId) cannot reach it.
+      const response = buildResponse(this.deps, msg, 'execution:retry-status', {
+        executionId: payload.executionId,
+        objectName: payload.objectName,
+        attemptNumber: 1,
+        maxAttempts: 1,
+        nextRetryAt: null,
+        lastError: '',
+        canRetry: false,
+        canAbort: false,
+      });
+      this.deps.broker.postToWebview(response);
+      this.deps.log(
+        `[TX] ${response.type} id=${response.id} (replay of history entry ${replayEntry.id})`,
+      );
+      await this.syncOps.rerunFromSnapshot(msg, replayEntry.configSnapshot);
+      return;
+    }
+
     const response = buildResponse(this.deps, msg, 'execution:retry-status', {
       executionId: payload.executionId,
       objectName: payload.objectName,
       attemptNumber: 0,
       maxAttempts: 0,
       nextRetryAt: null,
-      lastError: operation
-        ? 'Manual retry is not supported for this operation: its configuration was not persisted for replay.'
-        : `Operation not found: ${payload.executionId}. Manual retry is unavailable.`,
+      lastError: this.nonReplayableReason(payload.executionId, operation?.module),
       canRetry: false,
       canAbort: operation?.status === 'running',
     });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id} (not replayable)`);
+  }
+
+  /**
+   * Locate the failed sync execution to replay for a manual retry.
+   *
+   * An entry is replayable when its status is not `'success'` (`'failure'` and
+   * `'partial'` both carry failed objects). An exact `result.operationId` match
+   * wins; otherwise — the orchestrator mints its own operation id, so exact
+   * matches are rare — the most recent failed sync run is used, but only when
+   * the registry still tracks the operation as a sync one. Foreign or unknown
+   * modules stay honestly non-replayable.
+   *
+   * @param executionId - The failed execution id sent by the webview.
+   * @param module - The operation module from the registry, when still tracked.
+   * @returns The newest replayable history entry, or `undefined`.
+   */
+  private findReplayableSyncEntry(
+    executionId: string,
+    module: string | undefined,
+  ): SyncHistoryEntry | undefined {
+    if (!this.syncHistoryStore) return undefined;
+    const failedEntries = this.syncHistoryStore
+      .list()
+      .filter((entry) => entry.result.status !== 'success');
+    if (failedEntries.length === 0) return undefined;
+    const exact = failedEntries.find((entry) => entry.result.operationId === executionId);
+    if (exact) return exact;
+    // list() is newest-first: failedEntries[0] is the latest failed sync run.
+    if (module === 'sync') return failedEntries[0];
+    return undefined;
+  }
+
+  /**
+   * Honest explanation for a non-replayable manual retry, surfaced as the
+   * retry-status `lastError` so the panel can display why nothing happened.
+   */
+  private nonReplayableReason(executionId: string, module: string | undefined): string {
+    if (module === 'sync') {
+      return `No failed sync execution found in history for ${executionId}. Manual retry is unavailable.`;
+    }
+    if (module !== undefined) {
+      return 'Manual retry is not supported for this operation: its configuration was not persisted for replay.';
+    }
+    return `Operation not found: ${executionId}. Manual retry is unavailable.`;
   }
 
   /**
