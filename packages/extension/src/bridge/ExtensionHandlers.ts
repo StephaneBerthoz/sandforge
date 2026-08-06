@@ -123,6 +123,7 @@ export class ExtensionHandlers {
   private readonly noOpHandler: NoOpHandler;
   private readonly cacheHandler: CacheDomainHandler;
   private readonly smartActionHandler: SmartActionHandler;
+  private readonly syncHistoryStore: SyncHistoryStore;
   private executionHandler?: ExecutionHandler;
 
   constructor(deps: ExtensionHandlersDeps) {
@@ -152,12 +153,13 @@ export class ExtensionHandlers {
     this.seedCsvHandler = new SeedCsvHandler(this.handlerDeps);
     this.syncHandler = new SyncOpsHandler(this.handlerDeps);
     // Sync execution history: one shared store — SyncOpsHandler writes via
-    // SyncExecutionLogger, SyncHistoryHandler serves the read surface.
-    const syncHistoryStore = new SyncHistoryStore(deps.configStore);
-    this.syncHandler.setHistoryLogger(new SyncExecutionLogger(syncHistoryStore));
+    // SyncExecutionLogger, SyncHistoryHandler serves the read surface and
+    // ExecutionHandler replays failed runs from it (execution:manual-retry).
+    this.syncHistoryStore = new SyncHistoryStore(deps.configStore);
+    this.syncHandler.setHistoryLogger(new SyncExecutionLogger(this.syncHistoryStore));
     this.syncHistoryHandler = new SyncHistoryHandler(
       this.handlerDeps,
-      syncHistoryStore,
+      this.syncHistoryStore,
       this.syncHandler,
     );
     this.compareHandler = new CompareHandler(this.handlerDeps);
@@ -214,7 +216,14 @@ export class ExtensionHandlers {
   setBackgroundRegistry(registry: BackgroundOperationRegistry): void {
     this.syncHandler.setRegistry(registry);
     this.seedHandler.setRegistry(registry);
-    this.executionHandler = new ExecutionHandler(this.handlerDeps, registry);
+    // The sync history store + sync handler turn execution:manual-retry into a
+    // real replay for failed sync runs (rerunFromSnapshot path).
+    this.executionHandler = new ExecutionHandler(
+      this.handlerDeps,
+      registry,
+      this.syncHistoryStore,
+      this.syncHandler,
+    );
   }
 
   /**

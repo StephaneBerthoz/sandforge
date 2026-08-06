@@ -29,6 +29,44 @@ let broker: MessageBroker | undefined;
 let servicesRef: Services | undefined;
 let handlersRef: ExtensionHandlers | undefined;
 
+/** Org fields the status bar label needs (structural subset of SalesforceOrg). */
+export interface StatusBarOrg {
+  id: string;
+  alias: string;
+  username: string;
+  status: string;
+}
+
+/**
+ * Build the status bar label + tooltip from the current orgs.
+ *
+ * Shows the selected org's alias when one is tracked (sidebar `sidebar:selectOrg`
+ * → `org:selected` flow); otherwise falls back to the first connected org, and
+ * finally to the bare org count. Exported for unit tests.
+ *
+ * @param orgs - All orgs known to the OrgManager.
+ * @param selectedOrgId - The org currently selected in the sidebar, if any.
+ */
+export function buildStatusBarLabel(
+  orgs: StatusBarOrg[],
+  selectedOrgId: string | undefined,
+): { text: string; tooltip: string } {
+  const count = orgs.length;
+  const countLabel = `${count} org${count !== 1 ? 's' : ''}`;
+  const displayed =
+    orgs.find((org) => org.id === selectedOrgId) ?? orgs.find((org) => org.status === 'connected');
+  if (!displayed) {
+    return {
+      text: `$(flame) SandForge: ${countLabel}`,
+      tooltip: 'SandForge — Click to open Monitor',
+    };
+  }
+  return {
+    text: `$(flame) SandForge: ${displayed.alias} (${countLabel})`,
+    tooltip: `${displayed.alias} — ${displayed.username} (${displayed.status})`,
+  };
+}
+
 /**
  * Called when the extension is activated.
  *
@@ -157,12 +195,20 @@ export function activate(context: vscode.ExtensionContext): void {
   // Pre-load orgs so they're available when sidebar mounts
   orgRegistry.loadAll();
 
+  // Org selection tracked extension-side (sidebar `sidebar:selectOrg` event,
+  // same callback that posts `org:selected` to the active panel) so the status
+  // bar can show the selected org's alias. `refreshStatusBar` is declared at
+  // step 12 — the callback only fires after activation completes.
+  let selectedOrgId: string | undefined;
+
   const sidebarProvider = new SidebarViewProvider(
     context.extensionUri,
     vscode.Uri.joinPath,
     vscode.commands.executeCommand,
     () => orgManager.getAllOrgs() as unknown as Record<string, unknown>[],
     (orgId: string) => {
+      selectedOrgId = orgId;
+      refreshStatusBar();
       panelManager.postToActivePanel({
         type: 'org:selected',
         id: `org-sel-${Date.now()}`,
@@ -186,18 +232,21 @@ export function activate(context: vscode.ExtensionContext): void {
     onboardingService,
   });
 
-  // 12. StatusBar — shows org count and active state
+  // 12. StatusBar — org count + selected (or first connected) org alias
   const statusBar = new StatusBarProvider((alignment, priority) =>
     vscode.window.createStatusBarItem(alignment, priority),
   );
-  const orgCount = orgManager.getAllOrgs().length;
-  statusBar.setItem({
-    id: 'sandforge.status',
-    text: `$(flame) SandForge: ${orgCount} org${orgCount !== 1 ? 's' : ''}`,
-    tooltip: 'SandForge — Click to open Monitor',
-    command: 'sandforge.openMonitor',
-    priority: 200,
-  });
+  const refreshStatusBar = (): void => {
+    const label = buildStatusBarLabel(orgManager.getAllOrgs(), selectedOrgId);
+    statusBar.setItem({
+      id: 'sandforge.status',
+      text: label.text,
+      tooltip: label.tooltip,
+      command: 'sandforge.openMonitor',
+      priority: 200,
+    });
+  };
+  refreshStatusBar();
 
   // 13. Org changes -> stateSync + statusBar
   const unsubOrgChange = orgManager.onOrgChange(() => {
@@ -205,11 +254,9 @@ export function activate(context: vscode.ExtensionContext): void {
     stateSync.updateState({
       orgs: orgs as unknown as Record<string, unknown>[],
     });
-    const count = orgs.length;
-    statusBar.updateText(
-      'sandforge.status',
-      `$(flame) SandForge: ${count} org${count !== 1 ? 's' : ''}`,
-    );
+    // Recomputes alias (selection may have been removed/renamed) and tooltip
+    // (connection status changes surface via statusChanged events).
+    refreshStatusBar();
     // Push updated org list to sidebar webview
     sidebarProvider.postMessage({
       type: 'org:list:response',

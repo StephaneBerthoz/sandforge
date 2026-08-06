@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ExecutionHandler } from './ExecutionHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
-import type { BaseMessage } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  SyncConfig,
+  SyncExecutionResult,
+  SyncHistoryEntry,
+} from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
+import type { SyncOpsHandler } from './SyncOpsHandler.js';
 
 /**
  * Creates minimal mock deps for ExecutionHandler tests.
@@ -20,6 +27,63 @@ function createMockDeps(): HandlerDeps {
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
     nextId: () => String(++idCounter),
+  };
+}
+
+/** In-memory ConfigStore mock backing a real SyncHistoryStore. */
+function createInMemoryConfigStore(): HandlerDeps['configStore'] {
+  const data = new Map<string, unknown>();
+  return {
+    get: vi.fn(<T>(key: string): T | undefined => data.get(key) as T | undefined),
+    set: vi.fn((key: string, value: unknown): void => {
+      data.set(key, value);
+    }),
+    delete: vi.fn((key: string): boolean => data.delete(key)),
+  } as unknown as HandlerDeps['configStore'];
+}
+
+function createSyncConfig(id: string): SyncConfig {
+  return {
+    id,
+    name: `Config ${id}`,
+    description: 'Test config',
+    sourceOrgId: 'src-org',
+    targetOrgId: 'tgt-org',
+    direction: 'source_to_target',
+    mode: 'full',
+    objects: [],
+    conflictStrategy: 'source_wins',
+    enableRollback: false,
+    dryRun: false,
+    createdAt: '2026-03-01T00:00:00Z',
+    updatedAt: '2026-03-01T00:00:00Z',
+  };
+}
+
+function createHistoryEntry(
+  id: string,
+  operationId: string,
+  status: SyncExecutionResult['status'],
+  startTime: string,
+): SyncHistoryEntry {
+  return {
+    id,
+    configSnapshot: createSyncConfig(`cfg-${id}`),
+    result: {
+      configId: `cfg-${id}`,
+      operationId,
+      status,
+      objectResults: [],
+      totalProcessed: 100,
+      totalSuccess: status === 'failure' ? 0 : 100,
+      totalFailed: status === 'failure' ? 100 : 0,
+      totalSkipped: 0,
+      duration: 5000,
+      timestamp: startTime,
+    },
+    startTime,
+    endTime: startTime,
+    triggeredBy: 'manual',
   };
 }
 
@@ -280,6 +344,148 @@ describe('ExecutionHandler', () => {
       expect(response.type).toBe('execution:abort:response');
       expect(response.payload.success).toBe(false);
       expect(response.payload.code).not.toBe('INVALID_PAYLOAD');
+    });
+  });
+
+  describe('execution:manual-retry', () => {
+    let historyStore: SyncHistoryStore;
+    let syncOps: { rerunFromSnapshot: ReturnType<typeof vi.fn> };
+    let replayHandler: ExecutionHandler;
+
+    beforeEach(() => {
+      historyStore = new SyncHistoryStore(createInMemoryConfigStore());
+      syncOps = { rerunFromSnapshot: vi.fn().mockResolvedValue(undefined) };
+      replayHandler = new ExecutionHandler(
+        deps,
+        registry,
+        historyStore,
+        syncOps as unknown as SyncOpsHandler,
+      );
+    });
+
+    function retryMsg(executionId: string, objectName = 'Account'): BaseMessage {
+      return {
+        id: 'req-retry-1',
+        type: 'execution:manual-retry',
+        timestamp: Date.now(),
+        payload: { executionId, objectName },
+      } as BaseMessage;
+    }
+
+    function postedOfType(type: string): (BaseMessage & { payload: Record<string, unknown> })[] {
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      return postToWebview.mock.calls
+        .map((call) => call[0] as BaseMessage & { payload: Record<string, unknown> })
+        .filter((m) => m.type === type);
+    }
+
+    it('replays the failed sync execution whose operationId matches exactly', async () => {
+      const failedEntry = createHistoryEntry('e1', 'op-sync-1', 'failure', '2026-03-01T00:00:00Z');
+      historyStore.save(failedEntry);
+
+      const result = await replayHandler.handle(retryMsg('op-sync-1'));
+
+      expect(result).toBe(true);
+      expect(syncOps.rerunFromSnapshot).toHaveBeenCalledTimes(1);
+      const [rerunMsg, snapshot] = syncOps.rerunFromSnapshot.mock.calls[0] as [
+        BaseMessage,
+        unknown,
+      ];
+      expect(rerunMsg.id).toBe('req-retry-1');
+      expect(snapshot).toEqual(failedEntry.configSnapshot);
+
+      // The panel is acknowledged on execution:retry-status before the rerun.
+      const statuses = postedOfType('execution:retry-status');
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0].payload).toMatchObject({
+        executionId: 'op-sync-1',
+        objectName: 'Account',
+        attemptNumber: 1,
+        nextRetryAt: null,
+        lastError: '',
+        canRetry: false,
+        canAbort: false,
+      });
+    });
+
+    it('falls back to the most recent failed sync run when the registry tracks a sync operation', async () => {
+      historyStore.save(createHistoryEntry('e-old', 'op-old', 'failure', '2026-03-01T00:00:00Z'));
+      const newest = createHistoryEntry('e-new', 'op-new', 'partial', '2026-03-03T00:00:00Z');
+      historyStore.save(newest);
+      // The webview's executionId is the bridge operation id (msg.id), which
+      // never matches the orchestrator-minted result.operationId.
+      registry.register(
+        'bridge-op-sync',
+        'sync',
+        'Sync 1 object',
+        new Promise(() => {
+          /* never resolves */
+        }),
+        new AbortController(),
+      );
+
+      const result = await replayHandler.handle(retryMsg('bridge-op-sync'));
+
+      expect(result).toBe(true);
+      expect(syncOps.rerunFromSnapshot).toHaveBeenCalledTimes(1);
+      const [, snapshot] = syncOps.rerunFromSnapshot.mock.calls[0] as [BaseMessage, unknown];
+      expect(snapshot).toEqual(newest.configSnapshot);
+    });
+
+    it('answers canRetry:false without replaying for a non-sync module', async () => {
+      historyStore.save(createHistoryEntry('e1', 'op-sync-1', 'failure', '2026-03-01T00:00:00Z'));
+      registry.register(
+        'op-seed-1',
+        'seed',
+        'Seed 5 objects',
+        new Promise(() => {
+          /* never resolves */
+        }),
+        new AbortController(),
+      );
+
+      const result = await replayHandler.handle(retryMsg('op-seed-1'));
+
+      expect(result).toBe(true);
+      expect(syncOps.rerunFromSnapshot).not.toHaveBeenCalled();
+      const statuses = postedOfType('execution:retry-status');
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0].payload.canRetry).toBe(false);
+      expect(String(statuses[0].payload.lastError)).toContain('not supported');
+    });
+
+    it('answers canRetry:false when no failed sync execution exists in history', async () => {
+      // A successful run is never a replay candidate, even on an exact id match.
+      historyStore.save(createHistoryEntry('e1', 'op-sync-ok', 'success', '2026-03-01T00:00:00Z'));
+      registry.register(
+        'op-sync-ok',
+        'sync',
+        'Sync 1 object',
+        new Promise(() => {
+          /* never resolves */
+        }),
+        new AbortController(),
+      );
+
+      const result = await replayHandler.handle(retryMsg('op-sync-ok'));
+
+      expect(result).toBe(true);
+      expect(syncOps.rerunFromSnapshot).not.toHaveBeenCalled();
+      const statuses = postedOfType('execution:retry-status');
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0].payload.canRetry).toBe(false);
+      expect(String(statuses[0].payload.lastError)).toContain('No failed sync execution');
+    });
+
+    it('answers canRetry:false for an unknown operation (honest not-found)', async () => {
+      const result = await replayHandler.handle(retryMsg('ghost'));
+
+      expect(result).toBe(true);
+      expect(syncOps.rerunFromSnapshot).not.toHaveBeenCalled();
+      const statuses = postedOfType('execution:retry-status');
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0].payload.canRetry).toBe(false);
+      expect(String(statuses[0].payload.lastError)).toContain('Operation not found: ghost');
     });
   });
 });

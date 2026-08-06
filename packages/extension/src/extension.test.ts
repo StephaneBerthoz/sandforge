@@ -91,7 +91,9 @@ vi.mock('vscode', () => ({
   })),
 }));
 
-import { activate, deactivate } from './extension';
+import { activate, deactivate, buildStatusBarLabel } from './extension';
+import type { SidebarViewProvider } from './providers/SidebarViewProvider';
+import type { StatusBarOrg } from './extension';
 
 function createMockMemento(): import('vscode').Memento {
   const store = new Map<string, unknown>();
@@ -187,6 +189,43 @@ describe('extension', () => {
     expect(statusBarItem.command).toBe('sandforge.openMonitor');
   });
 
+  it('should refresh the status bar when the sidebar selects an org', async () => {
+    const context = createContext();
+    activate(context);
+
+    const vscode = await import('vscode');
+    const provider = vi.mocked(vscode.window.registerWebviewViewProvider).mock
+      .calls[0][1] as unknown as SidebarViewProvider;
+
+    // Resolve the sidebar view and capture its message handler.
+    let messageHandler: ((message: Record<string, unknown>) => void) | undefined;
+    const mockView = {
+      webview: {
+        options: undefined,
+        html: '',
+        cspSource: 'https://test.csp.source',
+        onDidReceiveMessage: vi.fn((handler: (message: Record<string, unknown>) => void) => {
+          messageHandler = handler;
+          return { dispose: vi.fn() };
+        }),
+        postMessage: vi.fn(),
+        asWebviewUri: vi.fn((uri: { toString: () => string }) => ({
+          toString: () => String(uri),
+        })),
+      },
+    };
+    provider.resolveWebviewView(mockView as never, undefined, undefined);
+
+    const calls = vi.mocked(vscode.window.createStatusBarItem).mock.results;
+    const statusBarItem = calls[0]?.value as typeof mockStatusBarItem;
+    const showCallsBefore = statusBarItem.show.mock.calls.length;
+
+    messageHandler?.({ type: 'sidebar:selectOrg', payload: { orgId: 'org-x' } });
+
+    // The selection triggers a status bar refresh (setItem -> show again).
+    expect(statusBarItem.show.mock.calls.length).toBe(showCallsBefore + 1);
+  });
+
   it('should push disposables to subscriptions', () => {
     const context = createContext();
 
@@ -207,5 +246,50 @@ describe('extension', () => {
 
   it('should handle double deactivation without error', async () => {
     await expect(deactivate()).resolves.toBeUndefined();
+  });
+});
+
+describe('buildStatusBarLabel', () => {
+  const connectedOrg: StatusBarOrg = {
+    id: 'o1',
+    alias: 'dev',
+    username: 'admin@dev.com',
+    status: 'connected',
+  };
+  const expiredOrg: StatusBarOrg = {
+    id: 'o2',
+    alias: 'prod',
+    username: 'admin@prod.com',
+    status: 'expired',
+  };
+
+  it('falls back to the bare org count when there are no orgs', () => {
+    expect(buildStatusBarLabel([], undefined)).toEqual({
+      text: '$(flame) SandForge: 0 orgs',
+      tooltip: 'SandForge — Click to open Monitor',
+    });
+  });
+
+  it('keeps the bare count when no org is selected and none is connected', () => {
+    const label = buildStatusBarLabel([expiredOrg], undefined);
+    expect(label.text).toBe('$(flame) SandForge: 1 org');
+    expect(label.tooltip).toBe('SandForge — Click to open Monitor');
+  });
+
+  it('shows the selected org alias with the org count', () => {
+    const label = buildStatusBarLabel([connectedOrg, expiredOrg], 'o2');
+    expect(label.text).toBe('$(flame) SandForge: prod (2 orgs)');
+    expect(label.tooltip).toBe('prod — admin@prod.com (expired)');
+  });
+
+  it('falls back to the first connected org when nothing is selected', () => {
+    const label = buildStatusBarLabel([expiredOrg, connectedOrg], undefined);
+    expect(label.text).toBe('$(flame) SandForge: dev (2 orgs)');
+    expect(label.tooltip).toBe('dev — admin@dev.com (connected)');
+  });
+
+  it('falls back to the first connected org when the selection no longer exists', () => {
+    const label = buildStatusBarLabel([connectedOrg], 'ghost');
+    expect(label.text).toBe('$(flame) SandForge: dev (1 org)');
   });
 });
