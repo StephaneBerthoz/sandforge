@@ -1337,7 +1337,8 @@
     "telemetryEventCount": "Events sent",
     "telemetryBufferSize": "Buffer size",
     "telemetryEnable": "Enable Telemetry",
-    "telemetryDisable": "Disable Telemetry"
+    "telemetryDisable": "Disable Telemetry",
+    "telemetryUnavailable": "Unavailable"
   },
   "bridge": {
     "connecting": "Connecting to extension...",

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import '../i18n';
 import { useAppStore } from '../stores/useAppStore';
 import { useOrgStore } from '../stores/useOrgStore';
@@ -83,5 +83,16 @@ describe('AppShell', () => {
     render(<AppShell />);
     const main = document.getElementById('main-content');
     expect(main?.tabIndex).toBe(-1);
+  });
+
+  it('should reset main scroll position to top on route change', () => {
+    render(<AppShell />);
+    const main = document.getElementById('main-content');
+    expect(main).toBeDefined();
+    main!.scrollTop = 200;
+    act(() => {
+      useAppStore.setState({ currentRoute: 'settings' });
+    });
+    expect(main!.scrollTop).toBe(0);
   });
 });

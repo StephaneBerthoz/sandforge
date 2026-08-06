@@ -1249,7 +1249,8 @@
     "telemetryEventCount": "Evenements envoyes",
     "telemetryBufferSize": "Taille du buffer",
     "telemetryEnable": "Activer la telemetrie",
-    "telemetryDisable": "Desactiver la telemetrie"
+    "telemetryDisable": "Desactiver la telemetrie",
+    "telemetryUnavailable": "Indisponible"
   },
   "bridge": {
     "connecting": "Connexion a l'extension...",

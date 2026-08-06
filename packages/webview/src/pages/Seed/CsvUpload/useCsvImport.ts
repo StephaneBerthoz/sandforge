@@ -134,7 +134,11 @@ export function useCsvImport(t: TFunction): CsvImportState {
 
   const describeMutation = useBridgeMutation<{ fields: SeedFieldInfo[] }>('seed:describe-object');
   const validateMutation = useBridgeMutation<CsvValidationResult>('seed:csv:validate');
-  const executeMutation = useBridgeMutation<CsvExecutionResult>('seed:csv:execute');
+  const executeMutation = useBridgeMutation<CsvExecutionResult>('seed:csv:execute', {
+    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
+    // events keep flowing while the response is pending.
+    timeoutMs: 120_000,
+  });
 
   const handleFileSelected = useCallback((selectedFile: File) => {
     setFile(selectedFile);

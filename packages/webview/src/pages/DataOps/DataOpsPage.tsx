@@ -56,11 +56,17 @@ export const DataOpsPage: React.FC = () => {
   const backupMutation = useBridgeMutation<Record<string, unknown>>('backup:execute', {
     responseType: 'dataops:backup:response',
     errorType: 'dataops:error',
+    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
+    // events keep flowing while the response is pending.
+    timeoutMs: 120_000,
   });
 
   /** Bridge mutation: anonymize data. */
   const anonymizeMutation = useBridgeMutation<Record<string, unknown>>('dataops:anonymize', {
     responseType: 'dataops:anonymize:response',
+    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
+    // events keep flowing while the response is pending.
+    timeoutMs: 120_000,
   });
 
   /** Bridge query: load anonymization templates. */

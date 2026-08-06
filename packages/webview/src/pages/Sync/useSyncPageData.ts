@@ -220,6 +220,9 @@ export function useSyncPageData(): SyncPageData {
   // Bridge mutation: execute sync
   const executeMutation = useBridgeMutation<SyncExecutionResult>('sync:execute', {
     responseType: 'sync:execute:response',
+    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
+    // events keep flowing while the response is pending.
+    timeoutMs: 120_000,
   });
 
   // Bridge mutation: dry-run preview (unused in UI for now)

@@ -943,7 +943,8 @@
     "security": "Seguridad",
     "securityDesc": "Seguridad y protecciones de produccion",
     "requireProdConfirmation": "Requerir confirmacion para operaciones en produccion",
-    "auditLogging": "Habilitar registro de auditoria"
+    "auditLogging": "Habilitar registro de auditoria",
+    "telemetryUnavailable": "No disponible"
   },
   "bridge": {
     "connecting": "Conectando a la extension...",

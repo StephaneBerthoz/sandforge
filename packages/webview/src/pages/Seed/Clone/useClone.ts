@@ -86,7 +86,11 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
 
   const previewMutation = useBridgeMutation<ClonePreviewResult>('seed:clone:preview');
 
-  const executeMutation = useBridgeMutation<CloneExecutionResult>('seed:clone:execute');
+  const executeMutation = useBridgeMutation<CloneExecutionResult>('seed:clone:execute', {
+    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
+    // events keep flowing while the response is pending.
+    timeoutMs: 120_000,
+  });
 
   /* ------------------------------------------------------------------ */
   /* Sync mutation results into local state                              */

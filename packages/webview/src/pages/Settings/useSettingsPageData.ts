@@ -11,6 +11,27 @@ interface AIStatusResponse {
   model: string;
 }
 
+/** Telemetry status response shape (SettingsHandler.handleTelemetryStatus). */
+interface TelemetryStatusResponse {
+  enabled: boolean;
+  eventCount: number;
+  bufferSize: number;
+}
+
+/** Telemetry toggle response shape (SettingsHandler.handleTelemetryToggle). */
+interface TelemetryToggleResponse {
+  success: boolean;
+  enabled: boolean;
+  error?: string;
+}
+
+/**
+ * Short timeout for the telemetry status probe: the Settings tab must fall
+ * back to the honest "unavailable" state quickly when the extension does
+ * not answer (older backend), instead of spinning for the 30 s default.
+ */
+const TELEMETRY_STATUS_TIMEOUT_MS = 5_000;
+
 /** Return type for the settings page data hook. */
 export interface SettingsPageData {
   /** Current settings state. */
@@ -41,6 +62,18 @@ export interface SettingsPageData {
   aiKeySaving: boolean;
   /** AI key save error, if any. */
   aiKeyError: string | null;
+  /** Real telemetry status from the extension, null while unknown. */
+  telemetryStatus: TelemetryStatusResponse | null;
+  /** Whether the telemetry status query is in flight. */
+  telemetryStatusLoading: boolean;
+  /** True when the extension did not answer the telemetry status probe. */
+  telemetryUnavailable: boolean;
+  /** Toggle telemetry on/off (persists `sandforge.telemetry`). */
+  toggleTelemetry: () => void;
+  /** Whether the telemetry toggle mutation is in flight. */
+  telemetryToggling: boolean;
+  /** Telemetry toggle error (bridge error or backend refusal), if any. */
+  telemetryToggleError: string | null;
 }
 
 /**
@@ -75,6 +108,16 @@ export function useSettingsPageData(
     responseType: 'ai:save-key:response',
   });
 
+  /** Telemetry status query: real opt-in state + emitted event count. */
+  const telemetryStatusQuery = useBridgeQuery<TelemetryStatusResponse>(
+    'telemetry:status',
+    undefined,
+    { timeoutMs: TELEMETRY_STATUS_TIMEOUT_MS },
+  );
+
+  /** Telemetry toggle mutation: persists `sandforge.telemetry` globally. */
+  const telemetryToggleMutation = useBridgeMutation<TelemetryToggleResponse>('telemetry:toggle');
+
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiKeySaved, setAiKeySaved] = useState(false);
 
@@ -93,6 +136,16 @@ export function useSettingsPageData(
       setSettings(settingsQuery.data.settings);
     }
   }, [settingsQuery.data]);
+
+  /**
+   * After a successful toggle, refresh the status so the UI shows the value
+   * actually persisted by the extension (and the latest event count).
+   */
+  useEffect(() => {
+    if (telemetryToggleMutation.data?.success) {
+      telemetryStatusQuery.refetch();
+    }
+  }, [telemetryToggleMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateSetting = <K extends keyof SettingsValues>(
     key: K,
@@ -118,6 +171,10 @@ export function useSettingsPageData(
     aiSaveKeyMutation.mutate({ apiKey });
   };
 
+  const toggleTelemetry = (): void => {
+    telemetryToggleMutation.mutate({ enabled: !(telemetryStatusQuery.data?.enabled ?? false) });
+  };
+
   return {
     settings,
     updateSetting,
@@ -133,5 +190,15 @@ export function useSettingsPageData(
     saveAiKey,
     aiKeySaving: aiSaveKeyMutation.loading,
     aiKeyError: aiSaveKeyMutation.error,
+    telemetryStatus: telemetryStatusQuery.data,
+    telemetryStatusLoading: telemetryStatusQuery.loading,
+    telemetryUnavailable: telemetryStatusQuery.error != null,
+    toggleTelemetry,
+    telemetryToggling: telemetryToggleMutation.loading,
+    telemetryToggleError:
+      telemetryToggleMutation.error ??
+      (telemetryToggleMutation.data && !telemetryToggleMutation.data.success
+        ? (telemetryToggleMutation.data.error ?? null)
+        : null),
   };
 }
