@@ -10,6 +10,9 @@ const defaultProps = {
   totalRecords: 20700,
   estimatedApiCalls: 414,
   estimatedDurationMin: 5,
+  waves: 2,
+  piiFields: 4,
+  anonymizedFields: 3,
   complianceFramework: 'gdpr' as const,
   isExecuting: false,
   onExecute: vi.fn(),
@@ -45,6 +48,18 @@ describe('Step4_Review', () => {
     expect(screen.getByText('Account')).toBeDefined();
     expect(screen.getByText('Contact')).toBeDefined();
     expect(screen.getByText('Opportunity')).toBeDefined();
+  });
+
+  it('should display plan stat cards', () => {
+    render(<Step4Review {...defaultProps} />);
+    expect(screen.getByTestId('stat-waves').textContent).toContain('2');
+    expect(screen.getByTestId('stat-pii-fields').textContent).toContain('4');
+    expect(screen.getByTestId('stat-anonymized-fields').textContent).toContain('3');
+  });
+
+  it('should show an error banner when an execution error is present', () => {
+    render(<Step4Review {...defaultProps} error="Operation cancelled by user" />);
+    expect(screen.getByTestId('autopilot-execute-error')).toBeDefined();
   });
 
   it('should show execute button', () => {

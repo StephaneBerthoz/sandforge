@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ComplianceFrameworkType } from '@sandforge/shared';
 import { Button } from '../../../components/ui/Button';
+import { ErrorBanner } from '../../../components/ui/ErrorBanner';
 
 /** Step4Review component props. */
 export interface Step4ReviewProps {
@@ -17,10 +18,18 @@ export interface Step4ReviewProps {
   readonly estimatedApiCalls: number;
   /** Estimated duration in minutes */
   readonly estimatedDurationMin: number;
+  /** Number of execution waves in the generated plan */
+  readonly waves: number;
+  /** PII fields detected by the generated plan */
+  readonly piiFields: number;
+  /** Fields the plan will anonymize */
+  readonly anonymizedFields: number;
   /** Selected compliance framework */
   readonly complianceFramework: ComplianceFrameworkType;
   /** Whether execution is in progress */
   readonly isExecuting: boolean;
+  /** Last execution error (e.g. production guard declined), if any */
+  readonly error?: string | null;
   /** Callback to start execution */
   readonly onExecute: () => void;
 }
@@ -33,8 +42,12 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
   totalRecords,
   estimatedApiCalls,
   estimatedDurationMin,
+  waves,
+  piiFields,
+  anonymizedFields,
   complianceFramework,
   isExecuting,
+  error,
   onExecute,
 }) => {
   const { t } = useTranslation();
@@ -59,6 +72,8 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
     <div className="flex flex-col gap-[var(--sf-space-4)]" data-testid="step4-review">
       <p className="text-sm text-text-secondary">{t('autopilot.step4.description')}</p>
 
+      {error && <ErrorBanner message={error} data-testid="autopilot-execute-error" />}
+
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <StatCard
           label={t('autopilot.step4.totalObjects')}
@@ -79,6 +94,17 @@ export const Step4Review: React.FC<Step4ReviewProps> = ({
           label={t('autopilot.step4.estimatedApiCalls')}
           value={fmt(estimatedApiCalls)}
           testId="stat-api-calls"
+        />
+        <StatCard label={t('autopilot.step4.waves')} value={String(waves)} testId="stat-waves" />
+        <StatCard
+          label={t('autopilot.step4.piiFields')}
+          value={fmt(piiFields)}
+          testId="stat-pii-fields"
+        />
+        <StatCard
+          label={t('autopilot.step4.anonymizedFields')}
+          value={fmt(anonymizedFields)}
+          testId="stat-anonymized-fields"
         />
         <StatCard
           label={t('autopilot.step4.complianceFramework')}

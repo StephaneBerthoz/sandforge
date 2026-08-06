@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   BaseMessage,
@@ -11,6 +11,7 @@ import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useMessageListener } from '../../hooks/useMessageBus';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { AutopilotWizard } from './AutopilotWizard';
 import { AutopilotGraph } from './AutopilotGraph';
 import { ControlPanel } from './ControlPanel';
@@ -76,6 +77,9 @@ export const AutopilotPage: React.FC = () => {
     if (msg.payload.recordCount !== undefined) {
       store.updateNodeProgress(msg.payload.objectName, 100, msg.payload.recordCount);
     }
+    if (msg.payload.status === 'failed' && msg.payload.error) {
+      store.addError(`${msg.payload.objectName}: ${msg.payload.error}`);
+    }
     store.updateLiveStats({ currentWave: msg.payload.wave });
   });
 
@@ -103,6 +107,49 @@ export const AutopilotPage: React.FC = () => {
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const navigate = useAppStore((s) => s.navigate);
+
+  // Execute request — owned by the page (not the wizard) so the response/error
+  // listeners survive the wizard unmounting when the view flips to execution.
+  // Executions run long: the timeout is 10 min, not the 30 s default.
+  const executeMutation = useBridgeMutation<{
+    totalRecords: number;
+    totalSuccessCount: number;
+    totalFailureCount: number;
+    totalElapsedMs: number;
+    totalApiCalls: number;
+  }>('autopilot:execute', {
+    responseType: 'autopilot:completed',
+    errorType: 'autopilot:error',
+    timeoutMs: 600_000,
+  });
+
+  /** Start execution: flip to the execution view and post `autopilot:execute`. */
+  const handleExecute = useCallback((): void => {
+    const store = useAutopilotStore.getState();
+    const plan = store.plan;
+    store.setExecutionStatus('executing');
+    store.setStep('executing');
+    store.updateLiveStats({
+      recordsProcessed: 0,
+      recordsTotal: plan?.totalRecords ?? 0,
+      apiCallsUsed: 0,
+      apiCallsEstimated: plan?.estimatedApiCalls ?? 0,
+      elapsedMs: 0,
+      currentWave: 0,
+      totalWaves: plan?.waves.length ?? 0,
+    });
+    executeMutation.mutate({ grappeThreshold: 0 });
+  }, [executeMutation]);
+
+  // Execute rejected (validation, production guard declined, execution crash):
+  // surface the error back on the review step — the store keeps the wizard state.
+  useEffect(() => {
+    if (!executeMutation.error) return;
+    const store = useAutopilotStore.getState();
+    store.setExecutionStatus('failed');
+    store.addError(executeMutation.error);
+    store.setStep('review');
+  }, [executeMutation.error]);
 
   if (!selectedOrgId || orgs.length === 0) {
     return (
@@ -143,7 +190,7 @@ export const AutopilotPage: React.FC = () => {
   if (isWizardStep) {
     return (
       <div className="flex flex-col h-full" data-testid="autopilot-page">
-        <AutopilotWizard />
+        <AutopilotWizard onExecute={handleExecute} isExecuting={executeMutation.loading} />
       </div>
     );
   }
