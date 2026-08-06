@@ -5,6 +5,38 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.9] - 2026-08-03
+
+**Reliability and onboarding release**: expired credentials self-heal, every handler validates its payloads, errors surface instead of fake timeouts, and the product now tells its core story.
+
+### Added
+
+- Auth auto-recovery: on an expired org token (`INVALID_SESSION_ID`, `INVALID_AUTH_HEADER`, `SESSION_EXPIRED`, HTTP 401), the extension attempts one sf CLI token refresh, persists the new token, and retries once. Unrecoverable auth produces an actionable message (reconnect via Orgs page SFDX import, or `sf org login web --alias <alias>`). Recovered auth no longer trips the circuit breaker.
+- Use-case onboarding: every module's empty state leads with its concrete job plus numbered first steps, distinguishing "no org configured" from "orgs exist, none selected". Welcome page presents the three main paths (Forge from a record, Seed synthetic data, Frozen replay) with direct navigation. All in 6 languages.
+- Autopilot fully wired end-to-end: module initialized in composition (routes answered NOT_INITIALIZED before), per-operation state with per-execution executors (concurrent runs no longer share pause/skip state), and the wizard now drives the real scan → compliance → plan → execute → report flow with live node progress.
+- Manual retry works: `execution:manual-retry` replays failed sync executions from history (revalidated snapshot, ProductionGuard) instead of always answering "cannot retry".
+- Status bar shows the selected org alias and connection status.
+- ProductionGuard now covers Forge and Autopilot write paths (tier check, audit log, modal confirmation on production targets); they previously wrote unguarded.
+
+### Fixed
+
+- Stale org selection reconciled: a persisted selectedOrgId whose org vanished from the config made every module query a ghost org (Forge stuck on its empty state, Monitor timing out).
+- QuickSync wizard repaired end-to-end: webview and handler spoke different payload shapes on every step; suggestions, relationships, preview and execute now flow, with the generated config relayed into the sync engine.
+- Error surfacing: handlers report failures on their domain error channels and the webview listens for them everywhere (sync, dataops, backup, pipeline, monitor, autopilot, seed clone/CSV). No more generic `timed out after 30000ms` masking the real cause.
+- `monitor:refresh` bounded to 25 s so a stalled org cannot out-hang the bridge timeout.
+- The Abort button actually aborts (webview posted `executionId`, the handler read `operationId`).
+- Zod payload validation across all remaining bridge handlers (quicksync, ai, migration, execution, governance, config, org, settings, smart-action, automation, autopilot, diagnose); no unchecked webview cast remains in the bridge.
+- Telemetry settings tab now reflects and persists reality (was purely local state).
+- Autopilot tier colors never applied (keyed by non-existent enum values).
+- Flaky test eliminated at the root (fake-timer leaks between test files in a worker, now restored globally after each test).
+- Bulk mutations (sync/seed/clone/CSV/backup/anonymize) get a 120 s timeout so long operations stop showing a false failure while progress events keep flowing.
+- Navigation resets scroll position on route change.
+
+### Changed
+
+- All test files are now typechecked (extension 344 and webview 159 pre-existing type errors fixed to zero; mocks completed to real shapes).
+- Design-token migration complete: zero raw `var(--vscode-*)` outside the design system (1339 occurrences in 176 files migrated, lint gate active with an empty exception list).
+
 ## [1.2.8] - 2026-08-03
 
 ### Fixed

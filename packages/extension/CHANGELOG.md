@@ -5,6 +5,10 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.9] - 2026-08-03
+
+**Reliability and onboarding release.** Expired org credentials now self-heal through an sf CLI refresh with one retry (with an actionable message when reconnect is needed). Every bridge handler validates its payloads with Zod, and handler failures surface their real message instead of a generic 30-second timeout on every flow (sync, dataops, backup, pipeline, monitor, autopilot). Autopilot is wired end-to-end: the wizard drives a real scan → compliance → plan → execute → report run with live progress, isolated per execution. QuickSync wizard repaired. Stale org selections reconcile automatically. ProductionGuard now covers Forge and Autopilot. Manual retry replays failed syncs. Onboarding rewritten around the core use case: populate a dev sandbox from a real record, in 6 languages. Full entry in the root changelog.
+
 ## [1.2.8] - 2026-08-03
 
 ### Fixed

@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.2.8",
+  "version": "1.2.9",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
