@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAutopilotStore } from '../../../stores/useAutopilotStore';
+import { useSendMessage } from '../../../hooks/useMessageBus';
+import { buildMessage } from '../../../bridge/messageHelpers';
 import { LiveStats } from './LiveStats';
 import { NodeDetail } from './NodeDetail';
 import { AnonymizationPreview } from './AnonymizationPreview';
@@ -17,7 +19,7 @@ export const ControlPanel: React.FC = () => {
   const setExecutionStatus = useAutopilotStore((s) => s.setExecutionStatus);
   const selectedNodeName = useAutopilotStore((s) => s.selectedNodeName);
   const updateNodeStatus = useAutopilotStore((s) => s.updateNodeStatus);
-  const failedCount = useAutopilotStore((s) => s.failedCount());
+  const sendMessage = useSendMessage();
 
   const isPaused = executionStatus === 'paused';
   const isExecuting = executionStatus === 'executing' || executionStatus === 'paused';
@@ -29,25 +31,18 @@ export const ControlPanel: React.FC = () => {
     { id: 'compliance', label: t('autopilot.control.compliance') },
   ];
 
-  /** Handle pause/resume toggle. */
+  /** Pause/resume — fire-and-forget bridge commands, optimistic local status. */
   const handlePauseResume = (): void => {
+    sendMessage(buildMessage(isPaused ? 'autopilot:resume' : 'autopilot:pause'));
     setExecutionStatus(isPaused ? 'executing' : 'paused');
   };
 
-  /** Handle skip node action. */
+  /** Skip the selected node — bridge command, optimistic local status. */
   const handleSkipNode = (): void => {
     if (selectedNodeName) {
+      sendMessage(buildMessage('autopilot:skip-node', { objectApiName: selectedNodeName }));
       updateNodeStatus(selectedNodeName, 'skipped');
     }
-  };
-
-  /** Handle retry failed nodes. */
-  const handleRetryFailed = (): void => {
-    const graph = useAutopilotStore.getState().graph;
-    if (!graph) return;
-    graph.nodes
-      .filter((n) => n.status === 'failed')
-      .forEach((n) => updateNodeStatus(n.objectApiName, 'pending', 0));
   };
 
   return (
@@ -103,14 +98,6 @@ export const ControlPanel: React.FC = () => {
             data-testid="control-skip"
           >
             {t('autopilot.control.skip')}
-          </button>
-          <button
-            className="px-3 py-1.5 text-xs font-medium rounded bg-[var(--sf-bg-input)] text-text-primary hover:bg-[var(--sf-bg-hover)] transition-colors disabled:opacity-50"
-            onClick={handleRetryFailed}
-            disabled={failedCount === 0}
-            data-testid="control-retry"
-          >
-            {t('autopilot.control.retry')}
           </button>
         </div>
       )}
