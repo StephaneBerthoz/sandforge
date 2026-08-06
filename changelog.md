@@ -5,6 +5,12 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.10] - 2026-08-03
+
+### Changed
+
+- Documentation: both READMEs now lead with the "first clone in 2 minutes" Forge walkthrough (SFDX import, record ID, Discover Graph, options, Review and Execute), with an animated flow GIF. Marketplace page shortened and focused; docs links made absolute so they resolve from the marketplace page.
+
 ## [1.2.9] - 2026-08-03
 
 **Reliability and onboarding release**: expired credentials self-heal, every handler validates its payloads, errors surface instead of fake timeouts, and the product now tells its core story.
