@@ -943,7 +943,8 @@
     "security": "Sicherheit",
     "securityDesc": "Sicherheit und Produktionsschutz",
     "requireProdConfirmation": "Bestaetigung fuer Produktionsoperationen erforderlich",
-    "auditLogging": "Audit-Protokollierung aktivieren"
+    "auditLogging": "Audit-Protokollierung aktivieren",
+    "telemetryUnavailable": "Nicht verfuegbar"
   },
   "bridge": {
     "connecting": "Verbindung zur Erweiterung wird hergestellt...",

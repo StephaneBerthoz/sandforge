@@ -943,7 +943,8 @@
     "security": "セキュリティ",
     "securityDesc": "セキュリティと本番環境の保護",
     "requireProdConfirmation": "本番操作の確認を必須にする",
-    "auditLogging": "監査ログを有効にする"
+    "auditLogging": "監査ログを有効にする",
+    "telemetryUnavailable": "利用不可"
   },
   "bridge": {
     "connecting": "拡張機能に接続中...",

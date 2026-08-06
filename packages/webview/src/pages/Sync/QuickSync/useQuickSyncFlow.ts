@@ -105,7 +105,11 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     syncConfig: Record<string, unknown>;
     objectCount: number;
   }>('quicksync:execute');
-  const syncMutation = useBridgeMutation<SyncExecutionResult>('sync:execute');
+  const syncMutation = useBridgeMutation<SyncExecutionResult>('sync:execute', {
+    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
+    // events keep flowing while the response is pending.
+    timeoutMs: 120_000,
+  });
 
   // Sync preview mutation response into state (handler wraps it in { preview })
   useEffect(() => {

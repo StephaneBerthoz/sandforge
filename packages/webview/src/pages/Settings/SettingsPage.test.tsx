@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { SettingsPage, defaultSettings } from './SettingsPage';
@@ -9,27 +9,63 @@ import { SettingsPage, defaultSettings } from './SettingsPage';
 const mockSettingsRefetch = vi.fn();
 const mockSettingsUpdateMutate = vi.fn();
 const mockSettingsUpdateReset = vi.fn();
+const mockTelemetryMutate = vi.fn();
+const mockTelemetryRefetch = vi.fn();
+
+/** Mutable telemetry status state returned by the useBridgeQuery mock. */
+const mockTelemetryStatus: {
+  data: { enabled: boolean; eventCount: number; bufferSize: number } | null;
+  error: string | null;
+} = { data: null, error: null };
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => ({
-    data: null,
-    loading: false,
-    error: null,
-    refetch: mockSettingsRefetch,
-  }),
+  useBridgeQuery: (type: string) => {
+    if (type === 'telemetry:status') {
+      return {
+        data: mockTelemetryStatus.data,
+        loading: false,
+        error: mockTelemetryStatus.error,
+        refetch: mockTelemetryRefetch,
+      };
+    }
+    return {
+      data: null,
+      loading: false,
+      error: null,
+      refetch: mockSettingsRefetch,
+    };
+  },
 }));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: mockSettingsUpdateMutate,
-    data: null,
-    loading: false,
-    error: null,
-    reset: mockSettingsUpdateReset,
-  }),
+  useBridgeMutation: (type: string) => {
+    if (type === 'telemetry:toggle') {
+      return {
+        mutate: mockTelemetryMutate,
+        data: null,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+      };
+    }
+    return {
+      mutate: mockSettingsUpdateMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: mockSettingsUpdateReset,
+    };
+  },
 }));
 
 describe('SettingsPage', () => {
+  beforeEach(() => {
+    mockTelemetryStatus.data = null;
+    mockTelemetryStatus.error = null;
+    mockTelemetryMutate.mockClear();
+    mockTelemetryRefetch.mockClear();
+  });
+
   it('should render the page', () => {
     render(<SettingsPage />);
     expect(screen.getByTestId('settings-page')).toBeDefined();
@@ -152,11 +188,36 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('telemetry-toggle-btn')).toBeDefined();
   });
 
-  it('should toggle telemetry state', () => {
+  it('should display the mocked telemetry status and real event count', () => {
+    mockTelemetryStatus.data = { enabled: true, eventCount: 42, bufferSize: 0 };
     render(<SettingsPage />);
     fireEvent.click(screen.getByText('Telemetry'));
-    expect(screen.getByText('Disabled')).toBeDefined();
-    fireEvent.click(screen.getByTestId('telemetry-toggle-btn'));
     expect(screen.getByText('Enabled')).toBeDefined();
+    expect(screen.getByTestId('telemetry-events').textContent).toBe('42');
+  });
+
+  it('should dispatch the telemetry:toggle mutation when toggle clicked', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Telemetry'));
+    fireEvent.click(screen.getByTestId('telemetry-toggle-btn'));
+    expect(mockTelemetryMutate).toHaveBeenCalledWith({ enabled: true });
+  });
+
+  it('should dispatch enabled:false when telemetry is currently on', () => {
+    mockTelemetryStatus.data = { enabled: true, eventCount: 7, bufferSize: 0 };
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Telemetry'));
+    fireEvent.click(screen.getByTestId('telemetry-toggle-btn'));
+    expect(mockTelemetryMutate).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it('should show an honest unavailable state when the extension does not answer', () => {
+    mockTelemetryStatus.error = "Bridge query 'telemetry:status' timed out after 5000ms";
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Telemetry'));
+    expect(screen.getByTestId('telemetry-unavailable')).toBeDefined();
+    expect(screen.queryByText('Disabled')).toBeNull();
+    const toggleBtn = screen.getByTestId('telemetry-toggle-btn') as HTMLButtonElement;
+    expect(toggleBtn.disabled).toBe(true);
   });
 });

@@ -71,10 +71,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     saveAiKey,
     aiKeySaving,
     aiKeyError,
+    telemetryStatus,
+    telemetryStatusLoading,
+    telemetryUnavailable,
+    toggleTelemetry,
+    telemetryToggling,
+    telemetryToggleError,
   } = useSettingsPageData(initialSettings, onSave, onReset);
 
-  /** Telemetry state — static defaults until telemetry is fully implemented. */
-  const [telemetryEnabled, setTelemetryEnabled] = useState(false);
+  const telemetryEnabled = telemetryStatus?.enabled ?? false;
 
   /** Plugins list — static defaults until plugin manager is fully implemented. */
   const plugins: Array<{ name: string; version: string; description: string; enabled: boolean }> =
@@ -457,31 +462,53 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     <span className="text-xs text-text-primary">
                       {t('settings.telemetryStatus')}
                     </span>
-                    <span
-                      className={`text-xs font-medium ${telemetryEnabled ? 'text-[var(--sf-success)]' : 'text-text-secondary'}`}
-                    >
-                      {telemetryEnabled
-                        ? t('settings.telemetryEnabled')
-                        : t('settings.telemetryDisabled')}
-                    </span>
+                    {telemetryStatusLoading && !telemetryStatus ? (
+                      <span className="text-xs text-text-secondary">{t('common.loading')}</span>
+                    ) : telemetryUnavailable ? (
+                      <span
+                        className="text-xs font-medium text-text-secondary"
+                        data-testid="telemetry-unavailable"
+                      >
+                        {t('settings.telemetryUnavailable')}
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-xs font-medium ${telemetryEnabled ? 'text-[var(--sf-success)]' : 'text-text-secondary'}`}
+                      >
+                        {telemetryEnabled
+                          ? t('settings.telemetryEnabled')
+                          : t('settings.telemetryDisabled')}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-text-primary">
                       {t('settings.telemetryEventCount')}
                     </span>
-                    <span className="text-xs text-text-secondary">0</span>
+                    <span className="text-xs text-text-secondary" data-testid="telemetry-events">
+                      {telemetryStatus ? telemetryStatus.eventCount : '—'}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-text-primary">
                       {t('settings.telemetryBufferSize')}
                     </span>
-                    <span className="text-xs text-text-secondary">0</span>
+                    <span className="text-xs text-text-secondary">
+                      {telemetryStatus ? telemetryStatus.bufferSize : '—'}
+                    </span>
                   </div>
+                  {telemetryToggleError && (
+                    <span className="text-xs text-[var(--sf-error)]" data-testid="telemetry-error">
+                      {telemetryToggleError}
+                    </span>
+                  )}
                   <Button
                     data-testid="telemetry-toggle-btn"
                     variant="secondary"
                     size="sm"
-                    onClick={() => setTelemetryEnabled((prev) => !prev)}
+                    loading={telemetryToggling}
+                    disabled={telemetryUnavailable || telemetryToggling}
+                    onClick={toggleTelemetry}
                   >
                     {telemetryEnabled
                       ? t('settings.telemetryDisable')

@@ -41,6 +41,9 @@ export function useSeedExecution(
 
   const executeSeedMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
     responseType: 'seed:execute:response',
+    // Bulk write: can exceed the 30 s default on real volumes; operation:progress
+    // events keep flowing while the response is pending.
+    timeoutMs: 120_000,
   });
 
   const isRunning = executeSeedMutation.loading;

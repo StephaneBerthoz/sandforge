@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { cn } from '../theme';
 import { Sidebar } from './Sidebar/Sidebar';
@@ -21,7 +21,19 @@ export interface AppShellProps {
 export const AppShell: React.FC<AppShellProps> = ({ className }) => {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const currentRoute = useAppStore((s) => s.currentRoute);
+  const mainRef = useRef<HTMLElement>(null);
   useGlobalShortcuts();
+
+  /**
+   * Scroll restoration: `<main>` never unmounts, so it would otherwise keep
+   * its scrollTop across navigation and open the next page scrolled down.
+   * Reset to top on every route change (standard SPA behaviour).
+   */
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+  }, [currentRoute]);
 
   return (
     <div
@@ -36,7 +48,24 @@ export const AppShell: React.FC<AppShellProps> = ({ className }) => {
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <TopBar onNotificationsToggle={() => setNotificationsOpen((prev) => !prev)} />
-        <main id="main-content" className="flex-1 overflow-auto p-4" tabIndex={-1}>
+        <main ref={mainRef} id="main-content" className="flex-1 overflow-auto p-4" tabIndex={-1}>
+          {/*
+            Why the keyed wrapper stays: removing `key={currentRoute}` would NOT
+            preserve page state — Router renders a different component type per
+            route, so React unmounts/remounts the page subtree either way. The
+            key is load-bearing for exit animations instead: pages using
+            `exit="hidden"` motion variants (e.g. HomePage) only animate out
+            because the keyed subtree unmounts inside AnimatePresence
+            mode="wait". A keep-alive alternative (mount visited pages once,
+            hide inactive) was rejected: simultaneously mounted pages risk
+            duplicate data-testid attributes (Playwright strict-mode
+            violations) and keep background bridge subscriptions and timers
+            alive. Page state that matters already survives the remount via
+            zustand stores / persisted drafts (useForgeStore, useSeedWizardStore,
+            useFrozenStore, useWebviewPersistedState sync/quickSync drafts);
+            the remaining remount refetches (Monitor panels, Sync object list)
+            are cheap queries where fresh data is desirable.
+          */}
           <AnimatePresence mode="wait">
             <div key={currentRoute}>
               <Router />
