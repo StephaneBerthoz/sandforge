@@ -12,7 +12,7 @@ SandForge populates your Salesforce developer sandbox with realistic data: clone
 4. Click **Discover Graph**, then tune **Depth**, **Records per object**, and **Anonymize PII**.
 5. Click **Review & Execute** toward your dev sandbox. Every ID is remapped automatically.
 
-![Forge flow: from a record to a populated sandbox](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/forge-flow.gif)
+![Forge flow: from a record to a populated sandbox](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/forge-flow.gif)
 
 ---
 
