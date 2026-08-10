@@ -80,6 +80,19 @@ if (!existsSync(join(sdkDest, 'index.js'))) fail('vendored SDK is missing index.
 if (!existsSync(join(sdkDest, 'helpers', 'zod.js'))) fail('vendored SDK is missing helpers/zod.js');
 if (!existsSync(join(zodDest, 'v4', 'index.cjs'))) fail('vendored zod is missing v4/index.cjs');
 
+// ESM entry points — AnthropicAdapter loads the SDK through dynamic import(),
+// which resolves the "import" conditions of each package's exports map:
+//   @anthropic-ai/sdk          → index.mjs
+//   @anthropic-ai/sdk/helpers/zod → helpers/zod.mjs
+//   zod/v4                     → v4/index.js
+// The CJS checks above are not sufficient: a copy missing only the ESM files
+// would pass them yet break every AI call at runtime.
+if (!existsSync(join(sdkDest, 'index.mjs'))) fail('vendored SDK is missing index.mjs (ESM entry)');
+if (!existsSync(join(sdkDest, 'helpers', 'zod.mjs')))
+  fail('vendored SDK is missing helpers/zod.mjs (ESM entry)');
+if (!existsSync(join(zodDest, 'v4', 'index.js')))
+  fail('vendored zod is missing v4/index.js (ESM entry for zod/v4)');
+
 const sdkSize = await dirSize(sdkDest);
 const zodSize = await dirSize(zodDest);
 console.log(

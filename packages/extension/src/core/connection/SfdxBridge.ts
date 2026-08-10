@@ -1,5 +1,5 @@
 import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
 
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 
@@ -240,7 +240,7 @@ export class SfdxBridge {
         position: 0,
       },
       metadata: {
-        apiVersion: entry.instanceApiVersion ?? '62.0',
+        apiVersion: entry.instanceApiVersion ?? SF_LIMITS.DEFAULT_API_VERSION,
         edition: entry.name ?? '',
         features: [],
       },

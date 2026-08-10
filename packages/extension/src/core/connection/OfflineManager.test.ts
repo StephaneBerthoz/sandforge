@@ -378,6 +378,49 @@ describe('OfflineManager', () => {
 
       expect(executor).toHaveBeenCalled();
     });
+
+    it('should trigger a debounced drain when enqueuing while online', async () => {
+      const executor: OperationExecutor = vi.fn().mockResolvedValue(undefined);
+      manager.setOperationExecutor(executor);
+
+      manager.enqueue(createOperation('op-online'));
+
+      // Debounced — not drained synchronously
+      expect(executor).not.toHaveBeenCalled();
+      expect(manager.getQueueSize()).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(manager.getQueueSize()).toBe(0);
+    });
+
+    it('should NOT drain on enqueue while offline', async () => {
+      const executor: OperationExecutor = vi.fn().mockResolvedValue(undefined);
+      manager.setOperationExecutor(executor);
+      manager.setStatus('offline');
+
+      manager.enqueue(createOperation('op-offline'));
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(executor).not.toHaveBeenCalled();
+      expect(manager.getQueueSize()).toBe(1);
+    });
+
+    it('should batch burst enqueues into a single drain', async () => {
+      const executor: OperationExecutor = vi.fn().mockResolvedValue(undefined);
+      manager.setOperationExecutor(executor);
+
+      manager.enqueue(createOperation('op-1'));
+      await vi.advanceTimersByTimeAsync(500);
+      manager.enqueue(createOperation('op-2'));
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      // One drain pass executed both operations FIFO
+      expect(executor).toHaveBeenCalledTimes(2);
+      expect(manager.getQueueSize()).toBe(0);
+    });
   });
 
   describe('events', () => {
@@ -391,6 +434,64 @@ describe('OfflineManager', () => {
       manager.offEvent(listener);
       manager.enqueue(createOperation('op-2'));
       expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('should isolate a throwing listener from the other listeners', () => {
+      const badListener: OfflineEventListener = vi.fn(() => {
+        throw new Error('listener boom');
+      });
+      const goodListener: OfflineEventListener = vi.fn();
+
+      manager.onEvent(badListener);
+      manager.onEvent(goodListener);
+
+      expect(() => manager.enqueue(createOperation('op-1'))).not.toThrow();
+      expect(badListener).toHaveBeenCalledTimes(1);
+      expect(goodListener).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('queue persistence validation', () => {
+    it('should drop malformed entries loaded from storage', () => {
+      store.set(
+        'offline:queue',
+        [
+          {
+            id: 'op-good',
+            type: 'sync',
+            orgId: 'org-1',
+            payload: {},
+            queuedAt: new Date().toISOString(),
+            retryCount: 0,
+          },
+          null,
+          'not-an-object',
+          { id: 42, type: 'sync', orgId: 'org-1', payload: {} },
+          { id: 'op-no-payload', type: 'sync', orgId: 'org-1' },
+        ],
+        'offline-queue',
+      );
+
+      const reloaded = new OfflineManager(store);
+
+      expect(reloaded.getQueueSize()).toBe(1);
+      expect(reloaded.getQueue()[0].id).toBe('op-good');
+      reloaded.dispose();
+    });
+
+    it('should backfill missing queuedAt/retryCount on load', () => {
+      store.set(
+        'offline:queue',
+        [{ id: 'op-legacy', type: 'sync', orgId: 'org-1', payload: {} }],
+        'offline-queue',
+      );
+
+      const reloaded = new OfflineManager(store);
+
+      const entry = reloaded.getQueue()[0];
+      expect(entry.queuedAt).toBeDefined();
+      expect(entry.retryCount).toBe(0);
+      reloaded.dispose();
     });
   });
 

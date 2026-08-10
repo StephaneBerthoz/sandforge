@@ -23,8 +23,6 @@ export {
   // Plan 02-03 — 5 critical flow fixtures
   mockAIPersona,
   mockSyncConflict,
-  mockMonitorMetrics,
-  mockExportUrl,
   mockCdcSubscription,
   mockCdcEvent,
   mockFailedJob,

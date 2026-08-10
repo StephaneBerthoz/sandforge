@@ -925,7 +925,7 @@ describe('SeedOpsHandler', () => {
     });
   });
 
-  describe('offline queue producer', () => {
+  describe('offline handling (no auto-replay)', () => {
     function wireOfflineManager(): OfflineManager {
       const offlineManager = new OfflineManager(deps.configStore);
       deps.infraServices = {
@@ -937,7 +937,15 @@ describe('SeedOpsHandler', () => {
       return offlineManager;
     }
 
-    it('enqueues the seed operation for replay when the failure is a network error', async () => {
+    function lastOperationFailedPayload(): Record<string, unknown> | undefined {
+      const calls = vi.mocked(deps.broker.postToWebview).mock.calls;
+      const failed = calls
+        .map((c) => c[0] as { type: string; payload?: Record<string, unknown> })
+        .filter((m) => m.type === 'operation:failed');
+      return failed.at(-1)?.payload;
+    }
+
+    it('does NOT enqueue on network error — the failure payload carries a manual-retry hint', async () => {
       const offlineManager = wireOfflineManager();
 
       mockGetConn.mockRejectedValue(
@@ -955,15 +963,18 @@ describe('SeedOpsHandler', () => {
 
       await handler.handle(msg);
 
-      const queue = offlineManager.getQueue();
-      expect(queue).toHaveLength(1);
-      expect(queue[0].type).toBe('seed');
-      expect(queue[0].orgId).toBe('org-1');
-      expect(queue[0].payload.orgId).toBe('org-1');
-      expect(queue[0].payload.template).toBeDefined();
+      // Seeds are inserts: auto-replay could duplicate records, so nothing is
+      // queued — the user re-runs the template manually.
+      expect(offlineManager.getQueueSize()).toBe(0);
+
+      const payload = lastOperationFailedPayload();
+      expect(payload).toBeDefined();
+      expect(payload?.offlineReplayAvailable).toBe(false);
+      expect(String(payload?.retryHint)).toContain('manually');
+      expect(String(payload?.error)).toContain('ECONNREFUSED');
     });
 
-    it('does NOT enqueue when the failure is a Salesforce API error', async () => {
+    it('does NOT enqueue (and no hint) when the failure is a Salesforce API error', async () => {
       const offlineManager = wireOfflineManager();
 
       mockGetConn.mockRejectedValue(new Error('STORAGE_LIMIT_EXCEEDED: org is full'));
@@ -980,6 +991,11 @@ describe('SeedOpsHandler', () => {
       await handler.handle(msg);
 
       expect(offlineManager.getQueueSize()).toBe(0);
+
+      const payload = lastOperationFailedPayload();
+      expect(payload).toBeDefined();
+      expect(payload?.offlineReplayAvailable).toBeUndefined();
+      expect(payload?.retryHint).toBeUndefined();
     });
   });
 });

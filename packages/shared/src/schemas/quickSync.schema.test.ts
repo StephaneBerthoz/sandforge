@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { QuickSyncConfigSchema } from './quickSync.schemas.js';
+import { QuickSyncConfigSchema } from './quickSync.schema.js';
 
 describe('QuickSyncConfigSchema', () => {
   it('accepts a valid config', () => {

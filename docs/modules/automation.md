@@ -39,18 +39,22 @@ The visual builder for composing automation workflows:
 
 ### Triggers
 
+> **Coming soon:** only **Manual** triggering is wired to an executor as of v1.3.0. The Automation scheduler is currently a no-op, so pipelines always start by hand. The trigger types below describe the planned design.
+
 Configure how and when pipelines start:
 
 - **Manual** -- Run on demand from the UI
-- **Scheduled (Cron)** -- Set a cron expression with timezone support
-- **Webhook** -- Trigger from external systems
-- **File Watch** -- Start when a file appears in a watched directory
-- **Record Change** -- React to Salesforce data changes
-- **Pipeline Completion** -- Chain pipelines by triggering on another pipeline's completion
+- **Scheduled (Cron)** *(coming soon)* -- Set a cron expression with timezone support
+- **Webhook** *(coming soon)* -- Trigger from external systems
+- **File Watch** *(coming soon)* -- Start when a file appears in a watched directory
+- **Record Change** *(coming soon)* -- React to Salesforce data changes
+- **Pipeline Completion** *(coming soon)* -- Chain pipelines by triggering on another pipeline's completion
 
 The Trigger Config Panel lets you add, remove, enable/disable triggers, and edit cron expressions.
 
 ### Scheduler
+
+> **Coming soon:** the scheduler backend is a no-op as of v1.3.0 — no pipeline runs on a timer yet. The calendar view below describes the planned design.
 
 A calendar view showing scheduled pipeline runs:
 

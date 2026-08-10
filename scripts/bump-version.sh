@@ -35,4 +35,19 @@ for PKG in package.json packages/shared/package.json packages/extension/package.
   echo "Updated $PKG -> $NEW_VERSION"
 done
 
+# Keep the root README version badge in sync (shields pattern: badge/version-X.Y.Z)
+if [[ -f "README.md" ]]; then
+  node -e "
+    const fs = require('fs');
+    const md = fs.readFileSync('README.md', 'utf8');
+    const updated = md.replace(/badge\/version-\d+\.\d+\.\d+/, 'badge/version-$NEW_VERSION');
+    if (updated === md) {
+      console.log('WARN: no version badge found in README.md');
+    } else {
+      fs.writeFileSync('README.md', updated);
+      console.log('Updated README.md version badge -> $NEW_VERSION');
+    }
+  "
+fi
+
 echo "Version bump complete: $CURRENT -> $NEW_VERSION"

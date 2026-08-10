@@ -6,7 +6,7 @@ review stays fast.
 
 ## Prerequisites
 
-- **Node** 20+ (a `.nvmrc` is committed; run `nvm use` or `fnm use`).
+- **Node** 22+ (a `.nvmrc` is committed; run `nvm use` or `fnm use`).
 - **pnpm** 11, pinned via the `packageManager` field in the root
   `package.json` (`pnpm@11.18.0`). With Corepack enabled
   (`corepack enable`) the right version is selected automatically.
@@ -131,7 +131,7 @@ Releases are cut from `master` after `pnpm validate` is green.
 
 1. `./scripts/bump-version.sh <patch|minor|major|x.y.z>`: syncs the
    version across the workspace `package.json` files.
-2. Update `CHANGELOG.md` (root) and `packages/extension/CHANGELOG.md`.
+2. Update `changelog.md` (root) and `packages/extension/CHANGELOG.md`.
    Keep both in semver-descending order.
 3. `./scripts/pre-publish-check.sh`: marketplace readiness gate
    (validate + package + VSIX/bundle size checks).
@@ -144,7 +144,7 @@ Maintainers handle versioning (SemVer).
 ## Where to start
 
 - Browse `.planning/phases/<latest>/` for the current focus area.
-- Look at `CHANGELOG.md` `## [Unreleased]` for in-flight work.
+- Look at `changelog.md` `## [Unreleased]` for in-flight work.
 - `docs/ADR/` records the standing architectural decisions.
 - `pnpm audit:disposables` and `pnpm knip` surface low-hanging quality
   improvements.

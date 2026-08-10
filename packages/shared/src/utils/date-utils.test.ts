@@ -81,6 +81,11 @@ describe('timeAgo', () => {
     expect(timeAgo('2026-02-19T12:00:00.000Z')).toBe('1 day ago');
     expect(timeAgo('2026-02-17T12:00:00.000Z')).toBe('3 days ago');
   });
+
+  it('should return "unknown" for an unparseable date', () => {
+    expect(timeAgo('garbage')).toBe('unknown');
+    expect(timeAgo('')).toBe('unknown');
+  });
 });
 
 describe('isWithinMinutes', () => {
@@ -134,5 +139,13 @@ describe('estimateCompletion', () => {
 
   it('should return undefined when total is 0', () => {
     expect(estimateCompletion(0, 0, 5_000)).toBeUndefined();
+  });
+
+  it('should return undefined when no time has elapsed', () => {
+    expect(estimateCompletion(50, 100, 0)).toBeUndefined();
+  });
+
+  it('should return 0 when processed exceeds total', () => {
+    expect(estimateCompletion(150, 100, 5_000)).toBe(0);
   });
 });

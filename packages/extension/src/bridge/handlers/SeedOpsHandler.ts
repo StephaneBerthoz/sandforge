@@ -42,6 +42,34 @@ import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTr
 /** Record count threshold above which streaming pipeline is used per object. */
 const STREAMING_THRESHOLD = 10_000;
 
+/**
+ * Extra `operation:failed` payload for transport-level seed failures.
+ *
+ * Seeds are INSERTs — replaying a whole template after partial inserts would
+ * duplicate records, so failed seeds are NEVER queued for offline replay
+ * (sync upserts are quasi-idempotent and keep the auto-replay). On a network
+ * error the failure payload carries an explicit hint instead: the user
+ * re-runs the template manually from the Seed module once the org is
+ * reachable again, with validation and production guards re-applied.
+ *
+ * Returns undefined for non-network errors (no hint added).
+ */
+function buildOfflineReplayHint(
+  err: unknown,
+  operationId: string,
+  log: (msg: string) => void,
+): Record<string, unknown> | undefined {
+  if (!isNetworkError(err)) {
+    return undefined;
+  }
+  log(`[OFFLINE] seed NOT queued for replay (inserts are not idempotent): ${operationId}`);
+  return {
+    offlineReplayAvailable: false,
+    retryHint:
+      'Seed operations are not queued for offline replay (inserts are not idempotent — replaying could duplicate records). Re-run the template manually once the org is reachable again.',
+  };
+}
+
 /** Message types handled by SeedOpsHandler. */
 const SEED_TYPES = new Set([
   'seed:execute',
@@ -554,43 +582,15 @@ export class SeedOpsHandler implements DomainHandler {
       // No-op when the operation never reached registration (connection or
       // guard failure happens before sendOperationStarted).
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
-      this.enqueueForOfflineReplay(
-        err,
-        operationId,
-        parsed.orgId,
-        parsed.template as unknown as Record<string, unknown>,
-        parsed.dryRun ?? false,
-      );
       // Single failure emission: `operation:failed` only (webview consumes it).
       this.deps.log(`[ERR] seed:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
-    }
-  }
-
-  /**
-   * Queue a failed seed execution for offline replay when the failure was
-   * transport-level (org unreachable). OfflineManager drains the queue and
-   * replays through `seed:execute` when connectivity returns.
-   */
-  private enqueueForOfflineReplay(
-    err: unknown,
-    operationId: string,
-    orgId: string,
-    template: Record<string, unknown>,
-    dryRun: boolean,
-  ): void {
-    const offlineManager = this.deps.infraServices?.offlineManager;
-    if (!offlineManager || !isNetworkError(err)) {
-      return;
-    }
-    const queued = offlineManager.enqueue({
-      id: operationId,
-      type: 'seed',
-      orgId,
-      payload: { orgId, template, dryRun },
-    });
-    if (queued) {
-      this.deps.log(`[OFFLINE] seed queued for replay on reconnect: ${operationId}`);
+      sendOperationFailed(
+        this.deps,
+        operationId,
+        extractErrorMessage(err),
+        true,
+        buildOfflineReplayHint(err, operationId, this.deps.log),
+      );
     }
   }
 
@@ -800,16 +800,15 @@ export class SeedOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
-      this.enqueueForOfflineReplay(
-        err,
-        operationId,
-        payload.orgId,
-        payload.template,
-        payload.dryRun ?? false,
-      );
       // Single failure emission: `operation:failed` only (webview consumes it).
       this.deps.log(`[ERR] seed:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      sendOperationFailed(
+        this.deps,
+        operationId,
+        extractErrorMessage(err),
+        true,
+        buildOfflineReplayHint(err, operationId, this.deps.log),
+      );
     } finally {
       progressTracker?.stopTracking(operationId);
       unsubProgress?.();

@@ -16,6 +16,7 @@ import {
   ConflictMessageSchema,
   CacheMessageSchema,
   SmartActionMessageSchema,
+  FrozenMessageSchema,
 } from './messageSchemas.js';
 import { PROTOCOL_VERSION } from './protocolVersion.js';
 
@@ -113,6 +114,12 @@ describe('Domain schemas — valid / invalid samples', () => {
     expect(SmartActionMessageSchema.safeParse(baseFields('smart-action:bogus')).success).toBe(
       false,
     );
+  });
+
+  it('FrozenMessageSchema accepts frozen:extract and frozen:status; rejects unknown', () => {
+    expect(FrozenMessageSchema.safeParse(baseFields('frozen:extract')).success).toBe(true);
+    expect(FrozenMessageSchema.safeParse(baseFields('frozen:status')).success).toBe(true);
+    expect(FrozenMessageSchema.safeParse(baseFields('frozen:bogus')).success).toBe(false);
   });
 });
 

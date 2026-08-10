@@ -65,7 +65,7 @@ export * from './schemas/autopilot.schema.js';
 export * from './schemas/compliance.schema.js';
 export * from './schemas/forge.schema.js';
 export * from './schemas/robustness-config.schema.js';
-export * from './schemas/quickSync.schemas.js';
+export * from './schemas/quickSync.schema.js';
 export * from './schemas/ai/index.js';
 
 // Barrel exports — Constants

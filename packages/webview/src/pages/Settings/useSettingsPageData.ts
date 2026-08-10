@@ -1,8 +1,28 @@
 import { useState, useEffect } from 'react';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import i18n from '../../i18n';
+import { SUPPORTED_LANGUAGES } from '../../i18n';
+import type { SupportedLanguage } from '../../i18n';
 import type { SettingsValues } from './SettingsPage';
 import { defaultSettings } from './SettingsPage';
+
+/**
+ * Single source of truth for the UI language is the `language` key of the
+ * VS Code webview state, read by the i18n module at boot and rewritten on
+ * every `languageChanged` event. The settings blob persisted through
+ * `settings:update` also carries a `language` field, but it is only a
+ * trailing copy written on save — it is NEVER applied back to i18n.
+ * At mount the local state mirrors the live i18n language (one-way sync:
+ * settings ← webview-state), which eliminates the silent divergence where
+ * a stale blob showed one language while the UI rendered another.
+ */
+function resolveBootLanguage(fallback: SupportedLanguage): SupportedLanguage {
+  const current = i18n.language;
+  return (SUPPORTED_LANGUAGES as readonly string[]).includes(current)
+    ? (current as SupportedLanguage)
+    : fallback;
+}
 
 /** AI status response shape. */
 interface AIStatusResponse {
@@ -85,7 +105,10 @@ export function useSettingsPageData(
   onSave?: (settings: SettingsValues) => void,
   onReset?: () => void,
 ): SettingsPageData {
-  const [settings, setSettings] = useState<SettingsValues>(initialSettings ?? defaultSettings);
+  const [settings, setSettings] = useState<SettingsValues>(() => {
+    if (initialSettings) return initialSettings;
+    return { ...defaultSettings, language: resolveBootLanguage(defaultSettings.language) };
+  });
 
   /** Bridge query: load current settings from extension. */
   const settingsQuery = useBridgeQuery<{ settings: SettingsValues }>('settings:get', undefined, {
@@ -139,6 +162,10 @@ export function useSettingsPageData(
     // Picking known keys avoids re-persisting those zombie fields on next save.
     const known: Partial<SettingsValues> = {};
     for (const key of Object.keys(defaultSettings) as (keyof SettingsValues)[]) {
+      // `language` is deliberately NOT read back from the blob: the webview
+      // state is the single source of truth (see resolveBootLanguage), so a
+      // stale blob value must not overwrite the live i18n language here.
+      if (key === 'language') continue;
       if (key in loaded && typeof loaded[key] === typeof defaultSettings[key]) {
         (known as Record<string, unknown>)[key] = loaded[key];
       }

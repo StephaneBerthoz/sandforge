@@ -50,8 +50,6 @@ const mockSetDraft = vi.fn();
 const mockSetStep = vi.fn();
 const mockSetPreview = vi.fn();
 const mockSetResult = vi.fn();
-const mockSetIsExecuting = vi.fn();
-const mockSetError = vi.fn();
 
 let persistedValues: Record<string, unknown> = {};
 
@@ -65,8 +63,6 @@ vi.mock('../../../hooks/useWebviewPersistedState', () => ({
       quickSyncStep: mockSetStep,
       quickSyncPreview: mockSetPreview,
       quickSyncResult: mockSetResult,
-      quickSyncExecuting: mockSetIsExecuting,
-      quickSyncError: mockSetError,
     };
     const setter = setters[key] ?? vi.fn();
     setter.mockImplementation((val: unknown) => {
@@ -274,8 +270,6 @@ describe('useQuickSyncFlow', () => {
         estimatedDurationSec: 10,
       },
       quickSyncResult: null,
-      quickSyncExecuting: false,
-      quickSyncError: null,
     };
 
     const { result } = renderHook(() => useQuickSyncFlow());
@@ -293,8 +287,9 @@ describe('useQuickSyncFlow', () => {
     expect(mockSetStep).toHaveBeenCalledWith('orgs');
     expect(mockSetPreview).toHaveBeenCalledWith(null);
     expect(mockSetResult).toHaveBeenCalledWith(null);
-    expect(mockSetIsExecuting).toHaveBeenCalledWith(false);
-    expect(mockSetError).toHaveBeenCalledWith(null);
+    // Transient execution state is real (non-persisted) React state.
+    expect(result.current.state.isExecuting).toBe(false);
+    expect(result.current.state.error).toBeNull();
     expect(mockPreviewReset).toHaveBeenCalledTimes(1);
     expect(mockPrepareReset).toHaveBeenCalledTimes(1);
     expect(mockSyncReset).toHaveBeenCalledTimes(1);
@@ -344,7 +339,7 @@ describe('useQuickSyncFlow', () => {
         parentObjects: [],
       },
     });
-    expect(mockSetIsExecuting).toHaveBeenCalledWith(true);
+    expect(result.current.state.isExecuting).toBe(true);
     expect(mockSetStep).toHaveBeenCalledWith('executing');
   });
 
@@ -360,27 +355,27 @@ describe('useQuickSyncFlow', () => {
 
   it('completes the flow when sync:execute returns the execution result', () => {
     mockSyncState.data = fakeResult as unknown as Record<string, unknown>;
-    renderHook(() => useQuickSyncFlow());
+    const { result } = renderHook(() => useQuickSyncFlow());
 
     expect(mockSetResult).toHaveBeenCalledWith(fakeResult);
-    expect(mockSetIsExecuting).toHaveBeenCalledWith(false);
+    expect(result.current.state.isExecuting).toBe(false);
     expect(mockSetStep).toHaveBeenCalledWith('results');
   });
 
   it('surfaces a prepare-step error and stops executing', () => {
     mockPrepareState.error = 'Quick Sync failed';
-    renderHook(() => useQuickSyncFlow());
+    const { result } = renderHook(() => useQuickSyncFlow());
 
-    expect(mockSetError).toHaveBeenCalledWith('Quick Sync failed');
-    expect(mockSetIsExecuting).toHaveBeenCalledWith(false);
+    expect(result.current.state.error).toBe('Quick Sync failed');
+    expect(result.current.state.isExecuting).toBe(false);
   });
 
   it('surfaces a sync execution error and stops executing', () => {
     mockSyncState.error = 'sync timed out';
-    renderHook(() => useQuickSyncFlow());
+    const { result } = renderHook(() => useQuickSyncFlow());
 
-    expect(mockSetError).toHaveBeenCalledWith('sync timed out');
-    expect(mockSetIsExecuting).toHaveBeenCalledWith(false);
+    expect(result.current.state.error).toBe('sync timed out');
+    expect(result.current.state.isExecuting).toBe(false);
   });
 
   it('walks the whole wizard chain: preview → execute → relay → result', () => {

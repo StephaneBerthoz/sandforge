@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSettingsPageData } from './useSettingsPageData';
 import { defaultSettings } from './SettingsPage';
+import type { SettingsValues } from './SettingsPage';
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: vi.fn(() => ({
@@ -29,7 +30,7 @@ describe('useSettingsPageData', () => {
   });
 
   it('should return initial settings when provided', () => {
-    const custom = { ...defaultSettings, language: 'fr' };
+    const custom: SettingsValues = { ...defaultSettings, language: 'fr' };
     const { result } = renderHook(() => useSettingsPageData(custom));
 
     expect(result.current.settings.language).toBe('fr');

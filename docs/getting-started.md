@@ -45,8 +45,6 @@ You should see at least one authenticated org in the output.
 
 After installation, you will see the SandForge icon in the VSCode Activity Bar (left sidebar). Click it to open the SandForge panel.
 
-![Activity Bar icon](../assets/screenshots/getting-started-01.png)
-
 The **Home Dashboard** appears with a bento-grid layout showing:
 
 - **KPI Row** -- Connected orgs count, active jobs, recent operations, and limit warnings
@@ -57,7 +55,7 @@ The **Home Dashboard** appears with a bento-grid layout showing:
 
 If you have no connected orgs, a **Getting Started** card will guide you through the first steps.
 
-![Home Dashboard](../assets/screenshots/getting-started-02.png)
+![Home Dashboard](../assets/screenshots/home.png)
 
 ---
 
@@ -72,8 +70,6 @@ If you have no connected orgs, a **Getting Started** card will guide you through
    - **Device Flow** -- OAuth device flow for headless environments (coming soon)
 3. Click **SFDX Import** to import your existing CLI-authenticated orgs automatically
 4. Once connected, your org appears as a card with its alias, type badge (PROD/SBX), and status dot
-
-![Org Manager](../assets/screenshots/getting-started-03.png)
 
 > **Tip:** SandForge has a Production Guard that requires double confirmation for any operation targeting a Production org. Sandboxes and scratch orgs work without extra prompts.
 
@@ -100,7 +96,7 @@ No real data to copy yet? The **Seed** module generates test data instead:
 5. For **Clone from Org**: Select source and target orgs, pick objects to clone, preview the insertion order, then execute
 6. View results with per-object record counts, error details, and export options
 
-![Seed Wizard](../assets/screenshots/getting-started-04.png)
+![Seed Wizard](../assets/screenshots/seed.png)
 
 The **NL2SOQL** helper in Step 1 lets you describe what you want in plain English (e.g., "All accounts created this month with more than 10 employees") and generates the SOQL query for you.
 

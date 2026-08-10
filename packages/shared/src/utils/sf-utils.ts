@@ -107,6 +107,3 @@ export function orgTypeToGuardTier(
   };
   return map[orgType] ?? 'development';
 }
-
-/** @deprecated Use `orgTypeToGuardTier` instead. */
-export const orgTypeToSafetyTier = orgTypeToGuardTier;

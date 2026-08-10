@@ -27,5 +27,6 @@
       "project": ["src/**/*.{ts,tsx}"]
     }
   },
+  "ignore": [".stryker-tmp/**"],
   "ignoreDependencies": ["@types/.*"]
 }

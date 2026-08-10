@@ -60,16 +60,53 @@ export function startOfflineProbing(offlineManager: OfflineManager): void {
 
 /**
  * Wire the OfflineManager replay executor: operations queued on transport
- * failure (see the `isNetworkError` enqueue in SyncOpsHandler/SeedOpsHandler)
- * are replayed through the bridge handlers when connectivity returns and the
- * queue drains. Side-effecting by design — call from `activate()` once the
- * handlers exist (after `applyLateServices`).
+ * failure (see the `isNetworkError` enqueue in SyncOpsHandler — seeds are no
+ * longer queued, their inserts are not idempotent; only `seed` entries
+ * persisted by earlier versions can still surface here) are replayed through
+ * the bridge handlers when connectivity returns and the queue drains.
+ * Side-effecting by design — call from `activate()` once the handlers exist
+ * (after `applyLateServices`).
  */
 export function wireOfflineReplay(
   offlineManager: OfflineManager,
   handlers: ExtensionHandlers,
 ): void {
   offlineManager.setOperationExecutor((operation) => handlers.replayQueuedOperation(operation));
+}
+
+/**
+ * Surface offline-queue lifecycle events to the user. `OfflineManager.onEvent`
+ * has no other production listener and `WebviewState` has no offline channel,
+ * so native VS Code notifications are the only signal that an operation was
+ * queued on transport failure, replayed, or dropped after a failed replay.
+ * Side-effecting by design — call from `activate()`.
+ */
+export function wireOfflineNotifications(offlineManager: OfflineManager): void {
+  offlineManager.onEvent((event) => {
+    const operation = event.operation;
+    if (!operation) {
+      return;
+    }
+    switch (event.type) {
+      case 'operationQueued':
+        void vscode.window.showInformationMessage(
+          `SandForge: org unreachable — ${operation.type} operation queued, it will replay automatically when connectivity returns.`,
+        );
+        break;
+      case 'operationExecuted':
+        void vscode.window.showInformationMessage(
+          `SandForge: queued ${operation.type} operation replayed.`,
+        );
+        break;
+      case 'operationFailed':
+        void vscode.window.showWarningMessage(
+          `SandForge: queued ${operation.type} operation could not be replayed and was dropped from the offline queue.`,
+        );
+        break;
+      default:
+        break;
+    }
+  });
 }
 
 /**

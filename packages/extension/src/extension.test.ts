@@ -243,13 +243,13 @@ describe('extension', () => {
 
     activate(context);
 
-    // 15 module commands + 1 cheers + 1 sandforge.ai config-change listener
+    // 16 module commands + 1 cheers + 1 sandforge.ai config-change listener
     // + outputChannel + sidebarRegistration + sidebarProvider
     // + orgsTreeRegistration + orgsTreeProvider + 2 orgs-tree commands
     // + statusBar + panelManager + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker + performanceTracker
-    // + cacheManager = 33
-    expect(context.subscriptions.length).toBe(33);
+    // + cacheManager = 34
+    expect(context.subscriptions.length).toBe(34);
   });
 
   it('should deactivate without error', async () => {

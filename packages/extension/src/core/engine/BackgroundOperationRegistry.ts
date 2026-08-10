@@ -83,7 +83,20 @@ export class BackgroundOperationRegistry {
     this.emit(operationId, 'started', operation);
 
     promise
-      .then(() => {
+      .then((result) => {
+        // A resolved promise is not necessarily a success: SyncOpsHandler's
+        // executeSync settles failures as a result object carrying
+        // status:'failure' (so scheduled runs persist lastResult='failure'
+        // without rejecting the monitored promise). Surface those as failed,
+        // not completed.
+        if (
+          typeof result === 'object' &&
+          result !== null &&
+          (result as { status?: unknown }).status === 'failure'
+        ) {
+          this.markFailed(operationId, new Error('Operation finished with a failure status.'));
+          return;
+        }
         this.markCompleted(operationId);
       })
       .catch((error: unknown) => {

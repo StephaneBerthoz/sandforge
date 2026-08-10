@@ -6,6 +6,7 @@ import type {
   AIStatusResponse,
 } from '@sandforge/shared';
 import { useSendMessage, useMessageListener } from '../hooks/useMessageBus';
+import { useRecentOpsFeed } from '../hooks/useRecentOpsFeed';
 import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
@@ -26,6 +27,9 @@ export interface BridgeProviderProps {
 export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
   const sendMessage = useSendMessage();
   const initialSent = useRef(false);
+
+  // Feed the recent-operations store from operation lifecycle messages
+  useRecentOpsFeed();
 
   // Send initial requests on mount
   useEffect(() => {

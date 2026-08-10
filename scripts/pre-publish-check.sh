@@ -105,26 +105,44 @@ else
   ERRORS=$((ERRORS + 1))
 fi
 
-# 8. Every command title %key% resolves in package.nls.json
+# 8. Every %key% placeholder in the extension manifest resolves in
+#    package.nls.json — not just command titles: views, viewContainers,
+#    walkthroughs, configuration descriptions, etc. Any string whose whole
+#    value is a %key% placeholder must resolve.
 if node -e "
   const pkg = require('./packages/extension/package.json');
   const nls = require('./packages/extension/package.nls.json');
-  const cmds = pkg.contributes.commands || [];
-  const bad = cmds
+  const isPlaceholder = (s) => /^%([^%]+)%$/.exec(s || '');
+  const missing = new Set();
+  let checked = 0;
+  const walk = (v) => {
+    if (typeof v === 'string') {
+      const m = isPlaceholder(v);
+      if (m) {
+        checked++;
+        if (!(m[1] in nls)) missing.add(m[1]);
+      }
+    } else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  walk(pkg);
+  // Command titles must additionally BE placeholders (no hardcoded literals)
+  const literalTitles = (pkg.contributes.commands || [])
     .map(c => c.title)
-    .filter(t => {
-      const m = /^%([^%]+)%$/.exec(t || '');
-      return !m || !(m[1] in nls);
-    });
-  if (bad.length) {
-    console.error('Unresolvable command titles: ' + bad.join(', '));
+    .filter(t => !isPlaceholder(t));
+  if (literalTitles.length) {
+    console.error('Command titles not using %key% placeholders: ' + literalTitles.join(', '));
     process.exit(1);
   }
-  console.log(cmds.length + ' command titles checked');
+  if (missing.size) {
+    console.error('Unresolvable %key% placeholders: ' + [...missing].join(', '));
+    process.exit(1);
+  }
+  console.log(checked + ' manifest placeholders checked');
 "; then
-  echo "PASS: All command titles resolve in package.nls.json"
+  echo "PASS: All manifest %key% placeholders resolve in package.nls.json"
 else
-  echo "FAIL: Command titles missing from package.nls.json (see above)"
+  echo "FAIL: Manifest %key% placeholders missing from package.nls.json (see above)"
   ERRORS=$((ERRORS + 1))
 fi
 
@@ -154,15 +172,38 @@ else
   echo "SKIP: clean install validation (SKIP_BUILD_CHECKS=1)"
 fi
 
+# 10b. VSIX ships the vendored AI SDK — AnthropicAdapter loads it lazily from
+# extension/dist/node_modules, so a VSIX without it passes every other check
+# yet breaks every AI call at runtime. Only meaningful right after packaging.
+if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then
+  if [[ -f "sandforge.vsix" ]]; then
+    if unzip -l sandforge.vsix | grep -q 'extension/dist/node_modules/@anthropic-ai/sdk/'; then
+      echo "PASS: VSIX contains the vendored @anthropic-ai/sdk"
+    else
+      echo "FAIL: VSIX is missing extension/dist/node_modules/@anthropic-ai/sdk/ — AI calls would break at runtime"
+      ERRORS=$((ERRORS + 1))
+    fi
+  else
+    echo "SKIP: VSIX vendored-SDK check (sandforge.vsix not present)"
+  fi
+else
+  echo "SKIP: VSIX vendored-SDK check (SKIP_BUILD_CHECKS=1)"
+fi
+
 # 11. Activation time check (MKT-08: < 2s)
 # Note: Precise activation time measurement requires running in VSCode via @vscode/test-electron.
 # This check verifies the extension bundle is small enough for fast activation.
-BUNDLE_SIZE=$(node -p "require('fs').statSync('packages/extension/dist/extension.js').size")
-BUNDLE_KB=$(node -p "Math.round(${BUNDLE_SIZE} / 1024)")
-if (( BUNDLE_KB > 2048 )); then
-  echo "WARN: Extension bundle ${BUNDLE_KB}KB — may affect activation time (target < 2s)"
+if [[ -f "packages/extension/dist/extension.js" ]]; then
+  BUNDLE_SIZE=$(node -p "require('fs').statSync('packages/extension/dist/extension.js').size")
+  BUNDLE_KB=$(node -p "Math.round(${BUNDLE_SIZE} / 1024)")
+  if (( BUNDLE_KB > 2048 )); then
+    echo "WARN: Extension bundle ${BUNDLE_KB}KB — may affect activation time (target < 2s)"
+  else
+    echo "PASS: Extension bundle ${BUNDLE_KB}KB — should activate in < 2s"
+  fi
 else
-  echo "PASS: Extension bundle ${BUNDLE_KB}KB — should activate in < 2s"
+  echo "FAIL: packages/extension/dist/extension.js not found — run the build first"
+  ERRORS=$((ERRORS + 1))
 fi
 
 echo ""

@@ -12,7 +12,7 @@ vi.mock('./useVSCodeApi', () => ({
   }),
 }));
 
-import { useExecutionProgress } from './useExecutionProgress';
+import { useExecutionProgress, MAX_TRACKED_EXECUTIONS } from './useExecutionProgress';
 
 function dispatchProgress(progress: BulkExecutionProgress): void {
   window.dispatchEvent(
@@ -104,5 +104,57 @@ describe('useExecutionProgress', () => {
     expect(result.current.getProgress('exec-1')?.overallPercent).toBe(30);
     expect(result.current.getProgress('exec-2')?.overallPercent).toBe(60);
     expect(result.current.activeExecutions).toHaveLength(2);
+  });
+
+  it('should evict the oldest execution once the map exceeds the cap', () => {
+    const { result } = renderHook(() => useExecutionProgress());
+
+    act(() => {
+      for (let i = 0; i < MAX_TRACKED_EXECUTIONS + 1; i++) {
+        dispatchProgress(createProgress(`exec-${String(i)}`, 50));
+      }
+    });
+
+    expect(result.current.activeExecutions).toHaveLength(MAX_TRACKED_EXECUTIONS);
+    expect(result.current.getProgress('exec-0')).toBeUndefined();
+    expect(result.current.getProgress(`exec-${String(MAX_TRACKED_EXECUTIONS)}`)).toBeDefined();
+  });
+
+  it('should keep tracking while at least one object is still running', () => {
+    const { result } = renderHook(() => useExecutionProgress());
+
+    const mixed: BulkExecutionProgress = {
+      executionId: 'exec-mixed',
+      objects: [
+        {
+          objectName: 'Account',
+          jobId: 'job-1',
+          operation: 'insert',
+          recordsProcessed: 100,
+          recordsFailed: 0,
+          totalRecords: 100,
+          state: 'complete',
+          startedAt: Date.now(),
+        },
+        {
+          objectName: 'Contact',
+          jobId: 'job-2',
+          operation: 'insert',
+          recordsProcessed: 10,
+          recordsFailed: 0,
+          totalRecords: 100,
+          state: 'processing',
+          startedAt: Date.now(),
+        },
+      ],
+      overallPercent: 55,
+      elapsedMs: 5000,
+    };
+
+    act(() => {
+      dispatchProgress(mixed);
+    });
+
+    expect(result.current.getProgress('exec-mixed')).toBeDefined();
   });
 });

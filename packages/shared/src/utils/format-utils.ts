@@ -7,6 +7,7 @@
 
 /** Formats bytes into human-readable size (e.g. "1.5 MB"). */
 export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes)) return 'N/A';
   if (bytes === 0) return '0 B';
   if (bytes < 0) return `-${formatBytes(-bytes)}`;
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -33,7 +34,8 @@ export function formatRate(recordsPerSecond: number): string {
 
 /** Creates a text-based progress bar string of the given width. */
 export function progressBar(percent: number, width: number = 20): string {
-  const filled = Math.round((percent / 100) * width);
+  const clamped = Number.isFinite(percent) ? Math.min(Math.max(percent, 0), 100) : 0;
+  const filled = Math.round((clamped / 100) * width);
   const empty = width - filled;
   return '\u2588'.repeat(filled) + '\u2591'.repeat(empty);
 }

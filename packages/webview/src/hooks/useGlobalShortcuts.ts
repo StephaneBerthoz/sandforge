@@ -5,7 +5,13 @@ import type { ModuleRoute } from '../stores/useAppStore';
 /** Timeout in ms for chord key sequences (e.g., G then H). */
 const CHORD_TIMEOUT = 500;
 
-/** G+key navigation map. */
+/**
+ * G+key navigation map — covers every navigable module route.
+ * Mnemonics where the initial was already taken:
+ *   y = sYnc (s → seed), p = autoPilot (a → automation),
+ *   n = migratioN (m → monitor), z = froZen (f → forge),
+ *   i = ai (intelligence), l = heLp (h → home).
+ */
 const CHORD_MAP: Record<string, ModuleRoute> = {
   h: 'home',
   m: 'monitor',
@@ -16,6 +22,14 @@ const CHORD_MAP: Record<string, ModuleRoute> = {
   a: 'automation',
   r: 'reports',
   e: 'settings',
+  s: 'seed',
+  y: 'sync',
+  p: 'autopilot',
+  n: 'migration',
+  z: 'frozen',
+  i: 'ai',
+  o: 'orgs',
+  l: 'help',
 };
 
 /** Ctrl+number direct navigation map. */
@@ -26,12 +40,16 @@ const CTRL_NUM_MAP: Record<string, ModuleRoute> = {
   '4': 'compare',
   '5': 'dataops',
   '6': 'automation',
+  '7': 'grappe',
+  '8': 'autopilot',
+  '9': 'migration',
+  '0': 'forge',
 };
 
 /**
  * Registers global keyboard shortcuts for navigation and actions.
  * Supports chord sequences like G followed by H for "Go to Home",
- * Ctrl+1..6 for direct module navigation,
+ * Ctrl+1..9/0 for direct module navigation,
  * Ctrl+Enter for execute, and Escape for cancel.
  * Ignores keystrokes inside input/textarea elements.
  */
@@ -48,7 +66,7 @@ export function useGlobalShortcuts(): void {
       /* ── Ctrl/Meta shortcuts (work even in inputs for Ctrl+Enter) ── */
       const ctrlOrMeta = e.ctrlKey || e.metaKey;
 
-      // Ctrl+1..6 — direct module navigation (skip in inputs)
+      // Ctrl+1..9/0 — direct module navigation (skip in inputs)
       if (ctrlOrMeta && !e.shiftKey && !e.altKey && !isInput) {
         const route = CTRL_NUM_MAP[e.key];
         if (route) {

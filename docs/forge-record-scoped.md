@@ -99,11 +99,6 @@ pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
 
 ## Known limitations
 
-- **Cycle 2-pass not yet implemented**: `Account ↔ Contact` and similar
-  cycles. The PlanGenerator detects them and proposes `nullable_lookup`
-  but the executor does *not* perform the second-pass UPDATE.
-  Required-FK records hit `REQUIRED_FIELD_MISSING` which is surfaced
-  cleanly in the error panel.
 - **IN clause chunking**: at 4 000+ IDs per IN, Salesforce rejects the
   query. Not a concern for typical record-graph clones (rarely >200 IDs
   per object) but to be added before raw-graph mode.

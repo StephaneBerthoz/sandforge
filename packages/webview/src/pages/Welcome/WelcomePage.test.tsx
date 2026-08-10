@@ -182,6 +182,13 @@ describe('WelcomePage', () => {
     expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBeUndefined();
   });
 
+  it('should complete immediately and render nothing when dont-show-again was persisted', () => {
+    mockPersistedState.store['sandforge-welcome-dont-show'] = 'true';
+    render(<WelcomePage onComplete={onComplete} />);
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId('welcome-page')).toBeNull();
+  });
+
   it('should navigate to seed from step 4 for sandbox org type', () => {
     render(<WelcomePage onComplete={onComplete} orgType="sandbox" />);
     // Navigate to step 4

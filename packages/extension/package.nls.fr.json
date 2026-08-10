@@ -17,6 +17,7 @@
   "command.openMigration": "SandForge : Ouvrir Migration",
   "command.openAI": "SandForge : Ouvrir l'Assistant IA",
   "command.openOrgs": "SandForge : Connecter une Org",
+  "command.openReports": "SandForge : Ouvrir les Rapports",
   "command.openSettings": "SandForge : Parametres",
   "command.openHelp": "SandForge : Ouvrir l'Aide",
   "command.cheers": "SandForge : Cheers !",

@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores/useAppStore';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
-import { setPersistedItem } from '../../utils/webviewStorage';
+import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 
 /** Webview state key for "Don't show again" persistence. */
 const DONT_SHOW_KEY = 'sandforge-welcome-dont-show';
@@ -74,6 +74,22 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
   const navigate = useAppStore((s) => s.navigate);
   const [step, setStep] = useState(0);
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  /**
+   * Honor the "Don't show again" flag: it is written on completion but was
+   * never read back, so the wizard kept reappearing whenever the extension
+   * re-sent `onboarding:show` (e.g. webview reloaded before finishing).
+   * When the flag is set we complete immediately — `onComplete` also sends
+   * `onboarding:complete` to the extension, which persists the
+   * `sandforge.onboardingCompleted` globalState and stops re-sending
+   * `onboarding:show` at startup.
+   */
+  const [dismissed] = useState(() => getPersistedItem(DONT_SHOW_KEY) === 'true');
+
+  useEffect(() => {
+    if (dismissed) {
+      onComplete();
+    }
+  }, [dismissed, onComplete]);
 
   const handleNext = useCallback((): void => {
     if (step < TOTAL_STEPS - 1) {
@@ -130,6 +146,12 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
   );
 
   const progressPercent = ((step + 1) / TOTAL_STEPS) * 100;
+
+  // "Don't show again" was set on a previous run: render nothing while the
+  // mount effect above closes the wizard through onComplete.
+  if (dismissed) {
+    return null;
+  }
 
   return (
     <div

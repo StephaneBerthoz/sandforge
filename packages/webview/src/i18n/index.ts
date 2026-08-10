@@ -13,7 +13,15 @@ import ptBR from './locales/pt-BR.json';
 /** Supported application languages. */
 export type SupportedLanguage = 'en' | 'fr' | 'de' | 'es' | 'ja' | 'pt-BR';
 
-const SUPPORTED_LANGUAGES: readonly string[] = ['en', 'fr', 'de', 'es', 'ja', 'pt-BR'];
+/** Every language the UI ships a locale for, in selector display order. */
+export const SUPPORTED_LANGUAGES: readonly SupportedLanguage[] = [
+  'en',
+  'fr',
+  'de',
+  'es',
+  'ja',
+  'pt-BR',
+];
 
 /** Key under which the selected language is stored in the VS Code webview state. */
 const LANGUAGE_STATE_KEY = 'language';
@@ -27,7 +35,7 @@ function getPersistedLanguage(): SupportedLanguage | undefined {
   try {
     const state = getVscodeApi().getState() as Record<string, unknown> | null | undefined;
     const lng = state?.[LANGUAGE_STATE_KEY];
-    if (typeof lng === 'string' && SUPPORTED_LANGUAGES.includes(lng)) {
+    if (typeof lng === 'string' && (SUPPORTED_LANGUAGES as readonly string[]).includes(lng)) {
       return lng as SupportedLanguage;
     }
     return undefined;

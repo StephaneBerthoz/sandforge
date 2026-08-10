@@ -22,6 +22,7 @@ import {
   createBackgroundComposition,
   startOfflineProbing,
   wireBackgroundNotifications,
+  wireOfflineNotifications,
   wireOfflineReplay,
 } from './composition/backgroundComposition';
 import { initForgeComposition } from './composition/forgeComposition';
@@ -171,6 +172,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // Replays operations queued on transport failure once connectivity returns
   // (the queue drains on the offline→online probe transition).
   wireOfflineReplay(offlineManager, handlers);
+  // Native notifications for offline-queue lifecycle (queued / replayed /
+  // dropped) — the webview has no offline channel, this is the only surface.
+  wireOfflineNotifications(offlineManager);
 
   // Start the sync schedule tick loop (wires SyncScheduleHandler.onExecute
   // to SyncOpsHandler.executeScheduled; idempotent, stops in deactivate()).
@@ -261,7 +265,16 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         return;
       }
-      void vscode.env.openExternal(vscode.Uri.parse(org.instanceUrl));
+      // Uri.parse throws on a malformed instanceUrl (hand-edited storage,
+      // partial sfdx import) — fail with a clean message instead of an
+      // unhandled command error.
+      try {
+        void vscode.env.openExternal(vscode.Uri.parse(org.instanceUrl));
+      } catch {
+        void vscode.window.showErrorMessage(
+          `SandForge: cannot open "${org.alias}" — invalid instance URL: ${org.instanceUrl}`,
+        );
+      }
     }),
   ];
 

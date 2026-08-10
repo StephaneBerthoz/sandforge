@@ -6,7 +6,7 @@ import type { Flow } from './harnessFlow';
  * E2E Harness — placeholder surfaces for Plan 02-03 Playwright specs.
  *
  * This component is mounted ONLY when the URL contains `?e2e-harness=<flow>`.
- * It renders a minimal surface that exposes every `data-testid` the five
+ * It renders a minimal surface that exposes every `data-testid` the remaining
  * critical E2E specs rely on, without depending on the production app shell
  * or the real Forge / Sync / Monitor / AI / CDC pages.
  *
@@ -15,11 +15,15 @@ import type { Flow } from './harnessFlow';
  *     in Phase 04 (AI) and Phase 05 (CDC); Plan 02-03 documents placeholder
  *     usage explicitly so the specs can be green in Phase 02 and their body
  *     stabilises the contract that Phase 04/05 must keep.
- *   - Specs 1 / 2 / 3 touch surfaces (seed AI generate, sync conflict dialog,
- *     monitor dashboard refresh + export) whose intermediate testids do not
- *     yet exist on the production components. Rather than invasively adding
- *     testids across 5 large feature pages, the harness provides a stable
- *     E2E contract the downstream phases can point their real UIs at.
+ *   - Specs 1 / 2 touch surfaces (seed AI generate, sync conflict dialog)
+ *     whose intermediate testids do not yet exist on the production
+ *     components. Rather than invasively adding testids across large feature
+ *     pages, the harness provides a stable E2E contract the downstream
+ *     phases can point their real UIs at.
+ *   - The former Spec 3 (monitor dashboard refresh + export) was removed:
+ *     it drove `monitor:metrics:request` / `monitor:export:request`,
+ *     channels that were purged from the shared protocol (there is no export
+ *     channel at all). The real Monitor page is covered by monitor.spec.ts.
  *
  * Each flow listens for a small set of extension -> webview messages via
  * `window.addEventListener('message')` and updates its local UI state so
@@ -242,90 +246,6 @@ const SyncConflictHarness: React.FC = () => {
   );
 };
 
-// --- Spec 3 ----------------------------------------------------------------
-
-interface MonitorMetricsPayload {
-  limits: { apiRequests: { used: number; max: number; percent: number } };
-  jobs: { running: number; completed: number; failed: number };
-  lastUpdated: string;
-}
-interface ExportUrlPayload {
-  format: string;
-  blobUrl: string;
-  fileName: string;
-}
-
-const MonitorHarness: React.FC = () => {
-  const [metrics, setMetrics] = useState<MonitorMetricsPayload | null>(null);
-  const [exportedFile, setExportedFile] = useState<string | null>(null);
-  const [sentOnMount, setSentOnMount] = useState(false);
-
-  // On mount, fire a single metrics request (finite — no polling).
-  useEffect(() => {
-    if (sentOnMount) return;
-    postExtensionMessage('monitor:metrics:request', {});
-    setSentOnMount(true);
-  }, [sentOnMount]);
-
-  useEffect(() => {
-    const handler = (ev: MessageEvent): void => {
-      // SECURITY: Validate origin — only accept messages from the VSCode webview
-      // host ('vscode-webview://...') or empty origin (tests, some environments).
-      if (ev.origin && !ev.origin.startsWith('vscode-webview://')) {
-        return;
-      }
-      const data = ev.data as { type?: string; payload?: Record<string, unknown> } | undefined;
-      if (!data) return;
-      if (data.type === 'monitor:metrics:response' && data.payload) {
-        setMetrics(data.payload as unknown as MonitorMetricsPayload);
-      }
-      if (data.type === 'monitor:export:response' && data.payload) {
-        const exportPayload = data.payload as unknown as ExportUrlPayload;
-        setExportedFile(String(exportPayload.fileName ?? ''));
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, []);
-
-  const refresh = useCallback(() => {
-    postExtensionMessage('monitor:metrics:request', {});
-  }, []);
-
-  const exportCsv = useCallback(() => {
-    postExtensionMessage('monitor:export:request', { format: 'csv' });
-  }, []);
-
-  return (
-    <div data-testid="monitor-page" className="p-6 space-y-3">
-      <h1 className="text-lg">Monitor (E2E harness)</h1>
-      <button data-testid="monitor-refresh-btn" onClick={refresh}>
-        Refresh
-      </button>
-      <button data-testid="monitor-export-csv-btn" onClick={exportCsv}>
-        Export CSV
-      </button>
-      {metrics && (
-        <div className="space-y-2">
-          <div data-testid="monitor-metric-card-apiRequests" className="rounded border p-3">
-            API requests: {metrics.limits.apiRequests.used}/{metrics.limits.apiRequests.max}
-          </div>
-          <div data-testid="monitor-metric-card-jobs" className="rounded border p-3">
-            Jobs: running {metrics.jobs.running} / completed {metrics.jobs.completed} / failed{' '}
-            {metrics.jobs.failed}
-          </div>
-          <div data-testid="monitor-last-updated">{metrics.lastUpdated}</div>
-        </div>
-      )}
-      {exportedFile && (
-        <div data-testid="monitor-export-toast" role="status">
-          Exported {exportedFile}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // --- Spec 4 ----------------------------------------------------------------
 
 interface CdcSubscriptionPayload {
@@ -539,8 +459,6 @@ export const E2EHarness: React.FC<{ flow: Flow }> = ({ flow }) => {
         return <SeedAIHarness />;
       case 'sync-conflict':
         return <SyncConflictHarness />;
-      case 'monitor':
-        return <MonitorHarness />;
       case 'cdc':
         return <CdcHarness />;
       case 'ai-diagnose':

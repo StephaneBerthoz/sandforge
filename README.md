@@ -1,12 +1,12 @@
 # SandForge: Salesforce DevOps Toolkit
 
-![Version](https://img.shields.io/badge/version-1.2.12-blue)
+![Version](https://img.shields.io/badge/version-1.4.0-blue)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Tests](https://img.shields.io/badge/tests-7770-brightgreen)
+![Tests](https://img.shields.io/badge/tests-7647-brightgreen)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
-![VSIX](https://img.shields.io/badge/vsix-1.26%20MB-green)
+![VSIX](https://img.shields.io/badge/vsix-1.9%20MB-green)
 
 **Forge your Salesforce sandboxes.** SandForge populates your developer sandbox with realistic data: cloned from a real record or generated synthetically, with production guardrails. One WebView UI, no Command Palette required.
 
@@ -26,7 +26,7 @@
 
 ## Modules
 
-SandForge ships 12 modules in a single extension:
+SandForge ships 14 modules in a single extension:
 
 | Module | What it does |
 |---|---|
@@ -37,9 +37,11 @@ SandForge ships 12 modules in a single extension:
 | **Monitor** | API limits, jobs, storage, and health score in real time, with threshold alerts |
 | **Compare** | Metadata diff, permission matrix, and drift detection across orgs |
 | **DataOps** | Backup and restore, PII anonymization (GDPR, CCPA, HIPAA, PCI DSS), data quality rules |
-| **Automation** | Visual pipeline builder with 15 step types, cron scheduling, and dry-run mode |
+| **Automation** | Visual pipeline builder with 15 step types and dry-run mode (scheduling and triggers coming soon) |
 | **AI Assistant** | NL2SOQL and failed-job diagnosis over 10 read-only tools |
 | **Grappe** | Parallel execution engine for datasets above 10,000 records |
+| **Migration** | Import existing SFDMU `export.json` or CSV configurations into Sync configs |
+| **Autopilot** | Zero-config sandbox seeding through a guided wizard |
 | **Organizations** | Org registry with SF CLI import and tier-based safety coloring |
 | **Reports** | Execution reports, operational analytics, audit trail, and data lineage |
 
@@ -85,7 +87,7 @@ Safety is on by default: Production Guard requires double confirmation before an
 |---|---|
 | Visual Studio Code | 1.95+ |
 | Salesforce CLI (`sf`) | Latest |
-| Node.js | 20 |
+| Node.js | 22 |
 | pnpm | 11 |
 | AI API key (optional) | Anthropic (Claude) |
 
@@ -146,7 +148,6 @@ On macOS, use `Cmd` instead of `Ctrl`.
 | Setting | Description | Default |
 |---|---|---|
 | `sandforge.telemetry` | Enable anonymous usage telemetry | `false` |
-| `sandforge.monitor.persistTimeSeries` | Persist Monitor time-series data to disk | `false` |
 | `sandforge.seed.defaultBatchSize` | Default batch size for Seed data operations | `200` |
 | `sandforge.sync.defaultBatchSize` | Default batch size for Sync data operations | `200` |
 | `sandforge.sync.maxConcurrentOps` | Maximum concurrent sync operations | `3` |
