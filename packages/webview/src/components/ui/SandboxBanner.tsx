@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { useSandboxDetection } from '../../hooks/useSandboxDetection';
 import { Button } from './Button';
 import { Icon } from './Icon';
+import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 
-/** localStorage key for persisting banner dismissal. */
+/** Webview state key for persisting banner dismissal. */
 const DISMISS_KEY = 'sandforge-sandbox-banner-dismissed';
 
 /** Props for the SandboxBanner component. */
@@ -16,16 +17,16 @@ export interface SandboxBannerProps {
 /**
  * Contextual banner shown when any connected org is a Sandbox.
  * Suggests populating the sandbox via Seed or Sync.
- * Dismissible with persistence to localStorage.
+ * Dismissible with persistence to the VS Code webview state.
  */
 export const SandboxBanner: React.FC<SandboxBannerProps> = ({ onNavigate }) => {
   const { t } = useTranslation();
   const { hasSandbox } = useSandboxDetection();
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem(DISMISS_KEY) === 'true');
+  const [dismissed, setDismissed] = useState(() => getPersistedItem(DISMISS_KEY) === 'true');
 
   const handleDismiss = useCallback(() => {
     setDismissed(true);
-    localStorage.setItem(DISMISS_KEY, 'true');
+    setPersistedItem(DISMISS_KEY, 'true');
   }, []);
 
   if (!hasSandbox || dismissed) {

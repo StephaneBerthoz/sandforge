@@ -17,22 +17,28 @@ vi.mock('../../stores/useAppStore', () => ({
     selector({ navigate: mockNavigate }),
 }));
 
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
+/* In-memory mock of the webview state persistence layer. */
+const mockPersistedState = vi.hoisted(() => {
+  const store: Record<string, string> = {};
   return {
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-    removeItem: (key: string): void => {
-      delete store[key];
-    },
-    reset: (): void => {
-      store = {};
+    store,
+    reset(): void {
+      for (const key of Object.keys(store)) {
+        delete store[key];
+      }
     },
   };
-})();
-Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
+});
+
+vi.mock('../../utils/webviewStorage', () => ({
+  getPersistedItem: (key: string): string | null => mockPersistedState.store[key] ?? null,
+  setPersistedItem: (key: string, value: string): void => {
+    mockPersistedState.store[key] = value;
+  },
+  removePersistedItem: (key: string): void => {
+    delete mockPersistedState.store[key];
+  },
+}));
 
 describe('WelcomePage', () => {
   let onComplete: ReturnType<typeof vi.fn>;
@@ -41,7 +47,7 @@ describe('WelcomePage', () => {
     onComplete = vi.fn();
     mockNavigate.mockClear();
     mockChangeLanguage.mockClear();
-    localStorageMock.reset();
+    mockPersistedState.reset();
   });
 
   it('should render the welcome page', () => {
@@ -150,7 +156,7 @@ describe('WelcomePage', () => {
     expect(screen.getByTestId('welcome-step-bienvenue')).toBeDefined();
   });
 
-  it('should persist dont-show-again in localStorage when completing', () => {
+  it('should persist dont-show-again in the webview state when completing', () => {
     render(<WelcomePage onComplete={onComplete} orgType="production" />);
     // Navigate to step 4
     fireEvent.click(screen.getByText('common.next'));
@@ -161,10 +167,10 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByTestId('dont-show-again'));
     // Click finish
     fireEvent.click(screen.getByText('onboarding.openMonitor'));
-    expect(localStorageMock.getItem('sandforge-welcome-dont-show')).toBe('true');
+    expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBe('true');
   });
 
-  it('should not set localStorage when dont-show-again is unchecked', () => {
+  it('should not persist when dont-show-again is unchecked', () => {
     render(<WelcomePage onComplete={onComplete} orgType="production" />);
     // Navigate to step 4
     fireEvent.click(screen.getByText('common.next'));
@@ -173,7 +179,7 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByText('common.next'));
     // Click finish without checking dont show
     fireEvent.click(screen.getByText('onboarding.openMonitor'));
-    expect(localStorageMock.getItem('sandforge-welcome-dont-show')).toBeNull();
+    expect(mockPersistedState.store['sandforge-welcome-dont-show']).toBeUndefined();
   });
 
   it('should navigate to seed from step 4 for sandbox org type', () => {

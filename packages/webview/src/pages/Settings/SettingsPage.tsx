@@ -8,36 +8,24 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { useSettingsPageData } from './useSettingsPageData';
 
-/** Settings values. */
+/**
+ * Settings values exposed by this page.
+ *
+ * Only settings that are actually consumed somewhere are kept here:
+ * `language` is applied immediately via `i18n.changeLanguage`. The other
+ * historical fields (theme, batch sizes, thresholds, notification toggles,
+ * log level...) were persisted through `settings:update` but read back by
+ * nothing — they were removed from the UI rather than pretending to work.
+ * The effective module settings live in the VSCode manifest
+ * (`sandforge.seed.defaultBatchSize`, `sandforge.sync.maxConcurrentOps`, ...).
+ */
 export interface SettingsValues {
   language: string;
-  theme: string;
-  defaultBatchSize: number;
-  maxConcurrentOps: number;
-  enableGrappe: boolean;
-  grappeThreshold: number;
-  apiTimeout: number;
-  retryAttempts: number;
-  enableNotifications: boolean;
-  soundAlerts: boolean;
-  autoRefreshInterval: number;
-  logLevel: string;
 }
 
 /** Default settings. */
 export const defaultSettings: SettingsValues = {
   language: 'en',
-  theme: 'auto',
-  defaultBatchSize: 200,
-  maxConcurrentOps: 3,
-  enableGrappe: true,
-  grappeThreshold: 10_000,
-  apiTimeout: 30_000,
-  retryAttempts: 3,
-  enableNotifications: true,
-  soundAlerts: false,
-  autoRefreshInterval: 60,
-  logLevel: 'info',
 };
 
 /** SettingsPage component props. */
@@ -55,7 +43,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onReset,
   onClearCache,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState('general');
 
   const {
@@ -88,7 +76,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const tabs = [
     { id: 'general', label: t('settings.general') },
     { id: 'ai', label: t('settings.ai') },
-    { id: 'notifications', label: t('settings.notifications') },
     { id: 'advanced', label: t('settings.advanced') },
     { id: 'plugins', label: t('settings.plugins') },
     { id: 'telemetry', label: t('settings.telemetry') },
@@ -124,53 +111,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         { value: 'fr', label: t('settings.languages.fr') },
                       ]}
                       value={settings.language}
-                      onChange={(e) => updateSetting('language', e.target.value)}
-                    />
-                  </div>
-
-                  {/* Theme */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">{t('settings.theme')}</label>
-                    <Select
-                      data-testid="theme-select"
-                      aria-label={t('settings.theme')}
-                      options={[
-                        { value: 'auto', label: t('settings.themes.auto') },
-                        { value: 'light', label: t('settings.themes.light') },
-                        { value: 'dark', label: t('settings.themes.dark') },
-                      ]}
-                      value={settings.theme}
-                      onChange={(e) => updateSetting('theme', e.target.value)}
-                    />
-                  </div>
-
-                  {/* Default Batch Size */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">
-                      {t('settings.defaultBatchSize')}
-                    </label>
-                    <input
-                      data-testid="batch-size-input"
-                      type="number"
-                      aria-label={t('settings.defaultBatchSize')}
-                      value={settings.defaultBatchSize}
-                      onChange={(e) => updateSetting('defaultBatchSize', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
-                    />
-                  </div>
-
-                  {/* Max Concurrent Ops */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">
-                      {t('settings.maxConcurrentOps')}
-                    </label>
-                    <input
-                      data-testid="concurrent-ops-input"
-                      type="number"
-                      aria-label={t('settings.maxConcurrentOps')}
-                      value={settings.maxConcurrentOps}
-                      onChange={(e) => updateSetting('maxConcurrentOps', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
+                      onChange={(e) => {
+                        updateSetting('language', e.target.value);
+                        // Apply immediately — the i18n module persists the
+                        // choice to the webview state on every change.
+                        void i18n.changeLanguage(e.target.value);
+                      }}
                     />
                   </div>
                 </div>
@@ -252,59 +198,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
 
-        {activeTab === 'notifications' && (
-          <div
-            data-testid="notification-settings"
-            id="tabpanel-notifications"
-            role="tabpanel"
-            aria-labelledby="tab-notifications"
-            className="flex flex-col gap-3"
-          >
-            <Card>
-              <CardHeader title={t('settings.notifications')} />
-              <CardBody>
-                <div className="flex flex-col gap-3">
-                  {/* Enable Notifications */}
-                  <label className="flex items-center gap-2 text-xs text-text-primary">
-                    <input
-                      data-testid="enable-notifications-checkbox"
-                      type="checkbox"
-                      checked={settings.enableNotifications}
-                      onChange={(e) => updateSetting('enableNotifications', e.target.checked)}
-                    />
-                    {t('settings.enableNotifications')}
-                  </label>
-
-                  {/* Sound Alerts */}
-                  <label className="flex items-center gap-2 text-xs text-text-primary">
-                    <input
-                      data-testid="sound-alerts-checkbox"
-                      type="checkbox"
-                      checked={settings.soundAlerts}
-                      onChange={(e) => updateSetting('soundAlerts', e.target.checked)}
-                    />
-                    {t('settings.soundAlerts')}
-                  </label>
-
-                  {/* Auto-Refresh Interval */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">
-                      {t('settings.autoRefreshInterval')}
-                    </label>
-                    <input
-                      data-testid="refresh-interval-input"
-                      type="number"
-                      value={settings.autoRefreshInterval}
-                      onChange={(e) => updateSetting('autoRefreshInterval', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
-                    />
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
-          </div>
-        )}
-
         {activeTab === 'advanced' && (
           <div
             data-testid="advanced-settings"
@@ -317,64 +210,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <CardHeader title={t('settings.advanced')} />
               <CardBody>
                 <div className="flex flex-col gap-3">
-                  {/* Enable Grappe */}
-                  <div className="flex flex-col gap-0.5">
-                    <label className="flex items-center gap-2 text-xs text-text-primary">
-                      <input
-                        data-testid="enable-grappe-checkbox"
-                        type="checkbox"
-                        checked={settings.enableGrappe}
-                        onChange={(e) => updateSetting('enableGrappe', e.target.checked)}
-                      />
-                      {t('settings.enableGrappe')}
-                    </label>
-                    <p className="text-[10px] text-text-secondary ml-5">
-                      {t('settings.enableGrappeDesc')}
-                    </p>
-                  </div>
-
-                  {/* Grappe Threshold */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">
-                      {t('settings.grappeThreshold')}
-                    </label>
-                    <input
-                      data-testid="grappe-threshold-input"
-                      type="number"
-                      value={settings.grappeThreshold}
-                      onChange={(e) => updateSetting('grappeThreshold', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
-                    />
-                  </div>
-
-                  {/* API Timeout */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">{t('settings.apiTimeout')}</label>
-                    <input
-                      data-testid="api-timeout-input"
-                      type="number"
-                      value={settings.apiTimeout}
-                      onChange={(e) => updateSetting('apiTimeout', Number(e.target.value))}
-                      className="px-2 py-1 text-xs rounded bg-[var(--sf-bg-input)] text-[var(--sf-text-input)] border border-[var(--sf-border-input)]"
-                    />
-                  </div>
-
-                  {/* Log Level */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">{t('settings.logLevel')}</label>
-                    <Select
-                      data-testid="log-level-select"
-                      options={[
-                        { value: 'debug', label: t('settings.logLevels.debug') },
-                        { value: 'info', label: t('settings.logLevels.info') },
-                        { value: 'warn', label: t('settings.logLevels.warn') },
-                        { value: 'error', label: t('settings.logLevels.error') },
-                      ]}
-                      value={settings.logLevel}
-                      onChange={(e) => updateSetting('logLevel', e.target.value)}
-                    />
-                  </div>
-
                   {/* Action buttons */}
                   <div className="flex gap-2 mt-2">
                     {onClearCache && (

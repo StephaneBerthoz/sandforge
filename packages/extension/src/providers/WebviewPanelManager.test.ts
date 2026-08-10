@@ -377,4 +377,39 @@ describe('WebviewPanelManager', () => {
       expect(manager.isAnyPanelVisible()).toBe(false);
     });
   });
+
+  describe('broker panel registration', () => {
+    it('should unregister the panel from the broker when the panel is disposed', () => {
+      manager.openPanel({ viewType: 'test', title: 'Test' });
+      expect(broker.panelCount).toBe(1);
+
+      const disposeCallback = lastCreatedPanel.onDidDispose.mock.calls[0][0] as () => void;
+      disposeCallback();
+
+      expect(broker.panelCount).toBe(0);
+    });
+
+    it('should unregister all panels from the broker on manager dispose', () => {
+      manager.openPanel({ viewType: 'panel-a', title: 'A' });
+      manager.openPanel({ viewType: 'panel-b', title: 'B' });
+      expect(broker.panelCount).toBe(2);
+
+      // panel.dispose() is mocked here, so onDidDispose never fires — this
+      // exercises the safety-net loop in dispose().
+      manager.dispose();
+
+      expect(broker.panelCount).toBe(0);
+    });
+
+    it('should tolerate double-dispose of the broker registration disposable', () => {
+      const registerSpy = vi.spyOn(broker, 'registerPanel');
+      manager.openPanel({ viewType: 'test', title: 'Test' });
+
+      const registration = registerSpy.mock.results[0]?.value as { dispose(): void };
+      registration.dispose();
+
+      expect(() => registration.dispose()).not.toThrow();
+      expect(broker.panelCount).toBe(0);
+    });
+  });
 });

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
-/** localStorage prefix for dismissed hints. */
+import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
+
+/** Webview state prefix for dismissed hints. */
 const HINT_DISMISSED_PREFIX = 'sandforge-hint-dismissed-';
 
 /** Props for the HintBubble component. */
@@ -23,12 +25,12 @@ export interface HintBubbleProps {
 }
 
 /**
- * Check if a hint has been permanently dismissed via localStorage.
+ * Check if a hint has been permanently dismissed via the persisted webview state.
  * @param hintId - The unique hint identifier.
  * @returns Whether the hint has been dismissed.
  */
 export function isHintDismissed(hintId: string): boolean {
-  return localStorage.getItem(`${HINT_DISMISSED_PREFIX}${hintId}`) === 'true';
+  return getPersistedItem(`${HINT_DISMISSED_PREFIX}${hintId}`) === 'true';
 }
 
 /**
@@ -37,7 +39,7 @@ export function isHintDismissed(hintId: string): boolean {
  * - Fade-in animation with configurable delay
  * - Optional link to Salesforce documentation
  * - Optional example values display
- * - "Don't show again" per-hint persistence via localStorage
+ * - "Don't show again" per-hint persistence via the VS Code webview state
  */
 export const HintBubble: React.FC<HintBubbleProps> = ({
   hintId,
@@ -62,7 +64,7 @@ export const HintBubble: React.FC<HintBubbleProps> = ({
 
   const handleDismiss = useCallback((): void => {
     if (permanentlyDismissed) {
-      localStorage.setItem(`${HINT_DISMISSED_PREFIX}${hintId}`, 'true');
+      setPersistedItem(`${HINT_DISMISSED_PREFIX}${hintId}`, 'true');
     }
     setVisible(false);
     onDismiss(hintId);

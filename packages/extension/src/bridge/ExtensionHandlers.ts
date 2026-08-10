@@ -1,6 +1,8 @@
 import type { MessageBroker } from './MessageBroker.js';
 import type { MessageRouter } from './MessageRouter.js';
 import type { WebviewStateSync } from './WebviewStateSync.js';
+import type { BaseMessage } from '@sandforge/shared';
+import type { QueuedOperation } from '../core/connection/OfflineManager.js';
 import type { OrgManager } from '../core/connection/OrgManager.js';
 import type { OrgRegistry } from '../core/connection/OrgRegistry.js';
 import type { ConfigStore } from '../core/storage/ConfigStore.js';
@@ -185,6 +187,10 @@ export class ExtensionHandlers {
   /** Inject live operation tracker for monitor:live-operations messages. */
   setLiveOperationTracker(tracker: LiveOperationTracker): void {
     this.monitorHandler.setLiveOperationTracker(tracker);
+    // Producers: seed/sync executions register progress + completion so the
+    // Monitor "live operations" panel is actually fed.
+    this.seedHandler.setLiveOperationTracker(tracker);
+    this.syncHandler.setLiveOperationTracker(tracker);
   }
 
   /** Inject masking template service for dataops:masking-templates-by-object messages. */
@@ -224,6 +230,47 @@ export class ExtensionHandlers {
       this.syncHistoryStore,
       this.syncHandler,
     );
+  }
+
+  /**
+   * Replay an operation queued while offline (OfflineManager drain callback,
+   * wired from composition via `wireOfflineReplay`).
+   *
+   * Replays go through the same entry points as user-triggered reruns, so
+   * payload re-validation, production guard and history logging all re-apply:
+   * - `sync` → SyncOpsHandler.rerunFromSnapshot (config snapshot re-validated);
+   * - `seed` → SeedOpsHandler seed:execute (payload re-validated).
+   *
+   * Execution failures are reported on the usual `<domain>:error` /
+   * `operation:failed` channels rather than thrown, so a failed replay is
+   * consumed from the queue (OfflineManager counts it executed) and surfaced
+   * to the user through the normal error surface.
+   *
+   * @param operation - The queued operation to replay.
+   */
+  async replayQueuedOperation(operation: QueuedOperation): Promise<void> {
+    const msg: BaseMessage = {
+      id: `offline-replay-${operation.id}`,
+      type: `${operation.type}:execute`,
+      timestamp: Date.now(),
+    };
+    switch (operation.type) {
+      case 'sync':
+        await this.syncHandler.rerunFromSnapshot(msg, operation.payload.config);
+        return;
+      case 'seed': {
+        // Bridge messages carry their payload structurally (BaseMessage has no
+        // payload field) — same shape the webview sends for seed:execute.
+        const seedMsg: BaseMessage & { payload: Record<string, unknown> } = {
+          ...msg,
+          payload: operation.payload,
+        };
+        await this.seedHandler.handle(seedMsg);
+        return;
+      }
+      default:
+        throw new Error(`Unsupported queued operation type: ${operation.type}`);
+    }
   }
 
   /**

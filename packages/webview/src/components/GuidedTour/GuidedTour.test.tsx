@@ -19,22 +19,28 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
+/* In-memory mock of the webview state persistence layer. */
+const mockPersistedState = vi.hoisted(() => {
+  const store: Record<string, string> = {};
   return {
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-    removeItem: (key: string): void => {
-      delete store[key];
-    },
-    reset: (): void => {
-      store = {};
+    store,
+    reset(): void {
+      for (const key of Object.keys(store)) {
+        delete store[key];
+      }
     },
   };
-})();
-Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
+});
+
+vi.mock('../../utils/webviewStorage', () => ({
+  getPersistedItem: (key: string): string | null => mockPersistedState.store[key] ?? null,
+  setPersistedItem: (key: string, value: string): void => {
+    mockPersistedState.store[key] = value;
+  },
+  removePersistedItem: (key: string): void => {
+    delete mockPersistedState.store[key];
+  },
+}));
 
 const MOCK_STEPS: TourStep[] = [
   {
@@ -62,7 +68,7 @@ describe('GuidedTour', () => {
 
   beforeEach(() => {
     onComplete = vi.fn();
-    localStorageMock.reset();
+    mockPersistedState.reset();
     // Mock querySelector to return a fake element with getBoundingClientRect
     vi.spyOn(document, 'querySelector').mockReturnValue({
       getBoundingClientRect: () => ({
@@ -178,7 +184,7 @@ describe('GuidedTour', () => {
     fireEvent.click(screen.getByTestId('tour-next'));
     fireEvent.click(screen.getByTestId('tour-finish'));
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(localStorageMock.getItem('sandforge-tour-completed-test-tour')).toBe('true');
+    expect(mockPersistedState.store['sandforge-tour-completed-test-tour']).toBe('true');
   });
 
   it('should call onComplete and persist when Skip is clicked', () => {
@@ -187,7 +193,7 @@ describe('GuidedTour', () => {
     );
     fireEvent.click(screen.getByTestId('tour-skip'));
     expect(onComplete).toHaveBeenCalledOnce();
-    expect(localStorageMock.getItem('sandforge-tour-completed-test-tour')).toBe('true');
+    expect(mockPersistedState.store['sandforge-tour-completed-test-tour']).toBe('true');
   });
 
   it('should always render the Skip button', () => {
@@ -200,7 +206,7 @@ describe('GuidedTour', () => {
 
 describe('isTourCompleted', () => {
   beforeEach(() => {
-    localStorageMock.reset();
+    mockPersistedState.reset();
   });
 
   it('should return false for uncompleted tours', () => {
@@ -208,19 +214,19 @@ describe('isTourCompleted', () => {
   });
 
   it('should return true for completed tours', () => {
-    localStorageMock.setItem('sandforge-tour-completed-my-tour', 'true');
+    mockPersistedState.store['sandforge-tour-completed-my-tour'] = 'true';
     expect(isTourCompleted('my-tour')).toBe(true);
   });
 });
 
 describe('markTourCompleted', () => {
   beforeEach(() => {
-    localStorageMock.reset();
+    mockPersistedState.reset();
   });
 
-  it('should store tour completion in localStorage', () => {
+  it('should store tour completion in the webview state', () => {
     markTourCompleted('my-tour');
-    expect(localStorageMock.getItem('sandforge-tour-completed-my-tour')).toBe('true');
+    expect(mockPersistedState.store['sandforge-tour-completed-my-tour']).toBe('true');
   });
 });
 

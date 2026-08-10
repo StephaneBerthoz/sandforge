@@ -20,13 +20,9 @@ That said, SandForge is designed primarily for sandbox and scratch org workflows
 
 ### How does AI data generation work? Which LLMs are supported?
 
-AI features use an external LLM provider to generate context-aware, realistic data values. SandForge supports three providers:
+AI features use an external LLM provider to generate context-aware, realistic data values. SandForge currently supports **Anthropic** (Claude models) via API key; additional providers are planned.
 
-- **OpenAI** -- GPT models via API key
-- **Anthropic** -- Claude models via API key
-- **Ollama** -- Local LLM inference (no API key needed, runs on your machine)
-
-Configure your provider and API key in VSCode Settings under `sandforge.ai.provider` and `sandforge.ai.apiKey`. AI features are optional -- SandForge works fully without them using Faker profiles and templates.
+Enter your API key in the AI tab of the SandForge Settings page. The key is stored in VSCode SecretStorage, never in settings files. AI features are optional -- SandForge works fully without them using Faker profiles and templates.
 
 ### Can I use SandForge without AI features?
 
@@ -34,7 +30,7 @@ Yes. AI is entirely optional. Seed uses 30+ locale-aware Faker generators by def
 
 ### Is my data sent to external services?
 
-Data is sent to your chosen LLM provider only when you explicitly use AI features (AI data generation, NL2SOQL, Schema Advice, Pipeline Generator). No data is sent otherwise. When using Ollama, all AI processing stays on your local machine. Telemetry is opt-in and never includes org data or PII.
+Data is sent to your LLM provider (Anthropic) only when you explicitly use AI features (AI data generation, NL2SOQL, Schema Advice, Pipeline Generator). No data is sent otherwise. Telemetry is opt-in and never includes org data or PII.
 
 ### How do I update SandForge?
 

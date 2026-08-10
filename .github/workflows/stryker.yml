@@ -1,8 +1,7 @@
 name: Stryker Mutation Testing
 
 # Runs nightly (06:00 UTC) and on manual dispatch. Not wired into per-PR CI
-# because wall-time is 10-30 min. Honors `skip-stryker` PR label if somebody
-# does trigger it on a PR via dispatch.
+# because wall-time is 10-30 min.
 
 on:
   schedule:
@@ -22,9 +21,6 @@ jobs:
     # months). 120 min gives the reduced mutate scope (packages/shared/src)
     # enough headroom to finish.
     timeout-minutes: 120
-    if: >-
-      github.event_name != 'pull_request' ||
-      !contains(github.event.pull_request.labels.*.name, 'skip-stryker')
 
     steps:
       - uses: actions/checkout@v4

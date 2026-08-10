@@ -1,5 +1,4 @@
 import type { BaseMessage } from './base.messages.js';
-import type { MetricSample } from '../../monitor/MetricEvent.js';
 import type { AlertInstance } from '../monitor.types.js';
 
 /** Monitor messages */
@@ -32,41 +31,9 @@ export interface MonitorAbortJobResponse extends BaseMessage {
   payload: { jobId: string; success: boolean; message: string };
 }
 
-/**
- * Single-sample metric event forwarded from MetricBus across the WebView
- * bridge (Phase 03 Plan 03-01). The payload is a `MetricSample` validated
- * by `MetricSampleSchema` in `monitor/MetricEvent.ts`.
- *
- * In practice the MetricBus coalesces these into
- * {@link MonitorMetricsBatchMessage} over a 250 ms window before forwarding
- * (P-03.9 mitigation). This single-sample variant is reserved for very low
- * frequency / high-priority metrics that must not wait for the batch window.
- */
-export interface MonitorMetricMessage extends BaseMessage {
-  type: 'monitor:metric';
-  payload: MetricSample;
-}
-
-/**
- * Batched metric samples produced by the MetricBus coalescing window
- * (default 250 ms). The `samples` array is non-empty and capped at 1000
- * by `MetricBatchEventSchema` (Phase 03 Plan 03-01). Webview subscribers
- * iterate samples and route by `seriesId` prefix.
- */
-export interface MonitorMetricsBatchMessage extends BaseMessage {
-  type: 'monitor:metrics:batch';
-  payload: { samples: MetricSample[] };
-}
-
-/**
- * Subscription request from WebView panels — narrows the firehose to a
- * single `seriesId` prefix so the bridge does not waste throughput on
- * series the panel is not rendering (P-03.9 mitigation #2).
- */
-export interface MonitorMetricSubscribeMessage extends BaseMessage {
-  type: 'monitor:metric:subscribe';
-  payload: { seriesPrefix: string };
-}
+// (The `monitor:metric` / `monitor:metrics:batch` / `monitor:metric:subscribe`
+// MetricBus firehose messages were purged with the extension-side Monitor v2
+// removal — no emitter or consumer remains.)
 
 // ─── Alert Panel Messages (AlertsPanel / AlertHistoryPanel) ──────────────────
 
@@ -148,11 +115,8 @@ export interface LiveOperationsResponse extends BaseMessage {
   payload: { operations: LiveOperationSnapshot[] };
 }
 
-/** Push update when live operations change. */
-export interface LiveOperationsUpdated extends BaseMessage {
-  type: 'monitor:live-operations:updated';
-  payload: { operations: LiveOperationSnapshot[] };
-}
+// (The `monitor:live-operations:updated` push variant was purged — never
+// emitted by the extension, never listened to by the webview.)
 
 // ─── Monitor Storage / Deployments / API Usage Messages ──────────────────────
 

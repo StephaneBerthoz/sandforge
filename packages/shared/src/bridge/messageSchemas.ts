@@ -123,7 +123,6 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   msg('monitor:abort-job:response'),
   msg('monitor:live-operations'),
   msg('monitor:live-operations:response'),
-  msg('monitor:live-operations:updated'),
   msg('monitor:health-score'),
   msg('monitor:health-score:response'),
   msg('monitor:storage'),
@@ -148,17 +147,14 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   msg('monitor:alert:acknowledge:response'),
   msg('monitor:alert:dismiss'),
   msg('monitor:alert:dismiss:response'),
-  // Phase 03 Plan 03-01 — MetricBus envelope variants. Payload validation is
-  // delegated to the inner `MetricEvent`/`MetricSample` Zod schemas at the
-  // MetricBus boundary; the bridge schema only enforces envelope + discriminant.
-  msg('monitor:metric'),
-  msg('monitor:metrics:batch'),
-  msg('monitor:metric:subscribe'),
-  // (The `monitor:export:*` envelopes were removed when ReportExporter was
-  // dropped at P2; the legacy `MonitorExport*` TS interfaces are gone too.
-  // The `monitor:fleet:summary:request/response` + `monitor:visibility`
-  // envelopes were purged when MonitorOverviewPage / useFleetStore /
-  // useVisibilityGate were deleted — no emitter or consumer remains.)
+  // (The `monitor:metric` / `monitor:metrics:batch` / `monitor:metric:subscribe`
+  // MetricBus envelope variants + the `monitor:live-operations:updated` push
+  // variant were purged with the extension-side Monitor v2 removal — no
+  // emitter or consumer remains. The `monitor:export:*` envelopes were removed
+  // when ReportExporter was dropped at P2; the legacy `MonitorExport*` TS
+  // interfaces are gone too. The `monitor:fleet:summary:request/response` +
+  // `monitor:visibility` envelopes were purged when MonitorOverviewPage /
+  // useFleetStore / useVisibilityGate were deleted.)
 ]);
 
 // ─── Domain: Compare ─────────────────────────────────────────────────────────

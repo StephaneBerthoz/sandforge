@@ -30,6 +30,7 @@ import {
 } from '../validatePayload.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
+import { isNetworkError } from '../../core/common/isNetworkError.js';
 import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
@@ -37,6 +38,7 @@ import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Message types handled by SyncOpsHandler. */
 const SYNC_TYPES = new Set([
@@ -80,6 +82,9 @@ export class SyncOpsHandler implements DomainHandler {
    */
   private historyLogger?: SyncExecutionLogger;
 
+  /** Live operation tracker feeding the Monitor "live operations" panel. */
+  private liveTracker?: LiveOperationTracker;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.syncConfigStore = new SyncConfigStore(deps.configStore);
@@ -102,6 +107,16 @@ export class SyncOpsHandler implements DomainHandler {
    */
   setHistoryLogger(logger: SyncExecutionLogger): void {
     this.historyLogger = logger;
+  }
+
+  /**
+   * Inject the live operation tracker so sync executions show up in the
+   * Monitor "live operations" panel. Called from ExtensionHandlers.
+   *
+   * @param tracker - The shared LiveOperationTracker instance.
+   */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /**
@@ -411,12 +426,10 @@ export class SyncOpsHandler implements DomainHandler {
     this.dmlTracker.register(operationId, 'sync', 'upsert', filledConfig.objects?.length ?? 0);
     this.activeOperationIds.add(operationId);
     this.deps.infraServices?.performanceTracker?.start(operationId, 'sync');
-    sendOperationStarted(
-      this.deps,
-      operationId,
-      'sync',
-      `Scheduled sync of ${filledConfig.objects?.length ?? 0} object(s)`,
-    );
+    const scheduledDescription = `Scheduled sync of ${filledConfig.objects?.length ?? 0} object(s)`;
+    sendOperationStarted(this.deps, operationId, 'sync', scheduledDescription);
+    // Feed the Monitor "live operations" panel (total unknown until queries run).
+    this.liveTracker?.register(operationId, 'sync', scheduledDescription);
 
     const abortController = new AbortController();
     // executeSync never rejects (it reports on operation:failed and converts
@@ -507,6 +520,8 @@ export class SyncOpsHandler implements DomainHandler {
 
       const description = `Sync ${config.objects?.length ?? 0} object(s)`;
       sendOperationStarted(this.deps, operationId, 'sync', description);
+      // Feed the Monitor "live operations" panel (total unknown until queries run).
+      this.liveTracker?.register(operationId, 'sync', description);
 
       // Create AbortController for this operation
       const abortController = new AbortController();
@@ -606,14 +621,9 @@ export class SyncOpsHandler implements DomainHandler {
         describeTimeoutMs: robustnessConfig.timeouts.describe,
         signal: abortController.signal,
         onProgress: (processed, total, label) => {
-          sendOperationProgress(
-            this.deps,
-            operationId,
-            Math.round((processed / total) * 100),
-            processed,
-            total,
-            label,
-          );
+          const pct = Math.round((processed / total) * 100);
+          sendOperationProgress(this.deps, operationId, pct, processed, total, label);
+          this.liveTracker?.updateProgress(operationId, pct, processed, total, label);
         },
         log: (message) => this.deps.log(message),
       });
@@ -734,6 +744,7 @@ export class SyncOpsHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, {
         status: (result as { status?: string }).status ?? 'completed',
       });
+      this.liveTracker?.complete(operationId);
       this.dmlTracker.markCompleted(operationId);
       checkApiLimits(sourceConn.limitInfo, 'sync:execute completion (source)');
       checkApiLimits(targetConn.limitInfo, 'sync:execute completion (target)');
@@ -757,6 +768,20 @@ export class SyncOpsHandler implements DomainHandler {
       return result;
     } catch (err: unknown) {
       this.dmlTracker.markFailed(operationId);
+      this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      // Transport-level failure: the org was unreachable — queue the config so
+      // OfflineManager replays it when connectivity returns.
+      if (isNetworkError(err) && this.deps.infraServices?.offlineManager) {
+        const queued = this.deps.infraServices.offlineManager.enqueue({
+          id: operationId,
+          type: 'sync',
+          orgId: config.targetOrgId,
+          payload: { config: config as unknown as Record<string, unknown> },
+        });
+        if (queued) {
+          this.deps.log(`[OFFLINE] sync queued for replay on reconnect: ${operationId}`);
+        }
+      }
       // Dual channel, single display (see startExecution): operation:failed
       // carries the lifecycle, sync:error settles the in-flight mutation with
       // the real message. Scheduled runs have no listener — the extra message

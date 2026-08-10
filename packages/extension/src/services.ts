@@ -15,8 +15,6 @@ import { SessionBudget, type BudgetBroker } from './adapters/ai/tokenBudget/inde
 import type { ConfigStore } from './core/storage/ConfigStore.js';
 import type { TelemetryAdapterOptions } from './adapters/telemetry/TelemetryAdapter.js';
 
-import { MonitorOrchestrator } from './modules/monitor/MonitorOrchestrator.js';
-import type { MonitorDependencies } from './modules/monitor/MonitorOrchestrator.js';
 import { SeedOrchestrator } from './modules/seed/SeedOrchestrator.js';
 import type { SeedOrchestratorDependencies } from './modules/seed/SeedOrchestrator.js';
 import { SyncOrchestrator } from './modules/sync/SyncOrchestrator.js';
@@ -101,7 +99,6 @@ export interface CoreServices {
  * adapters and build fully-wired orchestrators on demand from handlers.
  */
 export interface OrchestratorFactories {
-  monitorOrchestrator: (deps: MonitorDependencies) => MonitorOrchestrator;
   seedOrchestrator: (deps: SeedOrchestratorDependencies) => SeedOrchestrator;
   syncOrchestrator: (deps: SyncOrchestratorDeps) => SyncOrchestrator;
   compareOrchestrator: (deps: CompareDependencies) => CompareOrchestrator;
@@ -197,15 +194,6 @@ export function createServices(
         logger: telemetry.getLogger(),
       });
     },
-    monitorOrchestrator: (deps) =>
-      new MonitorOrchestrator({
-        // `sandforge.monitor.persistTimeSeries` (manifest default off) feeds
-        // TimeSeriesStore disk persistence. An explicit caller value wins.
-        persistTimeSeries: vscode.workspace
-          .getConfiguration('sandforge.monitor')
-          .get<boolean>('persistTimeSeries', false),
-        ...deps,
-      }),
     seedOrchestrator: (deps) => new SeedOrchestrator(deps),
     syncOrchestrator: (deps) => new SyncOrchestrator(deps),
     compareOrchestrator: (deps) => new CompareOrchestrator(deps),

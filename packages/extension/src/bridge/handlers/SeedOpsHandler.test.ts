@@ -11,6 +11,8 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { OfflineManager } from '../../core/connection/OfflineManager.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -835,6 +837,149 @@ describe('SeedOpsHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
+
+  describe('live operation tracker', () => {
+    it('registers the operation and marks it failed when execution fails', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      // Connection succeeds but executeSeed throws: no composition-root
+      // services are injected in this test setup.
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
+        id: 'seed-live-1',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      };
+
+      await handler.handle(msg);
+
+      const ops = tracker.getAll();
+      expect(ops).toHaveLength(1);
+      expect(ops[0].module).toBe('seed');
+      expect(ops[0].status).toBe('failed');
+      expect(ops[0].error).toContain('composition-root services not injected');
+      // Planned total comes from the template's recordCount (5 in validSeedTemplate).
+      expect(ops[0].totalRecords).toBe(5);
+      tracker.dispose();
+    });
+
+    it('registers the operation and completes it on success', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({
+          execute: vi.fn().mockResolvedValue({ insertedIds: ['id-1', 'id-2'] }),
+        })),
+      } as unknown as HandlerDeps['services'];
+
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
+        id: 'seed-live-2',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      };
+
+      await handler.handle(msg);
+
+      const ops = tracker.getAll();
+      expect(ops).toHaveLength(1);
+      expect(ops[0].module).toBe('seed');
+      expect(ops[0].status).toBe('completed');
+      expect(ops[0].percentage).toBe(100);
+      tracker.dispose();
+    });
+
+    it('does NOT register dry-run executions', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
+        id: 'seed-live-dry',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
+      };
+
+      await handler.handle(msg);
+
+      expect(tracker.getAll()).toHaveLength(0);
+      tracker.dispose();
+    });
+  });
+
+  describe('offline queue producer', () => {
+    function wireOfflineManager(): OfflineManager {
+      const offlineManager = new OfflineManager(deps.configStore);
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: undefined,
+        offlineManager,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      return offlineManager;
+    }
+
+    it('enqueues the seed operation for replay when the failure is a network error', async () => {
+      const offlineManager = wireOfflineManager();
+
+      mockGetConn.mockRejectedValue(
+        Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), { code: 'ECONNREFUSED' }),
+      );
+
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
+        id: 'seed-offline-1',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      };
+
+      await handler.handle(msg);
+
+      const queue = offlineManager.getQueue();
+      expect(queue).toHaveLength(1);
+      expect(queue[0].type).toBe('seed');
+      expect(queue[0].orgId).toBe('org-1');
+      expect(queue[0].payload.orgId).toBe('org-1');
+      expect(queue[0].payload.template).toBeDefined();
+    });
+
+    it('does NOT enqueue when the failure is a Salesforce API error', async () => {
+      const offlineManager = wireOfflineManager();
+
+      mockGetConn.mockRejectedValue(new Error('STORAGE_LIMIT_EXCEEDED: org is full'));
+
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
+        id: 'seed-offline-2',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      };
+
+      await handler.handle(msg);
+
+      expect(offlineManager.getQueueSize()).toBe(0);
     });
   });
 });

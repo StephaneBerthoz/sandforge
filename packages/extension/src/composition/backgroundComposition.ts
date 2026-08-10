@@ -7,6 +7,7 @@ import { PIIDetector } from '../core/precheck/PIIDetector';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { WebviewPanelManager } from '../providers/WebviewPanelManager';
+import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { Services } from '../services.js';
 
 /** Inputs required to build the infrastructure/background service layer. */
@@ -25,6 +26,50 @@ export interface BackgroundComposition {
   offlineManager: OfflineManager;
   piiDetector: PIIDetector;
   backgroundRegistry: BackgroundOperationRegistry;
+}
+
+/**
+ * Connectivity probe for the {@link OfflineManager}: a HEAD request against
+ * the Salesforce login endpoint. Any HTTP response (even an error status)
+ * proves network reachability, so only transport-level failures (DNS, TCP,
+ * TLS, 5 s timeout) report offline.
+ */
+export async function probeSalesforceConnectivity(): Promise<boolean> {
+  try {
+    await fetch('https://login.salesforce.com', {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(5_000),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wire and start OfflineManager connectivity probing (30 s tick).
+ *
+ * Side-effecting by design — call from `activate()`, never from
+ * `createBackgroundComposition` (whose constructors stay side-effect free).
+ * Probing stops via `offlineManager.dispose()` on deactivate.
+ */
+export function startOfflineProbing(offlineManager: OfflineManager): void {
+  offlineManager.setProbeExecutor(probeSalesforceConnectivity);
+  offlineManager.startProbing();
+}
+
+/**
+ * Wire the OfflineManager replay executor: operations queued on transport
+ * failure (see the `isNetworkError` enqueue in SyncOpsHandler/SeedOpsHandler)
+ * are replayed through the bridge handlers when connectivity returns and the
+ * queue drains. Side-effecting by design — call from `activate()` once the
+ * handlers exist (after `applyLateServices`).
+ */
+export function wireOfflineReplay(
+  offlineManager: OfflineManager,
+  handlers: ExtensionHandlers,
+): void {
+  offlineManager.setOperationExecutor((operation) => handlers.replayQueuedOperation(operation));
 }
 
 /**

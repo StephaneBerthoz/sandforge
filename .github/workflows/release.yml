@@ -12,6 +12,12 @@ on:
           - minor
           - major
 
+# Serialize releases: two concurrent dispatches would race the version bump,
+# tag creation, and Marketplace publish. Never cancel a release mid-flight.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -68,15 +74,21 @@ jobs:
       - name: Pre-publish checks
         run: SKIP_BUILD_CHECKS=1 bash scripts/pre-publish-check.sh
 
-      - name: Publish to Marketplace
-        run: npx @vscode/vsce publish --packagePath sandforge.vsix
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-
+      # Push BEFORE publishing: Marketplace versions are immutable, so a
+      # publish followed by a failed push would leave a released version the
+      # repo does not have. A failed publish after a successful push is
+      # recoverable by re-running the publish manually.
       - name: Push commit and tag
         run: |
           git push origin master
           git push origin "v${{ env.NEW_VERSION }}"
+
+      # Use the lockfile-pinned vsce (devDependency of packages/extension)
+      # instead of `npx @vscode/vsce`, which would fetch the latest release.
+      - name: Publish to Marketplace
+        run: cd packages/extension && pnpm exec vsce publish --packagePath ../../sandforge.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

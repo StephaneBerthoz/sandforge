@@ -6,27 +6,8 @@ import { useOrgStore } from '../stores/useOrgStore';
 import { useRecentOpsStore } from '../stores/useRecentOpsStore';
 import { AppShell } from './AppShell';
 
-/* Mock localStorage for components that use it */
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
-  return {
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-    removeItem: (key: string): void => {
-      delete store[key];
-    },
-    reset: (): void => {
-      store = {};
-    },
-  };
-})();
-Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
-
 describe('AppShell', () => {
   beforeEach(() => {
-    localStorageMock.reset();
     useAppStore.setState({ currentRoute: 'home', sidebarCollapsed: false });
     useOrgStore.setState({ orgs: [] });
     useRecentOpsStore.setState({ ops: [] });

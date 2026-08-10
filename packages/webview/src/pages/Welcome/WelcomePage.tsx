@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores/useAppStore';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
+import { setPersistedItem } from '../../utils/webviewStorage';
 
-/** localStorage key for "Don't show again" persistence. */
+/** Webview state key for "Don't show again" persistence. */
 const DONT_SHOW_KEY = 'sandforge-welcome-dont-show';
 
 /** Module card definition for the explore step. */
@@ -88,7 +89,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
 
   const handleFinish = useCallback((): void => {
     if (dontShowAgain) {
-      localStorage.setItem(DONT_SHOW_KEY, 'true');
+      setPersistedItem(DONT_SHOW_KEY, 'true');
     }
     onComplete();
     navigate('monitor');
@@ -96,14 +97,14 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
 
   const handleSkip = useCallback((): void => {
     if (dontShowAgain) {
-      localStorage.setItem(DONT_SHOW_KEY, 'true');
+      setPersistedItem(DONT_SHOW_KEY, 'true');
     }
     onComplete();
   }, [dontShowAgain, onComplete]);
 
   const handleOpenSettings = useCallback((): void => {
     if (dontShowAgain) {
-      localStorage.setItem(DONT_SHOW_KEY, 'true');
+      setPersistedItem(DONT_SHOW_KEY, 'true');
     }
     onComplete();
     navigate('settings');
@@ -120,7 +121,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
   const handleOpenPath = useCallback(
     (route: 'forge' | 'seed' | 'frozen'): void => {
       if (dontShowAgain) {
-        localStorage.setItem(DONT_SHOW_KEY, 'true');
+        setPersistedItem(DONT_SHOW_KEY, 'true');
       }
       onComplete();
       navigate(route);
@@ -337,7 +338,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
                     variant="primary"
                     onClick={() => {
                       if (dontShowAgain) {
-                        localStorage.setItem(DONT_SHOW_KEY, 'true');
+                        setPersistedItem(DONT_SHOW_KEY, 'true');
                       }
                       onComplete();
                       navigate('seed');
@@ -350,7 +351,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
                     variant="secondary"
                     onClick={() => {
                       if (dontShowAgain) {
-                        localStorage.setItem(DONT_SHOW_KEY, 'true');
+                        setPersistedItem(DONT_SHOW_KEY, 'true');
                       }
                       onComplete();
                       navigate('sync');

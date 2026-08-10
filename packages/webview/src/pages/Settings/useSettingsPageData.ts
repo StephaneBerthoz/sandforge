@@ -132,9 +132,18 @@ export function useSettingsPageData(
 
   /** When settings are loaded from extension, update local state. */
   useEffect(() => {
-    if (settingsQuery.data?.settings) {
-      setSettings(settingsQuery.data.settings);
+    const loaded = settingsQuery.data?.settings;
+    if (!loaded) return;
+    // Whitelist known keys only: blobs persisted by older versions may still
+    // carry fields that nothing reads anymore (theme, batch sizes, thresholds).
+    // Picking known keys avoids re-persisting those zombie fields on next save.
+    const known: Partial<SettingsValues> = {};
+    for (const key of Object.keys(defaultSettings) as (keyof SettingsValues)[]) {
+      if (key in loaded && typeof loaded[key] === typeof defaultSettings[key]) {
+        (known as Record<string, unknown>)[key] = loaded[key];
+      }
     }
+    setSettings((prev) => ({ ...prev, ...known }));
   }, [settingsQuery.data]);
 
   /**

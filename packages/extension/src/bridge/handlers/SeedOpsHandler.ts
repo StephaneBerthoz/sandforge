@@ -19,6 +19,7 @@ import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
 import { AIPersonaManager } from '../../modules/ai/AIPersonaManager.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { isNetworkError } from '../../core/common/isNetworkError.js';
 import {
   validatePayload,
   seedExecutePayloadSchema,
@@ -36,6 +37,7 @@ import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
 /** Record count threshold above which streaming pipeline is used per object. */
 const STREAMING_THRESHOLD = 10_000;
@@ -73,6 +75,9 @@ export class SeedOpsHandler implements DomainHandler {
   /** Background operation registry for detached execution. */
   private registry?: BackgroundOperationRegistry;
 
+  /** Live operation tracker feeding the Monitor "live operations" panel. */
+  private liveTracker?: LiveOperationTracker;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
     this.seedTemplateStore = new SeedTemplateStore(deps.configStore);
@@ -92,6 +97,16 @@ export class SeedOpsHandler implements DomainHandler {
    */
   setRegistry(registry: BackgroundOperationRegistry): void {
     this.registry = registry;
+  }
+
+  /**
+   * Inject the live operation tracker so seed executions show up in the
+   * Monitor "live operations" panel. Called from ExtensionHandlers.
+   *
+   * @param tracker - The shared LiveOperationTracker instance.
+   */
+  setLiveOperationTracker(tracker: LiveOperationTracker): void {
+    this.liveTracker = tracker;
   }
 
   /**
@@ -514,6 +529,10 @@ export class SeedOpsHandler implements DomainHandler {
 
       const description = 'Seed data generation';
       sendOperationStarted(this.deps, operationId, 'seed', description);
+      // Feed the Monitor "live operations" panel — the planned record total is
+      // known upfront from the template.
+      const plannedRecords = parsed.template.objects.reduce((sum, o) => sum + o.recordCount, 0);
+      this.liveTracker?.register(operationId, 'seed', description, plannedRecords);
 
       // Create AbortController for this operation
       const abortController = new AbortController();
@@ -532,9 +551,46 @@ export class SeedOpsHandler implements DomainHandler {
       // Return immediately -- execution continues in background
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
+      // No-op when the operation never reached registration (connection or
+      // guard failure happens before sendOperationStarted).
+      this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      this.enqueueForOfflineReplay(
+        err,
+        operationId,
+        parsed.orgId,
+        parsed.template as unknown as Record<string, unknown>,
+        parsed.dryRun ?? false,
+      );
       // Single failure emission: `operation:failed` only (webview consumes it).
       this.deps.log(`[ERR] seed:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+    }
+  }
+
+  /**
+   * Queue a failed seed execution for offline replay when the failure was
+   * transport-level (org unreachable). OfflineManager drains the queue and
+   * replays through `seed:execute` when connectivity returns.
+   */
+  private enqueueForOfflineReplay(
+    err: unknown,
+    operationId: string,
+    orgId: string,
+    template: Record<string, unknown>,
+    dryRun: boolean,
+  ): void {
+    const offlineManager = this.deps.infraServices?.offlineManager;
+    if (!offlineManager || !isNetworkError(err)) {
+      return;
+    }
+    const queued = offlineManager.enqueue({
+      id: operationId,
+      type: 'seed',
+      orgId,
+      payload: { orgId, template, dryRun },
+    });
+    if (queued) {
+      this.deps.log(`[OFFLINE] seed queued for replay on reconnect: ${operationId}`);
     }
   }
 
@@ -598,6 +654,13 @@ export class SeedOpsHandler implements DomainHandler {
                 total,
                 `Streaming insert ${objectApiName}`,
               );
+              this.liveTracker?.updateProgress(
+                operationId,
+                pct,
+                processed,
+                total,
+                `Streaming insert ${objectApiName}`,
+              );
             },
           };
           const streamResult = await chunkedExecutor.executeChunked(
@@ -622,6 +685,13 @@ export class SeedOpsHandler implements DomainHandler {
               const pct = Math.round((processed / total) * 100);
               sendOperationProgress(
                 handlerDeps,
+                operationId,
+                pct,
+                processed,
+                total,
+                `Bulk insert ${objectApiName}`,
+              );
+              this.liveTracker?.updateProgress(
                 operationId,
                 pct,
                 processed,
@@ -717,6 +787,7 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.infraServices?.performanceTracker?.update(operationId, totalRecords, 1);
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       sendOperationCompleted(this.deps, operationId, { totalRecords });
+      this.liveTracker?.complete(operationId);
 
       const response = buildResponse(
         this.deps,
@@ -728,6 +799,14 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
+      this.liveTracker?.fail(operationId, extractErrorMessage(err));
+      this.enqueueForOfflineReplay(
+        err,
+        operationId,
+        payload.orgId,
+        payload.template,
+        payload.dryRun ?? false,
+      );
       // Single failure emission: `operation:failed` only (webview consumes it).
       this.deps.log(`[ERR] seed:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);

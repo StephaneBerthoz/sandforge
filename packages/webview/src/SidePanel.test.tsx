@@ -86,6 +86,10 @@ describe('SidePanel', () => {
   it('renders module navigation items', () => {
     render(<SidePanel />);
     expect(screen.getByTestId('sidepanel-nav-monitor')).toBeInTheDocument();
+    expect(screen.getByTestId('sidepanel-nav-seed')).toBeInTheDocument();
+    expect(screen.getByTestId('sidepanel-nav-sync')).toBeInTheDocument();
+    expect(screen.getByTestId('sidepanel-nav-grappe')).toBeInTheDocument();
+    expect(screen.getByTestId('sidepanel-nav-autopilot')).toBeInTheDocument();
     expect(screen.getByTestId('sidepanel-nav-compare')).toBeInTheDocument();
     expect(screen.getByTestId('sidepanel-nav-dataops')).toBeInTheDocument();
     expect(screen.getByTestId('sidepanel-nav-automation')).toBeInTheDocument();
@@ -193,9 +197,15 @@ describe('SidePanel', () => {
     expect(useFavoritesStore.getState().favorites).toContain('monitor');
   });
 
-  it('does not render grappe hero button', () => {
+  it('posts sidebar:navigate for seed, sync, grappe and autopilot entries', () => {
     render(<SidePanel />);
-    expect(screen.queryByTestId('sidepanel-grappe')).toBeNull();
+    for (const route of ['seed', 'sync', 'grappe', 'autopilot']) {
+      fireEvent.click(screen.getByTestId(`sidepanel-nav-${route}`));
+      expect(mockPostMessage).toHaveBeenCalledWith({
+        type: 'sidebar:navigate',
+        payload: { route },
+      });
+    }
   });
 
   // SP-01: Org switcher sorts connected first

@@ -4,6 +4,7 @@ import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
 import type { WebviewStateSync } from '../bridge/WebviewStateSync';
 import type { OnboardingService } from '../core/onboarding/OnboardingService';
+import { MODULE_COMMANDS } from './moduleCommands';
 
 /** Inputs required to register the module-open commands. */
 export interface ModuleCommandsDeps {
@@ -26,24 +27,12 @@ export interface ModuleCommandsDeps {
 export function registerModuleCommands(deps: ModuleCommandsDeps): void {
   const { context, panelManager, orgRegistry, orgManager, stateSync, onboardingService } = deps;
 
-  const moduleCommands: Array<{ command: string; moduleId: string; title: string }> = [
-    { command: 'sandforge.openMonitor', moduleId: 'monitor', title: 'Monitor' },
-    { command: 'sandforge.openForge', moduleId: 'forge', title: 'Forge' },
-    { command: 'sandforge.openFrozen', moduleId: 'frozen', title: 'Frozen Dataset' },
-    { command: 'sandforge.openGrappe', moduleId: 'grappe', title: 'Grappe' },
-    { command: 'sandforge.openCompare', moduleId: 'compare', title: 'Compare' },
-    { command: 'sandforge.openDataOps', moduleId: 'dataops', title: 'DataOps' },
-    { command: 'sandforge.openAutomation', moduleId: 'automation', title: 'Automation' },
-    { command: 'sandforge.openAI', moduleId: 'ai', title: 'AI Assistant' },
-    { command: 'sandforge.openOrgs', moduleId: 'orgs', title: 'Organizations' },
-    { command: 'sandforge.openSettings', moduleId: 'settings', title: 'Settings' },
-    { command: 'sandforge.openHelp', moduleId: 'help', title: 'Help' },
-  ];
-
+  // The command list lives in ./moduleCommands.ts — shared with the sidebar
+  // route map so both stay in sync.
   const currentVersion = (context.extension.packageJSON as { version?: string }).version ?? '0.0.0';
   let onboardingTriggered = false;
 
-  for (const { command, moduleId, title } of moduleCommands) {
+  for (const { command, moduleId, title } of MODULE_COMMANDS) {
     context.subscriptions.push(
       vscode.commands.registerCommand(command, () => {
         panelManager.openPanel({

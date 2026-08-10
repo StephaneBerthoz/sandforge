@@ -11,7 +11,7 @@ Before you begin, make sure you have:
 - **Visual Studio Code** 1.95 or later
 - **Salesforce CLI** (`sf`) installed and authenticated with at least one org
 - **A Salesforce sandbox or scratch org** to work with (Developer Edition works fine)
-- *(Optional)* An AI API key (OpenAI, Anthropic, or Ollama) for AI-powered data generation
+- *(Optional)* An Anthropic (Claude) API key for AI-powered data generation
 
 Verify your Salesforce CLI setup:
 
@@ -35,7 +35,7 @@ You should see at least one authenticated org in the output.
 
 ### From a VSIX file
 
-1. Download the latest `sandforge.vsix` from the [Releases page](https://github.com/sandforge/sandforge/releases)
+1. Download the latest `sandforge.vsix` from the [Releases page](https://github.com/StephaneBerthoz/sand-forge/releases)
 2. In VSCode, open the Command Palette (`Ctrl+Shift+P`) and run **Extensions: Install from VSIX...**
 3. Select the downloaded file
 

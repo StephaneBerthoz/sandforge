@@ -1863,4 +1863,143 @@ describe('ExtensionHandlers', () => {
       expect(payload.lastError).toContain('Operation not found');
     });
   });
+
+  describe('setLiveOperationTracker forwarding', () => {
+    it('feeds the tracker from sync executions (register + fail)', async () => {
+      const { LiveOperationTracker } = await import(
+        '../modules/monitor/LiveOperationTracker.js'
+      );
+      const tracker = new LiveOperationTracker();
+      handlers.setLiveOperationTracker(tracker);
+
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('connection failed'),
+      );
+
+      broker['dispatch'](
+        msg('sync:execute', {
+          config: {
+            ...validSyncConfig('cfg-live', 'live sync'),
+            objects: [
+              {
+                objectApiName: 'Account',
+                operation: 'upsert',
+                externalIdField: 'Ext_Id__c',
+                fieldMappings: [],
+                transformRules: [],
+                excludedFields: [],
+                addOnFields: [],
+                batchSize: 200,
+                insertOrder: 0,
+              },
+            ],
+          },
+        }),
+      );
+      await vi.waitFor(() =>
+        expect(posted.some((p) => p.type === 'operation:failed')).toBe(true),
+      );
+
+      const ops = tracker.getAll();
+      expect(ops).toHaveLength(1);
+      expect(ops[0].module).toBe('sync');
+      expect(ops[0].status).toBe('failed');
+      tracker.dispose();
+    });
+  });
+
+  describe('offline replay (replayQueuedOperation)', () => {
+    it('replays a queued sync operation through the rerun path', async () => {
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('still no org in test'),
+      );
+
+      await handlers.replayQueuedOperation({
+        id: 'q-sync-1',
+        type: 'sync',
+        orgId: 'tgt-org',
+        payload: {
+          config: {
+            ...validSyncConfig('cfg-q', 'queued sync'),
+            objects: [
+              {
+                objectApiName: 'Account',
+                operation: 'upsert',
+                externalIdField: 'Ext_Id__c',
+                fieldMappings: [],
+                transformRules: [],
+                excludedFields: [],
+                addOnFields: [],
+                batchSize: 200,
+                insertOrder: 0,
+              },
+            ],
+          },
+        },
+        queuedAt: new Date().toISOString(),
+        retryCount: 0,
+      });
+
+      // The replay went through startExecution: lifecycle started, then the
+      // connection failure surfaced on the usual error channels.
+      expect(posted.some((p) => p.type === 'operation:started')).toBe(true);
+      expect(posted.some((p) => p.type === 'sync:error')).toBe(true);
+      expect(posted.some((p) => p.type === 'operation:failed')).toBe(true);
+    });
+
+    it('replays a queued seed operation through seed:execute', async () => {
+      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue({} as never);
+
+      await handlers.replayQueuedOperation({
+        id: 'q-seed-1',
+        type: 'seed',
+        orgId: 'org-1',
+        payload: {
+          orgId: 'org-1',
+          template: {
+            id: 'tpl-q',
+            name: 'queued-seed',
+            description: 'test',
+            version: 1,
+            strategy: 'faker',
+            objects: [
+              {
+                objectApiName: 'Account',
+                recordCount: 5,
+                batchSize: 200,
+                insertOrder: 0,
+                excludedFields: [],
+                fieldRules: [],
+              },
+            ],
+            tags: [],
+            createdAt: '2026-03-01T00:00:00Z',
+            updatedAt: '2026-03-01T00:00:00Z',
+          },
+          dryRun: true,
+        },
+        queuedAt: new Date().toISOString(),
+        retryCount: 0,
+      });
+
+      const response = posted.find((p) => p.type === 'seed:execute:response');
+      expect(response).toBeDefined();
+      expect(
+        (response as BaseMessage & { payload: { dryRun: boolean } }).payload.dryRun,
+      ).toBe(true);
+    });
+
+    it('rejects unsupported operation types', async () => {
+      await expect(
+        handlers.replayQueuedOperation({
+          id: 'q-x',
+          type: 'dataops',
+          orgId: 'org-1',
+          payload: {},
+          queuedAt: new Date().toISOString(),
+          retryCount: 0,
+        }),
+      ).rejects.toThrow('Unsupported queued operation type: dataops');
+    });
+  });
 });

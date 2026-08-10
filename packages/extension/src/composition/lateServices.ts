@@ -4,6 +4,8 @@ import type { OnboardingService } from '../core/onboarding/OnboardingService';
 import type { HintTracker } from '../core/onboarding/HintTracker';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry';
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace';
+import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker';
+import type { MaskingTemplateService } from '../modules/dataops/templates/MaskingTemplateService';
 
 /**
  * LateServices — the dependencies injected into `ExtensionHandlers` through
@@ -42,6 +44,10 @@ export interface LateServices {
   migrationFileReader: MigrationFileReader;
   /** Pipeline marketplace (Tier 3). */
   pipelineMarketplace: PipelineMarketplace;
+  /** Live operation tracker serving monitor:live-operations polls. */
+  liveOperationTracker: LiveOperationTracker;
+  /** Masking template catalog serving dataops:masking-templates-by-object. */
+  maskingTemplateService: MaskingTemplateService;
 }
 
 /**
@@ -57,4 +63,6 @@ export function applyLateServices(handlers: ExtensionHandlers, late: LateService
   handlers.setBackgroundRegistry(late.backgroundRegistry);
   handlers.setMigrationServices(late.migrationFileReader);
   handlers.setPipelineMarketplace(late.pipelineMarketplace);
+  handlers.setLiveOperationTracker(late.liveOperationTracker);
+  handlers.setMaskingTemplateService(late.maskingTemplateService);
 }

@@ -56,28 +56,6 @@ describe('Domain schemas — valid / invalid samples', () => {
     expect(MonitorMessageSchema.safeParse(baseFields('ai:chat')).success).toBe(false);
   });
 
-  it('MonitorMessageSchema accepts the Phase 03 MetricBus envelope variants', () => {
-    // Phase 03 Plan 03-01 — bridge envelope for the MetricBus variants.
-    expect(MonitorMessageSchema.safeParse(baseFields('monitor:metric')).success).toBe(true);
-    expect(MonitorMessageSchema.safeParse(baseFields('monitor:metrics:batch')).success).toBe(true);
-    expect(MonitorMessageSchema.safeParse(baseFields('monitor:metric:subscribe')).success).toBe(
-      true,
-    );
-  });
-
-  it('MonitorMessageSchema validates a complete monitor:metric envelope round-trip', () => {
-    const envelope = {
-      ...baseFields('monitor:metric'),
-      payload: {
-        ts: '2026-05-02T10:00:00.000Z',
-        seriesId: 'limits.api',
-        orgId: 'org-1',
-        value: 42,
-      },
-    };
-    expect(MonitorMessageSchema.safeParse(envelope).success).toBe(true);
-  });
-
   it('CompareMessageSchema accepts compare:execute and rejects empty id', () => {
     expect(CompareMessageSchema.safeParse(baseFields('compare:execute')).success).toBe(true);
     expect(

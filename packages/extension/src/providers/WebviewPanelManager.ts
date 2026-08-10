@@ -46,9 +46,10 @@ export class WebviewPanelManager {
   private panels = new Map<string, vscode.WebviewPanel>();
   private visiblePanels = new Set<string>();
   /**
-   * Per-panel disposables (view-state + dispose listeners registered when the
-   * panel was opened). Cleared when the panel is disposed or the manager is
-   * disposed — prevents VSCode event-listener leaks across panel lifecycles.
+   * Per-panel disposables (view-state + dispose listeners + broker
+   * registration, registered when the panel was opened). Cleared when the
+   * panel is disposed or the manager is disposed — prevents VSCode
+   * event-listener leaks across panel lifecycles.
    */
   private panelSubscriptions = new Map<string, vscode.Disposable[]>();
 
@@ -96,7 +97,10 @@ export class WebviewPanelManager {
     }
 
     this.panels.set(config.viewType, panel);
-    this.broker.registerPanel(panel);
+    // Keep the broker registration disposable with the panel's other
+    // subscriptions so the broker drops the panel when it closes — otherwise
+    // MessageBroker.panels accumulates dead panels across open/close cycles.
+    const brokerRegistration = this.broker.registerPanel(panel);
 
     this.visiblePanels.add(config.viewType);
     const viewStateSub = panel.onDidChangeViewState((e) => {
@@ -118,7 +122,7 @@ export class WebviewPanelManager {
       this.panelSubscriptions.delete(config.viewType);
     });
 
-    this.panelSubscriptions.set(config.viewType, [viewStateSub, disposeSub]);
+    this.panelSubscriptions.set(config.viewType, [viewStateSub, disposeSub, brokerRegistration]);
 
     return panel;
   }

@@ -66,7 +66,7 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 ### AI and NL2SOQL
 
 - NL2SOQL translates natural language into SOQL with schema validation
-- AI Data Generation creates context-aware realistic values using OpenAI, Anthropic, or Ollama
+- AI Data Generation creates context-aware realistic values using Anthropic (Claude); additional providers are planned
 - PII Scanner auto-detects sensitive fields (email, phone, address, SSN, etc.) with confidence scores
 
 ### Dependency Resolution

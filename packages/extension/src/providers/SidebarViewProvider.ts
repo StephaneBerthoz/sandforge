@@ -1,5 +1,6 @@
 import type * as vscode from 'vscode';
 import { buildWebviewHtml } from './webviewHtml';
+import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
 
 /** Factory for URI path joining — uses vscode.Uri for type safety. */
 export type SidebarUriJoinPath = (base: vscode.Uri, ...segments: string[]) => vscode.Uri;
@@ -65,21 +66,9 @@ export class SidebarViewProvider {
       if (type === 'sidebar:navigate') {
         const route = payload?.route as string | undefined;
         if (route) {
-          const commandMap: Record<string, string> = {
-            home: 'sandforge.openMonitor',
-            monitor: 'sandforge.openMonitor',
-            forge: 'sandforge.openForge',
-            frozen: 'sandforge.openFrozen',
-            grappe: 'sandforge.openGrappe',
-            compare: 'sandforge.openCompare',
-            dataops: 'sandforge.openDataOps',
-            automation: 'sandforge.openAutomation',
-            ai: 'sandforge.openAI',
-            orgs: 'sandforge.openOrgs',
-            settings: 'sandforge.openSettings',
-            help: 'sandforge.openHelp',
-          };
-          const command = commandMap[route] ?? 'sandforge.openMonitor';
+          // Map derived from MODULE_COMMANDS (composition/moduleCommands.ts) —
+          // unknown routes keep falling back to Monitor.
+          const command = SIDEBAR_ROUTE_COMMANDS[route] ?? 'sandforge.openMonitor';
           void this.executeCommand(command);
         }
       }

@@ -3,7 +3,7 @@
  *
  * Each builder takes a generic `ToolDeps` and returns a `WrappedTool`. The
  * deps interface is intentionally minimal — the consume site (Plan 04-04
- * AIDiagnoseHandler) wires it to real SalesforceAdapter / MonitorOrchestrator
+ * AIDiagnoseHandler) wires it to real SalesforceAdapter / monitor-services
  * surfaces. Tests inject mock deps.
  *
  * Plan 04-03 explicitly: tool naming + Zod I/O contracts are the must-haves;
@@ -208,7 +208,7 @@ export function buildGetAnomaliesTool(
 ): WrappedTool<typeof getAnomaliesInput, typeof getAnomaliesOutput> {
   return wrapTool({
     name: 'get_anomalies',
-    description: 'Read AnomalyEngine detections for the org. READ-ONLY.',
+    description: 'Read anomaly detections for the org. READ-ONLY.',
     input: getAnomaliesInput,
     output: getAnomaliesOutput,
     onTrace: deps.onTrace,

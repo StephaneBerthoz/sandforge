@@ -10,6 +10,7 @@ import { useAppStore, ALL_ROUTES } from '../../stores/useAppStore';
 import type { ModuleRoute } from '../../stores/useAppStore';
 import type { CommandItem } from '../../stores/useCommandStore';
 import { Icon } from '../ui/Icon';
+import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 
 /** Maximum number of recent searches to store. */
 const MAX_RECENT_SEARCHES = 5;
@@ -50,11 +51,11 @@ const ROUTE_LABEL_KEYS: Record<string, string> = {
 };
 
 /**
- * Load recent searches from sessionStorage.
+ * Load recent searches from the persisted VS Code webview state.
  */
 function loadRecentSearches(): string[] {
   try {
-    const stored = sessionStorage.getItem(RECENT_SEARCHES_KEY);
+    const stored = getPersistedItem(RECENT_SEARCHES_KEY);
     if (stored) {
       return JSON.parse(stored) as string[];
     }
@@ -65,11 +66,11 @@ function loadRecentSearches(): string[] {
 }
 
 /**
- * Save recent searches to sessionStorage.
+ * Save recent searches to the VS Code webview state.
  */
 function saveRecentSearches(searches: string[]): void {
   try {
-    sessionStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches));
+    setPersistedItem(RECENT_SEARCHES_KEY, JSON.stringify(searches));
   } catch {
     // Ignore storage errors
   }

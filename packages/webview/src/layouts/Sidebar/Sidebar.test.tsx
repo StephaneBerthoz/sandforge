@@ -34,6 +34,26 @@ describe('Sidebar', () => {
     expect(useAppStore.getState().currentRoute).toBe('monitor');
   });
 
+  it('should render seed, sync, grappe and autopilot module entries', () => {
+    render(<Sidebar />);
+    expect(screen.getByText('Seed')).toBeDefined();
+    expect(screen.getByText('Sync')).toBeDefined();
+    expect(screen.getByText('Grappe')).toBeDefined();
+    expect(screen.getByText('Autopilot')).toBeDefined();
+  });
+
+  it('should navigate to seed, sync, grappe and autopilot on click', () => {
+    render(<Sidebar />);
+    fireEvent.click(screen.getByText('Seed'));
+    expect(useAppStore.getState().currentRoute).toBe('seed');
+    fireEvent.click(screen.getByText('Sync'));
+    expect(useAppStore.getState().currentRoute).toBe('sync');
+    fireEvent.click(screen.getByText('Grappe'));
+    expect(useAppStore.getState().currentRoute).toBe('grappe');
+    fireEvent.click(screen.getByText('Autopilot'));
+    expect(useAppStore.getState().currentRoute).toBe('autopilot');
+  });
+
   it('should render badges when provided', () => {
     render(<Sidebar badges={{ orgs: 3 }} />);
     expect(screen.getByText('3')).toBeDefined();

@@ -64,6 +64,21 @@ else
   echo "PASS: Extension CHANGELOG exists"
 fi
 
+# 5b. Changelog freshness: the current version must have an entry in BOTH
+# changelogs (pattern [X.Y.Z]). Blocking — 1.2.11 and 1.2.12 shipped without
+# changelog entries.
+for CL in "changelog.md" "packages/extension/CHANGELOG.md"; do
+  if [[ ! -f "$CL" ]]; then
+    echo "FAIL: $CL not found"
+    ERRORS=$((ERRORS + 1))
+  elif grep -qF "[$EXT_VER]" "$CL"; then
+    echo "PASS: $CL has an entry for [$EXT_VER]"
+  else
+    echo "FAIL: $CL has no entry for current version [$EXT_VER] — add release notes before publishing"
+    ERRORS=$((ERRORS + 1))
+  fi
+done
+
 # 6. Build and package
 if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then
   echo "Building..."
@@ -90,20 +105,46 @@ else
   ERRORS=$((ERRORS + 1))
 fi
 
-# 8. All contributes.commands have entries
-CMD_COUNT=$(node -p "require('./packages/extension/package.json').contributes.commands.length")
-echo "PASS: $CMD_COUNT commands defined in contributes.commands"
-
-# 9. When-clauses syntactically valid (no broken references)
-WHEN_CLAUSES=$(node -p "
+# 8. Every command title %key% resolves in package.nls.json
+if node -e "
   const pkg = require('./packages/extension/package.json');
-  const whens = [];
-  for (const [ctx, items] of Object.entries(pkg.contributes.menus || {})) {
-    for (const item of items) { if (item.when) whens.push(item.when); }
+  const nls = require('./packages/extension/package.nls.json');
+  const cmds = pkg.contributes.commands || [];
+  const bad = cmds
+    .map(c => c.title)
+    .filter(t => {
+      const m = /^%([^%]+)%$/.exec(t || '');
+      return !m || !(m[1] in nls);
+    });
+  if (bad.length) {
+    console.error('Unresolvable command titles: ' + bad.join(', '));
+    process.exit(1);
   }
-  whens.length
-" 2>/dev/null || echo "0")
-echo "PASS: $WHEN_CLAUSES when-clauses found (syntax validated)"
+  console.log(cmds.length + ' command titles checked');
+"; then
+  echo "PASS: All command titles resolve in package.nls.json"
+else
+  echo "FAIL: Command titles missing from package.nls.json (see above)"
+  ERRORS=$((ERRORS + 1))
+fi
+
+# 9. Every keybinding references a declared command
+if node -e "
+  const pkg = require('./packages/extension/package.json');
+  const declared = new Set((pkg.contributes.commands || []).map(c => c.command));
+  const kb = pkg.contributes.keybindings || [];
+  const dangling = kb.map(k => k.command).filter(c => !declared.has(c));
+  if (dangling.length) {
+    console.error('Keybindings reference undeclared commands: ' + dangling.join(', '));
+    process.exit(1);
+  }
+  console.log(kb.length + ' keybindings checked');
+"; then
+  echo "PASS: All keybindings reference declared commands"
+else
+  echo "FAIL: Keybindings reference undeclared commands (see above)"
+  ERRORS=$((ERRORS + 1))
+fi
 
 # 10. Clean install test
 if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then

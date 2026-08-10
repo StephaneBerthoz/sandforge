@@ -25,12 +25,10 @@ describe('CommandPalette', () => {
   beforeEach(() => {
     useAppStore.setState({ currentRoute: 'home' });
     useCommandStore.setState({ open: false, items: [] });
-    sessionStorage.clear();
   });
 
   afterEach(() => {
     useCommandStore.setState({ open: false, items: [] });
-    sessionStorage.clear();
   });
 
   /** Helper to open the palette via keyboard shortcut. */

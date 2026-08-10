@@ -8,7 +8,6 @@ import {
   StorageAdapter,
   FsAdapter,
 } from './adapters/index.js';
-import { MonitorOrchestrator } from './modules/monitor/MonitorOrchestrator.js';
 import { SeedOrchestrator } from './modules/seed/SeedOrchestrator.js';
 import { SyncOrchestrator } from './modules/sync/SyncOrchestrator.js';
 import { CompareOrchestrator } from './modules/compare/CompareOrchestrator.js';
@@ -132,7 +131,6 @@ describe('services', () => {
       expect(services).toHaveProperty('salesforce');
       expect(services).toHaveProperty('fs');
       expect(services).toHaveProperty('aiClient');
-      expect(services).toHaveProperty('monitorOrchestrator');
       expect(services).toHaveProperty('seedOrchestrator');
       expect(services).toHaveProperty('syncOrchestrator');
       expect(services).toHaveProperty('compareOrchestrator');
@@ -205,27 +203,6 @@ describe('services', () => {
     it('exposes orchestrator factories that produce the correct instance types', () => {
       const services = createServices(context);
 
-      const monitor = services.monitorOrchestrator({
-        limitsTracker: { fetch: vi.fn().mockResolvedValue({}) },
-        jobMonitor: { fetch: vi.fn().mockResolvedValue([]) },
-        errorLogMonitor: { fetch: vi.fn().mockResolvedValue([]) },
-        deploymentTracker: { fetch: vi.fn().mockResolvedValue([]) },
-        userSessionMonitor: { fetch: vi.fn().mockResolvedValue([]) },
-        alertEngine: { evaluate: vi.fn() },
-        healthCheck: {
-          computeHealth: vi.fn().mockResolvedValue({
-            orgId: 'o',
-            overall: 'healthy',
-            apiLimitsStatus: 'ok',
-            storageStatus: 'ok',
-            activeJobs: 0,
-            recentErrors: 0,
-            lastChecked: '',
-          }),
-        },
-      } as unknown as Parameters<typeof services.monitorOrchestrator>[0]);
-      expect(monitor).toBeInstanceOf(MonitorOrchestrator);
-
       const seed = services.seedOrchestrator({
         validator: { validate: vi.fn() },
         planBuilder: { build: vi.fn() },
@@ -273,33 +250,6 @@ describe('services', () => {
 
       // DataOps has no orchestrator — it's a collection of independent services.
       expect(services.dataopsOrchestrator).toBeNull();
-    });
-
-    it('smoke: monitorOrchestrator built via factory exposes read-only methods without throwing', () => {
-      const services = createServices(context);
-      const monitor = services.monitorOrchestrator({
-        limitsTracker: { fetch: vi.fn().mockResolvedValue({}) },
-        jobMonitor: { fetch: vi.fn().mockResolvedValue([]) },
-        errorLogMonitor: { fetch: vi.fn().mockResolvedValue([]) },
-        deploymentTracker: { fetch: vi.fn().mockResolvedValue([]) },
-        userSessionMonitor: { fetch: vi.fn().mockResolvedValue([]) },
-        alertEngine: { evaluate: vi.fn() },
-        healthCheck: {
-          computeHealth: vi.fn().mockResolvedValue({
-            orgId: 'org-1',
-            overall: 'healthy',
-            apiLimitsStatus: 'ok',
-            storageStatus: 'ok',
-            activeJobs: 0,
-            recentErrors: 0,
-            lastChecked: '',
-          }),
-        },
-      } as unknown as Parameters<typeof services.monitorOrchestrator>[0]);
-
-      expect(() => monitor.isActive('unknown-org')).not.toThrow();
-      expect(monitor.isActive('unknown-org')).toBe(false);
-      expect(() => monitor.getHealthStatus('unknown-org')).not.toThrow();
     });
   });
 

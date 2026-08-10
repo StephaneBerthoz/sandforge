@@ -6,7 +6,7 @@
  * tree-shaken out of the production bundle.
  */
 
-export type Flow = 'seed-ai' | 'sync-conflict' | 'monitor' | 'cdc' | 'ai-diagnose' | 'drift-feed';
+export type Flow = 'seed-ai' | 'sync-conflict' | 'monitor' | 'cdc' | 'ai-diagnose';
 
 /** Read the ?e2e-harness=<flow> query param. Returns null when absent. */
 export function getHarnessFlow(search: string): Flow | null {
@@ -18,8 +18,7 @@ export function getHarnessFlow(search: string): Flow | null {
       raw === 'sync-conflict' ||
       raw === 'monitor' ||
       raw === 'cdc' ||
-      raw === 'ai-diagnose' ||
-      raw === 'drift-feed'
+      raw === 'ai-diagnose'
     ) {
       return raw;
     }
