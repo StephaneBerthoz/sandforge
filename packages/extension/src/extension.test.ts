@@ -56,6 +56,7 @@ vi.mock('vscode', () => ({
     createStatusBarItem: vi.fn(() => ({ ...mockStatusBarItem })),
     createWebviewPanel: vi.fn(() => ({ ...mockWebviewPanel, onDidDispose: vi.fn() })),
     createTreeView: vi.fn(() => ({ ...mockTreeView })),
+    registerTreeDataProvider: vi.fn(() => mockDisposable),
     showInformationMessage: vi.fn().mockResolvedValue(undefined),
   },
   commands: {
@@ -92,6 +93,7 @@ vi.mock('vscode', () => ({
 }));
 
 import { activate, deactivate, buildStatusBarLabel } from './extension';
+import { MODULE_COMMANDS } from './composition/moduleCommands';
 import type { SidebarViewProvider } from './providers/SidebarViewProvider';
 import type { StatusBarOrg } from './extension';
 
@@ -157,20 +159,10 @@ describe('extension', () => {
     activate(context);
 
     const vscode = await import('vscode');
-    const expectedCommands = [
-      'sandforge.openMonitor',
-      'sandforge.openForge',
-      'sandforge.openFrozen',
-      'sandforge.openGrappe',
-      'sandforge.openCompare',
-      'sandforge.openDataOps',
-      'sandforge.openAutomation',
-      'sandforge.openOrgs',
-      'sandforge.openSettings',
-      'sandforge.openHelp',
-    ];
-    for (const cmd of expectedCommands) {
-      expect(vscode.commands.registerCommand).toHaveBeenCalledWith(cmd, expect.any(Function));
+    // Every module route known to the sidebar has a registered command —
+    // the list is derived from the single source of truth so it cannot drift.
+    for (const { command } of MODULE_COMMANDS) {
+      expect(vscode.commands.registerCommand).toHaveBeenCalledWith(command, expect.any(Function));
     }
   });
 
@@ -226,15 +218,38 @@ describe('extension', () => {
     expect(statusBarItem.show.mock.calls.length).toBe(showCallsBefore + 1);
   });
 
+  it('should register the orgs tree data provider', async () => {
+    const context = createContext();
+
+    activate(context);
+
+    const vscode = await import('vscode');
+    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledWith(
+      'sandforge.orgsView',
+      expect.objectContaining({}),
+    );
+    expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
+      'sandforge.orgsView.refresh',
+      expect.any(Function),
+    );
+    expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
+      'sandforge.openOrgInBrowser',
+      expect.any(Function),
+    );
+  });
+
   it('should push disposables to subscriptions', () => {
     const context = createContext();
 
     activate(context);
 
-    // 11 module commands + 1 cheers + 1 sandforge.ai config-change listener
-    // + outputChannel + sidebarRegistration + statusBar + panelManager + backgroundRegistry
-    // + orgChange unsub + orgManager + offlineManager + performanceTracker + cacheManager = 23
-    expect(context.subscriptions.length).toBe(23);
+    // 15 module commands + 1 cheers + 1 sandforge.ai config-change listener
+    // + outputChannel + sidebarRegistration + sidebarProvider
+    // + orgsTreeRegistration + orgsTreeProvider + 2 orgs-tree commands
+    // + statusBar + panelManager + backgroundRegistry + orgChange unsub
+    // + orgManager + offlineManager + liveOperationTracker + performanceTracker
+    // + cacheManager = 33
+    expect(context.subscriptions.length).toBe(33);
   });
 
   it('should deactivate without error', async () => {

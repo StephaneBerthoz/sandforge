@@ -49,5 +49,11 @@ test/
 .claude/
 .serena/
 .vscode/
+.omc/
 **/.gitignore
 CLAUDE.md
+
+# Sources already bundled into dist/extension.js
+cli/
+tools/
+examples/

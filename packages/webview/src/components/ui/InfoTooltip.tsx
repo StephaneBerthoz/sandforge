@@ -1,16 +1,17 @@
 import React, { useState, useCallback } from 'react';
 import { Info } from 'lucide-react';
 import { Tooltip } from './Tooltip';
+import { getPersistedItem, setPersistedItem, removePersistedItem } from '../../utils/webviewStorage';
 
 const STORAGE_KEY = 'sf-dismissed-tooltips';
 
 /**
- * Read the list of dismissed tooltip IDs from localStorage.
+ * Read the list of dismissed tooltip IDs from the persisted webview state.
  * Returns an empty array on parse failure.
  */
 function getDismissedIds(): string[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = getPersistedItem(STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (Array.isArray(parsed)) return parsed as string[];
@@ -31,11 +32,11 @@ export function isDismissed(id: string): boolean {
 }
 
 /**
- * Reset all dismissed tooltips by clearing the localStorage key.
+ * Reset all dismissed tooltips by clearing the persisted webview state key.
  * Useful for a settings page "reset tips" button.
  */
 export function resetAllTooltips(): void {
-  localStorage.removeItem(STORAGE_KEY);
+  removePersistedItem(STORAGE_KEY);
 }
 
 /** InfoTooltip component props. */
@@ -55,7 +56,7 @@ export interface InfoTooltipProps {
  *
  * Renders a muted info icon that shows a tooltip on hover with content
  * and a dismiss button. Once dismissed, the tooltip ID is stored in
- * localStorage under `sf-dismissed-tooltips` and the icon is hidden.
+ * the VS Code webview state under `sf-dismissed-tooltips` and the icon is hidden.
  */
 export const InfoTooltip: React.FC<InfoTooltipProps> = ({
   id,
@@ -71,7 +72,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
       const ids = getDismissedIds();
       if (!ids.includes(id)) {
         ids.push(id);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+        setPersistedItem(STORAGE_KEY, JSON.stringify(ids));
       }
       setDismissed(true);
     },

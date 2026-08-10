@@ -108,9 +108,6 @@ import type {
   MonitorTrendsRequest,
   MonitorAbortJobRequest,
   MonitorAbortJobResponse,
-  MonitorMetricMessage,
-  MonitorMetricsBatchMessage,
-  MonitorMetricSubscribeMessage,
   MonitorAlertsRequest,
   MonitorAlertsResultMessage,
   MonitorAlertAcknowledgeRequest,
@@ -119,7 +116,6 @@ import type {
   MonitorAlertDismissResponse,
   LiveOperationsRequest,
   LiveOperationsResponse,
-  LiveOperationsUpdated,
   MonitorStorageRequest,
   MonitorStorageResponse,
   MonitorDeploymentsRequest,
@@ -410,7 +406,6 @@ export type WebViewToExtensionMessage =
   | MonitorStartRequest
   | MonitorTrendsRequest
   | MonitorAbortJobRequest
-  | MonitorMetricSubscribeMessage
   | MonitorAlertsRequest
   | MonitorAlertAcknowledgeRequest
   | MonitorAlertDismissRequest
@@ -591,13 +586,10 @@ export type ExtensionToWebViewMessage =
   | SyncScheduleDeleteResponse
   // Monitor
   | MonitorAbortJobResponse
-  | MonitorMetricMessage
-  | MonitorMetricsBatchMessage
   | MonitorAlertsResultMessage
   | MonitorAlertAcknowledgeResponse
   | MonitorAlertDismissResponse
   | LiveOperationsResponse
-  | LiveOperationsUpdated
   | MonitorStorageResponse
   | MonitorDeploymentsResponse
   | MonitorApiUsageResponse

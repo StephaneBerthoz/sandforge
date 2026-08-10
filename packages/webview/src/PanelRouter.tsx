@@ -6,6 +6,7 @@ import { SeedPage } from './pages/Seed/SeedPage';
 import { SyncPage } from './pages/Sync/SyncPage';
 import { DataOpsPage } from './pages/DataOps/DataOpsPage';
 import { AutomationPage } from './pages/Automation/AutomationPage';
+import { MigrationPage } from './pages/Migration/MigrationPage';
 import { ReportsPage } from './pages/Reports/ReportsPage';
 import { SettingsPage } from './pages/Settings/SettingsPage';
 import { HelpPage } from './pages/Help/HelpPage';
@@ -27,6 +28,7 @@ const panelComponents: Record<string, React.FC> = {
   compare: ComparePage,
   dataops: DataOpsPage,
   automation: AutomationPage,
+  migration: MigrationPage,
   reports: ReportsPage,
   settings: SettingsPage,
   help: HelpPage,

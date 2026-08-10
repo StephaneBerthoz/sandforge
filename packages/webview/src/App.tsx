@@ -19,8 +19,7 @@ import { getHarnessFlow } from './pages/E2EHarness/harnessFlow';
  *
  * The ternary is compile-time constant: `vite.config.ts` (prod) defines
  * `import.meta.env.VITE_E2E` as `''`, so Rollup tree-shakes the dead branch —
- * `E2EHarness` (and its `DriftFeed` dependency) never reach the production
- * IIFE bundle. `vite.config.e2e.ts` defines it as `'1'`, so the Playwright
+ * `E2EHarness` never reaches the production IIFE bundle. `vite.config.e2e.ts` defines it as `'1'`, so the Playwright
  * dev server lazy-loads the harness on `?e2e-harness=<flow>` URLs.
  */
 const LazyE2EHarness = import.meta.env.VITE_E2E

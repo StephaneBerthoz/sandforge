@@ -376,9 +376,12 @@ describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
       seen.push(opts.signal as AbortSignal);
       return new Promise((resolve, reject) => {
         const signal = opts.signal as AbortSignal;
-        signal.addEventListener('abort', () => {
-          reject(new MockAPIUserAbortError('cancelled'));
-        });
+        const onAbort = () => reject(new MockAPIUserAbortError('cancelled'));
+        // The lazy SDK dynamic import adds an async hop, so the abort may
+        // land BEFORE the SDK call starts — the real SDK rejects immediately
+        // on an already-aborted signal; mirror that here.
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort);
         // For B: resolve quickly via setImmediate
         setImmediate(() => {
           if (!signal.aborted) {

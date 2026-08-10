@@ -1,10 +1,34 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+/* In-memory mock of the webview state persistence layer. */
+const mockPersistedState = vi.hoisted(() => {
+  const store: Record<string, string> = {};
+  return {
+    store,
+    reset(): void {
+      for (const key of Object.keys(store)) {
+        delete store[key];
+      }
+    },
+  };
+});
+
+vi.mock('../utils/webviewStorage', () => ({
+  getPersistedItem: (key: string): string | null => mockPersistedState.store[key] ?? null,
+  setPersistedItem: (key: string, value: string): void => {
+    mockPersistedState.store[key] = value;
+  },
+  removePersistedItem: (key: string): void => {
+    delete mockPersistedState.store[key];
+  },
+}));
+
 import { useFavoritesStore } from './useFavoritesStore';
 
 describe('useFavoritesStore', () => {
   beforeEach(() => {
     useFavoritesStore.setState({ favorites: [] });
-    sessionStorage.clear();
+    mockPersistedState.reset();
   });
 
   it('starts with empty favorites', () => {
@@ -41,9 +65,8 @@ describe('useFavoritesStore', () => {
     expect(useFavoritesStore.getState().favorites).toEqual([]);
   });
 
-  it('persists to sessionStorage on toggle', () => {
+  it('persists to the webview state on toggle', () => {
     useFavoritesStore.getState().toggle('monitor');
-    const stored = sessionStorage.getItem('sf-favorites');
-    expect(stored).toBe(JSON.stringify(['monitor']));
+    expect(mockPersistedState.store['sf-favorites']).toBe(JSON.stringify(['monitor']));
   });
 });

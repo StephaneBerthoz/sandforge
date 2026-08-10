@@ -9,26 +9,6 @@ import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 
 /* ------------------------------------------------------------------ */
-/* Mock localStorage                                                   */
-/* ------------------------------------------------------------------ */
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
-  return {
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-    removeItem: (key: string): void => {
-      delete store[key];
-    },
-    reset: (): void => {
-      store = {};
-    },
-  };
-})();
-Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
-
-/* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
 /* ------------------------------------------------------------------ */
 const mockRefetch = vi.fn();
@@ -119,7 +99,6 @@ function createMockOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
 
 describe('HomePage', () => {
   beforeEach(() => {
-    localStorageMock.reset();
     useAppStore.setState({ currentRoute: 'home' });
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useRecentOpsStore.setState({ ops: [] });

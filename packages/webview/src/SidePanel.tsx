@@ -19,6 +19,11 @@ import {
   Star,
   ArrowRight,
   Snowflake,
+  Sprout,
+  RefreshCw,
+  Grape,
+  Rocket,
+  FileUp,
 } from 'lucide-react';
 import { cn } from './theme';
 import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
@@ -60,6 +65,30 @@ const MODULE_ITEMS: NavItem[] = [
     accent: 'text-blue-400',
   },
   {
+    id: 'seed',
+    labelKey: 'nav.seed',
+    icon: <Sprout className="w-4 h-4" />,
+    accent: 'text-green-400',
+  },
+  {
+    id: 'sync',
+    labelKey: 'nav.sync',
+    icon: <RefreshCw className="w-4 h-4" />,
+    accent: 'text-sky-400',
+  },
+  {
+    id: 'grappe',
+    labelKey: 'nav.grappe',
+    icon: <Grape className="w-4 h-4" />,
+    accent: 'text-indigo-400',
+  },
+  {
+    id: 'autopilot',
+    labelKey: 'nav.autopilot',
+    icon: <Rocket className="w-4 h-4" />,
+    accent: 'text-rose-400',
+  },
+  {
     id: 'frozen',
     labelKey: 'nav.frozen',
     icon: <Snowflake className="w-4 h-4" />,
@@ -82,6 +111,12 @@ const MODULE_ITEMS: NavItem[] = [
     labelKey: 'nav.automation',
     icon: <Zap className="w-4 h-4" />,
     accent: 'text-amber-400',
+  },
+  {
+    id: 'migration',
+    labelKey: 'nav.migration',
+    icon: <FileUp className="w-4 h-4" />,
+    accent: 'text-teal-400',
   },
   {
     id: 'ai',

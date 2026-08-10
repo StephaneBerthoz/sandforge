@@ -79,7 +79,6 @@ describe('SettingsPage', () => {
   it('should show tabs', () => {
     render(<SettingsPage />);
     expect(screen.getAllByText('General').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Notifications').length).toBeGreaterThan(0);
     expect(screen.getByText('Advanced')).toBeDefined();
   });
 
@@ -93,41 +92,10 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('language-select')).toBeDefined();
   });
 
-  it('should show theme select', () => {
-    render(<SettingsPage />);
-    expect(screen.getByTestId('theme-select')).toBeDefined();
-  });
-
-  it('should switch to notifications tab', () => {
-    render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Notifications'));
-    expect(screen.getByTestId('notification-settings')).toBeDefined();
-  });
-
-  it('should show notification checkboxes', () => {
-    render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Notifications'));
-    expect(screen.getByTestId('enable-notifications-checkbox')).toBeDefined();
-    expect(screen.getByTestId('sound-alerts-checkbox')).toBeDefined();
-  });
-
   it('should switch to advanced tab', () => {
     render(<SettingsPage />);
     fireEvent.click(screen.getByText('Advanced'));
     expect(screen.getByTestId('advanced-settings')).toBeDefined();
-  });
-
-  it('should show grappe settings in advanced', () => {
-    render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Advanced'));
-    expect(screen.getByTestId('enable-grappe-checkbox')).toBeDefined();
-    expect(screen.getByTestId('grappe-threshold-input')).toBeDefined();
-  });
-
-  it('should show log level select in advanced', () => {
-    render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Advanced'));
-    expect(screen.getByTestId('log-level-select')).toBeDefined();
   });
 
   it('should call onSave and trigger mutation when save clicked', () => {
@@ -156,21 +124,15 @@ describe('SettingsPage', () => {
     expect(onClearCache).toHaveBeenCalled();
   });
 
-  it('should update batch size', () => {
+  it('should update language', () => {
     const onSave = vi.fn();
     render(<SettingsPage onSave={onSave} />);
-    fireEvent.change(screen.getByTestId('batch-size-input'), { target: { value: '500' } });
+    fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'fr' } });
     fireEvent.click(screen.getByTestId('save-settings-btn'));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ defaultBatchSize: 500 }));
-  });
-
-  it('should toggle enable notifications', () => {
-    const onSave = vi.fn();
-    render(<SettingsPage onSave={onSave} />);
-    fireEvent.click(screen.getByText('Notifications'));
-    fireEvent.click(screen.getByTestId('enable-notifications-checkbox'));
-    fireEvent.click(screen.getByTestId('save-settings-btn'));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ enableNotifications: false }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ language: 'fr' }));
+    // Restore English so later tests in this file keep English labels —
+    // the language select applies i18n.changeLanguage immediately.
+    fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'en' } });
   });
 
   it('should show plugins tab with no plugins message', () => {

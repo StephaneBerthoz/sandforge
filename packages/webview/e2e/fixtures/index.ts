@@ -30,6 +30,4 @@ export {
   mockFailedJob,
   mockAIDiagnosis,
   mockFixApplied,
-  // Plan 03-04 — Drift v2 fixtures
-  mockDriftEvent,
 } from './mock-responses';

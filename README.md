@@ -1,6 +1,6 @@
 # SandForge: Salesforce DevOps Toolkit
 
-![Version](https://img.shields.io/badge/version-1.2.7-blue)
+![Version](https://img.shields.io/badge/version-1.2.12-blue)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![Tests](https://img.shields.io/badge/tests-7770-brightgreen)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
@@ -83,11 +83,11 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 | Requirement | Version |
 |---|---|
-| Visual Studio Code | 1.85+ |
+| Visual Studio Code | 1.95+ |
 | Salesforce CLI (`sf`) | Latest |
-| Node.js | 18+ |
-| pnpm | 9+ |
-| AI API key (optional) | OpenAI, Anthropic, or Ollama |
+| Node.js | 20 |
+| pnpm | 11 |
+| AI API key (optional) | Anthropic (Claude) |
 
 ---
 
@@ -102,13 +102,13 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ### From VSIX
 
-Download `sandforge.vsix` from the [Releases](https://github.com/sandforge/sandforge/releases) page, then run **Extensions: Install from VSIX...** from the Command Palette.
+Download `sandforge.vsix` from the [Releases](https://github.com/StephaneBerthoz/sand-forge/releases) page, then run **Extensions: Install from VSIX...** from the Command Palette.
 
 ### From Source
 
 ```bash
-git clone https://github.com/sandforge/sandforge.git
-cd sandforge
+git clone https://github.com/StephaneBerthoz/sand-forge.git
+cd sand-forge
 pnpm install
 pnpm build
 pnpm package
@@ -134,14 +134,10 @@ The WebView talks to the extension host through a typed `postMessage` broker; ev
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+K` | Command Palette |
-| `Ctrl+Shift+M` | Open Monitor |
-| `Ctrl+Shift+D` | Open Seed |
-| `Ctrl+Shift+Y` | Open Sync |
-| `Ctrl+Shift+K` | Open Compare |
-| `Ctrl+Shift+O` | Open DataOps |
+| `Ctrl+Shift+R` | Open Grappe |
 | `Ctrl+Shift+A` | Open Automation |
-| `Ctrl+Shift+G` | Open Orgs |
+
+On macOS, use `Cmd` instead of `Ctrl`.
 
 ---
 
@@ -149,12 +145,19 @@ The WebView talks to the extension host through a typed `postMessage` broker; ev
 
 | Setting | Description | Default |
 |---|---|---|
-| `sandforge.language` | UI language (`en`, `fr`, `de`, `es`, `ja`, `pt-BR`) | `en` |
 | `sandforge.telemetry` | Enable anonymous usage telemetry | `false` |
-| `sandforge.ai.enabled` | Enable AI features | `true` |
-| `sandforge.ai.provider` | AI provider (`openai`, `anthropic`, `ollama`) | `openai` |
-| `sandforge.safety.requireProdConfirmation` | Require double confirmation for Production ops | `true` |
-| `sandforge.grappe.enabled` | Enable parallel processing for large datasets | `true` |
+| `sandforge.monitor.persistTimeSeries` | Persist Monitor time-series data to disk | `false` |
+| `sandforge.seed.defaultBatchSize` | Default batch size for Seed data operations | `200` |
+| `sandforge.sync.defaultBatchSize` | Default batch size for Sync data operations | `200` |
+| `sandforge.sync.maxConcurrentOps` | Maximum concurrent sync operations | `3` |
+| `sandforge.ai.enabled` | Enable the AI Assistant (requires an API key) | `false` |
+| `sandforge.ai.provider` | AI provider (`anthropic` supported; `openai`/`custom` planned) | `anthropic` |
+| `sandforge.ai.model` | AI model used by the assistant | `claude-sonnet-4-5-20250929` |
+| `sandforge.ai.tokenBudgetMaxPerSession` | Maximum AI token budget per Assistant panel session | `50000` |
+| `sandforge.backup.maxCount` | Maximum number of backups retained per org | `10` |
+| `sandforge.pipeline.timeout` | Pipeline execution timeout (ms) | `300000` |
+| `sandforge.safety.requireProdConfirmation` | Require confirmation for Production org operations | `true` |
+| `sandforge.safety.auditLogging` | Enable audit logging for all data operations | `true` |
 
 See the full list of settings in the VSCode Settings UI under "SandForge".
 
@@ -168,7 +171,7 @@ Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Po
 
 ## What's New
 
-See the [CHANGELOG](changelog.md) for release notes. The extension is in preview: report issues on the [GitHub Issues](https://github.com/sandforge/sandforge/issues) page.
+See the [CHANGELOG](changelog.md) for release notes. Report issues on the [GitHub Issues](https://github.com/StephaneBerthoz/sand-forge/issues) page.
 
 ---
 

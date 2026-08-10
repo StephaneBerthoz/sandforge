@@ -34,14 +34,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Knip (markdown report)
-        id: knip
         run: |
-          set +e
-          pnpm knip --reporter markdown > knip-report.md
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
-          set -e
           # Always exit 0 — this job is informational, not blocking.
-          exit 0
+          pnpm knip --reporter markdown > knip-report.md || true
 
       - name: Upload Knip report artifact
         if: always()

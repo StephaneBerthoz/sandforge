@@ -13,7 +13,9 @@ export type ModuleRoute =
   | 'compare'
   | 'dataops'
   | 'automation'
+  | 'migration'
   | 'ai'
+  | 'autopilot'
   | 'reports'
   | 'settings'
   | 'welcome'
@@ -32,7 +34,9 @@ export const ALL_ROUTES: readonly ModuleRoute[] = [
   'compare',
   'dataops',
   'automation',
+  'migration',
   'ai',
+  'autopilot',
   'reports',
   'settings',
   'welcome',

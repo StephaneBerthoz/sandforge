@@ -1,8 +1,20 @@
 import React from 'react';
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ErrorBoundary } from './ErrorBoundary';
+
+/** Hoisted mock of the VS Code webview API used by ErrorBoundary. */
+const vscodeApiMock = vi.hoisted(() => ({
+  postMessage: vi.fn(),
+  getState: vi.fn(() => undefined),
+  setState: vi.fn(),
+}));
+
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => vscodeApiMock,
+  useVSCodeApi: () => vscodeApiMock,
+}));
 
 /** Component that throws an error on render. */
 const ThrowingComponent: React.FC<{ shouldThrow?: boolean }> = ({ shouldThrow = true }) => {
@@ -15,6 +27,7 @@ const ThrowingComponent: React.FC<{ shouldThrow?: boolean }> = ({ shouldThrow = 
 describe('ErrorBoundary', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vscodeApiMock.postMessage.mockClear();
   });
 
   it('renders children when no error occurs', () => {
@@ -68,5 +81,40 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>,
     );
     expect(screen.getByTestId('error-copy-btn')).toBeInTheDocument();
+  });
+
+  it('posts an error:boundary message to the extension when a child throws', () => {
+    render(
+      <ErrorBoundary>
+        <ThrowingComponent />
+      </ErrorBoundary>,
+    );
+    expect(vscodeApiMock.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error:boundary',
+        payload: expect.objectContaining({ message: 'Test error message' }),
+      }),
+    );
+  });
+
+  it('clears the pending copy feedback timeout when unmounted', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    const { unmount } = render(
+      <ErrorBoundary>
+        <ThrowingComponent />
+      </ErrorBoundary>,
+    );
+    fireEvent.click(screen.getByTestId('error-copy-btn'));
+    // Flush the clipboard promise so the feedback timer gets scheduled.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    unmount();
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    clearTimeoutSpy.mockRestore();
   });
 });

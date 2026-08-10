@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
+import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
 
-/** localStorage prefix for completed tours. */
+/** Webview state prefix for completed tours. */
 const TOUR_COMPLETED_PREFIX = 'sandforge-tour-completed-';
 
 /** Position of the tooltip relative to the target element. */
@@ -165,20 +166,20 @@ export const BUILT_IN_TOURS: TourDefinition[] = [
 ];
 
 /**
- * Check if a tour has been completed via localStorage.
+ * Check if a tour has been completed via the persisted webview state.
  * @param tourId - The unique tour identifier.
  * @returns Whether the tour has been completed.
  */
 export function isTourCompleted(tourId: string): boolean {
-  return localStorage.getItem(`${TOUR_COMPLETED_PREFIX}${tourId}`) === 'true';
+  return getPersistedItem(`${TOUR_COMPLETED_PREFIX}${tourId}`) === 'true';
 }
 
 /**
- * Mark a tour as completed in localStorage.
+ * Mark a tour as completed in the persisted webview state.
  * @param tourId - The unique tour identifier.
  */
 export function markTourCompleted(tourId: string): void {
-  localStorage.setItem(`${TOUR_COMPLETED_PREFIX}${tourId}`, 'true');
+  setPersistedItem(`${TOUR_COMPLETED_PREFIX}${tourId}`, 'true');
 }
 
 /**
@@ -217,7 +218,7 @@ function calculateTooltipPosition(targetRect: DOMRect, position: TooltipPosition
 /**
  * Tooltip-based guided tour with spotlight effect on target elements.
  * Supports navigation (Next, Previous, Skip, Finish) and persists
- * completed tours in localStorage.
+ * completed tours in the VS Code webview state.
  */
 export const GuidedTour: React.FC<GuidedTourProps> = ({ steps, tourId, onComplete, isActive }) => {
   const { t } = useTranslation();

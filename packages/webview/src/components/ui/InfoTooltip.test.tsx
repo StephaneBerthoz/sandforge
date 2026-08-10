@@ -4,27 +4,32 @@ import { InfoTooltip, isDismissed, resetAllTooltips } from './InfoTooltip';
 
 const STORAGE_KEY = 'sf-dismissed-tooltips';
 
-/* Mock localStorage since jsdom may not provide clear() */
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
+/* In-memory mock of the webview state persistence layer. */
+const mockPersistedState = vi.hoisted(() => {
+  const store: Record<string, string> = {};
   return {
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-    removeItem: (key: string): void => {
-      delete store[key];
-    },
-    reset: (): void => {
-      store = {};
+    store,
+    reset(): void {
+      for (const key of Object.keys(store)) {
+        delete store[key];
+      }
     },
   };
-})();
-Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
+});
+
+vi.mock('../../utils/webviewStorage', () => ({
+  getPersistedItem: (key: string): string | null => mockPersistedState.store[key] ?? null,
+  setPersistedItem: (key: string, value: string): void => {
+    mockPersistedState.store[key] = value;
+  },
+  removePersistedItem: (key: string): void => {
+    delete mockPersistedState.store[key];
+  },
+}));
 
 describe('InfoTooltip', () => {
   beforeEach(() => {
-    localStorageMock.reset();
+    mockPersistedState.reset();
     vi.useFakeTimers();
   });
 
@@ -65,36 +70,36 @@ describe('InfoTooltip', () => {
     // Icon should be gone
     expect(screen.queryByTestId('info-tooltip-test.dismiss')).toBeNull();
 
-    // Should be persisted in localStorage
-    const stored = JSON.parse(localStorageMock.getItem(STORAGE_KEY) ?? '[]');
+    // Should be persisted in the webview state
+    const stored = JSON.parse(mockPersistedState.store[STORAGE_KEY] ?? '[]');
     expect(stored).toContain('test.dismiss');
   });
 
-  it('should not render when already dismissed in localStorage', () => {
-    localStorageMock.setItem(STORAGE_KEY, JSON.stringify(['already.dismissed']));
+  it('should not render when already dismissed in the persisted state', () => {
+    mockPersistedState.store[STORAGE_KEY] = JSON.stringify(['already.dismissed']);
     render(<InfoTooltip id="already.dismissed" content="Should not show" />);
     expect(screen.queryByTestId('info-tooltip-already.dismissed')).toBeNull();
   });
 
   it('should track isDismissed correctly', () => {
     expect(isDismissed('some.id')).toBe(false);
-    localStorageMock.setItem(STORAGE_KEY, JSON.stringify(['some.id']));
+    mockPersistedState.store[STORAGE_KEY] = JSON.stringify(['some.id']);
     expect(isDismissed('some.id')).toBe(true);
     expect(isDismissed('other.id')).toBe(false);
   });
 
   it('should clear all dismissed IDs with resetAllTooltips', () => {
-    localStorageMock.setItem(STORAGE_KEY, JSON.stringify(['a', 'b', 'c']));
+    mockPersistedState.store[STORAGE_KEY] = JSON.stringify(['a', 'b', 'c']);
     expect(isDismissed('a')).toBe(true);
 
     resetAllTooltips();
 
     expect(isDismissed('a')).toBe(false);
-    expect(localStorageMock.getItem(STORAGE_KEY)).toBeNull();
+    expect(mockPersistedState.store[STORAGE_KEY]).toBeUndefined();
   });
 
-  it('should handle corrupted localStorage gracefully', () => {
-    localStorageMock.setItem(STORAGE_KEY, 'not-valid-json');
+  it('should handle corrupted persisted state gracefully', () => {
+    mockPersistedState.store[STORAGE_KEY] = 'not-valid-json';
     render(<InfoTooltip id="test.corrupt" content="Still works" />);
     expect(screen.getByTestId('info-tooltip-test.corrupt')).toBeDefined();
   });

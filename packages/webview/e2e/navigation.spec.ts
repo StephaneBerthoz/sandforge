@@ -17,14 +17,17 @@ test.describe('Sidebar navigation', () => {
     await expect(sidebar.getByRole('button', { name: 'Organizations' })).toBeVisible();
   });
 
-  test('renders forge and grappe hero buttons', async ({ page }) => {
+  test('renders forge hero button', async ({ page }) => {
     await expect(page.getByTestId('sidebar-forge-hero')).toBeVisible();
-    await expect(page.getByTestId('sidebar-grappe-hero')).toBeVisible();
   });
 
   test('renders module navigation items', async ({ page }) => {
     const sidebar = page.getByTestId('sidebar');
     await expect(sidebar.getByRole('button', { name: 'Monitor', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Seed', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Sync', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Grappe', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Autopilot', exact: true })).toBeVisible();
     await expect(sidebar.getByRole('button', { name: 'Compare Org', exact: true })).toBeVisible();
     await expect(sidebar.getByRole('button', { name: 'DataOps', exact: true })).toBeVisible();
     await expect(sidebar.getByRole('button', { name: 'Automation', exact: true })).toBeVisible();

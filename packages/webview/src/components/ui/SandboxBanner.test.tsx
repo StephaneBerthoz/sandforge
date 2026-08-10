@@ -12,22 +12,28 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
+/* In-memory mock of the webview state persistence layer. */
+const mockPersistedState = vi.hoisted(() => {
+  const store: Record<string, string> = {};
   return {
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-    removeItem: (key: string): void => {
-      delete store[key];
-    },
-    reset: (): void => {
-      store = {};
+    store,
+    reset(): void {
+      for (const key of Object.keys(store)) {
+        delete store[key];
+      }
     },
   };
-})();
-Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
+});
+
+vi.mock('../../utils/webviewStorage', () => ({
+  getPersistedItem: (key: string): string | null => mockPersistedState.store[key] ?? null,
+  setPersistedItem: (key: string, value: string): void => {
+    mockPersistedState.store[key] = value;
+  },
+  removePersistedItem: (key: string): void => {
+    delete mockPersistedState.store[key];
+  },
+}));
 
 function createSandboxOrg(overrides: Partial<SalesforceOrg> = {}): SalesforceOrg {
   return {
@@ -54,7 +60,7 @@ describe('SandboxBanner', () => {
   beforeEach(() => {
     useOrgStore.setState({ orgs: [] });
     onNavigate.mockClear();
-    localStorageMock.reset();
+    mockPersistedState.reset();
   });
 
   it('should not render when no sandbox orgs', () => {
@@ -84,16 +90,16 @@ describe('SandboxBanner', () => {
     expect(onNavigate).toHaveBeenCalledWith('sync');
   });
 
-  it('should dismiss and persist to localStorage', () => {
+  it('should dismiss and persist to the webview state', () => {
     useOrgStore.setState({ orgs: [createSandboxOrg()] });
     render(<SandboxBanner onNavigate={onNavigate} />);
     fireEvent.click(screen.getByTestId('sandbox-banner-dismiss'));
     expect(screen.queryByTestId('sandbox-banner')).toBeNull();
-    expect(localStorageMock.getItem('sandforge-sandbox-banner-dismissed')).toBe('true');
+    expect(mockPersistedState.store['sandforge-sandbox-banner-dismissed']).toBe('true');
   });
 
   it('should not render when previously dismissed', () => {
-    localStorageMock.setItem('sandforge-sandbox-banner-dismissed', 'true');
+    mockPersistedState.store['sandforge-sandbox-banner-dismissed'] = 'true';
     useOrgStore.setState({ orgs: [createSandboxOrg()] });
     const { container } = render(<SandboxBanner onNavigate={onNavigate} />);
     expect(container.querySelector('[data-testid="sandbox-banner"]')).toBeNull();

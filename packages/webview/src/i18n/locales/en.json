@@ -65,6 +65,8 @@
     "forge": "Forge",
     "frozen": "Frozen Dataset",
     "grappe": "Grappe",
+    "autopilot": "Autopilot",
+    "migration": "Migration",
     "help": "Help"
   },
   "org": {
@@ -841,6 +843,44 @@
       "step2": "Pick source and target orgs",
       "step3": "Map objects and fields",
       "step4": "Run the sync and review the results"
+    }
+  },
+  "migration": {
+    "title": "Migration",
+    "subtitle": "Import an existing migration definition and convert it into a SandForge sync configuration. The file is only read — nothing is written or executed.",
+    "sourceTitle": "Source file",
+    "type": {
+      "sfdmu": {
+        "title": "SFDMU export.json",
+        "description": "Convert an SFDMU export.json definition: objects, field mappings and value mappings."
+      },
+      "universal": {
+        "title": "CSV or JSON file",
+        "description": "Import any CSV or JSON data file — columns are mapped to Salesforce fields automatically."
+      }
+    },
+    "allowedExtensionsSfdmu": "Only a .json file (SFDMU export.json) is accepted.",
+    "allowedExtensionsUniversal": "Accepted files: .json or .csv.",
+    "filePathLabel": "File path",
+    "filePathPlaceholderSfdmu": "C:/projects/sfdmu/export.json",
+    "filePathPlaceholderUniversal": "C:/projects/data/accounts.csv",
+    "filePathHint": "Absolute path. The file must be inside an open workspace folder or your home directory.",
+    "import": "Import",
+    "importing": "Importing…",
+    "reset": "New import",
+    "successTitle": "Import completed",
+    "successDescription": "Converted configuration",
+    "unknownError": "Import failed for an unknown reason.",
+    "detectedFormat": "Detected format: {{format}}",
+    "objectsCount_one": "{{count}} object",
+    "objectsCount_other": "{{count}} objects",
+    "externalId": "External ID: {{field}}",
+    "objectSummary": "{{mappings}} field mappings · {{rules}} transform rules · {{excluded}} excluded fields",
+    "rawConfig": "Raw configuration",
+    "validation": {
+      "pathRequired": "Enter the path of the file to import.",
+      "pathNotAbsolute": "The path must be absolute (e.g. C:/projects/export.json or /home/you/export.json).",
+      "pathExtension": "Unsupported file extension. Expected: {{extensions}}."
     }
   },
   "dataops": {

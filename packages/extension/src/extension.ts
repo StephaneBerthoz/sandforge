@@ -8,7 +8,11 @@ import { StatusBarProvider } from './providers/StatusBarProvider';
 import { WebviewPanelManager } from './providers/WebviewPanelManager';
 import type { UriJoinPath } from './providers/WebviewPanelManager';
 import { SidebarViewProvider } from './providers/SidebarViewProvider';
+import { OrgsTreeProvider } from './providers/OrgsTreeProvider';
+import type { OrgTreeItem } from './providers/OrgsTreeProvider';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
+import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
+import { MaskingTemplateService } from './modules/dataops/templates/MaskingTemplateService';
 import { CacheManager } from './core/cache/CacheManager';
 import { createServices } from './services.js';
 import type { Services } from './services.js';
@@ -16,7 +20,9 @@ import { logger } from './logger.js';
 import { createCoreComposition } from './composition/coreComposition';
 import {
   createBackgroundComposition,
+  startOfflineProbing,
   wireBackgroundNotifications,
+  wireOfflineReplay,
 } from './composition/backgroundComposition';
 import { initForgeComposition } from './composition/forgeComposition';
 import { initAutopilotComposition } from './composition/autopilotComposition';
@@ -117,9 +123,14 @@ export function activate(context: vscode.ExtensionContext): void {
   // 3. Infrastructure services (Tier 1) + background operation registry
   const { performanceTracker, productionGuard, offlineManager, piiDetector, backgroundRegistry } =
     createBackgroundComposition({ services, configStore });
+  // Start connectivity probing so connectivity:status reflects reality and the
+  // offline queue can drain on reconnect. Stopped by offlineManager.dispose().
+  startOfflineProbing(offlineManager);
 
   // 4. Standalone services (Tier 3)
   const pipelineMarketplace = new PipelineMarketplace();
+  const liveOperationTracker = new LiveOperationTracker();
+  const maskingTemplateService = new MaskingTemplateService();
   const fsReader = { readFile: (filePath: string) => fs.readFile(filePath, 'utf-8') };
 
   // 5. MessageBroker + MessageRouter + WebviewStateSync
@@ -154,7 +165,12 @@ export function activate(context: vscode.ExtensionContext): void {
     backgroundRegistry,
     migrationFileReader: fsReader,
     pipelineMarketplace,
+    liveOperationTracker,
+    maskingTemplateService,
   });
+  // Replays operations queued on transport failure once connectivity returns
+  // (the queue drains on the offline→online probe transition).
+  wireOfflineReplay(offlineManager, handlers);
 
   // Start the sync schedule tick loop (wires SyncScheduleHandler.onExecute
   // to SyncOpsHandler.executeScheduled; idempotent, stops in deactivate()).
@@ -222,6 +238,33 @@ export function activate(context: vscode.ExtensionContext): void {
     sidebarProvider,
   );
 
+  // 10b. OrgsTreeProvider — native TreeView of registered orgs in the same
+  // view container. Registered after step 10's orgRegistry.loadAll() so the
+  // first getChildren() already sees the persisted orgs.
+  const orgsTreeProvider = new OrgsTreeProvider(orgManager);
+  const orgsTreeRegistration = vscode.window.registerTreeDataProvider(
+    OrgsTreeProvider.viewType,
+    orgsTreeProvider,
+  );
+  const orgsTreeCommands = [
+    vscode.commands.registerCommand('sandforge.orgsView.refresh', () => {
+      // Re-pull persisted orgs into the OrgManager (its change events refresh
+      // the tree) and poke the provider for good measure.
+      orgRegistry.loadAll();
+      orgsTreeProvider.refresh();
+    }),
+    vscode.commands.registerCommand('sandforge.openOrgInBrowser', (item?: OrgTreeItem) => {
+      const org = item?.org;
+      if (!org) {
+        void vscode.window.showInformationMessage(
+          'SandForge: pick an org in the Organizations view first.',
+        );
+        return;
+      }
+      void vscode.env.openExternal(vscode.Uri.parse(org.instanceUrl));
+    }),
+  ];
+
   // 11. Module commands (sandforge.open*) + the cheers easter egg
   registerModuleCommands({
     context,
@@ -267,12 +310,19 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     outputChannel,
     sidebarRegistration,
+    // Releases the provider's internal onDidReceiveMessage subscription.
+    sidebarProvider,
+    // TreeView registration + provider (releases its OrgManager subscription).
+    orgsTreeRegistration,
+    orgsTreeProvider,
+    ...orgsTreeCommands,
     statusBar,
     panelManager,
     { dispose: () => backgroundRegistry.dispose() },
     { dispose: unsubOrgChange },
     { dispose: () => orgManager.dispose() },
     { dispose: () => offlineManager.dispose() },
+    { dispose: () => liveOperationTracker.dispose() },
     { dispose: () => performanceTracker.dispose() },
     // Dispose the CacheManager singleton (clears its purge interval) if it was
     // ever instantiated — resetInstance() is a no-op otherwise.

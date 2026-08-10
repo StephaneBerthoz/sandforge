@@ -40,6 +40,8 @@ vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
+import { OfflineManager } from '../../core/connection/OfflineManager.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -685,6 +687,144 @@ describe('SyncOpsHandler', () => {
       await handler.handle(msg);
       // Reached the connection stage: validation let the payload through.
       expect(mockGetConn).toHaveBeenCalled();
+    });
+  });
+
+  describe('live operation tracker', () => {
+    it('registers the operation and marks it failed on connection failure', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'sync-live-1',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      };
+
+      await handler.handle(msg);
+
+      const op = tracker.get('sync-live-1');
+      expect(op?.module).toBe('sync');
+      expect(op?.status).toBe('failed');
+      expect(op?.error).toBe('connection failed');
+      tracker.dispose();
+    });
+
+    it('registers the operation and completes it on success', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      deps.services = {
+        getSandforgeSetting: vi.fn(() => 200),
+        syncOrchestrator: vi.fn(() => ({
+          execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+        })),
+      } as unknown as HandlerDeps['services'];
+
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        sobject: vi.fn().mockReturnValue({
+          create: vi.fn().mockResolvedValue([]),
+          upsert: vi.fn().mockResolvedValue([]),
+          update: vi.fn().mockResolvedValue([]),
+          destroy: vi.fn().mockResolvedValue([]),
+        }),
+        tooling: { executeAnonymous: vi.fn() },
+        limitInfo: undefined,
+      } as never);
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'sync-live-2',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      };
+
+      await handler.handle(msg);
+
+      const op = tracker.get('sync-live-2');
+      expect(op?.module).toBe('sync');
+      expect(op?.status).toBe('completed');
+      expect(op?.percentage).toBe(100);
+      tracker.dispose();
+    });
+
+    it('tracks scheduled executions as well', async () => {
+      const tracker = new LiveOperationTracker();
+      handler.setLiveOperationTracker(tracker);
+
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      const result = await handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+      expect(result.status).toBe('failure');
+
+      const ops = tracker.getAll();
+      expect(ops).toHaveLength(1);
+      expect(ops[0].module).toBe('sync');
+      expect(ops[0].status).toBe('failed');
+      expect(ops[0].operationId.startsWith('sync:schedule:')).toBe(true);
+      tracker.dispose();
+    });
+  });
+
+  describe('offline queue producer', () => {
+    function wireOfflineManager(): OfflineManager {
+      const offlineManager = new OfflineManager(deps.configStore);
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: undefined,
+        offlineManager,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      return offlineManager;
+    }
+
+    it('enqueues the sync config for replay when the failure is a network error', async () => {
+      const offlineManager = wireOfflineManager();
+
+      mockGetConn.mockRejectedValue(
+        Object.assign(new Error('getaddrinfo ENOTFOUND login.salesforce.com'), {
+          code: 'ENOTFOUND',
+        }),
+      );
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'sync-offline-1',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      };
+
+      await handler.handle(msg);
+
+      const queue = offlineManager.getQueue();
+      expect(queue).toHaveLength(1);
+      expect(queue[0].id).toBe('sync-offline-1');
+      expect(queue[0].type).toBe('sync');
+      expect(queue[0].orgId).toBe('tgt-org');
+      expect((queue[0].payload.config as { id: string }).id).toBe('cfg-1');
+    });
+
+    it('does NOT enqueue when the failure is a Salesforce API error', async () => {
+      const offlineManager = wireOfflineManager();
+
+      mockGetConn.mockRejectedValue(new Error('FIELD_INTEGRITY_EXCEPTION: bad value'));
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'sync-offline-2',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      };
+
+      await handler.handle(msg);
+
+      expect(offlineManager.getQueueSize()).toBe(0);
     });
   });
 });

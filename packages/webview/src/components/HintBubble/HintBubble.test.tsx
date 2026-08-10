@@ -9,27 +9,33 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-const localStorageMock = (() => {
-  let store: Record<string, string> = {};
+/* In-memory mock of the webview state persistence layer. */
+const mockPersistedState = vi.hoisted(() => {
+  const store: Record<string, string> = {};
   return {
-    getItem: (key: string): string | null => store[key] ?? null,
-    setItem: (key: string, value: string): void => {
-      store[key] = value;
-    },
-    removeItem: (key: string): void => {
-      delete store[key];
-    },
-    reset: (): void => {
-      store = {};
+    store,
+    reset(): void {
+      for (const key of Object.keys(store)) {
+        delete store[key];
+      }
     },
   };
-})();
-Object.defineProperty(window, 'localStorage', { value: localStorageMock, writable: true });
+});
+
+vi.mock('../../utils/webviewStorage', () => ({
+  getPersistedItem: (key: string): string | null => mockPersistedState.store[key] ?? null,
+  setPersistedItem: (key: string, value: string): void => {
+    mockPersistedState.store[key] = value;
+  },
+  removePersistedItem: (key: string): void => {
+    delete mockPersistedState.store[key];
+  },
+}));
 
 describe('HintBubble', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    localStorageMock.reset();
+    mockPersistedState.reset();
   });
 
   afterEach(() => {
@@ -165,7 +171,7 @@ describe('HintBubble', () => {
     expect(screen.getByText('hints.dontShowHint')).toBeDefined();
   });
 
-  it('should persist dismissal in localStorage when dont-show-again is checked', () => {
+  it('should persist dismissal in the webview state when dont-show-again is checked', () => {
     render(<HintBubble hintId="persist" message="Persist" onDismiss={vi.fn()} />);
     act(() => {
       vi.advanceTimersByTime(500);
@@ -174,7 +180,7 @@ describe('HintBubble', () => {
     fireEvent.click(screen.getByTestId('hint-dont-show-persist'));
     // Dismiss
     fireEvent.click(screen.getByTestId('hint-dismiss-persist'));
-    expect(localStorageMock.getItem('sandforge-hint-dismissed-persist')).toBe('true');
+    expect(mockPersistedState.store['sandforge-hint-dismissed-persist']).toBe('true');
   });
 
   it('should not persist dismissal when dont-show-again is not checked', () => {
@@ -183,11 +189,11 @@ describe('HintBubble', () => {
       vi.advanceTimersByTime(500);
     });
     fireEvent.click(screen.getByTestId('hint-dismiss-nopersist'));
-    expect(localStorageMock.getItem('sandforge-hint-dismissed-nopersist')).toBeNull();
+    expect(mockPersistedState.store['sandforge-hint-dismissed-nopersist']).toBeUndefined();
   });
 
   it('should not show hint if it was permanently dismissed', () => {
-    localStorageMock.setItem('sandforge-hint-dismissed-hidden', 'true');
+    mockPersistedState.store['sandforge-hint-dismissed-hidden'] = 'true';
     render(<HintBubble hintId="hidden" message="Hidden" onDismiss={vi.fn()} />);
     act(() => {
       vi.advanceTimersByTime(500);
@@ -198,7 +204,7 @@ describe('HintBubble', () => {
 
 describe('isHintDismissed', () => {
   beforeEach(() => {
-    localStorageMock.reset();
+    mockPersistedState.reset();
   });
 
   it('should return false for non-dismissed hints', () => {
@@ -206,7 +212,7 @@ describe('isHintDismissed', () => {
   });
 
   it('should return true for dismissed hints', () => {
-    localStorageMock.setItem('sandforge-hint-dismissed-old-hint', 'true');
+    mockPersistedState.store['sandforge-hint-dismissed-old-hint'] = 'true';
     expect(isHintDismissed('old-hint')).toBe(true);
   });
 });

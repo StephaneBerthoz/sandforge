@@ -5,6 +5,28 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-10
+
+**Marketplace trust and dead-code release.** New native Organizations tree view in the sidebar (type icons, refresh, open-in-browser), a Get Started walkthrough, and a Migration page that imports SFDMU `export.json` or CSV/JSON files into reviewable Sync configs. Every module now has its own command (`openSeed`, `openSync`, `openAutopilot`, `openMigration`) with a single source of truth for sidebar routing. Seed and sync executions feed the live-operations tracker; operations that fail on a network error are queued and replayed on reconnect. The UI language persists across reloads and all 6 locales reached 100% key parity, now enforced in CI. Fixed: Monitor auto-refresh never fired, ErrorBoundary reporting was dead, webview panels leaked in the message broker, marketplace links were 404, and the listing no longer claims real-time CDC or multi-provider LLMs. Removed ~4,700 lines of dead Monitor v2 code; the VSIX no longer ships internal tooling state; the Anthropic SDK is lazy-loaded (−118 KiB off the activation bundle). Full entry in the root changelog.
+
+## [1.2.12] - 2026-08-06
+
+### Changed
+
+- Dropped the marketplace preview flag: the extension is no longer published as a preview release.
+
+## [1.2.11] - 2026-08-06
+
+### Fixed
+
+- Marketplace page: the Forge walkthrough GIF is served from a public assets repository, so it renders on the listing.
+
+## [1.2.10] - 2026-08-03
+
+### Changed
+
+- Documentation: both READMEs lead with the "first clone in 2 minutes" Forge walkthrough, with an animated flow GIF; marketplace page shortened and docs links made absolute. Full entry in the root changelog.
+
 ## [1.2.9] - 2026-08-03
 
 **Reliability and onboarding release.** Expired org credentials now self-heal through an sf CLI refresh with one retry (with an actionable message when reconnect is needed). Every bridge handler validates its payloads with Zod, and handler failures surface their real message instead of a generic 30-second timeout on every flow (sync, dataops, backup, pipeline, monitor, autopilot). Autopilot is wired end-to-end: the wizard drives a real scan → compliance → plan → execute → report run with live progress, isolated per execution. QuickSync wizard repaired. Stale org selections reconcile automatically. ProductionGuard now covers Forge and Autopilot. Manual retry replays failed syncs. Onboarding rewritten around the core use case: populate a dev sandbox from a real record, in 6 languages. Full entry in the root changelog.

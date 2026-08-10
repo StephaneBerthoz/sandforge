@@ -18,6 +18,11 @@ import {
   CheckCircle2,
   Loader2,
   XCircle,
+  Sprout,
+  RefreshCw,
+  Grape,
+  Rocket,
+  FileUp,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '../../theme';
@@ -33,11 +38,16 @@ const iconMap: Record<string, LucideIcon> = {
   orgs: Plug,
   forge: Flame,
   frozen: Snowflake,
+  grappe: Grape,
   monitor: Activity,
+  seed: Sprout,
+  sync: RefreshCw,
   compare: GitCompare,
   dataops: Shield,
   automation: Zap,
+  migration: FileUp,
   ai: Bot,
+  autopilot: Rocket,
   reports: BarChart3,
   settings: Settings,
   help: HelpCircle,
@@ -72,10 +82,15 @@ const mainNav: NavItem[] = [
 
 const moduleNav: NavItem[] = [
   { route: 'monitor', labelKey: 'nav.monitor', icon: 'monitor' },
+  { route: 'seed', labelKey: 'nav.seed', icon: 'seed' },
+  { route: 'sync', labelKey: 'nav.sync', icon: 'sync' },
+  { route: 'grappe', labelKey: 'nav.grappe', icon: 'grappe' },
+  { route: 'autopilot', labelKey: 'nav.autopilot', icon: 'autopilot' },
   { route: 'frozen', labelKey: 'nav.frozen', icon: 'frozen' },
   { route: 'compare', labelKey: 'nav.compare', icon: 'compare' },
   { route: 'dataops', labelKey: 'nav.dataops', icon: 'dataops' },
   { route: 'automation', labelKey: 'nav.automation', icon: 'automation' },
+  { route: 'migration', labelKey: 'nav.migration', icon: 'migration' },
   { route: 'ai', labelKey: 'nav.ai', icon: 'ai' },
 ];
 

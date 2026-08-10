@@ -5,6 +5,58 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-10
+
+**Marketplace trust and dead-code release**: the listing now tells the truth, the navigation reaches every module, the VSIX no longer leaks internal tooling state, and ~5,000 lines of dead code are gone. Ships with a native Organizations tree view, a Get Started walkthrough, and an SFDMU import UI.
+
+### Added
+
+- **Organizations tree view** in the sidebar: native `TreeDataProvider` listing every org with a type icon (Production/Sandbox/Scratch/Developer), auto-refresh on registry changes, a refresh action, and an "Open in Browser" context action (new command `sandforge.openOrgInBrowser`).
+- **Get Started walkthrough** (`contributes.walkthroughs`): connect an org, first Forge clone, monitor limits, explore settings — with per-step completion events.
+- **Migration page**: import an SFDMU `export.json` or any CSV/JSON file into a ready-to-review Sync config (operation badges, external ID, mapping/transform counters, raw JSON preview). Non-destructive: the file is only read and converted. New command `sandforge.openMigration`. Available from both navigations and the command palette, in 6 languages.
+- **Module commands for every module**: `sandforge.openSeed`, `sandforge.openSync`, `sandforge.openAutopilot`, `sandforge.openMigration`. Sidebar routing and command registration now share a single source of truth (`moduleCommands.ts`) — no more routes falling back to Monitor.
+- **Live operations**: seed and sync executions (manual and scheduled) now feed the live-operations tracker with real progress counters; `monitor:live-operations` returns real data instead of a degraded empty list.
+- **Offline resilience**: real connectivity probing (HEAD on the login endpoint, 5 s timeout) started at activation; seed/sync operations that fail on a network error are queued and replayed automatically when connectivity returns (sync via `rerunFromSnapshot`, seed via re-injection through the normal guarded path).
+- **Language persistence**: the chosen UI language survives webview reloads and is applied synchronously at boot (no English flash); the Settings language selector now applies immediately.
+- **i18n parity gate**: `pnpm check:i18n` (blocking, part of `pnpm validate`) — all 6 locales are now at 100% key parity; German, Spanish, Japanese and Brazilian Portuguese were completed (~880 keys each, placeholders and plural rules verified).
+- **Pre-publish checks**: blocking changelog-freshness gate (both changelogs must contain the version), real NLS-title resolution check, keybinding-to-command validation.
+- **Release pipeline**: workflow concurrency guard, git push now happens before the immutable marketplace publish, and `vsce` is pinned to the lockfile instead of `npx latest`.
+
+### Changed
+
+- **Anthropic SDK is lazy-loaded and externalized**: the extension bundle drops by ~118 KiB and the SDK is only parsed on the first real AI call (AI remains off by default). The SDK is vendored into the VSIX (`dist/node_modules/`) via a reproducible script.
+- Keybindings (`ctrl+shift+r`, `ctrl+shift+a`) are scoped to the SandForge view container instead of firing globally.
+- Manifest declares `capabilities`: `virtualWorkspaces: false`, `untrustedWorkspaces: false`.
+- Marketplace category `Formatters` removed (misleading).
+- Webview state (favorites, recent searches, "don't show again" flags) migrated from `localStorage`/`sessionStorage` — whose persistence is not guaranteed in VS Code webviews — to the webview state API. Favorites now survive reloads.
+
+### Fixed
+
+- **Monitor auto-refresh never fired**: the refresh effect depended on a non-memoized query object that was recreated on every render, so the interval was re-armed forever. Now depends on the stable `refetch`.
+- **ErrorBoundary reporting was dead**: it read `window.vscodeApi`, which never exists; it now posts through the real API accessor. Its timeout is also cleaned up on unmount.
+- **Webview panel leak**: closing a panel never unregistered it from the message broker; dead panels accumulated until deactivation.
+- **Sidebar provider** is now registered in `context.subscriptions` so its message subscription is released on deactivate.
+- **Marketplace listing**: `homepage`/`bugs` links pointed to a non-existent repository (404); description claimed real-time CDC (the routes answer "coming soon") and multi-provider LLMs (only Anthropic is implemented). All aligned with reality.
+- Shared-package coverage gate used an invalid threshold syntax and never applied — it now gates on the measured baseline.
+
+### Removed
+
+- **Monitor v2 dead subsystem** (~4,700 lines + tests): orchestrator, registry, metric bus, anomaly engine, time-series store, 8 probes — never reachable from production code. Orphaned shared types (`MetricEvent`, `DriftDelta`) and messages (`monitor:metric*`, `monitor:live-operations:updated`) removed with the Zod↔TS bijection test still green.
+- Dead `sandforge.monitor.persistTimeSeries` setting and zombie Settings fields that nothing consumed.
+- VSIX no longer ships internal agent-tooling state (`.omc/`) nor source folders already bundled into `dist/extension.js` (`cli/`, `tools/`, `examples/`).
+
+## [1.2.12] - 2026-08-06
+
+### Changed
+
+- Marketplace listing: dropped the preview flag. The extension is no longer published as a preview release.
+
+## [1.2.11] - 2026-08-06
+
+### Fixed
+
+- Marketplace page: the Forge walkthrough GIF is now served from a public assets repository, so it renders on the marketplace listing.
+
 ## [1.2.10] - 2026-08-03
 
 ### Changed

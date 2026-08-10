@@ -20,7 +20,10 @@ let mockMonitorQueryState = {
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
     if (type === 'monitor:refresh') {
-      return mockMonitorQueryState;
+      // Spread into a fresh object on every call: the real useBridgeQuery
+      // returns a new object literal each render (only `refetch` is stable),
+      // which is exactly the condition the auto-refresh effect must survive.
+      return { ...mockMonitorQueryState };
     }
     if (type === 'monitor:alerts') {
       return { data: { alerts: [] }, loading: false, error: null, refetch: vi.fn() };
@@ -351,5 +354,57 @@ describe('useMonitorPageData', () => {
 
     expect(result.current.sectionErrors).toHaveProperty('monitor');
     expect(result.current.sectionErrors['monitor']).toBe('Connection timeout');
+  });
+
+  it('should auto-refresh after the 30s interval despite intermediate re-renders', () => {
+    mockMonitorQueryState = {
+      data: standardPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    const { result, rerender } = renderHook(() => useMonitorPageData());
+
+    act(() => result.current.setAutoRefresh(true));
+    mockRefetch.mockClear();
+
+    // The time-ago ticker fires every 10 s and re-renders the hook; these
+    // intermediate renders must not reset the 30 s auto-refresh interval.
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    rerender();
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    rerender();
+    expect(mockRefetch).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+
+    // The interval keeps firing on subsequent cycles.
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(mockRefetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('should not auto-refresh when autoRefresh is disabled', () => {
+    mockMonitorQueryState = {
+      data: standardPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    renderHook(() => useMonitorPageData());
+    mockRefetch.mockClear();
+
+    act(() => {
+      vi.advanceTimersByTime(90_000);
+    });
+    expect(mockRefetch).not.toHaveBeenCalled();
   });
 });

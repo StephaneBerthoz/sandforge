@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type * as vscode from 'vscode';
 import { SidebarViewProvider } from './SidebarViewProvider';
+import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
 
 describe('SidebarViewProvider', () => {
   // Partial mock: Uri used only as an opaque value (localResourceRoots + joinPath base)
@@ -64,6 +65,36 @@ describe('SidebarViewProvider', () => {
 
     messageHandler!({ type: 'sidebar:navigate', payload: { route: 'grappe' } });
     expect(executeCommand).toHaveBeenCalledWith('sandforge.openGrappe');
+
+    // Routes that used to fall back to Monitor now have their own commands.
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'seed' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openSeed');
+
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'sync' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openSync');
+
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'autopilot' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openAutopilot');
+
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'migration' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openMigration');
+  });
+
+  it('executes the mapped command for every known sidebar route', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+    for (const [route, command] of Object.entries(SIDEBAR_ROUTE_COMMANDS)) {
+      executeCommand.mockClear();
+      messageHandler!({ type: 'sidebar:navigate', payload: { route } });
+      expect(executeCommand).toHaveBeenCalledWith(command);
+    }
+  });
+
+  it('falls back to openMonitor for unknown routes', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+    messageHandler!({ type: 'sidebar:navigate', payload: { route: 'does-not-exist' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openMonitor');
   });
 
   it('executes openMonitor on sidebar:openFull message', () => {

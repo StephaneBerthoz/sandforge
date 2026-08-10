@@ -1,8 +1,15 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 
-import Anthropic, { APIUserAbortError } from '@anthropic-ai/sdk';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+// Type-only import: the SDK (~104 KB minified, ~1 MB on disk) is loaded
+// lazily via dynamic import() in getClient() / complete() so extension
+// activation never pays its require cost. esbuild marks it external and the
+// build vendors a pruned copy into dist/node_modules (scripts/vendor-ai-sdk.mjs).
+// `resolution-mode: import` pins the types to the SDK's ESM entrypoint (.d.mts)
+// so the class identity matches the value-side dynamic import() below — under
+// Node16 a plain `import type` resolves to the .d.ts twin whose #private field
+// is nominal-incompatible with it.
+import type Anthropic from '@anthropic-ai/sdk' with { 'resolution-mode': 'import' };
 import type { z } from 'zod';
 import type { AIUsage } from '@sandforge/shared';
 
@@ -175,6 +182,7 @@ export class AnthropicAdapter implements AIClient {
       'complete',
       async (signal) => {
         const client = await this.getClient();
+        const { zodOutputFormat } = await import('@anthropic-ai/sdk/helpers/zod');
         const resp = await client.messages.parse(
           {
             model: this.model,
@@ -405,8 +413,12 @@ export class AnthropicAdapter implements AIClient {
         'Anthropic API key not configured. Set it in Command Palette → SandForge: Configure AI Key.',
       );
     }
-    this.client = new Anthropic({ apiKey });
-    return this.client;
+    // Lazy SDK load: the require only happens on the first actual AI call,
+    // never at activation (the SDK is external to the bundle).
+    const { default: AnthropicClient } = await import('@anthropic-ai/sdk');
+    const client: Anthropic = new AnthropicClient({ apiKey });
+    this.client = client;
+    return client;
   }
 
   private buildUsage(raw: Anthropic.Usage | undefined | null): AIUsage {
@@ -451,8 +463,12 @@ export class AnthropicAdapter implements AIClient {
   private rewrap(err: unknown, verdict: AIErrorVerdict, _method: string): Error {
     if (verdict.kind === 'cancelled') {
       // Preserve the original APIUserAbortError reference so callers can do
-      // `if (err instanceof APIUserAbortError)`.
-      if (err instanceof APIUserAbortError) return err;
+      // `if (err instanceof APIUserAbortError)`. Duck-typed by name (same
+      // rationale as errorClassifier): the SDK class is not statically
+      // importable here now that the SDK loads lazily.
+      if (err && typeof err === 'object' && (err as { name?: string }).name === 'APIUserAbortError') {
+        return err as Error;
+      }
       // External-signal-driven abort surfaces as DOMException 'AbortError' in
       // Node — also pass through unwrapped for the same reason.
       if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') {

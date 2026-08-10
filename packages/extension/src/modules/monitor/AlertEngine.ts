@@ -5,20 +5,8 @@ import type {
   AlertStatus,
 } from '@sandforge/shared';
 
-import type { AnomalyDetectedEvent } from './AnomalyEngine.js';
-
 /** Callback invoked when an alert is triggered */
 export type AlertNotifyFn = (alert: AlertInstance) => void;
-
-/**
- * Sentinel `definitionId` carried by every synthetic anomaly-derived
- * {@link AlertInstance}. Lets downstream consumers (AlertsPanel,
- * AlertHistoryPanel, telemetry) distinguish anomaly instances from
- * rule-based ones WITHOUT polluting the {@link AlertEngine} definition store
- * with a synthetic `AlertDefinition` (RESEARCH §2 — "directly constructs an
- * AlertInstance — preferred — shorter path, doesn't pollute definition store").
- */
-export const SYNTHETIC_ANOMALY_DEFINITION_ID = '__synthetic_anomaly__';
 
 /**
  * Evaluates metric values against alert definitions and manages alert lifecycle.
@@ -126,51 +114,6 @@ export class AlertEngine {
     if (alert) {
       alert.status = 'dismissed';
     }
-  }
-
-  /**
-   * Phase 03 Plan 03-05 — bridge an {@link AnomalyDetectedEvent} into the
-   * normal alert lifecycle as a synthetic {@link AlertInstance}.
-   *
-   * Constructs the instance directly (RESEARCH §2 — "directly constructs an
-   * AlertInstance — preferred — shorter path, doesn't pollute definition
-   * store"), tracks it in {@link activeAlerts}, and notifies listeners via
-   * the existing {@link onNotify} callback so AlertsPanel renders it without
-   * any new wiring.
-   *
-   * Severity heuristic: |zScore| >= 5 → 'critical', otherwise 'warning'.
-   * The `threshold` field stores the upper/lower 3σ bound derived from the
-   * baseline so the AlertsPanel can show a meaningful "expected vs actual"
-   * comparison (sign of zScore picks the direction).
-   *
-   * @returns the synthesized {@link AlertInstance}.
-   */
-  submitAnomalyInstance(event: AnomalyDetectedEvent): AlertInstance {
-    this.idCounter++;
-    const direction = event.zScore >= 0 ? 1 : -1;
-    const threshold = event.mean + direction * event.stdDev * 3;
-    const severity = Math.abs(event.zScore) >= 5 ? 'critical' : 'warning';
-    const instance: AlertInstance = {
-      id: `anomaly-${event.orgId}-${event.seriesId}-${this.idCounter}`,
-      definitionId: SYNTHETIC_ANOMALY_DEFINITION_ID,
-      severity,
-      status: 'active' as AlertStatus,
-      message: `Anomaly on ${event.seriesId}: value ${event.value} (${event.zScore.toFixed(2)}σ from mean ${event.mean.toFixed(2)})`,
-      currentValue: event.value,
-      threshold,
-      orgId: event.orgId,
-      triggeredAt: event.detectedAt,
-      badge: 'anomaly',
-      metadata: {
-        mean: event.mean,
-        stdDev: event.stdDev,
-        zScore: event.zScore,
-        recentContext: event.recentContext,
-      },
-    };
-    this.activeAlerts.set(instance.id, instance);
-    this.onNotify(instance);
-    return instance;
   }
 
   private isInCooldown(definitionId: string): boolean {

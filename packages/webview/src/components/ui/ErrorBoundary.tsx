@@ -1,6 +1,7 @@
 import React from 'react';
 import { Flame, RefreshCw, AlertTriangle, Copy } from 'lucide-react';
 import i18n from '../../i18n';
+import { getVscodeApi } from '../../hooks/useVSCodeApi';
 
 /** Props for the ErrorBoundary component. */
 export interface ErrorBoundaryProps {
@@ -27,18 +28,20 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     this.state = { hasError: false, error: null, errorInfo: null, copied: false };
   }
 
+  /** Timer id for the "Copied!" feedback reset; cleared on unmount. */
+  private copyResetTimeout: ReturnType<typeof setTimeout> | null = null;
+
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error };
   }
 
   override componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     this.setState({ errorInfo });
-    // Log to extension via postMessage if available
+    // Log to extension via postMessage if available. The VS Code webview API
+    // is acquired through getVscodeApi() (module-cached); it falls back to a
+    // no-op implementation outside a webview (tests, dev server).
     try {
-      const vscodeApi = (window as unknown as Record<string, unknown>).vscodeApi as
-        | { postMessage: (msg: unknown) => void }
-        | undefined;
-      vscodeApi?.postMessage({
+      getVscodeApi().postMessage({
         type: 'error:boundary',
         payload: {
           message: error.message,
@@ -48,6 +51,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
       });
     } catch {
       // Silently ignore if postMessage is not available
+    }
+  }
+
+  override componentWillUnmount(): void {
+    if (this.copyResetTimeout !== null) {
+      clearTimeout(this.copyResetTimeout);
+      this.copyResetTimeout = null;
     }
   }
 
@@ -69,7 +79,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
     void navigator.clipboard.writeText(text).then(() => {
       this.setState({ copied: true });
-      setTimeout(() => this.setState({ copied: false }), 2000);
+      this.copyResetTimeout = setTimeout(() => this.setState({ copied: false }), 2000);
     });
   };
 

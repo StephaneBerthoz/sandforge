@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import { getPersistedItem, setPersistedItem } from '../utils/webviewStorage';
+
 /** State and actions for module favorites/bookmarks */
 export interface FavoritesState {
   favorites: string[];
@@ -10,10 +12,10 @@ export interface FavoritesState {
 
 const STORAGE_KEY = 'sf-favorites';
 
-/** Load favorites from sessionStorage */
+/** Load favorites from the persisted VS Code webview state */
 function loadFavorites(): string[] {
   try {
-    const stored = sessionStorage.getItem(STORAGE_KEY);
+    const stored = getPersistedItem(STORAGE_KEY);
     if (stored) {
       const parsed: unknown = JSON.parse(stored);
       if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'string')) {
@@ -26,10 +28,10 @@ function loadFavorites(): string[] {
   return [];
 }
 
-/** Persist favorites to sessionStorage */
+/** Persist favorites to the VS Code webview state */
 function saveFavorites(favorites: string[]): void {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(favorites));
+    setPersistedItem(STORAGE_KEY, JSON.stringify(favorites));
   } catch {
     // Ignore storage errors
   }

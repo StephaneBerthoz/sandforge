@@ -39,10 +39,10 @@ describe('useSettingsPageData', () => {
     const { result } = renderHook(() => useSettingsPageData());
 
     act(() => {
-      result.current.updateSetting('theme', 'dark');
+      result.current.updateSetting('language', 'fr');
     });
 
-    expect(result.current.settings.theme).toBe('dark');
+    expect(result.current.settings.language).toBe('fr');
   });
 
   it('should call onSave callback on handleSave', () => {

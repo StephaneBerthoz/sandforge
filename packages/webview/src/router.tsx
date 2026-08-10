@@ -7,6 +7,7 @@ import { MonitorPage } from './pages/Monitor/MonitorPage';
 import { ComparePage } from './pages/Compare/ComparePage';
 import { DataOpsPage } from './pages/DataOps/DataOpsPage';
 import { AutomationPage } from './pages/Automation/AutomationPage';
+import { MigrationPage } from './pages/Migration/MigrationPage';
 import { ForgePage } from './pages/Forge/ForgePage';
 import { FrozenPage } from './pages/Frozen/FrozenPage';
 import { GrappePage } from './pages/Grappe/GrappePage';
@@ -15,6 +16,7 @@ import { SettingsPage } from './pages/Settings/SettingsPage';
 import { HelpPage } from './pages/Help/HelpPage';
 import { SeedPage } from './pages/Seed/SeedPage';
 import { SyncPage } from './pages/Sync/SyncPage';
+import { AutopilotPage } from './pages/Autopilot/AutopilotPage';
 import { AIPage } from './pages/AI/AIPage';
 
 /** Placeholder for welcome route (handled in App.tsx overlay). */
@@ -33,7 +35,9 @@ const routeComponents: Record<ModuleRoute, React.FC> = {
   compare: ComparePage,
   dataops: DataOpsPage,
   automation: AutomationPage,
+  migration: MigrationPage,
   ai: AIPage,
+  autopilot: AutopilotPage,
   reports: ReportsPage,
   settings: SettingsPage,
   welcome: WelcomePlaceholder,
