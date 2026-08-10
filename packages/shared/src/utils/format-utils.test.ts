@@ -46,6 +46,13 @@ describe('formatBytes edge cases', () => {
     const result = formatBytes(1e18);
     expect(result).toMatch(/TB$/);
   });
+  it('should return N/A for NaN', () => {
+    expect(formatBytes(NaN)).toBe('N/A');
+  });
+  it('should return N/A for Infinity', () => {
+    expect(formatBytes(Infinity)).toBe('N/A');
+    expect(formatBytes(-Infinity)).toBe('N/A');
+  });
 });
 
 describe('formatNumber', () => {
@@ -122,5 +129,22 @@ describe('progressBar', () => {
   it('should handle 25% correctly', () => {
     const bar = progressBar(25, 20);
     expect(bar).toBe('\u2588'.repeat(5) + '\u2591'.repeat(15));
+  });
+});
+
+describe('progressBar edge cases', () => {
+  it('should clamp values above 100% to a full bar', () => {
+    const bar = progressBar(150, 10);
+    expect(bar).toBe('\u2588'.repeat(10));
+  });
+
+  it('should clamp negative values to an empty bar', () => {
+    const bar = progressBar(-20, 10);
+    expect(bar).toBe('\u2591'.repeat(10));
+  });
+
+  it('should treat non-finite values as 0%', () => {
+    const bar = progressBar(NaN, 10);
+    expect(bar).toBe('\u2591'.repeat(10));
   });
 });

@@ -1,4 +1,5 @@
 {
+  "_warning": "ASPIRATIONAL — not consumed by the extension as of v1.3.0. See docs/.",
   "_description": "SandForge team configuration file. Copy this to .sandforge.json and customize for your team.",
 
   "team": {

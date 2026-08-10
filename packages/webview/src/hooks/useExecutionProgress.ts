@@ -3,8 +3,16 @@ import type { BulkExecutionProgress, ExecutionProgressMessage } from '@sandforge
 import { useMessageListener } from './useMessageBus';
 
 /**
+ * Upper bound of tracked executions. Terminal entries are kept (consumers
+ * display the final state of an execution), so without a bound the map grew
+ * by one entry per execution for the whole session lifetime. The Map keeps
+ * insertion order, so the oldest execution is evicted first.
+ */
+export const MAX_TRACKED_EXECUTIONS = 20;
+
+/**
  * Hook that subscribes to `execution:progress` messages and maintains
- * a map of active execution progress states.
+ * a bounded map of execution progress states (see MAX_TRACKED_EXECUTIONS).
  *
  * @returns Progress getter and list of active execution IDs.
  */
@@ -21,7 +29,15 @@ export function useExecutionProgress(): {
     useCallback((message: ExecutionProgressMessage) => {
       setProgressMap((prev) => {
         const next = new Map(prev);
+        // delete+set re-inserts at the end, refreshing recency for an
+        // already-tracked execution.
+        next.delete(message.payload.executionId);
         next.set(message.payload.executionId, message.payload);
+        while (next.size > MAX_TRACKED_EXECUTIONS) {
+          const oldest = next.keys().next().value;
+          if (oldest === undefined) break;
+          next.delete(oldest);
+        }
         return next;
       });
     }, []),

@@ -30,6 +30,7 @@ export function nowISO(): string {
 export function timeAgo(isoDate: string): string {
   const now = Date.now();
   const then = new Date(isoDate).getTime();
+  if (Number.isNaN(then)) return 'unknown';
   const diffMs = now - then;
 
   if (diffMs < 60_000) return 'just now';
@@ -63,7 +64,8 @@ export function estimateCompletion(
   total: number,
   elapsedMs: number,
 ): number | undefined {
-  if (processed === 0 || total === 0) return undefined;
+  if (processed === 0 || total === 0 || elapsedMs <= 0) return undefined;
+  if (processed >= total) return 0;
   const rate = processed / elapsedMs;
   const remaining = total - processed;
   return Math.round(remaining / rate);

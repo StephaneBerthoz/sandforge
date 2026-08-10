@@ -228,35 +228,6 @@ export function mockSyncConflict(): {
   };
 }
 
-/** Mock monitor metrics snapshot payload. */
-export function mockMonitorMetrics(): {
-  limits: { apiRequests: { used: number; max: number; percent: number } };
-  jobs: { running: number; completed: number; failed: number };
-  lastUpdated: string;
-} {
-  return {
-    limits: {
-      apiRequests: { used: 45000, max: 100000, percent: 45 },
-    },
-    jobs: { running: 2, completed: 17, failed: 1 },
-    lastUpdated: new Date().toISOString(),
-  };
-}
-
-/** Mock export-URL payload returned after a CSV export. */
-export function mockExportUrl(): {
-  format: 'csv';
-  blobUrl: string;
-  fileName: string;
-} {
-  const today = new Date().toISOString().slice(0, 10);
-  return {
-    format: 'csv',
-    blobUrl: 'data:text/csv;base64,bmFtZSx2YWx1ZQpmb28sMQ==',
-    fileName: `monitor-export-${today}.csv`,
-  };
-}
-
 /** Mock CDC subscription response payload. */
 export function mockCdcSubscription(): {
   subscriptionId: string;

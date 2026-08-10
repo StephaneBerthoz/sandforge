@@ -5,7 +5,7 @@ export interface RecentOp {
   /** Unique identifier for the operation. */
   id: string;
   /** Module that produced the operation. */
-  type: 'forge' | 'seed' | 'sync' | 'compare' | 'dataops' | 'automation';
+  type: 'forge' | 'seed' | 'sync' | 'compare' | 'dataops' | 'automation' | 'frozen';
   /** Short human-readable label. */
   label: string;
   /** Current execution status. */

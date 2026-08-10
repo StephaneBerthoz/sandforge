@@ -241,6 +241,12 @@ export class ExtensionHandlers {
    * - `sync` → SyncOpsHandler.rerunFromSnapshot (config snapshot re-validated);
    * - `seed` → SeedOpsHandler seed:execute (payload re-validated).
    *
+   * Note: nothing enqueues `seed` operations anymore (inserts are not
+   * idempotent — auto-replay could duplicate records; the failure payload
+   * carries `offlineReplayAvailable: false` instead). The `seed` case stays so
+   * queue entries persisted by earlier versions still drain instead of being
+   * rejected as unsupported.
+   *
    * Execution failures are reported on the usual `<domain>:error` /
    * `operation:failed` channels rather than thrown, so a failed replay is
    * consumed from the queue (OfflineManager counts it executed) and surfaced

@@ -6,6 +6,7 @@ import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import type { SupportedLanguage } from '../../i18n';
 import { useSettingsPageData } from './useSettingsPageData';
 
 /**
@@ -20,13 +21,27 @@ import { useSettingsPageData } from './useSettingsPageData';
  * (`sandforge.seed.defaultBatchSize`, `sandforge.sync.maxConcurrentOps`, ...).
  */
 export interface SettingsValues {
-  language: string;
+  language: SupportedLanguage;
 }
 
 /** Default settings. */
 export const defaultSettings: SettingsValues = {
   language: 'en',
 };
+
+/**
+ * Language options with NATIVE labels: a language selector must stay
+ * readable even when the UI is currently rendered in a language the user
+ * cannot read, so labels are intentionally NOT translated.
+ */
+const LANGUAGE_OPTIONS: ReadonlyArray<{ value: SupportedLanguage; label: string }> = [
+  { value: 'en', label: 'English' },
+  { value: 'fr', label: 'Français' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'es', label: 'Español' },
+  { value: 'ja', label: '日本語' },
+  { value: 'pt-BR', label: 'Português (Brasil)' },
+];
 
 /** SettingsPage component props. */
 export interface SettingsPageProps {
@@ -106,16 +121,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     <Select
                       data-testid="language-select"
                       aria-label={t('settings.language')}
-                      options={[
-                        { value: 'en', label: t('settings.languages.en') },
-                        { value: 'fr', label: t('settings.languages.fr') },
-                      ]}
+                      options={LANGUAGE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
                       value={settings.language}
                       onChange={(e) => {
-                        updateSetting('language', e.target.value);
+                        const language = e.target.value as SupportedLanguage;
+                        updateSetting('language', language);
                         // Apply immediately — the i18n module persists the
                         // choice to the webview state on every change.
-                        void i18n.changeLanguage(e.target.value);
+                        void i18n.changeLanguage(language);
                       }}
                     />
                   </div>

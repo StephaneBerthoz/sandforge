@@ -252,9 +252,6 @@ export interface AutopilotAnonymizationRule extends BaseAnonymizationRule {
   readonly userOverridden: boolean;
 }
 
-/** @deprecated Use AutopilotAnonymizationRule instead */
-export type { AutopilotAnonymizationRule as AnonymizationRule };
-
 /** User override for an anonymization rule */
 export interface AnonymizationOverride {
   /** Object containing the field */

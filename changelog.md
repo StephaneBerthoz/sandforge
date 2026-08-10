@@ -5,6 +5,46 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-08-10
+
+**Post-release hardening release**: a full second audit pass over 1.3.0. The offline queue is now safe for non-idempotent operations and can no longer strand operations, the recent-operations panels are actually fed, and the remaining documentation drift is closed.
+
+### Added
+
+- **Offline queue notifications**: native VS Code notifications when an operation is queued, replayed, or fails to replay (the queue events previously had no listener).
+- **Recent operations feed**: the "Running / Last operation" blocks (Home, sidebar, status footer) are now wired to real `operation:*` bridge messages — they were always empty before.
+- **Reports module command**: `sandforge.openReports` — every module now truly has its own command (16 module commands).
+- **Keyboard shortcuts for every module**: chord map and Ctrl+number map now cover all 17 navigable routes (seed, sync, autopilot, migration, frozen, ai, orgs, help…).
+- **6-language selector in Settings**: German, Spanish, Japanese and Brazilian Portuguese added to the language dropdown (only en/fr were offered); `language` is now typed `SupportedLanguage`.
+- Pre-publish: VSIX now verified to contain the vendored Anthropic SDK; all 46 manifest `%key%` placeholders are validated (not just command titles); fail-fast preflight in the release workflow (PAT present, tag not already on origin); ESM entry-point sanity checks in the SDK vendoring script.
+- i18n parity gate now covers the new keys; shared-package coverage ratcheted (real measured baseline: 86% lines once pure-data locales are excluded).
+
+### Changed
+
+- **Offline queue safety**: seed operations (INSERT — not idempotent) are no longer auto-queued for replay; a network failure now returns an explicit retry hint instead of risking duplicate records on reconnect. Sync (upsert-based) keeps automatic replay.
+- **Drain on enqueue-while-online**: re-queued operations no longer wait for a connectivity transition that may never come — the queue drains (debounced, serialized) as soon as it is fed while online. Persisted queue entries are schema-validated at load; event emission is listener-fault isolated.
+- Webview language has a single source of truth (webview state); the settings blob mirrors it instead of silently diverging.
+- The Welcome "don't show again" checkbox is now actually honored (it was write-only).
+- Operation registry marks a resolved-with-`failure` execution as failed — no more "sync completed" notifications for failed syncs.
+- Salesforce API version centralized: the last hardcoded `'62.0'` literals now use `SF_LIMITS.DEFAULT_API_VERSION`.
+- `useExecutionProgress` map is bounded (20 executions, LRU eviction) instead of growing for the webview's lifetime; terminal states remain visible.
+- QuickSync transient states (executing/error) are no longer persisted — a panel reload mid-run no longer restores a permanent spinner.
+- Forge record previews ignore positively-stale responses (correlation guard — last call wins).
+- `prefers-reduced-motion` is now respected globally via `MotionConfig reducedMotion="user"`.
+- Packaging uses the lockfile-pinned `vsce` (`pnpm exec`) for building the VSIX, matching the pinned publish.
+- Docs aligned: module table lists all 14 modules (Migration and Autopilot added), seed wizard documented as 4 steps, the obsolete "2-pass not implemented" limitation removed, the Automation scheduler marked "coming soon", phantom getting-started screenshots fixed, Node 22 requirement everywhere, README badges (version/tests/VSIX size) corrected — and the version badge is now auto-updated by the bump script.
+
+### Fixed
+
+- `openOrgInBrowser` no longer throws on a malformed persisted instance URL.
+- Shared utils hardened: `formatBytes(NaN/Infinity)`, `timeAgo('garbage')`, `estimateCompletion` edge cases, `progressBar` out-of-range — with tests.
+- Extension panel crash = blank panel: `PanelApp` and `SidePanel` are now wrapped in the ErrorBoundary.
+
+### Removed
+
+- Dead code: `core/engine/RateLimiter` (imported only by its own test), webview `diffWorker`/`searchWorker` (never instantiable under the CSP), the duplicate `i18n/useTranslation.ts`, deprecated `AnonymizationRule` aliases, `orgTypeToSafetyTier`.
+- Zombie e2e spec driving purged bridge channels (`monitor:metrics/export`), with its harness flow and fixtures.
+
 ## [1.3.0] - 2026-08-10
 
 **Marketplace trust and dead-code release**: the listing now tells the truth, the navigation reaches every module, the VSIX no longer leaks internal tooling state, and ~5,000 lines of dead code are gone. Ships with a native Organizations tree view, a Get Started walkthrough, and an SFDMU import UI.

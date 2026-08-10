@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -146,6 +146,11 @@
         "command": "sandforge.openOrgs",
         "title": "%command.openOrgs%",
         "icon": "$(plug)"
+      },
+      {
+        "command": "sandforge.openReports",
+        "title": "%command.openReports%",
+        "icon": "$(graph)"
       },
       {
         "command": "sandforge.openSettings",

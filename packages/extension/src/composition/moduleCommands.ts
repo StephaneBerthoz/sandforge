@@ -31,6 +31,7 @@ export const MODULE_COMMANDS: readonly ModuleCommand[] = [
   { command: 'sandforge.openMigration', moduleId: 'migration', title: 'Migration' },
   { command: 'sandforge.openAI', moduleId: 'ai', title: 'AI Assistant' },
   { command: 'sandforge.openOrgs', moduleId: 'orgs', title: 'Organizations' },
+  { command: 'sandforge.openReports', moduleId: 'reports', title: 'Reports' },
   { command: 'sandforge.openSettings', moduleId: 'settings', title: 'Settings' },
   { command: 'sandforge.openHelp', moduleId: 'help', title: 'Help' },
 ];

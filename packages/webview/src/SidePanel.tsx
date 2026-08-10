@@ -30,6 +30,7 @@ import { ORG_TYPE_STYLES, ORG_TYPE_STYLE_DEFAULT } from './theme/orgStyles';
 import { orgTypeLabel } from './utils/orgFormatters';
 import { formatRelativeTimeI18n } from './utils/formatters';
 import { useVSCodeApi } from './hooks/useVSCodeApi';
+import { useRecentOpsFeed } from './hooks/useRecentOpsFeed';
 import { useRecentOpsStore } from './stores/useRecentOpsStore';
 import type { RecentOp } from './stores/useRecentOpsStore';
 import { useOrgStore } from './stores/useOrgStore';
@@ -146,6 +147,9 @@ const TOOL_ITEMS: NavItem[] = [
 export const SidePanel: React.FC = () => {
   const { t } = useTranslation();
   const vscodeApi = useVSCodeApi();
+  // Feed the recent-ops store from operation lifecycle messages so the
+  // Running/Last operation blocks below have real data.
+  useRecentOpsFeed();
   const ops = useRecentOpsStore((s) => s.ops);
   const lastOp = ops[0] as RecentOp | undefined;
   const runningOp = ops.find((op) => op.status === 'running');

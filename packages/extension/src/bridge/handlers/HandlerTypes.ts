@@ -218,13 +218,15 @@ export function sendOperationFailed(
   operationId: string,
   error: string,
   retryable: boolean,
+  extraPayload?: Record<string, unknown>,
 ): void {
-  const msg: BaseMessage & { payload: { operationId: string; error: string; retryable: boolean } } =
-    {
-      id: deps.nextId(),
-      type: 'operation:failed',
-      timestamp: Date.now(),
-      payload: { operationId, error, retryable },
-    };
+  const msg: BaseMessage & {
+    payload: { operationId: string; error: string; retryable: boolean } & Record<string, unknown>;
+  } = {
+    id: deps.nextId(),
+    type: 'operation:failed',
+    timestamp: Date.now(),
+    payload: { operationId, error, retryable, ...extraPayload },
+  };
   deps.broker.postToWebview(msg);
 }

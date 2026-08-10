@@ -7,7 +7,7 @@ import type {
   ApiUsageCategory,
   OrgHealthStatus,
 } from '@sandforge/shared';
-import { MONITOR_PERIOD_MAP, MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
+import { MONITOR_PERIOD_MAP, MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS, SF_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import {
@@ -273,7 +273,7 @@ export class MonitorOpsHandler implements DomainHandler {
             const id = await conn.identity();
             return {
               instanceName: ((id as Record<string, unknown>).instance_name as string) ?? '',
-              apiVersion: conn.version ?? '62.0',
+              apiVersion: conn.version ?? SF_LIMITS.DEFAULT_API_VERSION,
               lastLoginDate:
                 ((id as Record<string, unknown>).last_login_date as string) ??
                 new Date().toISOString(),

@@ -1,6 +1,6 @@
 {
   "name": "sandforge",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "Salesforce Sandbox ETL Toolkit for VSCode",
   "scripts": {
@@ -23,7 +23,7 @@
     "audit:disposables": "tsx scripts/audit-disposables.ts",
     "check:i18n": "tsx scripts/check-i18n-parity.ts",
     "soak:test": "tsx scripts/soak-test.ts",
-    "package": "pnpm build && cd packages/extension && npx @vscode/vsce package --no-dependencies -o ../../sandforge.vsix",
+    "package": "pnpm build && cd packages/extension && pnpm exec vsce package --no-dependencies -o ../../sandforge.vsix",
     "setup:hooks": "git config core.hooksPath scripts/git-hooks",
     "prepare": "pnpm setup:hooks",
     "clean": "pnpm -r clean && rm -rf node_modules"

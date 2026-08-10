@@ -4,7 +4,7 @@ Generate realistic test data in your Salesforce sandboxes with AI, Faker profile
 
 SandForge offers three Seed modes accessible from a card-based mode selector:
 
-- **AI Generate**: Use the 8-step Seed Wizard or Quick Seed from a template gallery to generate data with AI, Faker profiles, or templates
+- **AI Generate**: Use the 4-step Seed Wizard or Quick Seed from a template gallery to generate data with AI, Faker profiles, or templates
 - **CSV Upload**: Import data from a CSV file with auto column mapping, validation, and a 4-step wizard
 - **Clone from Org**: Clone records from a source org into a target org with relationship-ordered insert and ID mapping
 
@@ -19,7 +19,7 @@ SandForge offers three Seed modes accessible from a card-based mode selector:
 
 ### AI Generate (Seed Wizard)
 
-The classic 8-step wizard for AI-powered data generation:
+The classic 4-step wizard for AI-powered data generation:
 
 - **Step 1 -- Select:** Choose an org, pick objects from the schema list, and set record volumes. The NL2SOQL helper lets you describe what you need in plain English.
 - **Step 2 -- Configure:** Customize field generation rules per object. Adjust batch sizes, configure parent-child relationships, and review PII warnings.

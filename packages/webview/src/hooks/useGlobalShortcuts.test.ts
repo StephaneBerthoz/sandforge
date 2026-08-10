@@ -99,6 +99,48 @@ describe('useGlobalShortcuts', () => {
     expect(useAppStore.getState().currentRoute).toBe('automation');
   });
 
+  it('navigates to grappe on Ctrl+7', () => {
+    renderHook(() => useGlobalShortcuts());
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '7', ctrlKey: true }));
+    expect(useAppStore.getState().currentRoute).toBe('grappe');
+  });
+
+  it('navigates to autopilot on Ctrl+8', () => {
+    renderHook(() => useGlobalShortcuts());
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '8', ctrlKey: true }));
+    expect(useAppStore.getState().currentRoute).toBe('autopilot');
+  });
+
+  it('navigates to migration on Ctrl+9', () => {
+    renderHook(() => useGlobalShortcuts());
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '9', ctrlKey: true }));
+    expect(useAppStore.getState().currentRoute).toBe('migration');
+  });
+
+  it('navigates to forge on Ctrl+0', () => {
+    renderHook(() => useGlobalShortcuts());
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: '0', ctrlKey: true }));
+    expect(useAppStore.getState().currentRoute).toBe('forge');
+  });
+
+  // ── Chords for the remaining navigation modules ──
+
+  it.each([
+    ['s', 'seed'],
+    ['y', 'sync'],
+    ['p', 'autopilot'],
+    ['n', 'migration'],
+    ['z', 'frozen'],
+    ['i', 'ai'],
+    ['o', 'orgs'],
+    ['l', 'help'],
+  ] as const)('navigates on G→%s chord to %s', (key, route) => {
+    renderHook(() => useGlobalShortcuts());
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key }));
+    expect(useAppStore.getState().currentRoute).toBe(route);
+  });
+
   it('ignores Ctrl+N shortcuts when focus is in input', () => {
     renderHook(() => useGlobalShortcuts());
     const input = document.createElement('input');

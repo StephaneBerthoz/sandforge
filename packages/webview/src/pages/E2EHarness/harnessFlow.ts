@@ -6,20 +6,14 @@
  * tree-shaken out of the production bundle.
  */
 
-export type Flow = 'seed-ai' | 'sync-conflict' | 'monitor' | 'cdc' | 'ai-diagnose';
+export type Flow = 'seed-ai' | 'sync-conflict' | 'cdc' | 'ai-diagnose';
 
 /** Read the ?e2e-harness=<flow> query param. Returns null when absent. */
 export function getHarnessFlow(search: string): Flow | null {
   try {
     const params = new URLSearchParams(search);
     const raw = params.get('e2e-harness');
-    if (
-      raw === 'seed-ai' ||
-      raw === 'sync-conflict' ||
-      raw === 'monitor' ||
-      raw === 'cdc' ||
-      raw === 'ai-diagnose'
-    ) {
+    if (raw === 'seed-ai' || raw === 'sync-conflict' || raw === 'cdc' || raw === 'ai-diagnose') {
       return raw;
     }
     return null;

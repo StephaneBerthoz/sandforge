@@ -1,4 +1,6 @@
 import type { ConfigStore } from '../storage/ConfigStore';
+import { logger } from '../../logger.js';
+import { extractErrorMessage } from '../common/extractErrorMessage.js';
 
 /** Online/offline status */
 export type ConnectivityStatus = 'online' | 'offline' | 'degraded';
@@ -47,12 +49,19 @@ export class OfflineManager {
   private static readonly CATEGORY = 'offline-queue';
   private static readonly MAX_QUEUE_SIZE = 50;
   private static readonly PROBE_INTERVAL = 30_000;
+  /**
+   * Debounce before an enqueue-while-online triggers a drain. Batches burst
+   * enqueues into a single drain and keeps a failing replay from hot-looping
+   * (each retry waits at least this long).
+   */
+  private static readonly DRAIN_DEBOUNCE_MS = 1_000;
 
   private readonly store: ConfigStore;
   private readonly maxQueueSize: number;
   private status: ConnectivityStatus = 'online';
   private queue: QueuedOperation[] = [];
   private probeTimer: ReturnType<typeof setInterval> | undefined;
+  private drainTimer: ReturnType<typeof setTimeout> | undefined;
   private probeExecutor: (() => Promise<boolean>) | undefined;
   private operationExecutor: OperationExecutor | undefined;
   private readonly listeners: Set<OfflineEventListener> = new Set();
@@ -156,6 +165,13 @@ export class OfflineManager {
     this.queue.push(queued);
     this.persistQueue();
     this.emit({ type: 'operationQueued', operation: queued });
+
+    // A replay that fails again on a network error re-enqueues while the
+    // probe still reports 'online' — without this drain the entry would sit
+    // parked until the next offline→online transition that may never come.
+    if (this.status === 'online') {
+      this.scheduleDrain();
+    }
     return true;
   }
 
@@ -247,23 +263,83 @@ export class OfflineManager {
   /** Dispose timers and clean up */
   dispose(): void {
     this.stopProbing();
+    if (this.drainTimer) {
+      clearTimeout(this.drainTimer);
+      this.drainTimer = undefined;
+    }
     this.listeners.clear();
   }
 
   private loadQueue(): void {
     const stored = this.store.get<QueuedOperation[]>('offline:queue');
-    if (stored && Array.isArray(stored)) {
-      this.queue = stored;
+    if (!stored || !Array.isArray(stored)) {
+      return;
     }
+    // Drop malformed entries (hand-edited or corrupted storage) instead of
+    // letting them crash the drain loop later.
+    this.queue = stored.filter((entry): entry is QueuedOperation => {
+      if (!OfflineManager.isValidQueuedOperation(entry)) {
+        logger.warn('OfflineManager: dropped malformed queued operation from storage', {
+          entry: JSON.stringify(entry),
+        });
+        return false;
+      }
+      return true;
+    });
+  }
+
+  /** Light shape check for persisted queue entries; backfills missing metadata. */
+  private static isValidQueuedOperation(entry: unknown): entry is QueuedOperation {
+    if (typeof entry !== 'object' || entry === null) {
+      return false;
+    }
+    const candidate = entry as Partial<QueuedOperation>;
+    if (
+      typeof candidate.id !== 'string' ||
+      typeof candidate.type !== 'string' ||
+      typeof candidate.orgId !== 'string' ||
+      typeof candidate.payload !== 'object' ||
+      candidate.payload === null
+    ) {
+      return false;
+    }
+    if (typeof candidate.queuedAt !== 'string') {
+      candidate.queuedAt = new Date().toISOString();
+    }
+    if (typeof candidate.retryCount !== 'number') {
+      candidate.retryCount = 0;
+    }
+    return true;
   }
 
   private persistQueue(): void {
     this.store.set('offline:queue', this.queue, OfflineManager.CATEGORY);
   }
 
+  /**
+   * Debounced drain trigger. `drainQueue` itself is reentrancy-safe (the
+   * `draining` flag serializes concurrent calls), so the timer only needs to
+   * collapse multiple enqueues into one drain.
+   */
+  private scheduleDrain(): void {
+    if (this.drainTimer) {
+      clearTimeout(this.drainTimer);
+    }
+    this.drainTimer = setTimeout(() => {
+      this.drainTimer = undefined;
+      void this.drainQueue();
+    }, OfflineManager.DRAIN_DEBOUNCE_MS);
+  }
+
   private emit(event: OfflineEvent): void {
     for (const listener of this.listeners) {
-      listener(event);
+      try {
+        listener(event);
+      } catch (err) {
+        logger.warn('OfflineManager listener threw', {
+          error: extractErrorMessage(err),
+        });
+      }
     }
   }
 }

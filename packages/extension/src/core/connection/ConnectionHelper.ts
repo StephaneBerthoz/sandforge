@@ -1,5 +1,6 @@
 import jsforce, { type Connection } from 'jsforce';
 import type { UUID } from '@sandforge/shared';
+import { SF_LIMITS } from '@sandforge/shared';
 import type { OrgRegistry } from './OrgRegistry';
 import type { OrgManager } from './OrgManager';
 import { ConnectionPool } from './ConnectionPool';
@@ -144,7 +145,7 @@ export async function getJsforceConnection(
     throw new Error(`No credentials for org "${org.alias}" (${orgId}). Reconnect the org.`);
   }
 
-  const apiVersion = org.metadata.apiVersion || '62.0';
+  const apiVersion = org.metadata.apiVersion || SF_LIMITS.DEFAULT_API_VERSION;
 
   // Check the pool for an existing connection with a matching token
   const pooled = connectionPool.get(uid);

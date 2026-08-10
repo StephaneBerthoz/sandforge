@@ -104,6 +104,54 @@ describe('BackgroundOperationRegistry', () => {
     });
   });
 
+  describe('promise resolving with a failure-status result', () => {
+    it('should mark the operation as failed (not completed)', async () => {
+      const events: { id: string; type: OperationEventType }[] = [];
+      registry.onEvent((id, type) => {
+        events.push({ id, type });
+      });
+
+      let resolve!: (value: unknown) => void;
+      // executeSync resolves with status:'failure' instead of rejecting, so
+      // scheduled runs persist lastResult='failure'.
+      const promise = new Promise<unknown>((r) => {
+        resolve = r;
+      });
+
+      registry.register('op-1', 'sync', 'Sync Account', promise, new AbortController());
+
+      resolve({ status: 'failure', totalProcessed: 0, totalFailed: 0 });
+      await promise;
+      await new Promise<void>((r) => {
+        setTimeout(r, 0);
+      });
+
+      const op = registry.get('op-1');
+      expect(op?.status).toBe('failed');
+      expect(events).toEqual([
+        { id: 'op-1', type: 'started' },
+        { id: 'op-1', type: 'failed' },
+      ]);
+    });
+
+    it('should still mark successful results (status !== failure) as completed', async () => {
+      let resolve!: (value: unknown) => void;
+      const promise = new Promise<unknown>((r) => {
+        resolve = r;
+      });
+
+      registry.register('op-1', 'sync', 'Sync Account', promise, new AbortController());
+
+      resolve({ status: 'success', totalProcessed: 10 });
+      await promise;
+      await new Promise<void>((r) => {
+        setTimeout(r, 0);
+      });
+
+      expect(registry.get('op-1')?.status).toBe('completed');
+    });
+  });
+
   describe('abort', () => {
     it('should call abortController.abort() and emit aborted event', () => {
       const listener = vi.fn();

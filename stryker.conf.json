@@ -21,7 +21,7 @@
   "reporters": ["html", "clear-text", "progress", "json"],
   "htmlReporter": { "fileName": "reports/mutation/mutation.html" },
   "jsonReporter": { "fileName": "reports/mutation/mutation.json" },
-  "thresholds": { "high": 80, "low": 60, "break": 50 },
+  "thresholds": { "high": 80, "low": 60, "break": 54 },
   "timeoutMS": 30000,
   "timeoutFactor": 2,
   "concurrency": 4,

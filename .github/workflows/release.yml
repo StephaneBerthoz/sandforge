@@ -31,6 +31,24 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Fail fast before doing any work: the Marketplace token must exist,
+      # and the current version's tag must not already be on origin (a
+      # re-run after a completed release would bump/tag/publish on top of it).
+      - name: Fail-fast preflight
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::VSCE_PAT secret is not set — cannot publish to the Marketplace"
+            exit 1
+          fi
+          TAG="v$(node -p "require('./package.json').version")"
+          if git ls-remote --tags origin "$TAG" | grep -q .; then
+            echo "::error::$TAG already exists on origin — this version was already released"
+            exit 1
+          fi
+          echo "Preflight OK: VSCE_PAT present, $TAG not on origin"
+
       # pnpm version comes from the packageManager field in package.json
       - uses: pnpm/action-setup@v4
 
@@ -80,7 +98,7 @@ jobs:
       # recoverable by re-running the publish manually.
       - name: Push commit and tag
         run: |
-          git push origin master
+          git push origin HEAD
           git push origin "v${{ env.NEW_VERSION }}"
 
       # Use the lockfile-pinned vsce (devDependency of packages/extension)

@@ -1,5 +1,5 @@
 import type { BaseMessage, SalesforceOrg, OrgConnectRequest } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendNotification } from './HandlerTypes.js';
 import {
@@ -193,7 +193,7 @@ export class OrgHandler implements DomainHandler {
           position: 0,
         },
         metadata: {
-          apiVersion: '62.0',
+          apiVersion: SF_LIMITS.DEFAULT_API_VERSION,
           edition: identity.orgType,
           features: [],
         },

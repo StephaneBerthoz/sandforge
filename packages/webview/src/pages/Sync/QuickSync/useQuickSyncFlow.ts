@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { QuickSyncPreview, SyncExecutionResult } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
 import { useWebviewPersistedState } from '../../../hooks/useWebviewPersistedState';
@@ -91,11 +91,13 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
     'quickSyncResult',
     null,
   );
-  const [isExecuting, setIsExecuting] = useWebviewPersistedState<boolean>(
-    'quickSyncExecuting',
-    false,
-  );
-  const [error, setError] = useWebviewPersistedState<string | null>('quickSyncError', null);
+  /**
+   * Transient execution state is deliberately NOT persisted: restoring
+   * `isExecuting=true` (or a stale error) after a webview reload revived a
+   * permanent spinner on the preview screen while no operation was running.
+   */
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const previewMutation = useBridgeMutation<{ preview: QuickSyncPreview }>('quicksync:preview');
   // `quicksync:execute` prepares the run: the extension auto-maps fields and

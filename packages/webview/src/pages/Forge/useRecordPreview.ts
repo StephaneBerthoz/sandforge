@@ -33,25 +33,52 @@ export function useRecordPreview(recordId: string, sourceOrgId: string): RecordP
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  /**
+   * Last-call-wins correlation guard. The extension echoes the request id as
+   * `correlationId` on responses built with buildResponse — without a guard,
+   * a late response from a superseded request would overwrite the preview of
+   * the record the user is currently editing. `null` means no request was
+   * sent yet (uncorrelated responses keep the legacy behavior, e.g. tests);
+   * `''` means the input was reset and any correlated response is stale.
+   */
+  const pendingRequestIdRef = useRef<string | null>(null);
+
+  /** True only when the response positively correlates to a DIFFERENT request. */
+  const isStaleResponse = useCallback((correlationId: string | undefined): boolean => {
+    const pending = pendingRequestIdRef.current;
+    return pending != null && correlationId != null && correlationId !== pending;
+  }, []);
+
   useMessageListener<BaseMessage & { payload: RecordPreview }>(
     'forge:preview:response',
-    useCallback((msg) => {
-      setPreview(msg.payload);
-      setPreviewLoading(false);
-      setPreviewError(null);
-    }, []),
+    useCallback(
+      (msg) => {
+        if (isStaleResponse(msg.correlationId)) return;
+        setPreview(msg.payload);
+        setPreviewLoading(false);
+        setPreviewError(null);
+      },
+      [isStaleResponse],
+    ),
   );
 
   useMessageListener<BaseMessage & { payload: { message: string } }>(
     'forge:preview:error',
-    useCallback((msg) => {
-      setPreviewLoading(false);
-      setPreviewError(msg.payload.message);
-    }, []),
+    useCallback(
+      (msg) => {
+        if (isStaleResponse(msg.correlationId)) return;
+        setPreviewLoading(false);
+        setPreviewError(msg.payload.message);
+      },
+      [isStaleResponse],
+    ),
   );
 
   /** Clear preview + error — called when the user edits the record input. */
   const resetPreview = useCallback(() => {
+    // Invalidate the in-flight request: its late response must not
+    // re-populate the preview the user just cleared.
+    pendingRequestIdRef.current = '';
     setPreview(null);
     setPreviewError(null);
   }, []);
@@ -68,12 +95,12 @@ export function useRecordPreview(recordId: string, sourceOrgId: string): RecordP
     setPreviewLoading(true);
     setPreviewError(null);
     setPreview(null);
-    sendMessage(
-      buildMessage<{ recordId: string; orgId: string }>('forge:preview', {
-        recordId: id,
-        orgId: sourceOrgId,
-      }),
-    );
+    const request = buildMessage<{ recordId: string; orgId: string }>('forge:preview', {
+      recordId: id,
+      orgId: sourceOrgId,
+    });
+    pendingRequestIdRef.current = request.id;
+    sendMessage(request);
   }, [recordId, sourceOrgId, sendMessage]);
 
   /* ---- Auto-trigger preview when record ID is valid ---- */

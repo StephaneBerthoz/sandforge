@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { SF_LIMITS } from '../constants/sf-limits.js';
 import { grappeConfigSchema } from './grappe.schema.js';
 
 /** General settings schema */
@@ -15,7 +16,7 @@ export const generalSettingsSchema = z.object({
 
 /** Connection settings schema */
 export const connectionSettingsSchema = z.object({
-  defaultApiVersion: z.string().default('62.0'),
+  defaultApiVersion: z.string().default(SF_LIMITS.DEFAULT_API_VERSION),
   connectionTimeout: z.number().int().positive().default(30_000),
   maxRetries: z.number().int().nonnegative().default(3),
   keepAliveInterval: z.number().int().positive().default(60_000),

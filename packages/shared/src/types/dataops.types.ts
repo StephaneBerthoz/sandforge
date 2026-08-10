@@ -83,9 +83,6 @@ export interface DataOpsAnonymizationRule extends BaseAnonymizationRule {
   config: AnonymizationRuleConfig;
 }
 
-/** @deprecated Use DataOpsAnonymizationRule instead */
-export type { DataOpsAnonymizationRule as AnonymizationRule };
-
 /** Anonymization rule configuration */
 export interface AnonymizationRuleConfig {
   maskChar?: string;
