@@ -1,7 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import '../../i18n';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import i18n from '../../i18n';
 import { SettingsPage, defaultSettings } from './SettingsPage';
+import { stubLocaleBridge } from '../../i18n/testing/mockLocaleBridge';
+
+/* The i18n module posts `i18n:locale` through this api for lazy locales. */
+const mockPostMessage = vi.fn();
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+  useVSCodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+}));
 
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
@@ -64,6 +80,8 @@ describe('SettingsPage', () => {
     mockTelemetryStatus.error = null;
     mockTelemetryMutate.mockClear();
     mockTelemetryRefetch.mockClear();
+    // Auto-answer lazy locale requests with the real bundles.
+    stubLocaleBridge(mockPostMessage);
   });
 
   it('should render the page', () => {
@@ -124,15 +142,19 @@ describe('SettingsPage', () => {
     expect(onClearCache).toHaveBeenCalled();
   });
 
-  it('should update language', () => {
+  it('should update language', async () => {
     const onSave = vi.fn();
     render(<SettingsPage onSave={onSave} />);
     fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'fr' } });
+    // The lazy locale load crosses the (stubbed) bridge — wait for the live
+    // i18n language; handleSave persists that value, not the local snapshot.
+    await waitFor(() => expect(i18n.language).toBe('fr'));
     fireEvent.click(screen.getByTestId('save-settings-btn'));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ language: 'fr' }));
     // Restore English so later tests in this file keep English labels —
     // the language select applies i18n.changeLanguage immediately.
     fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'en' } });
+    await waitFor(() => expect(i18n.language).toBe('en'));
   });
 
   it('should show plugins tab with no plugins message', () => {

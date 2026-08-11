@@ -7,13 +7,15 @@ import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import type { SupportedLanguage } from '../../i18n';
+import { changeLanguageLazy } from '../../i18n';
 import { useSettingsPageData } from './useSettingsPageData';
 
 /**
  * Settings values exposed by this page.
  *
  * Only settings that are actually consumed somewhere are kept here:
- * `language` is applied immediately via `i18n.changeLanguage`. The other
+ * `language` is applied immediately via `changeLanguageLazy` (which fetches
+ * the locale bundle over the bridge when it is not loaded yet). The other
  * historical fields (theme, batch sizes, thresholds, notification toggles,
  * log level...) were persisted through `settings:update` but read back by
  * nothing — they were removed from the UI rather than pretending to work.
@@ -58,7 +60,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onReset,
   onClearCache,
 }) => {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('general');
 
   const {
@@ -126,9 +128,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       onChange={(e) => {
                         const language = e.target.value as SupportedLanguage;
                         updateSetting('language', language);
-                        // Apply immediately — the i18n module persists the
-                        // choice to the webview state on every change.
-                        void i18n.changeLanguage(language);
+                        // Apply immediately — loads the locale bundle over
+                        // the bridge when needed; the i18n module persists
+                        // the choice to the webview state on every change.
+                        void changeLanguageLazy(language);
                       }}
                     />
                   </div>

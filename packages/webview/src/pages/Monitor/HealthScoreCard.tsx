@@ -119,16 +119,16 @@ export const HealthScoreCard: React.FC<HealthScoreCardProps> = ({ report, classN
 
   return (
     <>
-      <div data-testid="health-score-card">
-        <Card className={cn('border-0 bg-transparent shadow-none', className)}>
+      <div data-testid="health-score-card" className="w-full min-w-0">
+        <Card className={cn('border-0 bg-transparent shadow-none w-full', className)}>
           <CardBody>
-            <div className="flex flex-col items-center gap-[var(--sf-space-2)]">
+            <div className="flex flex-col items-center gap-[var(--sf-space-2)] w-full min-w-0">
               <span className="text-xs font-medium text-[var(--sf-text-secondary)]">
                 {t('monitor.health', 'Health Score')}
               </span>
               <RadialGauge score={report.overallScore} />
               <p
-                className="text-xs text-center text-[var(--sf-text-secondary)]"
+                className="text-xs text-center text-[var(--sf-text-secondary)] w-full break-words"
                 data-testid="health-summary"
               >
                 {report.summary}
@@ -136,23 +136,23 @@ export const HealthScoreCard: React.FC<HealthScoreCardProps> = ({ report, classN
 
               {report.topRisks.length > 0 && (
                 <div
-                  className="w-full flex flex-col gap-[var(--sf-space-1)] mt-[var(--sf-space-1)]"
+                  className="w-full min-w-0 flex flex-col gap-[var(--sf-space-1)] mt-[var(--sf-space-1)]"
                   data-testid="top-risks"
                 >
                   {report.topRisks.map((risk) => (
                     <div
                       key={risk.name}
-                      className="flex items-center gap-[var(--sf-space-1)] text-[10px]"
+                      className="flex items-center gap-[var(--sf-space-1)] text-[10px] min-w-0"
                     >
                       <span
-                        className={`codicon codicon-${statusIcon(risk.status)}`}
+                        className={`codicon codicon-${statusIcon(risk.status)} shrink-0`}
                         style={{ color: statusColor(risk.status) }}
                         aria-hidden="true"
                       />
-                      <span className="flex-1 truncate text-[var(--sf-text-primary)]">
+                      <span className="flex-1 min-w-0 truncate text-[var(--sf-text-primary)]">
                         {risk.name}: {risk.detail}
                       </span>
-                      <span className="text-[var(--sf-text-secondary)]">
+                      <span className="shrink-0 whitespace-nowrap text-[var(--sf-text-secondary)]">
                         -{impactPoints(risk)} pts
                       </span>
                     </div>

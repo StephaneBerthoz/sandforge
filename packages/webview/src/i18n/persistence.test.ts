@@ -24,9 +24,13 @@ vi.mock('../hooks/useVSCodeApi', () => ({
 }));
 
 import i18n from './index';
+import { answerCapturedLocaleRequests } from './testing/mockLocaleBridge';
 
 describe('i18n language persistence', () => {
-  it('boots with the language persisted in the webview state', () => {
+  it('boots with the language persisted in the webview state', async () => {
+    // The boot restore requests the 'fr' bundle over the bridge at import
+    // time; answer the captured request(s) and let the restore land.
+    await answerCapturedLocaleRequests(vscodeApiMock.postMessage);
     expect(i18n.language).toBe('fr');
   });
 

@@ -243,7 +243,7 @@ export const MonitorPage: React.FC = () => {
       {/* ── Header ── */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* Org identity */}
-        <div className="flex items-center gap-2 flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-1 min-w-[8rem]">
           {currentOrg && (
             <>
               <span className="h-2.5 w-2.5 rounded-full bg-green-500 shrink-0 animate-pulse" />
@@ -409,7 +409,7 @@ export const MonitorPage: React.FC = () => {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
-          className="flex flex-col gap-4"
+          className="flex flex-col gap-4 min-w-0"
         >
           {/* ── KPI Row ── */}
           <MonitorKpiRow

@@ -50,6 +50,7 @@ import { NoOpHandler } from './handlers/NoOpHandler.js';
 import { CacheHandler as CacheDomainHandler } from './handlers/CacheHandler.js';
 import { SmartActionHandler } from './handlers/SmartActionHandler.js';
 import { ExecutionHandler } from './handlers/ExecutionHandler.js';
+import { I18nHandler } from './handlers/I18nHandler.js';
 import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOperationRegistry.js';
 
 /**
@@ -87,6 +88,14 @@ export interface ExtensionHandlersDeps {
    * no-op in tests that don't provide one.
    */
   executeCommand?: CommandExecutor;
+  /**
+   * Directory holding the packaged webview locale JSONs
+   * (`<extension>/webview-dist/locales`), served by the I18nHandler for lazy
+   * i18n loading. Optional so tests that construct ExtensionHandlers with the
+   * legacy shape continue to compile; requests then answer with an error
+   * payload.
+   */
+  localesDir?: string;
 }
 
 /**
@@ -125,6 +134,7 @@ export class ExtensionHandlers {
   private readonly noOpHandler: NoOpHandler;
   private readonly cacheHandler: CacheDomainHandler;
   private readonly smartActionHandler: SmartActionHandler;
+  private readonly i18nHandler: I18nHandler;
   private readonly syncHistoryStore: SyncHistoryStore;
   private executionHandler?: ExecutionHandler;
 
@@ -182,6 +192,7 @@ export class ExtensionHandlers {
     this.noOpHandler = new NoOpHandler(this.handlerDeps);
     this.cacheHandler = new CacheDomainHandler(this.handlerDeps);
     this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
+    this.i18nHandler = new I18nHandler(this.handlerDeps, deps.localesDir);
   }
 
   /** Inject live operation tracker for monitor:live-operations messages. */
@@ -384,6 +395,9 @@ export class ExtensionHandlers {
       ],
       this.settingsHandler,
     );
+
+    // i18n (lazy locale loading — packaged locale JSONs served over the bridge)
+    route(['i18n:locale'], this.i18nHandler);
 
     // Seed
     route(

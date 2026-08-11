@@ -1,11 +1,11 @@
 {
   "name": "@sandforge/webview",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node -e \"fs.cpSync('src/i18n/locales','dist/locales',{recursive:true})\"",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

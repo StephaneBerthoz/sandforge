@@ -66,12 +66,13 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     },
   );
 
-  // Listen for state:sync → update orgs + extensionReady
+  // Listen for state:sync → update orgs + extensionReady + selected org
   useMessageListener<
     BaseMessage & {
       payload: {
         orgs?: SalesforceOrg[];
         extensionReady?: boolean;
+        selectedOrgId?: string | null;
       };
     }
   >('state:sync', (msg) => {
@@ -81,6 +82,15 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     }
     if (msg.payload.extensionReady !== undefined) {
       useAppStore.getState().setExtensionReady(msg.payload.extensionReady);
+    }
+    // Adopt the extension-side selection only when this document has none of
+    // its own — late-opened panels hydrate with the global pick; live changes
+    // travel via org:selected broadcasts.
+    if (msg.payload.selectedOrgId != null) {
+      const store = useOrgStore.getState();
+      if (store.selectedOrgId === null) {
+        store.selectOrg(msg.payload.selectedOrgId);
+      }
     }
   });
 

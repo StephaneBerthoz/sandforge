@@ -1,8 +1,38 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import i18n from './index';
+import { stubLocaleBridge } from './testing/mockLocaleBridge';
+
+/**
+ * VS Code API mock + locale bridge double. The i18n module lazy-loads every
+ * non-English bundle over the bridge — the stub answers those requests with
+ * the real locale JSONs so the assertions below keep testing genuine
+ * translations. No language is persisted (getState → empty), so the module
+ * boots in English without a bridge request.
+ */
+const vscodeApiMock = vi.hoisted(() => {
+  const state: { current: Record<string, unknown> } = { current: {} };
+  return {
+    state,
+    postMessage: vi.fn(),
+    getState: vi.fn(() => state.current),
+    setState: vi.fn((next: unknown) => {
+      state.current = next as Record<string, unknown>;
+    }),
+  };
+});
+
+vi.mock('../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => vscodeApiMock,
+  useVSCodeApi: () => vscodeApiMock,
+}));
+
+import i18n, { changeLanguageLazy } from './index';
 
 describe('i18n', () => {
+  beforeEach(() => {
+    stubLocaleBridge(vscodeApiMock.postMessage);
+  });
+
   it('should initialize successfully', () => {
     expect(i18n.isInitialized).toBe(true);
   });
@@ -20,7 +50,7 @@ describe('i18n', () => {
   });
 
   it('should return French strings after changing language', async () => {
-    await i18n.changeLanguage('fr');
+    await changeLanguageLazy('fr');
 
     expect(i18n.t('common.save')).toBe('Enregistrer');
     expect(i18n.t('common.cancel')).toBe('Annuler');
@@ -28,51 +58,54 @@ describe('i18n', () => {
     expect(i18n.t('org.title')).toBe('Organisations');
     expect(i18n.t('notifications.title')).toBe('Notifications');
 
-    await i18n.changeLanguage('en');
+    await changeLanguageLazy('en');
   });
 
   it('should fall back to English for missing keys', async () => {
-    await i18n.changeLanguage('fr');
+    await changeLanguageLazy('fr');
 
     const missingKey = 'common.nonExistentKey';
     expect(i18n.t(missingKey)).toBe(missingKey);
 
-    await i18n.changeLanguage('en');
+    await changeLanguageLazy('en');
   });
 
   it('should return German strings after changing to de', async () => {
-    await i18n.changeLanguage('de');
+    await changeLanguageLazy('de');
 
     expect(i18n.t('common.save')).toBe('Speichern');
 
-    await i18n.changeLanguage('en');
+    await changeLanguageLazy('en');
   });
 
   it('should return Spanish strings after changing to es', async () => {
-    await i18n.changeLanguage('es');
+    await changeLanguageLazy('es');
 
     expect(i18n.t('common.save')).toBe('Guardar');
 
-    await i18n.changeLanguage('en');
+    await changeLanguageLazy('en');
   });
 
   it('should return Japanese strings after changing to ja', async () => {
-    await i18n.changeLanguage('ja');
+    await changeLanguageLazy('ja');
 
-    expect(i18n.t('common.save')).toBe('\u4fdd\u5b58');
+    expect(i18n.t('common.save')).toBe('保存');
 
-    await i18n.changeLanguage('en');
+    await changeLanguageLazy('en');
   });
 
   it('should return Brazilian Portuguese strings after changing to pt-BR', async () => {
-    await i18n.changeLanguage('pt-BR');
+    await changeLanguageLazy('pt-BR');
 
     expect(i18n.t('common.save')).toBe('Salvar');
 
-    await i18n.changeLanguage('en');
+    await changeLanguageLazy('en');
   });
 
   it('should fall back to English for unsupported languages', async () => {
+    // Direct instance call: an unsupported code never crosses the bridge
+    // (changeLanguageLazy is typed on SupportedLanguage) — i18next falls
+    // back to English on its own.
     await i18n.changeLanguage('xx');
 
     expect(i18n.t('common.save')).toBe('Save');
@@ -80,7 +113,8 @@ describe('i18n', () => {
     await i18n.changeLanguage('en');
   });
 
-  it('should have all nav keys in both languages', () => {
+  it('should have all nav keys in both languages', async () => {
+    await changeLanguageLazy('fr');
     const navKeys = [
       'nav.home',
       'nav.orgs',
@@ -101,9 +135,12 @@ describe('i18n', () => {
       expect(enValue).not.toBe(key);
       expect(frValue).not.toBe(key);
     }
+
+    await changeLanguageLazy('en');
   });
 
-  it('should have all org keys in both languages', () => {
+  it('should have all org keys in both languages', async () => {
+    await changeLanguageLazy('fr');
     const orgKeys = [
       'org.title',
       'org.connect',
@@ -136,5 +173,7 @@ describe('i18n', () => {
       expect(enValue).not.toBe(key);
       expect(frValue).not.toBe(key);
     }
+
+    await changeLanguageLazy('en');
   });
 });

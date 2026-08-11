@@ -47,6 +47,7 @@ describe('WebviewStateSync', () => {
         settings: {},
         activeOperations: [],
         extensionReady: false,
+        selectedOrgId: null,
       } satisfies WebviewState);
     });
   });
@@ -137,6 +138,7 @@ describe('WebviewStateSync', () => {
         settings: {},
         activeOperations: [],
         extensionReady: true,
+        selectedOrgId: null,
       });
     });
 
@@ -233,6 +235,7 @@ describe('WebviewStateSync', () => {
         settings: {},
         activeOperations: [],
         extensionReady: false,
+        selectedOrgId: null,
       });
     });
 

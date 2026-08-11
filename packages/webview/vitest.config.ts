@@ -12,7 +12,13 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/index.ts', 'src/main.tsx'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/**/index.ts',
+        'src/main.tsx',
+        // Test-only bridge doubles (e.g. i18n/testing/mockLocaleBridge.ts).
+        'src/**/testing/**',
+      ],
       // Anti-regression gate (2026-08): set ~5 pts under the measured baseline
       // (lines 87.7 / branches 85.4 / functions 77.9 — measured under vitest 3,
       // whose v8 provider ignores empty lines by default). Raise as coverage grows.

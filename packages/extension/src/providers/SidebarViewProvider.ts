@@ -1,7 +1,10 @@
 import type * as vscode from 'vscode';
+import { join } from 'node:path';
 import { buildWebviewHtml } from './webviewHtml';
 import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
 import type { MessageBroker } from '../bridge/MessageBroker';
+import { isSupportedLocaleCode, readLocaleBundle } from '../core/i18n/localeBundles';
+import { extractErrorMessage } from '../core/common/extractErrorMessage.js';
 
 /** Factory for URI path joining — uses vscode.Uri for type safety. */
 export type SidebarUriJoinPath = (base: vscode.Uri, ...segments: string[]) => vscode.Uri;
@@ -45,6 +48,7 @@ export class SidebarViewProvider {
     private onOrgSelected?: (orgId: string) => void,
     private broker?: MessageBroker,
     private settingsGetter?: () => Record<string, unknown>,
+    private selectedOrgGetter?: () => string | undefined,
   ) {}
 
   /**
@@ -91,6 +95,15 @@ export class SidebarViewProvider {
       const type = message.type as string | undefined;
       const payload = message.payload as Record<string, unknown> | undefined;
 
+      // Enveloped bridge request from the bundle's i18n locale loader. The
+      // sidebar's inbound lane bypasses the MessageBroker (raw shapes would
+      // fail envelope validation), so locale requests are answered here with
+      // the same contract as the I18nHandler.
+      if (type === undefined && payload?.['type'] === 'i18n:locale') {
+        void this.answerLocaleRequest(payload as { id?: unknown; payload?: unknown });
+        return;
+      }
+
       if (type === 'sidebar:navigate') {
         const route = payload?.route as string | undefined;
         if (route) {
@@ -107,7 +120,13 @@ export class SidebarViewProvider {
 
       if (type === 'sidebar:requestOrgs' && this.orgGetter) {
         const orgs = this.orgGetter();
-        this.postMessage({ type: 'org:list:response', payload: { orgs } });
+        // Carry the current selection so a re-resolved sidebar (VS Code
+        // recreates the view on hide/show) restores it — same contract as
+        // state:sync for panels.
+        this.postMessage({
+          type: 'org:list:response',
+          payload: { orgs, selectedOrgId: this.selectedOrgGetter?.() },
+        });
       }
 
       // The sidebar cannot reach the broker's settings:get (its inbound
@@ -140,6 +159,42 @@ export class SidebarViewProvider {
   postMessage(message: Record<string, unknown>): void {
     if (this.view) {
       void this.view.webview.postMessage(message);
+    }
+  }
+
+  /**
+   * Answer an `i18n:locale` request from the sidebar webview with the packaged
+   * locale JSON (`<extension>/webview-dist/locales/<lng>.json`). The locale
+   * code is whitelisted before it reaches the filesystem; failures answer
+   * with `{ lng, error }` so the sidebar falls back to English.
+   *
+   * @param request - The inner bridge message (`envelope.payload`).
+   */
+  private async answerLocaleRequest(request: { id?: unknown; payload?: unknown }): Promise<void> {
+    const lng = (request.payload as { lng?: unknown } | undefined)?.lng;
+    const base: Record<string, unknown> = {
+      id: `i18n-locale-${Date.now()}`,
+      type: 'i18n:locale:response',
+      timestamp: Date.now(),
+      // Correlated like a broker buildResponse so the webview loader matches
+      // this answer to its pending request.
+      correlationId: typeof request.id === 'string' ? request.id : undefined,
+    };
+    if (!isSupportedLocaleCode(lng)) {
+      this.postMessage({
+        ...base,
+        payload: { lng: typeof lng === 'string' ? lng : '', error: 'Unsupported locale code.' },
+      });
+      return;
+    }
+    try {
+      const bundle = await readLocaleBundle(
+        join(this.extensionUri.fsPath, 'webview-dist', 'locales'),
+        lng,
+      );
+      this.postMessage({ ...base, payload: { lng, bundle } });
+    } catch (err: unknown) {
+      this.postMessage({ ...base, payload: { lng, error: extractErrorMessage(err) } });
     }
   }
 

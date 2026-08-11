@@ -8,6 +8,7 @@ import i18n from '../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { resetMessageCounter } from './messageHelpers';
+import { answerCapturedLocaleRequests } from '../i18n/testing/mockLocaleBridge';
 
 const mockPostMessage = vi.fn();
 
@@ -295,6 +296,18 @@ describe('BridgeProvider', () => {
       payload: { settings: { settings: { language: 'de' } } },
     });
 
+    // 'de' is a lazy locale: its bundle crosses the (mocked) bridge as an
+    // `i18n:locale` request — answer it, then the language flips.
+    await waitFor(() =>
+      expect(
+        mockPostMessage.mock.calls.some(
+          (call) =>
+            (call[0] as { payload?: { type?: string } } | undefined)?.payload?.type ===
+            'i18n:locale',
+        ),
+      ).toBe(true),
+    );
+    await answerCapturedLocaleRequests(mockPostMessage);
     await waitFor(() => expect(i18n.language).toBe('de'));
 
     // Restore the shared i18n instance for the rest of the suite.

@@ -417,6 +417,10 @@ const SettingsMessages = [
   msg('state:sync'),
   msg('connectivity:status'),
   msg('connectivity:status:response'),
+  // Lazy locale loading (webview CSP forbids fetch/dynamic import — the
+  // packaged locale JSONs cross the bridge on demand).
+  msg('i18n:locale'),
+  msg('i18n:locale:response'),
   msg('config:export'),
   msg('config:export:response'),
   msg('config:import'),

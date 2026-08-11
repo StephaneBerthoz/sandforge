@@ -319,6 +319,8 @@ import type {
   SettingsGetRequest,
   SettingsUpdateRequest,
   SettingsResponse,
+  I18nLocaleRequest,
+  I18nLocaleResponse,
   NotificationMessage,
   OnboardingCompleteRequest,
   OnboardingResetRequest,
@@ -579,6 +581,8 @@ export type WebViewToExtensionMessage =
   | ConfigImportRequest
   | ConfigCategoriesRequest
   | ConfigValidateRequest
+  // i18n (lazy locale loading)
+  | I18nLocaleRequest
   // Operation lifecycle
   | CancelOperationRequest
   | PauseOperationRequest
@@ -787,6 +791,7 @@ export type ExtensionToWebViewMessage =
   | ConfigImportResponse
   | ConfigCategoriesResponse
   | ConfigValidateResponse
+  | I18nLocaleResponse
   | StateSyncMessage
   | SettingsErrorResponse
   | ConfigErrorResponse

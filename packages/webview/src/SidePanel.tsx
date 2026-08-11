@@ -218,6 +218,12 @@ export const SidePanel: React.FC = () => {
       };
       if (msg.type === 'org:list:response' && msg.payload?.orgs) {
         useOrgStore.getState().setOrgs(msg.payload.orgs);
+        // The payload also carries the extension-side selection — adopt it
+        // when this document has none (the view is recreated on hide/show).
+        const selected = (msg.payload as { selectedOrgId?: string | null }).selectedOrgId;
+        if (selected != null && useOrgStore.getState().selectedOrgId === null) {
+          useOrgStore.getState().selectOrg(selected);
+        }
       }
       // Selection made elsewhere (another panel, extension command) — the
       // sidebar adopts it so every surface shows the same org.
