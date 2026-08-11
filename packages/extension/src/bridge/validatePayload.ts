@@ -282,10 +282,6 @@ export const piiScanPayloadSchema = z.object({
 // ── monitor:* payload schemas ─────────────────────────────────────────────
 
 export const monitorOrgPayloadSchema = z.object({ orgId: orgIdSchema });
-export const monitorTrendsPayloadSchema = z.object({
-  orgId: orgIdSchema,
-  period: z.string().max(10).optional(),
-});
 export const monitorAbortJobPayloadSchema = z.object({
   orgId: orgIdSchema,
   jobId: sfIdSchema,
@@ -665,6 +661,7 @@ export const orgConnectPayloadSchema = z
   })
   .passthrough();
 export const orgDisconnectPayloadSchema = z.object({ orgId: orgIdSchema });
+export const orgSelectPayloadSchema = z.object({ orgId: orgIdSchema });
 
 // ── settings:* / onboarding / plugins / telemetry payload schemas ──────────
 // Mirror what useSettingsPageData posts; plugins/telemetry/hint follow the

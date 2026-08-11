@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import { RefreshCw, Clock, Activity, AlertTriangle, WifiOff, Plug } from 'lucide-react';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
@@ -81,7 +82,17 @@ export const MonitorPage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
-  const selectOrg = useOrgStore((s) => s.selectOrg);
+  // Selection propagates: local store for this panel + `org:select` through
+  // the broker so the extension updates the status bar and broadcasts
+  // `org:selected` to the sidebar and every other panel.
+  const selectOrgLocal = useOrgStore((s) => s.selectOrg);
+  const selectOrg = useCallback(
+    (id: string | null) => {
+      selectOrgLocal(id);
+      if (id) sendBridgeMessage('org:select', { orgId: id });
+    },
+    [selectOrgLocal],
+  );
   // Reactive selector — subscribing to the `selectedOrg` *method* would return
   // a stable function reference and never notify on org changes.
   const currentOrg = useOrgStore(selectSelectedOrg);

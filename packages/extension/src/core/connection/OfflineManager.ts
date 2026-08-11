@@ -80,6 +80,12 @@ export class OfflineManager {
   /** Set the executor for replaying queued operations */
   setOperationExecutor(executor: OperationExecutor): void {
     this.operationExecutor = executor;
+    // Boot recovery: operations reloaded from storage by the constructor
+    // (loadQueue) after a crash would otherwise stay parked until an
+    // offline→online transition that never comes when the network stays up.
+    if (this.queue.length > 0 && this.status === 'online') {
+      this.scheduleDrain();
+    }
   }
 
   /** Start periodic connectivity probing */
@@ -224,28 +230,33 @@ export class OfflineManager {
     let failed = 0;
     const total = this.queue.length;
 
-    while (this.queue.length > 0) {
-      const operation = this.queue[0];
+    // try/finally: a throwing progressCallback must not leave `draining`
+    // stuck at true — every later drain would early-return forever.
+    try {
+      while (this.queue.length > 0) {
+        const operation = this.queue[0];
 
-      try {
-        await this.operationExecutor(operation);
-        this.queue.shift();
-        executed++;
-        this.emit({ type: 'operationExecuted', operation });
-      } catch {
-        this.queue.shift();
-        failed++;
-        this.emit({ type: 'operationFailed', operation });
+        try {
+          await this.operationExecutor(operation);
+          this.queue.shift();
+          executed++;
+          this.emit({ type: 'operationExecuted', operation });
+        } catch {
+          this.queue.shift();
+          failed++;
+          this.emit({ type: 'operationFailed', operation });
+        }
+
+        this.persistQueue();
+
+        if (progressCallback) {
+          progressCallback(executed + failed, total);
+        }
       }
-
-      this.persistQueue();
-
-      if (progressCallback) {
-        progressCallback(executed + failed, total);
-      }
+    } finally {
+      this.draining = false;
     }
 
-    this.draining = false;
     this.emit({ type: 'queueDrained' });
     return { executed, failed };
   }

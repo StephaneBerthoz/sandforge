@@ -4,14 +4,6 @@
  * @module constants/monitor
  */
 
-/** Period string to milliseconds mapping for trend computation. */
-export const MONITOR_PERIOD_MAP: Record<string, number> = {
-  '1h': 60 * 60 * 1000,
-  '6h': 6 * 60 * 60 * 1000,
-  '24h': 24 * 60 * 60 * 1000,
-  '7d': 7 * 24 * 60 * 60 * 1000,
-};
-
 /**
  * Key limit names to compute trends for.
  *

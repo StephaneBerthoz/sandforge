@@ -8,8 +8,6 @@ import { StatusBarProvider } from './providers/StatusBarProvider';
 import { WebviewPanelManager } from './providers/WebviewPanelManager';
 import type { UriJoinPath } from './providers/WebviewPanelManager';
 import { SidebarViewProvider } from './providers/SidebarViewProvider';
-import { OrgsTreeProvider } from './providers/OrgsTreeProvider';
-import type { OrgTreeItem } from './providers/OrgsTreeProvider';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
 import { MaskingTemplateService } from './modules/dataops/templates/MaskingTemplateService';
@@ -134,7 +132,10 @@ export function activate(context: vscode.ExtensionContext): void {
   const pipelineMarketplace = new PipelineMarketplace();
   const liveOperationTracker = new LiveOperationTracker();
   const maskingTemplateService = new MaskingTemplateService();
-  const fsReader = { readFile: (filePath: string) => fs.readFile(filePath, 'utf-8') };
+  const fsReader = {
+    readFile: (filePath: string) => fs.readFile(filePath, 'utf-8'),
+    statSize: async (filePath: string) => (await fs.stat(filePath)).size,
+  };
 
   // 5. MessageBroker + MessageRouter + WebviewStateSync
   // Telemetry adapter is injected so Plan 01-04 envelope validation failures
@@ -190,7 +191,16 @@ export function activate(context: vscode.ExtensionContext): void {
   initForgeComposition({ handlers, orgRegistry, orgManager, configStore, piiDetector, log });
   void initAutopilotComposition({ handlers, log });
   const runAI = (): Promise<void> =>
-    initAIComposition({ services, secretVault, handlers, broker, orgRegistry, orgManager, log });
+    initAIComposition({
+      services,
+      secretVault,
+      handlers,
+      broker,
+      orgRegistry,
+      orgManager,
+      log,
+      disposables: context.subscriptions,
+    });
   runAI().catch((err) => log(`Failed to init AI: ${String(err)}`));
   context.subscriptions.push(registerAIConfigListener({ services, run: runAI, log }));
 
@@ -235,6 +245,11 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   };
 
+  // Panel org pickers post `org:select` through the broker — the OrgHandler
+  // replays the selection through this same closure (late injection: the
+  // handlers were constructed at step 6, before selectOrg exists).
+  handlers.setOrgSelectionCallback(selectOrg);
+
   const sidebarProvider = new SidebarViewProvider(
     context.extensionUri,
     vscode.Uri.joinPath,
@@ -252,16 +267,7 @@ export function activate(context: vscode.ExtensionContext): void {
     sidebarProvider,
   );
 
-  // 10b. OrgsTreeProvider — native TreeView of registered orgs in the same
-  // view container. Registered after step 10's orgRegistry.loadAll() so the
-  // first getChildren() already sees the persisted orgs.
-  const orgsTreeProvider = new OrgsTreeProvider(orgManager);
-  const orgsTreeRegistration = vscode.window.registerTreeDataProvider(
-    OrgsTreeProvider.viewType,
-    orgsTreeProvider,
-  );
-
-  // 10c. Proactive org validation — refresh expired tokens at every launch so
+  // 10b. Proactive org validation — refresh expired tokens at every launch so
   // the first operation does not hit an auth wall mid-run. Background-only,
   // per-org isolated, gated by sandforge.orgs.validateOnStartup.
   if (services.getSandforgeSetting('orgs.validateOnStartup', true)) {
@@ -270,7 +276,7 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   }
 
-  // 10d. Adopt the sf CLI's default org when nothing is selected yet — the
+  // 10c. Adopt the sf CLI's default org when nothing is selected yet — the
   // CLI already knows which org this workspace targets ("Default Org" in
   // sf org list), so SandForge shouldn't start on a blank or stale pick.
   // Runs in the background; never blocks activation.
@@ -286,18 +292,17 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     });
   }
-  const orgsTreeCommands = [
-    vscode.commands.registerCommand('sandforge.orgsView.refresh', () => {
-      // Re-pull persisted orgs into the OrgManager (its change events refresh
-      // the tree) and poke the provider for good measure.
-      orgRegistry.loadAll();
-      orgsTreeProvider.refresh();
-    }),
-    vscode.commands.registerCommand('sandforge.openOrgInBrowser', (item?: OrgTreeItem) => {
-      const org = item?.org;
+
+  // Opens an org's instance URL in the system browser. Called from the
+  // launcher dropdown (the sidebar relays `sidebar:openOrgInBrowser` with the
+  // org id); without an id (Command Palette) the user is told where to pick.
+  const openOrgInBrowserCommand = vscode.commands.registerCommand(
+    'sandforge.openOrgInBrowser',
+    (orgId?: string) => {
+      const org = typeof orgId === 'string' ? orgManager.getOrg(orgId) : undefined;
       if (!org) {
         void vscode.window.showInformationMessage(
-          'SandForge: pick an org in the Organizations view first.',
+          'SandForge: pick an org in the launcher dropdown first.',
         );
         return;
       }
@@ -311,8 +316,8 @@ export function activate(context: vscode.ExtensionContext): void {
           `SandForge: cannot open "${org.alias}" — invalid instance URL: ${org.instanceUrl}`,
         );
       }
-    }),
-  ];
+    },
+  );
 
   // 11. Module commands (sandforge.open*) + the cheers easter egg
   registerModuleCommands({
@@ -361,10 +366,7 @@ export function activate(context: vscode.ExtensionContext): void {
     sidebarRegistration,
     // Releases the provider's internal onDidReceiveMessage subscription.
     sidebarProvider,
-    // TreeView registration + provider (releases its OrgManager subscription).
-    orgsTreeRegistration,
-    orgsTreeProvider,
-    ...orgsTreeCommands,
+    openOrgInBrowserCommand,
     statusBar,
     panelManager,
     { dispose: () => backgroundRegistry.dispose() },

@@ -5,6 +5,10 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-08-11
+
+**Sixth-audit release: one org list, live discovery progress, no parked operations.** The duplicated Organizations tree view is gone — the launcher dropdown is the single org surface (with per-row "open in browser"), and picking an org in any page now syncs to the status bar, sidebar and every panel. The Forge discovery wizard shows live progress instead of looking frozen on large orgs. Operations queued by a crashed session drain at startup instead of parking forever. The AI provider banner finally receives its breaker status feed. Fixed: Migration imports refuse >50 MB files (OOM guard) and stop double-reading; monitor errors are correlated to their panel. Removed the always-fake "back pressure: normal" badge and two dead bridge message families. Full entry in the root changelog.
+
 ## [1.8.4] - 2026-08-11
 
 Fixed: the auth self-heal now pulls a guaranteed-live token via `sf org auth show-access-token` (which refreshes the OAuth session) instead of `sf org display` (which dumps the stored token as-is — proven rejected with HTTP 403 on a "Connected" org while show-access-token's token passes). This is the root cause of the recurring "Authentication expired" loops. Older CLIs fall back to the previous behavior; the vault is still only written after the refreshed credentials pass a real API call.

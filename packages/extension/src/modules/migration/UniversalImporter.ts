@@ -65,8 +65,25 @@ export class UniversalImporter {
    * @returns Parsed and converted SyncConfig
    */
   async import(filePath: string, options?: Partial<ImportOptions>): Promise<SyncConfig> {
-    const validatedOptions = importOptionsSchema.parse(options ?? {});
     const content = await this.fileReader.readFile(filePath);
+    return this.importContent(content, filePath, options);
+  }
+
+  /**
+   * Import from already-read file content — same conversion as {@link import}
+   * without the disk read, for callers that already hold the content (e.g. the
+   * MigrationHandler, which also needs it for format detection).
+   * @param content - Raw file content
+   * @param filePath - File path (used for format hint and object-name inference)
+   * @param options - Optional import configuration
+   * @returns Parsed and converted SyncConfig
+   */
+  importContent(
+    content: string,
+    filePath: string,
+    options?: Partial<ImportOptions>,
+  ): SyncConfig {
+    const validatedOptions = importOptionsSchema.parse(options ?? {});
     const format = this.detectFormat(content, filePath);
     const records = this.parseContent(content, format, validatedOptions.delimiter);
 

@@ -1706,6 +1706,7 @@
     "abortConfirm": "Möchten Sie wirklich abbrechen? Der Fortschritt geht verloren.",
     "elapsed": "Vergangen",
     "discovery": "Graph-Ermittlung",
+    "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
     "executeForge": "Forge ausführen",
     "reviewAndExecute": "Überprüfen & Ausführen",
     "objects": "Objekte",
@@ -1994,6 +1995,7 @@
     "openFull": "Vollständige UI öffnen",
     "running": "Läuft...",
     "newOrg": "Neue Organisation...",
+    "openInBrowser": "Im Browser öffnen",
     "noOrgHint": "Noch keine Org — verbinden Sie unten eine",
     "showMetrics": "Metriken anzeigen",
     "hideMetrics": "Metriken ausblenden",
@@ -2137,12 +2139,7 @@
     "partitions": "Partitionen",
     "totalRecords": "Datensätze",
     "processed": "verarbeitet",
-    "failed": "fehlgeschlagen",
-    "pressure": {
-      "normal": "Normal",
-      "warning": "Warnung",
-      "critical": "Kritisch"
-    }
+    "failed": "fehlgeschlagen"
   },
   "errorBoundary": {
     "title": "Etwas ist schiefgelaufen",

@@ -192,6 +192,30 @@ describe('ForgeDiscovery', () => {
     expect(screen.getByTestId('forge-discovery-loading')).toBeDefined();
   });
 
+  it('should show live progress counters on forge:discover:progress while loading', async () => {
+    mockGraph = null;
+    render(<ForgeDiscovery />);
+    // No progress before any event arrives
+    expect(screen.queryByTestId('forge-discovery-progress')).toBeNull();
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'test-progress',
+            type: 'forge:discover:progress',
+            timestamp: Date.now(),
+            payload: { objectApiName: 'Account', discoveredCount: 134, queueRemaining: 12 },
+          },
+        }),
+      );
+    });
+    await waitFor(() => {
+      const line = screen.getByTestId('forge-discovery-progress');
+      expect(line.textContent).toContain('134');
+      expect(line.textContent).toContain('12');
+    });
+  });
+
   it('should show empty state when discovery response returns error', async () => {
     mockGraph = null;
     render(<ForgeDiscovery />);

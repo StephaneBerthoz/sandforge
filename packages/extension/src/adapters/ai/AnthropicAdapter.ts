@@ -31,16 +31,13 @@ import type {
   AIProviderType,
 } from './AIClient.js';
 
+// Re-exported for backward compatibility — the canonical declarations live in
+// AIClient.ts (the AIClient interface exposes the optional feed).
+export type { BreakerState, BreakerStateChangeEvent } from './AIClient.js';
+import type { BreakerState, BreakerStateChangeEvent } from './AIClient.js';
+
 const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
 const SECRET_KEY = 'sandforge.ai.anthropic.key';
-
-export type BreakerState = 'closed' | 'open' | 'half-open';
-
-export interface BreakerStateChangeEvent {
-  state: BreakerState;
-  lastErrorVerdict?: AIErrorVerdict;
-  cooldownEndsAt?: string; // ISO
-}
 
 export interface AnthropicAdapterDeps {
   storage: StorageAdapter;

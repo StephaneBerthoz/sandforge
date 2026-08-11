@@ -69,28 +69,6 @@ export interface AutopilotNodeProgress extends BaseMessage {
   };
 }
 
-/** Node completed successfully */
-export interface AutopilotNodeCompleted extends BaseMessage {
-  type: 'autopilot:node-completed';
-  payload: {
-    objectApiName: string;
-    successCount: number;
-    failureCount: number;
-    elapsedMs: number;
-    apiCallsUsed: number;
-  };
-}
-
-/** Node failed during execution */
-export interface AutopilotNodeFailed extends BaseMessage {
-  type: 'autopilot:node-failed';
-  payload: {
-    objectApiName: string;
-    errors: string[];
-    partialSuccessCount: number;
-  };
-}
-
 /** Request to pause autopilot execution */
 export interface AutopilotPauseRequest extends BaseMessage {
   type: 'autopilot:pause';

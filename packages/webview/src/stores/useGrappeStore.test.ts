@@ -13,8 +13,6 @@ describe('useGrappeStore', () => {
     expect(state.totalPartitions).toBe(0);
     expect(state.totalRecords).toBe(0);
     expect(state.partitions.size).toBe(0);
-    expect(state.backPressureLevel).toBe('normal');
-    expect(state.apiUsagePercent).toBe(0);
   });
 
   it('should start a grappe operation', () => {
@@ -34,14 +32,6 @@ describe('useGrappeStore', () => {
     const p = state.partitions.get('p-1');
     expect(p?.percentage).toBe(50);
     expect(p?.processedRecords).toBe(1000);
-  });
-
-  it('should update back pressure', () => {
-    useGrappeStore.getState().start('op-1', 2, 3000);
-    useGrappeStore.getState().updateBackPressure('warning', 75);
-    const state = useGrappeStore.getState();
-    expect(state.backPressureLevel).toBe('warning');
-    expect(state.apiUsagePercent).toBe(75);
   });
 
   it('should complete a grappe operation', () => {

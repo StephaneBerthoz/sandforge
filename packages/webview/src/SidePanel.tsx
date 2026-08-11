@@ -22,6 +22,7 @@ import {
   Sprout,
   RefreshCw,
   Grape,
+  Globe,
   Rocket,
   FileUp,
 } from 'lucide-react';
@@ -213,10 +214,15 @@ export const SidePanel: React.FC = () => {
       }
       const msg = event.data as {
         type?: string;
-        payload?: { orgs?: SalesforceOrg[]; settings?: unknown };
+        payload?: { orgs?: SalesforceOrg[]; settings?: unknown; orgId?: string };
       };
       if (msg.type === 'org:list:response' && msg.payload?.orgs) {
         useOrgStore.getState().setOrgs(msg.payload.orgs);
+      }
+      // Selection made elsewhere (another panel, extension command) — the
+      // sidebar adopts it so every surface shows the same org.
+      if (msg.type === 'org:selected' && msg.payload?.orgId) {
+        useOrgStore.getState().selectOrg(msg.payload.orgId);
       }
       if (msg.type === 'settings:response') {
         syncLanguageFromSettings(msg.payload?.settings);
@@ -319,42 +325,70 @@ export const SidePanel: React.FC = () => {
                 {sortedOrgs.map((org) => {
                   const isOrgConnected = org.status === 'connected';
                   return (
-                    <button
+                    <div
                       key={org.id}
                       className={cn(
-                        'w-full flex items-center gap-2 px-3 py-2 text-left text-xs',
-                        'hover:bg-surface-2 transition-colors',
+                        'flex items-center',
                         org.id === selectedOrgId && 'bg-surface-2',
                       )}
-                      onClick={() => {
-                        selectOrg(org.id);
-                        setOrgDropdownOpen(false);
-                        vscodeApi.postMessage({
-                          type: 'sidebar:selectOrg',
-                          payload: { orgId: org.id },
-                        });
-                      }}
-                      data-testid={`sidepanel-org-option-${org.id}`}
                     >
-                      <span
+                      <button
                         className={cn(
-                          'h-1.5 w-1.5 rounded-full shrink-0',
-                          isOrgConnected ? 'bg-green-500' : 'bg-gray-500',
+                          'flex-1 min-w-0 flex items-center gap-2 px-3 py-2 text-left text-xs',
+                          'hover:bg-surface-2 transition-colors',
                         )}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">{org.alias || org.username}</div>
-                        <div className="text-[10px] text-text-muted truncate">{org.username}</div>
-                      </div>
-                      <span
-                        className={cn(
-                          'text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0',
-                          ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT,
-                        )}
+                        onClick={() => {
+                          selectOrg(org.id);
+                          setOrgDropdownOpen(false);
+                          vscodeApi.postMessage({
+                            type: 'sidebar:selectOrg',
+                            payload: { orgId: org.id },
+                          });
+                        }}
+                        data-testid={`sidepanel-org-option-${org.id}`}
                       >
-                        {orgTypeLabel(org, t)}
-                      </span>
-                    </button>
+                        <span
+                          className={cn(
+                            'h-1.5 w-1.5 rounded-full shrink-0',
+                            isOrgConnected ? 'bg-green-500' : 'bg-gray-500',
+                          )}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{org.alias || org.username}</div>
+                          <div className="text-[10px] text-text-muted truncate">
+                            {org.username}
+                          </div>
+                        </div>
+                        <span
+                          className={cn(
+                            'text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0',
+                            ORG_TYPE_STYLES[org.orgType] ?? ORG_TYPE_STYLE_DEFAULT,
+                          )}
+                        >
+                          {orgTypeLabel(org, t)}
+                        </span>
+                      </button>
+                      {/* Survivor of the removed native Organizations tree: open the org in a browser. */}
+                      <button
+                        type="button"
+                        className={cn(
+                          'p-1.5 mr-2 rounded-md shrink-0',
+                          'text-text-muted hover:text-text-primary hover:bg-surface-3',
+                          'transition-colors',
+                        )}
+                        title={t('sidePanel.openInBrowser', 'Open in browser')}
+                        aria-label={t('sidePanel.openInBrowser', 'Open in browser')}
+                        onClick={() => {
+                          vscodeApi.postMessage({
+                            type: 'sidebar:openOrgInBrowser',
+                            payload: { orgId: org.id },
+                          });
+                        }}
+                        data-testid={`sidepanel-org-open-${org.id}`}
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>

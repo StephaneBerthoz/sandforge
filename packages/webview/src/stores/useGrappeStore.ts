@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import type { BackPressureLevel } from '@sandforge/shared';
 
 /** A single grappe partition's progress in the UI */
 export interface GrappePartitionUI {
@@ -20,10 +19,6 @@ export interface GrappeState {
   totalRecords: number;
   /** Per-partition progress */
   partitions: Map<string, GrappePartitionUI>;
-  /** Current back-pressure level */
-  backPressureLevel: BackPressureLevel;
-  /** API usage percentage */
-  apiUsagePercent: number;
   /** Final totals after completion */
   totalProcessed: number;
   totalFailed: number;
@@ -31,7 +26,6 @@ export interface GrappeState {
   /** Actions */
   start: (operationId: string, totalPartitions: number, totalRecords: number) => void;
   updatePartition: (grappeId: string, percentage: number, processedRecords: number) => void;
-  updateBackPressure: (level: BackPressureLevel, apiPercent: number) => void;
   complete: (totalProcessed: number, totalFailed: number) => void;
   reset: () => void;
 }
@@ -43,8 +37,6 @@ export const useGrappeStore = create<GrappeState>((set) => ({
   totalPartitions: 0,
   totalRecords: 0,
   partitions: new Map(),
-  backPressureLevel: 'normal' as BackPressureLevel,
-  apiUsagePercent: 0,
   totalProcessed: 0,
   totalFailed: 0,
 
@@ -55,8 +47,6 @@ export const useGrappeStore = create<GrappeState>((set) => ({
       totalPartitions,
       totalRecords,
       partitions: new Map(),
-      backPressureLevel: 'normal',
-      apiUsagePercent: 0,
       totalProcessed: 0,
       totalFailed: 0,
     });
@@ -70,10 +60,6 @@ export const useGrappeStore = create<GrappeState>((set) => ({
     });
   },
 
-  updateBackPressure(level: BackPressureLevel, apiPercent: number): void {
-    set({ backPressureLevel: level, apiUsagePercent: apiPercent });
-  },
-
   complete(totalProcessed: number, totalFailed: number): void {
     set({ active: false, totalProcessed, totalFailed });
   },
@@ -85,8 +71,6 @@ export const useGrappeStore = create<GrappeState>((set) => ({
       totalPartitions: 0,
       totalRecords: 0,
       partitions: new Map(),
-      backPressureLevel: 'normal',
-      apiUsagePercent: 0,
       totalProcessed: 0,
       totalFailed: 0,
     });

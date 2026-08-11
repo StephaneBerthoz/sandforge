@@ -124,6 +124,15 @@ export class SidebarViewProvider {
           this.onOrgSelected(orgId);
         }
       }
+
+      // Launcher dropdown "open in browser" action — the command owns the
+      // org lookup, URL validation, and error surfacing.
+      if (type === 'sidebar:openOrgInBrowser') {
+        const orgId = payload?.orgId as string | undefined;
+        if (orgId) {
+          void this.executeCommand('sandforge.openOrgInBrowser', orgId);
+        }
+      }
     });
   }
 

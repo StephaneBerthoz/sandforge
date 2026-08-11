@@ -215,6 +215,15 @@ export class ExtensionHandlers {
   }
 
   /**
+   * Late-inject the org-selection callback (status bar + broadcast). The
+   * selection closure is defined in extension.ts AFTER the handlers are
+   * constructed — same mutation pattern as setInfraServices.
+   */
+  setOrgSelectionCallback(callback: (orgId: string) => void): void {
+    this.handlerDeps.onOrgSelected = callback;
+  }
+
+  /**
    * Inject BackgroundOperationRegistry into handlers that support background execution.
    *
    * @param registry - The shared BackgroundOperationRegistry instance.
@@ -448,7 +457,6 @@ export class ExtensionHandlers {
       [
         'monitor:refresh',
         'monitor:start',
-        'monitor:trends',
         'monitor:abort-job',
         'monitor:live-operations',
         'monitor:health-score',
