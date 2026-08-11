@@ -5,6 +5,10 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-08-11
+
+Fixed: duplicate org entries — ghost entries persisted by early builds (same Salesforce org, older key scheme) showed up as duplicates in every org list and kept "Authentication expired" loops alive with their stale credentials. Startup now dedupes by the Salesforce org id and prunes the ghosts from storage and the vault.
+
 ## [1.8.0] - 2026-08-11
 
 **Fifth-audit release: the live shell gets everything, the dead one leaves the bundle.** Fixed: webview crash reports were silently dropped by the broker (`error:boundary` now enveloped, typed, and logged extension-side), the `sandforge.cheers` easter egg finally works from real panels, Welcome/What's New no longer pop in every open panel (onboarding posts are now targeted; the broadcasting `postToActivePanel` is honestly renamed `postToAllPanels`), and the Forge execution page shows live per-object progress again (the listener read `forge:progress` fields at the message root instead of the envelope's `payload`). Changed: the unreachable `App` shell, its layouts and the orphaned AboutDialog are deleted from the bundle (−27.6 KB); the bridge type union now covers the 71 channels the extension actually emits, enforced by a new emit-side anti-drift test; the webview formatters re-export the canonical `@sandforge/shared` implementations (three divergent inline `formatDuration` removed); and the LazyMotion migration is complete — all `motion.*` imports are now `m.*`, so framer-motion's full feature set stays out of the production bundle. Full entry in the root changelog.
