@@ -7,6 +7,7 @@ import { FloatingToasts } from './components/ui/FloatingToasts';
 import { ProtocolMismatchBanner } from './components/ProtocolMismatchBanner';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { WelcomePage } from './pages/Welcome/WelcomePage';
+import { WhatsNewPage } from './pages/Welcome/WhatsNewPage';
 import { PanelRouter } from './PanelRouter';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
 import { useSendMessage } from './hooks/useMessageBus';
@@ -52,6 +53,9 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
 
   const showWelcome = useAppStore((s) => s.showWelcome);
   const setShowWelcome = useAppStore((s) => s.setShowWelcome);
+  const showWhatsNew = useAppStore((s) => s.showWhatsNew);
+  const whatsNewVersion = useAppStore((s) => s.whatsNewVersion);
+  const setShowWhatsNew = useAppStore((s) => s.setShowWhatsNew);
   const sendMessage = useSendMessage();
 
   /** Handle welcome wizard completion (same contract as App's overlay). */
@@ -59,6 +63,11 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
     setShowWelcome(false);
     sendMessage(buildMessage('onboarding:complete', { skipped: false }));
   }, [setShowWelcome, sendMessage]);
+
+  /** Handle what's new dismissal (same contract as App's overlay). */
+  const handleWhatsNewDismiss = useCallback((): void => {
+    setShowWhatsNew(false);
+  }, [setShowWhatsNew]);
 
   return (
     <>
@@ -79,6 +88,18 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
         >
           <div className="w-full max-h-screen overflow-auto">
             <WelcomePage onComplete={handleWelcomeComplete} />
+          </div>
+        </div>
+      )}
+      {showWhatsNew && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="What's new"
+        >
+          <div className="w-full max-h-screen overflow-auto">
+            <WhatsNewPage version={whatsNewVersion} onDismiss={handleWhatsNewDismiss} />
           </div>
         </div>
       )}

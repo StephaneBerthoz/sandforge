@@ -12,6 +12,7 @@ import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { useForgeStore } from '../../stores/useForgeStore';
 import type { ForgeNodeStatus, ForgeLogEntry } from '../../stores/useForgeStore';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
@@ -170,14 +171,8 @@ export const ForgeExecution: React.FC = () => {
     setIsPaused((prev) => {
       const next = !prev;
       setExecutionStatus(next ? 'paused' : 'forging');
-      // Send bridge message
-      try {
-        const win = window as unknown as Record<string, unknown>;
-        const vscode = win.vscodeApi as { postMessage: (m: unknown) => void } | undefined;
-        vscode?.postMessage({ type: next ? 'forge:pause' : 'forge:resume' });
-      } catch {
-        // no-op outside VSCode
-      }
+      // Routed through the broker: the envelope is mandatory since 1.5.0.
+      sendBridgeMessage(next ? 'forge:pause' : 'forge:resume');
       return next;
     });
   }, []);
@@ -190,13 +185,8 @@ export const ForgeExecution: React.FC = () => {
     setShowAbortConfirm(false);
     setExecutionStatus('aborted');
     addLog('warn', t('forge.aborted'));
-    try {
-      const win = window as unknown as Record<string, unknown>;
-      const vscode = win.vscodeApi as { postMessage: (m: unknown) => void } | undefined;
-      vscode?.postMessage({ type: 'forge:abort' });
-    } catch {
-      // no-op outside VSCode
-    }
+    // Routed through the broker: the envelope is mandatory since 1.5.0.
+    sendBridgeMessage('forge:abort');
     setPhase('input');
   }, [t, addLog, setPhase]);
 

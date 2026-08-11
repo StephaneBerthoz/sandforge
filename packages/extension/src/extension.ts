@@ -239,6 +239,8 @@ export function activate(context: vscode.ExtensionContext): void {
     // Outbound-only broker registration (step 5) so operation lifecycle
     // broadcasts reach the sidebar's Running / Last operation blocks.
     broker,
+    // Lets the sidebar sync its UI language on mount (sidebar:requestSettings).
+    () => configStore.getByCategory('settings'),
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,

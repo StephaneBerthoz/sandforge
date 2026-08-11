@@ -1,8 +1,6 @@
 # SandForge: Forge your Salesforce Sandboxes
 
-[![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/StephaneBerthoz.sandforge?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
-[![Installs](https://img.shields.io/visual-studio-marketplace/i/StephaneBerthoz.sandforge)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
-[![Rating](https://img.shields.io/visual-studio-marketplace/r/StephaneBerthoz.sandforge)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
 [![CI](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml)
 
 **Populate a developer sandbox with realistic data in 2 minutes** — cloned from a real record with its whole relationship graph, generated synthetically, or replayed from a frozen dataset. With production guardrails, an audit trail, and full UI in 6 languages.

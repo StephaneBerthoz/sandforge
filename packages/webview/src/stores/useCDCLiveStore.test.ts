@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { useCDCLiveStore } from './useCDCLiveStore';
 import type { CDCFeedEvent } from './useCDCLiveStore';
 import { useConflictStore } from './useConflictStore';
+
+/** Envelope shape posted to the extension host (see sendBridgeMessage). */
+interface PostedEnvelope {
+  protocolVersion: number;
+  correlationId?: string;
+  payload: { type: string; payload?: Record<string, unknown> };
+}
 
 /** Create a mock CDCFeedEvent with the given replay ID. */
 function makeMockEvent(replayId: number): CDCFeedEvent {
@@ -105,20 +113,18 @@ describe('useCDCLiveStore', () => {
     expect(state.eventCount).toBe(0);
   });
 
-  it('should post realtime:start message when startStream is called', () => {
+  it('should post an enveloped realtime:start message when startStream is called', () => {
     useCDCLiveStore.getState().setOrgs('org-src', 'org-tgt');
     useCDCLiveStore.getState().setWatchedObjects(['Account', 'Contact']);
     useCDCLiveStore.getState().startStream();
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as {
-      type: string;
-      payload: Record<string, unknown>;
-    };
-    expect(msg.type).toBe('realtime:start');
-    expect(msg.payload.sourceOrgId).toBe('org-src');
-    expect(msg.payload.targetOrgId).toBe('org-tgt');
-    expect(msg.payload.watchedObjects).toEqual(['Account', 'Contact']);
+    const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+    expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(envelope.payload.type).toBe('realtime:start');
+    expect(envelope.payload.payload?.sourceOrgId).toBe('org-src');
+    expect(envelope.payload.payload?.targetOrgId).toBe('org-tgt');
+    expect(envelope.payload.payload?.watchedObjects).toEqual(['Account', 'Contact']);
     expect(useCDCLiveStore.getState().status).toBe('connecting');
   });
 
@@ -138,12 +144,13 @@ describe('useCDCLiveStore', () => {
     expect(state.targetOrgId).toBe('tgt-1');
   });
 
-  it('should post realtime:stop message when stopStream is called', () => {
+  it('should post an enveloped realtime:stop message when stopStream is called', () => {
     useCDCLiveStore.getState().stopStream();
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as { type: string };
-    expect(msg.type).toBe('realtime:stop');
+    const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+    expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(envelope.payload.type).toBe('realtime:stop');
   });
 
   it('should forward realtime:conflict messages to useConflictStore', () => {

@@ -35,8 +35,13 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
   for (const { command, moduleId, title } of MODULE_COMMANDS) {
     context.subscriptions.push(
       vscode.commands.registerCommand(command, () => {
-        panelManager.openPanel({
-          viewType: `sandforge.${moduleId}`,
+        const viewType = `sandforge.${moduleId}`;
+        // Distinguish reveal (panel already alive, webview bundle loaded and
+        // listening) from create (bundle still parsing — any message posted
+        // now would be lost before the listeners attach).
+        const isReveal = panelManager.hasPanel(viewType);
+        const panel = panelManager.openPanel({
+          viewType,
           title: `SandForge: ${title}`,
           moduleId,
         });
@@ -50,22 +55,40 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
         // Trigger onboarding or what's new on first panel open
         if (!onboardingTriggered) {
           onboardingTriggered = true;
+          let message: Record<string, unknown> | undefined;
           if (onboardingService.shouldShowOnboarding()) {
-            panelManager.postToActivePanel({
+            message = {
               type: 'onboarding:show',
               id: `onboarding-${Date.now()}`,
               timestamp: Date.now(),
               payload: {},
-            });
-            onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
+            };
           } else if (onboardingService.shouldShowWhatsNew(currentVersion)) {
-            panelManager.postToActivePanel({
+            message = {
               type: 'whats-new:show',
               id: `whatsnew-${Date.now()}`,
               timestamp: Date.now(),
               payload: { version: currentVersion },
-            });
-            onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
+            };
+          }
+          if (message) {
+            if (isReveal) {
+              // Live panel: the bundle is already loaded — post now.
+              panelManager.postToActivePanel(message);
+              onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
+            } else {
+              // New panel: posting now would race the bundle parse — the
+              // message would be lost while markVersionSeen still recorded it
+              // as shown (welcome/what's-new never appears again). Arm a
+              // one-shot listener: the FIRST incoming webview message proves
+              // the bundle is up, then post exactly once and mark seen.
+              const readyListener = panel.webview.onDidReceiveMessage(() => {
+                readyListener.dispose();
+                panelManager.postToActivePanel(message);
+                onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
+              });
+              context.subscriptions.push(readyListener);
+            }
           }
         }
       }),

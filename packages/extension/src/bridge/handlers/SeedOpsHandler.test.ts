@@ -1073,6 +1073,46 @@ describe('SeedOpsHandler', () => {
       expect(seedErrors[0].payload?.message).toContain('ETIMEDOUT');
       expect(String(seedErrors[0].payload?.retryHint)).toContain('manually');
     });
+
+    it('emits seed:error (correlated) when the user declines the production confirmation', async () => {
+      const confirmIfNeeded = vi.fn().mockResolvedValue(false);
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: true,
+            impactSummary: 'writes to production',
+          }),
+          logOperation: vi.fn(),
+          confirmIfNeeded,
+        },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(executeMsg('seed-err-4'));
+
+      // The confirmation was requested and refused.
+      expect(confirmIfNeeded).toHaveBeenCalledTimes(1);
+
+      // useBridgeMutation only settles on seed:execute:response / seed:error —
+      // without this message the declined confirmation spun for 120 s.
+      const seedErrors = postedMessages().filter((m) => m.type === 'seed:error');
+      expect(seedErrors).toHaveLength(1);
+      expect(seedErrors[0].payload?.message).toBe(
+        'Operation cancelled by user (production confirmation declined).',
+      );
+      expect(seedErrors[0].payload?.retryable).toBe(false);
+      expect(seedErrors[0].correlationId).toBe('seed-err-4');
+      // The operation:failed lifecycle message is preserved alongside.
+      const opFailed = postedMessages().filter((m) => m.type === 'operation:failed');
+      expect(opFailed).toHaveLength(1);
+      expect(opFailed[0].payload?.retryable).toBe(false);
+      // No fake success response, and the background execution never started.
+      expect(postedMessages().filter((m) => m.type === 'seed:execute:response')).toHaveLength(0);
+      expect(postedMessages().filter((m) => m.type === 'operation:started')).toHaveLength(0);
+    });
   });
 
   describe('background operation registry status', () => {

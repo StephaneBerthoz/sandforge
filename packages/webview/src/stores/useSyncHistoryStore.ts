@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { SyncHistoryEntry } from '@sandforge/shared';
-import { buildMessage } from '../bridge/messageHelpers';
-import { getVscodeApi } from '../hooks/useVSCodeApi';
+import { sendBridgeMessage } from '../bridge/sendBridgeMessage';
 
 /** Export format for history data. */
 export type SyncExportFormat = 'csv' | 'json';
@@ -65,12 +64,12 @@ export const useSyncHistoryStore = create<SyncHistoryState>((set) => ({
 
   fetchHistory(): void {
     set({ loading: true, error: null });
-    getVscodeApi().postMessage(buildMessage('sync:history:list'));
+    sendBridgeMessage('sync:history:list');
   },
 
   fetchDetail(entryId: string): void {
     set({ loading: true, error: null });
-    getVscodeApi().postMessage(buildMessage('sync:history:detail', { entryId }));
+    sendBridgeMessage('sync:history:detail', { entryId });
   },
 
   clearSelection(): void {
@@ -78,11 +77,11 @@ export const useSyncHistoryStore = create<SyncHistoryState>((set) => ({
   },
 
   rerun(entryId: string): void {
-    getVscodeApi().postMessage(buildMessage('sync:history:rerun', { entryId }));
+    sendBridgeMessage('sync:history:rerun', { entryId });
   },
 
   exportHistory(format: SyncExportFormat, entryIds?: string[]): void {
-    getVscodeApi().postMessage(buildMessage('sync:history:export', { format, entryIds }));
+    sendBridgeMessage('sync:history:export', { format, entryIds });
   },
 
   handleMessage(message: unknown): void {

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { RealTimeSyncMetrics } from '@sandforge/shared';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import {
   useCDCMetricsStore,
   getEventsPerSecondHistory,
@@ -7,9 +8,11 @@ import {
   getUptimeSeconds,
 } from './useCDCMetricsStore';
 
+const mockPostMessage = vi.fn();
+
 vi.mock('../hooks/useVSCodeApi', () => ({
   getVscodeApi: () => ({
-    postMessage: vi.fn(),
+    postMessage: mockPostMessage,
     getState: () => undefined,
     setState: () => undefined,
   }),
@@ -34,6 +37,7 @@ function fakeMetrics(overrides?: Partial<RealTimeSyncMetrics>): RealTimeSyncMetr
 describe('useCDCMetricsStore', () => {
   beforeEach(() => {
     useCDCMetricsStore.getState().reset();
+    mockPostMessage.mockClear();
     vi.useFakeTimers();
   });
 
@@ -66,6 +70,23 @@ describe('useCDCMetricsStore', () => {
     useCDCMetricsStore.getState().startPolling();
 
     expect(useCDCMetricsStore.getState().polling).toBe(true);
+  });
+
+  it('should post enveloped realtime:metrics requests while polling', () => {
+    useCDCMetricsStore.getState().startPolling();
+
+    // Immediate first poll
+    expect(mockPostMessage).toHaveBeenCalledTimes(1);
+    const envelope = mockPostMessage.mock.calls[0][0] as {
+      protocolVersion: number;
+      payload: { type: string };
+    };
+    expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(envelope.payload.type).toBe('realtime:metrics');
+
+    // Interval polls again
+    vi.advanceTimersByTime(5000);
+    expect(mockPostMessage).toHaveBeenCalledTimes(2);
   });
 
   it('should clear interval on stopPolling', () => {

@@ -52,8 +52,11 @@ describe('CDCSubscriptionPanel', () => {
     fireEvent.click(startBtn);
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as { type: string };
-    expect(msg.type).toBe('realtime:start');
+    // Store senders post through the broker envelope — unwrap to assert.
+    const startEnvelope = mockPostMessage.mock.calls[0][0] as {
+      payload: { type: string };
+    };
+    expect(startEnvelope.payload.type).toBe('realtime:start');
   });
 
   it('should render stop button when streaming and post realtime:stop', () => {
@@ -63,8 +66,10 @@ describe('CDCSubscriptionPanel', () => {
     fireEvent.click(stopBtn);
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as { type: string };
-    expect(msg.type).toBe('realtime:stop');
+    const stopEnvelope = mockPostMessage.mock.calls[0][0] as {
+      payload: { type: string };
+    };
+    expect(stopEnvelope.payload.type).toBe('realtime:stop');
   });
 
   it('should render object checkboxes that toggle watchedObjects', () => {

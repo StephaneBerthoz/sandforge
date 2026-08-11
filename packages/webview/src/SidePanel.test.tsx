@@ -9,6 +9,7 @@ import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 
 const mockPostMessage = vi.fn();
+const mockSyncLanguage = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -20,7 +21,11 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-vi.mock('./i18n', () => ({}));
+vi.mock('./i18n', () => ({
+  // Deferred closure: the factory evaluates during import resolution, before
+  // the const above is initialized (TDZ) — only calls must see the spy.
+  syncLanguageFromSettings: (...args: unknown[]) => mockSyncLanguage(...args),
+}));
 
 vi.mock('./hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => ({
@@ -120,6 +125,23 @@ describe('SidePanel', () => {
     render(<SidePanel />);
     fireEvent.click(screen.getByTestId('sidepanel-open-full'));
     expect(mockPostMessage).toHaveBeenCalledWith({ type: 'sidebar:openFull' });
+  });
+
+  it('requests orgs and settings on mount', () => {
+    render(<SidePanel />);
+    expect(mockPostMessage).toHaveBeenCalledWith({ type: 'sidebar:requestOrgs' });
+    expect(mockPostMessage).toHaveBeenCalledWith({ type: 'sidebar:requestSettings' });
+  });
+
+  it('syncs the UI language when a settings:response message arrives', () => {
+    render(<SidePanel />);
+    fireEvent(
+      window,
+      new MessageEvent('message', {
+        data: { type: 'settings:response', payload: { settings: { settings: { language: 'fr' } } } },
+      }),
+    );
+    expect(mockSyncLanguage).toHaveBeenCalledWith({ settings: { language: 'fr' } });
   });
 
   it('renders last operation when ops exist', () => {

@@ -115,6 +115,34 @@ describe('SidebarViewProvider', () => {
     expect(executeCommand).toHaveBeenCalledWith('sandforge.openMonitor');
   });
 
+  it('answers sidebar:requestSettings with the settings blob when a getter is wired', () => {
+    const settingsGetter = vi.fn(() => ({ settings: { language: 'fr' } }));
+    const settingsProvider = new SidebarViewProvider(
+      extensionUri,
+      uriJoinPath,
+      executeCommand,
+      undefined,
+      undefined,
+      undefined,
+      settingsGetter,
+    );
+    settingsProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+    messageHandler!({ type: 'sidebar:requestSettings' });
+
+    expect(settingsGetter).toHaveBeenCalledTimes(1);
+    expect(mockWebview.postMessage).toHaveBeenCalledWith({
+      type: 'settings:response',
+      payload: { settings: { settings: { language: 'fr' } } },
+    });
+  });
+
+  it('ignores sidebar:requestSettings when no settings getter is wired', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+    messageHandler!({ type: 'sidebar:requestSettings' });
+    expect(mockWebview.postMessage).not.toHaveBeenCalled();
+  });
+
   it('posts message to webview when visible', () => {
     provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
     provider.postMessage({ type: 'test' });

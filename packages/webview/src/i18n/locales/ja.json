@@ -1487,7 +1487,7 @@
     "dataopsContent": "完全なデータ操作スイート：\n- スケジュール付きバックアップとリストア\n- GDPR/CCPA/HIPAA匿名化\n- 7つのルールタイプによるデータ品質スキャン\n- 一括削除とストレージ最適化\n- データ主体リクエスト（DSR）管理",
     "automationContent": "自動化のためのビジュアルパイプラインビルダー：\n- 4カテゴリ15のステップタイプ\n- スケジュールとWebhookを含む6つのトリガータイプ\n- 11の演算子による条件付きルーティング\n- 実行履歴と成功率の追跡\n- 迅速なセットアップのためのパイプラインテンプレート",
     "aiContent": "AIアシスタントがワークフローを強化：\n- SeedでのAIデータ生成\n- Syncでのインテリジェントなフィールドマッピング提案\n- モニタリングのための自然言語インサイト\n- 設定 > AIでAPIキーを構成",
-    "shortcutsContent": "Ctrl+Shift+M — モニターを開く\nCtrl+Shift+D — Seedを開く\nEscape — モーダルとダイアログを閉じる\nTab — 要素間の移動\nEnter/Space — ボタンとリンクの有効化",
+    "shortcutsContent": "Ctrl+1..9/0 — モジュールへ移動 (Monitor, Seed, Sync, Compare, DataOps, Automation, Grappe, Autopilot, Migration, Forge)\nG + キー — クイックナビゲーション (例: G の後に F で Forge)\nCtrl+K — コマンドパレット\nCtrl+Enter — 現在のアクションを実行\nEscape — モーダルとダイアログを閉じる\nTab — 要素間の移動\nEnter/Space — ボタンとリンクの有効化",
     "faqContent": "Q：健全性スコアが低いのはなぜですか？\nA：API制限の使用量、失敗したジョブ、ストレージ消費量を確認してください。スコアは複数の要因を考慮しています。\n\nQ：タイムアウトエラーを修正するには？\nA：設定 > 詳細設定でAPIタイムアウトを増やしてください。大規模なデータセットにはGrappeモードを有効にしてください。\n\nQ：同期操作を元に戻せますか？\nA：はい、実行前にロールバックを有効にしてください。SandForgeが復元ポイントを作成します。\n\nQ：本番Orgを安全に接続するには？\nA：本番Orgは自動検出され、重大な安全レベルとしてマークされます。すべての破壊的操作には確認が必要です。",
     "faq": "FAQ",
     "faqDesc": "よくある質問",

@@ -44,6 +44,7 @@ export class SidebarViewProvider {
     private orgGetter?: () => Record<string, unknown>[],
     private onOrgSelected?: (orgId: string) => void,
     private broker?: MessageBroker,
+    private settingsGetter?: () => Record<string, unknown>,
   ) {}
 
   /**
@@ -107,6 +108,14 @@ export class SidebarViewProvider {
       if (type === 'sidebar:requestOrgs' && this.orgGetter) {
         const orgs = this.orgGetter();
         this.postMessage({ type: 'org:list:response', payload: { orgs } });
+      }
+
+      // The sidebar cannot reach the broker's settings:get (its inbound
+      // traffic is raw, unenveloped) — answer its settings request here so it
+      // can sync its UI language with the configured one.
+      if (type === 'sidebar:requestSettings' && this.settingsGetter) {
+        const settings = this.settingsGetter();
+        this.postMessage({ type: 'settings:response', payload: { settings } });
       }
 
       if (type === 'sidebar:selectOrg' && this.onOrgSelected) {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import './i18n';
+import { syncLanguageFromSettings } from './i18n';
 import {
   Flame,
   Activity,
@@ -200,15 +200,26 @@ export const SidePanel: React.FC = () => {
   // Request orgs on mount and listen for updates from the extension
   useEffect(() => {
     vscodeApi.postMessage({ type: 'sidebar:requestOrgs' });
+    // Ask for the settings blob so the sidebar adopts the configured language
+    // (its own webview state is per-document and starts empty). Later
+    // `settings:response` broadcasts — posted to every registered webview when
+    // another panel saves settings — keep the sidebar language in sync live.
+    vscodeApi.postMessage({ type: 'sidebar:requestSettings' });
 
     const handleMessage = (event: MessageEvent): void => {
       // SECURITY: Validate origin — only accept messages from the VSCode webview host.
       if (event.origin && !event.origin.startsWith('vscode-webview://')) {
         return;
       }
-      const msg = event.data as { type?: string; payload?: { orgs?: SalesforceOrg[] } };
+      const msg = event.data as {
+        type?: string;
+        payload?: { orgs?: SalesforceOrg[]; settings?: unknown };
+      };
       if (msg.type === 'org:list:response' && msg.payload?.orgs) {
         useOrgStore.getState().setOrgs(msg.payload.orgs);
+      }
+      if (msg.type === 'settings:response') {
+        syncLanguageFromSettings(msg.payload?.settings);
       }
     };
     window.addEventListener('message', handleMessage);

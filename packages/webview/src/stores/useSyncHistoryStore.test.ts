@@ -1,6 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { useSyncHistoryStore } from './useSyncHistoryStore';
 import type { SyncHistoryEntry } from '@sandforge/shared';
+
+const mockPostMessage = vi.fn();
+
+vi.mock('../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+}));
+
+/** Envelope shape posted to the extension host (see sendBridgeMessage). */
+interface PostedEnvelope {
+  protocolVersion: number;
+  correlationId?: string;
+  payload: { type: string; payload?: Record<string, unknown> };
+}
 
 const makeMockEntry = (id: string): SyncHistoryEntry => ({
   id,
@@ -55,6 +73,7 @@ describe('useSyncHistoryStore', () => {
       loading: false,
       error: null,
     });
+    mockPostMessage.mockClear();
   });
 
   it('should start with empty state', () => {
@@ -160,5 +179,43 @@ describe('useSyncHistoryStore', () => {
     const stateAfter = useSyncHistoryStore.getState();
     expect(stateAfter.entries).toEqual(stateBefore.entries);
     expect(stateAfter.loading).toBe(stateBefore.loading);
+  });
+
+  describe('outbound bridge messages', () => {
+    it('fetchHistory posts an enveloped sync:history:list', () => {
+      useSyncHistoryStore.getState().fetchHistory();
+
+      expect(mockPostMessage).toHaveBeenCalledTimes(1);
+      const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+      expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+      expect(envelope.payload.type).toBe('sync:history:list');
+    });
+
+    it('fetchDetail posts an enveloped sync:history:detail with entryId', () => {
+      useSyncHistoryStore.getState().fetchDetail('h-1');
+
+      const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+      expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+      expect(envelope.payload.type).toBe('sync:history:detail');
+      expect(envelope.payload.payload).toEqual({ entryId: 'h-1' });
+    });
+
+    it('rerun posts an enveloped sync:history:rerun with entryId', () => {
+      useSyncHistoryStore.getState().rerun('h-2');
+
+      const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+      expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+      expect(envelope.payload.type).toBe('sync:history:rerun');
+      expect(envelope.payload.payload).toEqual({ entryId: 'h-2' });
+    });
+
+    it('exportHistory posts an enveloped sync:history:export with format and ids', () => {
+      useSyncHistoryStore.getState().exportHistory('csv', ['h-1', 'h-2']);
+
+      const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+      expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+      expect(envelope.payload.type).toBe('sync:history:export');
+      expect(envelope.payload.payload).toEqual({ format: 'csv', entryIds: ['h-1', 'h-2'] });
+    });
   });
 });

@@ -1,9 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import '../../i18n';
 import { ForgeExecution } from './ForgeExecution';
 
 /* ---- Mocks ---- */
+
+/**
+ * The component posts via sendBridgeMessage -> getVscodeApi().postMessage.
+ * Mock the accessor module (the real code path) — window.vscodeApi is never
+ * assigned in production and must not be relied upon.
+ */
+const mockPostMessage = vi.fn();
+
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+}));
+
+/** Envelope shape posted to the extension host (see sendBridgeMessage). */
+interface PostedEnvelope {
+  protocolVersion: number;
+  correlationId?: string;
+  payload: { type: string; payload?: Record<string, unknown> };
+}
 
 const mockUpdateNodeStatus = vi.fn();
 const mockSetPhase = vi.fn();
@@ -183,6 +206,47 @@ describe('ForgeExecution', () => {
     fireEvent.click(btn);
     expect(btn.textContent).toContain('Resume');
     expect(screen.getByTestId('forge-execution-status').textContent).toBe('PAUSED');
+  });
+
+  it('should post enveloped forge:pause then forge:resume when toggling pause', () => {
+    render(<ForgeExecution />);
+    const btn = screen.getByTestId('forge-pause-button');
+
+    fireEvent.click(btn);
+    expect(mockPostMessage).toHaveBeenCalledTimes(1);
+    let envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+    expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(envelope.payload.type).toBe('forge:pause');
+
+    fireEvent.click(btn);
+    expect(mockPostMessage).toHaveBeenCalledTimes(2);
+    envelope = mockPostMessage.mock.calls[1][0] as PostedEnvelope;
+    expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(envelope.payload.type).toBe('forge:resume');
+  });
+
+  it('should post an enveloped forge:abort when abort is confirmed', () => {
+    render(<ForgeExecution />);
+
+    fireEvent.click(screen.getByTestId('forge-abort-button'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(mockPostMessage).toHaveBeenCalledTimes(1);
+    const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+    expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(envelope.payload.type).toBe('forge:abort');
+    expect(screen.getByTestId('forge-execution-status').textContent).toBe('ABORTED');
+  });
+
+  it('should not post forge:abort when the confirm text does not match', () => {
+    render(<ForgeExecution />);
+
+    fireEvent.click(screen.getByTestId('forge-abort-button'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'nope' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(mockPostMessage).not.toHaveBeenCalled();
   });
 
   it('should render log stream', () => {

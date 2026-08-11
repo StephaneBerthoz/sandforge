@@ -52,10 +52,18 @@ vi.mock('./pages/Welcome/WelcomePage', () => ({
   ),
 }));
 
+vi.mock('./pages/Welcome/WhatsNewPage', () => ({
+  WhatsNewPage: ({ version, onDismiss }: { version: string; onDismiss: () => void }) => (
+    <button data-testid="whats-new-page-stub" onClick={onDismiss}>
+      whats-new {version}
+    </button>
+  ),
+}));
+
 describe('PanelApp', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
-    useAppStore.setState({ currentRoute: 'home', showWelcome: false });
+    useAppStore.setState({ currentRoute: 'home', showWelcome: false, showWhatsNew: false });
   });
 
   it('should render the panel-app container', () => {
@@ -111,6 +119,26 @@ describe('PanelApp', () => {
       (c: unknown[]) => (c[0] as { payload: { type: string } }).payload.type,
     );
     expect(types).toContain('onboarding:complete');
+  });
+
+  it('should not render the whats-new overlay by default', () => {
+    render(<PanelApp moduleId="monitor" />);
+    expect(screen.queryByTestId('whats-new-page-stub')).toBeNull();
+  });
+
+  it('should render the whats-new overlay when showWhatsNew is set (whats-new:show)', () => {
+    useAppStore.setState({ showWhatsNew: true, whatsNewVersion: '1.6.0' });
+    render(<PanelApp moduleId="monitor" />);
+    expect(screen.getByTestId('whats-new-page-stub').textContent).toContain('1.6.0');
+  });
+
+  it('should hide the whats-new overlay on dismiss', () => {
+    useAppStore.setState({ showWhatsNew: true, whatsNewVersion: '1.6.0' });
+    render(<PanelApp moduleId="monitor" />);
+    fireEvent.click(screen.getByTestId('whats-new-page-stub'));
+
+    expect(useAppStore.getState().showWhatsNew).toBe(false);
+    expect(screen.queryByTestId('whats-new-page-stub')).toBeNull();
   });
 
   it('should follow store navigation triggered by the global shortcuts (Ctrl+number)', () => {
