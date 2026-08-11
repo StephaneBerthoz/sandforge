@@ -5,6 +5,10 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.4] - 2026-08-11
+
+Fixed: the auth self-heal now pulls a guaranteed-live token via `sf org auth show-access-token` (which refreshes the OAuth session) instead of `sf org display` (which dumps the stored token as-is — proven rejected with HTTP 403 on a "Connected" org while show-access-token's token passes). This is the root cause of the recurring "Authentication expired" loops. Older CLIs fall back to the previous behavior; the vault is still only written after the refreshed credentials pass a real API call.
+
 ## [1.8.3] - 2026-08-11
 
 Removed: the CI badge from the marketplace listing. No functional change.
