@@ -5,6 +5,12 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.3] - 2026-08-11
+
+### Removed
+
+- Marketplace page: the CI badge is gone from the top of the listing (version, tests, license and language badges stay). No functional change.
+
 ## [1.8.2] - 2026-08-11
 
 **Auth follow-through release.** Fixes for the org-session experience, plus SandForge now follows the CLI's own default.
