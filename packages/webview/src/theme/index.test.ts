@@ -12,7 +12,9 @@ describe('cn', () => {
   });
 
   it('should handle conditional classes via clsx', () => {
-    const result = cn('base', false && 'hidden', 'visible');
+    // `false && 'x'` collapses to `false` — feed the falsy value directly
+    // (constant-binary expressions are lint-gated).
+    const result = cn('base', false, 'visible');
     expect(result).toBe('base visible');
   });
 

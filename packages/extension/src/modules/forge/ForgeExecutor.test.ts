@@ -12,28 +12,19 @@ const DEFAULT_FIELDS: FieldInfo[] = [
 function createMockDeps(): ForgeExecutorDeps {
   return {
     queryRecords: vi
-      .fn<
-        Parameters<ForgeExecutorDeps['queryRecords']>,
-        ReturnType<ForgeExecutorDeps['queryRecords']>
-      >()
+      .fn<ForgeExecutorDeps['queryRecords']>()
       .mockResolvedValue([
         { Id: '001OLD1', Name: 'Record 1' },
         { Id: '001OLD2', Name: 'Record 2' },
       ]),
     insertRecords: vi
-      .fn<
-        Parameters<ForgeExecutorDeps['insertRecords']>,
-        ReturnType<ForgeExecutorDeps['insertRecords']>
-      >()
+      .fn<ForgeExecutorDeps['insertRecords']>()
       .mockResolvedValue([
         { id: '001NEW1', success: true, errors: [] },
         { id: '001NEW2', success: true, errors: [] },
       ]),
     describeFields: vi
-      .fn<
-        Parameters<ForgeExecutorDeps['describeFields']>,
-        ReturnType<ForgeExecutorDeps['describeFields']>
-      >()
+      .fn<ForgeExecutorDeps['describeFields']>()
       .mockResolvedValue(DEFAULT_FIELDS),
   };
 }
@@ -579,10 +570,7 @@ describe('ForgeExecutor', () => {
 
     it('issues a pass-2 UPDATE for FKs nullified during pass-1 insert', async () => {
       const updateRecords = vi
-        .fn<
-          Parameters<NonNullable<ForgeExecutorDeps['updateRecords']>>,
-          ReturnType<NonNullable<ForgeExecutorDeps['updateRecords']>>
-        >()
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
         .mockResolvedValue([{ id: '001NEW1', success: true, errors: [] }]);
       const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
       const cycleExecutor = new ForgeExecutor(depsCycle);
@@ -658,10 +646,7 @@ describe('ForgeExecutor', () => {
 
     it('does not call updateRecords when no FKs need patching', async () => {
       const updateRecords = vi
-        .fn<
-          Parameters<NonNullable<ForgeExecutorDeps['updateRecords']>>,
-          ReturnType<NonNullable<ForgeExecutorDeps['updateRecords']>>
-        >()
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
         .mockResolvedValue([]);
       const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
       const cycleExecutor = new ForgeExecutor(depsCycle);
@@ -679,10 +664,7 @@ describe('ForgeExecutor', () => {
 
     it('coalesces multiple nullified FKs on the same record into a single UPDATE call', async () => {
       const updateRecords = vi
-        .fn<
-          Parameters<NonNullable<ForgeExecutorDeps['updateRecords']>>,
-          ReturnType<NonNullable<ForgeExecutorDeps['updateRecords']>>
-        >()
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
         .mockResolvedValue([{ id: '001NEW1', success: true, errors: [] }]);
       const cycleExecutor = new ForgeExecutor({ ...deps, updateRecords });
 
@@ -768,10 +750,7 @@ describe('ForgeExecutor', () => {
 
     it('reports unresolved cycle FKs in errors when target parent was never cloned', async () => {
       const updateRecords = vi
-        .fn<
-          Parameters<NonNullable<ForgeExecutorDeps['updateRecords']>>,
-          ReturnType<NonNullable<ForgeExecutorDeps['updateRecords']>>
-        >()
+        .fn<NonNullable<ForgeExecutorDeps['updateRecords']>>()
         .mockResolvedValue([]);
       const depsCycle: ForgeExecutorDeps = { ...deps, updateRecords };
       const cycleExecutor = new ForgeExecutor(depsCycle);
@@ -808,10 +787,7 @@ describe('ForgeExecutor', () => {
 
     it('uses upsertRecords when upsertMode=auto and an externalId field exists', async () => {
       const upsertRecords = vi
-        .fn<
-          Parameters<NonNullable<ForgeExecutorDeps['upsertRecords']>>,
-          ReturnType<NonNullable<ForgeExecutorDeps['upsertRecords']>>
-        >()
+        .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
         .mockResolvedValue([{ id: '500NEW1', success: true, errors: [] }]);
       const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
 
@@ -846,10 +822,7 @@ describe('ForgeExecutor', () => {
 
     it('falls back to insert when no externalId field is present', async () => {
       const upsertRecords = vi
-        .fn<
-          Parameters<NonNullable<ForgeExecutorDeps['upsertRecords']>>,
-          ReturnType<NonNullable<ForgeExecutorDeps['upsertRecords']>>
-        >()
+        .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
         .mockResolvedValue([]);
       const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
 
@@ -872,10 +845,7 @@ describe('ForgeExecutor', () => {
 
     it('always inserts when upsertMode is undefined (back-compat)', async () => {
       const upsertRecords = vi
-        .fn<
-          Parameters<NonNullable<ForgeExecutorDeps['upsertRecords']>>,
-          ReturnType<NonNullable<ForgeExecutorDeps['upsertRecords']>>
-        >()
+        .fn<NonNullable<ForgeExecutorDeps['upsertRecords']>>()
         .mockResolvedValue([]);
       const cycleExecutor = new ForgeExecutor({ ...deps, upsertRecords });
 

@@ -38,7 +38,7 @@ describe('SandboxRefreshTracker', () => {
 
   beforeEach(() => {
     querySandboxes = vi
-      .fn<Parameters<QuerySandboxesFn>, ReturnType<QuerySandboxesFn>>()
+      .fn<QuerySandboxesFn>()
       .mockResolvedValue(createMockRefreshEvents());
     onRefreshDetected = vi.fn();
     tracker = new SandboxRefreshTracker(querySandboxes, onRefreshDetected);

@@ -242,7 +242,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       );
 
       return result;
-    } catch (err) {
+    } catch {
       result.elapsedMs = Date.now() - startTime;
       this.emit(
         'execution-failed',

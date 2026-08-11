@@ -5,6 +5,10 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-08-11
+
+**Auth reliability + toolchain modernization.** Registered orgs are now validated at every launch: expired sessions auto-refresh via the sf CLI in the background, with live per-org status in the sidebar — no more mid-operation "Authentication expired" walls (new `sandforge.orgs.validateOnStartup` setting, on by default). The token self-heal no longer persists unvalidated CLI tokens, and a stale CLI token store is called out explicitly instead of looping. Toolchain: ESLint 9 flat config with typed linting (`no-floating-promises` on the extension host), vitest 3, Stryker 9 — all 7,900+ tests green and every coverage gate passing. The marketplace page now shows the full project README: all 14 modules, screenshots, FAQ and the complete settings reference with working links. Full entry in the root changelog.
+
 ## [1.6.0] - 2026-08-11
 
 **Fourth-audit release: messages that actually arrive.** Re-auditing 1.5.0 surfaced a regression class from the broker envelope requirement: five webview stores (sync history, sync schedule, CDC metrics/live, conflicts) posted raw messages the broker silently dropped — infinite spinners and lost mutations on the Sync tabs — and the Forge pause/resume/abort buttons did nothing on destructive runs. All senders now share a single enveloped helper. Also fixed: declining a seed production confirmation hung the UI for 120 s (now an immediate correlated `seed:error`), the onboarding/what's-new message raced the webview bundle on first open and was lost forever, the What's New overlay never rendered in module panels, the sidebar ignored the configured language (now synced live), the in-app Help listed wrong shortcuts (fixed in 6 languages), and the marketplace listing had dead images and links — the repository is now public and the retired shields.io badges were replaced. Full entry in the root changelog.

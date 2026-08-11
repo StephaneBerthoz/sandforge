@@ -18,7 +18,7 @@ import type { MessageBroker } from '../bridge/MessageBroker.js';
  * can assert on (`.mock.calls`, `toHaveBeenCalledWith`, ...).
  */
 export interface MockBroker extends MessageBroker {
-  postToWebview: Mock<[message: BaseMessage], void>;
+  postToWebview: Mock<(message: BaseMessage) => void>;
 }
 
 /**

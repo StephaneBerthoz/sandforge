@@ -118,7 +118,7 @@ describe('RetryableOperation', () => {
       ];
 
       const fn = vi
-        .fn<[typeof records], Promise<BatchResult<(typeof records)[0]>>>()
+        .fn<(rs: typeof records) => Promise<BatchResult<(typeof records)[0]>>>()
         .mockImplementationOnce(async (batch) => ({
           successes: [batch[0]],
           failures: [

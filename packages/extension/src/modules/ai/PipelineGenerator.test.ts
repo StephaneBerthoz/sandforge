@@ -9,11 +9,11 @@ const testOrgs: OrgInfo[] = [
 ];
 
 describe('PipelineGenerator', () => {
-  let mockProvider: Mock<Parameters<AIProvider>, ReturnType<AIProvider>>;
+  let mockProvider: Mock<AIProvider>;
   let generator: PipelineGenerator;
 
   beforeEach(() => {
-    mockProvider = vi.fn<Parameters<AIProvider>, ReturnType<AIProvider>>().mockResolvedValue('{}');
+    mockProvider = vi.fn<AIProvider>().mockResolvedValue('{}');
     generator = new PipelineGenerator(mockProvider);
   });
 

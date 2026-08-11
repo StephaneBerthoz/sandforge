@@ -35,6 +35,7 @@
   "walkthrough.step.exploreSettings.description": "Tailles de lots, garde-fous production, journal d'audit et assistant IA.",
   "config.title": "SandForge",
   "config.telemetry.description": "Activer la telemetrie d'utilisation anonyme",
+  "config.orgs.validateOnStartup.description": "Valider les organisations enregistrees au demarrage et rafraichir automatiquement les sessions expirees via la CLI sf",
   "config.seed.defaultBatchSize.description": "Taille de lot par defaut pour les operations Seed",
   "config.sync.defaultBatchSize.description": "Taille de lot par defaut pour les operations Sync",
   "config.sync.maxConcurrentOps.description": "Nombre maximum d'operations de synchronisation simultanees",

@@ -36,12 +36,12 @@ function createMockAIResolution(overrides?: Partial<ErrorResolution>): string {
 }
 
 describe('ErrorResolver', () => {
-  let mockProvider: Mock<Parameters<AIProvider>, ReturnType<AIProvider>>;
+  let mockProvider: Mock<AIProvider>;
   let resolver: ErrorResolver;
 
   beforeEach(() => {
     mockProvider = vi
-      .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+      .fn<AIProvider>()
       .mockResolvedValue(createMockAIResolution());
     resolver = new ErrorResolver(mockProvider);
   });

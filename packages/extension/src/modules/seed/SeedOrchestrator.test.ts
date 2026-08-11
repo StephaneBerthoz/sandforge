@@ -23,7 +23,7 @@ function createMockDeps(): SeedOrchestratorDependencies {
     referenceLinker: {
       resolveInsertOrder: vi.fn((objects: SeedTemplate['objects']) => objects),
     } as unknown as SeedOrchestratorDependencies['referenceLinker'],
-    insert: vi.fn<Parameters<InsertFn>, ReturnType<InsertFn>>().mockResolvedValue({
+    insert: vi.fn<InsertFn>().mockResolvedValue({
       successIds: ['001A', '001B'],
       errors: [],
     }),

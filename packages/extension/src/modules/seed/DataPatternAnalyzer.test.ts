@@ -25,7 +25,7 @@ describe('DataPatternAnalyzer', () => {
 
   beforeEach(() => {
     fetchSampleData = vi
-      .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+      .fn<FetchSampleDataFn>()
       .mockResolvedValue(createSampleResponse());
     analyzer = new DataPatternAnalyzer(fetchSampleData);
   });
@@ -69,7 +69,7 @@ describe('DataPatternAnalyzer', () => {
 
     it('should suggest reference rule for reference fields', async () => {
       fetchSampleData = vi
-        .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+        .fn<FetchSampleDataFn>()
         .mockResolvedValue({
           records: [{ AccountId: '001A' }],
           fields: [
@@ -85,7 +85,7 @@ describe('DataPatternAnalyzer', () => {
 
     it('should suggest picklist_random for picklist fields', async () => {
       fetchSampleData = vi
-        .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+        .fn<FetchSampleDataFn>()
         .mockResolvedValue({
           records: [{ Status: 'Open' }],
           fields: [
@@ -106,7 +106,7 @@ describe('DataPatternAnalyzer', () => {
 
     it('should suggest faker for email fields', async () => {
       fetchSampleData = vi
-        .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+        .fn<FetchSampleDataFn>()
         .mockResolvedValue({
           records: [{ Email: 'a@b.com' }],
           fields: [{ name: 'Email', type: 'email', nillable: true }],
@@ -120,7 +120,7 @@ describe('DataPatternAnalyzer', () => {
 
     it('should suggest static for low-uniqueness fields', async () => {
       fetchSampleData = vi
-        .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+        .fn<FetchSampleDataFn>()
         .mockResolvedValue({
           records: Array.from({ length: 20 }, () => ({ Country: 'US' })),
           fields: [{ name: 'Country', type: 'string', nillable: false }],
@@ -135,7 +135,7 @@ describe('DataPatternAnalyzer', () => {
     it('should suggest sequence for high-uniqueness fields', async () => {
       const records = Array.from({ length: 20 }, (_, i) => ({ Code: `CODE-${i}` }));
       fetchSampleData = vi
-        .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+        .fn<FetchSampleDataFn>()
         .mockResolvedValue({
           records,
           fields: [{ name: 'Code', type: 'string', nillable: false }],
@@ -150,7 +150,7 @@ describe('DataPatternAnalyzer', () => {
     it('should limit sample values to 5', async () => {
       const records = Array.from({ length: 20 }, (_, i) => ({ Name: `Name-${i}` }));
       fetchSampleData = vi
-        .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+        .fn<FetchSampleDataFn>()
         .mockResolvedValue({
           records,
           fields: [{ name: 'Name', type: 'string', nillable: false }],
@@ -164,7 +164,7 @@ describe('DataPatternAnalyzer', () => {
 
     it('should handle empty records gracefully', async () => {
       fetchSampleData = vi
-        .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+        .fn<FetchSampleDataFn>()
         .mockResolvedValue({
           records: [],
           fields: [{ name: 'Name', type: 'string', nillable: false }],
@@ -179,7 +179,7 @@ describe('DataPatternAnalyzer', () => {
 
     it('should propagate fetch errors', async () => {
       fetchSampleData = vi
-        .fn<Parameters<FetchSampleDataFn>, ReturnType<FetchSampleDataFn>>()
+        .fn<FetchSampleDataFn>()
         .mockRejectedValue(new Error('Network error'));
       analyzer = new DataPatternAnalyzer(fetchSampleData);
 

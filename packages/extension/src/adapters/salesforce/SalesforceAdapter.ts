@@ -1,4 +1,4 @@
-import pLimit = require('p-limit');
+import pLimit from 'p-limit';
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter } from '../telemetry/TelemetryAdapter.js';
 import { DescribeCache } from './DescribeCache.js';

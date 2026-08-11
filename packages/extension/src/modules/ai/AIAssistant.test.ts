@@ -17,11 +17,11 @@ const mockResult: AICallResult = {
 };
 
 describe('AIAssistant', () => {
-  let mockCallFn: Mock<Parameters<AICallFn>, ReturnType<AICallFn>>;
+  let mockCallFn: Mock<AICallFn>;
   let assistant: AIAssistant;
 
   beforeEach(() => {
-    mockCallFn = vi.fn<Parameters<AICallFn>, ReturnType<AICallFn>>().mockResolvedValue(mockResult);
+    mockCallFn = vi.fn<AICallFn>().mockResolvedValue(mockResult);
     assistant = new AIAssistant(mockCallFn, mockConfig);
   });
 

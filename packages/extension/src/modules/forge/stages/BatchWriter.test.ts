@@ -55,8 +55,8 @@ function makeInput(
     upsertMode: 'off',
     targetOrgId: 'tgt',
     remapper: new IdRemapper(),
-    waitIfPaused: vi.fn<[], Promise<void>>().mockResolvedValue(undefined),
-    onProgress: vi.fn<[e: ForgeProgressEvent], void>(),
+    waitIfPaused: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+    onProgress: vi.fn<(e: ForgeProgressEvent) => void>(),
     ...overrides,
   };
 }
@@ -64,7 +64,7 @@ function makeInput(
 function makeDeps(insertImpl?: InsertImpl): WriterDeps {
   return {
     insertRecords: vi
-      .fn<Parameters<InsertImpl>, ReturnType<InsertImpl>>()
+      .fn<InsertImpl>()
       .mockImplementation(
         insertImpl ??
           (async (_orgId, _obj, recs) =>
@@ -151,7 +151,7 @@ describe('BatchWriter', () => {
 
   it('upserts on a unique external Id field when upsertMode=auto', async () => {
     const upsertRecords = vi
-      .fn<Parameters<UpsertFn>, ReturnType<UpsertFn>>()
+      .fn<UpsertFn>()
       .mockResolvedValue([{ id: '001UP1', success: true, errors: [] }]);
     const deps: WriterDeps = { ...makeDeps(), upsertRecords };
     const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
@@ -189,7 +189,7 @@ describe('BatchWriter', () => {
   });
 
   it('falls back to insert when no external Id candidate is unique across the batch', async () => {
-    const upsertRecords = vi.fn<Parameters<UpsertFn>, ReturnType<UpsertFn>>().mockResolvedValue([]);
+    const upsertRecords = vi.fn<UpsertFn>().mockResolvedValue([]);
     const deps: WriterDeps = { ...makeDeps(), upsertRecords };
     const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const fields: FieldInfo[] = [

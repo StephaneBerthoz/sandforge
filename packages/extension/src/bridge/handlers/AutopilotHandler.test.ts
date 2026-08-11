@@ -87,7 +87,7 @@ function scanMsg(id: string): BaseMessage {
 
 /** Extracts all messages posted to the webview. */
 function postedMessages(deps: HandlerDeps): Array<BaseMessage & { correlationId?: string }> {
-  const postToWebview = deps.broker.postToWebview as Mock<[BaseMessage], void>;
+  const postToWebview = deps.broker.postToWebview as Mock<(message: BaseMessage) => void>;
   return postToWebview.mock.calls.map((call) => call[0]);
 }
 
@@ -284,7 +284,7 @@ describe('AutopilotHandler', () => {
       payload: { complianceFramework: 'gdpr' },
     } as BaseMessage);
 
-    const postToWebview = deps.broker.postToWebview as Mock<[BaseMessage], void>;
+    const postToWebview = deps.broker.postToWebview as Mock<(message: BaseMessage) => void>;
     postToWebview.mockClear();
 
     // Execute
@@ -731,7 +731,7 @@ describe('AutopilotHandler', () => {
         timestamp: Date.now(),
         payload: { complianceFramework: 'gdpr' },
       } as BaseMessage);
-      const postToWebview = deps.broker.postToWebview as Mock<[BaseMessage], void>;
+      const postToWebview = deps.broker.postToWebview as Mock<(message: BaseMessage) => void>;
       postToWebview.mockClear();
     }
 

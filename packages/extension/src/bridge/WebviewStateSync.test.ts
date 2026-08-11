@@ -20,7 +20,7 @@ function makeOp(id: string): ActiveOperation {
 describe('WebviewStateSync', () => {
   let broker: MessageBroker;
   let stateSync: WebviewStateSync;
-  let postToWebviewSpy: MockInstance<[message: BaseMessage], void>;
+  let postToWebviewSpy: MockInstance<(message: BaseMessage) => void>;
 
   beforeEach(() => {
     vi.useFakeTimers();

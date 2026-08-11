@@ -511,7 +511,7 @@ describe('OfflineManager', () => {
     });
 
     it('should purge a pending drain timer so the executor never fires after dispose', async () => {
-      const executor = vi.fn<Parameters<OperationExecutor>, ReturnType<OperationExecutor>>();
+      const executor = vi.fn<OperationExecutor>();
       executor.mockResolvedValue(undefined);
       manager.setOperationExecutor(executor);
 

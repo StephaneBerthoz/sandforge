@@ -334,6 +334,46 @@ describe('ConnectionHelper', () => {
       expect(mockCliInvoker).not.toHaveBeenCalled();
       expect(mockIdentity).toHaveBeenCalledTimes(1);
     });
+
+    it('should bail out with a precise cause when the CLI hands back the same stale token', async () => {
+      const org = makeOrg();
+      const creds = makeCreds(); // vault token: 'token-123'
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+      // CLI store holds the SAME expired token (no usable refresh token) —
+      // retrying with it would fail identically and persisting it would
+      // overwrite the vault with a known-bad token.
+      const refreshJson = JSON.stringify({ result: { accessToken: 'token-123' } });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        /sf CLI token store is stale too/,
+      );
+      // No pointless identity retry with the identical token, no vault write.
+      expect(mockIdentity).toHaveBeenCalledTimes(1);
+      expect(orgRegistry.saveOrg).not.toHaveBeenCalled();
+    });
+
+    it('should not persist a refreshed token that fails validation', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      mockIdentity
+        .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
+        .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+      const refreshJson = JSON.stringify({ result: { accessToken: 'still-bad-token' } });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+
+      await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
+        /Authentication expired for org "test-org"/,
+      );
+      // Persist happens only AFTER the new token is validated.
+      expect(orgRegistry.saveOrg).not.toHaveBeenCalled();
+    });
   });
 
   describe('circuit breaker (per-org)', () => {

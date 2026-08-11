@@ -12,7 +12,8 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/index.ts'],
       // Anti-regression gate (2026-08): set ~5 pts under the measured baseline
-      // (lines 93.4 / branches 87.9 / functions 93.5). Raise as coverage grows.
+      // (lines 90.0 / branches 87.1 / functions 93.4 — measured under vitest 3,
+      // whose v8 provider ignores empty lines by default). Raise as coverage grows.
       thresholds: {
         statements: 88,
         branches: 82,

@@ -21,7 +21,7 @@ describe('PermissionCompare', () => {
 
   beforeEach(() => {
     fetchPermissions = vi
-      .fn<Parameters<FetchPermissionsFn>, ReturnType<FetchPermissionsFn>>()
+      .fn<FetchPermissionsFn>()
       .mockResolvedValue([]);
     permCompare = new PermissionCompare(fetchPermissions);
   });

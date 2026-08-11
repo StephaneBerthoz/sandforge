@@ -114,7 +114,7 @@ export interface OrchestratorFactories {
  * Every module in the extension should receive this object (or a subset) via
  * constructor injection rather than instantiating dependencies inline.
  */
-export interface Services extends CoreServices, OrchestratorFactories {}
+export type Services = CoreServices & OrchestratorFactories;
 
 /**
  * Compose the full service graph for the extension host.

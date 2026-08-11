@@ -192,12 +192,16 @@ export async function getJsforceConnection(
       try {
         const newToken = await refreshTokenViaCli(org.username);
 
-        // Persist the refreshed token before retrying, so subsequent
-        // connections and pool lookups pick it up.
-        await orgRegistry.saveOrg(org, {
-          ...credentials,
-          accessToken: newToken,
-        });
+        // The CLI handed back the exact token that just failed — its store
+        // is stale too (no usable refresh token, e.g. a strict Connected App
+        // policy). Retrying with it would fail identically, and persisting it
+        // would overwrite the vault with a known-bad token: bail out now with
+        // a precise cause instead.
+        if (newToken === credentials.accessToken) {
+          throw new Error(
+            'sf CLI token store is stale too (same expired token) — re-authenticate the org',
+          );
+        }
 
         const refreshedConn = new jsforce.Connection({
           instanceUrl: credentials.instanceUrl,
@@ -205,6 +209,13 @@ export async function getJsforceConnection(
           version: apiVersion,
         });
         await refreshedConn.identity();
+
+        // Persist only AFTER the new token has been validated — a CLI token
+        // rejected by identity() must never reach the vault.
+        await orgRegistry.saveOrg(org, {
+          ...credentials,
+          accessToken: newToken,
+        });
 
         // Recovered: an expired token is not an infrastructure failure, so
         // it must not count towards the circuit breaker threshold.

@@ -186,10 +186,7 @@ describe('cleanNodeRecords', () => {
 describe('describeTargetFieldSets', () => {
   it('returns the createable set and picklist whitelists', async () => {
     const describeFields = vi
-      .fn<
-        Parameters<ForgeExecutorDeps['describeFields']>,
-        ReturnType<ForgeExecutorDeps['describeFields']>
-      >()
+      .fn<ForgeExecutorDeps['describeFields']>()
       .mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
         {
@@ -208,10 +205,7 @@ describe('describeTargetFieldSets', () => {
 
   it('returns a null picklist map when no restricted picklist exists', async () => {
     const describeFields = vi
-      .fn<
-        Parameters<ForgeExecutorDeps['describeFields']>,
-        ReturnType<ForgeExecutorDeps['describeFields']>
-      >()
+      .fn<ForgeExecutorDeps['describeFields']>()
       .mockResolvedValue([{ name: 'Name', queryable: true, createable: true, isReference: false }]);
     const sets = await describeTargetFieldSets(describeFields, 'tgt', 'Account');
     expect(sets.picklistValuesByField).toBeNull();
@@ -219,10 +213,7 @@ describe('describeTargetFieldSets', () => {
 
   it('propagates describe failures so the caller can fall back to source schema', async () => {
     const describeFields = vi
-      .fn<
-        Parameters<ForgeExecutorDeps['describeFields']>,
-        ReturnType<ForgeExecutorDeps['describeFields']>
-      >()
+      .fn<ForgeExecutorDeps['describeFields']>()
       .mockRejectedValue(new Error('auth expired'));
     await expect(describeTargetFieldSets(describeFields, 'tgt', 'Account')).rejects.toThrow(
       'auth expired',

@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -17,7 +17,7 @@
   "badges": [
     {
       "href": "https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge",
-      "url": "https://img.shields.io/badge/version-1.6.0-blue",
+      "url": "https://img.shields.io/badge/version-1.7.0-blue",
       "description": "Marketplace version"
     },
     {
@@ -289,6 +289,11 @@
           "default": false,
           "description": "%config.telemetry.description%"
         },
+        "sandforge.orgs.validateOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "%config.orgs.validateOnStartup.description%"
+        },
         "sandforge.seed.defaultBatchSize": {
           "type": "number",
           "default": 200,
@@ -367,8 +372,8 @@
   "scripts": {
     "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@anthropic-ai/sdk \"--external:@anthropic-ai/sdk/*\" --format=cjs --platform=node --sourcemap --minify && node ../../scripts/vendor-ai-sdk.mjs",
     "typecheck": "tsc -p tsconfig.test.json",
-    "lint": "eslint src/ --ext .ts",
-    "lint:fix": "eslint src/ --ext .ts --fix",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
@@ -386,13 +391,10 @@
   "devDependencies": {
     "@types/node": "^20",
     "@types/vscode": "^1.95",
-    "@typescript-eslint/eslint-plugin": "catalog:",
-    "@typescript-eslint/parser": "catalog:",
-    "@vitest/coverage-v8": "^1.6.1",
+    "@vitest/coverage-v8": "^3",
     "@vscode/vsce": "^3",
     "esbuild": "^0.21",
     "eslint": "catalog:",
-    "eslint-config-prettier": "catalog:",
     "fast-check": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

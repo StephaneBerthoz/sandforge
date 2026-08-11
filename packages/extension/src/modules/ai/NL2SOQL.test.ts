@@ -39,12 +39,12 @@ function createMockAIResponse(overrides?: Partial<NL2SOQLResult>): string {
 }
 
 describe('NL2SOQL', () => {
-  let mockProvider: Mock<Parameters<AIProvider>, ReturnType<AIProvider>>;
+  let mockProvider: Mock<AIProvider>;
   let converter: NL2SOQL;
 
   beforeEach(() => {
     mockProvider = vi
-      .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+      .fn<AIProvider>()
       .mockResolvedValue(createMockAIResponse());
     converter = new NL2SOQL(mockProvider);
   });

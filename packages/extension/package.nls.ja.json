@@ -35,6 +35,7 @@
   "walkthrough.step.exploreSettings.description": "バッチサイズ、本番ガードレール、監査ログ、AI アシスタント。",
   "config.title": "SandForge",
   "config.telemetry.description": "匿名の利用状況テレメトリを有効にする",
+  "config.orgs.validateOnStartup.description": "起動時に登録済み組織を検証し、期限切れのセッションを sf CLI で自動的に更新する",
   "config.seed.defaultBatchSize.description": "Seed データ操作の既定のバッチサイズ",
   "config.sync.defaultBatchSize.description": "Sync データ操作の既定のバッチサイズ",
   "config.sync.maxConcurrentOps.description": "同時同期操作の最大数",
