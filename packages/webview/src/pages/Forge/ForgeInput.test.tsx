@@ -11,11 +11,14 @@ const mockAddTemplate = vi.fn();
 const mockUpdateTemplate = vi.fn();
 const mockRemoveTemplate = vi.fn();
 
+/* Mutable user-template list — tests push into it before rendering. */
+const mockTemplates = vi.hoisted(() => ({ list: [] as Array<Record<string, unknown>> }));
+
 vi.mock('../../stores/useForgeStore', () => {
   const defaultState = {
     phase: 'input' as const,
     config: null,
-    templates: [],
+    templates: mockTemplates.list,
     graph: null,
     result: null,
     history: [],
@@ -109,6 +112,7 @@ describe('ForgeInput', () => {
     mockAddTemplate.mockClear();
     mockUpdateTemplate.mockClear();
     mockRemoveTemplate.mockClear();
+    mockTemplates.list.length = 0;
   });
 
   it('should render 4 tabs', () => {
@@ -164,6 +168,36 @@ describe('ForgeInput', () => {
     render(<ForgeInput />);
     expect(screen.getByTestId('forge-anonymize-toggle')).toBeDefined();
     expect(screen.getByTestId('forge-skip-empty-toggle')).toBeDefined();
+  });
+
+  it('should expand a user template into its saved record input when discovering', () => {
+    // The extension cannot resolve a bare templateId (templates live in the
+    // webview store) — handleDiscover must expand the template's saved root
+    // input into the outgoing config.
+    mockTemplates.list.push({
+      id: 'tpl-rec',
+      name: 'Account pack',
+      description: '',
+      config: { inputMode: 'record', recordId: '001XXXXXXXXXXXXXXX', depth: 'full' },
+      objectCount: 0,
+      recordCount: 0,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    });
+    render(<ForgeInput />);
+
+    // Radix tabs activate on mouseDown (automatic mode), not click.
+    fireEvent.mouseDown(screen.getByTestId('forge-tab-template'));
+    fireEvent.click(screen.getByText('Account pack'));
+    selectOrg('forge-target-org', 'org-tgt');
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+
+    expect(mockSetConfig).toHaveBeenCalledTimes(1);
+    const config = mockSetConfig.mock.calls[0][0];
+    expect(config.inputMode).toBe('record');
+    expect(config.recordId).toBe('001XXXXXXXXXXXXXXX');
+    expect(config.templateId).toBeUndefined();
+    expect(mockSetPhase).toHaveBeenCalledWith('discovery');
   });
 
   it('should disable discover button when no input is provided', () => {

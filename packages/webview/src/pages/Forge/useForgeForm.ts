@@ -240,12 +240,39 @@ export function useForgeForm(): ForgeFormState {
   const handleDiscover = useCallback(() => {
     if (!canDiscover) return;
 
+    /*
+     * Template mode: templates live in this webview's store, so the extension
+     * cannot resolve a bare templateId — `resolveRootObject` rejects it.
+     * Expand the selected template's saved root input (record/soql) into the
+     * outgoing config; the form's current depth, toggles and orgs still win.
+     * Builtin templates take the quick-start path (synthetic graph) and never
+     * reach this handler with a resolvable root input.
+     */
+    const tpl =
+      inputMode === 'template'
+        ? useForgeStore.getState().templates.find((t2) => t2.id === selectedTemplate)
+        : undefined;
+    const tplInput =
+      tpl && (tpl.config.inputMode === 'record' || tpl.config.inputMode === 'soql')
+        ? tpl.config
+        : undefined;
+
     const config: ForgeConfig = {
-      inputMode,
+      inputMode: tplInput ? tplInput.inputMode : inputMode,
       depth,
-      recordId: inputMode === 'record' ? (extractRecordId(recordId) ?? undefined) : undefined,
-      soqlQuery: inputMode === 'soql' ? soqlQuery.trim() : undefined,
-      templateId: inputMode === 'template' ? selectedTemplate : undefined,
+      recordId:
+        inputMode === 'record'
+          ? (extractRecordId(recordId) ?? undefined)
+          : tplInput?.inputMode === 'record'
+            ? tplInput.recordId
+            : undefined,
+      soqlQuery:
+        inputMode === 'soql'
+          ? soqlQuery.trim()
+          : tplInput?.inputMode === 'soql'
+            ? tplInput.soqlQuery
+            : undefined,
+      templateId: inputMode === 'template' && !tplInput ? selectedTemplate : undefined,
       aiPrompt: inputMode === 'ai' ? aiPrompt.trim() : undefined,
       customDepth: depth === 'custom' ? customDepth : undefined,
       anonymizePII: anonymize,
