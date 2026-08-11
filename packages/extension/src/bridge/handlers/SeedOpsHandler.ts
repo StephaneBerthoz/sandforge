@@ -529,12 +529,22 @@ export class SeedOpsHandler implements DomainHandler {
         if (!payload.dryRun) {
           const confirmed = await guard.confirmIfNeeded(check);
           if (!confirmed) {
-            sendOperationFailed(
+            const message = 'Operation cancelled by user (production confirmation declined).';
+            // Settle the in-flight useBridgeMutation listener on seed:error
+            // (same dual-channel contract as sync — without it the mutation
+            // spun until its 120 s timeout). Correlated to the request so the
+            // webview can drop stale error responses.
+            sendHandlerError(
               this.deps,
-              operationId,
-              'Operation cancelled by user (production confirmation declined).',
+              'seed:execute',
+              'seed:error',
+              new Error(message),
+              undefined,
               false,
+              undefined,
+              msg,
             );
+            sendOperationFailed(this.deps, operationId, message, false);
             return;
           }
         }

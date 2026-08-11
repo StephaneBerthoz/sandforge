@@ -5,6 +5,26 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-08-11
+
+**Fourth-audit release: messages that actually arrive.** A full re-audit of 1.5.0 found a regression class introduced by the broker envelope requirement: several webview surfaces still posted raw messages that the broker silently dropped — infinite spinners and lost mutations on the Sync tabs, and Forge pause/abort buttons that did nothing on destructive runs. All fixed, plus the onboarding/what's-new race, a correlated `seed:error` on declined production confirmations, and a marketplace listing whose links and screenshots finally resolve (the repository is now public).
+
+### Fixed
+
+- **Sync tabs silently broken since 1.5.0**: five Zustand stores (sync history, sync schedule, CDC metrics, CDC live, conflicts) posted raw `buildMessage(...)` payloads without the broker envelope — every one was dropped at validation. Requests spun forever and mutations (rerun, export, schedule save, conflict resolution) were lost. All non-hook senders now go through a single shared `sendBridgeMessage`/`postEnvelopedMessage` helper, and the `useSendMessage` hook delegates to it so hook and non-hook paths cannot drift again.
+- **Forge pause/resume/abort were no-ops**: the execution page read a non-existent `window.vscodeApi`, so the buttons toggled local UI state while the destructive run continued untouched. They now send `forge:pause`/`forge:resume`/`forge:abort` through the broker.
+- **Declining a seed production confirmation hung for 120 s**: the webview mutation waited on a `seed:error` that was never emitted. The handler now sends a correlated `seed:error` (dual-channel contract, same as sync) alongside `operation:failed`.
+- **Onboarding / What's New lost on first open**: on a cold panel the `onboarding:show` / `whats-new:show` message raced the webview bundle parse and was lost — while `markVersionSeen` still recorded it as shown, so the welcome never appeared again. The message is now posted once the panel proves it is alive (first inbound message), and only marked seen on actual delivery.
+- **"What's New" never rendered in module panels**: only the dead `App` shell mounted the overlay; `PanelApp` now renders it like the welcome wizard.
+- **Sidebar ignored the configured language**: the sidebar webview (per-document state, no settings UI) never received the language blob. It now requests settings on mount (`sidebar:requestSettings`, answered by the provider) and force-syncs every `settings:response` broadcast via the new `syncLanguageFromSettings` — switching language in Settings updates the sidebar live.
+- **In-app Help listed wrong shortcuts** (`Ctrl+Shift+M/D`): replaced with the real map (Ctrl+1..9/0, G+key chords, Ctrl+K) in all 6 locales.
+- **Marketplace listing had dead images/links**: the repository is now public, so screenshots, the CI badge and the Q&A Discussions link on the listing resolve again. The retired shields.io `visual-studio-marketplace` badges were replaced with a static version badge that `bump-version.sh` keeps in sync automatically.
+
+### Changed
+
+- Removed the dead `packages/shared/src/i18n` subtree (no consumer — the webview owns its locales).
+- Docs: FAQ no longer documents the cron scheduler as shipped (marked coming soon) nor the nonexistent `sandforge.grappe.enabled` setting; the walkthrough settings step reflects the Anthropic-only AI provider reality; the root README tests badge reports the real count.
+
 ## [1.5.0] - 2026-08-10
 
 **Third-audit release: features that actually reach the user.** A full re-audit of 1.4.0 found that several features shipped earlier were wired but invisible in production — the `App` shell was dead code (every entry point injects a module), the sidebar never received broker broadcasts, and the offline replay could loop forever. All fixed, plus a leaner shared package and a fully localized manifest.

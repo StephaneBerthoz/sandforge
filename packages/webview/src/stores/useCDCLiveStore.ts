@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { ConflictStrategy, UIConflict, ConflictType } from '@sandforge/shared';
-import { buildMessage } from '../bridge/messageHelpers';
-import { getVscodeApi } from '../hooks/useVSCodeApi';
+import { sendBridgeMessage } from '../bridge/sendBridgeMessage';
 import { useConflictStore } from './useConflictStore';
 
 /** A single event in the live CDC feed, displayed in the WebView. */
@@ -187,20 +186,18 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
   startStream(): void {
     const state = get();
     set({ status: 'connecting' });
-    getVscodeApi().postMessage(
-      buildMessage('realtime:start', {
-        sourceOrgId: state.sourceOrgId ?? '',
-        targetOrgId: state.targetOrgId ?? '',
-        watchedObjects: state.watchedObjects,
-        conflictStrategy: 'source_wins',
-        flushIntervalMs: 150,
-        maxBatchSize: 100,
-      }),
-    );
+    sendBridgeMessage('realtime:start', {
+      sourceOrgId: state.sourceOrgId ?? '',
+      targetOrgId: state.targetOrgId ?? '',
+      watchedObjects: state.watchedObjects,
+      conflictStrategy: 'source_wins',
+      flushIntervalMs: 150,
+      maxBatchSize: 100,
+    });
   },
 
   stopStream(): void {
-    getVscodeApi().postMessage(buildMessage('realtime:stop', { sessionId: '' }));
+    sendBridgeMessage('realtime:stop', { sessionId: '' });
   },
 }));
 

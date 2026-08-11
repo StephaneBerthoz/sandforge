@@ -25,7 +25,7 @@ vi.mock('../hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => vscodeApiMock,
 }));
 
-import i18n, { importLanguageFromSettings } from './index';
+import i18n, { importLanguageFromSettings, syncLanguageFromSettings } from './index';
 
 /**
  * Simulate a brand-new webview document: the per-document state is empty
@@ -106,5 +106,43 @@ describe('importLanguageFromSettings', () => {
     importLanguageFromSettings({ settings: { language: 'fr' } });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(i18n.language).toBe('de');
+  });
+});
+
+describe('syncLanguageFromSettings', () => {
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+    vscodeApiMock.state.current = {};
+  });
+
+  it('applies the blob language even over a previously mirrored state value', async () => {
+    // Sidebar scenario: a first sync mirrored 'fr' into the webview state...
+    await i18n.changeLanguage('fr');
+    expect(vscodeApiMock.state.current['language']).toBe('fr');
+
+    // ...then the user switches to German in another panel's Settings page.
+    // The broadcast blob must win — unlike the one-shot import, the
+    // persisted state is only a mirror here, never an independent choice.
+    syncLanguageFromSettings({ settings: { language: 'de' } });
+
+    await waitFor(() => expect(i18n.language).toBe('de'));
+    expect(vscodeApiMock.state.current['language']).toBe('de');
+  });
+
+  it('reads the flat historical blob shape too', async () => {
+    await freshDocument('en');
+
+    syncLanguageFromSettings({ language: 'ja' });
+
+    await waitFor(() => expect(i18n.language).toBe('ja'));
+  });
+
+  it('ignores unsupported blob values', async () => {
+    await freshDocument('en');
+
+    syncLanguageFromSettings({ settings: { settings: { language: 'xx' } } });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(i18n.language).toBe('en');
   });
 });

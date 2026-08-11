@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { UIConflict, ConflictStrategy, FieldResolution } from '@sandforge/shared';
-import { buildMessage } from '../bridge/messageHelpers';
-import { getVscodeApi } from '../hooks/useVSCodeApi';
+import { sendBridgeMessage } from '../bridge/sendBridgeMessage';
 
 /** Maximum number of conflicts stored before FIFO eviction. */
 const MAX_CONFLICTS = 500;
@@ -50,13 +49,11 @@ function sendResolveMessage(
   resolution: ConflictStrategy,
   fieldResolutions?: Record<string, FieldResolution>,
 ): void {
-  getVscodeApi().postMessage(
-    buildMessage('realtime:resolve-conflict', {
-      conflictId,
-      resolution,
-      fieldResolutions,
-    }),
-  );
+  sendBridgeMessage('realtime:resolve-conflict', {
+    conflictId,
+    resolution,
+    fieldResolutions,
+  });
 }
 
 /** Insert conflicts into array with deduplication and FIFO eviction at MAX_CONFLICTS. */

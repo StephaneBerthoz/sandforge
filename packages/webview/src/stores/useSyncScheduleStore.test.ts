@@ -1,6 +1,24 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { useSyncScheduleStore } from './useSyncScheduleStore';
 import type { SyncScheduleEntry } from '@sandforge/shared';
+
+const mockPostMessage = vi.fn();
+
+vi.mock('../hooks/useVSCodeApi', () => ({
+  getVscodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+}));
+
+/** Envelope shape posted to the extension host (see sendBridgeMessage). */
+interface PostedEnvelope {
+  protocolVersion: number;
+  correlationId?: string;
+  payload: { type: string; payload?: Record<string, unknown> };
+}
 
 const makeMockSchedule = (
   id: string,
@@ -31,6 +49,7 @@ describe('useSyncScheduleStore', () => {
       loading: false,
       error: null,
     });
+    mockPostMessage.mockClear();
   });
 
   it('should start with empty state', () => {
@@ -60,11 +79,14 @@ describe('useSyncScheduleStore', () => {
     expect(state.loading).toBe(false);
   });
 
-  it('toggleSchedule sends correct message with scheduleId and enabled flag', () => {
-    // Just verify it does not throw (postMessage is no-op in test)
-    expect(() => {
-      useSyncScheduleStore.getState().toggleSchedule('s-1', false);
-    }).not.toThrow();
+  it('toggleSchedule posts an enveloped sync:schedule:toggle with scheduleId and enabled flag', () => {
+    useSyncScheduleStore.getState().toggleSchedule('s-1', false);
+
+    expect(mockPostMessage).toHaveBeenCalledTimes(1);
+    const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+    expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(envelope.payload.type).toBe('sync:schedule:toggle');
+    expect(envelope.payload.payload).toEqual({ scheduleId: 's-1', enabled: false });
   });
 
   it('handleMessage with toggle response updates schedule enabled state', () => {
@@ -150,5 +172,37 @@ describe('useSyncScheduleStore', () => {
     });
 
     expect(useSyncScheduleStore.getState().schedules).toHaveLength(1);
+  });
+
+  describe('outbound bridge messages', () => {
+    it('fetchSchedules posts an enveloped sync:schedule:list', () => {
+      useSyncScheduleStore.getState().fetchSchedules();
+
+      expect(mockPostMessage).toHaveBeenCalledTimes(1);
+      const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+      expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+      expect(envelope.payload.type).toBe('sync:schedule:list');
+    });
+
+    it('upsertSchedule posts an enveloped sync:schedule:upsert with the schedule', () => {
+      const schedule = makeMockSchedule('s-9');
+      useSyncScheduleStore.getState().upsertSchedule(schedule);
+
+      expect(mockPostMessage).toHaveBeenCalledTimes(1);
+      const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+      expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+      expect(envelope.payload.type).toBe('sync:schedule:upsert');
+      expect(envelope.payload.payload).toEqual({ schedule });
+    });
+
+    it('deleteSchedule posts an enveloped sync:schedule:delete with scheduleId', () => {
+      useSyncScheduleStore.getState().deleteSchedule('s-1');
+
+      expect(mockPostMessage).toHaveBeenCalledTimes(1);
+      const envelope = mockPostMessage.mock.calls[0][0] as PostedEnvelope;
+      expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+      expect(envelope.payload.type).toBe('sync:schedule:delete');
+      expect(envelope.payload.payload).toEqual({ scheduleId: 's-1' });
+    });
   });
 });

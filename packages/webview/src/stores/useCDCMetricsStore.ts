@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { RealTimeSyncMetrics } from '@sandforge/shared';
-import { buildMessage } from '../bridge/messageHelpers';
-import { getVscodeApi } from '../hooks/useVSCodeApi';
+import { sendBridgeMessage } from '../bridge/sendBridgeMessage';
 
 /** Maximum number of metric snapshots kept for sparkline data (5 min at 5s intervals). */
 const MAX_HISTORY = 60;
@@ -51,7 +50,7 @@ export const useCDCMetricsStore = create<CDCMetricsState>((set, get) => ({
     set({ polling: true });
 
     const poll = (): void => {
-      getVscodeApi().postMessage(buildMessage('realtime:metrics'));
+      sendBridgeMessage('realtime:metrics');
     };
 
     poll();

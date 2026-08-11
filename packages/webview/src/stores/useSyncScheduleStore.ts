@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { SyncScheduleEntry } from '@sandforge/shared';
-import { buildMessage } from '../bridge/messageHelpers';
-import { getVscodeApi } from '../hooks/useVSCodeApi';
+import { sendBridgeMessage } from '../bridge/sendBridgeMessage';
 
 /** Fields required to create or update a schedule (server computes nextRunAt, lastRunAt, lastResult). */
 export type SyncScheduleUpsertPayload = Omit<
@@ -47,20 +46,20 @@ export const useSyncScheduleStore = create<SyncScheduleState>((set) => ({
 
   fetchSchedules(): void {
     set({ loading: true, error: null });
-    getVscodeApi().postMessage(buildMessage('sync:schedule:list'));
+    sendBridgeMessage('sync:schedule:list');
   },
 
   upsertSchedule(schedule: SyncScheduleUpsertPayload): void {
     set({ loading: true, error: null });
-    getVscodeApi().postMessage(buildMessage('sync:schedule:upsert', { schedule }));
+    sendBridgeMessage('sync:schedule:upsert', { schedule });
   },
 
   toggleSchedule(scheduleId: string, enabled: boolean): void {
-    getVscodeApi().postMessage(buildMessage('sync:schedule:toggle', { scheduleId, enabled }));
+    sendBridgeMessage('sync:schedule:toggle', { scheduleId, enabled });
   },
 
   deleteSchedule(scheduleId: string): void {
-    getVscodeApi().postMessage(buildMessage('sync:schedule:delete', { scheduleId }));
+    sendBridgeMessage('sync:schedule:delete', { scheduleId });
   },
 
   handleMessage(message: unknown): void {

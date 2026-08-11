@@ -100,12 +100,13 @@ describe('ConflictResolutionPanel', () => {
     fireEvent.click(applyBtn);
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as {
-      type: string;
-      payload: Record<string, unknown>;
+    // The store posts through the broker envelope: unwrap it to assert on
+    // the actual bridge message.
+    const envelope = mockPostMessage.mock.calls[0][0] as {
+      payload: { type: string; payload: Record<string, unknown> };
     };
-    expect(msg.type).toBe('realtime:resolve-conflict');
-    expect(msg.payload.conflictId).toBe('Account:001:1');
+    expect(envelope.payload.type).toBe('realtime:resolve-conflict');
+    expect(envelope.payload.payload.conflictId).toBe('Account:001:1');
   });
 
   it('should show bulk source button that opens DangerConfirm', () => {

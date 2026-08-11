@@ -84,6 +84,20 @@ void i18n.use(initReactI18next).init({
 i18n.on('languageChanged', persistLanguage);
 
 /**
+ * Extract a supported language candidate from the extension-side settings
+ * blob. Shared by importLanguageFromSettings / syncLanguageFromSettings.
+ */
+function readLanguageCandidate(settings: unknown): SupportedLanguage | undefined {
+  const blob = settings as Record<string, unknown> | null | undefined;
+  const nested = blob?.['settings'] as Record<string, unknown> | null | undefined;
+  const candidate = blob?.['language'] ?? nested?.['language'];
+  if (typeof candidate === 'string' && (SUPPORTED_LANGUAGES as readonly string[]).includes(candidate)) {
+    return candidate as SupportedLanguage;
+  }
+  return undefined;
+}
+
+/**
  * One-shot recovery import, to call when the extension-side settings blob
  * arrives (`settings:response`). The webview state is per-document and dies
  * with the panel, while the blob (globalState) survives — so when the state
@@ -101,14 +115,24 @@ export function importLanguageFromSettings(settings: unknown): void {
   if (getPersistedLanguage() !== undefined) {
     return; // webview state is the source of truth — nothing to recover
   }
-  const blob = settings as Record<string, unknown> | null | undefined;
-  const nested = blob?.['settings'] as Record<string, unknown> | null | undefined;
-  const candidate = blob?.['language'] ?? nested?.['language'];
-  if (
-    typeof candidate === 'string' &&
-    (SUPPORTED_LANGUAGES as readonly string[]).includes(candidate) &&
-    candidate !== i18n.language
-  ) {
+  const candidate = readLanguageCandidate(settings);
+  if (candidate !== undefined && candidate !== i18n.language) {
+    void i18n.changeLanguage(candidate);
+  }
+}
+
+/**
+ * Force-apply variant of {@link importLanguageFromSettings} for surfaces with
+ * no language UI of their own (the sidebar). There, the persisted webview
+ * state is only ever a mirror of the extension blob — never an independent
+ * user choice — so the blob always wins, including over a value mirrored by
+ * an earlier sync. This is what keeps the sidebar in sync when the user
+ * switches language in the Settings page of another panel (the extension
+ * broadcasts `settings:response` to every registered webview).
+ */
+export function syncLanguageFromSettings(settings: unknown): void {
+  const candidate = readLanguageCandidate(settings);
+  if (candidate !== undefined && candidate !== i18n.language) {
     void i18n.changeLanguage(candidate);
   }
 }

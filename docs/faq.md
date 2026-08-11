@@ -54,7 +54,7 @@ Yes. SandForge detects self-referential relationships and uses a two-pass insert
 
 ### Can I automate recurring operations?
 
-Yes. The **Automation** module provides a visual pipeline builder where you can compose multi-step workflows (query, transform, load, validate, notify) and schedule them with cron expressions. Triggers include scheduled, webhook, file watch, record change, and pipeline completion.
+Yes. The **Automation** module provides a visual pipeline builder where you can compose multi-step workflows (query, transform, load, validate, notify) and run them manually or on a schedule. Additional trigger types (webhook, file watch, record change) are coming soon.
 
 ### Does SandForge support Salesforce DX and scratch orgs?
 
@@ -103,7 +103,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Solutions:**
 1. Check the Monitor dashboard for current API usage -- high consumption slows API responses
 2. Reduce concurrent operations if multiple are running simultaneously
-3. For large datasets (10K+ records), the Grappe Engine activates automatically for parallel processing. Verify `sandforge.grappe.enabled` is `true`.
+3. For large datasets (10K+ records), the Grappe Engine activates automatically for parallel processing.
 4. Org tier matters: Developer sandboxes have lower API limits than Full sandboxes
 5. Close unused VSCode extension panels to free memory
 

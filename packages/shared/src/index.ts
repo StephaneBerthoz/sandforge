@@ -85,7 +85,3 @@ export * from './utils/format-utils.js';
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';
 export * from './templates/forge-anonymization-presets.js';
-
-// Barrel exports — I18n
-export * from './i18n/index.js';
-export { loadAllTranslations } from './i18n/locales/index.js';

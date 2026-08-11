@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { UIConflict } from '@sandforge/shared';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { useConflictStore, unresolvedCount, filteredConflicts } from './useConflictStore';
 
 const mockPostMessage = vi.fn();
@@ -78,13 +79,14 @@ describe('useConflictStore', () => {
     expect(state.conflicts[0].resolution).toBe('source_wins');
 
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
-    const msg = mockPostMessage.mock.calls[0][0] as {
-      type: string;
-      payload: Record<string, unknown>;
+    const envelope = mockPostMessage.mock.calls[0][0] as {
+      protocolVersion: number;
+      payload: { type: string; payload: Record<string, unknown> };
     };
-    expect(msg.type).toBe('realtime:resolve-conflict');
-    expect(msg.payload.conflictId).toBe(conflict.id);
-    expect(msg.payload.resolution).toBe('source_wins');
+    expect(envelope.protocolVersion).toBe(PROTOCOL_VERSION);
+    expect(envelope.payload.type).toBe('realtime:resolve-conflict');
+    expect(envelope.payload.payload.conflictId).toBe(conflict.id);
+    expect(envelope.payload.payload.resolution).toBe('source_wins');
   });
 
   it('should resolve a conflict with per-field resolutions', () => {

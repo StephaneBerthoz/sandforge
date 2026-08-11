@@ -50,4 +50,19 @@ if [[ -f "README.md" ]]; then
   "
 fi
 
+# Same for the extension README static badge and the marketplace manifest badge
+node -e "
+  const fs = require('fs');
+  const v = '$NEW_VERSION';
+  const re = /badge\/version-\d+\.\d+\.\d+(-blue)?/g;
+  const mdPath = 'packages/extension/README.md';
+  const md = fs.readFileSync(mdPath, 'utf8');
+  const updatedMd = md.replace(/badge\/version-\d+\.\d+\.\d+-blue/, 'badge/version-' + v + '-blue');
+  if (updatedMd !== md) { fs.writeFileSync(mdPath, updatedMd); console.log('Updated extension README badge -> ' + v); }
+  const pkgPath = 'packages/extension/package.json';
+  const pkg = fs.readFileSync(pkgPath, 'utf8');
+  const updatedPkg = pkg.replace(/badge\/version-\d+\.\d+\.\d+-blue/, 'badge/version-' + v + '-blue');
+  if (updatedPkg !== pkg) { fs.writeFileSync(pkgPath, updatedPkg); console.log('Updated manifest badge -> ' + v); }
+"
+
 echo "Version bump complete: $CURRENT -> $NEW_VERSION"
