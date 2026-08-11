@@ -31,7 +31,7 @@ vi.mock('framer-motion', async () => {
       return React.createElement(tag, { ...filtered, ref });
     });
   return {
-    motion: {
+    m: {
       div: makeMotion('div'),
       tbody: makeMotion('tbody'),
       tr: makeMotion('tr'),

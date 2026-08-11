@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { cn } from '../../theme';
 import { cardHover, SPRING } from '../../motion/presets';
 
@@ -92,7 +92,7 @@ export const BentoTile: React.FC<BentoTileProps> = ({
   className,
 }) => {
   return (
-    <motion.div
+    <m.div
       data-testid="bento-tile"
       className={cn(
         'bg-surface-1 rounded-xl border border-subtle p-4',
@@ -104,6 +104,6 @@ export const BentoTile: React.FC<BentoTileProps> = ({
       transition={SPRING}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 };

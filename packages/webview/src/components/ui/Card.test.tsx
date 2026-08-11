@@ -23,7 +23,7 @@ vi.mock('framer-motion', async () => {
     return React.createElement('div', { ...filtered, ref });
   });
   return {
-    motion: { div: mockDiv },
+    m: { div: mockDiv },
     AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
   };
 });

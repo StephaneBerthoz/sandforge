@@ -200,3 +200,28 @@ export interface StateSyncMessage extends BaseMessage {
   type: 'state:sync';
   payload: WebviewState;
 }
+
+/** Error response for settings/hint/plugins/telemetry update failures (emitted via sendHandlerError). */
+export interface SettingsErrorResponse extends BaseMessage {
+  type: 'settings:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/** Error response for config profile export/import/validate failures (emitted via sendHandlerError). */
+export interface ConfigErrorResponse extends BaseMessage {
+  type: 'config:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `easter-egg:show`. Extension -> WebView.
+ *
+ * Deliberately payload-less: broadcast by commandsComposition via
+ * `WebviewPanelManager.postToAllPanels({ type: 'easter-egg:show' })` (a raw
+ * postMessage outside the MessageBroker envelope, so no id/timestamp on the
+ * wire). PanelApp listens on the bare `type` and shows the overlay.
+ */
+export interface EasterEggShowMessage extends BaseMessage {
+  type: 'easter-egg:show';
+  payload?: Record<string, never>;
+}

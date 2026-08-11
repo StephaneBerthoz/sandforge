@@ -11,6 +11,7 @@ import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
 import { Icon } from '../../components/ui/Icon';
 import { usePagination } from '../../hooks/usePagination';
+import { formatDuration } from '../../utils/formatters';
 import type { SyncHistoryEntry } from '@sandforge/shared';
 import { SyncHistoryDetail } from './SyncHistoryDetail';
 
@@ -30,19 +31,6 @@ const triggeredByKeyMap: Record<string, string> = {
   schedule: 'sync.history.triggeredSchedule',
   rerun: 'sync.history.triggeredRerun',
 };
-
-/**
- * Format duration in milliseconds to a human-readable string.
- * @param ms - Duration in milliseconds.
- */
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}m ${remainingSeconds}s`;
-}
 
 /**
  * SyncHistoryPanel displays a paginated, virtual-scrolled table of sync execution history.

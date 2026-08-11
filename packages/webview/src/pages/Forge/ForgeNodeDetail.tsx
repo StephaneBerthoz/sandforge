@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { Shield, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 import type { ForgeGraphNode } from '../../stores/useForgeStore';
 import { cn } from '../../theme';
@@ -48,7 +48,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
   const { t } = useTranslation();
 
   return (
-    <motion.div
+    <m.div
       data-testid="forge-node-detail"
       className="flex flex-col gap-4 p-4 h-full overflow-y-auto"
       variants={staggerContainer}
@@ -56,7 +56,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
       animate="visible"
     >
       {/* Header: object name + status badge */}
-      <motion.div variants={slideUp} className="flex items-center justify-between">
+      <m.div variants={slideUp} className="flex items-center justify-between">
         <h3 className="text-lg font-bold text-text-primary">{node.objectApiName}</h3>
         <span
           data-testid="node-status-badge"
@@ -64,20 +64,20 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
         >
           {node.status}
         </span>
-      </motion.div>
+      </m.div>
 
       {/* Stats row */}
-      <motion.div variants={slideUp} className="flex gap-4 text-sm text-text-secondary">
+      <m.div variants={slideUp} className="flex gap-4 text-sm text-text-secondary">
         <span data-testid="node-record-count">
           {node.recordCount} {t('forge.records')}
         </span>
         <span data-testid="node-field-count">
           {node.fieldCount} {t('forge.fields')}
         </span>
-      </motion.div>
+      </m.div>
 
       {/* Include toggle */}
-      <motion.div variants={slideUp} className="flex items-center justify-between">
+      <m.div variants={slideUp} className="flex items-center justify-between">
         <span className="text-sm font-medium text-text-primary">{t('forge.includeNode')}</span>
         <button
           type="button"
@@ -97,11 +97,11 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
             )}
           />
         </button>
-      </motion.div>
+      </m.div>
 
       {/* PII Fields section */}
       {node.piiFields.length > 0 && (
-        <motion.div variants={slideUp} className="flex flex-col gap-2">
+        <m.div variants={slideUp} className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-sm font-medium text-amber-400">
             <Shield size={14} />
             <span>{t('forge.piiFields')}</span>
@@ -126,12 +126,12 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
               </li>
             ))}
           </ul>
-        </motion.div>
+        </m.div>
       )}
 
       {/* Anonymization preview */}
       {node.anonymizeFields.length > 0 && (
-        <motion.div variants={slideUp} className="flex flex-col gap-2">
+        <m.div variants={slideUp} className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
             <CheckCircle size={14} className="text-green-400" />
             <span>{t('forge.anonymizationPreview')}</span>
@@ -165,12 +165,12 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
               </tbody>
             </table>
           </div>
-        </motion.div>
+        </m.div>
       )}
 
       {/* Errors section */}
       {node.errors.length > 0 && (
-        <motion.div variants={slideUp} className="flex flex-col gap-2">
+        <m.div variants={slideUp} className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 text-sm font-medium text-red-400">
             <XCircle size={14} />
             <span>{t('common.error')}</span>
@@ -186,8 +186,8 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
               </li>
             ))}
           </ul>
-        </motion.div>
+        </m.div>
       )}
-    </motion.div>
+    </m.div>
   );
 };

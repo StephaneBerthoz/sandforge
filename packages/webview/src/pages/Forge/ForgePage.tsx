@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { pageTransition } from '../../motion/presets';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -51,13 +51,13 @@ export const ForgePage: React.FC = () => {
     <div className="flex flex-col gap-4 p-4" data-testid="forge-page">
       <PageHeader title={t('nav.forge')} subtitle={t('forge.subtitle')} icon="flame" />
       <AnimatePresence mode="wait">
-        <motion.div key={phase} variants={variants} initial="enter" animate="center" exit="exit">
+        <m.div key={phase} variants={variants} initial="enter" animate="center" exit="exit">
           {phase === 'input' && <ForgeInput />}
           {phase === 'discovery' && <ForgeDiscovery />}
           {phase === 'review' && <ForgeReview />}
           {phase === 'execution' && <ForgeExecution />}
           {phase === 'results' && <ForgeResults />}
-        </motion.div>
+        </m.div>
       </AnimatePresence>
     </div>
   );

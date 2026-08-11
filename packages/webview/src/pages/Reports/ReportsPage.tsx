@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import type {
   GeneratedReport,
   AnalyticsTimeSeries,
@@ -95,7 +95,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const auditCount = auditEntries?.length ?? 0;
 
   return (
-    <motion.div
+    <m.div
       data-testid="reports-page"
       className="flex flex-col gap-3 p-4"
       variants={fadeIn}
@@ -119,47 +119,47 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       )}
 
       {/* KPI summary row */}
-      <motion.div
+      <m.div
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
         data-testid="reports-kpi-row"
       >
         <BentoGrid columns={4} gap="md">
-          <motion.div variants={slideUp}>
+          <m.div variants={slideUp}>
             <KPICard
               icon="file"
               label={t('reports.totalReports')}
               value={reportCount}
               variant="default"
             />
-          </motion.div>
-          <motion.div variants={slideUp}>
+          </m.div>
+          <m.div variants={slideUp}>
             <KPICard
               icon="pulse"
               label={t('reports.totalOperations')}
               value={totalOps.toLocaleString()}
               variant="default"
             />
-          </motion.div>
-          <motion.div variants={slideUp}>
+          </m.div>
+          <m.div variants={slideUp}>
             <KPICard
               icon="check"
               label={t('reports.successRate')}
               value={`${successRate.toFixed(1)}%`}
               variant={successRate >= 90 ? 'success' : 'warning'}
             />
-          </motion.div>
-          <motion.div variants={slideUp}>
+          </m.div>
+          <m.div variants={slideUp}>
             <KPICard
               icon="shield"
               label={t('reports.auditEntries')}
               value={auditCount}
               variant="default"
             />
-          </motion.div>
+          </m.div>
         </BentoGrid>
-      </motion.div>
+      </m.div>
 
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -196,6 +196,6 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           </div>
         ))}
       </BentoTile>
-    </motion.div>
+    </m.div>
   );
 };

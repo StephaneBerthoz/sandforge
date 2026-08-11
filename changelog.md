@@ -5,6 +5,24 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-08-11
+
+**Fifth-audit release: the live shell gets everything, the dead one leaves the bundle.** Every overlay, trigger and report channel now works from the real panel shell, the unreachable `App` shell and its layouts are gone from the bundle, and the bridge type union finally covers what the extension actually emits — enforced by a new emit-side anti-drift gate.
+
+### Fixed
+
+- **Webview crash reports were silently dropped**: the ErrorBoundary posted `error:boundary` as a raw, unenveloped message — the broker has dropped those since 1.5.0. It now goes through the shared enveloped sender, the message is part of the typed bridge union (with its Zod schema, anti-drift tested), and the extension logs the crash to the output channel.
+- **The `sandforge.cheers` easter egg did nothing in production**: its only listener lived in the dead `App` shell. All three triggers (Konami code, command message, 7 clicks on the logo) and the mojito overlay are now mounted by the real panel shell.
+- **Welcome / What's New no longer pop in every open panel**: `postToActivePanel` turned out to broadcast to all panels; it is renamed `postToAllPanels` (honest contract — `org:selected` genuinely needs the broadcast) and onboarding/whats-new are now posted to the triggering panel only. The one-shot readiness listener is also released when the panel closes before its first message.
+- **Forge execution showed no live progress**: the extension wraps `forge:progress` events in the standard response envelope, but the execution page read `objectName`/`status`/`progress` at the message root — every event was dropped as undefined. The listener now unwraps `payload` (drift caught by the new emit-side anti-drift work, same class as the `ai:status` bug).
+
+### Changed
+
+- **Dead `App` shell removed from the bundle**: `App.tsx`, `router.tsx`, the whole `layouts/` tree (AppShell, Sidebar, TopBar, StatusFooter, NotificationCenter) and the orphaned `AboutDialog` — 18 files, all unreachable in production — are deleted. The e2e harness short-circuit moved into `main.tsx`, whose no-module fallback now renders the Home page through the same PanelApp provider stack. Bundle: −27.6 KB (gzip −6.2 KB).
+- **Bridge union covers reality**: the ~70 extension→webview channels that were actually emitted but undeclared in `@sandforge/shared` (error channels, `*:response` families, monitor/forge events…) are now typed with their Zod members, and a new structural test scans the extension's emit sites so an undeclared channel fails CI.
+- **Formatter convergence, step 2**: the webview's `utils/formatters.ts` re-exports the six canonical implementations from `@sandforge/shared`; the three divergent inline `formatDuration` helpers (Scheduler, Sync History, Audit Trail) are replaced by the canonical one.
+- **LazyMotion migration completed**: all 22 remaining `motion.*` imports converted to `m.*` — the `LazyMotion` feature split is now real, and framer-motion's full `domMax` set no longer leaks into the production bundle.
+
 ## [1.7.0] - 2026-08-11
 
 **Auth reliability + toolchain modernization release.** Registered orgs are now validated at every launch — expired sessions refresh themselves via the sf CLI before your first operation hits an auth wall — and the token self-heal no longer persists unvalidated CLI tokens. Under the hood: ESLint 9 flat config with typed linting, vitest 3, Stryker 9.

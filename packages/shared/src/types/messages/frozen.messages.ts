@@ -154,3 +154,46 @@ export interface FrozenStatusResponse extends BaseMessage {
   type: 'frozen:status:response';
   payload: { status: FrozenStatusInfo };
 }
+
+// ─── Frozen error channels (Extension -> WebView, via sendHandlerError) ─────
+
+/**
+ * `frozen:config:save:error`. Extension -> WebView. Emitted by
+ * validatePayload/sendHandlerError when the project configuration cannot be
+ * persisted.
+ */
+export interface FrozenConfigSaveErrorMessage extends BaseMessage {
+  type: 'frozen:config:save:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `frozen:select:error`. Extension -> WebView. `code` is classified by
+ * FrozenDatasetHandler.errorCodeFor (e.g. `CONFIG_MISSING`, `SALT_MISSING`,
+ * `BUDGET_EXCEEDED`).
+ */
+export interface FrozenSelectErrorMessage extends BaseMessage {
+  type: 'frozen:select:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/**
+ * `frozen:extract:error`. Extension -> WebView. `code` classified by
+ * errorCodeFor (e.g. `GUARD_REFUSED`, `SAS_PATH_REFUSED`).
+ */
+export interface FrozenExtractErrorMessage extends BaseMessage {
+  type: 'frozen:extract:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/** `frozen:load:error`. Extension -> WebView. `code` classified by errorCodeFor. */
+export interface FrozenLoadErrorMessage extends BaseMessage {
+  type: 'frozen:load:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
+/** `frozen:verify:error`. Extension -> WebView. `code` classified by errorCodeFor. */
+export interface FrozenVerifyErrorMessage extends BaseMessage {
+  type: 'frozen:verify:error';
+  payload: { message: string; code: string; retryable: boolean };
+}

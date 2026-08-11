@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { slideUp } from '../../motion/presets';
@@ -45,7 +45,7 @@ export const MetadataDiffBanner: React.FC<MetadataDiffBannerProps> = ({
   const hasErrors = diffs.some((d) => d.severity === 'error');
 
   return (
-    <motion.div
+    <m.div
       data-testid="metadata-diff-banner"
       variants={slideUp}
       initial="hidden"
@@ -97,6 +97,6 @@ export const MetadataDiffBanner: React.FC<MetadataDiffBannerProps> = ({
           </Button>
         )}
       </div>
-    </motion.div>
+    </m.div>
   );
 };

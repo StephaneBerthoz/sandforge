@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../theme';
 import { pageTransition, SPRING } from '../../motion/presets';
@@ -123,7 +123,7 @@ export const Wizard: React.FC<WizardProps> = ({
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 min-h-0" data-testid={tid(testIdPrefix, 'step-content')}>
           <AnimatePresence>
-            <motion.div
+            <m.div
               key={currentStep}
               variants={pageTransition(1)}
               initial="enter"
@@ -132,7 +132,7 @@ export const Wizard: React.FC<WizardProps> = ({
               transition={SPRING}
             >
               {children}
-            </motion.div>
+            </m.div>
           </AnimatePresence>
         </div>
 

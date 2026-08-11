@@ -43,3 +43,9 @@ export interface OrgSelected extends BaseMessage {
   type: 'org:selected';
   payload: { orgId: string };
 }
+
+/** Error response for org connect/disconnect failures (emitted via sendHandlerError). */
+export interface OrgErrorResponse extends BaseMessage {
+  type: 'org:error';
+  payload: { message: string; code: string; retryable: boolean };
+}

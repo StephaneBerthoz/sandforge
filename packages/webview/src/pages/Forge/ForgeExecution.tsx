@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { Pause, Play, Square, Flame } from 'lucide-react';
 import { SplitView } from '../../components/ui/SplitView';
 import { LiveGraph } from '../../components/graph/LiveGraph';
@@ -111,16 +111,20 @@ export const ForgeExecution: React.FC = () => {
       const data = event.data as Record<string, unknown> | undefined;
       if (!data || data.type !== 'forge:progress') return;
 
-      const objectName = data.objectName as string;
-      const status = data.status as ForgeNodeStatus;
-      const progress = typeof data.progress === 'number' ? data.progress : undefined;
+      // The extension emits forge:progress via buildResponse — the event
+      // payload lives under `payload`, not at the message root.
+      const payload = data.payload as Record<string, unknown> | undefined;
+      if (!payload) return;
+      const objectName = payload.objectName as string;
+      const status = payload.status as ForgeNodeStatus;
+      const progress = typeof payload.progress === 'number' ? payload.progress : undefined;
 
       updateNodeStatus(objectName, status, progress);
 
       const level: LogEntry['level'] = status === 'error' ? 'error' : 'info';
       const logMessage =
-        typeof data.message === 'string'
-          ? data.message
+        typeof payload.message === 'string'
+          ? payload.message
           : `${objectName}: ${status}${progress !== undefined ? ` (${progress}%)` : ''}`;
       addLog(level, logMessage);
 
@@ -193,7 +197,7 @@ export const ForgeExecution: React.FC = () => {
   return (
     <div data-testid="forge-execution" className="flex flex-col gap-4 h-full">
       {/* ---- Top bar: progress, timer, status ---- */}
-      <motion.div variants={slideUp} initial="hidden" animate="visible" className="space-y-2">
+      <m.div variants={slideUp} initial="hidden" animate="visible" className="space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="flex items-center gap-2 font-bold text-forge">
             <Flame size={16} />
@@ -222,7 +226,7 @@ export const ForgeExecution: React.FC = () => {
             aria-valuemax={100}
           />
         </div>
-      </motion.div>
+      </m.div>
 
       {/* ---- Middle: SplitView (graph + logs) ---- */}
       <div className="flex-1 min-h-0 min-h-[300px]">
@@ -290,7 +294,7 @@ export const ForgeExecution: React.FC = () => {
       </div>
 
       {/* ---- Bottom: KPIs + Controls ---- */}
-      <motion.div
+      <m.div
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
@@ -334,7 +338,7 @@ export const ForgeExecution: React.FC = () => {
             {t('forge.abort')}
           </Button>
         </div>
-      </motion.div>
+      </m.div>
 
       <DangerConfirm
         open={showAbortConfirm}

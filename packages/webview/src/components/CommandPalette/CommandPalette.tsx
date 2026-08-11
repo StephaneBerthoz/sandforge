@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useMemo } from 'react';
 import { Command } from 'cmdk';
 import { useTranslation } from 'react-i18next';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { Search } from 'lucide-react';
 import { cn } from '../../theme';
 import { fadeIn } from '../../motion/presets';
@@ -230,7 +230,7 @@ export const CommandPalette: React.FC = () => {
       {open && (
         <>
           {/* Overlay backdrop */}
-          <motion.div
+          <m.div
             className={cn('fixed inset-0 z-[200] glass-overlay')}
             variants={fadeIn}
             initial="hidden"
@@ -241,7 +241,7 @@ export const CommandPalette: React.FC = () => {
           />
 
           {/* Dialog container */}
-          <motion.div
+          <m.div
             className="fixed top-[15vh] left-1/2 -translate-x-1/2 z-[201] w-full max-w-lg"
             variants={dialogVariants}
             initial="hidden"
@@ -344,7 +344,7 @@ export const CommandPalette: React.FC = () => {
                 </div>
               )}
             </Command>
-          </motion.div>
+          </m.div>
         </>
       )}
     </AnimatePresence>

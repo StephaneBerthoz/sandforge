@@ -1,7 +1,7 @@
 /**
  * E2E harness gate — query-param parsing for the Playwright harness.
  *
- * Kept in its own dependency-free module so `App.tsx` can statically import
+ * Kept in its own dependency-free module so `main.tsx` can statically import
  * the gate while the (heavy) harness component itself is lazy-loaded and
  * tree-shaken out of the production bundle.
  */

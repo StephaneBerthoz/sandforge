@@ -72,22 +72,28 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
             };
           }
           if (message) {
+            // Post to the TRIGGERING panel only — the welcome/what's-new
+            // overlay must not pop in every open panel (postToAllPanels
+            // broadcasts by design, e.g. org:selected).
             if (isReveal) {
               // Live panel: the bundle is already loaded — post now.
-              panelManager.postToActivePanel(message);
+              void panel.webview.postMessage(message);
               onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
             } else {
               // New panel: posting now would race the bundle parse — the
               // message would be lost while markVersionSeen still recorded it
               // as shown (welcome/what's-new never appears again). Arm a
               // one-shot listener: the FIRST incoming webview message proves
-              // the bundle is up, then post exactly once and mark seen.
+              // the bundle is up, then post exactly once and mark seen. The
+              // listener is also released if the panel closes before ever
+              // posting — no orphan disposable left behind.
               const readyListener = panel.webview.onDidReceiveMessage(() => {
                 readyListener.dispose();
-                panelManager.postToActivePanel(message);
+                void panel.webview.postMessage(message);
                 onboardingService.markVersionSeen(currentVersion).catch(() => undefined);
               });
-              context.subscriptions.push(readyListener);
+              const disposeListener = panel.onDidDispose(() => readyListener.dispose());
+              context.subscriptions.push(readyListener, disposeListener);
             }
           }
         }
@@ -98,7 +104,7 @@ export function registerModuleCommands(deps: ModuleCommandsDeps): void {
   // Easter egg command (discoverable via Command Palette but not in menus)
   context.subscriptions.push(
     vscode.commands.registerCommand('sandforge.cheers', () => {
-      panelManager.postToActivePanel({ type: 'easter-egg:show' });
+      panelManager.postToAllPanels({ type: 'easter-egg:show' });
     }),
   );
 }

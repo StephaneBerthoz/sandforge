@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import {
   ArrowLeft,
   Play,
@@ -185,7 +185,7 @@ export const ForgeDiscovery: React.FC = () => {
   }
 
   return (
-    <motion.div
+    <m.div
       data-testid="forge-discovery"
       className="flex flex-col gap-4 h-full"
       variants={staggerContainer}
@@ -193,7 +193,7 @@ export const ForgeDiscovery: React.FC = () => {
       animate="visible"
     >
       {/* UX-11/UX-22: View mode toggle + search input */}
-      <motion.div variants={slideUp} className="flex items-center gap-2">
+      <m.div variants={slideUp} className="flex items-center gap-2">
         <div className="flex rounded-md border border-subtle overflow-hidden">
           <button
             type="button"
@@ -246,10 +246,10 @@ export const ForgeDiscovery: React.FC = () => {
             )}
           />
         </div>
-      </motion.div>
+      </m.div>
 
       {/* Split view: graph/table + detail */}
-      <motion.div variants={slideUp} className="flex-1 min-h-0 min-h-[350px]">
+      <m.div variants={slideUp} className="flex-1 min-h-0 min-h-[350px]">
         <SplitView
           ratio="60/40"
           left={
@@ -283,10 +283,10 @@ export const ForgeDiscovery: React.FC = () => {
             )
           }
         />
-      </motion.div>
+      </m.div>
 
       {/* Stats bar */}
-      <motion.div
+      <m.div
         variants={slideUp}
         data-testid="forge-stats-bar"
         className="flex items-center gap-6 rounded-lg border border-subtle bg-surface-1 px-4 py-3"
@@ -319,10 +319,10 @@ export const ForgeDiscovery: React.FC = () => {
             {stats.estDuration}
           </span>
         </div>
-      </motion.div>
+      </m.div>
 
       {/* Action bar */}
-      <motion.div variants={slideUp} className="flex items-center justify-between">
+      <m.div variants={slideUp} className="flex items-center justify-between">
         <Button
           data-testid="forge-back-btn"
           variant="ghost"
@@ -360,7 +360,7 @@ export const ForgeDiscovery: React.FC = () => {
         >
           {t('forge.reviewAndExecute')}
         </Button>
-      </motion.div>
-    </motion.div>
+      </m.div>
+    </m.div>
   );
 };

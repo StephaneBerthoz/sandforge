@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import type { BackupResult, AnonymizationTemplate } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
@@ -159,7 +159,7 @@ export const DataOpsPage: React.FC = () => {
   const templateCount = templatesQuery.data?.templates?.length ?? 0;
 
   return (
-    <motion.div
+    <m.div
       className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
       data-testid="dataops-page"
       variants={fadeIn}
@@ -173,39 +173,39 @@ export const DataOpsPage: React.FC = () => {
       )}
 
       {/* KPI summary row */}
-      <motion.div
+      <m.div
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
         data-testid="dataops-kpi-row"
       >
         <BentoGrid columns={3} gap="md">
-          <motion.div variants={slideUp}>
+          <m.div variants={slideUp}>
             <KPICard
               icon="archive"
               label={t('dataops.recordsProcessed')}
               value={recordsProcessed.toLocaleString()}
               variant="default"
             />
-          </motion.div>
-          <motion.div variants={slideUp}>
+          </m.div>
+          <m.div variants={slideUp}>
             <KPICard
               icon="warning"
               label={t('dataops.errorRate')}
               value={`${errorRate}%`}
               variant={Number(errorRate) > 5 ? 'error' : 'success'}
             />
-          </motion.div>
-          <motion.div variants={slideUp}>
+          </m.div>
+          <m.div variants={slideUp}>
             <KPICard
               icon="eye-closed"
               label={t('dataops.anonymizedFields')}
               value={templateCount}
               variant="default"
             />
-          </motion.div>
+          </m.div>
         </BentoGrid>
-      </motion.div>
+      </m.div>
 
       <PageTabs tabs={DATAOPS_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -250,6 +250,6 @@ export const DataOpsPage: React.FC = () => {
           {activeTab === 'quality' && <QualityDashboard results={[]} />}
         </div>
       </BentoTile>
-    </motion.div>
+    </m.div>
   );
 };

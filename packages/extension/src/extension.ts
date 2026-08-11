@@ -231,7 +231,9 @@ export function activate(context: vscode.ExtensionContext): void {
     (orgId: string) => {
       selectedOrgId = orgId;
       refreshStatusBar();
-      panelManager.postToActivePanel({
+      // Broadcast is intended: every PanelApp is an isolated webview document
+      // with its own zustand store — without it, other panels keep the old org.
+      panelManager.postToAllPanels({
         type: 'org:selected',
         id: `org-sel-${Date.now()}`,
         timestamp: Date.now(),

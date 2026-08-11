@@ -152,8 +152,8 @@ export class WebviewPanelManager {
     return this.visiblePanels.size > 0;
   }
 
-  /** Post a message to all currently open panels. */
-  postToActivePanel(message: Record<string, unknown>): void {
+  /** Post a message to all currently open panels (broadcast). */
+  postToAllPanels(message: Record<string, unknown>): void {
     for (const panel of this.panels.values()) {
       void panel.webview.postMessage(message);
     }

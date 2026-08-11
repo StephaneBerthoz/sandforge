@@ -5,7 +5,7 @@ import { CsvPreview } from './CsvPreview';
 
 /* Mock framer-motion and @tanstack/react-virtual for jsdom compatibility */
 vi.mock('framer-motion', () => ({
-  motion: {
+  m: {
     div: 'div',
     tbody: 'tbody',
     tr: ({ children, ...props }: Record<string, unknown>) => {
