@@ -417,10 +417,12 @@ export class MonitorOpsHandler implements DomainHandler {
       const entityRecords = await queryAll<{
         QualifiedApiName: string;
         Label: string;
-        RecordCount: number;
+        RecordCount: number | null;
       }>(
         conn,
-        `SELECT QualifiedApiName, Label, COALESCE(RecordCount, 0) RecordCount FROM EntityDefinition WHERE RecordCount > 0 ORDER BY RecordCount DESC LIMIT 20`,
+        // No COALESCE(): SOQL only supports it on recent API versions and the
+        // query must parse on every org; null RecordCount is coalesced below.
+        `SELECT QualifiedApiName, Label, RecordCount FROM EntityDefinition WHERE RecordCount > 0 ORDER BY RecordCount DESC LIMIT 20`,
       );
       checkApiLimits(conn.limitInfo, 'monitor:storage entityDefinition');
 
@@ -462,7 +464,10 @@ export class MonitorOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
-      const deployRecords = await queryAll<{
+      // DeployRequest lives in the Tooling API — the standard REST query
+      // endpoint rejects it with "sObject type 'DeployRequest' is not
+      // supported" on every org. LIMIT 20: no pagination needed.
+      const deployResult = await conn.tooling.query<{
         Id: string;
         Status: string;
         StartDate: string;
@@ -471,9 +476,9 @@ export class MonitorOpsHandler implements DomainHandler {
         NumberComponentsTotal: number;
         NumberComponentErrors: number;
       }>(
-        conn,
         `SELECT Id, Status, StartDate, CompletedDate, CreatedBy.Name, NumberComponentsTotal, NumberComponentErrors FROM DeployRequest ORDER BY StartDate DESC LIMIT 20`,
       );
+      const deployRecords = deployResult.records;
       checkApiLimits(conn.limitInfo, 'monitor:deployments deployRequest');
 
       const deployments: DeploymentEntry[] = deployRecords.map((r) => ({

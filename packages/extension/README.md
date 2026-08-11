@@ -1,7 +1,7 @@
 # SandForge: Salesforce DevOps Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.11.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
-![Tests](https://img.shields.io/badge/tests-7408-brightgreen)
+[![Version](https://img.shields.io/badge/version-1.12.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
+![Tests](https://img.shields.io/badge/tests-7409-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
 

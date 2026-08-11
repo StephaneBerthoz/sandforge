@@ -5,6 +5,15 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-08-12
+
+### Fixed
+
+- Monitor storage breakdown works again: the SOQL used `COALESCE()`, which does not parse on older API versions — the card stayed empty on every refresh. Plain `RecordCount` is selected and null-coalesced in code instead.
+- Monitor recent deployments works again: `DeployRequest` is a Tooling API object and was queried through the standard REST endpoint ("sObject type not supported" on every org) — it now goes through `tooling.query`.
+- Monitor sandbox-refresh no longer errors in a loop on sandbox orgs: `SandboxProcess` only exists on orgs that manage sandboxes, so the "not supported" verdict is remembered per org and the panel simply shows no events.
+- Forge discovery in template mode actually starts: the webview sent a bare `templateId` the extension cannot resolve — the selected template's saved record/SOQL input is now expanded into the request.
+
 ## [1.11.0] - 2026-08-11
 
 ### Changed

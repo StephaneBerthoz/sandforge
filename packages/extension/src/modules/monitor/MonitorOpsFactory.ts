@@ -181,19 +181,35 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
     },
   );
 
+  // SandboxProcess only exists on orgs that MANAGE sandboxes (production /
+  // dev hub). On a sandbox org the query fails with "sObject type
+  // 'SandboxProcess' is not supported" — remember that verdict per org and
+  // answer with an empty list instead of erroring on every refresh cycle.
+  const sandboxRefreshUnsupported = new Set<string>();
   const sandboxRefreshTracker = new SandboxRefreshTracker(
     async (orgId: string): Promise<SandboxRefreshEvent[]> => {
+      if (sandboxRefreshUnsupported.has(orgId)) return [];
       const conn = await deps.getConnection(orgId);
-      const records = await queryAll<{
-        Id: string;
-        SandboxName: string;
-        Status: string;
-        CreatedDate: string;
-        Description: string | null;
-      }>(
-        conn,
-        'SELECT Id, SandboxName, Status, CreatedDate, Description FROM SandboxProcess ORDER BY CreatedDate DESC LIMIT 20',
-      );
+      let records;
+      try {
+        records = await queryAll<{
+          Id: string;
+          SandboxName: string;
+          Status: string;
+          CreatedDate: string;
+          Description: string | null;
+        }>(
+          conn,
+          'SELECT Id, SandboxName, Status, CreatedDate, Description FROM SandboxProcess ORDER BY CreatedDate DESC LIMIT 20',
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('SandboxProcess') && message.includes('not supported')) {
+          sandboxRefreshUnsupported.add(orgId);
+          return [];
+        }
+        throw err;
+      }
       checkApiLimits(conn.limitInfo, 'monitor:sandbox-refresh sandboxProcess');
       return records.map((r) => ({
         orgId,
