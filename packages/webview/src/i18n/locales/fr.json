@@ -1706,6 +1706,7 @@
     "abortConfirm": "Voulez-vous vraiment annuler ? La progression sera perdue.",
     "elapsed": "Ecoule",
     "discovery": "Decouverte du graphe",
+    "discoveryProgress": "Decouverte… {{discovered}} objets analyses, {{queued}} en file",
     "executeForge": "Executer le Forge",
     "reviewAndExecute": "Revoir et executer",
     "objects": "Objets",
@@ -1994,6 +1995,7 @@
     "openFull": "Ouvrir l'UI complete",
     "running": "En cours...",
     "newOrg": "Nouvelle organisation...",
+    "openInBrowser": "Ouvrir dans le navigateur",
     "noOrgHint": "Aucune org — connectez-en une ci-dessous",
     "showMetrics": "Afficher les metriques",
     "hideMetrics": "Masquer les metriques",
@@ -2137,12 +2139,7 @@
     "partitions": "Partitions",
     "totalRecords": "Enregistrements",
     "processed": "traites",
-    "failed": "echoues",
-    "pressure": {
-      "normal": "Normal",
-      "warning": "Attention",
-      "critical": "Critique"
-    }
+    "failed": "echoues"
   },
   "errorBoundary": {
     "title": "Une erreur est survenue",

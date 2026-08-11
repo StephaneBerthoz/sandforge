@@ -1706,6 +1706,7 @@
     "abortConfirm": "Are you sure you want to abort? Progress will be lost.",
     "elapsed": "Elapsed",
     "discovery": "Graph Discovery",
+    "discoveryProgress": "Discovering… {{discovered}} objects scanned, {{queued}} queued",
     "executeForge": "Execute Forge",
     "reviewAndExecute": "Review & Execute",
     "objects": "Objects",
@@ -1994,6 +1995,7 @@
     "openFull": "Open Full UI",
     "running": "Running...",
     "newOrg": "New organization...",
+    "openInBrowser": "Open in browser",
     "noOrgHint": "No org yet — connect one below",
     "showMetrics": "Show metrics",
     "hideMetrics": "Hide metrics",
@@ -2137,12 +2139,7 @@
     "partitions": "Partitions",
     "totalRecords": "Records",
     "processed": "processed",
-    "failed": "failed",
-    "pressure": {
-      "normal": "Normal",
-      "warning": "Warning",
-      "critical": "Critical"
-    }
+    "failed": "failed"
   },
   "errorBoundary": {
     "title": "Something went wrong",

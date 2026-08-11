@@ -1,19 +1,17 @@
 import type {
   BaseMessage,
   TrendData,
-  OrgTrendPayload,
   StorageObjectEntry,
   DeploymentEntry,
   ApiUsageCategory,
   OrgHealthStatus,
 } from '@sandforge/shared';
-import { MONITOR_PERIOD_MAP, MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS, SF_LIMITS } from '@sandforge/shared';
+import { MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS, SF_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import {
   validatePayload,
   monitorOrgPayloadSchema,
-  monitorTrendsPayloadSchema,
   monitorAbortJobPayloadSchema,
   monitorAlertIdPayloadSchema,
 } from '../validatePayload.js';
@@ -24,7 +22,6 @@ import type { TrendStorage } from '../../modules/monitor/TrendStorage.js';
 import { OrgInfoFetcher } from '../../modules/monitor/OrgInfoFetcher.js';
 import type { OrgInfoConnection } from '../../modules/monitor/OrgInfoFetcher.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { computeTrendData } from '../../modules/monitor/trendUtils.js';
 import { transformLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
 import type { RawLimitsResponse } from '../../modules/monitor/transformLimitsResponse.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
@@ -47,7 +44,6 @@ const MONITOR_REFRESH_TIMEOUT_MS = 25_000;
 const MONITOR_TYPES = new Set([
   'monitor:refresh',
   'monitor:start',
-  'monitor:trends',
   'monitor:abort-job',
   'monitor:live-operations',
   'monitor:health-score',
@@ -140,9 +136,6 @@ export class MonitorOpsHandler implements DomainHandler {
       case 'monitor:start':
         await this.handleRefresh(msg);
         return true;
-      case 'monitor:trends':
-        this.handleTrends(msg);
-        return true;
       case 'monitor:abort-job':
         await this.handleAbortJob(msg);
         return true;
@@ -200,7 +193,7 @@ export class MonitorOpsHandler implements DomainHandler {
         this.executeRefresh(msg, payload),
       );
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', err);
+      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', err, undefined, undefined, undefined, msg);
     }
   }
 
@@ -342,38 +335,8 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', err);
+      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', err, undefined, undefined, undefined, msg);
     }
-  }
-
-  private handleTrends(msg: BaseMessage): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(monitorTrendsPayloadSchema, msg, 'monitor:error', this.deps);
-    if (!parsed) return;
-    const payload = parsed;
-    const periodStr = payload.period ?? '24h';
-    const periodMs = MONITOR_PERIOD_MAP[periodStr] ?? MONITOR_PERIOD_MAP['24h'];
-
-    const trends: Record<string, TrendData> = {};
-    for (const limitName of MONITOR_KEY_LIMITS) {
-      const snapshots = this.trendStorage.getHistory(payload.orgId, periodMs);
-      trends[limitName] = computeTrendData({ limitName, snapshots, predictTime: true });
-    }
-
-    const trendPayload: OrgTrendPayload = {
-      orgId: payload.orgId,
-      trends,
-      periodLabel: periodStr,
-    };
-
-    const response = buildResponse(
-      this.deps,
-      msg,
-      'monitor:trends:data',
-      trendPayload as unknown as Record<string, unknown>,
-    );
-    this.deps.broker.postToWebview(response);
-    this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
 
   private handleLiveOperations(msg: BaseMessage): void {

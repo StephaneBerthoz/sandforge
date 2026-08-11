@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.8.4",
+  "version": "1.9.0",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -17,7 +17,7 @@
   "badges": [
     {
       "href": "https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge",
-      "url": "https://img.shields.io/badge/version-1.8.4-blue",
+      "url": "https://img.shields.io/badge/version-1.9.0-blue",
       "description": "Marketplace version"
     },
     {
@@ -90,10 +90,6 @@
     },
     "views": {
       "sandforge": [
-        {
-          "id": "sandforge.orgsView",
-          "name": "%view.orgs.name%"
-        },
         {
           "type": "webview",
           "id": "sandforge.sidebarView",
@@ -188,32 +184,11 @@
         "icon": "$(sparkle)"
       },
       {
-        "command": "sandforge.orgsView.refresh",
-        "title": "%command.orgsView.refresh%",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "sandforge.openOrgInBrowser",
         "title": "%command.openOrgInBrowser%",
         "icon": "$(globe)"
       }
     ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "sandforge.orgsView.refresh",
-          "when": "view == sandforge.orgsView",
-          "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "sandforge.openOrgInBrowser",
-          "when": "view == sandforge.orgsView && viewItem == sandforgeOrg",
-          "group": "inline"
-        }
-      ]
-    },
     "keybindings": [
       {
         "command": "sandforge.openGrappe",

@@ -161,13 +161,6 @@ export interface TrendData {
   timestamps?: string[];
 }
 
-/** Trend data collection for an org */
-export interface OrgTrendPayload {
-  orgId: string;
-  trends: Record<string, TrendData>;
-  periodLabel: string;
-}
-
 /** Custom metric definition */
 export interface CustomMetric {
   id: UUID;

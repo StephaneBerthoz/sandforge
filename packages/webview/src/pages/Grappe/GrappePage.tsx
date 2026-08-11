@@ -1,39 +1,14 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Network, Layers, Cpu, Gauge, Play, Square } from 'lucide-react';
-import { cn } from '../../theme';
 import { Card, CardBody } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { useGrappeStore } from '../../stores/useGrappeStore';
 
-/** Status color for grappe pressure levels. */
-function pressureColor(pressure: string): string {
-  switch (pressure) {
-    case 'critical':
-      return 'text-red-400';
-    case 'warning':
-      return 'text-amber-400';
-    default:
-      return 'text-green-400';
-  }
-}
-
-/** Badge variant for pressure. */
-function pressureBadge(pressure: string): 'error' | 'warning' | 'success' {
-  switch (pressure) {
-    case 'critical':
-      return 'error';
-    case 'warning':
-      return 'warning';
-    default:
-      return 'success';
-  }
-}
-
 /**
  * Grappe module page — Parallel execution engine dashboard.
- * Shows active operation, partition progress, and back-pressure indicators.
+ * Shows active operation and partition progress.
  */
 export const GrappePage: React.FC = () => {
   const { t } = useTranslation();
@@ -41,8 +16,6 @@ export const GrappePage: React.FC = () => {
   const totalPartitions = useGrappeStore((s) => s.totalPartitions);
   const totalRecords = useGrappeStore((s) => s.totalRecords);
   const partitions = useGrappeStore((s) => s.partitions);
-  const backPressureLevel = useGrappeStore((s) => s.backPressureLevel);
-  const apiUsagePercent = useGrappeStore((s) => s.apiUsagePercent);
   const totalProcessed = useGrappeStore((s) => s.totalProcessed);
   const totalFailed = useGrappeStore((s) => s.totalFailed);
 
@@ -67,12 +40,6 @@ export const GrappePage: React.FC = () => {
               {t('grappe.subtitle', 'Parallel execution engine for large-scale data operations')}
             </p>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={pressureBadge(backPressureLevel)}>
-            <Gauge className={cn('w-3 h-3 mr-1', pressureColor(backPressureLevel))} />
-            {t(`grappe.pressure.${backPressureLevel}`, backPressureLevel)}
-          </Badge>
         </div>
       </div>
 
@@ -142,7 +109,6 @@ export const GrappePage: React.FC = () => {
                   <Badge variant="info">
                     {totalPartitions} {t('grappe.partitions', 'partitions')}
                   </Badge>
-                  <span className="text-xs text-text-secondary">API: {apiUsagePercent}%</span>
                 </div>
                 <span className="text-xs tabular-nums text-text-secondary">
                   {currentProcessed.toLocaleString()} / {totalRecords.toLocaleString()}

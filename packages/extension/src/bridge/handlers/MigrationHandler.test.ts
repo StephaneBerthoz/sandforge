@@ -75,6 +75,7 @@ describe('MigrationHandler', () => {
       // marker so tests can prove the read was attempted (i.e. path accepted).
       handler.setFileReader({
         readFile: vi.fn().mockRejectedValue(new Error('READ_ATTEMPTED')),
+        statSize: vi.fn().mockResolvedValue(10),
       });
       deps.services = {
         getWorkspaceFolders: () => [workspaceDir],
@@ -201,6 +202,97 @@ describe('MigrationHandler', () => {
       };
       expect(errMsg.type).toBe('migration:error');
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+
+    it.runIf(process.platform === 'win32')(
+      'accepts a path whose casing differs from the allowed base dir (win32)',
+      async () => {
+        // NTFS is case-insensitive: `c:\ws-root\...` IS inside `C:\WS-ROOT`.
+        const upperBase = path.join(path.parse(process.cwd()).root, 'WS-CASE-ROOT');
+        deps.services = {
+          getWorkspaceFolders: () => [upperBase],
+        } as unknown as NonNullable<HandlerDeps['services']>;
+        const filePath = path.join(upperBase.toLowerCase(), 'migration', 'export.json');
+
+        await handler.handle(createMsg('migration:import', { filePath }));
+
+        const response = lastResponse();
+        // READ_ATTEMPTED proves the containment check accepted the path.
+        expect(response.payload.error).toContain('READ_ATTEMPTED');
+      },
+    );
+  });
+
+  describe('file size cap', () => {
+    beforeEach(() => {
+      deps.services = {
+        getWorkspaceFolders: () => [],
+      } as unknown as NonNullable<HandlerDeps['services']>;
+    });
+
+    function lastResponse(): { type: string; payload: { success: boolean; error?: string } } {
+      const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
+      return calls[calls.length - 1][0] as {
+        type: string;
+        payload: { success: boolean; error?: string };
+      };
+    }
+
+    it('rejects a file past the 50 MB cap before reading it (migration:import)', async () => {
+      const readFile = vi.fn();
+      handler.setFileReader({
+        readFile,
+        statSize: vi.fn().mockResolvedValue(51 * 1024 * 1024),
+      });
+      const filePath = path.join(os.homedir(), 'huge.csv');
+
+      await handler.handle(createMsg('migration:import', { filePath }));
+
+      const response = lastResponse();
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.error).toContain('too large');
+      expect(response.payload.error).toContain('50 MB');
+      // The content is never loaded into memory.
+      expect(readFile).not.toHaveBeenCalled();
+    });
+
+    it('rejects a file past the 50 MB cap (migration:import-sfdmu)', async () => {
+      const readFile = vi.fn();
+      handler.setFileReader({
+        readFile,
+        statSize: vi.fn().mockResolvedValue(60 * 1024 * 1024),
+      });
+      const filePath = path.join(os.homedir(), 'export.json');
+
+      await handler.handle(createMsg('migration:import-sfdmu', { filePath }));
+
+      const response = lastResponse();
+      expect(response.payload.success).toBe(false);
+      expect(response.payload.error).toContain('too large');
+      expect(readFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('single disk read', () => {
+    it('reads the file exactly once for import + format detection', async () => {
+      deps.services = {
+        getWorkspaceFolders: () => [],
+      } as unknown as NonNullable<HandlerDeps['services']>;
+      const content = JSON.stringify([{ Name: 'Acme', Industry: 'Tech' }]);
+      const readFile = vi.fn().mockResolvedValue(content);
+      handler.setFileReader({ readFile, statSize: vi.fn().mockResolvedValue(content.length) });
+      const filePath = path.join(os.homedir(), 'accounts.json');
+
+      await handler.handle(createMsg('migration:import', { filePath }));
+
+      expect(readFile).toHaveBeenCalledTimes(1);
+      const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
+      const response = calls[calls.length - 1][0] as {
+        type: string;
+        payload: { success: boolean; detectedFormat?: string; error?: string };
+      };
+      expect(response.payload.success).toBe(true);
+      expect(response.payload.detectedFormat).toBe('json');
     });
   });
 });

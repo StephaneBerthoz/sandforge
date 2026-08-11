@@ -115,6 +115,20 @@ describe('SidebarViewProvider', () => {
     expect(executeCommand).toHaveBeenCalledWith('sandforge.openMonitor');
   });
 
+  it('executes sandforge.openOrgInBrowser with the orgId on sidebar:openOrgInBrowser', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+    messageHandler!({ type: 'sidebar:openOrgInBrowser', payload: { orgId: 'org-42' } });
+    expect(executeCommand).toHaveBeenCalledWith('sandforge.openOrgInBrowser', 'org-42');
+  });
+
+  it('ignores sidebar:openOrgInBrowser without an orgId', () => {
+    provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+    messageHandler!({ type: 'sidebar:openOrgInBrowser', payload: {} });
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+
   it('answers sidebar:requestSettings with the settings blob when a getter is wired', () => {
     const settingsGetter = vi.fn(() => ({ settings: { language: 'fr' } }));
     const settingsProvider = new SidebarViewProvider(

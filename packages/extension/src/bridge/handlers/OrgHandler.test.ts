@@ -64,6 +64,43 @@ describe('OrgHandler', () => {
     expect(response.payload.status).toBe('disconnected');
   });
 
+  it('handles org:select: invokes the selection callback and broadcasts org:selected', async () => {
+    deps.onOrgSelected = vi.fn();
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+      id: 'org-1',
+      alias: 'dev',
+    });
+
+    const result = await handler.handle(createMsg('org:select', { orgId: 'org-1' }));
+    expect(result).toBe(true);
+
+    expect(deps.onOrgSelected).toHaveBeenCalledWith('org-1');
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('org:selected');
+    expect(response.payload.orgId).toBe('org-1');
+  });
+
+  it('org:select without the callback still broadcasts (no crash on partial deps)', async () => {
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'org-1' });
+
+    const result = await handler.handle(createMsg('org:select', { orgId: 'org-1' }));
+    expect(result).toBe(true);
+    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(response.type).toBe('org:selected');
+  });
+
+  it('org:select on an unknown org warns and does not broadcast', async () => {
+    deps.onOrgSelected = vi.fn();
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+
+    const result = await handler.handle(createMsg('org:select', { orgId: 'ghost' }));
+    expect(result).toBe(true);
+
+    expect(deps.onOrgSelected).not.toHaveBeenCalled();
+    const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.every((c) => (c[0] as { type: string }).type !== 'org:selected')).toBe(true);
+  });
+
   describe('payload validation', () => {
     it('rejects org:disconnect without orgId (INVALID_PAYLOAD)', async () => {
       const result = await handler.handle(createMsg('org:disconnect', {}));

@@ -54,6 +54,11 @@ export const ForgeDiscovery: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'graph' | 'table'>('graph');
   const [searchQuery, setSearchQuery] = useState('');
+  /** Live counters streamed by the extension during graph discovery. */
+  const [discoveryProgress, setDiscoveryProgress] = useState<{
+    discoveredCount: number;
+    queueRemaining: number;
+  } | null>(null);
 
   /** Listen for graph discovery response from the extension. */
   useMessageListener<BaseMessage & { payload: { graph: ForgeGraph } }>(
@@ -63,6 +68,7 @@ export const ForgeDiscovery: React.FC = () => {
         setGraph(msg.payload.graph);
         setLoading(false);
         setError(null);
+        setDiscoveryProgress(null);
       },
       [setGraph],
     ),
@@ -74,6 +80,26 @@ export const ForgeDiscovery: React.FC = () => {
     useCallback((msg) => {
       setLoading(false);
       setError(msg.payload.message);
+      setDiscoveryProgress(null);
+    }, []),
+  );
+
+  /**
+   * Listen for throttled discovery progress from the extension
+   * (ForgeHandler emits `forge:discover:progress` ~10/s during the BFS).
+   * Keeps the wizard visibly alive on large orgs instead of a frozen spinner.
+   */
+  useMessageListener<
+    BaseMessage & {
+      payload: { objectApiName: string; discoveredCount: number; queueRemaining: number };
+    }
+  >(
+    'forge:discover:progress',
+    useCallback((msg) => {
+      setDiscoveryProgress({
+        discoveredCount: msg.payload.discoveredCount,
+        queueRemaining: msg.payload.queueRemaining,
+      });
     }, []),
   );
 
@@ -149,6 +175,17 @@ export const ForgeDiscovery: React.FC = () => {
       >
         <Loader2 size={32} className="animate-spin text-forge" />
         <p>{t('forge.discovery')}</p>
+        {discoveryProgress && (
+          <p
+            data-testid="forge-discovery-progress"
+            className="text-xs tabular-nums text-text-muted"
+          >
+            {t('forge.discoveryProgress', {
+              discovered: discoveryProgress.discoveredCount,
+              queued: discoveryProgress.queueRemaining,
+            })}
+          </p>
+        )}
       </div>
     );
   }
@@ -172,6 +209,7 @@ export const ForgeDiscovery: React.FC = () => {
               onClick={() => {
                 setLoading(true);
                 setError(null);
+                setDiscoveryProgress(null);
                 sendMessage(buildMessage<{ config: ForgeConfig }>('forge:discover', { config }));
               }}
               icon={<RotateCcw size={14} />}

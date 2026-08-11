@@ -1,10 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import type {
-  BaseMessage,
-  SalesforceOrg,
-  BackPressureLevel,
-  AIStatusResponse,
-} from '@sandforge/shared';
+import type { BaseMessage, SalesforceOrg, AIStatusResponse } from '@sandforge/shared';
 import { useSendMessage, useMessageListener } from '../hooks/useMessageBus';
 import { useRecentOpsFeed } from '../hooks/useRecentOpsFeed';
 import { useOrgStore } from '../stores/useOrgStore';
@@ -226,13 +221,6 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
       .getState()
       .updatePartition(msg.payload.grappeId, msg.payload.percentage, msg.payload.processedRecords);
   });
-
-  useMessageListener<BaseMessage & { payload: { level: BackPressureLevel; apiPercent: number } }>(
-    'grappe:backPressure',
-    (msg) => {
-      useGrappeStore.getState().updateBackPressure(msg.payload.level, msg.payload.apiPercent);
-    },
-  );
 
   useMessageListener<
     BaseMessage & { payload: { operationId: string; totalProcessed: number; totalFailed: number } }

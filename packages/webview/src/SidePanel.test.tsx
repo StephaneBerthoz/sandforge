@@ -144,6 +144,35 @@ describe('SidePanel', () => {
     expect(mockSyncLanguage).toHaveBeenCalledWith({ settings: { language: 'fr' } });
   });
 
+  it('adopts org:selected broadcasts into the org store', () => {
+    useOrgStore.setState({ orgs: [mockOrg], selectedOrgId: null });
+    render(<SidePanel />);
+    fireEvent(
+      window,
+      new MessageEvent('message', {
+        data: { type: 'org:selected', payload: { orgId: 'org-1' } },
+      }),
+    );
+    expect(useOrgStore.getState().selectedOrgId).toBe('org-1');
+  });
+
+  it('posts sidebar:openOrgInBrowser from the dropdown globe icon without selecting the org', () => {
+    useOrgStore.setState({ orgs: [mockOrg], selectedOrgId: null });
+    render(<SidePanel />);
+    fireEvent.click(screen.getByTestId('sidepanel-org'));
+    fireEvent.click(screen.getByTestId('sidepanel-org-open-org-1'));
+    expect(mockPostMessage).toHaveBeenCalledWith({
+      type: 'sidebar:openOrgInBrowser',
+      payload: { orgId: 'org-1' },
+    });
+    // The icon must not trigger org selection
+    expect(mockPostMessage).not.toHaveBeenCalledWith({
+      type: 'sidebar:selectOrg',
+      payload: { orgId: 'org-1' },
+    });
+    expect(useOrgStore.getState().selectedOrgId).toBeNull();
+  });
+
   it('renders last operation when ops exist', () => {
     useRecentOpsStore.setState({
       ops: [

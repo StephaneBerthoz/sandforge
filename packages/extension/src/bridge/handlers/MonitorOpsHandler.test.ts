@@ -82,25 +82,6 @@ describe('MonitorOpsHandler', () => {
     expect(result).toBe(false);
   });
 
-  it('handles monitor:trends and response includes correlationId', async () => {
-    const msg: BaseMessage & { payload: { orgId: string; period?: string } } = {
-      id: 'req-mon-1',
-      type: 'monitor:trends',
-      timestamp: Date.now(),
-      payload: { orgId: 'org-1', period: '24h' },
-    };
-
-    const result = await handler.handle(msg);
-    expect(result).toBe(true);
-
-    const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    expect(postToWebview).toHaveBeenCalledTimes(1);
-
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
-    expect(response.type).toBe('monitor:trends:data');
-    expect(response.correlationId).toBe('req-mon-1');
-  });
-
   it('handles monitor:live-operations and response includes correlationId', async () => {
     const msg: BaseMessage = {
       id: 'req-mon-2',
@@ -217,6 +198,8 @@ describe('MonitorOpsHandler', () => {
     };
     expect(response.type).toBe('monitor:error');
     expect(response.payload.message).toBe('connection failed');
+    // Correlated so a second Monitor panel can drop the stale error.
+    expect(response.correlationId).toBe('req-mon-3');
   });
 
   it('emits monitor:error (not a silent hang) when the org call stalls past the bound', async () => {
@@ -246,6 +229,8 @@ describe('MonitorOpsHandler', () => {
       expect(response.type).toBe('monitor:error');
       expect(response.payload.message).toContain('monitor:refresh');
       expect(response.payload.message).toContain('timed out');
+      // Correlated so a second Monitor panel can drop the stale error.
+      expect(response.correlationId).toBe('req-mon-timeout');
     } finally {
       vi.useRealTimers();
     }

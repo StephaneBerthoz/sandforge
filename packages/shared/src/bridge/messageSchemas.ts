@@ -52,6 +52,7 @@ const OrgMessages = [
   msg('org:list:response'),
   msg('org:connect'),
   msg('org:disconnect'),
+  msg('org:select'),
   msg('org:statusChanged'),
   msg('org:selected'),
   msg('org:error'),
@@ -139,10 +140,8 @@ export const SyncMessageSchema = z.discriminatedUnion('type', SyncMessages);
 const MonitorMessages = [
   msg('monitor:refresh'),
   msg('monitor:start'),
-  msg('monitor:trends'),
-  // Dashboard snapshot + trends result channels, and the domain error channel.
+  // Dashboard snapshot (trends included) and the domain error channel.
   msg('monitor:data'),
-  msg('monitor:trends:data'),
   msg('monitor:error'),
   msg('monitor:abort-job'),
   msg('monitor:abort-job:response'),
@@ -276,8 +275,6 @@ const AutomationMessages = [
   msg('autopilot:plan-ready'),
   msg('autopilot:execute'),
   msg('autopilot:node-progress'),
-  msg('autopilot:node-completed'),
-  msg('autopilot:node-failed'),
   msg('autopilot:pause'),
   msg('autopilot:resume'),
   msg('autopilot:skip-node'),
@@ -347,7 +344,6 @@ const ExecutionMessages = [
   msg('execution:error'),
   msg('grappe:started'),
   msg('grappe:partitionProgress'),
-  msg('grappe:backPressure'),
   msg('grappe:completed'),
 ] as const;
 export const ExecutionMessageSchema = z.discriminatedUnion('type', ExecutionMessages);

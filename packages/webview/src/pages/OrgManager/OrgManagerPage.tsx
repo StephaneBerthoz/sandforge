@@ -4,6 +4,7 @@ import { Plug, Download, Globe, Smartphone, Key, UserCircle, Loader2, X } from '
 import type { SalesforceOrg, OrgSafetyTier, AuthMethod } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useOrgStore } from '../../stores/useOrgStore';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Button } from '../../components/ui/Button';
@@ -80,7 +81,17 @@ export const OrgManagerPage: React.FC = () => {
   const orgs = useOrgStore((s) => s.orgs);
   const connectedOrgs = orgs.filter((o) => o.status === 'connected');
   const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
-  const selectOrg = useOrgStore((s) => s.selectOrg);
+  // Selection propagates: local store for this panel + `org:select` through
+  // the broker so the extension updates the status bar and broadcasts
+  // `org:selected` to the sidebar and every other panel.
+  const selectOrgLocal = useOrgStore((s) => s.selectOrg);
+  const selectOrg = useCallback(
+    (id: string | null) => {
+      selectOrgLocal(id);
+      if (id) sendBridgeMessage('org:select', { orgId: id });
+    },
+    [selectOrgLocal],
+  );
   const updateOrg = useOrgStore((s) => s.updateOrg);
   const removeOrg = useOrgStore((s) => s.removeOrg);
 

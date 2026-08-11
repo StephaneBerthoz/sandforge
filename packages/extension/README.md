@@ -1,7 +1,7 @@
 # SandForge: Salesforce DevOps Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.8.4-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
-![Tests](https://img.shields.io/badge/tests-7427-brightgreen)
+[![Version](https://img.shields.io/badge/version-1.9.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
+![Tests](https://img.shields.io/badge/tests-7408-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
 
@@ -11,7 +11,7 @@
 
 ## Your first clone in 2 minutes
 
-1. **Connect your orgs**: click the SandForge icon in the Activity Bar, open **Organizations**, and click **Import from SF CLI** to pull in every org authenticated in the Salesforce CLI.
+1. **Connect your orgs**: click the SandForge icon in the Activity Bar, open the org dropdown at the top of the **Launcher**, choose **New organization…**, then **Import from SF CLI** to pull in every org authenticated in the Salesforce CLI.
 2. **Open Forge**: click the flame icon in the sidebar, or run **SandForge: Open Forge** from the Command Palette.
 3. **Paste a root record ID** from your UAT sandbox into **Record ID or Salesforce URL** (an Account works well).
 4. Click **Discover Graph**, then tune **Depth**, **Records per object**, and **Anonymize PII**.

@@ -53,6 +53,12 @@ export interface HandlerDeps {
   services?: Services;
   /** Generates sequential message IDs. */
   nextId: () => string;
+  /**
+   * Optional org-selection callback (status bar + `org:selected` broadcast).
+   * Late-injected from extension.ts — the selection closure is defined after
+   * the handlers are constructed (same pattern as setOnboardingServices).
+   */
+  onOrgSelected?: (orgId: string) => void;
 }
 
 /**

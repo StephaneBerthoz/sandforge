@@ -41,16 +41,16 @@ const { join } = require('node:path') as { join(...parts: string[]): string };
  *     sites simply match nothing.
  *
  * Emitted-but-unconsumed channels (kept declared, documented per audit):
- *   - `monitor:trends:data` — the webview never sends `monitor:trends`, so the
- *     handler path that emits it is currently unreachable from the UI.
  *   - `forge:discover:progress` — emitted (throttled) during discovery, but no
  *     webview listener exists (the wizard consumes only
  *     `forge:discover:response` / `:error`).
- *   - `forge:progress` note: the extension wraps the event under `payload`
- *     (buildResponse), while ForgeExecution.tsx reads `objectName` / `status`
- *     at the message top level — a live shape mismatch the extension/webview
- *     owners should reconcile (out of scope for the shared contract, which
- *     describes the emission side).
+ *   - `forge:progress` — the shape mismatch (event wrapped under `payload` by
+ *     buildResponse, read at the message top level by ForgeExecution.tsx) was
+ *     reconciled in 1.8.0: the webview now reads under `payload`.
+ *
+ * Removed in 1.9.0: the `monitor:trends` / `monitor:trends:data` pair — the
+ * webview never sent the request (handler unreachable) and trend data already
+ * rides `monitor:data`.
  */
 
 /** Matches `export interface Foo extends BaseMessage { type: 'x:y';` declarations. */

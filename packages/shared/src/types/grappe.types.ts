@@ -110,9 +110,6 @@ export interface AggregatedGrappeResult {
   partitionResults: GrappeResult[];
 }
 
-/** Back-pressure level indicator */
-export type BackPressureLevel = 'normal' | 'warning' | 'critical';
-
 /** Worker status in the grappe */
 export interface GrappeWorkerStatus {
   workerId: number;
@@ -120,15 +117,4 @@ export interface GrappeWorkerStatus {
   currentGrappeId?: UUID;
   processedGrappes: number;
   queuedGrappes: number;
-}
-
-/** Overall grappe operation status */
-export interface GrappeOperationStatus {
-  operationId: UUID;
-  workers: GrappeWorkerStatus[];
-  backPressureLevel: BackPressureLevel;
-  apiUsagePercent: number;
-  partitions: GrappePartition[];
-  overallProgress: GrappeProgress;
-  estimatedTimeRemaining?: number;
 }

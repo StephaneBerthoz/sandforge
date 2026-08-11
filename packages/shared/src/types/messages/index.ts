@@ -36,6 +36,7 @@ import type {
   OrgListRequest,
   OrgConnectRequest,
   OrgDisconnectRequest,
+  OrgSelectRequest,
   OrgListResponse,
   OrgStatusChanged,
   OrgSelected,
@@ -118,9 +119,7 @@ import type {
 import type {
   MonitorRefreshRequest,
   MonitorStartRequest,
-  MonitorTrendsRequest,
   MonitorDataMessage,
-  MonitorTrendsDataMessage,
   MonitorErrorResponse,
   MonitorAbortJobRequest,
   MonitorAbortJobResponse,
@@ -235,8 +234,6 @@ import type {
   AutopilotSchemaResult,
   AutopilotPlanReady,
   AutopilotNodeProgress,
-  AutopilotNodeCompleted,
-  AutopilotNodeFailed,
   AutopilotCompleted,
   AutopilotComplianceReportReady,
   AutopilotErrorResponse,
@@ -357,7 +354,6 @@ import type {
   OperationFailed,
   GrappeStarted,
   GrappePartitionProgress,
-  GrappeBackPressure,
   GrappeCompleted,
   ExecutionProgressMessage,
   ExecutionRetryStatusMessage,
@@ -447,6 +443,7 @@ export type WebViewToExtensionMessage =
   | OrgListRequest
   | OrgConnectRequest
   | OrgDisconnectRequest
+  | OrgSelectRequest
   // Seed
   | SeedExecuteRequest
   | SeedDescribeGlobalRequest
@@ -481,7 +478,6 @@ export type WebViewToExtensionMessage =
   // Monitor
   | MonitorRefreshRequest
   | MonitorStartRequest
-  | MonitorTrendsRequest
   | MonitorAbortJobRequest
   | MonitorAlertsRequest
   | MonitorAlertAcknowledgeRequest
@@ -687,7 +683,6 @@ export type ExtensionToWebViewMessage =
   | MonitorSandboxRefreshResponse
   | OrgHealthScoreResponse
   | MonitorDataMessage
-  | MonitorTrendsDataMessage
   | MonitorErrorResponse
   // Compare
   | CompareExecuteResponse
@@ -732,8 +727,6 @@ export type ExtensionToWebViewMessage =
   | AutopilotSchemaResult
   | AutopilotPlanReady
   | AutopilotNodeProgress
-  | AutopilotNodeCompleted
-  | AutopilotNodeFailed
   | AutopilotCompleted
   | AutopilotComplianceReportReady
   | AutopilotErrorResponse
@@ -805,7 +798,6 @@ export type ExtensionToWebViewMessage =
   | OperationFailed
   | GrappeStarted
   | GrappePartitionProgress
-  | GrappeBackPressure
   | GrappeCompleted
   | ExecutionProgressMessage
   | ExecutionRetryStatusMessage

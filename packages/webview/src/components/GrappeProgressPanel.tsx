@@ -7,7 +7,7 @@ import { useGrappeStore } from '../stores/useGrappeStore';
 
 /**
  * Panel displaying grappe (cluster) operation progress.
- * Shows partition progress, back-pressure level, and worker status.
+ * Shows partition progress and worker status.
  * Only renders when a grappe operation is active or recently completed.
  */
 export const GrappeProgressPanel: React.FC = () => {
@@ -18,8 +18,6 @@ export const GrappeProgressPanel: React.FC = () => {
     totalPartitions,
     totalRecords,
     partitions,
-    backPressureLevel,
-    apiUsagePercent,
     totalProcessed,
     totalFailed,
   } = useGrappeStore();
@@ -34,13 +32,6 @@ export const GrappeProgressPanel: React.FC = () => {
 
   const overallPercent =
     totalPartitions > 0 ? Math.round((completedPartitions / totalPartitions) * 100) : 0;
-
-  const bpVariant =
-    backPressureLevel === 'critical'
-      ? 'error'
-      : backPressureLevel === 'warning'
-        ? 'warning'
-        : 'success';
 
   return (
     <div
@@ -60,16 +51,6 @@ export const GrappeProgressPanel: React.FC = () => {
           <span className="text-xs text-[var(--sf-text-primary)]">
             {t('grappe.partitions', 'Partitions')}: {completedPartitions}/{totalPartitions}
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant={bpVariant}>
-            {t(`grappe.pressure.${backPressureLevel}`, backPressureLevel)}
-          </Badge>
-          {apiUsagePercent > 0 && (
-            <span className="text-[10px] text-[var(--sf-text-secondary)]">
-              API {apiUsagePercent}%
-            </span>
-          )}
         </div>
       </div>
 

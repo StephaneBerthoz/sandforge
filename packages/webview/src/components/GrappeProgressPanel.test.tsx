@@ -54,12 +54,4 @@ describe('GrappeProgressPanel', () => {
     expect(stats.textContent).toMatch(/2.?800/);
     expect(stats.textContent).toContain('200');
   });
-
-  it('should show back-pressure level', () => {
-    useGrappeStore.getState().start('op-1', 2, 3000);
-    useGrappeStore.getState().updateBackPressure('warning', 75);
-    render(<GrappeProgressPanel />);
-    const panel = screen.getByTestId('grappe-panel');
-    expect(panel.textContent).toContain('warning');
-  });
 });

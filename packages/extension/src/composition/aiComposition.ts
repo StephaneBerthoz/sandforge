@@ -7,6 +7,7 @@ import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { MessageBroker } from '../bridge/MessageBroker';
 import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
+import type { BreakerStateChangeEvent } from '../adapters/ai/AIClient.js';
 
 /** Inputs required to (re-)initialise the AI stack. */
 export interface AICompositionDeps {
@@ -22,6 +23,12 @@ export interface AICompositionDeps {
   orgRegistry: OrgRegistry;
   orgManager: OrgManager;
   log: (msg: string) => void;
+  /**
+   * Optional disposable sink (pass `context.subscriptions`). The breaker
+   * status-feed listener lands here so the disposable audit can track it —
+   * the adapter's own dispose() also wipes it via removeAllListeners.
+   */
+  disposables?: vscode.Disposable[];
 }
 
 /**
@@ -163,6 +170,33 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
     }),
   );
   log('AI diagnose handler initialized.');
+
+  // Forward breaker state changes to the webview as `ai:provider:status` —
+  // the provider-status banner (cooldown countdown etc.) has been listening
+  // for this channel since 04-02, but nothing ever emitted it. Subscribing
+  // per init is safe: adapters are disposed on invalidate() (which removes
+  // every listener), and the re-init subscribes on the fresh instance.
+  const aiClient = services.aiClient();
+  const breakerFeed = aiClient.breakerEvents;
+  if (breakerFeed) {
+    const listener = (event: BreakerStateChangeEvent): void => {
+      broker?.postToWebview({
+        id: `ai-status-${Date.now()}`,
+        type: 'ai:provider:status',
+        timestamp: Date.now(),
+        payload: {
+          provider: 'anthropic',
+          state: event.state,
+          cooldownEndsAt: event.cooldownEndsAt,
+          lastErrorKind: event.lastErrorVerdict?.kind,
+          userMessageKey: event.lastErrorVerdict?.userMessageKey,
+        },
+      } as BaseMessage);
+    };
+    breakerFeed.on('state-change', listener);
+    deps.disposables?.push({ dispose: () => breakerFeed.off('state-change', listener) });
+  }
+  log('AI provider status feed wired (breaker state-change → ai:provider:status).');
 }
 
 /** Inputs for the sandforge.ai.* configuration watcher. */

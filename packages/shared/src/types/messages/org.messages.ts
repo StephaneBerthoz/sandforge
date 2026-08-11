@@ -32,6 +32,12 @@ export interface OrgDisconnectRequest extends BaseMessage {
   payload: { orgId: string };
 }
 
+/** Request to select the active org (posted by panel org pickers). */
+export interface OrgSelectRequest extends BaseMessage {
+  type: 'org:select';
+  payload: { orgId: string };
+}
+
 /** Notification that an org's connection status has changed */
 export interface OrgStatusChanged extends BaseMessage {
   type: 'org:statusChanged';

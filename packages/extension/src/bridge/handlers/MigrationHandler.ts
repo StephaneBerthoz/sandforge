@@ -13,7 +13,15 @@ import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 /** File reader interface for migration services. */
 export interface MigrationFileReader {
   readFile(filePath: string): Promise<string>;
+  /** File size in bytes — checked against {@link MAX_IMPORT_FILE_SIZE_BYTES} before any read. */
+  statSize(filePath: string): Promise<number>;
 }
+
+/**
+ * Hard cap on import file size. The whole file is loaded into a single
+ * string in the extension host — a giant CSV could OOM it.
+ */
+export const MAX_IMPORT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
 
 /** Message types handled by MigrationHandler. */
 const MIGRATION_TYPES = new Set(['migration:import', 'migration:import-sfdmu']);
@@ -70,6 +78,15 @@ export function validateImportPath(
 
   const insideAllowedBase = allowedBaseDirs.some((base) => {
     const resolvedBase = path.resolve(base);
+    // NTFS is case-insensitive: under win32 a webview path whose casing
+    // differs from the base dir (e.g. `c:\users\...` vs `C:\Users\...`) must
+    // still be recognized as contained. The returned path keeps its original
+    // casing so the subsequent read still works.
+    if (process.platform === 'win32') {
+      const normalizedLower = normalized.toLowerCase();
+      const baseLower = resolvedBase.toLowerCase();
+      return normalizedLower === baseLower || normalizedLower.startsWith(baseLower + path.sep);
+    }
     return normalized === resolvedBase || normalized.startsWith(resolvedBase + path.sep);
   });
   if (!insideAllowedBase) {
@@ -79,6 +96,25 @@ export function validateImportPath(
   }
 
   return normalized;
+}
+
+/**
+ * Reject an import file past {@link MAX_IMPORT_FILE_SIZE_BYTES} before it is
+ * read into memory — validateImportPath constrains the *location*, not the
+ * size, and a giant CSV loaded as one string can OOM the extension host.
+ */
+async function assertImportFileSize(
+  fileReader: MigrationFileReader,
+  filePath: string,
+): Promise<void> {
+  const size = await fileReader.statSize(filePath);
+  if (size > MAX_IMPORT_FILE_SIZE_BYTES) {
+    const actualMb = (size / (1024 * 1024)).toFixed(1);
+    const limitMb = MAX_IMPORT_FILE_SIZE_BYTES / (1024 * 1024);
+    throw new Error(
+      `Import file is too large: ${actualMb} MB exceeds the ${limitMb} MB limit. Split the file into smaller chunks and retry.`,
+    );
+  }
 }
 
 /**
@@ -132,7 +168,8 @@ export class MigrationHandler implements DomainHandler {
     if (!parsed) return;
     const { filePath } = parsed;
     try {
-      if (!this.fileReader) {
+      const fileReader = this.fileReader;
+      if (!fileReader) {
         throw new Error('Migration services not available.');
       }
       const safePath = validateImportPath(
@@ -140,10 +177,13 @@ export class MigrationHandler implements DomainHandler {
         UNIVERSAL_IMPORT_EXTENSIONS,
         this.getAllowedBaseDirs(),
       );
+      await assertImportFileSize(fileReader, safePath);
       const { UniversalImporter } = await import('../../modules/migration/UniversalImporter.js');
-      const importer = new UniversalImporter(this.fileReader);
-      const config = await importer.import(safePath);
-      const content = await this.fileReader.readFile(safePath);
+      const importer = new UniversalImporter(fileReader);
+      // Single disk read: the same content feeds both the conversion and the
+      // format detection reported to the webview.
+      const content = await fileReader.readFile(safePath);
+      const config = importer.importContent(content, safePath);
       const detectedFormat = importer.detectFormat(content, safePath);
       const response = buildResponse(this.deps, msg, 'migration:import:response', {
         success: true,
@@ -172,7 +212,8 @@ export class MigrationHandler implements DomainHandler {
     if (!parsed) return;
     const { filePath } = parsed;
     try {
-      if (!this.fileReader) {
+      const fileReader = this.fileReader;
+      if (!fileReader) {
         throw new Error('Migration services not available.');
       }
       const safePath = validateImportPath(
@@ -180,8 +221,9 @@ export class MigrationHandler implements DomainHandler {
         SFDMU_IMPORT_EXTENSIONS,
         this.getAllowedBaseDirs(),
       );
+      await assertImportFileSize(fileReader, safePath);
       const { SfdmuImporter } = await import('../../modules/migration/SfdmuImporter.js');
-      const importer = new SfdmuImporter(this.fileReader);
+      const importer = new SfdmuImporter(fileReader);
       const config = await importer.import(safePath);
       const response = buildResponse(this.deps, msg, 'migration:import-sfdmu:response', {
         success: true,

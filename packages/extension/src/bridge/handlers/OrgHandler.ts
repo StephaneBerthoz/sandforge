@@ -1,4 +1,4 @@
-import type { BaseMessage, SalesforceOrg, OrgConnectRequest } from '@sandforge/shared';
+import type { BaseMessage, SalesforceOrg, OrgConnectRequest, UUID } from '@sandforge/shared';
 import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse, sendNotification } from './HandlerTypes.js';
@@ -6,11 +6,12 @@ import {
   validatePayload,
   orgConnectPayloadSchema,
   orgDisconnectPayloadSchema,
+  orgSelectPayloadSchema,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 
 /** Message types handled by OrgHandler. */
-const ORG_TYPES = new Set(['org:list', 'org:connect', 'org:disconnect']);
+const ORG_TYPES = new Set(['org:list', 'org:connect', 'org:disconnect', 'org:select']);
 
 /**
  * Domain handler for org-related webview-to-extension messages.
@@ -40,6 +41,9 @@ export class OrgHandler implements DomainHandler {
         return true;
       case 'org:disconnect':
         await this.handleOrgDisconnect(msg);
+        return true;
+      case 'org:select':
+        this.handleOrgSelect(msg);
         return true;
       default:
         return false;
@@ -301,6 +305,30 @@ export class OrgHandler implements DomainHandler {
     this.deps.log(`[TX] ${statusMsg.type} id=${statusMsg.id}`);
 
     this.syncOrgState();
+  }
+
+  /**
+   * Select the active org from a panel org picker. Replays the same contract
+   * as the sidebar's raw `sidebar:selectOrg` path: the late-injected callback
+   * updates the status bar, and `org:selected` is broadcast so every webview
+   * (sidebar included) syncs its store.
+   */
+  private handleOrgSelect(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(orgSelectPayloadSchema, msg, 'org:error', this.deps);
+    if (!parsed) return;
+    const { orgId } = parsed;
+
+    if (!this.deps.orgManager.getOrg(orgId as UUID)) {
+      sendNotification(this.deps, 'warning', 'Orgs', `Unknown org: ${orgId}`);
+      return;
+    }
+
+    this.deps.onOrgSelected?.(orgId);
+
+    const selectedMsg = buildResponse(this.deps, msg, 'org:selected', { orgId });
+    this.deps.broker.postToWebview(selectedMsg);
+    this.deps.log(`[TX] ${selectedMsg.type} id=${selectedMsg.id}`);
   }
 
   private syncOrgState(): void {

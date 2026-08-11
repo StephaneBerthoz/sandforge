@@ -1699,6 +1699,7 @@
     "abortConfirm": "中止してもよろしいですか？進捗は失われます。",
     "elapsed": "経過時間",
     "discovery": "グラフ検出",
+    "discoveryProgress": "検出中… {{discovered}} オブジェクトをスキャン済み、{{queued}} 件待機中",
     "executeForge": "Forgeを実行",
     "reviewAndExecute": "確認して実行",
     "objects": "オブジェクト",
@@ -1987,6 +1988,7 @@
     "openFull": "フルUIを開く",
     "running": "実行中...",
     "newOrg": "新規組織...",
+    "openInBrowser": "ブラウザーで開く",
     "noOrgHint": "Orgがありません — 下から接続してください",
     "showMetrics": "メトリクスを表示",
     "hideMetrics": "メトリクスを非表示",
@@ -2130,12 +2132,7 @@
     "partitions": "パーティション",
     "totalRecords": "レコード",
     "processed": "処理済み",
-    "failed": "失敗",
-    "pressure": {
-      "normal": "正常",
-      "warning": "警告",
-      "critical": "重大"
-    }
+    "failed": "失敗"
   },
   "errorBoundary": {
     "title": "問題が発生しました",

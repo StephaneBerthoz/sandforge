@@ -5,7 +5,6 @@ import type {
   HealthReport,
   JobInsight,
   OrgInfo,
-  OrgTrendPayload,
   TrendData,
 } from '../monitor.types.js';
 
@@ -37,17 +36,6 @@ export interface MonitorDataMessage extends BaseMessage {
     lastUpdated: string;
   };
 }
-
-/**
- * `monitor:trends:data`. Extension -> WebView.
- *
- * Result channel of `monitor:trends` (org limit trend data over a period).
- */
-export interface MonitorTrendsDataMessage extends BaseMessage {
-  type: 'monitor:trends:data';
-  payload: OrgTrendPayload;
-}
-
 /** Error response for monitor operations (emitted via sendHandlerError). */
 export interface MonitorErrorResponse extends BaseMessage {
   type: 'monitor:error';
@@ -58,12 +46,6 @@ export interface MonitorErrorResponse extends BaseMessage {
 export interface MonitorStartRequest extends BaseMessage {
   type: 'monitor:start';
   payload: { orgId: string };
-}
-
-/** Request to fetch trend data for an org over a given period. */
-export interface MonitorTrendsRequest extends BaseMessage {
-  type: 'monitor:trends';
-  payload: { orgId: string; period?: string };
 }
 
 /** Monitor abort job */

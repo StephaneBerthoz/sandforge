@@ -219,24 +219,23 @@ describe('extension', () => {
     expect(statusBarItem.show.mock.calls.length).toBe(showCallsBefore + 1);
   });
 
-  it('should register the orgs tree data provider', async () => {
+  it('should register the openOrgInBrowser command (and no native orgs tree)', async () => {
     const context = createContext();
 
     activate(context);
 
     const vscode = await import('vscode');
-    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledWith(
-      'sandforge.orgsView',
-      expect.objectContaining({}),
-    );
-    expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
-      'sandforge.orgsView.refresh',
-      expect.any(Function),
-    );
+    // The native Organizations tree is gone — the launcher dropdown is the
+    // only org surface; the browser-open command stays for it.
     expect(vscode.commands.registerCommand).toHaveBeenCalledWith(
       'sandforge.openOrgInBrowser',
       expect.any(Function),
     );
+    expect(vscode.commands.registerCommand).not.toHaveBeenCalledWith(
+      'sandforge.orgsView.refresh',
+      expect.any(Function),
+    );
+    expect(vscode.window.registerTreeDataProvider).not.toHaveBeenCalled();
   });
 
   it('should push disposables to subscriptions', () => {
@@ -246,11 +245,11 @@ describe('extension', () => {
 
     // 16 module commands + 1 cheers + 1 sandforge.ai config-change listener
     // + outputChannel + sidebarRegistration + sidebarProvider
-    // + orgsTreeRegistration + orgsTreeProvider + 2 orgs-tree commands
+    // + openOrgInBrowser command
     // + statusBar + panelManager + backgroundRegistry + orgChange unsub
     // + orgManager + offlineManager + liveOperationTracker + performanceTracker
-    // + cacheManager = 34
-    expect(context.subscriptions.length).toBe(34);
+    // + cacheManager = 31
+    expect(context.subscriptions.length).toBe(31);
   });
 
   it('should deactivate without error', async () => {

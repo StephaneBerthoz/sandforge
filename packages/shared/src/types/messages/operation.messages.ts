@@ -70,12 +70,6 @@ export interface GrappePartitionProgress extends BaseMessage {
   payload: { grappeId: string; percentage: number; processedRecords: number };
 }
 
-/** Back-pressure signal indicating API usage levels */
-export interface GrappeBackPressure extends BaseMessage {
-  type: 'grappe:backPressure';
-  payload: { level: 'normal' | 'warning' | 'critical'; apiPercent: number };
-}
-
 /** Notification that a grappe operation has completed */
 export interface GrappeCompleted extends BaseMessage {
   type: 'grappe:completed';

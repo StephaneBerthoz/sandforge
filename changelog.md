@@ -5,6 +5,27 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.0] - 2026-08-11
+
+**Sixth-audit release: one org list, live discovery progress, and no parked operations.** The duplicate Organizations tree view is gone (the launcher's dropdown is the single org surface, and selection now syncs everywhere), the Forge discovery wizard shows live progress instead of looking frozen, operations queued by a crashed session finally drain at startup, and the AI provider banner receives its status feed.
+
+### Added
+
+- **Live progress during Forge discovery**: the wizard consumes the throttled `forge:discover:progress` channel (objects scanned / queue) instead of looking frozen for 30–90 s on large orgs.
+- **AI provider status is now emitted**: breaker state changes (open/half-open/closed, cooldown end, error kind) reach the webview as `ai:provider:status` — the status banner shipped in 04-02 finally receives its feed.
+
+### Fixed
+
+- **Offline queue drains at startup**: operations queued by a crashed or killed session were parked indefinitely (the drain only fired on a connectivity transition or a new enqueue). If the queue is non-empty and the org is reachable at activation, it drains.
+- **Org selection is unified**: picking an org in the Monitor or OrgManager pages now propagates to the status bar, sidebar and other panels (it was a purely local store write), and the sidebar honors `org:selected` broadcasts.
+- **Migration import hardening**: files above 50 MB are refused instead of risking an extension-host OOM; the imported file is read once (not twice); workspace-path containment no longer rejects valid paths on Windows due to drive-letter case.
+- **`monitor:error` is correlated** to its request — an error can no longer surface in a different Monitor panel open in parallel.
+
+### Changed
+
+- **The native Organizations tree view is removed** — the launcher dropdown (richer: active-org selection, safety tiers) is the single org surface, ending the duplicated list. "Open in browser" moves into the dropdown rows.
+- **Removed the lying `grappe:backPressure` badge** (listener + store field + badge): nothing ever emitted the channel, so it permanently displayed a false "normal". Also removed: the declared-but-never-wired `autopilot:node-completed`/`node-failed` bridge messages and the unreachable `monitor:trends` request path (trend data already rides `monitor:data`).
+
 ## [1.8.4] - 2026-08-11
 
 ### Fixed

@@ -1,4 +1,4 @@
-import type { GrappePartitionStrategy, BackPressureStrategy } from './grappe.types.js';
+import type { GrappePartitionStrategy } from './grappe.types.js';
 
 /** Supported display languages */
 export type DisplayLanguage = 'auto' | 'en' | 'fr' | 'de' | 'es' | 'ja' | 'pt-BR';
@@ -81,10 +81,6 @@ export interface GrappeSettings {
   maxWorkers: number;
   defaultGrappeSize: number;
   defaultStrategy: GrappePartitionStrategy;
-  backPressureEnabled: boolean;
-  backPressureHighWater: number;
-  backPressureLowWater: number;
-  backPressureStrategy: BackPressureStrategy;
   checkpointing: boolean;
 }
 

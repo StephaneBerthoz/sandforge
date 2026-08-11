@@ -1706,6 +1706,7 @@
     "abortConfirm": "¿Está seguro de que desea cancelar? Se perderá el progreso.",
     "elapsed": "Transcurrido",
     "discovery": "Descubrimiento de grafo",
+    "discoveryProgress": "Descubriendo… {{discovered}} objetos analizados, {{queued}} en cola",
     "executeForge": "Ejecutar Forge",
     "reviewAndExecute": "Revisar y ejecutar",
     "objects": "Objetos",
@@ -1994,6 +1995,7 @@
     "openFull": "Abrir UI completa",
     "running": "Ejecutando...",
     "newOrg": "Nueva organización...",
+    "openInBrowser": "Abrir en el navegador",
     "noOrgHint": "Aún sin org — conecte una abajo",
     "showMetrics": "Mostrar métricas",
     "hideMetrics": "Ocultar métricas",
@@ -2137,12 +2139,7 @@
     "partitions": "Particiones",
     "totalRecords": "Registros",
     "processed": "procesados",
-    "failed": "fallidos",
-    "pressure": {
-      "normal": "Normal",
-      "warning": "Advertencia",
-      "critical": "Crítico"
-    }
+    "failed": "fallidos"
   },
   "errorBoundary": {
     "title": "Algo salió mal",

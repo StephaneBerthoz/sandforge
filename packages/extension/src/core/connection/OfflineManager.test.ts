@@ -421,6 +421,69 @@ describe('OfflineManager', () => {
       expect(executor).toHaveBeenCalledTimes(2);
       expect(manager.getQueueSize()).toBe(0);
     });
+
+    it('should drain a persisted queue once the executor is wired at boot', async () => {
+      // Simulate a crashed session: the store already holds a parked operation
+      // before the manager is constructed (status starts 'online').
+      store.set(
+        'offline:queue',
+        [
+          {
+            id: 'op-stale',
+            type: 'sync',
+            orgId: 'org-1',
+            payload: {},
+            queuedAt: new Date().toISOString(),
+            retryCount: 0,
+          },
+        ],
+        'offline-queue',
+      );
+      const booted = new OfflineManager(store);
+      const executor: OperationExecutor = vi.fn().mockResolvedValue(undefined);
+
+      booted.setOperationExecutor(executor);
+
+      // Debounced — not drained synchronously
+      expect(executor).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(executor).toHaveBeenCalledTimes(1);
+      expect(booted.getQueueSize()).toBe(0);
+      booted.dispose();
+    });
+
+    it('should not schedule a boot drain when the persisted queue is empty', async () => {
+      const booted = new OfflineManager(store);
+      const executor: OperationExecutor = vi.fn().mockResolvedValue(undefined);
+
+      booted.setOperationExecutor(executor);
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(executor).not.toHaveBeenCalled();
+      expect(booted.isDraining()).toBe(false);
+      booted.dispose();
+    });
+
+    it('should release the draining flag when the progress callback throws', async () => {
+      const executor: OperationExecutor = vi.fn().mockResolvedValue(undefined);
+      manager.setOperationExecutor(executor);
+      manager.enqueue(createOperation('op-1'));
+
+      await expect(
+        manager.drainQueue(() => {
+          throw new Error('progress boom');
+        }),
+      ).rejects.toThrow('progress boom');
+
+      // The flag is released, so a later drain still runs.
+      expect(manager.isDraining()).toBe(false);
+
+      manager.enqueue(createOperation('op-2'));
+      const result = await manager.drainQueue();
+      expect(result.executed).toBe(1);
+    });
   });
 
   describe('events', () => {
