@@ -167,8 +167,13 @@ describe('ConnectionHelper', () => {
         .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
         .mockResolvedValueOnce({ user_id: 'u1' });
 
+      const displayJson = JSON.stringify({
+        result: { instanceUrl: 'https://test.my.salesforce.com' },
+      });
       const refreshJson = JSON.stringify({ result: { accessToken: 'new-token-456' } });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
 
@@ -188,7 +193,9 @@ describe('ConnectionHelper', () => {
       const orgRegistry = createMockOrgRegistry(creds);
 
       mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
-      mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
+      // Every CLI read fails: display (tolerated), show-access-token (falls
+      // through), legacy display (propagates as the recovery cause).
+      mockCliInvoker.mockRejectedValue(new Error('sf not found') as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         /Authentication expired for org "test-org".*sf org login web --alias test-org/,
@@ -217,8 +224,15 @@ describe('ConnectionHelper', () => {
 
       mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
 
-      const refreshJson = JSON.stringify({ result: { accessToken: 'new-token' } });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      const displayJson = JSON.stringify({
+        result: { instanceUrl: 'https://test.my.salesforce.com' },
+      });
+      const tokenJson = JSON.stringify({ result: { accessToken: 'new-token' } });
+      // Refresh now performs TWO CLI reads: display for the current URL, then
+      // show-access-token for the live token.
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockResolvedValueOnce({ stdout: tokenJson, stderr: '' } as never);
 
       await getJsforceConnection('org-1', orgRegistry, orgManager);
 
@@ -228,11 +242,20 @@ describe('ConnectionHelper', () => {
           expect.stringContaining('sf org display -u "admin@test.com" --json'),
           expect.objectContaining({ maxBuffer: expect.any(Number) }),
         );
+        expect(mockExec).toHaveBeenCalledWith(
+          expect.stringContaining('sf org auth show-access-token -o "admin@test.com" --json'),
+          expect.objectContaining({ maxBuffer: expect.any(Number) }),
+        );
       } else {
         // POSIX: argv-as-array execFile — no shell, no interpolation (RT-#8 hardening)
         expect(mockExecFile).toHaveBeenCalledWith(
           'sf',
           ['org', 'display', '-u', 'admin@test.com', '--json'],
+          expect.objectContaining({ maxBuffer: expect.any(Number) }),
+        );
+        expect(mockExecFile).toHaveBeenCalledWith(
+          'sf',
+          ['org', 'auth', 'show-access-token', '-o', 'admin@test.com', '--json'],
           expect.objectContaining({ maxBuffer: expect.any(Number) }),
         );
       }
@@ -265,14 +288,20 @@ describe('ConnectionHelper', () => {
       });
       mockIdentity.mockRejectedValueOnce(unauthorized).mockResolvedValueOnce({ user_id: 'u1' });
 
+      const displayJson = JSON.stringify({
+        result: { instanceUrl: 'https://test.my.salesforce.com' },
+      });
       const refreshJson = JSON.stringify({ result: { accessToken: 'new-token-789' } });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
 
       expect(conn).toBeDefined();
-      // Exactly one refresh attempt and exactly one retry of the validation call.
-      expect(mockCliInvoker).toHaveBeenCalledTimes(1);
+      // One refresh attempt = two CLI reads (URL via display, live token via
+      // show-access-token), and exactly one retry of the validation call.
+      expect(mockCliInvoker).toHaveBeenCalledTimes(2);
       expect(mockIdentity).toHaveBeenCalledTimes(2);
       // Refreshed token persisted back to the vault.
       expect(orgRegistry.saveOrg).toHaveBeenCalledWith(
@@ -290,12 +319,14 @@ describe('ConnectionHelper', () => {
       mockIdentity.mockRejectedValueOnce(
         Object.assign(new Error('Unauthorized'), { statusCode: 401 }),
       );
-      mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
+      // Every CLI read fails (display tolerated, show-access-token fails,
+      // legacy display fails).
+      mockCliInvoker.mockRejectedValue(new Error('sf not found') as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         /Authentication expired for org "test-org".*sf org login web --alias test-org/,
       );
-      expect(mockCliInvoker).toHaveBeenCalledTimes(1);
+      expect(mockCliInvoker).toHaveBeenCalled();
     });
 
     it('should throw an actionable error when the refreshed token is still rejected', async () => {
@@ -308,13 +339,18 @@ describe('ConnectionHelper', () => {
       mockIdentity
         .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
         .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+      const displayJson = JSON.stringify({
+        result: { instanceUrl: 'https://test.my.salesforce.com' },
+      });
       const refreshJson = JSON.stringify({ result: { accessToken: 'still-bad-token' } });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         /Authentication expired for org "test-org".*sf org login web --alias test-org/,
       );
-      expect(mockCliInvoker).toHaveBeenCalledTimes(1);
+      expect(mockCliInvoker).toHaveBeenCalledTimes(2);
       expect(mockIdentity).toHaveBeenCalledTimes(2);
     });
 
@@ -345,8 +381,13 @@ describe('ConnectionHelper', () => {
       // CLI store holds the SAME expired token (no usable refresh token) —
       // retrying with it would fail identically and persisting it would
       // overwrite the vault with a known-bad token.
+      const displayJson = JSON.stringify({
+        result: { instanceUrl: 'https://test.my.salesforce.com' },
+      });
       const refreshJson = JSON.stringify({ result: { accessToken: 'token-123' } });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         /sf CLI token store is stale too/,
@@ -365,8 +406,13 @@ describe('ConnectionHelper', () => {
       mockIdentity
         .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
         .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'));
+      const displayJson = JSON.stringify({
+        result: { instanceUrl: 'https://test.my.salesforce.com' },
+      });
       const refreshJson = JSON.stringify({ result: { accessToken: 'still-bad-token' } });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
 
       await expect(getJsforceConnection('org-1', orgRegistry, orgManager)).rejects.toThrow(
         /Authentication expired for org "test-org"/,
@@ -384,14 +430,15 @@ describe('ConnectionHelper', () => {
       mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID')).mockResolvedValueOnce({
         user_id: 'u1',
       });
-      // CLI reports the org on a NEW instance with a fresh token.
-      const refreshJson = JSON.stringify({
-        result: {
-          accessToken: 'fresh-token',
-          instanceUrl: 'https://new--refreshed.sandbox.my.salesforce.com',
-        },
+      // CLI reports the org on a NEW instance (display) with a fresh token
+      // (show-access-token).
+      const displayJson = JSON.stringify({
+        result: { instanceUrl: 'https://new--refreshed.sandbox.my.salesforce.com' },
       });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      const tokenJson = JSON.stringify({ result: { accessToken: 'fresh-token' } });
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockResolvedValueOnce({ stdout: tokenJson, stderr: '' } as never);
 
       const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
 
@@ -418,13 +465,13 @@ describe('ConnectionHelper', () => {
       });
       // …but the CLI says the org now lives elsewhere — the same token is
       // valid on the new instance. Must NOT be mistaken for a stale CLI store.
-      const refreshJson = JSON.stringify({
-        result: {
-          accessToken: 'token-123',
-          instanceUrl: 'https://newdomain.my.salesforce.com',
-        },
+      const displayJson = JSON.stringify({
+        result: { instanceUrl: 'https://newdomain.my.salesforce.com' },
       });
-      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+      const tokenJson = JSON.stringify({ result: { accessToken: 'token-123' } });
+      mockCliInvoker
+        .mockResolvedValueOnce({ stdout: displayJson, stderr: '' } as never)
+        .mockResolvedValueOnce({ stdout: tokenJson, stderr: '' } as never);
 
       const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
 
@@ -520,10 +567,16 @@ describe('ConnectionHelper', () => {
         mockIdentity
           .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
           .mockResolvedValueOnce({ user_id: 'u1' });
-        mockCliInvoker.mockResolvedValueOnce({
-          stdout: JSON.stringify({ result: { accessToken: `refreshed-token-${i}` } }),
-          stderr: '',
-        } as never);
+        // Two CLI reads per refresh: display (URL) then show-access-token.
+        mockCliInvoker
+          .mockResolvedValueOnce({
+            stdout: JSON.stringify({ result: { instanceUrl: 'https://test.my.salesforce.com' } }),
+            stderr: '',
+          } as never)
+          .mockResolvedValueOnce({
+            stdout: JSON.stringify({ result: { accessToken: `refreshed-token-${i}` } }),
+            stderr: '',
+          } as never);
 
         const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
         expect(conn).toBeDefined();

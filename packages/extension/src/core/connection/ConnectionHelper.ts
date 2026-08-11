@@ -60,11 +60,22 @@ interface CliCredentials {
 }
 
 /**
- * Refresh credentials by querying the SF CLI for the latest org display info.
- * Returns the current accessToken AND the CLI's current instanceUrl — after a
- * sandbox refresh or a My Domain change the stored URL points at the wrong
- * instance, and even a fresh token is rejected there (INVALID_AUTH_HEADER).
- * Throws when the CLI has no usable session.
+ * Refresh credentials via the SF CLI.
+ *
+ * Token source: `sf org auth show-access-token` — the ONLY CLI command that
+ * guarantees a live token (it refreshes through the stored OAuth session when
+ * the cached one is expired). `sf org display` merely dumps the stored
+ * accessToken as-is: proven on a live org (2026-08, CLI 2.146) that a
+ * "Connected" org's display token can be rejected with HTTP 403 while
+ * show-access-token's token is accepted — that difference is what Org
+ * Browser gets right and this extension previously got wrong.
+ *
+ * URL source: `sf org display` (its instanceUrl is the org's CURRENT
+ * instance — after a sandbox refresh or My Domain change the stored URL
+ * points at the wrong instance and even a fresh token is rejected there).
+ *
+ * Falls back to the legacy display-token behavior on CLIs too old to have
+ * `org auth show-access-token`. Throws when no usable session exists.
  */
 async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
   // Validate username (defense in depth — argv-as-array on POSIX makes
@@ -81,37 +92,81 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
     env: { ...process.env, NO_COLOR: '1' },
   } as const;
 
-  // POSIX: pass argv as array to execFile — no shell, no interpolation, the
-  // username could contain anything safely. Audit RT-#8 hardening.
+  // POSIX: argv-as-array via execFile — no shell, no interpolation (RT-#8).
   // Windows: `sf` resolves to `sf.cmd` which requires shell-based PATHEXT
-  // resolution, so keep exec there. The regex on `username` above is the
-  // shell-injection defense for that branch (allowed chars: word, dot, @,
-  // plus, dash — all shell-safe inside double quotes).
-  const { stdout } =
+  // resolution, so keep exec there; the regex above is the injection defense.
+  const run = (argsDisplay: string, argsArray: string[]): Promise<{ stdout: string }> =>
     process.platform === 'win32'
-      ? await promisify(exec)(`sf org display -u "${username}" --json`, opts)
-      : await promisify(execFile)('sf', ['org', 'display', '-u', username, '--json'], opts);
+      ? (promisify(exec)(argsDisplay, opts) as Promise<{ stdout: string }>)
+      : (promisify(execFile)('sf', argsArray, opts) as Promise<{ stdout: string }>);
 
-  // eslint-disable-next-line no-control-regex -- Intentional ANSI escape code stripping
-  const stripped = stdout.replace(/\u001b\[[0-9;]*m/g, '');
-  const start = stripped.search(/[{[]/);
-  if (start === -1) {
-    throw new Error(
-      'Failed to parse "sf org display" output: no JSON found. Ensure Salesforce CLI (sf) is installed and the org is authenticated.',
-    );
-  }
-
-  const parsed = JSON.parse(stripped.slice(start)) as {
-    result?: { accessToken?: string; instanceUrl?: string };
+  const parseResult = (stdout: string, cmdLabel: string): Record<string, unknown> => {
+    // eslint-disable-next-line no-control-regex -- Intentional ANSI escape stripping
+    const stripped = stdout.replace(/\[[0-9;]*m/g, '');
+    const start = stripped.search(/[{[]/);
+    if (start === -1) {
+      throw new Error(
+        `Failed to parse "${cmdLabel}" output: no JSON found. Ensure Salesforce CLI (sf) is installed and the org is authenticated.`,
+      );
+    }
+    const parsed = JSON.parse(stripped.slice(start)) as { result?: Record<string, unknown> };
+    return parsed.result ?? {};
   };
 
-  if (!parsed.result?.accessToken) {
+  // The org's current instance URL (local store read — token field ignored).
+  let instanceUrl: string | undefined;
+  try {
+    const { stdout } = await run(`sf org display -u "${username}" --json`, [
+      'org',
+      'display',
+      '-u',
+      username,
+      '--json',
+    ]);
+    const result = parseResult(stdout, 'sf org display');
+    instanceUrl = typeof result.instanceUrl === 'string' ? result.instanceUrl : undefined;
+  } catch {
+    // Non-fatal: the stored URL stays as fallback.
+    instanceUrl = undefined;
+  }
+
+  // The live token. Preferred: show-access-token (refreshing). Legacy
+  // fallback for old CLIs: display's stored token (may be stale — the
+  // identity() revalidation in the caller is the safety net either way).
+  try {
+    const { stdout } = await run(`sf org auth show-access-token -o "${username}" --json`, [
+      'org',
+      'auth',
+      'show-access-token',
+      '-o',
+      username,
+      '--json',
+    ]);
+    const result = parseResult(stdout, 'sf org auth show-access-token');
+    if (typeof result.accessToken === 'string' && result.accessToken) {
+      return { accessToken: result.accessToken, instanceUrl };
+    }
+  } catch {
+    // Older CLI without `org auth show-access-token` — fall through to legacy.
+  }
+
+  const { stdout } = await run(`sf org display -u "${username}" --json`, [
+    'org',
+    'display',
+    '-u',
+    username,
+    '--json',
+  ]);
+  const legacy = parseResult(stdout, 'sf org display');
+  if (typeof legacy.accessToken !== 'string' || !legacy.accessToken) {
     throw new Error(
       'No accessToken returned by "sf org display". The org session may have expired — try re-authenticating with "sf org login".',
     );
   }
-
-  return { accessToken: parsed.result.accessToken, instanceUrl: parsed.result.instanceUrl };
+  if (!instanceUrl && typeof legacy.instanceUrl === 'string') {
+    instanceUrl = legacy.instanceUrl;
+  }
+  return { accessToken: legacy.accessToken, instanceUrl };
 }
 
 /**

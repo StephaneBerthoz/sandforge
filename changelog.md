@@ -5,6 +5,12 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.4] - 2026-08-11
+
+### Fixed
+
+- **The auth self-heal finally pulls a LIVE token**: it now reads `sf org auth show-access-token` — the only CLI command that refreshes the OAuth session before answering. It used `sf org display` before, which dumps the stored accessToken as-is; on a "Connected" org that token can be flat-out rejected (proven live: HTTP 403 for display's token, HTTP 200 for show-access-token's, same org, same minute). This is the difference extensions like Org Browser get right. The current instance URL still comes from `sf org display`, everything is validated by a real API call before touching the vault, and older CLIs without `show-access-token` fall back to the previous behavior.
+
 ## [1.8.3] - 2026-08-11
 
 ### Removed
