@@ -4,7 +4,16 @@ import { WelcomePage } from './WelcomePage';
 
 const mockChangeLanguage = vi.fn();
 
+/* WelcomePage applies language changes through the lazy bridge loader. */
+const mockChangeLanguageLazy = vi.fn();
+vi.mock('../../i18n', () => ({
+  changeLanguageLazy: (lng: string) => mockChangeLanguageLazy(lng),
+  i18nReady: Promise.resolve(),
+}));
+
 vi.mock('react-i18next', () => ({
+  // The real i18n module calls i18n.use(initReactI18next) at import time.
+  initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
     t: (key: string, fallback?: string) => fallback ?? key,
     i18n: { changeLanguage: mockChangeLanguage, language: 'en' },
@@ -47,6 +56,7 @@ describe('WelcomePage', () => {
     onComplete = vi.fn();
     mockNavigate.mockClear();
     mockChangeLanguage.mockClear();
+    mockChangeLanguageLazy.mockClear();
     mockPersistedState.reset();
   });
 
@@ -98,13 +108,13 @@ describe('WelcomePage', () => {
   it('should change language when language button is clicked', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('lang-fr'));
-    expect(mockChangeLanguage).toHaveBeenCalledWith('fr');
+    expect(mockChangeLanguageLazy).toHaveBeenCalledWith('fr');
   });
 
   it('should change language to a non-European language when its button is clicked', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('lang-ja'));
-    expect(mockChangeLanguage).toHaveBeenCalledWith('ja');
+    expect(mockChangeLanguageLazy).toHaveBeenCalledWith('ja');
   });
 
   it('should navigate from Bienvenue to step 1 when Next is clicked', () => {

@@ -17,6 +17,7 @@ export class WebviewStateSync {
     settings: {},
     activeOperations: [],
     extensionReady: false,
+    selectedOrgId: null,
   };
 
   private idCounter = 0;
@@ -75,6 +76,7 @@ export class WebviewStateSync {
       settings: {},
       activeOperations: [],
       extensionReady: false,
+      selectedOrgId: null,
     };
   }
 }

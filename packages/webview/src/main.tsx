@@ -5,6 +5,7 @@ import { SidePanel } from './SidePanel';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { MotionProvider } from './motion/MotionProvider';
 import { getHarnessFlow } from './pages/E2EHarness/harnessFlow';
+import { i18nReady } from './i18n';
 import './index.css';
 import './styles/glass.css';
 
@@ -55,22 +56,27 @@ const NoModuleFallback: React.FC = () => {
 const root = document.getElementById('root');
 if (root) {
   const moduleId = window.__SANDFORGE_MODULE__;
-  ReactDOM.createRoot(root).render(
-    <React.StrictMode>
-      {moduleId === 'sidepanel' ? (
-        // SidePanel has no BridgeProvider ancestor of its own — give it the
-        // same crash-recovery boundary the other roots get from PanelApp, and
-        // the same motion context (LazyMotion features + reducedMotion="user").
-        <ErrorBoundary>
-          <MotionProvider>
-            <SidePanel />
-          </MotionProvider>
-        </ErrorBoundary>
-      ) : moduleId ? (
-        <PanelApp moduleId={moduleId} />
-      ) : (
-        <NoModuleFallback />
-      )}
-    </React.StrictMode>,
-  );
+  // Anti-flash gate: hold the first render until the persisted language's
+  // bundle has crossed the bridge (or the gate timeout fell back to English),
+  // so a restored non-English UI never paints English first.
+  void i18nReady.then(() => {
+    ReactDOM.createRoot(root).render(
+      <React.StrictMode>
+        {moduleId === 'sidepanel' ? (
+          // SidePanel has no BridgeProvider ancestor of its own — give it the
+          // same crash-recovery boundary the other roots get from PanelApp, and
+          // the same motion context (LazyMotion features + reducedMotion="user").
+          <ErrorBoundary>
+            <MotionProvider>
+              <SidePanel />
+            </MotionProvider>
+          </ErrorBoundary>
+        ) : moduleId ? (
+          <PanelApp moduleId={moduleId} />
+        ) : (
+          <NoModuleFallback />
+        )}
+      </React.StrictMode>,
+    );
+  });
 }

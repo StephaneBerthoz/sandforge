@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores/useAppStore';
 import type { SupportedLanguage } from '../../i18n';
+import { changeLanguageLazy } from '../../i18n';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
@@ -131,12 +132,11 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
     navigate('settings');
   }, [dontShowAgain, onComplete, navigate]);
 
-  const handleLanguageChange = useCallback(
-    (code: SupportedLanguage): void => {
-      void i18n.changeLanguage(code);
-    },
-    [i18n],
-  );
+  const handleLanguageChange = useCallback((code: SupportedLanguage): void => {
+    // Loads the locale bundle over the bridge first when it is not loaded
+    // yet; the i18n module persists the choice on every applied change.
+    void changeLanguageLazy(code);
+  }, []);
 
   /** Open a use-case path module and close the wizard. */
   const handleOpenPath = useCallback(

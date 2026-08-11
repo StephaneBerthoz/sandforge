@@ -161,6 +161,9 @@ export function activate(context: vscode.ExtensionContext): void {
     services,
     // Plan 01-04-11: workbench:reload handler needs the commands API.
     executeCommand: (cmd, ...args) => vscode.commands.executeCommand(cmd, ...args),
+    // Lazy i18n loading: packaged webview locale JSONs (copied from the
+    // webview build output) served by the I18nHandler.
+    localesDir: vscode.Uri.joinPath(context.extensionUri, 'webview-dist', 'locales').fsPath,
   });
   applyLateServices(handlers, {
     onboardingService,
@@ -235,6 +238,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const selectOrg = (orgId: string): void => {
     selectedOrgId = orgId;
     refreshStatusBar();
+    // Keep the shared state snapshot in sync so panels opened LATER hydrate
+    // with the current selection instead of falling back to the first org.
+    stateSync.updateState({ selectedOrgId: orgId });
     // Broadcast is intended: every PanelApp is an isolated webview document
     // with its own zustand store — without it, other panels keep the old org.
     panelManager.postToAllPanels({
@@ -261,6 +267,8 @@ export function activate(context: vscode.ExtensionContext): void {
     broker,
     // Lets the sidebar sync its UI language on mount (sidebar:requestSettings).
     () => configStore.getByCategory('settings'),
+    // Lets a re-resolved sidebar restore the current selection.
+    () => selectedOrgId,
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,

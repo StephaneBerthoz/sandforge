@@ -108,14 +108,14 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
   return (
     <div data-testid="governance-panel" className="flex flex-col gap-3">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Shield className="w-5 h-5 text-text-primary" />
-          <h2 className="text-sm font-semibold text-text-primary">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Shield className="w-5 h-5 text-text-primary shrink-0" />
+          <h2 className="text-sm font-semibold text-text-primary truncate">
             {t('governance.title', 'Org Governance')}
           </h2>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {onAddPolicy && (
             <Button
               variant="secondary"

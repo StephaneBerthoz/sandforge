@@ -194,6 +194,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
         <div
           style={{
             display: 'flex',
+            flexWrap: 'wrap',
             gap: 'var(--sf-space-1)',
             marginBottom: 'var(--sf-space-3)',
           }}

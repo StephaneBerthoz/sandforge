@@ -5,9 +5,37 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2026-08-11
+
+### Features
+
+- Webview languages now lazy-load: only English ships inside the JS bundle, the 5 other locales load on demand through the bridge when picked (~440 KB off every webview).
+
+### Fixed
+
+- Org selection is kept everywhere: a Monitor or panel opened after picking an org in the sidebar/status bar now shows that org instead of falling back to the first one in the list.
+- Monitor health-score card no longer overflows narrow panels — the summary and top-risk rows were clipped on the left and cut on the right below ~400 px; they now wrap/ellipsize inside the card.
+- Monitor header keeps the org alias readable: the action buttons wrap to their own row instead of crushing the alias.
+- Governance panel header and Jobs filter buttons wrap on narrow panels instead of overflowing.
+
 ## [1.9.0] - 2026-08-11
 
-**Sixth-audit release: one org list, live discovery progress, no parked operations.** The duplicated Organizations tree view is gone — the launcher dropdown is the single org surface (with per-row "open in browser"), and picking an org in any page now syncs to the status bar, sidebar and every panel. The Forge discovery wizard shows live progress instead of looking frozen on large orgs. Operations queued by a crashed session drain at startup instead of parking forever. The AI provider banner finally receives its breaker status feed. Fixed: Migration imports refuse >50 MB files (OOM guard) and stop double-reading; monitor errors are correlated to their panel. Removed the always-fake "back pressure: normal" badge and two dead bridge message families. Full entry in the root changelog.
+### Features
+
+- Forge discovery wizard shows live progress (objects scanned / queue) instead of looking frozen for 30–90 s on large orgs.
+- AI provider status is now emitted to the webview (`ai:provider:status`: breaker open/half-open/closed, cooldown end, error kind).
+
+### Fixed
+
+- Offline queue drains at startup: operations queued by a crashed session were parked indefinitely; they now drain when the org is reachable at activation.
+- Org selection is unified: picking an org in Monitor or OrgManager propagates to the status bar, sidebar and other panels.
+- Migration imports refuse files above 50 MB (OOM guard), read the file once instead of twice, and no longer reject valid Windows paths on drive-letter case.
+- `monitor:error` is correlated to its request — an error can no longer surface in a different Monitor panel open in parallel.
+
+### Changed
+
+- The native Organizations tree view is removed: the launcher dropdown (active-org selection, safety tiers, per-row "open in browser") is the single org surface.
+- Removed the `grappe:backPressure` badge (nothing ever emitted the channel), the never-wired `autopilot:node-completed`/`node-failed` bridge messages, and the unreachable `monitor:trends` request path.
 
 ## [1.8.4] - 2026-08-11
 

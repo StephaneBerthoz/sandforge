@@ -1,5 +1,7 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { waitFor } from '@testing-library/react';
+
+import { stubLocaleBridge } from './testing/mockLocaleBridge';
 
 /**
  * Hoisted mutable webview state + VS Code API mock. The i18n module is
@@ -26,6 +28,15 @@ vi.mock('../hooks/useVSCodeApi', () => ({
 }));
 
 import i18n, { importLanguageFromSettings, syncLanguageFromSettings } from './index';
+
+/**
+ * Adoption/sync calls go through the lazy bridge (changeLanguageLazy): the
+ * stub answers `i18n:locale` requests with the real bundles, so the flows
+ * below behave exactly as in a webview host.
+ */
+beforeEach(() => {
+  stubLocaleBridge(vscodeApiMock.postMessage);
+});
 
 /**
  * Simulate a brand-new webview document: the per-document state is empty

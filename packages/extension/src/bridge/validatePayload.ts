@@ -680,6 +680,17 @@ export const pluginsUnloadPayloadSchema = z.object({
   pluginName: z.string().min(1).max(200),
 });
 
+// ── i18n:* payload schemas ────────────────────────────────────────────────
+
+/**
+ * Locale bundle request (lazy i18n loading). The enum is the strict locale
+ * whitelist — the handler joins `<lng>.json` onto the packaged locales
+ * directory, so arbitrary/path-traversal codes must never parse.
+ */
+export const i18nLocalePayloadSchema = z.object({
+  lng: z.enum(['en', 'fr', 'de', 'es', 'ja', 'pt-BR']),
+});
+
 // ── smart-action:* payload schemas ──────────────────────────────────────────
 // Mirror what useSmartAction posts.
 

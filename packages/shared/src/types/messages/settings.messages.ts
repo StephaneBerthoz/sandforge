@@ -24,6 +24,26 @@ export interface SettingsResponse extends BaseMessage {
   payload: { settings: Record<string, unknown> };
 }
 
+/**
+ * Lazy locale loading (WebView → Extension). The webview bundles only English
+ * statically; every other locale JSON is packaged with the extension and
+ * crosses the bridge on demand (the webview CSP forbids fetch/dynamic import).
+ */
+export interface I18nLocaleRequest extends BaseMessage {
+  type: 'i18n:locale';
+  payload: { lng: string };
+}
+
+/**
+ * Response carrying the requested locale bundle (Extension → WebView).
+ * `bundle` is the parsed locale JSON (nested key/value object); on failure
+ * `error` is set instead and the webview keeps its current language.
+ */
+export interface I18nLocaleResponse extends BaseMessage {
+  type: 'i18n:locale:response';
+  payload: { lng: string; bundle?: Record<string, unknown>; error?: string };
+}
+
 /** Notification message */
 export interface NotificationMessage extends BaseMessage {
   type: 'notification';
@@ -193,6 +213,8 @@ export interface WebviewState {
   settings: Record<string, unknown>;
   activeOperations: ActiveOperation[];
   extensionReady: boolean;
+  /** Currently selected org (extension-side source of truth); null = none. */
+  selectedOrgId?: string | null;
 }
 
 /** Message shape for state synchronization pushes (`state:sync`). */
