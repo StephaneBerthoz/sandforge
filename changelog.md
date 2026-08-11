@@ -5,132 +5,105 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-08-11
+
+A one-fix patch for a maddening symptom: org lists showing the same org two or three times — and those ghost copies quietly keeping the "Authentication expired" loop alive.
+
+**What was happening.** Early builds persisted orgs under a different storage-key scheme. Those ghost entries (same Salesforce org, older key) never got cleaned up: they showed up as duplicates in every org list, and because their credentials were stale or missing, operations targeting them kept failing authentication even after the real entry had been refreshed.
+
+**The fix.** Startup now dedupes registered orgs by their Salesforce org id (the stable `00D…` identity) rather than by storage key. The canonical entry wins; ghosts are pruned from both the config store and the secret vault, with one log line per pruning. No action needed — it self-heals on the next launch.
+
 ## [1.8.0] - 2026-08-11
 
-**Fifth-audit release: the live shell gets everything, the dead one leaves the bundle.** Every overlay, trigger and report channel now works from the real panel shell, the unreachable `App` shell and its layouts are gone from the bundle, and the bridge type union finally covers what the extension actually emits — enforced by a new emit-side anti-drift gate.
+The fifth audit pass closed the gap between "wired" and "actually reachable in production". Crash reports were posted in a format the broker had rejected for two releases; the easter-egg command answered into the void; the welcome wizard popped in every open panel instead of the one you clicked; the Forge execution page never displayed its live progress events. Meanwhile the bundle kept shipping an entire dead UI shell, and the typed bridge contract covered barely two-thirds of the channels the extension really emits. All of it is fixed — and locked by new gates so none of it drifts back.
 
-### Fixed
+### Highlights
 
-- **Webview crash reports were silently dropped**: the ErrorBoundary posted `error:boundary` as a raw, unenveloped message — the broker has dropped those since 1.5.0. It now goes through the shared enveloped sender, the message is part of the typed bridge union (with its Zod schema, anti-drift tested), and the extension logs the crash to the output channel.
-- **The `sandforge.cheers` easter egg did nothing in production**: its only listener lived in the dead `App` shell. All three triggers (Konami code, command message, 7 clicks on the logo) and the mojito overlay are now mounted by the real panel shell.
-- **Welcome / What's New no longer pop in every open panel**: `postToActivePanel` turned out to broadcast to all panels; it is renamed `postToAllPanels` (honest contract — `org:selected` genuinely needs the broadcast) and onboarding/whats-new are now posted to the triggering panel only. The one-shot readiness listener is also released when the panel closes before its first message.
-- **Forge execution showed no live progress**: the extension wraps `forge:progress` events in the standard response envelope, but the execution page read `objectName`/`status`/`progress` at the message root — every event was dropped as undefined. The listener now unwraps `payload` (drift caught by the new emit-side anti-drift work, same class as the `ai:status` bug).
+- **Crash reports arrive.** A render crash in a panel now reaches the extension's output channel — the ErrorBoundary used to post its report unenveloped, which the broker silently dropped since 1.5.0. The `error:boundary` message is typed, schema'd, and logged.
+- **The Forge execution page shows live progress again.** Progress events are wrapped in the standard envelope, but the page read their fields at the message root — every event evaporated. Same drift class as the `ai:status` bug from 1.4.0; this time the new anti-drift gate (below) is what surfaced it.
+- **Welcome and What's New stay in their panel.** The unfortunately-named `postToActivePanel` broadcast to every panel; it's now honestly named `postToAllPanels`, and onboarding messages target only the panel you opened.
+- **The easter egg works.** `sandforge.cheers` (plus the Konami code and the 7-click logo trick) finally displays its mojito overlay in real panels.
 
-### Changed
+### Also in this release
 
-- **Dead `App` shell removed from the bundle**: `App.tsx`, `router.tsx`, the whole `layouts/` tree (AppShell, Sidebar, TopBar, StatusFooter, NotificationCenter) and the orphaned `AboutDialog` — 18 files, all unreachable in production — are deleted. The e2e harness short-circuit moved into `main.tsx`, whose no-module fallback now renders the Home page through the same PanelApp provider stack. Bundle: −27.6 KB (gzip −6.2 KB).
-- **Bridge union covers reality**: the ~70 extension→webview channels that were actually emitted but undeclared in `@sandforge/shared` (error channels, `*:response` families, monitor/forge events…) are now typed with their Zod members, and a new structural test scans the extension's emit sites so an undeclared channel fails CI.
-- **Formatter convergence, step 2**: the webview's `utils/formatters.ts` re-exports the six canonical implementations from `@sandforge/shared`; the three divergent inline `formatDuration` helpers (Scheduler, Sync History, Audit Trail) are replaced by the canonical one.
-- **LazyMotion migration completed**: all 22 remaining `motion.*` imports converted to `m.*` — the `LazyMotion` feature split is now real, and framer-motion's full `domMax` set no longer leaks into the production bundle.
+- The dead `App` shell — `App.tsx`, the router, the whole `layouts/` tree, an orphaned About dialog — is deleted: 18 files out of the bundle (−27.6 KB, −6.2 KB gzipped). The e2e harness moved into `main.tsx`, whose module-less fallback now renders the Home page through the same provider stack as real panels.
+- The bridge type union now declares the 71 extension→webview channels that were emitted but undeclared (error channels, response families, monitor/forge events) — and a new structural test scans the extension's emit sites, so the next undeclared channel fails CI instead of silently drifting.
+- The webview formatters now re-export the six canonical implementations from `@sandforge/shared`; three divergent inline `formatDuration` copies (each with different output!) are gone.
+- The LazyMotion migration is complete: every `motion.*` import is now `m.*`, so framer-motion's full feature set no longer leaks into the production bundle.
 
 ## [1.7.0] - 2026-08-11
 
-**Auth reliability + toolchain modernization release.** Registered orgs are now validated at every launch — expired sessions refresh themselves via the sf CLI before your first operation hits an auth wall — and the token self-heal no longer persists unvalidated CLI tokens. Under the hood: ESLint 9 flat config with typed linting, vitest 3, Stryker 9.
+Two themes: your orgs stop surprising you with expired sessions, and the toolchain jumps two years forward. Registered orgs are now validated at every launch in the background — an expired token refreshes itself through the sf CLI before your first operation ever hits it. And the token self-heal got stricter about what it writes back to your vault.
 
-### Added
+### Highlights
 
-- **Proactive org validation at startup** (`sandforge.orgs.validateOnStartup`, default `true`): at every launch, each registered org is validated in the background — expired tokens are refreshed through the sf CLI and persisted, and the per-org status (`refreshing` → `connected` / `expired` / `error`) flows live to the sidebar tree and org pickers. Auth failures surface as an actionable "expired" state before you run anything, not mid-operation.
+- **Startup org validation** (new `sandforge.orgs.validateOnStartup` setting, on by default). At every launch, each registered org is checked in the background; expired sessions refresh via the sf CLI and persist, and each org's status (`refreshing` → `connected` / `expired` / `error`) flows live to the sidebar tree and org pickers. An org that needs re-login tells you so before you run anything — not mid-operation.
+- **The self-heal no longer persists unvalidated tokens.** A CLI-handed token is verified with a real API call *before* it overwrites the vault entry — a stale token can no longer poison the store.
+- **A dead CLI store is called by its name.** When the sf CLI hands back the exact token that just failed (no usable refresh token — e.g. an expired Connected App policy), the error now tells you the CLI store itself needs `sf org login web`, instead of retrying a known-bad token forever.
 
-### Fixed
+### Also in this release
 
-- **Token self-heal no longer writes unvalidated tokens**: the CLI-provided token is now validated with a real API call *before* being persisted to the vault — a stale token handed out by the CLI can no longer overwrite the stored one.
-- **Stale CLI store detected**: when the sf CLI hands back the exact token that just failed (no usable refresh token — the ORG-PROD loop), the error now says the CLI store itself needs re-authentication instead of silently retrying with a known-bad token.
-
-### Changed
-
-- **ESLint 9 + typescript-eslint 8**: the two legacy `.eslintrc.json` files are replaced by a single root `eslint.config.mjs` flat config; the webview `var(--vscode-*)` design-token gate is ported verbatim (verified to still fire); `no-floating-promises` typed linting now guards the extension host; react-hooks 5, eslint-config-prettier 10. Three latent violations fixed (`import = require`, an empty interface, an un-awaited notification promise).
-- **vitest 3 + Stryker 9**: all mock generics rewritten to the single-function-type form (`vi.fn<F>` / `Mock<F>`); one countdown test reworked for the v3 fake-timers model (25 h of 1-second ticks → a pinned clock at the midnight boundary — 64 s timeout down to milliseconds); coverage baselines re-measured under the v3 v8 provider — every gate still passes (extension 90/87/93, webview 88/85/78, shared 84/95/84).
-- **Marketplace page rebuilt on the full project README**: all 14 modules in the table, the five screenshots, the FAQ, and the complete configuration reference — every link absolute, so the listing renders fully now that the repository is public.
-- Housekeeping: removed the empty `packages/extension/packages` residue and stale `.stryker-tmp` mutation sandboxes.
+- **ESLint 9 + typescript-eslint 8**, one root flat config replacing the legacy files; the webview design-token gate (`var(--vscode-*)` ban) ported verbatim and proven to still fire; typed linting (`no-floating-promises`) now guards the extension host. Three latent violations fixed along the way.
+- **vitest 3 + Stryker 9**: all mock generics rewritten to the single-function-type form; one timer test reworked for the v3 fake-timer model (64 s → 0.1 s); coverage gates re-measured and still passing everywhere.
+- The marketplace page is now the full project README: all 14 modules, five screenshots, FAQ, and the complete settings reference — with working links since the repository went public.
 
 ## [1.6.0] - 2026-08-11
 
-**Fourth-audit release: messages that actually arrive.** A full re-audit of 1.5.0 found a regression class introduced by the broker envelope requirement: several webview surfaces still posted raw messages that the broker silently dropped — infinite spinners and lost mutations on the Sync tabs, and Forge pause/abort buttons that did nothing on destructive runs. All fixed, plus the onboarding/what's-new race, a correlated `seed:error` on declined production confirmations, and a marketplace listing whose links and screenshots finally resolve (the repository is now public).
+The fourth audit found a regression class introduced by 1.5.0's broker hardening itself: several webview surfaces still posted raw messages, which the newly-strict broker silently dropped. The visible symptoms were infinite spinners and lost mutations on the Sync tabs, and Forge pause/abort buttons that toggled the UI while the destructive run kept going. Everything the audit caught is fixed.
 
-### Fixed
+### Highlights
 
-- **Sync tabs silently broken since 1.5.0**: five Zustand stores (sync history, sync schedule, CDC metrics, CDC live, conflicts) posted raw `buildMessage(...)` payloads without the broker envelope — every one was dropped at validation. Requests spun forever and mutations (rerun, export, schedule save, conflict resolution) were lost. All non-hook senders now go through a single shared `sendBridgeMessage`/`postEnvelopedMessage` helper, and the `useSendMessage` hook delegates to it so hook and non-hook paths cannot drift again.
-- **Forge pause/resume/abort were no-ops**: the execution page read a non-existent `window.vscodeApi`, so the buttons toggled local UI state while the destructive run continued untouched. They now send `forge:pause`/`forge:resume`/`forge:abort` through the broker.
-- **Declining a seed production confirmation hung for 120 s**: the webview mutation waited on a `seed:error` that was never emitted. The handler now sends a correlated `seed:error` (dual-channel contract, same as sync) alongside `operation:failed`.
-- **Onboarding / What's New lost on first open**: on a cold panel the `onboarding:show` / `whats-new:show` message raced the webview bundle parse and was lost — while `markVersionSeen` still recorded it as shown, so the welcome never appeared again. The message is now posted once the panel proves it is alive (first inbound message), and only marked seen on actual delivery.
-- **"What's New" never rendered in module panels**: only the dead `App` shell mounted the overlay; `PanelApp` now renders it like the welcome wizard.
-- **Sidebar ignored the configured language**: the sidebar webview (per-document state, no settings UI) never received the language blob. It now requests settings on mount (`sidebar:requestSettings`, answered by the provider) and force-syncs every `settings:response` broadcast via the new `syncLanguageFromSettings` — switching language in Settings updates the sidebar live.
-- **In-app Help listed wrong shortcuts** (`Ctrl+Shift+M/D`): replaced with the real map (Ctrl+1..9/0, G+key chords, Ctrl+K) in all 6 locales.
-- **Marketplace listing had dead images/links**: the repository is now public, so screenshots, the CI badge and the Q&A Discussions link on the listing resolve again. The retired shields.io `visual-studio-marketplace` badges were replaced with a static version badge that `bump-version.sh` keeps in sync automatically.
+- **Sync tabs work again.** Five stores (sync history, schedule, CDC metrics, CDC live, conflicts) posted unenveloped messages that the broker dropped at validation — reruns, exports, schedule saves and conflict resolutions never reached the extension. All senders now share one enveloped helper, hook and non-hook paths unified so they can't drift apart.
+- **Forge pause/resume/abort actually pause, resume and abort.** The execution page read a non-existent `window.vscodeApi`; the buttons now send through the broker.
+- **Declining a production confirmation no longer hangs for 120 s** — the missing `seed:error` response is now emitted (correlated, dual-channel like sync), so the UI settles immediately.
+- **The welcome wizard can't be lost on first open.** The show-message used to race the webview bundle load and get dropped while still being marked as "seen". It's now posted once the panel proves it's alive, and only then recorded.
+- **The sidebar finally speaks your language.** It requests the settings blob on mount and live-syncs every later settings broadcast — switching language in Settings updates the sidebar immediately.
+- **The marketplace listing renders again**: the repository is public, so screenshots, the CI badge and the Q&A link resolve; retired shields.io endpoints were replaced with a static version badge the bump script keeps in sync.
 
-### Changed
+### Also in this release
 
-- Removed the dead `packages/shared/src/i18n` subtree (no consumer — the webview owns its locales).
-- Docs: FAQ no longer documents the cron scheduler as shipped (marked coming soon) nor the nonexistent `sandforge.grappe.enabled` setting; the walkthrough settings step reflects the Anthropic-only AI provider reality; the root README tests badge reports the real count.
+- "What's New" now renders in module panels (it only existed in the dead App shell).
+- In-app Help lists the real shortcuts (Ctrl+1..9/0, G+key chords, Ctrl+K) in all 6 languages.
+- Removed the consumerless `packages/shared/src/i18n` subtree; docs scrubbed of a cron scheduler and a setting that don't exist yet.
 
 ## [1.5.0] - 2026-08-10
 
-**Third-audit release: features that actually reach the user.** A full re-audit of 1.4.0 found that several features shipped earlier were wired but invisible in production — the `App` shell was dead code (every entry point injects a module), the sidebar never received broker broadcasts, and the offline replay could loop forever. All fixed, plus a leaner shared package and a fully localized manifest.
+The third audit asked a brutal question of 1.4.0: do these features actually reach the user? For several, the answer was no — they were wired into an `App` shell that production never renders, the sidebar never received broker broadcasts, and a failed offline replay could re-queue itself forever. This release makes the features land, and slims the shared package down to what it really uses.
 
-### Added
+### Highlights
 
-- **Panel shells are now first-class**: global keyboard shortcuts (chords + Ctrl+number), the command palette, the welcome overlay, and the motion provider (with `prefers-reduced-motion`) are mounted in the live panel/sidebar shells — previously they only existed in the unreachable `App` root.
-- **Sidebar receives live broadcasts**: the sidebar webview is registered with the message broker (outbound-only mode), so the recent-operations blocks and org updates finally reach it.
-- **Extension manifest localized**: `package.nls.{de,es,ja,pt-BR}.json` — command titles, view names, walkthrough steps and setting descriptions in all 6 languages, with the parity gate extended to enforce it in CI.
-- **Marketplace presence**: badges on the listing, Q&A tab wired to GitHub Discussions, high-intent keywords (`sfdmu`, `data-loader`, `test-data`…), `Testing` category, FAQ + table of contents + module screenshots on the marketplace page, issue/PR templates and CODEOWNERS on the repo.
-- Bridge error messages are truncated to a bounded size instead of dumping thousands of schema-union issues to the webview and telemetry.
+- **Panel shells are first-class.** Global shortcuts, the command palette, the welcome overlay and reduced-motion support now mount in the live panel and sidebar shells — they previously existed only in the unreachable `App` root.
+- **The sidebar receives live broadcasts.** Registered with the broker in outbound-only mode, so recent-operations blocks and org updates finally populate.
+- **The manifest speaks 6 languages.** Command titles, view names, walkthrough steps and setting descriptions are localized (de/es/ja/pt-BR added), with a CI parity gate to keep it that way.
+- **The offline replay loop is dead.** A failed replay no longer re-queues itself with 2-3 native notifications per cycle; failures surface honestly on `operation:failed`/`sync:error`.
+- **Seed failures answer in milliseconds, not 120 s** — and a failed seed no longer reports as "completed".
 
-### Fixed
+### Also in this release
 
-- **Offline replay loop**: a failed replay (e.g. org unreachable while the login endpoint answers) no longer re-queues itself forever with 2-3 native notifications per cycle — replays that fail are dropped with an honest "restarted" wording, and `operation:failed`/`sync:error` carry the failure.
-- **Seed failures no longer time out after 120 s**: `seed:error` is emitted immediately on execution failures (with the offline retry hint), and the operation registry no longer reports a failed seed as "completed".
-- **Error responses are correlated**: `sendHandlerError` propagates the request's `correlationId` — a late error from a superseded Forge preview can no longer wipe the current one.
-- **Language regression**: the settings blob is imported into the webview state once at startup (blob `language` applied when no webview-state choice exists) and saving settings can no longer overwrite the stored language with a stale `'en'`. Welcome page offers all 6 languages.
-- QuickSync no longer restores a persisted `executing` step as a permanent spinner after a panel reload.
-- Root `clean` script worked around the pnpm 11 builtin interception (`pnpm -r run clean`); all clean/copy scripts are now portable (no `rm -rf`/`cp` shell builtins).
-
-### Changed
-
-- **Bridge schema is now a flat discriminated union** (298 message literals, O(1) dispatch, readable validation errors) with zero typecheck regression; the legacy unenveloped-message fallback was removed (the webview always envelopes).
-- **Shared package purged**: 38 dead exported utilities removed (hash, string, validation, date, execution-result, sf-utils leftovers); `format-utils` rewritten with the webview's better-guarded implementations; coverage thresholds raised to the real baseline (lines/statements 80, branches 90, functions 65).
-- CI: Playwright browsers cached on Windows, static gates (lint/audit/i18n) run once on Ubuntu instead of 3 times.
+- Marketplace presence: badges, Q&A via GitHub Discussions, high-intent keywords, FAQ and screenshots on the listing, issue/PR templates on the repo.
+- Error responses are correlated by `correlationId` — a late error from a superseded preview can no longer wipe the current one.
+- The language you pick can't be silently reset to English by a settings save.
+- Bridge schema flattened to a discriminated union (298 literals, O(1) dispatch, readable validation errors); the shared package shed 38 dead exported utilities and raised its coverage gates to the real baseline.
 
 ## [1.4.0] - 2026-08-10
 
-**Post-release hardening release**: a full second audit pass over 1.3.0. The offline queue is now safe for non-idempotent operations and can no longer strand operations, the recent-operations panels are actually fed, and the remaining documentation drift is closed.
+The first hardening pass over 1.3.0 — a full second audit focused on the offline queue, the empty "recent operations" panels, and the remaining documentation drift.
 
-### Added
+### Highlights
 
-- **Offline queue notifications**: native VS Code notifications when an operation is queued, replayed, or fails to replay (the queue events previously had no listener).
-- **Recent operations feed**: the "Running / Last operation" blocks (Home, sidebar, status footer) are now wired to real `operation:*` bridge messages — they were always empty before.
-- **Reports module command**: `sandforge.openReports` — every module now truly has its own command (16 module commands).
-- **Keyboard shortcuts for every module**: chord map and Ctrl+number map now cover all 17 navigable routes (seed, sync, autopilot, migration, frozen, ai, orgs, help…).
-- **6-language selector in Settings**: German, Spanish, Japanese and Brazilian Portuguese added to the language dropdown (only en/fr were offered); `language` is now typed `SupportedLanguage`.
-- Pre-publish: VSIX now verified to contain the vendored Anthropic SDK; all 46 manifest `%key%` placeholders are validated (not just command titles); fail-fast preflight in the release workflow (PAT present, tag not already on origin); ESM entry-point sanity checks in the SDK vendoring script.
-- i18n parity gate now covers the new keys; shared-package coverage ratcheted (real measured baseline: 86% lines once pure-data locales are excluded).
+- **The offline queue is safe for destructive work.** Seed operations (INSERT — not idempotent) are no longer auto-replayed after a network drop: you get an explicit retry hint instead of risking duplicate records. Sync (upsert-based) keeps automatic replay, and re-queued operations now drain while online instead of waiting for a connectivity change that may never come.
+- **Recent operations are real.** The "Running / Last operation" blocks (Home, sidebar, status footer) are wired to live `operation:*` bridge messages — they had never displayed anything before.
+- **Every module has its command and its shortcut.** `sandforge.openReports` completes the set (16 module commands), and the chord + Ctrl+number maps cover all 17 routes.
+- **Six languages in Settings** — German, Spanish, Japanese and Brazilian Portuguese join English and French.
 
-### Changed
+### Also in this release
 
-- **Offline queue safety**: seed operations (INSERT — not idempotent) are no longer auto-queued for replay; a network failure now returns an explicit retry hint instead of risking duplicate records on reconnect. Sync (upsert-based) keeps automatic replay.
-- **Drain on enqueue-while-online**: re-queued operations no longer wait for a connectivity transition that may never come — the queue drains (debounced, serialized) as soon as it is fed while online. Persisted queue entries are schema-validated at load; event emission is listener-fault isolated.
-- Webview language has a single source of truth (webview state); the settings blob mirrors it instead of silently diverging.
-- The Welcome "don't show again" checkbox is now actually honored (it was write-only).
-- Operation registry marks a resolved-with-`failure` execution as failed — no more "sync completed" notifications for failed syncs.
-- Salesforce API version centralized: the last hardcoded `'62.0'` literals now use `SF_LIMITS.DEFAULT_API_VERSION`.
-- `useExecutionProgress` map is bounded (20 executions, LRU eviction) instead of growing for the webview's lifetime; terminal states remain visible.
-- QuickSync transient states (executing/error) are no longer persisted — a panel reload mid-run no longer restores a permanent spinner.
-- Forge record previews ignore positively-stale responses (correlation guard — last call wins).
-- `prefers-reduced-motion` is now respected globally via `MotionConfig reducedMotion="user"`.
-- Packaging uses the lockfile-pinned `vsce` (`pnpm exec`) for building the VSIX, matching the pinned publish.
-- Docs aligned: module table lists all 14 modules (Migration and Autopilot added), seed wizard documented as 4 steps, the obsolete "2-pass not implemented" limitation removed, the Automation scheduler marked "coming soon", phantom getting-started screenshots fixed, Node 22 requirement everywhere, README badges (version/tests/VSIX size) corrected — and the version badge is now auto-updated by the bump script.
+- Native notifications when an offline-queued operation is queued, replayed, or fails to replay.
+- The Welcome "don't show again" checkbox is now actually honored; failed syncs no longer trigger "sync completed" notifications; panel crashes show the recovery UI instead of a blank panel.
+- `prefers-reduced-motion` is respected globally.
+- Pre-publish gates: the VSIX is verified to contain the vendored Anthropic SDK, all 46 manifest placeholders are validated, and the release workflow fails fast on a missing PAT or an already-pushed tag.
+- Dead code removed (a self-imported RateLimiter, CSP-uninstantiable web workers, a duplicate i18n hook, deprecated aliases) and the docs realigned with what 1.3.0 actually ships.
 
-### Fixed
-
-- `openOrgInBrowser` no longer throws on a malformed persisted instance URL.
-- Shared utils hardened: `formatBytes(NaN/Infinity)`, `timeAgo('garbage')`, `estimateCompletion` edge cases, `progressBar` out-of-range — with tests.
-- Extension panel crash = blank panel: `PanelApp` and `SidePanel` are now wrapped in the ErrorBoundary.
-
-### Removed
-
-- Dead code: `core/engine/RateLimiter` (imported only by its own test), webview `diffWorker`/`searchWorker` (never instantiable under the CSP), the duplicate `i18n/useTranslation.ts`, deprecated `AnonymizationRule` aliases, `orgTypeToSafetyTier`.
-- Zombie e2e spec driving purged bridge channels (`monitor:metrics/export`), with its harness flow and fixtures.
-
-## [1.3.0] - 2026-08-10
 
 **Marketplace trust and dead-code release**: the listing now tells the truth, the navigation reaches every module, the VSIX no longer leaks internal tooling state, and ~5,000 lines of dead code are gone. Ships with a native Organizations tree view, a Get Started walkthrough, and an SFDMU import UI.
 

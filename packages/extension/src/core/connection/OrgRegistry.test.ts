@@ -97,6 +97,59 @@ describe('OrgRegistry', () => {
       expect(freshOrgManager.getOrg('010')).toEqual(org1);
       expect(freshOrgManager.getOrg('020')).toEqual(org2);
     });
+
+    it('should prune a legacy duplicate entry that shares the same Salesforce orgId', async () => {
+      // Canonical entry: key, id and orgId all aligned (current scheme).
+      const canonical = { ...createTestOrg('00D999'), orgId: '00D999' };
+      await registry.saveOrg(canonical, {
+        loginUrl: 'https://login.salesforce.com',
+        accessToken: 'fresh-token',
+      });
+
+      // Ghost entry from an older build: stored under a different key/id but
+      // pointing at the SAME Salesforce org — with its own stale credentials.
+      const ghost = {
+        ...createTestOrg('legacy-uuid-1'),
+        orgId: '00D999',
+        alias: 'org-00D999 (old)',
+      };
+      configStore.set('org.legacy-uuid-1', ghost, 'orgs');
+      await secretVault.storeObject('org-cred.legacy-uuid-1', {
+        loginUrl: 'https://login.salesforce.com',
+        accessToken: 'stale-token',
+      });
+
+      const freshOrgManager = new OrgManager();
+      const freshRegistry = new OrgRegistry(configStore, secretVault, freshOrgManager);
+      freshRegistry.loadAll();
+
+      // One entry survives: the canonical one.
+      expect(freshOrgManager.getAllOrgs()).toHaveLength(1);
+      expect(freshOrgManager.getOrg('00D999')?.alias).toBe('org-00D999');
+      // Ghost purged from ConfigStore and SecretVault.
+      expect(configStore.get('org.legacy-uuid-1')).toBeUndefined();
+      const ghostCreds = await secretVault.getObject('org-cred.legacy-uuid-1');
+      expect(ghostCreds).toBeUndefined();
+      // Canonical credentials untouched.
+      const creds = await freshRegistry.getCredentials('00D999');
+      expect(creds?.accessToken).toBe('fresh-token');
+    });
+
+    it('should keep the canonical entry even when the ghost is written after it', async () => {
+      // Ghost written FIRST, canonical second — the orgId-keyed entry must win
+      // regardless of iteration order.
+      const ghost = { ...createTestOrg('legacy-uuid-2'), orgId: '00D888' };
+      configStore.set('org.legacy-uuid-2', ghost, 'orgs');
+      const canonical = { ...createTestOrg('00D888'), orgId: '00D888' };
+      configStore.set('org.00D888', canonical, 'orgs');
+
+      const freshOrgManager = new OrgManager();
+      new OrgRegistry(configStore, secretVault, freshOrgManager).loadAll();
+
+      expect(freshOrgManager.getAllOrgs()).toHaveLength(1);
+      expect(freshOrgManager.getOrg('00D888')).toBeDefined();
+      expect(configStore.get('org.legacy-uuid-2')).toBeUndefined();
+    });
   });
 
   describe('removeOrg', () => {

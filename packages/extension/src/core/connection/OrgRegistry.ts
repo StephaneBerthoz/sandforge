@@ -1,7 +1,8 @@
-import type { SalesforceOrg, ConnectionConfig } from '@sandforge/shared';
+import type { SalesforceOrg, ConnectionConfig, UUID } from '@sandforge/shared';
 import type { ConfigStore } from '../storage/ConfigStore';
 import type { SecretVault } from '../storage/SecretVault';
 import type { OrgManager } from './OrgManager';
+import { logger } from '../../logger.js';
 
 /** Key prefix for org metadata in ConfigStore */
 const ORG_KEY_PREFIX = 'org.';
@@ -22,14 +23,53 @@ export class OrgRegistry {
     private orgManager: OrgManager,
   ) {}
 
-  /** Load all persisted orgs into OrgManager. Called at extension startup. */
+  /**
+   * Load all persisted orgs into OrgManager. Called at extension startup.
+   *
+   * Self-healing: entries are deduped by their Salesforce `orgId` field, not
+   * by storage key. Builds from before the `orgId`-as-id scheme wrote entries
+   * under different keys for the same org — such ghost copies carry stale (or
+   * no) credentials, show up as duplicates in every org list, and their
+   * failed auth attempts keep the "authentication expired" loop alive. The
+   * canonical survivor is the entry whose key matches its orgId; the others
+   * are pruned from ConfigStore and SecretVault.
+   */
   loadAll(): void {
     const entries = this.configStore.getByCategory(ORG_CATEGORY);
+    const byOrgId = new Map<string, { key: string; org: SalesforceOrg }>();
+    const staleKeys: string[] = [];
+
     for (const [key, value] of Object.entries(entries)) {
-      if (key.startsWith(ORG_KEY_PREFIX)) {
-        const org = value as SalesforceOrg;
-        this.orgManager.addOrg(org);
+      if (!key.startsWith(ORG_KEY_PREFIX)) continue;
+      const org = value as SalesforceOrg;
+      const identity = org.orgId ?? org.id;
+      const entryId = key.slice(ORG_KEY_PREFIX.length);
+
+      const existing = byOrgId.get(identity);
+      if (!existing) {
+        byOrgId.set(identity, { key, org });
+        continue;
       }
+      // Duplicate identity: keep the entry whose key matches the identity
+      // (canonical scheme). If neither matches, keep the first deterministically.
+      if (entryId === identity) {
+        staleKeys.push(existing.key);
+        byOrgId.set(identity, { key, org });
+      } else {
+        staleKeys.push(key);
+      }
+    }
+
+    for (const key of staleKeys) {
+      this.configStore.delete(key);
+      const ghostId = key.slice(ORG_KEY_PREFIX.length);
+      this.secretVault.deleteSecret(`${CRED_KEY_PREFIX}${ghostId}`).catch(() => undefined);
+      this.orgManager.removeOrg(ghostId as UUID);
+      logger.warn('Pruned duplicate org entry (same orgId as a canonical entry)', { key });
+    }
+
+    for (const { org } of byOrgId.values()) {
+      this.orgManager.addOrg(org);
     }
   }
 
