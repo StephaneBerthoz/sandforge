@@ -50,7 +50,7 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
   let broker: MessageBroker;
   let router: MessageRouter;
   let handlers: ExtensionHandlers;
-  let executeCommand: Mock<Parameters<CommandExecutor>, ReturnType<CommandExecutor>>;
+  let executeCommand: Mock<CommandExecutor>;
 
   beforeEach(() => {
     broker = new MessageBroker();
@@ -66,7 +66,7 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
     const sfdxBridge = createMockSfdxBridge();
 
     executeCommand = vi
-      .fn<Parameters<CommandExecutor>, ReturnType<CommandExecutor>>()
+      .fn<CommandExecutor>()
       .mockResolvedValue(undefined);
 
     const deps: ExtensionHandlersDeps = {

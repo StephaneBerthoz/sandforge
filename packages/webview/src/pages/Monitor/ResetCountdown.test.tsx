@@ -42,11 +42,16 @@ describe('ResetCountdown', () => {
   });
 
   it('countdown does not display negative values', () => {
+    // Pin the clock just before midnight Pacific (PDT = UTC-7 on this date):
+    // 2026-03-27T06:59:58Z is 2026-03-26 23:59:58 in America/Los_Angeles.
+    vi.setSystemTime(new Date('2026-03-27T06:59:58Z'));
     render(<ResetCountdown />);
 
-    // Advance past midnight boundary
+    // Cross the midnight boundary (advancing 25 h of a 1 s interval is what
+    // this test used to do — tens of thousands of ticks, minutes under
+    // vitest 3's fake-timers; 5 s exercises the same boundary logic).
     act(() => {
-      vi.advanceTimersByTime(25 * 60 * 60 * 1000);
+      vi.advanceTimersByTime(5000);
     });
 
     const value = screen.getByTestId('reset-countdown-value').textContent ?? '';

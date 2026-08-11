@@ -130,7 +130,7 @@ describe('AIPersonaManager', () => {
 
     it('should find a custom persona by ID after creation', async () => {
       const mockProvider = vi
-        .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+        .fn<AIProvider>()
         .mockResolvedValue(createMockPersonaResponse());
       const created = await manager.createCustomPersona('Vet clinic', mockProvider);
 
@@ -143,11 +143,11 @@ describe('AIPersonaManager', () => {
   // --- createCustomPersona ---
 
   describe('createCustomPersona', () => {
-    let mockProvider: Mock<Parameters<AIProvider>, ReturnType<AIProvider>>;
+    let mockProvider: Mock<AIProvider>;
 
     beforeEach(() => {
       mockProvider = vi
-        .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+        .fn<AIProvider>()
         .mockResolvedValue(createMockPersonaResponse());
     });
 
@@ -266,7 +266,7 @@ describe('AIPersonaManager', () => {
 
     it('should include created custom personas', async () => {
       const mockProvider = vi
-        .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+        .fn<AIProvider>()
         .mockResolvedValue(createMockPersonaResponse());
       await manager.createCustomPersona('Test', mockProvider);
 
@@ -275,7 +275,7 @@ describe('AIPersonaManager', () => {
 
     it('should accumulate multiple custom personas', async () => {
       const mockProvider = vi
-        .fn<Parameters<AIProvider>, ReturnType<AIProvider>>()
+        .fn<AIProvider>()
         .mockResolvedValue(createMockPersonaResponse());
       await manager.createCustomPersona('Test A', mockProvider);
       await manager.createCustomPersona('Test B', mockProvider);

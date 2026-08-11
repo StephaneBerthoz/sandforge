@@ -60,7 +60,7 @@ describe('MessageBroker', () => {
 
     it('should dispatch incoming panel messages to registered handlers', () => {
       const panel = createMockPanel();
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('org:list', handler);
 
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);
@@ -135,7 +135,7 @@ describe('MessageBroker', () => {
 
   describe('on', () => {
     it('should register a handler for the given type', () => {
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('seed:execute', handler);
 
       const panel = createMockPanel();
@@ -150,7 +150,7 @@ describe('MessageBroker', () => {
     });
 
     it('should not call handler for a different message type', () => {
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('seed:execute', handler);
 
       const panel = createMockPanel();
@@ -165,8 +165,8 @@ describe('MessageBroker', () => {
     });
 
     it('should support multiple handlers for the same type', () => {
-      const handler1 = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
-      const handler2 = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler1 = vi.fn<MessageHandler>();
+      const handler2 = vi.fn<MessageHandler>();
       broker.on('org:list', handler1);
       broker.on('org:list', handler2);
 
@@ -183,7 +183,7 @@ describe('MessageBroker', () => {
     });
 
     it('should return an unsubscribe function that removes the handler', () => {
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       const unsubscribe = broker.on('org:list', handler);
 
       unsubscribe();
@@ -317,7 +317,7 @@ describe('MessageBroker', () => {
       const logFn = vi.fn();
       broker.setLogFunction(logFn);
 
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('org:list', handler);
 
       const panel = createMockPanel();
@@ -338,7 +338,7 @@ describe('MessageBroker', () => {
       const logFn = vi.fn();
       broker.setLogFunction(logFn);
 
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('', handler);
 
       const panel = createMockPanel();
@@ -359,7 +359,7 @@ describe('MessageBroker', () => {
       const logFn = vi.fn();
       broker.setLogFunction(logFn);
 
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('org:list', handler);
 
       const panel = createMockPanel();
@@ -380,7 +380,7 @@ describe('MessageBroker', () => {
       const logFn = vi.fn();
       broker.setLogFunction(logFn);
 
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('org:list', handler);
 
       const panel = createMockPanel();
@@ -398,7 +398,7 @@ describe('MessageBroker', () => {
     });
 
     it('should accept valid messages with extra payload fields', () => {
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('seed:execute', handler);
 
       const panel = createMockPanel();
@@ -422,7 +422,7 @@ describe('MessageBroker', () => {
 
   describe('dispose', () => {
     it('should clear all handlers and panels', () => {
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('org:list', handler);
 
       const panel = createMockPanel();
@@ -437,7 +437,7 @@ describe('MessageBroker', () => {
     });
 
     it('should not dispatch messages after dispose', () => {
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('org:list', handler);
 
       const panel = createMockPanel();
@@ -471,7 +471,7 @@ describe('MessageBroker', () => {
       const telemetry = createTelemetry();
       broker = new MessageBroker({ telemetry });
 
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('org:list', handler);
 
       const panel = createMockPanel();
@@ -555,7 +555,7 @@ describe('MessageBroker', () => {
       const telemetry = createTelemetry();
       broker = new MessageBroker({ telemetry });
 
-      const handler = vi.fn<Parameters<MessageHandler>, ReturnType<MessageHandler>>();
+      const handler = vi.fn<MessageHandler>();
       broker.on('org:list', handler);
 
       const panel = createMockPanel();

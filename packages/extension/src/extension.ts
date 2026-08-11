@@ -30,6 +30,8 @@ import { initAutopilotComposition } from './composition/autopilotComposition';
 import { initAIComposition, registerAIConfigListener } from './composition/aiComposition';
 import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
+import { validateOrgsOnStartup } from './core/connection/startupValidation';
+import { extractErrorMessage } from './core/common/extractErrorMessage.js';
 
 let router: MessageRouter | undefined;
 let broker: MessageBroker | undefined;
@@ -255,6 +257,15 @@ export function activate(context: vscode.ExtensionContext): void {
     OrgsTreeProvider.viewType,
     orgsTreeProvider,
   );
+
+  // 10c. Proactive org validation — refresh expired tokens at every launch so
+  // the first operation does not hit an auth wall mid-run. Background-only,
+  // per-org isolated, gated by sandforge.orgs.validateOnStartup.
+  if (services.getSandforgeSetting('orgs.validateOnStartup', true)) {
+    void validateOrgsOnStartup({ orgManager, orgRegistry, log }).catch((err: unknown) => {
+      log(`[startup] Org validation crashed: ${extractErrorMessage(err)}`);
+    });
+  }
   const orgsTreeCommands = [
     vscode.commands.registerCommand('sandforge.orgsView.refresh', () => {
       // Re-pull persisted orgs into the OrgManager (its change events refresh

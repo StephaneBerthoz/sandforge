@@ -5,6 +5,26 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-08-11
+
+**Auth reliability + toolchain modernization release.** Registered orgs are now validated at every launch — expired sessions refresh themselves via the sf CLI before your first operation hits an auth wall — and the token self-heal no longer persists unvalidated CLI tokens. Under the hood: ESLint 9 flat config with typed linting, vitest 3, Stryker 9.
+
+### Added
+
+- **Proactive org validation at startup** (`sandforge.orgs.validateOnStartup`, default `true`): at every launch, each registered org is validated in the background — expired tokens are refreshed through the sf CLI and persisted, and the per-org status (`refreshing` → `connected` / `expired` / `error`) flows live to the sidebar tree and org pickers. Auth failures surface as an actionable "expired" state before you run anything, not mid-operation.
+
+### Fixed
+
+- **Token self-heal no longer writes unvalidated tokens**: the CLI-provided token is now validated with a real API call *before* being persisted to the vault — a stale token handed out by the CLI can no longer overwrite the stored one.
+- **Stale CLI store detected**: when the sf CLI hands back the exact token that just failed (no usable refresh token — the ORG-PROD loop), the error now says the CLI store itself needs re-authentication instead of silently retrying with a known-bad token.
+
+### Changed
+
+- **ESLint 9 + typescript-eslint 8**: the two legacy `.eslintrc.json` files are replaced by a single root `eslint.config.mjs` flat config; the webview `var(--vscode-*)` design-token gate is ported verbatim (verified to still fire); `no-floating-promises` typed linting now guards the extension host; react-hooks 5, eslint-config-prettier 10. Three latent violations fixed (`import = require`, an empty interface, an un-awaited notification promise).
+- **vitest 3 + Stryker 9**: all mock generics rewritten to the single-function-type form (`vi.fn<F>` / `Mock<F>`); one countdown test reworked for the v3 fake-timers model (25 h of 1-second ticks → a pinned clock at the midnight boundary — 64 s timeout down to milliseconds); coverage baselines re-measured under the v3 v8 provider — every gate still passes (extension 90/87/93, webview 88/85/78, shared 84/95/84).
+- **Marketplace page rebuilt on the full project README**: all 14 modules in the table, the five screenshots, the FAQ, and the complete configuration reference — every link absolute, so the listing renders fully now that the repository is public.
+- Housekeeping: removed the empty `packages/extension/packages` residue and stale `.stryker-tmp` mutation sandboxes.
+
 ## [1.6.0] - 2026-08-11
 
 **Fourth-audit release: messages that actually arrive.** A full re-audit of 1.5.0 found a regression class introduced by the broker envelope requirement: several webview surfaces still posted raw messages that the broker silently dropped — infinite spinners and lost mutations on the Sync tabs, and Forge pause/abort buttons that did nothing on destructive runs. All fixed, plus the onboarding/what's-new race, a correlated `seed:error` on declined production confirmations, and a marketplace listing whose links and screenshots finally resolve (the repository is now public).

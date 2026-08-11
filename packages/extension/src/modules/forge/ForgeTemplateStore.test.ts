@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeTemplateStore } from './ForgeTemplateStore.js';
 import type { ForgeTemplate } from '@sandforge/shared';
 
-const mockReadFile = vi.fn<[path: string], Promise<string>>();
-const mockWriteFile = vi.fn<[path: string, content: string], Promise<void>>();
-const mockMkdir = vi.fn<[path: string], Promise<void>>();
+const mockReadFile = vi.fn<(path: string) => Promise<string>>();
+const mockWriteFile = vi.fn<(path: string, content: string) => Promise<void>>();
+const mockMkdir = vi.fn<(path: string) => Promise<void>>();
 
 function createStore(): ForgeTemplateStore {
   return new ForgeTemplateStore({

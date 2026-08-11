@@ -41,7 +41,7 @@ describe('UserSessionMonitor', () => {
 
   beforeEach(() => {
     querySessions = vi
-      .fn<Parameters<QuerySessionsFn>, ReturnType<QuerySessionsFn>>()
+      .fn<QuerySessionsFn>()
       .mockResolvedValue(createMockSessions());
     monitor = new UserSessionMonitor(querySessions);
   });

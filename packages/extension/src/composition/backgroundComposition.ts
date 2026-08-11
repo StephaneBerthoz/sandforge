@@ -177,7 +177,7 @@ export function wireBackgroundNotifications(deps: BackgroundNotificationDeps): v
           type === 'completed'
             ? `SandForge: ${operation.module} completed${operation.resultSummary ? ' — ' + operation.resultSummary : ''}`
             : `SandForge: ${operation.module} failed${operation.resultSummary ? ' — ' + operation.resultSummary : ''}`;
-        vscode.window.showInformationMessage(label, 'Show Details').then((action) => {
+        void vscode.window.showInformationMessage(label, 'Show Details').then((action) => {
           if (action === 'Show Details') {
             // Open the Monitor module — openPanel only assigns webview.html
             // when a moduleId is provided (same id as sandforge.openMonitor).

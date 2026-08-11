@@ -8,7 +8,7 @@ describe('DataCompare', () => {
 
   beforeEach(() => {
     fetchRecords = vi
-      .fn<Parameters<FetchRecordsFn>, ReturnType<FetchRecordsFn>>()
+      .fn<FetchRecordsFn>()
       .mockResolvedValue([]);
     dataCompare = new DataCompare(fetchRecords);
   });

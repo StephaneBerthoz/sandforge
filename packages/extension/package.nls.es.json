@@ -35,6 +35,7 @@
   "walkthrough.step.exploreSettings.description": "Tamaños de lote, protecciones de producción, registro de auditoría y el asistente de IA.",
   "config.title": "SandForge",
   "config.telemetry.description": "Habilitar telemetría de uso anónima",
+  "config.orgs.validateOnStartup.description": "Validar las organizaciones registradas al iniciar y actualizar automáticamente las sesiones caducadas mediante la CLI sf",
   "config.seed.defaultBatchSize.description": "Tamaño de lote predeterminado para operaciones de datos de Seed",
   "config.sync.defaultBatchSize.description": "Tamaño de lote predeterminado para operaciones de datos de Sync",
   "config.sync.maxConcurrentOps.description": "Número máximo de operaciones de sincronización simultáneas",

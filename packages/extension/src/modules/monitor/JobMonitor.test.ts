@@ -58,7 +58,7 @@ describe('JobMonitor', () => {
 
   beforeEach(() => {
     queryJobs = vi
-      .fn<Parameters<QueryJobsFn>, ReturnType<QueryJobsFn>>()
+      .fn<QueryJobsFn>()
       .mockResolvedValue(createMockJobs());
     monitor = new JobMonitor(queryJobs);
   });

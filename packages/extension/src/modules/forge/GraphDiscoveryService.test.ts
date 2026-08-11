@@ -6,10 +6,7 @@ import type { ForgeConfig } from '@sandforge/shared';
 function createMockDeps(): GraphDiscoveryDeps {
   return {
     describeObject: vi
-      .fn<
-        Parameters<GraphDiscoveryDeps['describeObject']>,
-        ReturnType<GraphDiscoveryDeps['describeObject']>
-      >()
+      .fn<GraphDiscoveryDeps['describeObject']>()
       .mockResolvedValue({
         name: 'Account',
         fields: [
@@ -31,22 +28,13 @@ function createMockDeps(): GraphDiscoveryDeps {
         childRelationships: [],
       }),
     queryCount: vi
-      .fn<
-        Parameters<GraphDiscoveryDeps['queryCount']>,
-        ReturnType<GraphDiscoveryDeps['queryCount']>
-      >()
+      .fn<GraphDiscoveryDeps['queryCount']>()
       .mockResolvedValue(10),
     detectPII: vi
-      .fn<
-        Parameters<GraphDiscoveryDeps['detectPII']>,
-        ReturnType<GraphDiscoveryDeps['detectPII']>
-      >()
+      .fn<GraphDiscoveryDeps['detectPII']>()
       .mockReturnValue([]),
     describeGlobal: vi
-      .fn<
-        Parameters<GraphDiscoveryDeps['describeGlobal']>,
-        ReturnType<GraphDiscoveryDeps['describeGlobal']>
-      >()
+      .fn<GraphDiscoveryDeps['describeGlobal']>()
       .mockResolvedValue([
         { name: 'Account', keyPrefix: '001' },
         { name: 'Contact', keyPrefix: '003' },

@@ -11,8 +11,9 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/index.ts', 'src/i18n/locales/**'],
       // Anti-regression gate (2026-08): prudent margin under the measured baseline
-      // with i18n locales excluded (lines 85.2 / branches 93.2 / functions 70.8 /
-      // statements 85.2 — measured after the dead-export purge). Raise as coverage grows.
+      // with i18n locales excluded (lines 84.3 / branches 95.3 / functions 83.6 /
+      // statements 84.3 — measured under vitest 3, whose v8 provider ignores empty
+      // lines by default). Raise as coverage grows.
       thresholds: {
         statements: 80,
         branches: 90,

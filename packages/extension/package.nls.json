@@ -35,6 +35,7 @@
   "walkthrough.step.exploreSettings.description": "Batch sizes, production guardrails, audit logging, and the AI assistant.",
   "config.title": "SandForge",
   "config.telemetry.description": "Enable anonymous usage telemetry",
+  "config.orgs.validateOnStartup.description": "Validate registered orgs at startup and auto-refresh expired sessions via the sf CLI",
   "config.seed.defaultBatchSize.description": "Default batch size for Seed data operations",
   "config.sync.defaultBatchSize.description": "Default batch size for Sync data operations",
   "config.sync.maxConcurrentOps.description": "Maximum concurrent sync operations",

@@ -45,7 +45,7 @@ const ASSET_FIELDS: FieldInfo[] = [
 function makeDeps(overrides?: Partial<ExpanderDeps>): ExpanderDeps {
   return {
     describeFields: vi
-      .fn<Parameters<ExpanderDeps['describeFields']>, ReturnType<ExpanderDeps['describeFields']>>()
+      .fn<ExpanderDeps['describeFields']>()
       .mockResolvedValue([
         { name: 'Id', queryable: true, createable: false, isReference: false },
         { name: 'Name', queryable: true, createable: true, isReference: false },
@@ -58,10 +58,10 @@ function makeDeps(overrides?: Partial<ExpanderDeps>): ExpanderDeps {
         },
       ]),
     queryRecords: vi
-      .fn<Parameters<ExpanderDeps['queryRecords']>, ReturnType<ExpanderDeps['queryRecords']>>()
+      .fn<ExpanderDeps['queryRecords']>()
       .mockResolvedValue([{ Id: ORPHAN_ID, Name: 'GAN ASSURANCES', OwnerId: '005USER' }]),
     insertRecords: vi
-      .fn<Parameters<ExpanderDeps['insertRecords']>, ReturnType<ExpanderDeps['insertRecords']>>()
+      .fn<ExpanderDeps['insertRecords']>()
       .mockResolvedValue([{ id: '001NEW', success: true, errors: [] }]),
     ...overrides,
   };
@@ -197,7 +197,7 @@ describe('OrphanExpander', () => {
   it('negative-caches failed expansions and reports them once', async () => {
     const deps = makeDeps({
       insertRecords: vi
-        .fn<Parameters<ExpanderDeps['insertRecords']>, ReturnType<ExpanderDeps['insertRecords']>>()
+        .fn<ExpanderDeps['insertRecords']>()
         .mockResolvedValue([{ id: '', success: false, errors: ['REQUIRED_FIELD_MISSING'] }]),
     });
     const { input } = makeInput(deps);
