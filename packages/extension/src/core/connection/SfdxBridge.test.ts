@@ -461,4 +461,43 @@ describe('SfdxBridge', () => {
       expect(mockExecFile).not.toHaveBeenCalled();
     });
   });
+
+  describe('getDefaultOrgUsername', () => {
+    it('returns the target-org value reported by the CLI', async () => {
+      const json = JSON.stringify({
+        result: [{ key: 'target-org', value: 'ORG-DEV', success: true }],
+      });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: json, stderr: '' } as never);
+
+      await expect(bridge.getDefaultOrgUsername()).resolves.toBe('ORG-DEV');
+    });
+
+    it('accepts the legacy targetusername key', async () => {
+      const json = JSON.stringify({
+        result: [{ key: 'targetusername', value: 'dev@example.com', success: true }],
+      });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: json, stderr: '' } as never);
+
+      await expect(bridge.getDefaultOrgUsername()).resolves.toBe('dev@example.com');
+    });
+
+    it('returns undefined when no default is configured', async () => {
+      const json = JSON.stringify({ result: [] });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: json, stderr: '' } as never);
+
+      await expect(bridge.getDefaultOrgUsername()).resolves.toBeUndefined();
+    });
+
+    it('returns undefined when the CLI call fails — never throws', async () => {
+      mockCliInvoker.mockRejectedValueOnce(new Error('sf not found') as never);
+
+      await expect(bridge.getDefaultOrgUsername()).resolves.toBeUndefined();
+    });
+
+    it('returns undefined on unparseable output', async () => {
+      mockCliInvoker.mockResolvedValueOnce({ stdout: 'not json at all', stderr: '' } as never);
+
+      await expect(bridge.getDefaultOrgUsername()).resolves.toBeUndefined();
+    });
+  });
 });

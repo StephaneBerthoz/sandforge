@@ -52,7 +52,7 @@ describe('validateOrgsOnStartup', () => {
     expect(deps.orgManager.updateStatus).not.toHaveBeenCalled();
   });
 
-  it('marks an org refreshing then connected on successful validation', async () => {
+  it('marks an org connected on successful validation (no intermediate refreshing flip)', async () => {
     const org = makeOrg('org-1', 'dev');
     const deps = makeDeps([org]);
     mockGetJsforceConnection.mockResolvedValueOnce({});
@@ -60,8 +60,10 @@ describe('validateOrgsOnStartup', () => {
     await validateOrgsOnStartup(deps);
 
     expect(mockGetJsforceConnection).toHaveBeenCalledTimes(1);
+    // Status changes happen on RESULT only — a 'refreshing' intermediate made
+    // connected counters tick down one by one during the sweep.
     const statuses = vi.mocked(deps.orgManager.updateStatus).mock.calls.map((c) => c[1]);
-    expect(statuses).toEqual(['refreshing', 'connected']);
+    expect(statuses).toEqual(['connected']);
   });
 
   it('marks an org expired on an authentication failure', async () => {
@@ -74,7 +76,7 @@ describe('validateOrgsOnStartup', () => {
     await validateOrgsOnStartup(deps);
 
     const statuses = vi.mocked(deps.orgManager.updateStatus).mock.calls.map((c) => c[1]);
-    expect(statuses).toEqual(['refreshing', 'expired']);
+    expect(statuses).toEqual(['expired']);
   });
 
   it('marks an org error on a non-auth failure', async () => {
@@ -87,7 +89,7 @@ describe('validateOrgsOnStartup', () => {
     await validateOrgsOnStartup(deps);
 
     const statuses = vi.mocked(deps.orgManager.updateStatus).mock.calls.map((c) => c[1]);
-    expect(statuses).toEqual(['refreshing', 'error']);
+    expect(statuses).toEqual(['error']);
   });
 
   it('keeps validating the remaining orgs after one fails', async () => {
@@ -105,7 +107,7 @@ describe('validateOrgsOnStartup', () => {
     for (const [id, status] of calls) {
       byOrg.set(id as string, [...(byOrg.get(id as string) ?? []), status as string]);
     }
-    expect(byOrg.get('org-1')).toEqual(['refreshing', 'expired']);
-    expect(byOrg.get('org-2')).toEqual(['refreshing', 'connected']);
+    expect(byOrg.get('org-1')).toEqual(['expired']);
+    expect(byOrg.get('org-2')).toEqual(['connected']);
   });
 });

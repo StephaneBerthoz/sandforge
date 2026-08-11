@@ -16,9 +16,11 @@ export interface StartupValidationDeps {
  * token is refreshed (via the SF CLI self-heal in getJsforceConnection) BEFORE
  * the user's first operation hits an auth wall mid-run.
  *
- * Per-org statuses are updated along the way (`refreshing` → `connected` /
- * `expired` / `error`), which feeds the sidebar tree and org pickers through
- * the OrgManager change events.
+ * Per-org statuses are updated with the RESULT (`connected` / `expired` /
+ * `error`), which feeds the sidebar tree and org pickers through the
+ * OrgManager change events. There is deliberately no intermediate
+ * `refreshing` flip: flipping every org before its check made connected
+ * counters visibly tick down one by one during the sweep.
  *
  * Sequential by design: each check may spawn an `sf org display` CLI call and
  * orgs are few — parallelism would only contend on the CLI's auth store.
@@ -35,7 +37,10 @@ export async function validateOrgsOnStartup(deps: StartupValidationDeps): Promis
   log(`[startup] Validating ${orgs.length} registered org(s) in the background…`);
   for (const org of orgs) {
     const orgId = org.id as UUID;
-    orgManager.updateStatus(orgId, 'refreshing');
+    // No intermediate 'refreshing' flip: status changes only on a RESULT.
+    // Flipping every org to 'refreshing' first made connected-counts tick
+    // down one by one during the sweep — the panel looked like orgs were
+    // dying in slow motion.
     try {
       await getJsforceConnection(org.id, orgRegistry, orgManager);
       orgManager.updateStatus(orgId, 'connected');

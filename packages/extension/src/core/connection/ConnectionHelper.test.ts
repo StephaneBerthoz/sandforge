@@ -374,6 +374,67 @@ describe('ConnectionHelper', () => {
       // Persist happens only AFTER the new token is validated.
       expect(orgRegistry.saveOrg).not.toHaveBeenCalled();
     });
+
+    it('should adopt the CLI instanceUrl when it moved (sandbox refresh / My Domain change)', async () => {
+      const org = makeOrg();
+      const creds = makeCreds(); // instanceUrl: https://test.my.salesforce.com
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID')).mockResolvedValueOnce({
+        user_id: 'u1',
+      });
+      // CLI reports the org on a NEW instance with a fresh token.
+      const refreshJson = JSON.stringify({
+        result: {
+          accessToken: 'fresh-token',
+          instanceUrl: 'https://new--refreshed.sandbox.my.salesforce.com',
+        },
+      });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+
+      const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      expect(conn).toBeDefined();
+      // Persisted with the CLI's current instanceUrl, not the stale one.
+      expect(orgRegistry.saveOrg).toHaveBeenCalledWith(
+        org,
+        expect.objectContaining({
+          accessToken: 'fresh-token',
+          instanceUrl: 'https://new--refreshed.sandbox.my.salesforce.com',
+        }),
+      );
+    });
+
+    it('should retry on the CLI instanceUrl even when the token is unchanged (URL moved, session valid there)', async () => {
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      // The stored token fails on the STORED (stale) instance URL…
+      mockIdentity.mockRejectedValueOnce(new Error('INVALID_SESSION_ID')).mockResolvedValueOnce({
+        user_id: 'u1',
+      });
+      // …but the CLI says the org now lives elsewhere — the same token is
+      // valid on the new instance. Must NOT be mistaken for a stale CLI store.
+      const refreshJson = JSON.stringify({
+        result: {
+          accessToken: 'token-123',
+          instanceUrl: 'https://newdomain.my.salesforce.com',
+        },
+      });
+      mockCliInvoker.mockResolvedValueOnce({ stdout: refreshJson, stderr: '' } as never);
+
+      const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      expect(conn).toBeDefined();
+      expect(mockIdentity).toHaveBeenCalledTimes(2);
+      expect(orgRegistry.saveOrg).toHaveBeenCalledWith(
+        org,
+        expect.objectContaining({ instanceUrl: 'https://newdomain.my.salesforce.com' }),
+      );
+    });
   });
 
   describe('circuit breaker (per-org)', () => {

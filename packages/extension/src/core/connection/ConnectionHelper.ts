@@ -52,11 +52,21 @@ export function resetCircuitBreakers(): void {
   circuitBreakers.clear();
 }
 
+/** Fresh credentials as currently known by the SF CLI. */
+interface CliCredentials {
+  accessToken: string;
+  /** Present when the CLI reports one (always in practice) — may differ from the stored URL. */
+  instanceUrl?: string;
+}
+
 /**
- * Refresh an access token by querying the SF CLI for the latest org display info.
- * Returns the new accessToken or throws.
+ * Refresh credentials by querying the SF CLI for the latest org display info.
+ * Returns the current accessToken AND the CLI's current instanceUrl — after a
+ * sandbox refresh or a My Domain change the stored URL points at the wrong
+ * instance, and even a fresh token is rejected there (INVALID_AUTH_HEADER).
+ * Throws when the CLI has no usable session.
  */
-async function refreshTokenViaCli(username: string): Promise<string> {
+async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
   // Validate username (defense in depth — argv-as-array on POSIX makes
   // shell-injection moot, but the regex still catches obviously malformed
   // input early and is the only defense on the Windows shell branch below).
@@ -92,7 +102,7 @@ async function refreshTokenViaCli(username: string): Promise<string> {
   }
 
   const parsed = JSON.parse(stripped.slice(start)) as {
-    result?: { accessToken?: string };
+    result?: { accessToken?: string; instanceUrl?: string };
   };
 
   if (!parsed.result?.accessToken) {
@@ -101,7 +111,7 @@ async function refreshTokenViaCli(username: string): Promise<string> {
     );
   }
 
-  return parsed.result.accessToken;
+  return { accessToken: parsed.result.accessToken, instanceUrl: parsed.result.instanceUrl };
 }
 
 /**
@@ -190,37 +200,44 @@ export async function getJsforceConnection(
     // refresh via the SF CLI, then re-validate the rebuilt connection ONCE.
     if (isAuthError(err)) {
       try {
-        const newToken = await refreshTokenViaCli(org.username);
+        const fresh = await refreshTokenViaCli(org.username);
 
-        // The CLI handed back the exact token that just failed — its store
-        // is stale too (no usable refresh token, e.g. a strict Connected App
-        // policy). Retrying with it would fail identically, and persisting it
-        // would overwrite the vault with a known-bad token: bail out now with
-        // a precise cause instead.
-        if (newToken === credentials.accessToken) {
+        // The CLI's current instance URL wins over the stored one: after a
+        // sandbox refresh or My Domain change, the vault URL points at the
+        // wrong instance and even a fresh token is rejected there with
+        // INVALID_AUTH_HEADER.
+        const instanceUrl = fresh.instanceUrl ?? credentials.instanceUrl;
+
+        // The CLI handed back the exact token that just failed on the SAME
+        // instance — its store is stale too (no usable refresh token, e.g. a
+        // strict Connected App policy). Retrying would fail identically, and
+        // persisting it would overwrite the vault with a known-bad token:
+        // bail out now with a precise cause instead.
+        if (fresh.accessToken === credentials.accessToken && instanceUrl === credentials.instanceUrl) {
           throw new Error(
             'sf CLI token store is stale too (same expired token) — re-authenticate the org',
           );
         }
 
         const refreshedConn = new jsforce.Connection({
-          instanceUrl: credentials.instanceUrl,
-          accessToken: newToken,
+          instanceUrl,
+          accessToken: fresh.accessToken,
           version: apiVersion,
         });
         await refreshedConn.identity();
 
-        // Persist only AFTER the new token has been validated — a CLI token
-        // rejected by identity() must never reach the vault.
+        // Persist only AFTER the new credentials have been validated — a CLI
+        // token rejected by identity() must never reach the vault.
         await orgRegistry.saveOrg(org, {
           ...credentials,
-          accessToken: newToken,
+          accessToken: fresh.accessToken,
+          instanceUrl,
         });
 
         // Recovered: an expired token is not an infrastructure failure, so
         // it must not count towards the circuit breaker threshold.
         circuitBreaker.recordSuccess();
-        connectionPool.acquire(uid, credentials.instanceUrl, newToken);
+        connectionPool.acquire(uid, instanceUrl, fresh.accessToken);
         connectionPool.recordLatency(uid, latency);
         return refreshedConn;
       } catch (recoveryErr: unknown) {
