@@ -8,6 +8,9 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
+    /* See packages/extension/vitest.config.ts — absorb event-loop starvation
+       when the three suites run in parallel under `pnpm validate`. */
+    testTimeout: 15000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

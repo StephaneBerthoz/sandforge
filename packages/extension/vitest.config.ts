@@ -6,6 +6,15 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     setupFiles: ['src/test/setup.ts'],
+    /*
+     * The full suite runs in parallel with the webview/shared suites during
+     * `pnpm validate`; on loaded machines the event loop can starve a worker
+     * for more than vitest's 5 s default and fail an otherwise-fast test
+     * (observed on autopilotComposition, SeedOpsHandler, SyncHistoryStore —
+     * all <150 ms in isolation). 15 s keeps real hangs detectable while
+     * absorbing scheduling jitter.
+     */
+    testTimeout: 15000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

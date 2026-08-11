@@ -53,8 +53,8 @@ describe('SidebarViewProvider', () => {
   it('sets webview HTML with sidepanel module on resolve', () => {
     provider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
     expect(mockWebview.html).toContain('__SANDFORGE_MODULE__="sidepanel"');
-    expect(mockWebview.html).toContain('index.js');
-    expect(mockWebview.html).toContain('style.css');
+    expect(mockWebview.html).toContain('sidepanel.js');
+    expect(mockWebview.html).toContain('sidepanel.css');
   });
 
   it('enables scripts and sets local resource roots', () => {
