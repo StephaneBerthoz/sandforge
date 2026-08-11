@@ -5,6 +5,13 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-08-11
+
+### Changed
+
+- The sidebar webview now ships its own bundle: 377 KB instead of the full 1.8 MB panel bundle — the sidebar loads faster and uses less memory; editor panels keep the full bundle.
+- Webview CSS is split per target: the sidebar no longer downloads the reactflow styles used only by diagram pages.
+
 ## [1.10.0] - 2026-08-11
 
 ### Features

@@ -222,10 +222,10 @@ export class SidebarViewProvider {
   private buildHtml(webview: vscode.Webview): string {
     const joinPath = this.uriJoinPath;
     const scriptUri = webview.asWebviewUri(
-      joinPath(this.extensionUri, 'webview-dist', 'assets', 'index.js'),
+      joinPath(this.extensionUri, 'webview-dist', 'assets', 'sidepanel.js'),
     );
     const styleUri = webview.asWebviewUri(
-      joinPath(this.extensionUri, 'webview-dist', 'assets', 'style.css'),
+      joinPath(this.extensionUri, 'webview-dist', 'assets', 'sidepanel.css'),
     );
 
     return buildWebviewHtml({

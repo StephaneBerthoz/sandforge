@@ -9,9 +9,9 @@ import { randomBytes } from 'node:crypto';
 export interface WebviewHtmlAssets {
   /** `webview.cspSource` of the target webview. */
   cspSource: string;
-  /** Resolved URI of the React bundle (`webview-dist/assets/index.js`). */
+  /** Resolved URI of the React bundle (panels: `webview-dist/assets/index.js`, sidebar: `webview-dist/assets/sidepanel.js`). */
   scriptUri: { toString(): string };
-  /** Resolved URI of the stylesheet (`webview-dist/assets/style.css`). */
+  /** Resolved URI of the stylesheet (panels: `webview-dist/assets/style.css`, sidebar: `webview-dist/assets/sidepanel.css`). */
   styleUri: { toString(): string };
   /** Content of the HTML `<title>` tag. */
   title: string;
