@@ -998,4 +998,151 @@ describe('SeedOpsHandler', () => {
       expect(payload?.retryHint).toBeUndefined();
     });
   });
+
+  describe('seed:error channel', () => {
+    function postedMessages(): Array<
+      BaseMessage & { payload?: Record<string, unknown> }
+    > {
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      return postToWebview.mock.calls.map((c) => c[0]);
+    }
+
+    function executeMsg(id: string): BaseMessage & {
+      payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+    } {
+      return {
+        id,
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      };
+    }
+
+    it('emits seed:error with the retryHint on a pre-flight network failure', async () => {
+      mockGetConn.mockRejectedValue(
+        Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), { code: 'ECONNREFUSED' }),
+      );
+
+      await handler.handle(executeMsg('seed-err-1'));
+
+      // useBridgeMutation only settles on seed:execute:response / seed:error —
+      // without this message the user stared at the 120 s timeout.
+      const seedErrors = postedMessages().filter((m) => m.type === 'seed:error');
+      expect(seedErrors).toHaveLength(1);
+      expect(seedErrors[0].payload?.message).toContain('ECONNREFUSED');
+      expect(String(seedErrors[0].payload?.retryHint)).toContain('manually');
+      expect(seedErrors[0].payload?.offlineReplayAvailable).toBe(false);
+      // The operation:failed lifecycle message is preserved alongside.
+      expect(postedMessages().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+      // And no fake success response.
+      expect(postedMessages().filter((m) => m.type === 'seed:execute:response')).toHaveLength(0);
+    });
+
+    it('emits seed:error exactly once on an execution failure (no hint for API errors)', async () => {
+      // Connection succeeds but executeSeed throws: no composition-root
+      // services are injected in this test setup.
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(executeMsg('seed-err-2'));
+
+      const seedErrors = postedMessages().filter((m) => m.type === 'seed:error');
+      expect(seedErrors).toHaveLength(1);
+      expect(seedErrors[0].payload?.message).toContain('composition-root services not injected');
+      expect(seedErrors[0].payload?.retryHint).toBeUndefined();
+      expect(postedMessages().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+
+    it('emits seed:error with the retryHint when the orchestrator hits a network error', async () => {
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({
+          execute: vi
+            .fn()
+            .mockRejectedValue(
+              Object.assign(new Error('connect ETIMEDOUT 10.0.0.1:443'), { code: 'ETIMEDOUT' }),
+            ),
+        })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle(executeMsg('seed-err-3'));
+
+      const seedErrors = postedMessages().filter((m) => m.type === 'seed:error');
+      expect(seedErrors).toHaveLength(1);
+      expect(seedErrors[0].payload?.message).toContain('ETIMEDOUT');
+      expect(String(seedErrors[0].payload?.retryHint)).toContain('manually');
+    });
+  });
+
+  describe('background operation registry status', () => {
+    it('marks the operation failed (not completed) when execution fails', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+
+      // Connection succeeds but executeSeed throws (no services injected).
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
+        id: 'seed-reg-1',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      };
+
+      await handler.handle(msg);
+
+      // The seed operationId is a random UUID (unlike sync, which reuses
+      // msg.id) — fish it out of the operation:started lifecycle message.
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const started = postToWebview.mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: { operationId?: string } })
+        .find((m) => m.type === 'operation:started');
+      const operationId = started?.payload?.operationId;
+      expect(operationId).toBeDefined();
+
+      // executeSeed resolves a { status: 'failure' } result (same contract as
+      // executeSync) — the registry must surface 'failed', never a lying
+      // 'completed' + "seed completed" notification.
+      await vi.waitFor(() => expect(registry.get(operationId!)?.status).toBe('failed'));
+      registry.dispose();
+    });
+
+    it('still marks the operation completed on success', async () => {
+      const registry = new BackgroundOperationRegistry();
+      handler.setRegistry(registry);
+
+      deps.services = {
+        isAIEnabled: () => false,
+        getSandforgeSetting: vi.fn(() => 200),
+        seedOrchestrator: vi.fn(() => ({
+          execute: vi.fn().mockResolvedValue({ insertedIds: ['id-1'] }),
+        })),
+      } as unknown as HandlerDeps['services'];
+      mockGetConn.mockResolvedValue({} as never);
+
+      const msg: BaseMessage & {
+        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+      } = {
+        id: 'seed-reg-2',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
+      };
+
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const started = postToWebview.mock.calls
+        .map((c) => c[0] as BaseMessage & { payload?: { operationId?: string } })
+        .find((m) => m.type === 'operation:started');
+      const operationId = started?.payload?.operationId;
+      expect(operationId).toBeDefined();
+
+      await vi.waitFor(() => expect(registry.get(operationId!)?.status).toBe('completed'));
+      registry.dispose();
+    });
+  });
 });

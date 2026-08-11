@@ -99,6 +99,19 @@ export function useQuickSyncFlow(): QuickSyncFlowActions {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * A persisted `executing` step is a corpse from a webview killed mid-run:
+   * the operation is gone (`isExecuting` is intentionally not persisted), so
+   * restore the flow at its initial step instead of a dead execution screen.
+   */
+  useEffect(() => {
+    if (step === 'executing') {
+      setStep('orgs');
+    }
+    // Mount-only: reacting to later `step` changes would cancel live runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const previewMutation = useBridgeMutation<{ preview: QuickSyncPreview }>('quicksync:preview');
   // `quicksync:execute` prepares the run: the extension auto-maps fields and
   // answers with a full SyncConfig. The actual execution is delegated to the

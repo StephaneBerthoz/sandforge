@@ -771,7 +771,17 @@ export class SyncOpsHandler implements DomainHandler {
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
       // Transport-level failure: the org was unreachable — queue the config so
       // OfflineManager replays it when connectivity returns.
-      if (isNetworkError(err) && this.deps.infraServices?.offlineManager) {
+      // Guard on `triggeredBy`: a replay (`rerun`) that fails again is NOT
+      // re-queued. Without this the drain loop is infinite — each failed replay
+      // re-enqueues while the probe still reports 'online', the debounced drain
+      // replays it a second later, and every cycle fires operationQueued +
+      // operationExecuted notifications. One replay attempt, then the failure
+      // surfaces through the normal operation:failed channel and that's it.
+      if (
+        isNetworkError(err) &&
+        triggeredBy !== 'rerun' &&
+        this.deps.infraServices?.offlineManager
+      ) {
         const queued = this.deps.infraServices.offlineManager.enqueue({
           id: operationId,
           type: 'sync',
@@ -781,6 +791,10 @@ export class SyncOpsHandler implements DomainHandler {
         if (queued) {
           this.deps.log(`[OFFLINE] sync queued for replay on reconnect: ${operationId}`);
         }
+      } else if (isNetworkError(err) && triggeredBy === 'rerun') {
+        this.deps.log(
+          `[OFFLINE] sync replay failed again — not re-queued (replay outcomes surface via operation:failed): ${operationId}`,
+        );
       }
       // Dual channel, single display (see startExecution): operation:failed
       // carries the lifecycle, sync:error settles the in-flight mutation with

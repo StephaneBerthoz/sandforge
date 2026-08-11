@@ -167,6 +167,27 @@ describe('useQuickSyncFlow', () => {
     expect(result.current.state.error).toBeNull();
   });
 
+  it('resets a persisted step=executing back to the initial step on mount', () => {
+    // Corpse from a webview killed mid-run: the operation is gone
+    // (isExecuting is not persisted), so the flow must not restore the
+    // dead execution screen.
+    persistedValues = { quickSyncStep: 'executing' };
+
+    renderHook(() => useQuickSyncFlow());
+
+    expect(mockSetStep).toHaveBeenCalledWith('orgs');
+    expect(persistedValues['quickSyncStep']).toBe('orgs');
+  });
+
+  it('keeps a persisted non-executing step on mount', () => {
+    persistedValues = { quickSyncStep: 'objects' };
+
+    const { result } = renderHook(() => useQuickSyncFlow());
+
+    expect(mockSetStep).not.toHaveBeenCalled();
+    expect(result.current.state.step).toBe('objects');
+  });
+
   it('setSourceOrg and setTargetOrg update state correctly', () => {
     const { result } = renderHook(() => useQuickSyncFlow());
 

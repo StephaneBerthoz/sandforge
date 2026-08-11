@@ -77,16 +77,34 @@ describe('WelcomePage', () => {
     }
   });
 
-  it('should render language selection buttons on Bienvenue step', () => {
+  it('should render all six language selection buttons on Bienvenue step, with native labels', () => {
     render(<WelcomePage onComplete={onComplete} />);
-    expect(screen.getByTestId('lang-en')).toBeDefined();
-    expect(screen.getByTestId('lang-fr')).toBeDefined();
+    const expected: Array<[string, string]> = [
+      ['lang-en', 'English'],
+      ['lang-fr', 'Français'],
+      ['lang-de', 'Deutsch'],
+      ['lang-es', 'Español'],
+      ['lang-ja', '日本語'],
+      ['lang-pt-BR', 'Português (Brasil)'],
+    ];
+    for (const [testid, label] of expected) {
+      const button = screen.getByTestId(testid);
+      expect(button).toBeDefined();
+      // Native labels: readable regardless of the currently active language.
+      expect(button.textContent).toBe(label);
+    }
   });
 
   it('should change language when language button is clicked', () => {
     render(<WelcomePage onComplete={onComplete} />);
     fireEvent.click(screen.getByTestId('lang-fr'));
     expect(mockChangeLanguage).toHaveBeenCalledWith('fr');
+  });
+
+  it('should change language to a non-European language when its button is clicked', () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('lang-ja'));
+    expect(mockChangeLanguage).toHaveBeenCalledWith('ja');
   });
 
   it('should navigate from Bienvenue to step 1 when Next is clicked', () => {

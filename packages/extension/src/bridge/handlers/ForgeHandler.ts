@@ -381,7 +381,7 @@ export class ForgeHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'forge:preview', 'forge:preview:error', err, 'PREVIEW_ERROR');
+      sendHandlerError(this.deps, 'forge:preview', 'forge:preview:error', err, 'PREVIEW_ERROR', undefined, undefined, msg);
     }
   }
 

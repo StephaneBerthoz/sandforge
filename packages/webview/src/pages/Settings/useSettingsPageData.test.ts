@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSettingsPageData } from './useSettingsPageData';
+import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import i18n from '../../i18n';
 import { defaultSettings } from './SettingsPage';
 import type { SettingsValues } from './SettingsPage';
 
@@ -86,5 +88,51 @@ describe('useSettingsPageData', () => {
     });
 
     expect(result.current.aiApiKey).toBe('sk-test-key');
+  });
+
+  it('should persist the LIVE i18n language on save, not the local snapshot', async () => {
+    const mutateSpy = vi.fn();
+    const mockedMutation = vi.mocked(useBridgeMutation);
+    // Route the settings:update mutation to the spy.
+    mockedMutation.mockImplementation(
+      ((type: string) => ({
+        mutate: type === 'settings:update' ? mutateSpy : vi.fn(),
+        data: null,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+      })) as unknown as typeof useBridgeMutation,
+    );
+    try {
+      const onSave = vi.fn();
+      const { result } = renderHook(() => useSettingsPageData(undefined, onSave));
+      // Local snapshot is 'en' (boot default)…
+      expect(result.current.settings.language).toBe('en');
+
+      // …but the live language moved afterwards (Welcome wizard, blob
+      // recovery): the blob must carry the LIVE value, never the stale
+      // local one — otherwise saving erases the user's real choice.
+      await i18n.changeLanguage('fr');
+      act(() => {
+        result.current.handleSave();
+      });
+
+      expect(mutateSpy).toHaveBeenCalledWith({
+        key: 'settings',
+        value: expect.objectContaining({ language: 'fr' }),
+      });
+      expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ language: 'fr' }));
+    } finally {
+      await i18n.changeLanguage('en');
+      mockedMutation.mockImplementation(
+        (() => ({
+          mutate: vi.fn(),
+          data: null,
+          loading: false,
+          error: null,
+          reset: vi.fn(),
+        })) as unknown as typeof useBridgeMutation,
+      );
+    }
   });
 });

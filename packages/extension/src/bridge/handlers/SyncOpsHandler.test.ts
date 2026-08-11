@@ -826,5 +826,36 @@ describe('SyncOpsHandler', () => {
 
       expect(offlineManager.getQueueSize()).toBe(0);
     });
+
+    it('does NOT re-enqueue when a replay (rerun) fails again on a network error', async () => {
+      const offlineManager = wireOfflineManager();
+
+      mockGetConn.mockRejectedValue(
+        Object.assign(new Error('getaddrinfo ENOTFOUND login.salesforce.com'), {
+          code: 'ENOTFOUND',
+        }),
+      );
+
+      // Replay path used by the OfflineManager drain (ExtensionHandlers.
+      // replayQueuedOperation → rerunFromSnapshot): a second transport failure
+      // must drop the operation instead of re-queuing it — otherwise the drain
+      // loops forever, firing operationQueued/operationExecuted notifications
+      // on every cycle.
+      const msg: BaseMessage = {
+        id: 'sync-offline-rerun',
+        type: 'sync:history:rerun',
+        timestamp: Date.now(),
+      };
+
+      await handler.rerunFromSnapshot(msg, validSyncConfig());
+
+      expect(offlineManager.getQueueSize()).toBe(0);
+
+      // The failure still surfaces on the usual channels.
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const types = postToWebview.mock.calls.map((c) => (c[0] as BaseMessage).type);
+      expect(types).toContain('operation:failed');
+      expect(types).toContain('sync:error');
+    });
   });
 });

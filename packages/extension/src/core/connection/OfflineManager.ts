@@ -51,8 +51,7 @@ export class OfflineManager {
   private static readonly PROBE_INTERVAL = 30_000;
   /**
    * Debounce before an enqueue-while-online triggers a drain. Batches burst
-   * enqueues into a single drain and keeps a failing replay from hot-looping
-   * (each retry waits at least this long).
+   * enqueues into a single drain.
    */
   private static readonly DRAIN_DEBOUNCE_MS = 1_000;
 
@@ -166,9 +165,11 @@ export class OfflineManager {
     this.persistQueue();
     this.emit({ type: 'operationQueued', operation: queued });
 
-    // A replay that fails again on a network error re-enqueues while the
-    // probe still reports 'online' — without this drain the entry would sit
-    // parked until the next offline→online transition that may never come.
+    // An operation queued while the probe still reports 'online' (e.g. a
+    // manual sync whose org is unreachable) would otherwise sit parked until
+    // the next offline→online transition that may never come. Failed replays
+    // are NOT re-queued (see the `triggeredBy` guard in SyncOpsHandler), so
+    // this drain cannot hot-loop.
     if (this.status === 'online') {
       this.scheduleDrain();
     }
@@ -232,7 +233,6 @@ export class OfflineManager {
         executed++;
         this.emit({ type: 'operationExecuted', operation });
       } catch {
-        operation.retryCount++;
         this.queue.shift();
         failed++;
         this.emit({ type: 'operationFailed', operation });

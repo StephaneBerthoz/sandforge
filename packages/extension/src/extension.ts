@@ -172,7 +172,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Replays operations queued on transport failure once connectivity returns
   // (the queue drains on the offline→online probe transition).
   wireOfflineReplay(offlineManager, handlers);
-  // Native notifications for offline-queue lifecycle (queued / replayed /
+  // Native notifications for offline-queue lifecycle (queued / restarted /
   // dropped) — the webview has no offline channel, this is the only surface.
   wireOfflineNotifications(offlineManager);
 
@@ -236,6 +236,9 @@ export function activate(context: vscode.ExtensionContext): void {
         payload: { orgId },
       });
     },
+    // Outbound-only broker registration (step 5) so operation lifecycle
+    // broadcasts reach the sidebar's Running / Last operation blocks.
+    broker,
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,

@@ -11,8 +11,11 @@ import { defaultSettings } from './SettingsPage';
  * Single source of truth for the UI language is the `language` key of the
  * VS Code webview state, read by the i18n module at boot and rewritten on
  * every `languageChanged` event. The settings blob persisted through
- * `settings:update` also carries a `language` field, but it is only a
- * trailing copy written on save — it is NEVER applied back to i18n.
+ * `settings:update` also carries a `language` field with two roles:
+ * recovery fallback (a one-shot import in BridgeProvider adopts the blob
+ * value when a fresh webview state has none — the state is per-document
+ * and dies with the panel) and trailing mirror (rewritten on every save
+ * with the LIVE i18n language — see handleSave).
  * At mount the local state mirrors the live i18n language (one-way sync:
  * settings ← webview-state), which eliminates the silent divergence where
  * a stale blob showed one language while the UI rendered another.
@@ -162,9 +165,11 @@ export function useSettingsPageData(
     // Picking known keys avoids re-persisting those zombie fields on next save.
     const known: Partial<SettingsValues> = {};
     for (const key of Object.keys(defaultSettings) as (keyof SettingsValues)[]) {
-      // `language` is deliberately NOT read back from the blob: the webview
-      // state is the single source of truth (see resolveBootLanguage), so a
-      // stale blob value must not overwrite the live i18n language here.
+      // `language` is deliberately NOT read back from the blob here: the
+      // webview state is the single source of truth (see resolveBootLanguage),
+      // so a stale blob value must not overwrite the live i18n language.
+      // (Recovery when the state is EMPTY happens once, earlier, in
+      // BridgeProvider via importLanguageFromSettings.)
       if (key === 'language') continue;
       if (key in loaded && typeof loaded[key] === typeof defaultSettings[key]) {
         (known as Record<string, unknown>)[key] = loaded[key];
@@ -191,11 +196,22 @@ export function useSettingsPageData(
   };
 
   const handleSave = (): void => {
+    /*
+     * Always persist the LIVE i18n language, never the local snapshot: the
+     * local state can lag behind (language changed through the Welcome
+     * wizard or recovered from the blob after this page mounted), and
+     * writing it back would clobber the user's real choice in the
+     * globalState blob — the very value the recovery import relies on.
+     */
+    const toSave: SettingsValues = {
+      ...settings,
+      language: resolveBootLanguage(defaultSettings.language),
+    };
     settingsUpdateMutation.mutate({
       key: 'settings',
-      value: settings as unknown as Record<string, unknown>,
+      value: toSave as unknown as Record<string, unknown>,
     });
-    onSave?.(settings);
+    onSave?.(toSave);
   };
 
   const handleReset = (): void => {

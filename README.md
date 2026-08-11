@@ -1,6 +1,6 @@
 # SandForge: Salesforce DevOps Toolkit
 
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![Tests](https://img.shields.io/badge/tests-7647-brightgreen)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)

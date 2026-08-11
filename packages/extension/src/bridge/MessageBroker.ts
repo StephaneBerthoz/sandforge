@@ -1,7 +1,6 @@
 import type * as vscode from 'vscode';
 import type { BaseMessage } from '@sandforge/shared';
 import {
-  baseMessageSchema,
   EnvelopedMessageSchema,
   PROTOCOL_VERSION,
   isVersionCompatible,
@@ -60,6 +59,39 @@ function isEnvelopeShape(raw: unknown): raw is RawEnvelope {
 }
 
 /**
+ * Max length of the joined Zod issue string posted to the webview and logged
+ * to telemetry. An unknown `type` literal enumerates every known literal
+ * (~300 values ≈ 6.5 kB) — that must never hit the wire.
+ */
+const MAX_ISSUES_LENGTH = 500;
+
+/**
+ * Joins Zod issues into a single `; `-separated string, truncating to
+ * {@link MAX_ISSUES_LENGTH} chars and appending the total issue count.
+ */
+function formatIssues(
+  issues: ReadonlyArray<{ path: (string | number)[]; message: string }>,
+): string {
+  const joined = issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
+  if (joined.length <= MAX_ISSUES_LENGTH) return joined;
+  return `${joined.slice(0, MAX_ISSUES_LENGTH)}…(+${issues.length} issues)`;
+}
+
+/** Options for {@link MessageBroker.registerPanel}. */
+export interface RegisterPanelOptions {
+  /**
+   * Subscribe to the view's inbound messages (default: `true`).
+   *
+   * Pass `false` for outbound-only views such as the sidebar: their outgoing
+   * messages are raw shapes without id/timestamp that would fail envelope
+   * validation and trip the rate limiter, while inbound traffic is already
+   * handled by the provider's own `onDidReceiveMessage` subscription. With
+   * `inbound: false` the view still receives every `postToWebview` broadcast.
+   */
+  inbound?: boolean;
+}
+
+/**
  * Central typed message hub for bidirectional communication
  * between the extension host and webview panels/views.
  *
@@ -68,8 +100,9 @@ function isEnvelopeShape(raw: unknown): raw is RawEnvelope {
  * Inbound messages are rate-limited to prevent flooding.
  *
  * Plan 01-04 hardening:
- *  - Every inbound message is parsed via `EnvelopedMessageSchema` (or the
- *    legacy `baseMessageSchema` fallback for raw messages without envelope).
+ *  - Every inbound message must be enveloped and is parsed via
+ *    `EnvelopedMessageSchema`; raw non-enveloped messages are dropped — the
+ *    webview always envelops (same VSIX), so a pre-envelope client cannot exist.
  *  - Invalid payloads → `bridge:error` posted back + telemetry warn.
  *  - Version mismatch → `bridge:protocol-mismatch` (every time) and, after
  *    {@link MISMATCH_BANNER_THRESHOLD} consecutive mismatches, a sticky
@@ -95,23 +128,30 @@ export class MessageBroker {
 
   /**
    * Register a webview panel or view for message routing.
-   * Incoming messages from the panel's webview are dispatched to handlers.
+   * Incoming messages from the panel's webview are dispatched to handlers,
+   * unless `options.inbound` is `false` (outbound-only registration — the
+   * view then only receives `postToWebview` broadcasts).
    * @returns A disposable that unregisters the panel on dispose.
    */
-  registerPanel(panel: vscode.WebviewPanel | vscode.WebviewView): vscode.Disposable {
+  registerPanel(
+    panel: vscode.WebviewPanel | vscode.WebviewView,
+    { inbound = true }: RegisterPanelOptions = {},
+  ): vscode.Disposable {
     this.panels.add(panel);
     // SECURITY: No event.origin validation is needed here.
     // VSCode's `webview.onDidReceiveMessage` is a trusted channel that only
     // receives messages from the specific webview instance owned by this
     // extension. The VSCode API guarantees message isolation — no other
     // extension or external page can inject messages into this handler.
-    const subscription = panel.webview.onDidReceiveMessage((msg: unknown) => {
-      this.dispatch(msg);
-    });
+    const subscription = inbound
+      ? panel.webview.onDidReceiveMessage((msg: unknown) => {
+          this.dispatch(msg);
+        })
+      : undefined;
     return {
       dispose: () => {
         this.panels.delete(panel);
-        subscription.dispose();
+        subscription?.dispose();
       },
     };
   }
@@ -180,71 +220,56 @@ export class MessageBroker {
    * Validate and dispatch an incoming message to registered handlers.
    *
    * Decision tree:
-   *  1. If the raw payload looks like an envelope (`{ protocolVersion, payload }`),
-   *     parse via {@link EnvelopedMessageSchema}:
+   *  1. If the raw payload does not look like an envelope
+   *     (`{ protocolVersion, payload }`), drop it — the webview always
+   *     envelops, so a pre-envelope client cannot exist.
+   *  2. Otherwise parse via {@link EnvelopedMessageSchema}:
    *      - parse fail → post `bridge:error`, warn, drop.
    *      - version mismatch → post `bridge:protocol-mismatch`, increment
    *        `mismatchCount`, after {@link MISMATCH_BANNER_THRESHOLD} also post
    *        `bridge:reload-banner`. The inner payload is still dispatched so
    *        best-effort functionality survives during hot-reload dev loops.
    *      - success → reset `mismatchCount`, dispatch payload.
-   *  2. Otherwise (legacy/raw message), validate via `baseMessageSchema` only
-   *     for backward compatibility with pre-Plan-01-04 callers and tests.
    */
   private dispatch(raw: unknown): void {
-    // ── Envelope path ────────────────────────────────────────────────────
-    if (isEnvelopeShape(raw)) {
-      const result = EnvelopedMessageSchema.safeParse(raw);
-      if (!result.success) {
-        const issues = result.error.issues
-          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-          .join('; ');
-        this.logFn?.(`[MessageBroker] Invalid enveloped payload: ${issues}`);
-        this.warn('bridge invalid payload', { issues });
-        this.postBridgeError('invalid-payload', issues);
-        return;
-      }
-
-      const envelope = result.data;
-      if (!isVersionCompatible(envelope.protocolVersion)) {
-        this.mismatchCount++;
-        this.warn('bridge protocol mismatch', {
-          serverVersion: PROTOCOL_VERSION,
-          clientVersion: envelope.protocolVersion,
-          count: this.mismatchCount,
-        });
-        this.postBridgeMismatch(envelope.protocolVersion);
-        if (this.mismatchCount >= MISMATCH_BANNER_THRESHOLD) {
-          this.postBridgeReloadBanner();
-        }
-        // Dispatch anyway so UIs using stable message shapes still work
-        // during dev/hot-reload windows.
-      } else {
-        this.mismatchCount = 0;
-      }
-
-      this.continueDispatch(envelope.payload);
+    if (!isEnvelopeShape(raw)) {
+      this.logFn?.('[MessageBroker] Received malformed message: not an envelope');
       return;
     }
 
-    // ── Legacy path (no envelope) ────────────────────────────────────────
-    const baseResult = baseMessageSchema.safeParse(raw);
-    if (!baseResult.success) {
-      const issues = baseResult.error.issues
-        .map(
-          (issue: { path: (string | number)[]; message: string }) =>
-            `${issue.path.join('.')}: ${issue.message}`,
-        )
-        .join('; ');
-      this.logFn?.(`[MessageBroker] Received malformed message: ${issues}`);
+    const result = EnvelopedMessageSchema.safeParse(raw);
+    if (!result.success) {
+      const issues = formatIssues(result.error.issues);
+      this.logFn?.(`[MessageBroker] Invalid enveloped payload: ${issues}`);
+      this.warn('bridge invalid payload', { issues });
+      this.postBridgeError('invalid-payload', issues);
       return;
     }
-    this.continueDispatch(baseResult.data as BaseMessage);
+
+    const envelope = result.data;
+    if (!isVersionCompatible(envelope.protocolVersion)) {
+      this.mismatchCount++;
+      this.warn('bridge protocol mismatch', {
+        serverVersion: PROTOCOL_VERSION,
+        clientVersion: envelope.protocolVersion,
+        count: this.mismatchCount,
+      });
+      this.postBridgeMismatch(envelope.protocolVersion);
+      if (this.mismatchCount >= MISMATCH_BANNER_THRESHOLD) {
+        this.postBridgeReloadBanner();
+      }
+      // Dispatch anyway so UIs using stable message shapes still work
+      // during dev/hot-reload windows.
+    } else {
+      this.mismatchCount = 0;
+    }
+
+    this.continueDispatch(envelope.payload);
   }
 
   /**
    * Rate-limit + handler dispatch for a message that already passed schema
-   * validation. Extracted so both envelope and legacy paths share this logic.
+   * validation. Extracted from {@link dispatch} to keep it readable.
    */
   private continueDispatch(message: BaseMessage): void {
     if (!this.rateLimiter.tryAcquire()) {

@@ -29,8 +29,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate (typecheck + lint + test + build)
-        run: pnpm validate
+      - name: Validate (typecheck + test + build)
+        run: pnpm build:shared && pnpm typecheck && pnpm test && pnpm build
+
+      # Static analysis gates are deterministic; run once, not per-OS
+      - name: Static gates (lint + audits)
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm lint && pnpm audit:disposables && pnpm check:i18n
 
       # Coverage thresholds only gate here (once, not per-OS): vitest
       # configs define thresholds ~5pts under the measured baseline
@@ -39,9 +44,19 @@ jobs:
         run: pnpm test:coverage
 
       # E2E tests only on Windows (matches dev environment)
+      # Browsers are cached across runs; the lockfile-keyed cache
+      # invalidates automatically when the Playwright version changes
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        if: matrix.os == 'windows-latest'
+        with:
+          path: C:\Users\runneradmin\AppData\Local\ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # --with-deps only installs system libraries on Linux; no-op on Windows
       - name: Install Playwright Chromium
         if: matrix.os == 'windows-latest'
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
         working-directory: packages/webview
 
       - name: Run E2E tests

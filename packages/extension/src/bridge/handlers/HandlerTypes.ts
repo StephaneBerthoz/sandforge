@@ -191,6 +191,8 @@ export function sendOperationCompleted(
  * @param err - The caught unknown error value.
  * @param code - Optional error code for structured error classification (default: `'UNKNOWN'`).
  * @param retryable - Optional flag indicating whether the operation can be retried (default: `false`).
+ * @param extraPayload - Optional extra fields merged into the error payload
+ *   (e.g. the offline `retryHint` for transport-level seed failures).
  */
 export function sendHandlerError(
   deps: Pick<HandlerDeps, 'log' | 'broker' | 'nextId'>,
@@ -199,14 +201,21 @@ export function sendHandlerError(
   err: unknown,
   code?: string,
   retryable?: boolean,
+  extraPayload?: Record<string, unknown>,
+  request?: BaseMessage,
 ): void {
   const message = extractErrorMessage(err);
   deps.log(`[ERR] ${context}: ${message}`);
-  const errMsg: BaseMessage & { payload: { message: string; code: string; retryable: boolean } } = {
+  const errMsg: BaseMessage & {
+    payload: { message: string; code: string; retryable: boolean } & Record<string, unknown>;
+  } = {
     id: deps.nextId(),
     type: messageType,
     timestamp: Date.now(),
-    payload: { message, code: code ?? 'UNKNOWN', retryable: retryable ?? false },
+    // Correlating the error to its request lets the webview drop stale error
+    // responses (same contract as buildResponse: correlationId = request.id).
+    ...(request ? { correlationId: request.id } : {}),
+    payload: { message, code: code ?? 'UNKNOWN', retryable: retryable ?? false, ...extraPayload },
   };
   deps.broker.postToWebview(errMsg);
   deps.log(`[TX] ${messageType}: ${message}`);

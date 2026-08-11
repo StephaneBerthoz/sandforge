@@ -5,6 +5,33 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-10
+
+**Third-audit release: features that actually reach the user.** A full re-audit of 1.4.0 found that several features shipped earlier were wired but invisible in production — the `App` shell was dead code (every entry point injects a module), the sidebar never received broker broadcasts, and the offline replay could loop forever. All fixed, plus a leaner shared package and a fully localized manifest.
+
+### Added
+
+- **Panel shells are now first-class**: global keyboard shortcuts (chords + Ctrl+number), the command palette, the welcome overlay, and the motion provider (with `prefers-reduced-motion`) are mounted in the live panel/sidebar shells — previously they only existed in the unreachable `App` root.
+- **Sidebar receives live broadcasts**: the sidebar webview is registered with the message broker (outbound-only mode), so the recent-operations blocks and org updates finally reach it.
+- **Extension manifest localized**: `package.nls.{de,es,ja,pt-BR}.json` — command titles, view names, walkthrough steps and setting descriptions in all 6 languages, with the parity gate extended to enforce it in CI.
+- **Marketplace presence**: badges on the listing, Q&A tab wired to GitHub Discussions, high-intent keywords (`sfdmu`, `data-loader`, `test-data`…), `Testing` category, FAQ + table of contents + module screenshots on the marketplace page, issue/PR templates and CODEOWNERS on the repo.
+- Bridge error messages are truncated to a bounded size instead of dumping thousands of schema-union issues to the webview and telemetry.
+
+### Fixed
+
+- **Offline replay loop**: a failed replay (e.g. org unreachable while the login endpoint answers) no longer re-queues itself forever with 2-3 native notifications per cycle — replays that fail are dropped with an honest "restarted" wording, and `operation:failed`/`sync:error` carry the failure.
+- **Seed failures no longer time out after 120 s**: `seed:error` is emitted immediately on execution failures (with the offline retry hint), and the operation registry no longer reports a failed seed as "completed".
+- **Error responses are correlated**: `sendHandlerError` propagates the request's `correlationId` — a late error from a superseded Forge preview can no longer wipe the current one.
+- **Language regression**: the settings blob is imported into the webview state once at startup (blob `language` applied when no webview-state choice exists) and saving settings can no longer overwrite the stored language with a stale `'en'`. Welcome page offers all 6 languages.
+- QuickSync no longer restores a persisted `executing` step as a permanent spinner after a panel reload.
+- Root `clean` script worked around the pnpm 11 builtin interception (`pnpm -r run clean`); all clean/copy scripts are now portable (no `rm -rf`/`cp` shell builtins).
+
+### Changed
+
+- **Bridge schema is now a flat discriminated union** (298 message literals, O(1) dispatch, readable validation errors) with zero typecheck regression; the legacy unenveloped-message fallback was removed (the webview always envelopes).
+- **Shared package purged**: 38 dead exported utilities removed (hash, string, validation, date, execution-result, sf-utils leftovers); `format-utils` rewritten with the webview's better-guarded implementations; coverage thresholds raised to the real baseline (lines/statements 80, branches 90, functions 65).
+- CI: Playwright browsers cached on Windows, static gates (lint/audit/i18n) run once on Ubuntu instead of 3 times.
+
 ## [1.4.0] - 2026-08-10
 
 **Post-release hardening release**: a full second audit pass over 1.3.0. The offline queue is now safe for non-idempotent operations and can no longer strand operations, the recent-operations panels are actually fed, and the remaining documentation drift is closed.

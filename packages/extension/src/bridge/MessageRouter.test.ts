@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { MessageBroker } from './MessageBroker';
 import { MessageRouter } from './MessageRouter';
 import type { MessageHandler } from './MessageBroker';
@@ -10,6 +11,11 @@ function createMessage(type: string): BaseMessage {
     type,
     timestamp: Date.now(),
   };
+}
+
+/** The broker only accepts enveloped inbound messages (raw ones are dropped). */
+function enveloped(payload: BaseMessage): unknown {
+  return { protocolVersion: PROTOCOL_VERSION, payload };
 }
 
 describe('MessageRouter', () => {
@@ -101,11 +107,11 @@ describe('MessageRouter', () => {
         msg: BaseMessage,
       ) => void;
 
-      messageCallback(createMessage('org:list'));
+      messageCallback(enveloped(createMessage('org:list')) as unknown as BaseMessage);
       expect(orgHandler).toHaveBeenCalledOnce();
       expect(seedHandler).not.toHaveBeenCalled();
 
-      messageCallback(createMessage('seed:execute'));
+      messageCallback(enveloped(createMessage('seed:execute')) as unknown as BaseMessage);
       expect(seedHandler).toHaveBeenCalledOnce();
     });
   });
@@ -140,7 +146,7 @@ describe('MessageRouter', () => {
       const messageCallback = mockPanel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:list'));
+      messageCallback(enveloped(createMessage('org:list')) as unknown as BaseMessage);
 
       expect(handler).not.toHaveBeenCalled();
     });
