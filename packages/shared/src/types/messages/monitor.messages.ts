@@ -1,10 +1,57 @@
 import type { BaseMessage } from './base.messages.js';
-import type { AlertInstance } from '../monitor.types.js';
+import type {
+  AlertInstance,
+  ApiLimit,
+  HealthReport,
+  JobInsight,
+  OrgInfo,
+  OrgTrendPayload,
+  TrendData,
+} from '../monitor.types.js';
 
 /** Monitor messages */
 export interface MonitorRefreshRequest extends BaseMessage {
   type: 'monitor:refresh';
   payload: { orgId: string };
+}
+
+/**
+ * `monitor:data`. Extension -> WebView.
+ *
+ * Full monitor dashboard snapshot, result channel of `monitor:refresh` /
+ * `monitor:start`. Mirrors the webview's `MonitorData` contract
+ * (useMonitorPageData): `jobs` entries and `orgHealthStatus` are typed
+ * webview-side only (JobDisplayInfo / OrgHealthStatus), hence the wide shapes.
+ */
+export interface MonitorDataMessage extends BaseMessage {
+  type: 'monitor:data';
+  payload: {
+    limits: ApiLimit[];
+    jobs: Array<Record<string, unknown>>;
+    healthScore: number;
+    healthReport?: HealthReport;
+    trends?: Record<string, TrendData>;
+    jobInsights?: JobInsight[];
+    orgInfo?: OrgInfo;
+    orgHealthStatus?: Record<string, unknown>;
+    lastUpdated: string;
+  };
+}
+
+/**
+ * `monitor:trends:data`. Extension -> WebView.
+ *
+ * Result channel of `monitor:trends` (org limit trend data over a period).
+ */
+export interface MonitorTrendsDataMessage extends BaseMessage {
+  type: 'monitor:trends:data';
+  payload: OrgTrendPayload;
+}
+
+/** Error response for monitor operations (emitted via sendHandlerError). */
+export interface MonitorErrorResponse extends BaseMessage {
+  type: 'monitor:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 /** Request to start monitoring an org (alias for monitor:refresh). */

@@ -275,14 +275,14 @@ describe('ForgeExecution', () => {
     act(() => {
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: { type: 'forge:progress', objectName: 'Account', status: 'running', progress: 50 },
+          data: { type: 'forge:progress', payload: { objectName: 'Account', status: 'running', progress: 50 } },
         }),
       );
     });
     act(() => {
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: { type: 'forge:progress', objectName: 'Case', status: 'error', progress: 0 },
+          data: { type: 'forge:progress', payload: { objectName: 'Case', status: 'error', progress: 0 } },
         }),
       );
     });
@@ -316,14 +316,14 @@ describe('ForgeExecution', () => {
     act(() => {
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: { type: 'forge:progress', objectName: 'Account', status: 'running', progress: 10 },
+          data: { type: 'forge:progress', payload: { objectName: 'Account', status: 'running', progress: 10 } },
         }),
       );
     });
     act(() => {
       window.dispatchEvent(
         new MessageEvent('message', {
-          data: { type: 'forge:progress', objectName: 'Contact', status: 'running', progress: 20 },
+          data: { type: 'forge:progress', payload: { objectName: 'Contact', status: 'running', progress: 20 } },
         }),
       );
     });
@@ -363,10 +363,12 @@ describe('ForgeExecution', () => {
         new MessageEvent('message', {
           data: {
             type: 'forge:progress',
-            objectName: 'Account',
-            status: 'running',
-            progress: 50,
-            message: 'Processing Account',
+            payload: {
+              objectName: 'Account',
+              status: 'running',
+              progress: 50,
+              message: 'Processing Account',
+            },
           },
         }),
       );

@@ -6,6 +6,23 @@ export interface PipelineRunRequest extends BaseMessage {
   payload: { pipelineId: string; variables?: Record<string, string> };
 }
 
+/**
+ * Response for `pipeline:run` / `pipeline:execute` — the pipeline execution
+ * result bag (`{ status, stepResults, ... }`). No shared TS mirror of the
+ * orchestrator result exists yet; the webview consumes it as
+ * `Record<string, unknown>` (useAutomationPageData).
+ */
+export interface PipelineRunResponse extends BaseMessage {
+  type: 'pipeline:run:response';
+  payload: Record<string, unknown>;
+}
+
+/** Error response for pipeline operations (emitted via sendHandlerError). */
+export interface PipelineErrorResponse extends BaseMessage {
+  type: 'pipeline:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
 /** Pipeline templates */
 export interface PipelineTemplatesRequest extends BaseMessage {
   type: 'pipeline:templates';
@@ -100,6 +117,12 @@ export interface MigrationImportSfdmuResponse extends BaseMessage {
     dependencies?: Array<{ from: string; to: string }>;
     error?: string;
   };
+}
+
+/** Error response for migration import failures (emitted via sendHandlerError). */
+export interface MigrationErrorResponse extends BaseMessage {
+  type: 'migration:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 /** Pipeline marketplace */

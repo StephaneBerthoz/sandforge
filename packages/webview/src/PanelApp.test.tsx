@@ -60,6 +60,14 @@ vi.mock('./pages/Welcome/WhatsNewPage', () => ({
   ),
 }));
 
+vi.mock('./components/EasterEgg/MojitoOverlay', () => ({
+  MojitoOverlay: ({ onClose }: { onClose: () => void }) => (
+    <button data-testid="mojito-overlay-stub" onClick={onClose}>
+      mojito
+    </button>
+  ),
+}));
+
 describe('PanelApp', () => {
   beforeEach(() => {
     mockPostMessage.mockClear();
@@ -139,6 +147,23 @@ describe('PanelApp', () => {
 
     expect(useAppStore.getState().showWhatsNew).toBe(false);
     expect(screen.queryByTestId('whats-new-page-stub')).toBeNull();
+  });
+
+  it('should show the mojito overlay on easter-egg:show (sandforge.cheers)', () => {
+    render(<PanelApp moduleId="monitor" />);
+    expect(screen.queryByTestId('mojito-overlay-stub')).toBeNull();
+
+    fireEvent(window, new MessageEvent('message', { data: { type: 'easter-egg:show' } }));
+
+    expect(screen.getByTestId('mojito-overlay-stub')).toBeDefined();
+  });
+
+  it('should hide the mojito overlay on close', () => {
+    render(<PanelApp moduleId="monitor" />);
+    fireEvent(window, new MessageEvent('message', { data: { type: 'easter-egg:show' } }));
+    fireEvent.click(screen.getByTestId('mojito-overlay-stub'));
+
+    expect(screen.queryByTestId('mojito-overlay-stub')).toBeNull();
   });
 
   it('should follow store navigation triggered by the global shortcuts (Ctrl+number)', () => {

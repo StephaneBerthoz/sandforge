@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { cn } from '../../theme';
 import { buttonPress } from '../../motion/presets';
 
@@ -53,7 +53,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref,
   ) => {
     return (
-      <motion.button
+      <m.button
         ref={ref}
         whileTap={!(disabled || loading) ? buttonPress.whileTap : undefined}
         className={cn(
@@ -76,7 +76,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           <span className="shrink-0">{icon}</span>
         ) : null}
         {children}
-      </motion.button>
+      </m.button>
     );
   },
 );

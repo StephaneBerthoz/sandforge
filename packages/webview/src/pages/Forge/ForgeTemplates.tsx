@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { Flame, Trash2, Sparkles } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
@@ -71,7 +71,7 @@ export const ForgeTemplates: React.FC<ForgeTemplatesProps> = ({ className }) => 
     <div data-testid="forge-templates" className={cn('flex flex-col gap-3', className)}>
       <h2 className="text-base font-semibold text-text-primary">{t('forge.templates')}</h2>
 
-      <motion.div
+      <m.div
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
@@ -80,7 +80,7 @@ export const ForgeTemplates: React.FC<ForgeTemplatesProps> = ({ className }) => 
         {merged.map((tpl) => {
           const isBuiltin = isBuiltinForgeTemplate(tpl.id);
           return (
-            <motion.div
+            <m.div
               key={tpl.id}
               variants={slideUp}
               className={cn(
@@ -131,10 +131,10 @@ export const ForgeTemplates: React.FC<ForgeTemplatesProps> = ({ className }) => 
                   </Button>
                 )}
               </div>
-            </motion.div>
+            </m.div>
           );
         })}
-      </motion.div>
+      </m.div>
 
       {/* Delete confirmation dialog */}
       <DangerConfirm

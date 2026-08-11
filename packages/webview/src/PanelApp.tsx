@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './i18n';
 import { BridgeProvider } from './bridge/BridgeProvider';
 import { MotionProvider } from './motion/MotionProvider';
@@ -8,8 +8,10 @@ import { ProtocolMismatchBanner } from './components/ProtocolMismatchBanner';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { WelcomePage } from './pages/Welcome/WelcomePage';
 import { WhatsNewPage } from './pages/Welcome/WhatsNewPage';
+import { MojitoOverlay } from './components/EasterEgg/MojitoOverlay';
 import { PanelRouter } from './PanelRouter';
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
+import { useKonamiCode } from './hooks/useKonamiCode';
 import { useSendMessage } from './hooks/useMessageBus';
 import { buildMessage } from './bridge/messageHelpers';
 import { useAppStore } from './stores/useAppStore';
@@ -42,7 +44,8 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
 
   /*
    * Global keyboard shortcuts (Ctrl+1..9/0, G+key chords, Ctrl+Enter,
-   * Escape) — same hook the full App mounts in AppShell.
+   * Escape) — mounted here since the old App/AppShell shell is gone and
+   * panels are the only production roots.
    * Known limitation: VS Code owns some of these chords at the workbench
    * level (Ctrl+1..8 focus editor groups, Ctrl+0 focuses the sidebar). When
    * the workbench consumes the keystroke the webview never receives it, so
@@ -68,6 +71,61 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
   const handleWhatsNewDismiss = useCallback((): void => {
     setShowWhatsNew(false);
   }, [setShowWhatsNew]);
+
+  /*
+   * Easter egg (mojito overlay) — same three triggers as the dead App shell
+   * used to mount: Konami code, `easter-egg:show` from the `sandforge.cheers`
+   * command, and 7 clicks on the SandForge title/logo. Without this wiring
+   * the command posted into the void in production.
+   */
+  const [showEasterEgg, setShowEasterEgg] = useState(false);
+  const logoClickCount = useRef(0);
+  const logoClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Trigger 1: Konami Code. */
+  useKonamiCode(useCallback(() => setShowEasterEgg(true), []));
+
+  /** Trigger 2: `sandforge.cheers` command message. */
+  useEffect(() => {
+    const handler = (event: MessageEvent): void => {
+      // SECURITY: Validate origin — only accept messages from the VSCode webview host.
+      if (event.origin && !event.origin.startsWith('vscode-webview://')) {
+        return;
+      }
+      if (event.data?.type === 'easter-egg:show') {
+        setShowEasterEgg(true);
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  /** Trigger 3: 7 clicks on the SandForge title/logo. */
+  useEffect(() => {
+    const handler = (event: MouseEvent): void => {
+      const target = event.target as HTMLElement;
+      if (
+        target.textContent?.includes('SandForge') &&
+        (target.tagName === 'H1' ||
+          target.tagName === 'SPAN' ||
+          target.closest('[data-testid="app-logo"]'))
+      ) {
+        logoClickCount.current += 1;
+        if (logoClickTimer.current) {
+          clearTimeout(logoClickTimer.current);
+        }
+        logoClickTimer.current = setTimeout(() => {
+          logoClickCount.current = 0;
+        }, 3000);
+        if (logoClickCount.current >= 7) {
+          setShowEasterEgg(true);
+          logoClickCount.current = 0;
+        }
+      }
+    };
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, []);
 
   return (
     <>
@@ -103,6 +161,7 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
           </div>
         </div>
       )}
+      {showEasterEgg && <MojitoOverlay onClose={() => setShowEasterEgg(false)} />}
       <FloatingToasts />
     </>
   );

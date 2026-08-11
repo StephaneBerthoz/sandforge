@@ -1,7 +1,7 @@
 import React from 'react';
 import { Flame, RefreshCw, AlertTriangle, Copy } from 'lucide-react';
 import i18n from '../../i18n';
-import { getVscodeApi } from '../../hooks/useVSCodeApi';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 
 /** Props for the ErrorBoundary component. */
 export interface ErrorBoundaryProps {
@@ -37,17 +37,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   override componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     this.setState({ errorInfo });
-    // Log to extension via postMessage if available. The VS Code webview API
-    // is acquired through getVscodeApi() (module-cached); it falls back to a
-    // no-op implementation outside a webview (tests, dev server).
+    // Report the crash to the extension host. Goes through the broker
+    // envelope (sendBridgeMessage) — a raw postMessage is silently dropped
+    // since the broker validates envelopes. sendBridgeMessage resolves the
+    // module-cached API itself and degrades to a no-op outside a webview
+    // (tests, dev server).
     try {
-      getVscodeApi().postMessage({
-        type: 'error:boundary',
-        payload: {
-          message: error.message,
-          stack: error.stack,
-          componentStack: errorInfo.componentStack,
-        },
+      sendBridgeMessage('error:boundary', {
+        message: error.message,
+        stack: error.stack,
+        componentStack: errorInfo.componentStack ?? undefined,
       });
     } catch {
       // Silently ignore if postMessage is not available

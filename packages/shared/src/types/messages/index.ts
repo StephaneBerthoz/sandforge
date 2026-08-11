@@ -8,6 +8,8 @@
  * `types/messages/coverage.test.ts` statically verifies that every
  * `type: '...'` literal declared in a domain file is a member of at least one
  * of the two unions — keep both in sync when adding a message.
+ * `types/messages/emittedChannels.test.ts` additionally verifies that every
+ * channel the extension actually emits is declared here.
  */
 
 export * from './base.messages.js';
@@ -37,12 +39,14 @@ import type {
   OrgListResponse,
   OrgStatusChanged,
   OrgSelected,
+  OrgErrorResponse,
 } from './org.messages.js';
 import type {
   BridgeErrorMessage,
   BridgeProtocolMismatchMessage,
   BridgeReloadBannerMessage,
   WorkbenchReloadRequest,
+  ErrorBoundaryReport,
 } from './bridge.messages.js';
 import type {
   SeedExecuteRequest,
@@ -72,11 +76,19 @@ import type {
   SeedCreatePersonaRequest,
   SeedListPersonasResponse,
   SeedCreatePersonaResponse,
+  SeedExecuteResponse,
+  SeedDescribeGlobalResponse,
+  SeedDescribeObjectResponse,
+  SeedErrorResponse,
 } from './seed.messages.js';
 import type {
   SyncExecuteRequest,
   SyncDescribeGlobalRequest,
   SyncDescribeFieldsRequest,
+  SyncExecuteResponse,
+  SyncDescribeGlobalResponse,
+  SyncDescribeFieldsResponse,
+  SyncErrorResponse,
   SyncConfigSaveRequest,
   SyncConfigLoadRequest,
   SyncConfigListRequest,
@@ -101,11 +113,15 @@ import type {
   SyncScheduleUpsertResponse,
   SyncScheduleToggleResponse,
   SyncScheduleDeleteResponse,
+  SyncScheduleErrorResponse,
 } from './sync.messages.js';
 import type {
   MonitorRefreshRequest,
   MonitorStartRequest,
   MonitorTrendsRequest,
+  MonitorDataMessage,
+  MonitorTrendsDataMessage,
+  MonitorErrorResponse,
   MonitorAbortJobRequest,
   MonitorAbortJobResponse,
   MonitorAlertsRequest,
@@ -133,7 +149,14 @@ import type {
   OrgHealthScoreRequest,
   OrgHealthScoreResponse,
 } from './monitor.messages.js';
-import type { CompareExecuteRequest, CompareExecuteResponse } from './compare.messages.js';
+import type {
+  CompareExecuteRequest,
+  CompareExecuteResponse,
+  ComparePermissionsResponse,
+  CompareSnapshotsResponse,
+  CompareDriftResponse,
+  CompareErrorResponse,
+} from './compare.messages.js';
 import type {
   CompareStartRequest,
   ComparePermissionsRequest,
@@ -151,6 +174,10 @@ import type {
   DataOpsBackupRequest,
   DataOpsRollbackRequest,
   DataOpsAnonymizeRequest,
+  DataOpsBackupResponse,
+  DataOpsRollbackResponse,
+  DataOpsAnonymizeResponse,
+  DataOpsErrorResponse,
   GovernancePoliciesListRequest,
   GovernancePoliciesListResult,
   GovernancePolicyGetRequest,
@@ -160,9 +187,19 @@ import type {
   GovernancePoliciesImportRequest,
   GovernanceEvaluateRequest,
   GovernanceTemplatesRequest,
+  GovernancePolicyResult,
+  GovernancePolicySaveResponse,
+  GovernancePolicyDeleteResponse,
+  GovernancePoliciesExportResponse,
+  GovernancePoliciesImportResponse,
+  GovernanceEvaluateResponse,
+  GovernanceTemplatesResponse,
+  GovernanceErrorResponse,
 } from './dataops.messages.js';
 import type {
   PipelineRunRequest,
+  PipelineRunResponse,
+  PipelineErrorResponse,
   PipelineTemplatesRequest,
   PipelineTemplatesResponse,
   PipelineExecuteRequest,
@@ -176,6 +213,7 @@ import type {
   MigrationImportResponse,
   MigrationImportSfdmuRequest,
   MigrationImportSfdmuResponse,
+  MigrationErrorResponse,
   MarketplaceListRequest,
   MarketplaceListResponse,
   MarketplaceInstallRequest,
@@ -201,6 +239,7 @@ import type {
   AutopilotNodeFailed,
   AutopilotCompleted,
   AutopilotComplianceReportReady,
+  AutopilotErrorResponse,
 } from './autopilot.messages.js';
 import type {
   ForgePreviewRequest,
@@ -219,6 +258,26 @@ import type {
   ForgeTargetPreflightRequest,
   ForgeTargetPreflightResponse,
   ForgeTargetPreflightErrorMessage,
+  ForgePreviewResponse,
+  ForgePreviewErrorMessage,
+  ForgeDiscoverResponse,
+  ForgeDiscoverProgressMessage,
+  ForgeDiscoverErrorMessage,
+  ForgeExecuteResponse,
+  ForgeProgressMessage,
+  ForgeExecuteErrorMessage,
+  ForgeTemplatesListResponse,
+  ForgeTemplatesSaveResponse,
+  ForgeTemplatesSaveErrorMessage,
+  ForgeTemplatesDeleteResponse,
+  ForgeTemplatesDeleteErrorMessage,
+  ForgeHistoryListResponse,
+  ForgePlanResponse,
+  ForgePlanErrorMessage,
+  ForgeComplianceResponse,
+  ForgeComplianceErrorMessage,
+  ForgeMetadataDiffResponse,
+  ForgeMetadataDiffErrorMessage,
 } from './forge.messages.js';
 import type {
   AIChatRequest,
@@ -284,6 +343,9 @@ import type {
   ConfigValidateRequest,
   ConfigValidateResponse,
   StateSyncMessage,
+  SettingsErrorResponse,
+  ConfigErrorResponse,
+  EasterEggShowMessage,
 } from './settings.messages.js';
 import type {
   CancelOperationRequest,
@@ -303,6 +365,10 @@ import type {
   ExecutionAbortRequest,
   ExecutionStatusRequest,
   ExecutionListRequest,
+  ExecutionAbortResponse,
+  ExecutionStatusResponse,
+  ExecutionListResponse,
+  ExecutionErrorResponse,
 } from './operation.messages.js';
 import type {
   SchedulerListRequest,
@@ -338,10 +404,16 @@ import type {
 import type {
   SmartActionAnalyzeRequest,
   SmartActionAnalyzeResponse,
+  SmartActionErrorResponse,
   QuickSyncSuggestObjectsRequest,
   QuickSyncDetectRelationshipsRequest,
   QuickSyncPreviewRequest,
   QuickSyncExecuteRequest,
+  QuickSyncSuggestObjectsResponse,
+  QuickSyncDetectRelationshipsResponse,
+  QuickSyncPreviewResponse,
+  QuickSyncExecuteResponse,
+  QuickSyncErrorResponse,
 } from './smart-action.messages.js';
 import type {
   FrozenConfigGetRequest,
@@ -362,6 +434,11 @@ import type {
   FrozenLoadProgressMessage,
   FrozenVerifyResultMessage,
   FrozenStatusResponse,
+  FrozenConfigSaveErrorMessage,
+  FrozenSelectErrorMessage,
+  FrozenExtractErrorMessage,
+  FrozenLoadErrorMessage,
+  FrozenVerifyErrorMessage,
 } from './frozen.messages.js';
 
 /** Message from WebView to Extension (requests) */
@@ -516,6 +593,7 @@ export type WebViewToExtensionMessage =
   | ExecutionListRequest
   // Bridge control
   | WorkbenchReloadRequest
+  | ErrorBoundaryReport
   // Scheduler
   | SchedulerListRequest
   | SchedulerUpsertRequest
@@ -553,6 +631,7 @@ export type ExtensionToWebViewMessage =
   | OrgListResponse
   | OrgStatusChanged
   | OrgSelected
+  | OrgErrorResponse
   // Bridge control
   | BridgeErrorMessage
   | BridgeProtocolMismatchMessage
@@ -571,6 +650,10 @@ export type ExtensionToWebViewMessage =
   | SeedCloneErrorResponse
   | SeedListPersonasResponse
   | SeedCreatePersonaResponse
+  | SeedExecuteResponse
+  | SeedDescribeGlobalResponse
+  | SeedDescribeObjectResponse
+  | SeedErrorResponse
   // Sync
   | SyncConfigSaveResponse
   | SyncConfigLoadResponse
@@ -584,6 +667,11 @@ export type ExtensionToWebViewMessage =
   | SyncScheduleUpsertResponse
   | SyncScheduleToggleResponse
   | SyncScheduleDeleteResponse
+  | SyncExecuteResponse
+  | SyncDescribeGlobalResponse
+  | SyncDescribeFieldsResponse
+  | SyncErrorResponse
+  | SyncScheduleErrorResponse
   // Monitor
   | MonitorAbortJobResponse
   | MonitorAlertsResultMessage
@@ -598,21 +686,43 @@ export type ExtensionToWebViewMessage =
   | MonitorApexInsightsResponse
   | MonitorSandboxRefreshResponse
   | OrgHealthScoreResponse
+  | MonitorDataMessage
+  | MonitorTrendsDataMessage
+  | MonitorErrorResponse
   // Compare
   | CompareExecuteResponse
+  | ComparePermissionsResponse
+  | CompareSnapshotsResponse
+  | CompareDriftResponse
+  | CompareErrorResponse
   // DataOps
   | AnonymizationTemplatesResponse
   | MaskingTemplatesByObjectResponse
   | PIIScanResponse
+  | DataOpsBackupResponse
+  | DataOpsRollbackResponse
+  | DataOpsAnonymizeResponse
+  | DataOpsErrorResponse
   // Governance
   | GovernancePoliciesListResult
+  | GovernancePolicyResult
+  | GovernancePolicySaveResponse
+  | GovernancePolicyDeleteResponse
+  | GovernancePoliciesExportResponse
+  | GovernancePoliciesImportResponse
+  | GovernanceEvaluateResponse
+  | GovernanceTemplatesResponse
+  | GovernanceErrorResponse
   // Automation
   | PipelineTemplatesResponse
   | PipelineListResponse
   | PipelineHistoryResponse
   | PipelineSaveResponse
+  | PipelineRunResponse
+  | PipelineErrorResponse
   | MigrationImportResponse
   | MigrationImportSfdmuResponse
+  | MigrationErrorResponse
   | MarketplaceListResponse
   | MarketplaceInstallResponse
   | PluginsListResponse
@@ -626,9 +736,30 @@ export type ExtensionToWebViewMessage =
   | AutopilotNodeFailed
   | AutopilotCompleted
   | AutopilotComplianceReportReady
+  | AutopilotErrorResponse
   // Forge
   | ForgeTargetPreflightResponse
   | ForgeTargetPreflightErrorMessage
+  | ForgePreviewResponse
+  | ForgePreviewErrorMessage
+  | ForgeDiscoverResponse
+  | ForgeDiscoverProgressMessage
+  | ForgeDiscoverErrorMessage
+  | ForgeExecuteResponse
+  | ForgeProgressMessage
+  | ForgeExecuteErrorMessage
+  | ForgeTemplatesListResponse
+  | ForgeTemplatesSaveResponse
+  | ForgeTemplatesSaveErrorMessage
+  | ForgeTemplatesDeleteResponse
+  | ForgeTemplatesDeleteErrorMessage
+  | ForgeHistoryListResponse
+  | ForgePlanResponse
+  | ForgePlanErrorMessage
+  | ForgeComplianceResponse
+  | ForgeComplianceErrorMessage
+  | ForgeMetadataDiffResponse
+  | ForgeMetadataDiffErrorMessage
   // AI
   | AIChatResponse
   | AIConversationCreatedResponse
@@ -664,6 +795,9 @@ export type ExtensionToWebViewMessage =
   | ConfigCategoriesResponse
   | ConfigValidateResponse
   | StateSyncMessage
+  | SettingsErrorResponse
+  | ConfigErrorResponse
+  | EasterEggShowMessage
   // Operation lifecycle
   | OperationStarted
   | OperationProgress
@@ -675,6 +809,10 @@ export type ExtensionToWebViewMessage =
   | GrappeCompleted
   | ExecutionProgressMessage
   | ExecutionRetryStatusMessage
+  | ExecutionAbortResponse
+  | ExecutionStatusResponse
+  | ExecutionListResponse
+  | ExecutionErrorResponse
   // Scheduler
   | SchedulerListResponse
   | SchedulerUpsertResponse
@@ -694,6 +832,13 @@ export type ExtensionToWebViewMessage =
   | CacheStatsResponse
   // Smart Action
   | SmartActionAnalyzeResponse
+  | SmartActionErrorResponse
+  // QuickSync
+  | QuickSyncSuggestObjectsResponse
+  | QuickSyncDetectRelationshipsResponse
+  | QuickSyncPreviewResponse
+  | QuickSyncExecuteResponse
+  | QuickSyncErrorResponse
   // Frozen Reference Dataset
   | FrozenConfigGetResponse
   | FrozenConfigSaveResponse
@@ -704,4 +849,9 @@ export type ExtensionToWebViewMessage =
   | FrozenLoadResponse
   | FrozenLoadProgressMessage
   | FrozenVerifyResultMessage
-  | FrozenStatusResponse;
+  | FrozenStatusResponse
+  | FrozenConfigSaveErrorMessage
+  | FrozenSelectErrorMessage
+  | FrozenExtractErrorMessage
+  | FrozenLoadErrorMessage
+  | FrozenVerifyErrorMessage;

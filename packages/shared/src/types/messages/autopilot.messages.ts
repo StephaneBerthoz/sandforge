@@ -128,3 +128,9 @@ export interface AutopilotComplianceReportReady extends BaseMessage {
     report: ComplianceReport;
   };
 }
+
+/** Error response for autopilot operations (emitted via sendHandlerError). */
+export interface AutopilotErrorResponse extends BaseMessage {
+  type: 'autopilot:error';
+  payload: { message: string; code: string; retryable: boolean };
+}

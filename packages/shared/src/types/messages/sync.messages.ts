@@ -1,11 +1,39 @@
 import type { BaseMessage } from './base.messages.js';
-import type { SyncHistoryEntry, SyncScheduleEntry } from '../sync.types.js';
+import type { SyncExecutionResult, SyncHistoryEntry, SyncScheduleEntry } from '../sync.types.js';
 import type { ExportFormat } from '../reporting.types.js';
 
 /** Sync messages */
 export interface SyncExecuteRequest extends BaseMessage {
   type: 'sync:execute';
   payload: { configId: string; dryRun: boolean };
+}
+
+/** Response for sync execution — the SyncOrchestrator result (consumed by useSyncPageData). */
+export interface SyncExecuteResponse extends BaseMessage {
+  type: 'sync:execute:response';
+  payload: SyncExecutionResult;
+}
+
+/** Response containing the createable + queryable object API names of an org. */
+export interface SyncDescribeGlobalResponse extends BaseMessage {
+  type: 'sync:describe-global:response';
+  payload: { objects: string[] };
+}
+
+/** Response containing the createable fields of an object on both source and target orgs. */
+export interface SyncDescribeFieldsResponse extends BaseMessage {
+  type: 'sync:describe-fields:response';
+  payload: {
+    objectApiName: string;
+    sourceFields: Array<{ apiName: string; label: string; type: string }>;
+    targetFields: Array<{ apiName: string; label: string; type: string }>;
+  };
+}
+
+/** Error response for sync config/describe/execute failures (emitted via sendHandlerError). */
+export interface SyncErrorResponse extends BaseMessage {
+  type: 'sync:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 /** Sync describe global objects request. */
@@ -165,4 +193,10 @@ export interface SyncScheduleDeleteRequest extends BaseMessage {
 export interface SyncScheduleDeleteResponse extends BaseMessage {
   type: 'sync:schedule:delete:response';
   payload: { success: boolean };
+}
+
+/** Error response for sync schedule operations (emitted via sendHandlerError). */
+export interface SyncScheduleErrorResponse extends BaseMessage {
+  type: 'sync:schedule:error';
+  payload: { message: string; code: string; retryable: boolean };
 }

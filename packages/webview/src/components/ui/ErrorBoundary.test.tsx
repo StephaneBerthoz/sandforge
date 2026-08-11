@@ -89,10 +89,14 @@ describe('ErrorBoundary', () => {
         <ThrowingComponent />
       </ErrorBoundary>,
     );
+    // The report goes through the broker envelope — assert on the inner
+    // bridge message, not the raw transport payload.
     expect(vscodeApiMock.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'error:boundary',
-        payload: expect.objectContaining({ message: 'Test error message' }),
+        payload: expect.objectContaining({
+          type: 'error:boundary',
+          payload: expect.objectContaining({ message: 'Test error message' }),
+        }),
       }),
     );
   });

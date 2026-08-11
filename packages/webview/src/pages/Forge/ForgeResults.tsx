@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import {
   Copy,
   Save,
@@ -208,7 +208,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   return (
     <div data-testid="forge-results" className={cn('flex flex-col gap-4', className)}>
       {/* KPI row */}
-      <motion.div
+      <m.div
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
@@ -240,7 +240,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           value={totalApiCalls}
           variant="default"
         />
-      </motion.div>
+      </m.div>
 
       {/* Duration + timestamp */}
       {result && (
@@ -261,7 +261,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
       )}
 
       {/* Per-object results table */}
-      <motion.div variants={slideUp} initial="hidden" animate="visible">
+      <m.div variants={slideUp} initial="hidden" animate="visible">
         <div className="flex items-center gap-2 mb-2">
           <select
             data-testid="forge-results-status-filter"
@@ -353,14 +353,14 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
             </tbody>
           </table>
         </div>
-      </motion.div>
+      </m.div>
 
       {/* Structured execution errors (Wave 2.6 — grouped by object/stage) */}
       {result?.errors && result.errors.length > 0 && <ForgeErrorsPanel errors={result.errors} />}
 
       {/* Collapsible execution logs */}
       {logs.length > 0 && (
-        <motion.div variants={slideUp} initial="hidden" animate="visible">
+        <m.div variants={slideUp} initial="hidden" animate="visible">
           <button
             type="button"
             data-testid="forge-results-toggle-logs"
@@ -382,11 +382,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
               autoScroll={false}
             />
           )}
-        </motion.div>
+        </m.div>
       )}
 
       {/* Actions row */}
-      <motion.div
+      <m.div
         variants={slideUp}
         initial="hidden"
         animate="visible"
@@ -439,7 +439,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         >
           {t('forge.forgeAgain')}
         </Button>
-      </motion.div>
+      </m.div>
     </div>
   );
 };
@@ -477,7 +477,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
   }, [errors]);
 
   return (
-    <motion.div
+    <m.div
       variants={slideUp}
       initial="hidden"
       animate="visible"
@@ -582,6 +582,6 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
           );
         })}
       </ul>
-    </motion.div>
+    </m.div>
   );
 };

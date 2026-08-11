@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { cn } from '../../theme';
 import { fadeIn, slideUp } from '../../motion/presets';
 
@@ -95,7 +95,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
         {open && (
           <Dialog.Portal forceMount>
             <Dialog.Overlay asChild>
-              <motion.div
+              <m.div
                 className="fixed inset-0 z-50 flex items-center justify-center glass-overlay"
                 variants={fadeIn}
                 initial="hidden"
@@ -105,7 +105,7 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                 data-testid="danger-overlay"
               >
                 <Dialog.Content asChild onOpenAutoFocus={(e) => e.preventDefault()}>
-                  <motion.div
+                  <m.div
                     className={cn(
                       'rounded-lg p-4 max-w-md w-full',
                       'bg-[var(--vscode-editor-background,#1e1e1e)]',
@@ -178,9 +178,9 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                         {t('common.confirm')}
                       </button>
                     </div>
-                  </motion.div>
+                  </m.div>
                 </Dialog.Content>
-              </motion.div>
+              </m.div>
             </Dialog.Overlay>
           </Dialog.Portal>
         )}

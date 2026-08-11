@@ -6,6 +6,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Card, CardBody } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
+import { formatDuration } from '../../utils/formatters';
 import type { BadgeVariant } from '../../components/ui/Badge';
 
 /** Audit entry for display. */
@@ -57,13 +58,6 @@ function statusBadge(status: string): BadgeVariant {
     default:
       return 'default';
   }
-}
-
-/** Format duration in ms to human-readable. */
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60_000).toFixed(1)}m`;
 }
 
 /** Format ISO timestamp to locale string. */

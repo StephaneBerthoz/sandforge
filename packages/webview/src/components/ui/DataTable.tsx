@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { cn } from '../../theme';
 import { Icon } from './Icon';
 import { staggerContainer, fadeIn } from '../../motion/presets';
@@ -313,7 +313,7 @@ export function DataTable<T extends Record<string, unknown>>({
         role="grid"
       >
         {renderHeader()}
-        <motion.tbody
+        <m.tbody
           ref={tbodyRef}
           onKeyDown={handleTableKeyDown}
           variants={staggerContainer}
@@ -323,7 +323,7 @@ export function DataTable<T extends Record<string, unknown>>({
           {sortedData.length === 0
             ? renderEmptyRow()
             : sortedData.map((row, rowIndex) => (
-                <motion.tr
+                <m.tr
                   key={keyExtractor(row, rowIndex)}
                   variants={fadeIn}
                   className={cn(
@@ -360,9 +360,9 @@ export function DataTable<T extends Record<string, unknown>>({
                       {col.render ? col.render(row, rowIndex) : String(row[col.key] ?? '')}
                     </td>
                   ))}
-                </motion.tr>
+                </m.tr>
               ))}
-        </motion.tbody>
+        </m.tbody>
       </table>
     </div>
   );

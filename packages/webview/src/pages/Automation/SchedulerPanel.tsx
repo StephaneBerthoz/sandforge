@@ -16,6 +16,7 @@ import { Badge } from '../../components/ui/Badge';
 import { DataTable } from '../../components/ui/DataTable';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { formatDuration } from '../../utils/formatters';
 import type {
   ScheduledOperation,
   ScheduledOperationRun,
@@ -37,13 +38,6 @@ const OPERATION_TYPES: SchedulableOperation[] = ['backup', 'sync', 'cleanup'];
 
 /** Day of week labels. */
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-/** Format duration in ms to human readable. */
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${Math.round(ms / 60_000)}m`;
-}
 
 /** Format ISO date to relative time. */
 function formatRelativeTime(iso: string): string {

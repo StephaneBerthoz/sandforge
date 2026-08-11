@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, m } from 'framer-motion';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { cn } from '../../theme';
 import { SPRING } from '../../motion/presets';
@@ -70,7 +70,7 @@ export const SplitView: React.FC<SplitViewProps> = ({
       {/* Right (detail) panel */}
       <AnimatePresence initial={false}>
         {!rightCollapsed && (
-          <motion.div
+          <m.div
             key="splitview-right"
             className={cn('overflow-auto border-l border-subtle', rightBasisClass[ratio])}
             initial={{ width: 0, opacity: 0 }}
@@ -80,7 +80,7 @@ export const SplitView: React.FC<SplitViewProps> = ({
             data-testid="splitview-right"
           >
             {right}
-          </motion.div>
+          </m.div>
         )}
       </AnimatePresence>
     </div>

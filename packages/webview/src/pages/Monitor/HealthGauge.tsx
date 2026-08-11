@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { cn } from '../../theme';
 
 /** Props for the HealthGauge component. */
@@ -90,7 +90,7 @@ export const HealthGauge: React.FC<HealthGaugeProps> = ({ value, size = 120, cla
           strokeLinecap="round"
         />
         {/* Animated filled arc */}
-        <motion.path
+        <m.path
           d={bgArcPath}
           fill="none"
           stroke={color}

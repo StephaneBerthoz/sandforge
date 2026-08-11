@@ -19,7 +19,10 @@ import { z } from 'zod';
  * Coverage audit: `types/messages/coverage.test.ts` statically verifies the
  * Zod ↔ TS contract in both directions — every msg() literal below has
  * a TS interface (member of a directional union) with the same `type`, and
- * every TS message interface has its msg() member below. If a new
+ * every TS message interface has its msg() member below. The emission side is
+ * covered by `types/messages/emittedChannels.test.ts`, which scans the
+ * extension sources and requires every channel literal actually posted to the
+ * webview to have its msg() member below. If a new
  * message type is introduced, add it to the matching domain array here AND to
  * the matching `types/messages/<domain>.messages.ts` file (or create a new
  * domain on both sides). Genuinely untypeable-but-live literals go into the
@@ -51,6 +54,7 @@ const OrgMessages = [
   msg('org:disconnect'),
   msg('org:statusChanged'),
   msg('org:selected'),
+  msg('org:error'),
 ] as const;
 export const OrgMessageSchema = z.discriminatedUnion('type', OrgMessages);
 
@@ -59,6 +63,11 @@ const SeedMessages = [
   msg('seed:execute'),
   msg('seed:describe-global'),
   msg('seed:describe-object'),
+  msg('seed:execute:response'),
+  msg('seed:describe-global:response'),
+  msg('seed:describe-object:response'),
+  // Error channel for template/describe/execute/persona failures.
+  msg('seed:error'),
   msg('seed:template:save'),
   msg('seed:template:load'),
   msg('seed:template:list'),
@@ -91,6 +100,11 @@ const SyncMessages = [
   msg('sync:execute'),
   msg('sync:describe-global'),
   msg('sync:describe-fields'),
+  msg('sync:execute:response'),
+  msg('sync:describe-global:response'),
+  msg('sync:describe-fields:response'),
+  // Error channel for config/describe/execute failures.
+  msg('sync:error'),
   msg('sync:config:save'),
   msg('sync:config:load'),
   msg('sync:config:list'),
@@ -116,6 +130,8 @@ const SyncMessages = [
   msg('sync:schedule:toggle:response'),
   msg('sync:schedule:delete'),
   msg('sync:schedule:delete:response'),
+  // Error channel for schedule operations.
+  msg('sync:schedule:error'),
 ] as const;
 export const SyncMessageSchema = z.discriminatedUnion('type', SyncMessages);
 
@@ -124,6 +140,10 @@ const MonitorMessages = [
   msg('monitor:refresh'),
   msg('monitor:start'),
   msg('monitor:trends'),
+  // Dashboard snapshot + trends result channels, and the domain error channel.
+  msg('monitor:data'),
+  msg('monitor:trends:data'),
+  msg('monitor:error'),
   msg('monitor:abort-job'),
   msg('monitor:abort-job:response'),
   msg('monitor:live-operations'),
@@ -171,6 +191,10 @@ const CompareMessages = [
   msg('compare:permissions'),
   msg('compare:snapshots'),
   msg('compare:drift'),
+  msg('compare:permissions:response'),
+  msg('compare:snapshots:response'),
+  msg('compare:drift:response'),
+  msg('compare:error'),
 ] as const;
 export const CompareMessageSchema = z.discriminatedUnion('type', CompareMessages);
 
@@ -180,6 +204,11 @@ const DataOpsMessages = [
   msg('dataops:backup'),
   msg('dataops:rollback'),
   msg('dataops:anonymize'),
+  msg('dataops:backup:response'),
+  msg('dataops:rollback:response'),
+  msg('dataops:anonymize:response'),
+  // Error channel for backup/rollback/anonymize failures.
+  msg('dataops:error'),
   msg('dataops:anonymization-templates'),
   msg('dataops:anonymization-templates:response'),
   msg('dataops:masking-templates-by-object'),
@@ -198,6 +227,15 @@ const DataOpsMessages = [
   msg('governance:policies:import'),
   msg('governance:evaluate'),
   msg('governance:templates'),
+  msg('governance:policy:result'),
+  msg('governance:policy:save:response'),
+  msg('governance:policy:delete:response'),
+  msg('governance:policies:export:response'),
+  msg('governance:policies:import:response'),
+  msg('governance:evaluate:response'),
+  msg('governance:templates:response'),
+  // Error channel for governance operations.
+  msg('governance:error'),
 ] as const;
 export const DataOpsMessageSchema = z.discriminatedUnion('type', DataOpsMessages);
 
@@ -205,6 +243,9 @@ export const DataOpsMessageSchema = z.discriminatedUnion('type', DataOpsMessages
 const AutomationMessages = [
   msg('pipeline:run'),
   msg('pipeline:execute'),
+  msg('pipeline:run:response'),
+  // Error channel for pipeline run/cancel/list/history/save failures.
+  msg('pipeline:error'),
   msg('pipeline:templates'),
   msg('pipeline:templates:response'),
   msg('pipeline:list'),
@@ -221,6 +262,8 @@ const AutomationMessages = [
   msg('migration:import:response'),
   msg('migration:import-sfdmu'),
   msg('migration:import-sfdmu:response'),
+  // Error channel for migration import failures.
+  msg('migration:error'),
   msg('plugins:list'),
   msg('plugins:list:response'),
   msg('plugins:load'),
@@ -240,6 +283,8 @@ const AutomationMessages = [
   msg('autopilot:skip-node'),
   msg('autopilot:completed'),
   msg('autopilot:compliance-report'),
+  // Error channel for autopilot scan/plan/execute/pause/resume/skip failures.
+  msg('autopilot:error'),
   msg('forge:preview'),
   msg('forge:discover'),
   msg('forge:execute'),
@@ -256,6 +301,27 @@ const AutomationMessages = [
   msg('forge:target-preflight:request'),
   msg('forge:target-preflight:response'),
   msg('forge:target-preflight:error'),
+  // Forge responses / progress events / error channels (Extension -> WebView).
+  msg('forge:preview:response'),
+  msg('forge:preview:error'),
+  msg('forge:discover:response'),
+  msg('forge:discover:progress'),
+  msg('forge:discover:error'),
+  msg('forge:execute:response'),
+  msg('forge:progress'),
+  msg('forge:execute:error'),
+  msg('forge:templates:list:response'),
+  msg('forge:templates:save:response'),
+  msg('forge:templates:save:error'),
+  msg('forge:templates:delete:response'),
+  msg('forge:templates:delete:error'),
+  msg('forge:history:list:response'),
+  msg('forge:plan:response'),
+  msg('forge:plan:error'),
+  msg('forge:compliance:response'),
+  msg('forge:compliance:error'),
+  msg('forge:metadata-diff:response'),
+  msg('forge:metadata-diff:error'),
 ] as const;
 export const AutomationMessageSchema = z.discriminatedUnion('type', AutomationMessages);
 
@@ -274,6 +340,11 @@ const ExecutionMessages = [
   msg('execution:abort'),
   msg('execution:status'),
   msg('execution:list'),
+  msg('execution:abort:response'),
+  msg('execution:status:response'),
+  msg('execution:list:response'),
+  // Error channel for execution operations.
+  msg('execution:error'),
   msg('grappe:started'),
   msg('grappe:partitionProgress'),
   msg('grappe:backPressure'),
@@ -331,6 +402,12 @@ const SettingsMessages = [
   msg('settings:get'),
   msg('settings:update'),
   msg('settings:response'),
+  // Error channels for settings and config-profile operations.
+  msg('settings:error'),
+  msg('config:error'),
+  // Payload-less fun overlay broadcast via postToAllPanels (raw postMessage,
+  // outside the broker envelope — see types/messages/settings.messages.ts).
+  msg('easter-egg:show'),
   msg('onboarding:complete'),
   msg('onboarding:reset'),
   msg('onboarding:show'),
@@ -357,6 +434,7 @@ const SettingsMessages = [
   msg('bridge:protocol-mismatch'),
   msg('bridge:reload-banner'),
   msg('workbench:reload'),
+  msg('error:boundary'),
 ] as const;
 export const SettingsMessageSchema = z.discriminatedUnion('type', SettingsMessages);
 
@@ -404,10 +482,16 @@ export const CacheMessageSchema = z.discriminatedUnion('type', CacheMessages);
 const SmartActionMessages = [
   msg('smart-action:analyze'),
   msg('smart-action:analyze:response'),
+  msg('smart-action:error'),
   msg('quicksync:suggest-objects'),
   msg('quicksync:detect-relationships'),
   msg('quicksync:preview'),
   msg('quicksync:execute'),
+  msg('quicksync:suggest-objects:response'),
+  msg('quicksync:detect-relationships:response'),
+  msg('quicksync:preview:response'),
+  msg('quicksync:execute:response'),
+  msg('quicksync:error'),
 ] as const;
 export const SmartActionMessageSchema = z.discriminatedUnion('type', SmartActionMessages);
 
@@ -431,12 +515,18 @@ const FrozenMessages = [
   msg('frozen:verify:result'),
   msg('frozen:status'),
   msg('frozen:status:response'),
+  // Error channels for frozen config-save / select / extract / load / verify.
+  msg('frozen:config:save:error'),
+  msg('frozen:select:error'),
+  msg('frozen:extract:error'),
+  msg('frozen:load:error'),
+  msg('frozen:verify:error'),
 ] as const;
 export const FrozenMessageSchema = z.discriminatedUnion('type', FrozenMessages);
 
 /**
  * Full bridge message surface — one flattened discriminated union over every
- * domain array (298 literals, O(1) dispatch at the boundary).
+ * domain array (370 literals, O(1) dispatch at the boundary).
  *
  * Use `BridgeMessageSchema.safeParse(raw)` at the message boundary to validate
  * any inbound payload. Members whose shape isn't strictly known yet still pass

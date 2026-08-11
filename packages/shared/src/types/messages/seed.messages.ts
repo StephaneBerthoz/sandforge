@@ -4,6 +4,7 @@ import type {
   CsvImportConfig,
   CsvColumnMapping,
   CsvValidationResult,
+  SeedExecutionResult,
 } from '../seed.types.js';
 import type { CloneConfig, ClonePreviewResult, CloneExecutionResult } from '../clone.types.js';
 
@@ -23,6 +24,61 @@ export interface SeedDescribeGlobalRequest extends BaseMessage {
 export interface SeedDescribeObjectRequest extends BaseMessage {
   type: 'seed:describe-object';
   payload: { orgId: string; objectApiName: string };
+}
+
+/**
+ * Response for seed execution (consumed by useQuickSeed / useSeedExecution).
+ *
+ * Dual shape: the real path posts the SeedOrchestrator result
+ * ({@link SeedExecutionResult}); the dry-run short-circuit posts a synthetic
+ * `{ success, dryRun, insertedCount, results }` summary instead.
+ */
+export interface SeedExecuteResponse extends BaseMessage {
+  type: 'seed:execute:response';
+  payload:
+    | SeedExecutionResult
+    | { success: boolean; dryRun: boolean; insertedCount: number; results: unknown[] };
+}
+
+/** Response containing describable (createable) objects of an org. */
+export interface SeedDescribeGlobalResponse extends BaseMessage {
+  type: 'seed:describe-global:response';
+  payload: {
+    objects: Array<{
+      apiName: string;
+      label: string;
+      recordCount: number;
+      dependencies: string[];
+    }>;
+  };
+}
+
+/** Response containing the createable fields of a single object. */
+export interface SeedDescribeObjectResponse extends BaseMessage {
+  type: 'seed:describe-object:response';
+  payload: {
+    objectApiName: string;
+    objectLabel: string;
+    fields: Array<{
+      fieldApiName: string;
+      label: string;
+      type: string;
+      required: boolean;
+      picklistValues: string[];
+      referenceTo: string[];
+      length: number;
+    }>;
+  };
+}
+
+/**
+ * Error response for seed template/describe/execute/persona failures (emitted
+ * via sendHandlerError). Transport-level execute failures merge an extra
+ * offline `retryHint` object into the payload (sendHandlerError extraPayload).
+ */
+export interface SeedErrorResponse extends BaseMessage {
+  type: 'seed:error';
+  payload: { message: string; code: string; retryable: boolean };
 }
 
 /** Request to save a seed template (create or update). */

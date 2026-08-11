@@ -66,8 +66,7 @@ vi.mock('framer-motion', async () => {
     });
   const mockDiv = makeMotion('div');
   return {
-    m: { div: mockDiv },
-    motion: {
+    m: {
       div: mockDiv,
       button: makeMotion('button'),
       tbody: makeMotion('tbody'),

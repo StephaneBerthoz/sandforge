@@ -1,7 +1,7 @@
 import type { MessageBroker } from './MessageBroker.js';
 import type { MessageRouter } from './MessageRouter.js';
 import type { WebviewStateSync } from './WebviewStateSync.js';
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, ErrorBoundaryReport } from '@sandforge/shared';
 import type { QueuedOperation } from '../core/connection/OfflineManager.js';
 import type { OrgManager } from '../core/connection/OrgManager.js';
 import type { OrgRegistry } from '../core/connection/OrgRegistry.js';
@@ -641,6 +641,16 @@ export class ExtensionHandlers {
     // ProtocolMismatchBanner in the webview when the user clicks "Reload".
     router.route('workbench:reload', () => {
       void this.executeCommand('workbench.action.reloadWindow');
+    });
+
+    // Webview crash reports (React ErrorBoundary). Fire-and-forget: logged
+    // to the output channel so render crashes are diagnosable in the wild.
+    router.route('error:boundary', (msg) => {
+      const { payload } = msg as ErrorBoundaryReport;
+      this.handlerDeps.log(
+        `[ERR] Webview crash (error:boundary): ${payload?.message ?? 'unknown error'}` +
+          (payload?.stack ? `\n${payload.stack}` : ''),
+      );
     });
   }
 

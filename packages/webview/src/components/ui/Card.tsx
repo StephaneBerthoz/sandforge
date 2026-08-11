@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { cn } from '../../theme';
 import { cardHover, SPRING } from '../../motion/presets';
 
@@ -35,7 +35,7 @@ export interface CardHeaderProps {
 /** Content card matching VSCode theme. */
 export const Card: React.FC<CardProps> = ({ children, className, onClick, hoverable, ...rest }) => {
   return (
-    <motion.div
+    <m.div
       whileHover={hoverable ? cardHover.whileHover : undefined}
       transition={SPRING}
       className={cn(
@@ -58,7 +58,7 @@ export const Card: React.FC<CardProps> = ({ children, className, onClick, hovera
       {...rest}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 };
 

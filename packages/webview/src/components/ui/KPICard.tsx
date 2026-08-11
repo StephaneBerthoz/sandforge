@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '../../theme';
 import { slideUp } from '../../motion/presets';
@@ -75,7 +75,7 @@ export const KPICard: React.FC<KPICardProps> = ({
   const trendIndicator = trendDirection ? trendIndicatorMap[trendDirection] : undefined;
 
   return (
-    <motion.div
+    <m.div
       data-testid="kpi-card"
       variants={slideUp}
       initial="hidden"
@@ -142,6 +142,6 @@ export const KPICard: React.FC<KPICardProps> = ({
           />
         </div>
       )}
-    </motion.div>
+    </m.div>
   );
 };

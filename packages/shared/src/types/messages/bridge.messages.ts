@@ -31,3 +31,17 @@ export interface BridgeReloadBannerMessage extends BaseMessage {
 export interface WorkbenchReloadRequest extends BaseMessage {
   type: 'workbench:reload';
 }
+
+/**
+ * Crash report posted by the webview's ErrorBoundary when a render throws.
+ * The extension logs it to the output channel — before the broker envelope
+ * existed this fire-and-forget message was silently dropped.
+ */
+export interface ErrorBoundaryReport extends BaseMessage {
+  type: 'error:boundary';
+  payload: {
+    message: string;
+    stack?: string;
+    componentStack?: string;
+  };
+}

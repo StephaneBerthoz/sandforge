@@ -86,6 +86,41 @@ export interface DataOpsAnonymizeRequest extends BaseMessage {
   payload: { orgId: string; templateId: string; objects?: string[] };
 }
 
+/** Response after a successful backup of the selected objects. */
+export interface DataOpsBackupResponse extends BaseMessage {
+  type: 'dataops:backup:response';
+  payload: {
+    operationId: string;
+    status: string;
+    objects: Array<{ objectApiName: string; recordCount: number }>;
+    totalRecords: number;
+    timestamp: string;
+  };
+}
+
+/** Response after a successful rollback of a previous data operation. */
+export interface DataOpsRollbackResponse extends BaseMessage {
+  type: 'dataops:rollback:response';
+  payload: { operationId: string; status: string; message: string; totalRestored: number };
+}
+
+/** Response after a successful anonymization run. */
+export interface DataOpsAnonymizeResponse extends BaseMessage {
+  type: 'dataops:anonymize:response';
+  payload: { templateId: string; status: string; recordsProcessed: number; message: string };
+}
+
+/**
+ * Error response for dataops backup/rollback/anonymize failures (emitted via
+ * sendHandlerError). Dual-channel note: `operation:failed` carries the
+ * lifecycle, `dataops:error` settles the in-flight webview mutation — the
+ * webview surfaces the error from this channel only (see DataOpsHandler).
+ */
+export interface DataOpsErrorResponse extends BaseMessage {
+  type: 'dataops:error';
+  payload: { message: string; code: string; retryable: boolean };
+}
+
 // ─── Governance messages ─────────────────────────────────────────────────────
 
 /** Request to list all governance policies (summaries). */
@@ -154,4 +189,82 @@ export interface GovernanceEvaluateRequest extends BaseMessage {
 /** Request to list the default governance policy templates. */
 export interface GovernanceTemplatesRequest extends BaseMessage {
   type: 'governance:templates';
+}
+
+/**
+ * Result of `governance:policy:get` (`:result` channel, same convention as
+ * `governance:policies:result`). The policy object is the extension-side
+ * GovernancePolicy (validated by GovernancePolicySchema); no shared TS mirror
+ * of that schema exists yet — see {@link GovernancePolicySaveRequest}.
+ */
+export interface GovernancePolicyResult extends BaseMessage {
+  type: 'governance:policy:result';
+  payload: { policy: Record<string, unknown> | null };
+}
+
+/**
+ * Response for `governance:policy:save`. Dual-use channel: the success path is
+ * posted via buildResponse (`{ success: true }`); a policy that fails
+ * GovernancePolicySchema validation is reported on the same channel via
+ * sendHandlerError (`{ message, code, retryable }`).
+ */
+export interface GovernancePolicySaveResponse extends BaseMessage {
+  type: 'governance:policy:save:response';
+  payload: { success?: boolean; message?: string; code?: string; retryable?: boolean };
+}
+
+/** Response after deleting a governance policy. */
+export interface GovernancePolicyDeleteResponse extends BaseMessage {
+  type: 'governance:policy:delete:response';
+  payload: { success: boolean };
+}
+
+/** Response containing all governance policies as a JSON string. */
+export interface GovernancePoliciesExportResponse extends BaseMessage {
+  type: 'governance:policies:export:response';
+  payload: { json: string };
+}
+
+/**
+ * Response for `governance:policies:import`. Dual-use channel (same convention
+ * as {@link GovernancePolicySaveResponse}): success via buildResponse,
+ * failure via sendHandlerError on the same channel.
+ */
+export interface GovernancePoliciesImportResponse extends BaseMessage {
+  type: 'governance:policies:import:response';
+  payload: {
+    success?: boolean;
+    count?: number;
+    message?: string;
+    code?: string;
+    retryable?: boolean;
+  };
+}
+
+/**
+ * Response for `governance:evaluate`. Dual-use channel (same convention as
+ * {@link GovernancePolicySaveResponse}). `result` is the extension-side
+ * GovernanceEvaluationResult (no shared TS mirror yet).
+ */
+export interface GovernanceEvaluateResponse extends BaseMessage {
+  type: 'governance:evaluate:response';
+  payload: {
+    success?: boolean;
+    result?: Record<string, unknown>;
+    message?: string;
+    code?: string;
+    retryable?: boolean;
+  };
+}
+
+/** Response containing the default governance policy templates. */
+export interface GovernanceTemplatesResponse extends BaseMessage {
+  type: 'governance:templates:response';
+  payload: { templates: Array<Record<string, unknown>> };
+}
+
+/** Error response for governance operations (emitted via sendHandlerError). */
+export interface GovernanceErrorResponse extends BaseMessage {
+  type: 'governance:error';
+  payload: { message: string; code: string; retryable: boolean };
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -97,7 +97,7 @@ export const AutomationPage: React.FC = () => {
     : t('automation.subtitle');
 
   return (
-    <motion.div
+    <m.div
       className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
       data-testid="automation-page"
       variants={fadeIn}
@@ -189,39 +189,39 @@ export const AutomationPage: React.FC = () => {
       )}
 
       {/* KPI overview row */}
-      <motion.div
+      <m.div
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
         data-testid="automation-kpi-row"
       >
         <BentoGrid columns={3} gap="md">
-          <motion.div variants={slideUp}>
+          <m.div variants={slideUp}>
             <KPICard
               icon="project"
               label={t('automation.stepsCount')}
               value={stepCount}
               variant="default"
             />
-          </motion.div>
-          <motion.div variants={slideUp}>
+          </m.div>
+          <m.div variants={slideUp}>
             <KPICard
               icon="zap"
               label={t('automation.triggersCount')}
               value={triggerCount}
               variant="default"
             />
-          </motion.div>
-          <motion.div variants={slideUp}>
+          </m.div>
+          <m.div variants={slideUp}>
             <KPICard
               icon="history"
               label={t('automation.historyRuns')}
               value={historyCount}
               variant="default"
             />
-          </motion.div>
+          </m.div>
         </BentoGrid>
-      </motion.div>
+      </m.div>
 
       <PageTabs tabs={AUTOMATION_TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -384,6 +384,6 @@ export const AutomationPage: React.FC = () => {
           </div>
         </div>
       )}
-    </motion.div>
+    </m.div>
   );
 };

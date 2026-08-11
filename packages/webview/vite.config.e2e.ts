@@ -49,7 +49,7 @@ export default defineConfig({
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify('development'),
-    /* Truthy here so App.tsx lazy-loads the E2E harness on ?e2e-harness= URLs. */
+    /* Truthy here so main.tsx lazy-loads the E2E harness on ?e2e-harness= URLs. */
     'import.meta.env.VITE_E2E': JSON.stringify('1'),
   },
   optimizeDeps: {

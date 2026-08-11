@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Handle, Position } from 'reactflow';
 import type { NodeProps } from 'reactflow';
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../../theme';
 import { formatDuration } from '../../../utils/formatters';
@@ -89,7 +89,7 @@ export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
   );
 
   return (
-    <motion.div
+    <m.div
       data-testid="object-node"
       variants={pulseVariants}
       animate={isActive ? 'active' : 'idle'}
@@ -140,6 +140,6 @@ export const ObjectNode: React.FC<NodeProps<ObjectNodeData>> = ({ data }) => {
       </div>
 
       <Handle type="source" position={Position.Bottom} className="!bg-gray-400" />
-    </motion.div>
+    </m.div>
   );
 };
