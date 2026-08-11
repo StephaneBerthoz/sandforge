@@ -5,6 +5,10 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.2] - 2026-08-11
+
+Added: SandForge now adopts the sf CLI's default org (`target-org`) at startup when nothing is selected yet. Fixed: the auth self-heal adopts the org's *current* instance URL reported by the CLI — after a sandbox refresh or My Domain change, even a fresh token was rejected at the stale URL (`INVALID_AUTH_HEADER` on every org). And the startup validation no longer flips orgs through a `refreshing` state, so connected-org counters no longer tick down one by one during the launch sweep.
+
 ## [1.8.1] - 2026-08-11
 
 Fixed: duplicate org entries — ghost entries persisted by early builds (same Salesforce org, older key scheme) showed up as duplicates in every org list and kept "Authentication expired" loops alive with their stale credentials. Startup now dedupes by the Salesforce org id and prunes the ghosts from storage and the vault.

@@ -222,24 +222,25 @@ export function activate(context: vscode.ExtensionContext): void {
   // bar can show the selected org's alias. `refreshStatusBar` is declared at
   // step 12 — the callback only fires after activation completes.
   let selectedOrgId: string | undefined;
+  const selectOrg = (orgId: string): void => {
+    selectedOrgId = orgId;
+    refreshStatusBar();
+    // Broadcast is intended: every PanelApp is an isolated webview document
+    // with its own zustand store — without it, other panels keep the old org.
+    panelManager.postToAllPanels({
+      type: 'org:selected',
+      id: `org-sel-${Date.now()}`,
+      timestamp: Date.now(),
+      payload: { orgId },
+    });
+  };
 
   const sidebarProvider = new SidebarViewProvider(
     context.extensionUri,
     vscode.Uri.joinPath,
     vscode.commands.executeCommand,
     () => orgManager.getAllOrgs() as unknown as Record<string, unknown>[],
-    (orgId: string) => {
-      selectedOrgId = orgId;
-      refreshStatusBar();
-      // Broadcast is intended: every PanelApp is an isolated webview document
-      // with its own zustand store — without it, other panels keep the old org.
-      panelManager.postToAllPanels({
-        type: 'org:selected',
-        id: `org-sel-${Date.now()}`,
-        timestamp: Date.now(),
-        payload: { orgId },
-      });
-    },
+    selectOrg,
     // Outbound-only broker registration (step 5) so operation lifecycle
     // broadcasts reach the sidebar's Running / Last operation blocks.
     broker,
@@ -266,6 +267,23 @@ export function activate(context: vscode.ExtensionContext): void {
   if (services.getSandforgeSetting('orgs.validateOnStartup', true)) {
     void validateOrgsOnStartup({ orgManager, orgRegistry, log }).catch((err: unknown) => {
       log(`[startup] Org validation crashed: ${extractErrorMessage(err)}`);
+    });
+  }
+
+  // 10d. Adopt the sf CLI's default org when nothing is selected yet — the
+  // CLI already knows which org this workspace targets ("Default Org" in
+  // sf org list), so SandForge shouldn't start on a blank or stale pick.
+  // Runs in the background; never blocks activation.
+  if (!selectedOrgId) {
+    void sfdxBridge.getDefaultOrgUsername().then((defaultName) => {
+      if (!defaultName || selectedOrgId) return;
+      const match = orgManager
+        .getAllOrgs()
+        .find((o) => o.alias === defaultName || o.username === defaultName);
+      if (match) {
+        log(`[startup] Adopting CLI default org: ${match.alias}`);
+        selectOrg(match.id);
+      }
     });
   }
   const orgsTreeCommands = [

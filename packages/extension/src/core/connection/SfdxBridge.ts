@@ -121,6 +121,34 @@ export class SfdxBridge {
     }
   }
 
+  /**
+   * Read the CLI's default org (`sf config get target-org --json`).
+   * Returns the alias or username of the default org, or undefined when the
+   * CLI is missing, no default is set, or the output can't be parsed —
+   * callers must treat undefined as "no preference", never as an error.
+   * The command takes no user input, so the fixed-string invocation is safe
+   * on both the Windows (exec) and POSIX (execFile) branches.
+   */
+  async getDefaultOrgUsername(): Promise<string | undefined> {
+    try {
+      const { stdout } =
+        process.platform === 'win32'
+          ? await execAsync('sf config get target-org --json', { timeout: 15_000 })
+          : await execFileAsync('sf', ['config', 'get', 'target-org', '--json'], {
+              timeout: 15_000,
+            });
+      const parsed = JSON.parse(extractJson(stdout)) as {
+        result?: Array<{ key?: string; value?: string; success?: boolean }>;
+      };
+      const entry = (parsed.result ?? []).find(
+        (e) => (e.key === 'target-org' || e.key === 'targetusername') && e.success !== false,
+      );
+      return entry?.value || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** Execute sf org list --json --no-color, parse, dedupe, and return connected orgs */
   async listOrgs(): Promise<SfdxImportResult[]> {
     let stdout: string;
