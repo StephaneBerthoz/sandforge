@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../stores/useAppStore';
+import type { SupportedLanguage } from '../../i18n';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
@@ -41,15 +42,19 @@ const USE_CASE_PATHS: UseCasePath[] = [
   },
 ];
 
-/** Supported language options for the Bienvenue step. */
-interface LanguageOption {
-  code: string;
-  labelKey: string;
-}
-
-const LANGUAGES: LanguageOption[] = [
-  { code: 'en', labelKey: 'settings.languages.en' },
-  { code: 'fr', labelKey: 'settings.languages.fr' },
+/**
+ * Language options with NATIVE labels, mirroring the Settings selector: a
+ * language picker must stay readable even when the UI is currently rendered
+ * in a language the user cannot read, so labels are intentionally NOT
+ * translated.
+ */
+const LANGUAGES: ReadonlyArray<{ code: SupportedLanguage; label: string }> = [
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'Français' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'es', label: 'Español' },
+  { code: 'ja', label: '日本語' },
+  { code: 'pt-BR', label: 'Português (Brasil)' },
 ];
 
 /** Total number of wizard steps. */
@@ -127,7 +132,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
   }, [dontShowAgain, onComplete, navigate]);
 
   const handleLanguageChange = useCallback(
-    (code: string): void => {
+    (code: SupportedLanguage): void => {
       void i18n.changeLanguage(code);
     },
     [i18n],
@@ -227,7 +232,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
               <p className="text-sm font-medium mb-3" style={{ color: 'var(--sf-text-primary)' }}>
                 {t('onboarding.chooseLanguage')}
               </p>
-              <div className="flex gap-3 justify-center">
+              <div className="flex flex-wrap gap-3 justify-center">
                 {LANGUAGES.map((lang) => (
                   <Button
                     key={lang.code}
@@ -236,7 +241,7 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
                     onClick={() => handleLanguageChange(lang.code)}
                     data-testid={`lang-${lang.code}`}
                   >
-                    {t(lang.labelKey)}
+                    {lang.label}
                   </Button>
                 ))}
               </div>

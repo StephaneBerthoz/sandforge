@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type * as vscode from 'vscode';
 import { SidebarViewProvider } from './SidebarViewProvider';
 import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
+import { MessageBroker } from '../bridge/MessageBroker';
 
 describe('SidebarViewProvider', () => {
   // Partial mock: Uri used only as an opaque value (localResourceRoots + joinPath base)
@@ -15,25 +16,36 @@ describe('SidebarViewProvider', () => {
   let mockWebview: Record<string, unknown>;
   let mockWebviewView: Record<string, unknown>;
   let messageHandler: ((msg: Record<string, unknown>) => void) | undefined;
+  let disposeHandler: (() => void) | undefined;
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    messageHandler = undefined;
-
-    mockWebview = {
+  function createMockView(): Record<string, unknown> {
+    const webview = {
       options: {},
       cspSource: 'https://test',
       asWebviewUri: (uri: unknown) => uri,
       html: '',
       onDidReceiveMessage: vi.fn((handler: (msg: Record<string, unknown>) => void) => {
         messageHandler = handler;
+        return { dispose: vi.fn() };
       }),
       postMessage: vi.fn(),
     };
-
-    mockWebviewView = {
-      webview: mockWebview,
+    return {
+      webview,
+      onDidDispose: vi.fn((handler: () => void) => {
+        disposeHandler = handler;
+        return { dispose: vi.fn() };
+      }),
     };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    messageHandler = undefined;
+    disposeHandler = undefined;
+
+    mockWebviewView = createMockView();
+    mockWebview = mockWebviewView.webview as Record<string, unknown>;
 
     provider = new SidebarViewProvider(extensionUri, uriJoinPath, executeCommand);
   });
@@ -116,5 +128,75 @@ describe('SidebarViewProvider', () => {
 
   it('has correct static viewType', () => {
     expect(SidebarViewProvider.viewType).toBe('sandforge.sidebarView');
+  });
+
+  describe('broker registration (outbound-only)', () => {
+    let broker: MessageBroker;
+    let brokeredProvider: SidebarViewProvider;
+
+    beforeEach(() => {
+      broker = new MessageBroker();
+      brokeredProvider = new SidebarViewProvider(
+        extensionUri,
+        uriJoinPath,
+        executeCommand,
+        undefined,
+        undefined,
+        broker,
+      );
+    });
+
+    it('registers the view with the broker on resolve, without inbound subscription', () => {
+      brokeredProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+
+      expect(broker.panelCount).toBe(1);
+      // Only the provider's own raw subscription exists (navigation/org
+      // messages) — the broker must not add a second, validating one.
+      expect(mockWebview.onDidReceiveMessage).toHaveBeenCalledTimes(1);
+
+      // Broadcasts reach the sidebar webview.
+      const broadcast = { id: 'b-1', type: 'operation:started', timestamp: Date.now() };
+      broker.postToWebview(broadcast as never);
+      expect(mockWebview.postMessage).toHaveBeenCalledWith(broadcast);
+    });
+
+    it('releases the broker registration when the view is disposed', () => {
+      brokeredProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+      expect(broker.panelCount).toBe(1);
+
+      // VSCode destroys WebviewViews when they are hidden.
+      disposeHandler!();
+
+      expect(broker.panelCount).toBe(0);
+      // The dead view no longer receives direct posts either.
+      brokeredProvider.postMessage({ type: 'org:list:response' });
+      expect(mockWebview.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('disposes the previous registration when the view is re-resolved', () => {
+      brokeredProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+      const secondView = createMockView();
+
+      brokeredProvider.resolveWebviewView(secondView as never, {} as never, {} as never);
+
+      // Exactly one live registration: the re-resolved view, not both.
+      expect(broker.panelCount).toBe(1);
+
+      const broadcast = { id: 'b-2', type: 'operation:completed', timestamp: Date.now() };
+      broker.postToWebview(broadcast as never);
+      expect((secondView.webview as Record<string, unknown>).postMessage).toHaveBeenCalledWith(
+        broadcast,
+      );
+      expect(mockWebview.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('releases the registration on provider dispose()', () => {
+      brokeredProvider.resolveWebviewView(mockWebviewView as never, {} as never, {} as never);
+      expect(broker.panelCount).toBe(1);
+
+      brokeredProvider.dispose();
+
+      expect(broker.panelCount).toBe(0);
+    });
   });
 });

@@ -55,7 +55,6 @@ export type { ProtocolVersion } from './bridge/protocolVersion.js';
 export * from './bridge/messageSchemas.js';
 
 // Barrel exports — Schemas
-export * from './schemas/message.schema.js';
 export * from './schemas/seed-config.schema.js';
 export * from './schemas/sync-config.schema.js';
 export * from './schemas/pipeline.schema.js';
@@ -81,12 +80,7 @@ export * from './constants/sync-templates.js';
 
 // Barrel exports — Utils
 export * from './utils/sf-utils.js';
-export * from './utils/string-utils.js';
-export * from './utils/date-utils.js';
 export * from './utils/format-utils.js';
-export * from './utils/hash-utils.js';
-export * from './utils/validation-utils.js';
-export * from './utils/execution-result.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';

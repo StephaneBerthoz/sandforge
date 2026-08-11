@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { MessageBroker } from '../MessageBroker';
 import { MessageRouter } from '../MessageRouter';
 
@@ -27,10 +28,15 @@ function createMockPanel() {
   return {
     panel: panel as unknown as Parameters<MessageBroker['registerPanel']>[0],
     sentMessages,
-    /** Simulate a message sent from WebView to Extension */
+    /**
+     * Simulate a message sent from WebView to Extension. The webview always
+     * envelops (protocolVersion + payload) — the broker drops raw,
+     * non-enveloped messages since the Plan 01-04 hardening.
+     */
     simulateWebViewMessage: (msg: BaseMessage) => {
+      const envelope = { protocolVersion: PROTOCOL_VERSION, payload: msg };
       for (const listener of receiveListeners) {
-        listener(msg);
+        listener(envelope as unknown as BaseMessage);
       }
     },
   };

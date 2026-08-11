@@ -1,6 +1,7 @@
 import type * as vscode from 'vscode';
 import { buildWebviewHtml } from './webviewHtml';
 import { SIDEBAR_ROUTE_COMMANDS } from '../composition/moduleCommands';
+import type { MessageBroker } from '../bridge/MessageBroker';
 
 /** Factory for URI path joining — uses vscode.Uri for type safety. */
 export type SidebarUriJoinPath = (base: vscode.Uri, ...segments: string[]) => vscode.Uri;
@@ -12,6 +13,13 @@ export type SidebarUriJoinPath = (base: vscode.Uri, ...segments: string[]) => vs
  *
  * Listens for navigation messages from the sidebar and executes
  * the corresponding VSCode commands to open module panels.
+ *
+ * When a {@link MessageBroker} is injected the view is registered with
+ * `{ inbound: false }` so broker broadcasts (`postToWebview`) reach the
+ * sidebar — its Running / Last operation blocks are driven by those. The
+ * sidebar's own outbound messages stay on the provider's raw
+ * `onDidReceiveMessage` subscription: they carry no id/timestamp envelope
+ * and would fail broker validation + rate limiting.
  */
 export class SidebarViewProvider {
   /** The view ID registered in package.json. */
@@ -24,6 +32,10 @@ export class SidebarViewProvider {
    * if the view is re-resolved (VSCode resolves views on reveal, not once).
    */
   private messageSubscription?: vscode.Disposable;
+  /** Broker registration for the currently resolved view (outbound-only). */
+  private brokerRegistration?: vscode.Disposable;
+  /** Subscription to the current view's `onDidDispose`. */
+  private viewDisposeSubscription?: vscode.Disposable;
 
   constructor(
     private extensionUri: vscode.Uri,
@@ -31,16 +43,18 @@ export class SidebarViewProvider {
     private executeCommand: (command: string, ...args: unknown[]) => Thenable<unknown>,
     private orgGetter?: () => Record<string, unknown>[],
     private onOrgSelected?: (orgId: string) => void,
+    private broker?: MessageBroker,
   ) {}
 
   /**
-   * Release the message listener (test hook + manual tear-down for hosts that
-   * dispose providers outside VSCode's normal lifecycle).
+   * Release the message listener + broker registration (test hook + manual
+   * tear-down for hosts that dispose providers outside VSCode's normal
+   * lifecycle).
    */
   dispose(): void {
     this.messageSubscription?.dispose();
     this.messageSubscription = undefined;
-    this.view = undefined;
+    this.releaseView();
   }
 
   /** Called by VSCode when the sidebar view becomes visible. */
@@ -57,6 +71,19 @@ export class SidebarViewProvider {
 
     // Release any prior subscription in case the view is re-resolved.
     this.messageSubscription?.dispose();
+
+    // Register the view with the broker so broadcasts (operation lifecycle,
+    // state sync) reach the sidebar. Outbound-only: inbound sidebar traffic
+    // stays on the raw subscription below. VSCode destroys WebviewViews when
+    // they are hidden, so the previous registration is disposed first and the
+    // new one is released on the view's own onDidDispose (no leak — same bug
+    // class as the 1.3.0 fix).
+    this.brokerRegistration?.dispose();
+    this.brokerRegistration = this.broker?.registerPanel(webviewView, { inbound: false });
+    this.viewDisposeSubscription?.dispose();
+    this.viewDisposeSubscription = webviewView.onDidDispose(() => {
+      this.releaseView(webviewView);
+    });
 
     // Handle navigation messages from the sidebar React component
     this.messageSubscription = webview.onDidReceiveMessage((message: Record<string, unknown>) => {
@@ -95,6 +122,22 @@ export class SidebarViewProvider {
   postMessage(message: Record<string, unknown>): void {
     if (this.view) {
       void this.view.webview.postMessage(message);
+    }
+  }
+
+  /**
+   * Release the broker registration + dispose subscription tied to a resolved
+   * view. When called from the view's own `onDidDispose`, only a matching
+   * view clears `this.view` (a stale dispose event must not detach a newer
+   * re-resolved view).
+   */
+  private releaseView(disposedView?: vscode.WebviewView): void {
+    this.brokerRegistration?.dispose();
+    this.brokerRegistration = undefined;
+    this.viewDisposeSubscription?.dispose();
+    this.viewDisposeSubscription = undefined;
+    if (!disposedView || this.view === disposedView) {
+      this.view = undefined;
     }
   }
 

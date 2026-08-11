@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, act } from '@testing-library/react';
+import { render, act, waitFor } from '@testing-library/react';
 import { BridgeProvider } from './BridgeProvider';
 import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
+import i18n from '../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
 import { resetMessageCounter } from './messageHelpers';
@@ -12,6 +13,12 @@ const mockPostMessage = vi.fn();
 
 vi.mock('../hooks/useVSCodeApi', () => ({
   useVSCodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+  // Also consumed by the i18n module (language persistence boot + recovery).
+  getVscodeApi: () => ({
     postMessage: mockPostMessage,
     getState: () => undefined,
     setState: () => undefined,
@@ -269,5 +276,28 @@ describe('BridgeProvider', () => {
     });
 
     expect(useOrgStore.getState().selectedOrgId).toBeNull();
+  });
+
+  it('should recover the language from the settings blob when the webview state has none', async () => {
+    // The mocked getState() returns undefined → no persisted language, so the
+    // blob value must be adopted (and re-persisted by the i18n module).
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-settings-lang',
+      type: 'settings:response',
+      timestamp: Date.now(),
+      // Current blob layout: the whole settings object under the 'settings' key.
+      payload: { settings: { settings: { language: 'de' } } },
+    });
+
+    await waitFor(() => expect(i18n.language).toBe('de'));
+
+    // Restore the shared i18n instance for the rest of the suite.
+    await i18n.changeLanguage('en');
   });
 });

@@ -11,13 +11,13 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/index.ts', 'src/i18n/locales/**'],
       // Anti-regression gate (2026-08): prudent margin under the measured baseline
-      // with i18n locales excluded (lines 86.3 / branches 95.4 / functions 82.1).
-      // Raise as coverage grows.
+      // with i18n locales excluded (lines 85.2 / branches 93.2 / functions 70.8 /
+      // statements 85.2 — measured after the dead-export purge). Raise as coverage grows.
       thresholds: {
-        statements: 50,
-        branches: 78,
-        functions: 55,
-        lines: 50,
+        statements: 80,
+        branches: 90,
+        functions: 65,
+        lines: 80,
       },
     },
   },

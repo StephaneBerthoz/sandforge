@@ -5,6 +5,10 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-10
+
+**Third-audit release: features that actually reach the user.** Re-auditing 1.4.0 showed several features were wired but invisible — the `App` shell was dead code and the sidebar never received broker broadcasts. Now: shortcuts, command palette, welcome overlay and reduced-motion are mounted in the live panel/sidebar shells; the sidebar receives live broadcasts; the manifest is localized in all 6 languages (enforced in CI); the marketplace page gains badges, Q&A via Discussions, FAQ and screenshots. Fixed: the offline replay loop (failed replays no longer re-queue forever), seed failures returning immediately instead of a 120 s timeout, failed seeds reported as "completed", uncorrelated error responses, and the language regression that could reset your choice to English. Shared package purged of 38 dead utilities; bridge schema is now a flat discriminated union with truncated error messages. Full entry in the root changelog.
+
 ## [1.4.0] - 2026-08-10
 
 **Post-release hardening.** A full second audit pass over 1.3.0. Offline queue safety: seeds (non-idempotent INSERTs) are no longer auto-replayed (duplicate-risk removed — you get an explicit retry hint instead), and re-queued operations now drain while online instead of waiting forever. New: offline queue notifications, the recent-operations panels are actually fed, `sandforge.openReports`, keyboard shortcuts for all 17 routes, the 6-language selector in Settings, and `prefers-reduced-motion` respected globally. Fixed: the Welcome "don't show again" checkbox was write-only, "sync completed" notifications fired for failed syncs, panel crashes showed blank panels, and the remaining doc drift (14-module table, 4-step seed wizard, scheduler marked coming soon, auto-updated version badge). Shared coverage gate now reflects the real 86% baseline. Full entry in the root changelog.

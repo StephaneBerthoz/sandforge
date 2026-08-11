@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
-import { OrgSafetyTier } from '@sandforge/shared';
+import { OrgSafetyTier, PROTOCOL_VERSION } from '@sandforge/shared';
 import { ExtensionHandlers } from './ExtensionHandlers';
 import type { ExtensionHandlersDeps } from './ExtensionHandlers';
 import { MessageBroker } from './MessageBroker';
@@ -79,15 +79,20 @@ function createTestImportResult(overrides: Partial<SfdxImportResult> = {}): Sfdx
   };
 }
 
-function msg(
-  type: string,
-  payload?: Record<string, unknown>,
-): BaseMessage & { payload?: Record<string, unknown> } {
+/**
+ * Builds an enveloped inbound message. The broker drops raw (non-enveloped)
+ * messages since the Plan 01-04 hardening, so every dispatch in this suite
+ * goes through the envelope path.
+ */
+function msg(type: string, payload?: Record<string, unknown>): unknown {
   return {
-    id: 'test-1',
-    type,
-    timestamp: Date.now(),
-    ...(payload ? { payload } : {}),
+    protocolVersion: PROTOCOL_VERSION,
+    payload: {
+      id: 'test-1',
+      type,
+      timestamp: Date.now(),
+      ...(payload ? { payload } : {}),
+    },
   };
 }
 

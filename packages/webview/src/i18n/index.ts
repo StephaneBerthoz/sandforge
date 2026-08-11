@@ -83,4 +83,34 @@ void i18n.use(initReactI18next).init({
 
 i18n.on('languageChanged', persistLanguage);
 
+/**
+ * One-shot recovery import, to call when the extension-side settings blob
+ * arrives (`settings:response`). The webview state is per-document and dies
+ * with the panel, while the blob (globalState) survives — so when the state
+ * has NO persisted language but the blob carries a supported one, adopt it:
+ * `changeLanguage` applies it AND re-persists it into the fresh webview
+ * state via the `languageChanged` listener above, which makes every later
+ * call a no-op (the state then has a language and wins).
+ *
+ * Blob layout is historical baggage: current builds nest the whole settings
+ * object under the `settings` key (`{settings: {language}}`, see
+ * useSettingsPageData.handleSave), older builds wrote `language` as a flat
+ * category key. Both shapes are read.
+ */
+export function importLanguageFromSettings(settings: unknown): void {
+  if (getPersistedLanguage() !== undefined) {
+    return; // webview state is the source of truth — nothing to recover
+  }
+  const blob = settings as Record<string, unknown> | null | undefined;
+  const nested = blob?.['settings'] as Record<string, unknown> | null | undefined;
+  const candidate = blob?.['language'] ?? nested?.['language'];
+  if (
+    typeof candidate === 'string' &&
+    (SUPPORTED_LANGUAGES as readonly string[]).includes(candidate) &&
+    candidate !== i18n.language
+  ) {
+    void i18n.changeLanguage(candidate);
+  }
+}
+
 export default i18n;

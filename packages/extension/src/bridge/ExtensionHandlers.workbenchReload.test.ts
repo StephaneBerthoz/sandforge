@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
+import { PROTOCOL_VERSION } from '@sandforge/shared';
 import { ExtensionHandlers } from './ExtensionHandlers';
 import type { CommandExecutor, ExtensionHandlersDeps } from './ExtensionHandlers';
 import { MessageBroker } from './MessageBroker';
@@ -94,9 +95,9 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
   });
 
   it('invokes workbench.action.reloadWindow when a workbench:reload message is dispatched', () => {
-    // Post a raw (non-enveloped) message directly through the broker; this
-    // hits the legacy path which still validates base shape via Zod. The
-    // reload handler is wired via router.route(...) in ExtensionHandlers.
+    // Post an enveloped message through the broker (raw, non-enveloped
+    // messages are dropped since the Plan 01-04 hardening). The reload
+    // handler is wired via router.route(...) in ExtensionHandlers.
     const panel = {
       webview: {
         onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
@@ -109,9 +110,12 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
     ) => void;
 
     messageCallback({
-      id: 'bridge-reload-1',
-      type: 'workbench:reload',
-      timestamp: Date.now(),
+      protocolVersion: PROTOCOL_VERSION,
+      payload: {
+        id: 'bridge-reload-1',
+        type: 'workbench:reload',
+        timestamp: Date.now(),
+      },
     });
 
     expect(executeCommand).toHaveBeenCalledOnce();

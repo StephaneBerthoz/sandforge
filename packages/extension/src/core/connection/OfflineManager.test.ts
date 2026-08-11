@@ -509,5 +509,19 @@ describe('OfflineManager', () => {
       vi.advanceTimersByTime(30_000);
       expect(probeCount).toBe(0);
     });
+
+    it('should purge a pending drain timer so the executor never fires after dispose', async () => {
+      const executor = vi.fn<Parameters<OperationExecutor>, ReturnType<OperationExecutor>>();
+      executor.mockResolvedValue(undefined);
+      manager.setOperationExecutor(executor);
+
+      // Enqueue while online schedules a debounced drain (1 s).
+      manager.enqueue(createOperation('op-drain'));
+
+      manager.dispose();
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(executor).not.toHaveBeenCalled();
+    });
   });
 });

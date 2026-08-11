@@ -32,6 +32,15 @@ function createMessage(type: string, overrides: Partial<BaseMessage> = {}): Base
   };
 }
 
+/**
+ * Wraps a raw message in the protocol envelope — the only shape the webview
+ * ever sends (pre-envelope clients cannot exist within the same VSIX).
+ * Typed as BaseMessage so existing `messageCallback` casts stay unchanged.
+ */
+function enveloped(payload: BaseMessage): BaseMessage {
+  return { protocolVersion: PROTOCOL_VERSION, payload } as unknown as BaseMessage;
+}
+
 describe('MessageBroker', () => {
   let broker: MessageBroker;
 
@@ -60,7 +69,7 @@ describe('MessageBroker', () => {
         msg: BaseMessage,
       ) => void;
       const message = createMessage('org:list');
-      messageCallback(message);
+      messageCallback(enveloped(message));
 
       expect(handler).toHaveBeenCalledOnce();
       expect(handler).toHaveBeenCalledWith(message);
@@ -90,6 +99,38 @@ describe('MessageBroker', () => {
 
       expect(broker.panelCount).toBe(2);
     });
+
+    it('should NOT subscribe to inbound messages with { inbound: false } but still broadcast', () => {
+      const view = createMockPanel();
+
+      broker.registerPanel(view as unknown as vscode.WebviewView, { inbound: false });
+
+      // No inbound subscription: outbound-only views (sidebar) send raw
+      // messages without id/timestamp that would fail validation + the rate
+      // limiter.
+      expect(view.webview.onDidReceiveMessage).not.toHaveBeenCalled();
+      expect(broker.panelCount).toBe(1);
+
+      // Broadcasts still reach the view.
+      const message = createMessage('operation:started');
+      broker.postToWebview(message);
+      expect(view.webview.postMessage).toHaveBeenCalledWith(message);
+    });
+
+    it('should unregister an inbound:false view via the returned disposable', () => {
+      const view = createMockPanel();
+
+      const disposable = broker.registerPanel(view as unknown as vscode.WebviewView, {
+        inbound: false,
+      });
+
+      expect(broker.panelCount).toBe(1);
+      disposable.dispose();
+      expect(broker.panelCount).toBe(0);
+
+      broker.postToWebview(createMessage('operation:started'));
+      expect(view.webview.postMessage).not.toHaveBeenCalled();
+    });
   });
 
   describe('on', () => {
@@ -103,7 +144,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('seed:execute'));
+      messageCallback(enveloped(createMessage('seed:execute')));
 
       expect(handler).toHaveBeenCalledOnce();
     });
@@ -118,7 +159,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('sync:execute'));
+      messageCallback(enveloped(createMessage('sync:execute')));
 
       expect(handler).not.toHaveBeenCalled();
     });
@@ -135,7 +176,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:list'));
+      messageCallback(enveloped(createMessage('org:list')));
 
       expect(handler1).toHaveBeenCalledOnce();
       expect(handler2).toHaveBeenCalledOnce();
@@ -153,7 +194,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:list'));
+      messageCallback(enveloped(createMessage('org:list')));
 
       expect(handler).not.toHaveBeenCalled();
     });
@@ -168,7 +209,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:connect'));
+      messageCallback(enveloped(createMessage('org:connect')));
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -188,7 +229,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:list'));
+      messageCallback(enveloped(createMessage('org:list')));
 
       expect(handler).toHaveBeenCalledOnce();
       // Errors are silently caught to prevent broker crash
@@ -209,7 +250,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:list'));
+      messageCallback(enveloped(createMessage('org:list')));
 
       expect(logFn).toHaveBeenCalledOnce();
       expect(logFn).toHaveBeenCalledWith(
@@ -230,7 +271,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:connect'));
+      messageCallback(enveloped(createMessage('org:connect')));
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -366,12 +407,14 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback({
-        id: 'msg-1',
-        type: 'seed:execute',
-        timestamp: Date.now(),
-        payload: { templateId: 't1' },
-      } as BaseMessage);
+      messageCallback(
+        enveloped({
+          id: 'msg-1',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: { templateId: 't1' },
+        } as BaseMessage),
+      );
 
       expect(handler).toHaveBeenCalledOnce();
     });
@@ -405,7 +448,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:list'));
+      messageCallback(enveloped(createMessage('org:list')));
 
       expect(handler).not.toHaveBeenCalled();
     });
@@ -484,6 +527,30 @@ describe('MessageBroker', () => {
       );
     });
 
+    it('truncates oversized validation details in bridge:error to ~500 chars', () => {
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
+      // Unknown type → the discriminator error enumerates every known literal
+      // (~300 values ≈ 6.5 kB) — the posted details must stay bounded.
+      messageCallback({
+        protocolVersion: PROTOCOL_VERSION,
+        payload: { id: 'x', type: 'totally:unknown', timestamp: 1 },
+      });
+
+      const errorPost = panel.webview.postMessage.mock.calls
+        .map((args) => args[0] as BaseMessage & { payload: { details: string } })
+        .find((m) => m.type === 'bridge:error');
+      expect(errorPost).toBeDefined();
+      const details = (errorPost as BaseMessage & { payload: { details: string } }).payload
+        .details;
+      expect(details.length).toBeLessThanOrEqual(520);
+      expect(details).toContain('…(+');
+    });
+
     it('posts bridge:protocol-mismatch when envelope protocolVersion differs', () => {
       const telemetry = createTelemetry();
       broker = new MessageBroker({ telemetry });
@@ -551,10 +618,11 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('nonexistent:type'));
+      // Valid literal, but no handler registered for it.
+      messageCallback(enveloped(createMessage('sync:execute')));
 
       expect(logFn).toHaveBeenCalledWith(
-        '[MessageBroker] Unhandled message type: "nonexistent:type"',
+        '[MessageBroker] Unhandled message type: "sync:execute"',
       );
     });
 
@@ -569,7 +637,7 @@ describe('MessageBroker', () => {
       const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
         msg: BaseMessage,
       ) => void;
-      messageCallback(createMessage('org:list'));
+      messageCallback(enveloped(createMessage('org:list')));
 
       expect(logFn).not.toHaveBeenCalledWith(expect.stringContaining('Unhandled'));
     });

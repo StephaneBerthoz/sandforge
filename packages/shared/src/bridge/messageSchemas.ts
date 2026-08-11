@@ -3,11 +3,13 @@ import { z } from 'zod';
 /**
  * Domain-level Zod discriminated unions for every bridge message type.
  *
- * Each domain is its own `z.discriminatedUnion('type', [...])`. The full bridge
- * surface is the union of all domains. This gives us:
+ * Each domain declares its member literals as a `const …Messages = [...] as const`
+ * array, then its schema is `z.discriminatedUnion('type', …Messages)`. The full
+ * bridge surface is a single flattened discriminated union over all domain
+ * arrays. This gives us:
  *
  *   - O(1) type dispatch at parse time (discriminated unions are indexed by the
- *     discriminant value).
+ *     discriminant value — including at the root).
  *   - Clear domain ownership when new messages are added.
  *   - Small schemas per member — each member validates only the fields it owns,
  *     with `.passthrough()` tolerated on nested objects whose exact shape isn't
@@ -18,7 +20,7 @@ import { z } from 'zod';
  * Zod ↔ TS contract in both directions — every msg() literal below has
  * a TS interface (member of a directional union) with the same `type`, and
  * every TS message interface has its msg() member below. If a new
- * message type is introduced, add it to the matching domain union here AND to
+ * message type is introduced, add it to the matching domain array here AND to
  * the matching `types/messages/<domain>.messages.ts` file (or create a new
  * domain on both sides). Genuinely untypeable-but-live literals go into the
  * test's KNOWN_CONTRACT_GAPS whitelist with a justification.
@@ -42,17 +44,18 @@ function msg<T extends string>(type: T) {
 }
 
 // ─── Domain: Org ─────────────────────────────────────────────────────────────
-export const OrgMessageSchema = z.discriminatedUnion('type', [
+const OrgMessages = [
   msg('org:list'),
   msg('org:list:response'),
   msg('org:connect'),
   msg('org:disconnect'),
   msg('org:statusChanged'),
   msg('org:selected'),
-]);
+] as const;
+export const OrgMessageSchema = z.discriminatedUnion('type', OrgMessages);
 
 // ─── Domain: Seed ────────────────────────────────────────────────────────────
-export const SeedMessageSchema = z.discriminatedUnion('type', [
+const SeedMessages = [
   msg('seed:execute'),
   msg('seed:describe-global'),
   msg('seed:describe-object'),
@@ -80,10 +83,11 @@ export const SeedMessageSchema = z.discriminatedUnion('type', [
   msg('seed:list-personas:response'),
   msg('seed:create-persona'),
   msg('seed:create-persona:response'),
-]);
+] as const;
+export const SeedMessageSchema = z.discriminatedUnion('type', SeedMessages);
 
 // ─── Domain: Sync ────────────────────────────────────────────────────────────
-export const SyncMessageSchema = z.discriminatedUnion('type', [
+const SyncMessages = [
   msg('sync:execute'),
   msg('sync:describe-global'),
   msg('sync:describe-fields'),
@@ -112,10 +116,11 @@ export const SyncMessageSchema = z.discriminatedUnion('type', [
   msg('sync:schedule:toggle:response'),
   msg('sync:schedule:delete'),
   msg('sync:schedule:delete:response'),
-]);
+] as const;
+export const SyncMessageSchema = z.discriminatedUnion('type', SyncMessages);
 
 // ─── Domain: Monitor ─────────────────────────────────────────────────────────
-export const MonitorMessageSchema = z.discriminatedUnion('type', [
+const MonitorMessages = [
   msg('monitor:refresh'),
   msg('monitor:start'),
   msg('monitor:trends'),
@@ -155,20 +160,22 @@ export const MonitorMessageSchema = z.discriminatedUnion('type', [
   // interfaces are gone too. The `monitor:fleet:summary:request/response` +
   // `monitor:visibility` envelopes were purged when MonitorOverviewPage /
   // useFleetStore / useVisibilityGate were deleted.)
-]);
+] as const;
+export const MonitorMessageSchema = z.discriminatedUnion('type', MonitorMessages);
 
 // ─── Domain: Compare ─────────────────────────────────────────────────────────
-export const CompareMessageSchema = z.discriminatedUnion('type', [
+const CompareMessages = [
   msg('compare:execute'),
   msg('compare:execute:response'),
   msg('compare:start'),
   msg('compare:permissions'),
   msg('compare:snapshots'),
   msg('compare:drift'),
-]);
+] as const;
+export const CompareMessageSchema = z.discriminatedUnion('type', CompareMessages);
 
 // ─── Domain: DataOps (includes backup, precheck, dataops, governance) ────────
-export const DataOpsMessageSchema = z.discriminatedUnion('type', [
+const DataOpsMessages = [
   msg('backup:execute'),
   msg('dataops:backup'),
   msg('dataops:rollback'),
@@ -191,10 +198,11 @@ export const DataOpsMessageSchema = z.discriminatedUnion('type', [
   msg('governance:policies:import'),
   msg('governance:evaluate'),
   msg('governance:templates'),
-]);
+] as const;
+export const DataOpsMessageSchema = z.discriminatedUnion('type', DataOpsMessages);
 
 // ─── Domain: Automation (pipeline + marketplace + migration + plugins) ───────
-export const AutomationMessageSchema = z.discriminatedUnion('type', [
+const AutomationMessages = [
   msg('pipeline:run'),
   msg('pipeline:execute'),
   msg('pipeline:templates'),
@@ -248,10 +256,11 @@ export const AutomationMessageSchema = z.discriminatedUnion('type', [
   msg('forge:target-preflight:request'),
   msg('forge:target-preflight:response'),
   msg('forge:target-preflight:error'),
-]);
+] as const;
+export const AutomationMessageSchema = z.discriminatedUnion('type', AutomationMessages);
 
 // ─── Domain: Execution + Operation lifecycle + grappe ────────────────────────
-export const ExecutionMessageSchema = z.discriminatedUnion('type', [
+const ExecutionMessages = [
   msg('operation:cancel'),
   msg('operation:pause'),
   msg('operation:resume'),
@@ -269,10 +278,11 @@ export const ExecutionMessageSchema = z.discriminatedUnion('type', [
   msg('grappe:partitionProgress'),
   msg('grappe:backPressure'),
   msg('grappe:completed'),
-]);
+] as const;
+export const ExecutionMessageSchema = z.discriminatedUnion('type', ExecutionMessages);
 
 // ─── Domain: AI ──────────────────────────────────────────────────────────────
-export const AIMessageSchema = z.discriminatedUnion('type', [
+const AIMessages = [
   msg('ai:chat'),
   msg('ai:chat:response'),
   msg('ai:conversation:create'),
@@ -313,10 +323,11 @@ export const AIMessageSchema = z.discriminatedUnion('type', [
   msg('ai:diagnose:response'),
   msg('ai:approve-action'),
   msg('ai:approve-action:response'),
-]);
+] as const;
+export const AIMessageSchema = z.discriminatedUnion('type', AIMessages);
 
 // ─── Domain: Settings (includes onboarding, hint, telemetry, config, whats-new, notification, state) ─
-export const SettingsMessageSchema = z.discriminatedUnion('type', [
+const SettingsMessages = [
   msg('settings:get'),
   msg('settings:update'),
   msg('settings:response'),
@@ -346,10 +357,11 @@ export const SettingsMessageSchema = z.discriminatedUnion('type', [
   msg('bridge:protocol-mismatch'),
   msg('bridge:reload-banner'),
   msg('workbench:reload'),
-]);
+] as const;
+export const SettingsMessageSchema = z.discriminatedUnion('type', SettingsMessages);
 
 // ─── Domain: Realtime (CDC) ──────────────────────────────────────────────────
-export const RealtimeMessageSchema = z.discriminatedUnion('type', [
+const RealtimeMessages = [
   msg('realtime:start'),
   msg('realtime:stop'),
   msg('realtime:status'),
@@ -363,10 +375,11 @@ export const RealtimeMessageSchema = z.discriminatedUnion('type', [
   msg('realtime:events-batch'),
   msg('realtime:conflict'),
   msg('realtime:conflict-resolved'),
-]);
+] as const;
+export const RealtimeMessageSchema = z.discriminatedUnion('type', RealtimeMessages);
 
 // ─── Domain: Conflict (scheduler — scheduled ops & conflict routing) ─────────
-export const ConflictMessageSchema = z.discriminatedUnion('type', [
+const ConflictMessages = [
   msg('scheduler:list'),
   msg('scheduler:list:response'),
   msg('scheduler:upsert'),
@@ -375,28 +388,31 @@ export const ConflictMessageSchema = z.discriminatedUnion('type', [
   msg('scheduler:delete:response'),
   msg('scheduler:toggle'),
   msg('scheduler:toggle:response'),
-]);
+] as const;
+export const ConflictMessageSchema = z.discriminatedUnion('type', ConflictMessages);
 
 // ─── Domain: Cache ───────────────────────────────────────────────────────────
-export const CacheMessageSchema = z.discriminatedUnion('type', [
+const CacheMessages = [
   msg('cache:invalidate-all'),
   msg('cache:invalidate-all:response'),
   msg('cache:get-stats'),
   msg('cache:stats-response'),
-]);
+] as const;
+export const CacheMessageSchema = z.discriminatedUnion('type', CacheMessages);
 
 // ─── Domain: SmartAction + QuickSync ─────────────────────────────────────────
-export const SmartActionMessageSchema = z.discriminatedUnion('type', [
+const SmartActionMessages = [
   msg('smart-action:analyze'),
   msg('smart-action:analyze:response'),
   msg('quicksync:suggest-objects'),
   msg('quicksync:detect-relationships'),
   msg('quicksync:preview'),
   msg('quicksync:execute'),
-]);
+] as const;
+export const SmartActionMessageSchema = z.discriminatedUnion('type', SmartActionMessages);
 
 // ─── Domain: Frozen Reference Dataset ────────────────────────────────────────
-export const FrozenMessageSchema = z.discriminatedUnion('type', [
+const FrozenMessages = [
   msg('frozen:config:get'),
   msg('frozen:config:get:response'),
   msg('frozen:config:save'),
@@ -415,32 +431,34 @@ export const FrozenMessageSchema = z.discriminatedUnion('type', [
   msg('frozen:verify:result'),
   msg('frozen:status'),
   msg('frozen:status:response'),
-]);
+] as const;
+export const FrozenMessageSchema = z.discriminatedUnion('type', FrozenMessages);
 
 /**
- * Full bridge message surface — union of every domain union.
+ * Full bridge message surface — one flattened discriminated union over every
+ * domain array (298 literals, O(1) dispatch at the boundary).
  *
  * Use `BridgeMessageSchema.safeParse(raw)` at the message boundary to validate
  * any inbound payload. Members whose shape isn't strictly known yet still pass
  * if they include the base fields + a recognised `type` literal (passthrough on
  * extra keys).
  */
-export const BridgeMessageSchema = z.union([
-  OrgMessageSchema,
-  SeedMessageSchema,
-  SyncMessageSchema,
-  MonitorMessageSchema,
-  CompareMessageSchema,
-  DataOpsMessageSchema,
-  AutomationMessageSchema,
-  ExecutionMessageSchema,
-  AIMessageSchema,
-  SettingsMessageSchema,
-  RealtimeMessageSchema,
-  ConflictMessageSchema,
-  CacheMessageSchema,
-  SmartActionMessageSchema,
-  FrozenMessageSchema,
+export const BridgeMessageSchema = z.discriminatedUnion('type', [
+  ...OrgMessages,
+  ...SeedMessages,
+  ...SyncMessages,
+  ...MonitorMessages,
+  ...CompareMessages,
+  ...DataOpsMessages,
+  ...AutomationMessages,
+  ...ExecutionMessages,
+  ...AIMessages,
+  ...SettingsMessages,
+  ...RealtimeMessages,
+  ...ConflictMessages,
+  ...CacheMessages,
+  ...SmartActionMessages,
+  ...FrozenMessages,
 ]);
 
 /** Inferred TS type of any valid bridge message (after parse). */

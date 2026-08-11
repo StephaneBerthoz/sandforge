@@ -13,12 +13,14 @@ const KNOWN_MODULES: ReadonlySet<string> = new Set([
   'dataops',
   'automation',
   'frozen',
+  'grappe',
 ]);
 
 /**
  * Map the free-form `module` string sent by extension handlers
  * (SeedOpsHandler, SyncOpsHandler, ForgeHandler, DataOpsHandler,
- * AutomationHandler, FrozenDatasetHandler) to the store's category union.
+ * AutomationHandler, FrozenDatasetHandler, GrappeHandler) to the store's
+ * category union.
  * Unknown/future module ids collapse to 'automation': the field is a coarse
  * tag that is never rendered — the description carries the visible label.
  */

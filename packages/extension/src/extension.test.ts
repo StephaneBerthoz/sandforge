@@ -205,6 +205,7 @@ describe('extension', () => {
           toString: () => String(uri),
         })),
       },
+      onDidDispose: vi.fn(() => ({ dispose: vi.fn() })),
     };
     provider.resolveWebviewView(mockView as never, undefined, undefined);
 

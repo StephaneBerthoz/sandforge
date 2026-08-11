@@ -3,10 +3,13 @@
 [![Visual Studio Marketplace](https://img.shields.io/visual-studio-marketplace/v/StephaneBerthoz.sandforge?label=Marketplace)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
 [![Installs](https://img.shields.io/visual-studio-marketplace/i/StephaneBerthoz.sandforge)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
 [![Rating](https://img.shields.io/visual-studio-marketplace/r/StephaneBerthoz.sandforge)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
+[![CI](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml)
 
 **Populate a developer sandbox with realistic data in 2 minutes** — cloned from a real record with its whole relationship graph, generated synthetically, or replayed from a frozen dataset. With production guardrails, an audit trail, and full UI in 6 languages.
 
 ![Forge flow: from a record to a populated sandbox](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/forge-flow.gif)
+
+**Contents**: [First clone in 2 minutes](#your-first-clone-in-2-minutes) · [Three ways to populate](#three-ways-to-populate-your-sandbox) · [Safety](#safety-by-default) · [More modules](#and-much-more) · [FAQ](#faq) · [Docs](#documentation)
 
 ---
 
@@ -50,11 +53,25 @@ New here? The built-in **Get Started** walkthrough (Help → Welcome → "Get st
 - **Automation**: visual pipeline builder with 15 step types and dry-run mode.
 - **AI assistant**: NL2SOQL and failed-job diagnosis, read-only by design (Anthropic Claude; disabled by default, your key stays in VS Code Secret Storage).
 
+![Monitor: limits, jobs and org health at a glance](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/monitor.png)
+
+![Seed: guided wizard with templates and AI personas](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/seed.png)
+
 ---
 
 ## Internationalization
 
 Full UI in 6 languages, at 100% translation coverage enforced in CI: English, French, German, Spanish, Japanese, Brazilian Portuguese. Your language choice persists across sessions.
+
+---
+
+## FAQ
+
+- **Does my data leave my machine?** No. Telemetry is opt-in (off by default), the AI assistant is disabled by default, and your API key stays in VS Code Secret Storage.
+- **Can I point it at production?** Reads, yes. Writes go through the Production Guard: double confirmation, and destructive operations (DELETE) are blocked outright.
+- **Is this an SFDMU replacement?** The Migration module imports your existing `export.json` into a Sync config — non-destructively, nothing is written to your orgs.
+- **Which orgs are supported?** Any org authenticated in the Salesforce CLI (`sf`), imported in one click.
+- **Is it free?** Yes — MIT licensed, no account, no paid tier.
 
 ---
 
@@ -79,7 +96,11 @@ Full UI in 6 languages, at 100% translation coverage enforced in CI: English, Fr
 ## Support
 
 - [Report an issue](https://github.com/StephaneBerthoz/sand-forge/issues)
+- [Ask a question (Q&A)](https://github.com/StephaneBerthoz/sand-forge/discussions)
+- [Changelog](https://github.com/StephaneBerthoz/sand-forge/blob/master/changelog.md) — 17+ releases and counting
 - [Security policy](https://github.com/StephaneBerthoz/sand-forge/blob/master/SECURITY.md)
+
+Missing a feature? [Open a feature request](https://github.com/StephaneBerthoz/sand-forge/issues/new?template=feature_request.yml) — responses are fast.
 
 ## Author
 

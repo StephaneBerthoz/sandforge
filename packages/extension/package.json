@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -14,7 +14,24 @@
     "color": "#1E1E2E",
     "theme": "dark"
   },
-  "badges": [],
+  "badges": [
+    {
+      "href": "https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge",
+      "url": "https://img.shields.io/visual-studio-marketplace/v/StephaneBerthoz.sandforge",
+      "description": "Marketplace version"
+    },
+    {
+      "href": "https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge",
+      "url": "https://img.shields.io/visual-studio-marketplace/i/StephaneBerthoz.sandforge",
+      "description": "Installs"
+    },
+    {
+      "href": "https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge",
+      "url": "https://img.shields.io/visual-studio-marketplace/r/StephaneBerthoz.sandforge",
+      "description": "Rating"
+    }
+  ],
+  "qna": "https://github.com/StephaneBerthoz/sand-forge/discussions",
   "repository": {
     "type": "git",
     "url": "https://github.com/StephaneBerthoz/sand-forge"
@@ -28,7 +45,8 @@
   },
   "categories": [
     "Other",
-    "Data Science"
+    "Data Science",
+    "Testing"
   ],
   "keywords": [
     "salesforce",
@@ -48,7 +66,14 @@
     "bulk-api",
     "csv-import",
     "data-import",
-    "org-cloning"
+    "org-cloning",
+    "sfdmu",
+    "data-loader",
+    "anonymization",
+    "test-data",
+    "backup",
+    "soql",
+    "data-migration"
   ],
   "activationEvents": [],
   "capabilities": {
@@ -352,7 +377,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.93.0",

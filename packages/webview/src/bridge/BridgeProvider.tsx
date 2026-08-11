@@ -11,6 +11,7 @@ import { useOrgStore } from '../stores/useOrgStore';
 import { useAppStore } from '../stores/useAppStore';
 import { useNotificationStore } from '../stores/useNotificationStore';
 import { useGrappeStore } from '../stores/useGrappeStore';
+import { importLanguageFromSettings } from '../i18n';
 import { buildMessage } from './messageHelpers';
 
 /** Props for BridgeProvider. */
@@ -191,6 +192,16 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
   useMessageListener<BaseMessage>('onboarding:show', () => {
     useAppStore.getState().setShowWelcome(true);
   });
+
+  // One-shot language recovery: the webview state (per-document) may have
+  // lost the persisted language while the extension-side settings blob still
+  // carries it — adopt the blob value once (see importLanguageFromSettings).
+  useMessageListener<BaseMessage & { payload: { settings?: unknown } }>(
+    'settings:response',
+    (msg) => {
+      importLanguageFromSettings(msg.payload?.settings);
+    },
+  );
 
   // Listen for whats-new:show → display what's new overlay
   useMessageListener<BaseMessage & { payload: { version: string } }>('whats-new:show', (msg) => {

@@ -1,11 +1,11 @@
 {
   "name": "sandforge",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Salesforce Sandbox ETL Toolkit for VSCode",
   "scripts": {
     "build": "pnpm --filter @sandforge/shared build && pnpm --filter {./packages/extension} build && pnpm --filter @sandforge/webview build && pnpm run copy:webview",
-    "copy:webview": "rm -rf packages/extension/webview-dist && cp -r packages/webview/dist packages/extension/webview-dist",
+    "copy:webview": "node -e \"fs.rmSync('packages/extension/webview-dist',{recursive:true,force:true});fs.cpSync('packages/webview/dist','packages/extension/webview-dist',{recursive:true})\"",
     "build:shared": "pnpm --filter @sandforge/shared build",
     "build:extension": "pnpm --filter {./packages/extension} build",
     "build:webview": "pnpm --filter @sandforge/webview build",
@@ -26,7 +26,7 @@
     "package": "pnpm build && cd packages/extension && pnpm exec vsce package --no-dependencies -o ../../sandforge.vsix",
     "setup:hooks": "git config core.hooksPath scripts/git-hooks",
     "prepare": "pnpm setup:hooks",
-    "clean": "pnpm -r clean && rm -rf node_modules"
+    "clean": "pnpm -r run clean && node -e \"fs.rmSync('node_modules',{recursive:true,force:true})\""
   },
   "devDependencies": {
     "@stryker-mutator/core": "^8",

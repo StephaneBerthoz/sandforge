@@ -582,21 +582,28 @@ export class SeedOpsHandler implements DomainHandler {
       // No-op when the operation never reached registration (connection or
       // guard failure happens before sendOperationStarted).
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
-      // Single failure emission: `operation:failed` only (webview consumes it).
-      this.deps.log(`[ERR] seed:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(
-        this.deps,
-        operationId,
-        extractErrorMessage(err),
-        true,
-        buildOfflineReplayHint(err, operationId, this.deps.log),
-      );
+      // Dual channel, single display (same contract as sync): `operation:failed`
+      // carries the lifecycle; `seed:error` settles the in-flight webview
+      // mutation (useBridgeMutation listens on seed:execute:response /
+      // seed:error — without it the user stared at a 120 s timeout). Both
+      // carry the offline retryHint on transport failures.
+      const offlineHint = buildOfflineReplayHint(err, operationId, this.deps.log);
+      sendHandlerError(this.deps, 'seed:execute', 'seed:error', err, undefined, true, offlineHint);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, offlineHint);
     }
   }
 
   /**
    * Execute seed operation in the background.
    * Extracted from handleExecute to allow detached execution via BackgroundOperationRegistry.
+   *
+   * Failures are reported on `seed:error` + `operation:failed` and converted to
+   * a `{ status: 'failure' }` result rather than a rejection — the same
+   * contract as executeSync. The registry reads that status and marks the
+   * operation 'failed' (resolving `undefined` would mark a failed seed
+   * 'completed' and fire a lying "seed completed" notification); a rejection
+   * would double-emit on the no-registry fallback path where handleExecute
+   * awaits this promise inside its own try/catch.
    */
   private async executeSeed(
     msg: BaseMessage,
@@ -604,7 +611,7 @@ export class SeedOpsHandler implements DomainHandler {
     payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean },
     operationId: string,
     abortController: AbortController,
-  ): Promise<void> {
+  ): Promise<{ status: 'failure' } | void> {
     const robustnessConfig = this.getRobustnessConfig();
     let progressTracker: BulkJobProgressTracker | undefined;
     let unsubProgress: (() => void) | undefined;
@@ -800,15 +807,16 @@ export class SeedOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.deps.infraServices?.performanceTracker?.complete(operationId);
       this.liveTracker?.fail(operationId, extractErrorMessage(err));
-      // Single failure emission: `operation:failed` only (webview consumes it).
-      this.deps.log(`[ERR] seed:execute: ${extractErrorMessage(err)}`);
-      sendOperationFailed(
-        this.deps,
-        operationId,
-        extractErrorMessage(err),
-        true,
-        buildOfflineReplayHint(err, operationId, this.deps.log),
-      );
+      // Dual channel, single display (see handleExecute): seed:error settles
+      // the in-flight webview mutation, operation:failed carries the
+      // lifecycle. Both carry the offline retryHint on transport failures.
+      const offlineHint = buildOfflineReplayHint(err, operationId, this.deps.log);
+      sendHandlerError(this.deps, 'seed:execute', 'seed:error', err, undefined, true, offlineHint);
+      sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, offlineHint);
+      // Failure-status result (not a rejection, not a bare resolve) so the
+      // BackgroundOperationRegistry marks the operation 'failed' — see the
+      // method docstring for the contract.
+      return { status: 'failure' };
     } finally {
       progressTracker?.stopTracking(operationId);
       unsubProgress?.();

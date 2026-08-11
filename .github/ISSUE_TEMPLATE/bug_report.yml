@@ -1,0 +1,96 @@
+name: Bug Report
+description: Report a defect in the SandForge extension
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > **Security finding?** Do NOT open a public issue — follow [SECURITY.md](https://github.com/StephaneBerthoz/sand-forge/blob/master/SECURITY.md) instead.
+  - type: input
+    id: version
+    attributes:
+      label: Extension version
+      description: SandForge icon → sidebar, or Extensions panel. Must be the latest release.
+      placeholder: "1.4.0"
+    validations:
+      required: true
+  - type: input
+    id: vscode
+    attributes:
+      label: VS Code version
+      description: Output of `code --version` (1.95+ required).
+      placeholder: "1.95.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: input
+    id: sfcli
+    attributes:
+      label: Salesforce CLI version
+      description: Output of `sf version`.
+      placeholder: "@salesforce/cli/2.x"
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module concerned
+      options:
+        - Forge
+        - Seed
+        - Sync
+        - Frozen Dataset
+        - Monitor
+        - Compare
+        - DataOps
+        - Automation
+        - Migration
+        - Autopilot
+        - AI Assistant
+        - Orgs / connection
+        - Reports
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: orgtype
+    attributes:
+      label: Target org type
+      options: [Sandbox, Scratch, Developer, Production]
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect org …
+        2. Open Forge …
+        3. Click …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error message if any.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: View → Output → select "SandForge" in the dropdown. Redact org IDs, usernames and record data.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I reproduced this on the latest marketplace version
+          required: true

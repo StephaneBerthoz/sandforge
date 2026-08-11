@@ -1,6 +1,6 @@
 {
   "displayName": "SandForge : Forgez vos Sandboxes Salesforce",
-  "description": "Toolkit Salesforce tout-en-un. Generation de donnees par IA avec personas, import CSV ou clonage entre orgs. Sync entre orgs avec resolution de conflits. Comparaison de metadata, monitoring des limites et automatisation, avec execution streaming pour les gros volumes.",
+  "description": "Toolkit Salesforce tout-en-un. Generation de donnees par IA avec personas, import CSV ou clonage entre orgs — import SFDMU export.json inclus. Sync entre orgs avec resolution de conflits. Comparaison de metadata, monitoring des limites et automatisation, avec execution streaming pour les gros volumes.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",
   "view.orgs.name": "Organisations",

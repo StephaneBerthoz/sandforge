@@ -4,6 +4,7 @@ import { App } from './App';
 import { PanelApp } from './PanelApp';
 import { SidePanel } from './SidePanel';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { MotionProvider } from './motion/MotionProvider';
 import './index.css';
 import './styles/glass.css';
 
@@ -20,9 +21,12 @@ if (root) {
     <React.StrictMode>
       {moduleId === 'sidepanel' ? (
         // SidePanel has no BridgeProvider/App ancestor — give it the same
-        // crash-recovery boundary the other roots get from App.tsx.
+        // crash-recovery boundary the other roots get from App.tsx, and the
+        // same motion context (LazyMotion features + reducedMotion="user").
         <ErrorBoundary>
-          <SidePanel />
+          <MotionProvider>
+            <SidePanel />
+          </MotionProvider>
         </ErrorBoundary>
       ) : moduleId ? (
         <PanelApp moduleId={moduleId} />

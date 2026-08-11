@@ -1,0 +1,50 @@
+name: Feature Request
+description: Suggest an improvement or a new capability
+title: "[Feat]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to do? What hurts today?
+      placeholder: "When I refresh my sandbox, I have to …"
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module concerned
+      options:
+        - Forge
+        - Seed
+        - Sync
+        - Frozen Dataset
+        - Monitor
+        - Compare
+        - DataOps
+        - Automation
+        - Migration
+        - Autopilot
+        - AI Assistant
+        - Orgs / connection
+        - Reports
+        - New module
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds, other tools (SFDMU, data loader…)
+  - type: checkboxes
+    id: contrib
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd be willing to submit a PR for this
+          required: false

@@ -96,7 +96,7 @@ describe('wireOfflineNotifications', () => {
     manager.dispose();
   });
 
-  it('notifies when a queued operation is replayed', async () => {
+  it('notifies when a queued operation is restarted', async () => {
     const manager = new OfflineManager(createMockConfigStore());
     wireOfflineNotifications(manager);
     manager.setOperationExecutor(vi.fn().mockResolvedValue(undefined));
@@ -105,8 +105,11 @@ describe('wireOfflineNotifications', () => {
     manager.enqueue({ id: 'q-2', type: 'sync', orgId: 'org-1', payload: {} });
     await manager.drainQueue();
 
+    // The drain cannot know whether the replay succeeded (startExecution
+    // returns right after registry registration), so the wording stays honest:
+    // the operation was restarted, not "replayed".
     expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-      expect.stringContaining('replayed'),
+      expect.stringContaining('restarted'),
     );
     manager.dispose();
   });

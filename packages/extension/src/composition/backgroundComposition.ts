@@ -78,8 +78,8 @@ export function wireOfflineReplay(
  * Surface offline-queue lifecycle events to the user. `OfflineManager.onEvent`
  * has no other production listener and `WebviewState` has no offline channel,
  * so native VS Code notifications are the only signal that an operation was
- * queued on transport failure, replayed, or dropped after a failed replay.
- * Side-effecting by design — call from `activate()`.
+ * queued on transport failure, restarted on drain, or dropped after a failed
+ * replay. Side-effecting by design — call from `activate()`.
  */
 export function wireOfflineNotifications(offlineManager: OfflineManager): void {
   offlineManager.onEvent((event) => {
@@ -94,8 +94,12 @@ export function wireOfflineNotifications(offlineManager: OfflineManager): void {
         );
         break;
       case 'operationExecuted':
+        // The drain only proves the queued operation was handed back to its
+        // handler (startExecution returns right after registry registration) —
+        // NOT that the replay succeeded. The outcome surfaces separately via
+        // the operation:failed / registry lifecycle notifications.
         void vscode.window.showInformationMessage(
-          `SandForge: queued ${operation.type} operation replayed.`,
+          `SandForge: queued ${operation.type} operation restarted — it is running again in the background.`,
         );
         break;
       case 'operationFailed':

@@ -63,6 +63,20 @@ describe('useRecentOpsFeed', () => {
     expect(useRecentOpsStore.getState().ops[0]?.type).toBe('frozen');
   });
 
+  it('maps the grappe module to its own category', () => {
+    renderHook(() => useRecentOpsFeed());
+
+    act(() => {
+      dispatchMessage('operation:started', {
+        operationId: 'op-grappe',
+        module: 'grappe',
+        description: 'Clustering records',
+      });
+    });
+
+    expect(useRecentOpsStore.getState().ops[0]?.type).toBe('grappe');
+  });
+
   it('marks the op as success on operation:completed and keeps the label', () => {
     renderHook(() => useRecentOpsFeed());
 
