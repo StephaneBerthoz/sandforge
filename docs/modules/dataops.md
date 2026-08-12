@@ -1,12 +1,16 @@
 # DataOps
 
-Manage the full lifecycle of your sandbox data: backup and restore, anonymize sensitive fields, enforce GDPR/CCPA compliance, clean up stale records, and monitor data quality -- all from a single tabbed page.
+Back up your org data and anonymize sensitive fields from a single tabbed page.
+
+> **Status.** Backup and Anonymize are wired end to end. Restore, Compliance,
+> Cleanup and Data Quality ship as previews: the tabs render, but are not yet
+> connected to a backend. Each section below says which it is.
 
 ## Quick Start
 
 1. Navigate to **DataOps** from the sidebar
 2. The KPI row shows records processed, error rate, and anonymization template count
-3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality
+3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality (only Backup and Anonymize are wired today)
 4. Start with a backup to establish a restore point before other operations
 
 ## Features
@@ -16,10 +20,12 @@ Manage the full lifecycle of your sandbox data: backup and restore, anonymize se
 Create full or incremental backups of your org data:
 
 - Select objects to include in the backup
-- Track backup history with record counts and status per object
+- Every backup is written to extension storage with per-object record counts *(the in-app backup history list is coming soon — the tab currently shows an empty list)*
 - One-click backup creation from the Backup Panel
 
 ### Restore
+
+> **Coming soon.** the rollback backend is implemented, but the Restore tab does not yet send the request — the button is inert and the backup list it reads is empty. The behaviour below describes the planned wiring.
 
 Restore data from a previously saved backup:
 
@@ -38,6 +44,8 @@ Mask sensitive data using pre-built or custom anonymization templates:
 
 ### Compliance (GDPR/CCPA)
 
+> **Coming soon.** the tab renders the DSR form and PII list but is not connected to a backend — submitting a request sends nothing and no data is loaded. PII *detection* is live and already runs in the Seed and Sync pre-flight checks.
+
 The GDPR Panel provides compliance-focused data management:
 
 - Data Subject Request (DSR) workflows for access, deletion, and portability
@@ -47,6 +55,8 @@ The GDPR Panel provides compliance-focused data management:
 
 ### Cleanup
 
+> **Coming soon.** the tab renders against an empty recommendation list; no scan produces one yet.
+
 Remove stale, orphaned, or duplicate records:
 
 - AI-powered recommendations for records to clean up
@@ -54,6 +64,8 @@ Remove stale, orphaned, or duplicate records:
 - Safe cleanup with pre-operation backup
 
 ### Data Quality
+
+> **Coming soon.** the dashboard renders against an empty result list; no quality scan produces one yet.
 
 A dashboard for monitoring data quality across your org:
 

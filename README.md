@@ -36,14 +36,14 @@ SandForge ships 14 modules in a single extension:
 | **Sync** | Bidirectional sync between orgs with field mapping, transforms, and conflict resolution |
 | **Monitor** | API limits, jobs, storage, and health score in real time, with threshold alerts |
 | **Compare** | Metadata diff, permission matrix, and drift detection across orgs |
-| **DataOps** | Backup and restore, PII anonymization (GDPR, CCPA, HIPAA, PCI DSS), data quality rules |
+| **DataOps** | Org backup and PII anonymization templates *(restore, compliance workflows and quality rules coming soon)* |
 | **Automation** | Visual pipeline builder with 15 step types and dry-run mode (scheduling and triggers coming soon) |
 | **AI Assistant** | NL2SOQL and failed-job diagnosis over 10 read-only tools |
-| **Grappe** | Parallel execution engine for datasets above 10,000 records |
+| **Grappe** | Partitioned parallel execution engine for large datasets *(coming soon — the engine ships, no operation activates it yet)* |
 | **Migration** | Import existing SFDMU `export.json` or CSV configurations into Sync configs |
-| **Autopilot** | Zero-config sandbox seeding through a guided wizard |
+| **Autopilot** | Zero-config sandbox seeding through a guided wizard, with GDPR, CCPA, HIPAA and PCI-DSS anonymization rule sets |
 | **Organizations** | Org registry with SF CLI import and tier-based safety coloring |
-| **Reports** | Execution reports, operational analytics, audit trail, and data lineage |
+| **Reports** | Execution reports, operational analytics, audit trail, and data lineage *(coming soon — the views ship, the data feed does not)* |
 
 Safety is on by default: Production Guard requires double confirmation before any write on a Production org, blocks DELETE there, and keeps an audit trail of operations.
 
@@ -61,7 +61,7 @@ Safety is on by default: Production Guard requires double confirmation before an
 | [Sync](docs/modules/sync.md) | Bidirectional data synchronization between orgs |
 | [Monitor](docs/modules/monitor.md) | Real-time org health, API limits, and job tracking |
 | [Compare](docs/modules/compare.md) | Metadata diff, permission matrix, and drift detection |
-| [DataOps](docs/modules/dataops.md) | Backup, restore, anonymization, and data quality |
+| [DataOps](docs/modules/dataops.md) | Backup and anonymization (restore, compliance and quality coming soon) |
 | [Automation](docs/modules/automation.md) | Visual pipeline builder with scheduling |
 | [FAQ & Troubleshooting](docs/faq.md) | Common questions and solutions to frequent issues |
 

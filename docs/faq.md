@@ -103,7 +103,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Solutions:**
 1. Check the Monitor dashboard for current API usage -- high consumption slows API responses
 2. Reduce concurrent operations if multiple are running simultaneously
-3. For large datasets (10K+ records), the Grappe Engine activates automatically for parallel processing.
+3. Split very large loads into several smaller runs — the Grappe parallel engine is not yet activated automatically, so a single run is processed sequentially.
 4. Org tier matters: Developer sandboxes have lower API limits than Full sandboxes
 5. Close unused VSCode extension panels to free memory
 
