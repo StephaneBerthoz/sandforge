@@ -263,12 +263,6 @@ const AutomationMessages = [
   msg('migration:import-sfdmu:response'),
   // Error channel for migration import failures.
   msg('migration:error'),
-  msg('plugins:list'),
-  msg('plugins:list:response'),
-  msg('plugins:load'),
-  msg('plugins:load:response'),
-  msg('plugins:unload'),
-  msg('plugins:unload:response'),
   msg('autopilot:scan-schema'),
   msg('autopilot:schema-result'),
   msg('autopilot:generate-plan'),

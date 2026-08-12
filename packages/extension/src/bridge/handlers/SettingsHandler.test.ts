@@ -73,24 +73,17 @@ describe('SettingsHandler', () => {
     expect(response.correlationId).toBe('req-42');
   });
 
-  it('handles plugins:list with correlationId', async () => {
-    const result = await handler.handle(createMsg('plugins:list'));
-    expect(result).toBe(true);
-
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('plugins:list:response');
-    expect(response.correlationId).toBe('req-42');
-    expect(response.payload.success).toBe(true);
-  });
-
-  it('handles plugins:unload with correlationId', async () => {
-    const result = await handler.handle(createMsg('plugins:unload', { pluginName: 'test-plugin' }));
-    expect(result).toBe(true);
-
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('plugins:unload:response');
-    expect(response.correlationId).toBe('req-42');
-    expect(response.payload.success).toBe(true);
+  it('no longer exposes the plugins:* surface', async () => {
+    // plugins:load dynamic-imported an arbitrary filesystem path supplied over
+    // the bridge, validated only as a 1-1000 char string — an arbitrary module
+    // load reachable by any message, for a feature with no UI caller, whose
+    // list returned a hardcoded empty array and whose unload did nothing.
+    expect(await handler.handle(createMsg('plugins:list'))).toBe(false);
+    expect(await handler.handle(createMsg('plugins:load', { pluginPath: '/tmp/evil.js' }))).toBe(
+      false,
+    );
+    expect(await handler.handle(createMsg('plugins:unload', { pluginName: 'x' }))).toBe(false);
+    expect(deps.broker.postToWebview).not.toHaveBeenCalled();
   });
 
   it('handles telemetry:status with correlationId', async () => {

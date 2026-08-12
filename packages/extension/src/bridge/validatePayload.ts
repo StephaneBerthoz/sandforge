@@ -673,12 +673,6 @@ export const settingsUpdatePayloadSchema = z.object({
 });
 export const hintDismissPayloadSchema = z.object({ hintId: opaqueIdSchema });
 export const telemetryTogglePayloadSchema = z.object({ enabled: z.boolean() });
-export const pluginsLoadPayloadSchema = z.object({
-  pluginPath: z.string().min(1).max(1_000),
-});
-export const pluginsUnloadPayloadSchema = z.object({
-  pluginName: z.string().min(1).max(200),
-});
 
 // ── i18n:* payload schemas ────────────────────────────────────────────────
 

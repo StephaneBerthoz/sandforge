@@ -6,8 +6,6 @@ import {
   settingsUpdatePayloadSchema,
   hintDismissPayloadSchema,
   telemetryTogglePayloadSchema,
-  pluginsLoadPayloadSchema,
-  pluginsUnloadPayloadSchema,
 } from '../validatePayload.js';
 import type { OnboardingService } from '../../core/onboarding/OnboardingService.js';
 import type { HintTracker } from '../../core/onboarding/HintTracker.js';
@@ -20,16 +18,13 @@ const SETTINGS_TYPES = new Set([
   'onboarding:complete',
   'onboarding:reset',
   'hint:dismiss',
-  'plugins:list',
-  'plugins:load',
-  'plugins:unload',
   'telemetry:status',
   'telemetry:toggle',
   'connectivity:status',
 ]);
 
 /**
- * Domain handler for settings, onboarding, plugins, telemetry,
+ * Domain handler for settings, onboarding, telemetry,
  * and connectivity-related webview-to-extension messages.
  *
  * Groups all configuration and infrastructure-status operations
@@ -72,15 +67,6 @@ export class SettingsHandler implements DomainHandler {
         return true;
       case 'hint:dismiss':
         this.handleHintDismiss(msg);
-        return true;
-      case 'plugins:list':
-        this.handlePluginsList(msg);
-        return true;
-      case 'plugins:load':
-        await this.handlePluginsLoad(msg);
-        return true;
-      case 'plugins:unload':
-        this.handlePluginsUnload(msg);
         return true;
       case 'telemetry:status':
         this.handleTelemetryStatus(msg);
@@ -147,81 +133,6 @@ export class SettingsHandler implements DomainHandler {
     }
   }
 
-  private handlePluginsList(msg: BaseMessage): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const response = buildResponse(this.deps, msg, 'plugins:list:response', {
-      success: true,
-      plugins: [] as unknown[],
-    });
-    this.deps.broker.postToWebview(response);
-  }
-
-  private async handlePluginsLoad(msg: BaseMessage): Promise<void> {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(pluginsLoadPayloadSchema, msg, 'settings:error', this.deps);
-    if (!parsed) return;
-    const { pluginPath } = parsed;
-    try {
-      const { PluginManager } = await import('../../core/plugins/PluginManager.js');
-      const fsImpl = {
-        readFile: async (fp: string) => {
-          const fsModule = await import('fs/promises');
-          return fsModule.readFile(fp, 'utf-8');
-        },
-        exists: async (fp: string) => {
-          const fsModule = await import('fs/promises');
-          return fsModule
-            .access(fp)
-            .then(() => true)
-            .catch(() => false);
-        },
-        readDir: async (dp: string) => {
-          const fsModule = await import('fs/promises');
-          return fsModule.readdir(dp);
-        },
-      };
-      const moduleLoader = {
-        load: async (entrypoint: string) => {
-          return import(entrypoint) as Promise<
-            import('../../core/plugins/PluginManager').SandForgePlugin
-          >;
-        },
-      };
-      const pm = new PluginManager(fsImpl, moduleLoader, pluginPath);
-      const loaded = await pm.loadPlugins();
-      const response = buildResponse(this.deps, msg, 'plugins:load:response', {
-        success: true,
-        loadedPlugins: loaded,
-      });
-      this.deps.broker.postToWebview(response);
-    } catch (err: unknown) {
-      this.deps.log(`[ERR] plugins:load: ${extractErrorMessage(err)}`);
-      const errResp = buildResponse(this.deps, msg, 'plugins:load:response', {
-        success: false,
-        error: extractErrorMessage(err),
-      });
-      this.deps.broker.postToWebview(errResp);
-    }
-  }
-
-  private handlePluginsUnload(msg: BaseMessage): void {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(pluginsUnloadPayloadSchema, msg, 'settings:error', this.deps);
-    if (!parsed) return;
-    const { pluginName } = parsed;
-    const response = buildResponse(this.deps, msg, 'plugins:unload:response', {
-      success: true,
-    });
-    this.deps.broker.postToWebview(response);
-    this.deps.log(`[TX] plugins:unload:response (${pluginName})`);
-  }
-
-  /**
-   * Report the real telemetry state: the `sandforge.telemetry` VS Code
-   * setting (manifest default false) plus the count of telemetry events
-   * actually emitted since activation. `bufferSize` is always 0 — Pino
-   * writes synchronously to its destination, there is no event buffer.
-   */
   private handleTelemetryStatus(msg: BaseMessage): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const enabled = this.deps.services?.getSandforgeSetting?.('telemetry', false) ?? false;

@@ -217,12 +217,6 @@ import type {
   MarketplaceListResponse,
   MarketplaceInstallRequest,
   MarketplaceInstallResponse,
-  PluginsListRequest,
-  PluginsListResponse,
-  PluginsLoadRequest,
-  PluginsLoadResponse,
-  PluginsUnloadRequest,
-  PluginsUnloadResponse,
 } from './automation.messages.js';
 import type {
   AutopilotScanSchemaRequest,
@@ -526,9 +520,6 @@ export type WebViewToExtensionMessage =
   | MigrationImportSfdmuRequest
   | MarketplaceListRequest
   | MarketplaceInstallRequest
-  | PluginsListRequest
-  | PluginsLoadRequest
-  | PluginsUnloadRequest
   // Autopilot
   | AutopilotScanSchemaRequest
   | AutopilotGeneratePlanRequest
@@ -724,9 +715,6 @@ export type ExtensionToWebViewMessage =
   | MigrationErrorResponse
   | MarketplaceListResponse
   | MarketplaceInstallResponse
-  | PluginsListResponse
-  | PluginsLoadResponse
-  | PluginsUnloadResponse
   // Autopilot
   | AutopilotSchemaResult
   | AutopilotPlanReady
