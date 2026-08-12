@@ -11,7 +11,11 @@ import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { useForgeStore } from '../../stores/useForgeStore';
-import type { ForgeNodeStatus, ForgeLogEntry } from '../../stores/useForgeStore';
+import type {
+  ForgeNodeStatus,
+  ForgeLogEntry,
+  ForgeExecutionResult,
+} from '../../stores/useForgeStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { slideUp, staggerContainer } from '../../motion/presets';
 import { cn } from '../../theme';
@@ -48,6 +52,7 @@ export const ForgeExecution: React.FC = () => {
   const setPhase = useForgeStore((s) => s.setPhase);
   const addLogToStore = useForgeStore((s) => s.addLog);
   const clearLogs = useForgeStore((s) => s.clearLogs);
+  const setResult = useForgeStore((s) => s.setResult);
 
   const [isPaused, setIsPaused] = useState(false);
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('forging');
@@ -109,7 +114,26 @@ export const ForgeExecution: React.FC = () => {
         return;
       }
       const data = event.data as Record<string, unknown> | undefined;
-      if (!data || data.type !== 'forge:progress') return;
+      if (!data) return;
+
+      // Terminal states. `forge:progress` alone cannot close the run: on a
+      // backend failure it simply stops arriving, no node reaches a terminal
+      // status, and mission control spins forever with no way out but Abort.
+      if (data.type === 'forge:execute:response') {
+        const payload = data.payload as { result?: ForgeExecutionResult } | undefined;
+        if (payload?.result) setResult(payload.result);
+        setExecutionStatus('complete');
+        setPhase('results');
+        return;
+      }
+      if (data.type === 'forge:execute:error') {
+        const payload = data.payload as { message?: string } | undefined;
+        setExecutionStatus('aborted');
+        addLog('error', payload?.message ?? t('forge.executeFailed'));
+        return;
+      }
+
+      if (data.type !== 'forge:progress') return;
 
       // The extension emits forge:progress via buildResponse — the event
       // payload lives under `payload`, not at the message root.
@@ -145,7 +169,7 @@ export const ForgeExecution: React.FC = () => {
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [graph, updateNodeStatus, setPhase, addLog]);
+  }, [graph, updateNodeStatus, setPhase, addLog, setResult, t]);
 
   // ---- Node KPIs (memoized to avoid redundant .filter() on every render) ----
   const kpis = useMemo(() => {

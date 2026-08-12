@@ -1708,6 +1708,7 @@
     "discovery": "Graph-Ermittlung",
     "discoveryProgress": "Ermittlung… {{discovered}} Objekte gescannt, {{queued}} in der Warteschlange",
     "executeForge": "Forge ausführen",
+    "executeFailed": "Forge-Ausführung fehlgeschlagen",
     "reviewAndExecute": "Überprüfen & Ausführen",
     "objects": "Objekte",
     "records": "Datensätze",

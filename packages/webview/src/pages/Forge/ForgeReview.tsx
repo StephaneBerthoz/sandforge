@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ReviewPlanTab } from './ReviewPlanTab';
@@ -30,6 +32,23 @@ export const ForgeReview: React.FC = () => {
 
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
   const anonymizePII = config?.anonymizePII ?? false;
+
+  /**
+   * Start the forge run.
+   *
+   * The phase switch alone is not enough: ForgeExecution renders mission
+   * control and then waits on `forge:progress`, which the extension only ever
+   * emits from inside its `forge:execute` handler. Without this request the
+   * run never starts and the view spins indefinitely.
+   */
+  const handleExecute = useCallback(() => {
+    if (!graph || !config) return;
+    sendBridgeMessage<{ graph: ForgeGraph; config: ForgeConfig }>('forge:execute', {
+      graph,
+      config,
+    });
+    setPhase('execution');
+  }, [graph, config, setPhase]);
 
   const tabs: Array<{
     id: ReviewTab;
@@ -131,8 +150,9 @@ export const ForgeReview: React.FC = () => {
         </button>
         <button
           data-testid="execute-button"
-          onClick={() => setPhase('execution')}
-          className="px-6 py-2 text-sm font-semibold bg-forge text-white rounded-lg hover:bg-forge/90 transition-colors"
+          onClick={handleExecute}
+          disabled={!graph || !config}
+          className="px-6 py-2 text-sm font-semibold bg-forge text-white rounded-lg hover:bg-forge/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {t('forge.executeForge', 'Execute Forge')}
         </button>
