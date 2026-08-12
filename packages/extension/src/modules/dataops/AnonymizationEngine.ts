@@ -1,4 +1,18 @@
+import { createHmac } from 'node:crypto';
+
 import type { DataOpsAnonymizationRule, AnonymizationMethod } from '@sandforge/shared';
+
+/** Thrown when a hash rule would produce an unkeyed, brute-forceable digest. */
+export class MissingHashSaltError extends Error {
+  constructor(fieldApiName: string) {
+    super(
+      `Hash rule for ${fieldApiName} has no hashSalt. The values being hashed are ` +
+        `low-entropy PII (emails, phone numbers, names), so an unkeyed digest is ` +
+        `recovered by enumeration in seconds. Set config.hashSalt to a secret value.`,
+    );
+    this.name = 'MissingHashSaltError';
+  }
+}
 
 /**
  * Applies anonymization rules to records in order to protect
@@ -100,6 +114,12 @@ export class AnonymizationEngine {
           `Hash rule for ${rule.fieldApiName} must specify hashAlgorithm as sha256 or md5`,
         );
       }
+      if (rule.method === 'hash' && !rule.config.hashSalt) {
+        errors.push(
+          `Hash rule for ${rule.fieldApiName} must specify a hashSalt — an unkeyed ` +
+            `digest of low-entropy PII is trivially reversible`,
+        );
+      }
       if (rule.method === 'constant' && rule.config.constantValue === undefined) {
         errors.push(`Constant rule for ${rule.fieldApiName} must specify a constantValue`);
       }
@@ -121,17 +141,30 @@ export class AnonymizationEngine {
     return chars.join('');
   }
 
+  /**
+   * Hash: keyed HMAC over the value.
+   *
+   * Uses HMAC rather than a bare digest because the inputs are low-entropy PII:
+   * an unkeyed hash of a phone number or an email is recovered by enumerating
+   * the keyspace, so the salt is the only thing providing real protection —
+   * hence {@link MissingHashSaltError} instead of a silent `?? ''` fallback.
+   * This mirrors the ADR-0003 model already used by DeterministicPseudonymizer.
+   *
+   * The digest is truncated to 32 hex chars (128 bits): far beyond collision
+   * range for a sandbox dataset, and short enough that the result still fits
+   * the Salesforce text fields these values are written back into.
+   */
   private applyHash(value: unknown, rule: DataOpsAnonymizationRule): string {
-    const str = String(value ?? '');
-    const salt = rule.config.hashSalt ?? '';
-    const input = salt + str;
-    let hash = 0;
-    for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i);
-      hash = ((hash << 5) - hash + char) | 0;
+    const salt = rule.config.hashSalt;
+    if (!salt) {
+      throw new MissingHashSaltError(rule.fieldApiName);
     }
     const algo = rule.config.hashAlgorithm ?? 'sha256';
-    return `${algo}:${Math.abs(hash).toString(16).padStart(8, '0')}`;
+    const digest = createHmac(algo, salt)
+      .update(String(value ?? ''))
+      .digest('hex')
+      .slice(0, 32);
+    return `${algo}:${digest}`;
   }
 
   private applyFake(value: unknown, rule: DataOpsAnonymizationRule): string {
