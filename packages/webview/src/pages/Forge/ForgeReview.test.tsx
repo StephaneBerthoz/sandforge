@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import '../../i18n';
 import { ForgeReview } from './ForgeReview';
 import type { ForgeGraphNode, ForgeGraph } from '../../stores/useForgeStore';
@@ -11,6 +11,7 @@ import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge
 const mockSetPhase = vi.fn();
 const mockToggleNodeIncluded = vi.fn();
 const mockSendBridgeMessage = vi.fn();
+const mockSetPlan = vi.fn();
 
 vi.mock('../../bridge/sendBridgeMessage', () => ({
   sendBridgeMessage: (...args: unknown[]) => mockSendBridgeMessage(...args),
@@ -80,6 +81,7 @@ vi.mock('../../stores/useForgeStore', () => {
     complianceReport: null,
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
+    setPlan: (...args: unknown[]) => mockSetPlan(...args),
     setAnonymizationRule: vi.fn(),
     updateNodeBatchStrategy: vi.fn(),
   };
@@ -108,6 +110,7 @@ describe('ForgeReview', () => {
     mockSetPhase.mockClear();
     mockToggleNodeIncluded.mockClear();
     mockSendBridgeMessage.mockClear();
+    mockSetPlan.mockClear();
     mockGraph = defaultGraph;
     mockConfig = { anonymizePII: true };
     mockMetadataDiffs = [];
@@ -162,6 +165,41 @@ describe('ForgeReview', () => {
     fireEvent.click(screen.getByTestId('execute-button'));
     expect(mockSendBridgeMessage).not.toHaveBeenCalled();
     expect(mockSetPhase).not.toHaveBeenCalledWith('execution');
+  });
+
+  describe('plan channel', () => {
+    /** Deliver an extension -> webview message the way the real bus does. */
+    function sendFromExtension(type: string, payload: Record<string, unknown>): void {
+      // act(): the listener sets React state, so the re-render has to be
+      // flushed before asserting on the DOM.
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: { type, id: `resp-${type}`, timestamp: Date.now(), payload },
+            origin: '',
+          }),
+        );
+      });
+    }
+
+    it('should store the plan when forge:plan:response arrives', () => {
+      render(<ForgeReview />);
+      // useForgeForm sends forge:plan:request and the extension answers, but
+      // nothing consumed the reply — the Plan tab showed "Generating execution
+      // plan…" for the rest of the session.
+      const plan = { waves: [], cycleResolutions: [] };
+      sendFromExtension('forge:plan:response', { plan });
+
+      expect(mockSetPlan).toHaveBeenCalledWith(plan);
+    });
+
+    it('should surface forge:plan:error instead of loading forever', () => {
+      render(<ForgeReview />);
+      sendFromExtension('forge:plan:error', { message: 'Describe failed on Account' });
+
+      expect(screen.getByTestId('plan-error').textContent).toContain('Describe failed on Account');
+      expect(screen.queryByTestId('plan-loading')).toBeNull();
+    });
   });
 
   it('should disable anonymization tab when anonymizePII is false', () => {

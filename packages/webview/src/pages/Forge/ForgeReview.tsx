@@ -1,7 +1,8 @@
 import React, { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ForgeConfig, ForgeGraph } from '@sandforge/shared';
+import type { BaseMessage, ForgeConfig, ForgeGraph, ForgePlanResponse } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
+import { useMessageListener } from '../../hooks/useMessageBus';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ReviewPlanTab } from './ReviewPlanTab';
@@ -32,6 +33,29 @@ export const ForgeReview: React.FC = () => {
 
   const piiFieldCount = graph?.nodes.reduce((sum, n) => sum + n.piiFields.length, 0) ?? 0;
   const anonymizePII = config?.anonymizePII ?? false;
+  const setPlan = useForgeStore((s) => s.setPlan);
+  const [planError, setPlanError] = useState<string | null>(null);
+
+  // useForgeForm sends forge:plan:request and ForgeHandler answers it, but
+  // nothing consumed the reply: `plan` stayed null and the Plan tab showed
+  // "Generating execution plan…" for the rest of the session. Its own comment
+  // claimed "the wizard's Review tab listens for forge:plan:response" — this is
+  // that listener.
+  useMessageListener<ForgePlanResponse>(
+    'forge:plan:response',
+    useCallback(
+      (msg) => {
+        setPlan(msg.payload.plan);
+        setPlanError(null);
+      },
+      [setPlan],
+    ),
+  );
+
+  useMessageListener<BaseMessage & { payload: { message: string } }>(
+    'forge:plan:error',
+    useCallback((msg) => setPlanError(msg.payload.message), []),
+  );
 
   /**
    * Start the forge run.
@@ -131,7 +155,7 @@ export const ForgeReview: React.FC = () => {
             aria-labelledby={`tab-${activeTab}`}
             className="flex-1 overflow-y-auto p-3"
           >
-            {activeTab === 'plan' && <ReviewPlanTab />}
+            {activeTab === 'plan' && <ReviewPlanTab error={planError} />}
             {activeTab === 'anonymization' && <ReviewAnonymizationTab />}
             {activeTab === 'compliance' && <ReviewComplianceTab />}
             {activeTab === 'metadata' && <ReviewMetadataTab />}
