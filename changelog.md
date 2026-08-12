@@ -5,6 +5,72 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-08-12
+
+Everything below came out of a systematic audit of the shipped product. The
+theme is the same throughout: controls that looked like they worked, and did
+not. Nine tests were found asserting the broken behaviour and were rewritten.
+
+### Fixed
+
+- **DataOps wrote to the wrong org.** Backup and anonymize both targeted the
+  first org in your connection list rather than the one you selected, while the
+  page named no org at all. If you had more than one org connected, you could be
+  anonymizing an org you were not looking at. The page now uses your selection
+  and shows the target before you click.
+- **Cancel did nothing.** Aborting a clone, CSV import or frozen-dataset load
+  was fully wired end to end and had no effect — the operation was never
+  registered, so the cancel request reported "operation not found" while the
+  bulk write continued. On a multi-minute load the only way to stop it was to
+  close VSCode.
+- **Progress bars were fake.** Seed showed a bar pinned at exactly 50 %, an
+  execution timer reading "0.0s", and per-object rows frozen at "0/N" for the
+  whole run; Sync showed 0 % throughout. The extension had been emitting real
+  progress the entire time and nothing was listening. A healthy long run is now
+  distinguishable from a hung one.
+- **Connecting an org froze the panel for 30 seconds.** Nine of the ten branches
+  of the connect flow answered with a toast instead of a reply, so the request
+  only ended on its own timeout — every auth button stayed disabled meanwhile,
+  including after a _successful_ SF CLI import. OAuth web was worse: the timeout
+  expired mid-login, collapsing the form and wiping typed credentials.
+- **Failed Monitor queries looked like empty results.** Fifteen handlers posted
+  their error payload on the success channel, so a broken org connection
+  rendered pixel-identical to an org with nothing to report.
+- **The Forge Review "Plan" tab loaded forever.** The extension answered the
+  plan request; nothing in the UI consumed the reply. A failed plan is now
+  shown as a failure instead of a permanent spinner.
+- **64 labels rendered as raw keys.** Sync History, Sync Schedules and
+  Settings → AI displayed strings like `sync.schedules.builderTitle` as their
+  labels — in every language, English included.
+- **The Real-Time tab claimed a live stream that does not exist.** Pressing
+  Start flipped the status badge to a success-green "Syncing" that never
+  changed, while the extension had answered that the feature is unavailable.
+
+### Changed
+
+- **The Sync "Mode" dropdown was removed.** Its value never reached the
+  extension: every run was a full sync regardless of the choice, and the Review
+  step then displayed the discarded choice back as confirmation.
+- Documentation no longer claims features the code does not implement — Grappe
+  does not auto-activate, Reports has no data feed, and four of the six DataOps
+  tabs are previews. Each is now marked as such.
+
+### Performance
+
+- Frozen-dataset coverage selection no longer replays a full uncached schema
+  discovery per candidate root. On a large org that was several hundred
+  redundant describe round trips per selection, including the single slowest
+  call repeated each time.
+
+### Security
+
+- The `hash` anonymization method was a 31-bit non-cryptographic hash labelled
+  `sha256:`, and those values are written into your org. Over low-entropy PII —
+  SSNs, emails, phone numbers — that keyspace is exhausted in under a minute, so
+  the stored values were reversible. Replaced with keyed HMAC-SHA256.
+  **Breaking:** a hash rule without a salt now fails rather than producing an
+  unkeyed digest. Add a `hashSalt` to affected rules.
+
 ## [1.13.0] - 2026-08-12
 
 ### Fixed
