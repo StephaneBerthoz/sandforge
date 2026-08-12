@@ -940,6 +940,15 @@
       "pathRequired": "Saisissez le chemin du fichier à importer.",
       "pathNotAbsolute": "Le chemin doit être absolu (ex. C:/projets/export.json ou /home/vous/export.json).",
       "pathExtension": "Extension de fichier non prise en charge. Attendu : {{extensions}}."
+    },
+    "run": {
+      "title": "Exécuter cet import",
+      "subtitle": "Choisissez les orgs source et cible — le fichier importé nomme les siennes, qui n’existent pas ici.",
+      "sourceOrg": "Org source",
+      "targetOrg": "Org cible",
+      "action": "Lancer la synchronisation",
+      "running": "En cours…",
+      "orgsRequired": "Choisissez deux orgs différentes pour lancer cet import."
     }
   },
   "dataops": {

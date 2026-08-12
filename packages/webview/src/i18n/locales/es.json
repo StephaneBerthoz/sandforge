@@ -940,6 +940,15 @@
       "pathRequired": "Introduzca la ruta del archivo que desea importar.",
       "pathNotAbsolute": "La ruta debe ser absoluta (p. ej., C:/proyectos/export.json o /home/usted/export.json).",
       "pathExtension": "Extensión de archivo no admitida. Se esperaba: {{extensions}}."
+    },
+    "run": {
+      "title": "Ejecutar esta importación",
+      "subtitle": "Elija las orgs de origen y destino: el archivo importado nombra las suyas, que aquí no existen.",
+      "sourceOrg": "Org de origen",
+      "targetOrg": "Org de destino",
+      "action": "Ejecutar sincronización",
+      "running": "En curso…",
+      "orgsRequired": "Elija dos orgs distintas para ejecutar esta importación."
     }
   },
   "dataops": {

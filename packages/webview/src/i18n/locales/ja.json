@@ -933,6 +933,15 @@
       "pathRequired": "インポートするファイルのパスを入力してください。",
       "pathNotAbsolute": "パスは絶対パスである必要があります（例: C:/projects/export.json または /home/you/export.json）。",
       "pathExtension": "サポートされていないファイル拡張子です。期待値: {{extensions}}。"
+    },
+    "run": {
+      "title": "このインポートを実行",
+      "subtitle": "ソースとターゲットの組織を選択してください。インポートしたファイルが指す組織はここには存在しません。",
+      "sourceOrg": "ソース組織",
+      "targetOrg": "ターゲット組織",
+      "action": "同期を実行",
+      "running": "実行中…",
+      "orgsRequired": "このインポートを実行するには、異なる 2 つの組織を選択してください。"
     }
   },
   "dataops": {

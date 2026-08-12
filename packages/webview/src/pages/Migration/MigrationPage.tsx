@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { FileJson, FileUp } from 'lucide-react';
 import { cn } from '../../theme';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useOrgStore } from '../../stores/useOrgStore';
+import { Select } from '../../components/ui/Select';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
@@ -118,14 +120,27 @@ export const MigrationPage: React.FC = () => {
   const [importType, setImportType] = useState<ImportType>('sfdmu');
   const [filePath, setFilePath] = useState('');
 
+  const orgs = useOrgStore((s) => s.orgs);
+  // The importer fills sourceOrgId/targetOrgId with fresh UUID placeholders,
+  // so an imported config is structurally runnable but points at two orgs that
+  // do not exist. The user picks the real ones before it can execute.
+  const [runSourceOrgId, setRunSourceOrgId] = useState('');
+  const [runTargetOrgId, setRunTargetOrgId] = useState('');
+
+  const runMutation = useBridgeMutation<{ status?: string }>('sync:execute', {
+    responseType: 'sync:execute:response',
+    errorType: 'sync:error',
+    // A real sync moves records in bulk; the 30 s default is far too short.
+    timeoutMs: 120_000,
+  });
+
   const sfdmuMutation = useBridgeMutation<MigrationImportResult>('migration:import-sfdmu');
   const universalMutation = useBridgeMutation<MigrationImportResult>('migration:import');
   const activeMutation = importType === 'sfdmu' ? sfdmuMutation : universalMutation;
 
   // Validate live once the user has typed something; the empty-path message is
   // only used to gate submission (the disabled button already covers it).
-  const pathError =
-    filePath.trim().length > 0 ? validateFilePath(filePath, importType, t) : null;
+  const pathError = filePath.trim().length > 0 ? validateFilePath(filePath, importType, t) : null;
   const canSubmit = validateFilePath(filePath, importType, t) === null;
 
   const responseError =
@@ -157,6 +172,34 @@ export const MigrationPage: React.FC = () => {
     setFilePath('');
     sfdmuMutation.reset();
     universalMutation.reset();
+    runMutation.reset();
+    setRunSourceOrgId('');
+    setRunTargetOrgId('');
+  };
+
+  /** Both orgs picked and distinct — a sync into its own source is not a sync. */
+  const canRunImported =
+    runSourceOrgId.length > 0 && runTargetOrgId.length > 0 && runSourceOrgId !== runTargetOrgId;
+
+  /**
+   * Run the imported config through the existing sync pipeline.
+   *
+   * `sync:execute` is declared, routed and handled end to end — production
+   * guard, DML dedup, background registry, progress events, history logging.
+   * The import screen simply never sent anything to it, so a converted config
+   * was rendered and then dropped on unmount.
+   */
+  const handleRunImported = (): void => {
+    if (!successResult?.config || !canRunImported || runMutation.loading) return;
+    runMutation.mutate({
+      config: {
+        ...successResult.config,
+        // The importer's org ids are generated placeholders; substitute the
+        // orgs the user actually picked.
+        sourceOrgId: runSourceOrgId,
+        targetOrgId: runTargetOrgId,
+      },
+    });
   };
 
   return (
@@ -300,10 +343,7 @@ export const MigrationPage: React.FC = () => {
           />
           <CardBody>
             <div className="flex flex-col gap-[var(--sf-space-3)]">
-              <div
-                className="text-xs text-text-muted"
-                data-testid="migration-objects-count"
-              >
+              <div className="text-xs text-text-muted" data-testid="migration-objects-count">
                 {t('migration.objectsCount', { count: objectPreviews.length })}
               </div>
               <ul className="flex flex-col gap-[var(--sf-space-2)]" data-testid="migration-objects">
@@ -338,6 +378,51 @@ export const MigrationPage: React.FC = () => {
                   </li>
                 ))}
               </ul>
+              {/* Until now the import ended here: the converted config was
+                  rendered as JSON and dropped when the page unmounted, with no
+                  way to save or run what had just been imported. */}
+              {successResult.config && (
+                <div
+                  className="flex flex-col gap-[var(--sf-space-2)] rounded border border-subtle bg-surface-1 p-3"
+                  data-testid="migration-run"
+                >
+                  <div className="text-sm font-semibold text-text-primary">
+                    {t('migration.run.title')}
+                  </div>
+                  <div className="text-xs text-text-secondary">{t('migration.run.subtitle')}</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--sf-space-2)]">
+                    <Select
+                      label={t('migration.run.sourceOrg')}
+                      data-testid="migration-run-source"
+                      options={orgs.map((o) => ({ value: o.id, label: o.alias || o.username }))}
+                      value={runSourceOrgId}
+                      onChange={(e) => setRunSourceOrgId(e.target.value)}
+                    />
+                    <Select
+                      label={t('migration.run.targetOrg')}
+                      data-testid="migration-run-target"
+                      options={orgs.map((o) => ({ value: o.id, label: o.alias || o.username }))}
+                      value={runTargetOrgId}
+                      onChange={(e) => setRunTargetOrgId(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    data-testid="migration-run-btn"
+                    disabled={!canRunImported || runMutation.loading}
+                    onClick={handleRunImported}
+                  >
+                    {runMutation.loading ? t('migration.run.running') : t('migration.run.action')}
+                  </Button>
+                  {!canRunImported && (
+                    <div className="text-xs text-text-muted" data-testid="migration-run-hint">
+                      {t('migration.run.orgsRequired')}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <details data-testid="migration-raw-config">
                 <summary className="text-xs text-text-muted cursor-pointer select-none">
                   {t('migration.rawConfig')}

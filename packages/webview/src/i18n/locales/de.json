@@ -940,6 +940,15 @@
       "pathRequired": "Geben Sie den Pfad der zu importierenden Datei ein.",
       "pathNotAbsolute": "Der Pfad muss absolut sein (z. B. C:/projekte/export.json oder /home/sie/export.json).",
       "pathExtension": "Nicht unterstützte Dateierweiterung. Erwartet: {{extensions}}."
+    },
+    "run": {
+      "title": "Diesen Import ausführen",
+      "subtitle": "Wählen Sie Quell- und Ziel-Org — die importierte Datei nennt eigene, die hier nicht existieren.",
+      "sourceOrg": "Quell-Org",
+      "targetOrg": "Ziel-Org",
+      "action": "Sync starten",
+      "running": "Läuft…",
+      "orgsRequired": "Wählen Sie zwei verschiedene Orgs, um diesen Import auszuführen."
     }
   },
   "dataops": {
