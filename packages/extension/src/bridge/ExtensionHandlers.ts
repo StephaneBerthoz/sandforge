@@ -376,7 +376,7 @@ export class ExtensionHandlers {
     };
 
     // Org
-    route(['org:list', 'org:connect', 'org:disconnect'], this.orgHandler);
+    route(['org:list', 'org:connect', 'org:disconnect', 'org:select'], this.orgHandler);
 
     // Settings & infrastructure
     route(
