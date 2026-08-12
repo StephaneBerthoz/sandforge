@@ -223,12 +223,20 @@ describe('SyncPage', () => {
     expect(screen.getByTestId('sync-wizard-next')).toHaveProperty('disabled', true);
   });
 
-  it('should show direction, mode, and conflict selectors', () => {
+  it('should show direction and conflict selectors', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<SyncPage />);
     expect(screen.getByText('Direction')).toBeDefined();
-    expect(screen.getByText('Mode')).toBeDefined();
     expect(screen.getByText('Conflict Strategy')).toBeDefined();
+  });
+
+  it('should not offer a Mode selector the extension cannot honour', () => {
+    // SyncMode had zero occurrences in packages/extension/src: picking
+    // "incremental", "delta" or "cdc" changed nothing and every run was a full
+    // sync. The control is gone until the modes exist.
+    useOrgStore.setState({ orgs: mockOrgs });
+    render(<SyncPage />);
+    expect(screen.queryByText('Mode')).toBeNull();
   });
 
   it('should show 6 step indicators', () => {

@@ -225,7 +225,13 @@ function handleExtensionMessage(event: MessageEvent): void {
       break;
     }
     case 'realtime:started': {
-      useCDCLiveStore.getState().setStatus('syncing');
+      // While CDC is unimplemented the extension answers this channel from
+      // NoOpHandler with `{ success: false, comingSoon: true }`. Reporting
+      // 'syncing' regardless flipped the badge to a success-green "Syncing"
+      // that never changed and never received an event — the UI claimed a
+      // live stream that does not exist.
+      const started = msg.payload as { success?: boolean } | undefined;
+      useCDCLiveStore.getState().setStatus(started?.success === false ? 'error' : 'syncing');
       break;
     }
     case 'realtime:stopped': {

@@ -2,7 +2,6 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   SyncDirection,
-  SyncMode,
   ConflictStrategy,
   MappingType,
   FieldMapping,
@@ -186,8 +185,6 @@ export const SyncPage: React.FC = () => {
     targetOrgId,
     direction,
     setDirection,
-    mode,
-    setMode,
     conflictStrategy,
     setConflictStrategy,
     objectEntries,
@@ -243,12 +240,6 @@ export const SyncPage: React.FC = () => {
     { value: 'source_to_target', label: t('sync.directions.source_to_target') },
     { value: 'target_to_source', label: t('sync.directions.target_to_source') },
     { value: 'bidirectional', label: t('sync.directions.bidirectional') },
-  ];
-  const modeOptions: { value: SyncMode; label: string }[] = [
-    { value: 'full', label: t('sync.modes.full') },
-    { value: 'incremental', label: t('sync.modes.incremental') },
-    { value: 'delta', label: t('sync.modes.delta') },
-    { value: 'cdc', label: t('sync.modes.cdc') },
   ];
   const conflictOptions: { value: ConflictStrategy; label: string }[] = [
     { value: 'source_wins', label: t('sync.conflicts.source_wins') },
@@ -397,12 +388,11 @@ export const SyncPage: React.FC = () => {
                   value={direction}
                   onChange={(e) => setDirection(e.target.value as SyncDirection)}
                 />
-                <Select
-                  label={t('sync.mode')}
-                  options={modeOptions}
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value as SyncMode)}
-                />
+                {/* The Mode dropdown was removed: SyncMode never reached the
+                    extension — it has zero occurrences outside the webview, so
+                    picking "incremental", "delta" or "cdc" changed nothing and
+                    every run was a full sync. Offering the choice was the
+                    defect; it comes back when the modes are implemented. */}
                 <Select
                   label={t('sync.conflictStrategy')}
                   options={conflictOptions}
@@ -464,12 +454,10 @@ export const SyncPage: React.FC = () => {
               <FieldMapper
                 sourceFields={sourceFields.map((f) => f.apiName)}
                 targetFields={targetFields.map((f) => f.apiName)}
-                mappings={mappings.map(
-                  (m): FieldMapperMapping => ({
-                    sourceField: m.sourceField,
-                    targetField: m.targetField,
-                  }),
-                )}
+                mappings={mappings.map((m): FieldMapperMapping => ({
+                  sourceField: m.sourceField,
+                  targetField: m.targetField,
+                }))}
                 onMappingChange={(fmMappings) => {
                   setMappings(
                     fmMappings.map((fm) => ({
@@ -533,7 +521,6 @@ export const SyncPage: React.FC = () => {
               )}
               <div className="flex gap-3 text-xs flex-wrap">
                 <Badge variant="default">{t(`sync.directions.${direction}`)}</Badge>
-                <Badge variant="default">{t(`sync.modes.${mode}`)}</Badge>
                 <Badge variant="default">{t(`sync.conflicts.${conflictStrategy}`)}</Badge>
                 <span className="text-text-primary">
                   {objectEntries.length} {t('sync.objectSet').toLowerCase()}
