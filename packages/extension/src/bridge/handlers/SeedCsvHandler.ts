@@ -1,6 +1,7 @@
 import type { BaseMessage, CsvValidationResult, RobustnessConfig } from '@sandforge/shared';
 import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -45,7 +46,17 @@ interface CsvExecutionResultPayload {
  */
 export class SeedCsvHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
+  private registry?: BackgroundOperationRegistry;
+
   constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * Inject the shared registry so CSV imports are cancellable.
+   * Called from ExtensionHandlers, same as SeedOpsHandler.
+   */
+  setRegistry(registry: BackgroundOperationRegistry): void {
+    this.registry = registry;
+  }
 
   /**
    * Handle an incoming bridge message.
@@ -117,6 +128,19 @@ export class SeedCsvHandler implements DomainHandler {
     if (!parsed) return;
     const operationId = msg.id;
 
+    // A throwaway `new AbortController()` was handed to BulkDataWriter, so its
+    // signal could never fire and the import was never registered —
+    // execution:abort answered "Operation not found" and the load ran on.
+    const abortController = new AbortController();
+    let settle: (err?: unknown) => void = () => {};
+    const tracked = new Promise<void>((resolve, reject) => {
+      settle = (err) => (err === undefined ? resolve() : reject(err));
+    });
+    // The registry attaches its own handlers; this only prevents an unhandled
+    // rejection when no registry has been injected.
+    tracked.catch(() => {});
+    this.registry?.register(operationId, 'csv', 'CSV import', tracked, abortController);
+
     try {
       // Production guard check on target org (mirror SyncOpsHandler).
       if (this.deps.infraServices?.productionGuard) {
@@ -171,7 +195,7 @@ export class SeedCsvHandler implements DomainHandler {
         bulkManager: new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs),
         retryConfig: robustnessConfig.retry,
         describeTimeoutMs: robustnessConfig.timeouts.describe,
-        signal: new AbortController().signal,
+        signal: abortController.signal,
         onProgress: (processed, total, label) => {
           sendOperationProgress(
             this.deps,
@@ -221,11 +245,13 @@ export class SeedCsvHandler implements DomainHandler {
       this.deps.log(
         `[TX] ${response.type} id=${response.id} inserted=${insertedCount} failed=${failedCount}`,
       );
+      settle();
     } catch (err: unknown) {
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
       this.deps.log(`[ERR] seed:csv:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      settle(err);
     }
   }
 }
