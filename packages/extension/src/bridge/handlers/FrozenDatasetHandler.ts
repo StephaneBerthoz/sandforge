@@ -36,6 +36,8 @@ import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { GraphDiscoveryService } from '../../modules/forge/GraphDiscoveryService.js';
+import type { ObjectDescribe } from '../../modules/forge/GraphDiscoveryService.js';
+import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import type { ScopableField } from '../../modules/forge/ScopedSoqlBuilder.js';
 import {
   CoverageMatrixSelector,
@@ -287,6 +289,33 @@ function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo {
 export class FrozenDatasetHandler implements DomainHandler {
   private registry?: BackgroundOperationRegistry;
 
+  /**
+   * Describe caches shared by every discovery this handler builds.
+   *
+   * GraphDiscoveryService.discover is schema-scoped, not record-scoped — the
+   * record id is consumed only by the key-prefix lookup in resolveRootObject —
+   * so every candidate root probed by CoverageMatrixSelector replayed a
+   * byte-identical describe sequence against the org. Without memoization that
+   * is one uncached BFS per candidate, on an org where a single forge run was
+   * already measured at 600+ describe round trips.
+   *
+   * Same keys and options as composition/forgeComposition.ts, which fronts the
+   * identical two adapters and has carried this cache since v1.8.
+   */
+  private readonly describeCache = new SchemaCache<ObjectDescribe>({
+    defaultTtl: 5 * 60_000,
+    maxSize: 50,
+    maxSizeBytes: 200 * 1024 * 1024,
+  });
+
+  private readonly describeGlobalCache = new SchemaCache<
+    Array<{ name: string; keyPrefix: string | null }>
+  >({
+    defaultTtl: 5 * 60_000,
+    maxSize: 16,
+    maxSizeBytes: 50 * 1024 * 1024,
+  });
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
@@ -395,8 +424,11 @@ export class FrozenDatasetHandler implements DomainHandler {
   private buildDiscoveryService(): GraphDiscoveryService {
     const timeouts = new TimeoutManager(30_000);
     return new GraphDiscoveryService({
-      describeObject: (orgId, objectApiName) =>
-        timeouts.withTimeout(
+      describeObject: async (orgId, objectApiName) => {
+        const cacheKey = `${orgId}::${objectApiName}`;
+        const cached = this.describeCache.get(cacheKey);
+        if (cached) return cached;
+        const formatted = await timeouts.withTimeout(
           `frozen:describe:${objectApiName}`,
           async () => {
             const conn = await getJsforceConnection(
@@ -423,7 +455,10 @@ export class FrozenDatasetHandler implements DomainHandler {
             };
           },
           30_000,
-        ),
+        );
+        this.describeCache.set(cacheKey, formatted);
+        return formatted;
+      },
       queryCount: async (orgId, soql) => {
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
         const result = await conn.query(soql);
@@ -439,9 +474,13 @@ export class FrozenDatasetHandler implements DomainHandler {
         return result.piiFields.map((p) => p.fieldApiName);
       },
       describeGlobal: async (orgId) => {
+        const cached = this.describeGlobalCache.get(orgId);
+        if (cached) return cached;
         const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
         const r = await conn.describeGlobal();
-        return r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+        const formatted = r.sobjects.map((s) => ({ name: s.name, keyPrefix: s.keyPrefix ?? null }));
+        this.describeGlobalCache.set(orgId, formatted);
+        return formatted;
       },
     });
   }
