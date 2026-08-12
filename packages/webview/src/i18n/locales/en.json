@@ -1708,6 +1708,7 @@
     "discovery": "Graph Discovery",
     "discoveryProgress": "Discovering… {{discovered}} objects scanned, {{queued}} queued",
     "executeForge": "Execute Forge",
+    "executeFailed": "Forge execution failed",
     "reviewAndExecute": "Review & Execute",
     "objects": "Objects",
     "records": "Records",

@@ -1708,6 +1708,7 @@
     "discovery": "Decouverte du graphe",
     "discoveryProgress": "Decouverte… {{discovered}} objets analyses, {{queued}} en file",
     "executeForge": "Executer le Forge",
+    "executeFailed": "L'exécution du Forge a échoué",
     "reviewAndExecute": "Revoir et executer",
     "objects": "Objets",
     "records": "Enregistrements",

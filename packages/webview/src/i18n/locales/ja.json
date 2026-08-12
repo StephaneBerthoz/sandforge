@@ -1701,6 +1701,7 @@
     "discovery": "グラフ検出",
     "discoveryProgress": "検出中… {{discovered}} オブジェクトをスキャン済み、{{queued}} 件待機中",
     "executeForge": "Forgeを実行",
+    "executeFailed": "Forge の実行に失敗しました",
     "reviewAndExecute": "確認して実行",
     "objects": "オブジェクト",
     "records": "レコード",

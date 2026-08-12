@@ -10,6 +10,11 @@ import type { ForgeAnonymizationCategory, AnonymizationMethod } from '@sandforge
 
 const mockSetPhase = vi.fn();
 const mockToggleNodeIncluded = vi.fn();
+const mockSendBridgeMessage = vi.fn();
+
+vi.mock('../../bridge/sendBridgeMessage', () => ({
+  sendBridgeMessage: (...args: unknown[]) => mockSendBridgeMessage(...args),
+}));
 
 function makeNode(overrides: Partial<ForgeGraphNode> = {}): ForgeGraphNode {
   return {
@@ -102,6 +107,7 @@ describe('ForgeReview', () => {
   beforeEach(() => {
     mockSetPhase.mockClear();
     mockToggleNodeIncluded.mockClear();
+    mockSendBridgeMessage.mockClear();
     mockGraph = defaultGraph;
     mockConfig = { anonymizePII: true };
     mockMetadataDiffs = [];
@@ -137,10 +143,25 @@ describe('ForgeReview', () => {
     expect(mockSetPhase).toHaveBeenCalledWith('discovery');
   });
 
-  it('should call setPhase("execution") when execute button clicked', () => {
+  it('should send forge:execute with the graph and config when execute button clicked', () => {
     render(<ForgeReview />);
     fireEvent.click(screen.getByTestId('execute-button'));
+    // The phase switch alone is not the behaviour under test: without this
+    // request the extension never starts the run (regression guard for the
+    // wiring gap where the button only ever called setPhase).
+    expect(mockSendBridgeMessage).toHaveBeenCalledWith('forge:execute', {
+      graph: defaultGraph,
+      config: mockConfig,
+    });
     expect(mockSetPhase).toHaveBeenCalledWith('execution');
+  });
+
+  it('should not send forge:execute when the graph is missing', () => {
+    mockGraph = null;
+    render(<ForgeReview />);
+    fireEvent.click(screen.getByTestId('execute-button'));
+    expect(mockSendBridgeMessage).not.toHaveBeenCalled();
+    expect(mockSetPhase).not.toHaveBeenCalledWith('execution');
   });
 
   it('should disable anonymization tab when anonymizePII is false', () => {
