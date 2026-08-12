@@ -1,7 +1,7 @@
 import type { BaseMessage, SalesforceOrg, OrgConnectRequest, UUID } from '@sandforge/shared';
 import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
-import { buildResponse, sendNotification } from './HandlerTypes.js';
+import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
   orgConnectPayloadSchema,
@@ -74,7 +74,7 @@ export class OrgHandler implements DomainHandler {
         await this.handleUsernamePassword(msg, payload);
         break;
       case 'oauth_web':
-        await this.handleOAuthWeb(payload);
+        await this.handleOAuthWeb(msg, payload);
         break;
       default:
         sendNotification(
@@ -83,10 +83,43 @@ export class OrgHandler implements DomainHandler {
           'Auth Method',
           `${payload.authMethod} is not yet supported.`,
         );
+        this.failConnect(msg, `${payload.authMethod} is not yet supported.`, 'UNSUPPORTED_AUTH');
         break;
     }
 
     this.syncOrgState();
+  }
+
+  /**
+   * Terminate an `org:connect` round trip on the failure channel.
+   *
+   * Every branch of the connect flow has to answer the request the webview
+   * correlated on. Without it the OrgManager mutation only ends on its own
+   * 30 s timeout, and until then every auth button stays disabled — a toast
+   * is not an answer, because `useMessageResponse` correlates on the request
+   * id and ignores anything else.
+   */
+  private failConnect(request: BaseMessage, message: string, code: string): void {
+    sendHandlerError(
+      this.deps,
+      'org:connect',
+      'org:error',
+      new Error(message),
+      code,
+      false,
+      undefined,
+      request,
+    );
+  }
+
+  /** Terminate an `org:connect` round trip on the success channel. */
+  private ackConnect(request: BaseMessage, orgId: string): void {
+    const statusMsg = buildResponse(this.deps, request, 'org:statusChanged', {
+      orgId,
+      status: 'connected',
+    });
+    this.deps.broker.postToWebview(statusMsg);
+    this.deps.log(`[TX] ${statusMsg.type} id=${statusMsg.id}`);
   }
 
   private async handleSfdxImport(msg: BaseMessage): Promise<void> {
@@ -99,6 +132,7 @@ export class OrgHandler implements DomainHandler {
           'SF CLI',
           'Salesforce CLI (sf) not found on PATH. Install it from https://developer.salesforce.com/tools/salesforcecli',
         );
+        this.failConnect(msg, 'Salesforce CLI (sf) not found on PATH.', 'SF_CLI_NOT_FOUND');
         return;
       }
 
@@ -110,6 +144,7 @@ export class OrgHandler implements DomainHandler {
           'Import',
           'No connected orgs found in SF CLI. Run "sf org login web" first.',
         );
+        this.failConnect(msg, 'No connected orgs found in SF CLI.', 'NO_ORGS_FOUND');
         return;
       }
 
@@ -130,10 +165,14 @@ export class OrgHandler implements DomainHandler {
         'Import',
         `Imported ${results.length} org(s) from SF CLI.`,
       );
+      // The org:list:response above is not correlated to this request — the
+      // mutation listens on org:statusChanged, so this is what ends it.
+      this.ackConnect(msg, results[0].org.id);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:sfdx-import: ${message}`);
       sendNotification(this.deps, 'error', 'Import Failed', message);
+      this.failConnect(msg, message, 'SFDX_IMPORT_FAILED');
     }
   }
 
@@ -143,6 +182,7 @@ export class OrgHandler implements DomainHandler {
   ): Promise<void> {
     if (!payload.username || !payload.password) {
       sendNotification(this.deps, 'error', 'Auth', 'Username and password are required.');
+      this.failConnect(msg, 'Username and password are required.', 'MISSING_CREDENTIALS');
       return;
     }
 
@@ -151,10 +191,12 @@ export class OrgHandler implements DomainHandler {
       const parsed = new URL(loginUrl);
       if (parsed.protocol !== 'https:') {
         sendNotification(this.deps, 'error', 'Auth', 'Login URL must use HTTPS.');
+        this.failConnect(msg, 'Login URL must use HTTPS.', 'INVALID_LOGIN_URL');
         return;
       }
     } catch {
       sendNotification(this.deps, 'error', 'Auth', `Invalid login URL: "${loginUrl}".`);
+      this.failConnect(msg, `Invalid login URL: "${loginUrl}".`, 'INVALID_LOGIN_URL');
       return;
     }
 
@@ -173,6 +215,7 @@ export class OrgHandler implements DomainHandler {
         'Auth Failed',
         authResult.error ?? 'Authentication failed',
       );
+      this.failConnect(msg, authResult.error ?? 'Authentication failed', 'AUTH_FAILED');
       return;
     }
 
@@ -241,10 +284,18 @@ export class OrgHandler implements DomainHandler {
         'Validation Failed',
         `Auth succeeded but org validation failed: ${message}`,
       );
+      this.failConnect(
+        msg,
+        `Auth succeeded but org validation failed: ${message}`,
+        'ORG_VALIDATION_FAILED',
+      );
     }
   }
 
-  private async handleOAuthWeb(payload: OrgConnectRequest['payload']): Promise<void> {
+  private async handleOAuthWeb(
+    msg: BaseMessage,
+    payload: OrgConnectRequest['payload'],
+  ): Promise<void> {
     try {
       const available = await this.deps.sfdxBridge.isCliAvailable();
       if (!available) {
@@ -254,6 +305,7 @@ export class OrgHandler implements DomainHandler {
           'SF CLI',
           'Salesforce CLI (sf) not found on PATH. Required for OAuth web login.',
         );
+        this.failConnect(msg, 'Salesforce CLI (sf) not found on PATH.', 'SF_CLI_NOT_FOUND');
         return;
       }
 
@@ -269,6 +321,7 @@ export class OrgHandler implements DomainHandler {
           'OAuth',
           'Login completed but no org found. Try again.',
         );
+        this.failConnect(msg, 'Login completed but no org found.', 'NO_ORGS_FOUND');
         return;
       }
 
@@ -282,10 +335,12 @@ export class OrgHandler implements DomainHandler {
         'OAuth',
         `Authenticated via browser. ${results.length} org(s) available.`,
       );
+      this.ackConnect(msg, results[0].org.id);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] org:oauth-web: ${message}`);
       sendNotification(this.deps, 'error', 'OAuth Failed', message);
+      this.failConnect(msg, message, 'OAUTH_WEB_FAILED');
     }
   }
 
