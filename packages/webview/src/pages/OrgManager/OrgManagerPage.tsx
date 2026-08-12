@@ -121,6 +121,11 @@ export const OrgManagerPage: React.FC = () => {
 
   const connectMutation = useBridgeMutation<OrgStatusPayload>('org:connect', {
     responseType: 'org:statusChanged',
+    // `oauth_web` shells out to `sf org login web`, which SfdxBridge allows
+    // 120 s for the browser round trip. The 30 s default expired while the
+    // user was still logging in: the form collapsed mid-login and the typed
+    // credentials were wiped.
+    timeoutMs: 180_000,
   });
 
   const disconnectMutation = useBridgeMutation<OrgStatusPayload>('org:disconnect', {
