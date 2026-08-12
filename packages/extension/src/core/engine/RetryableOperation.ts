@@ -132,12 +132,44 @@ export class RetryableOperation {
 
 /**
  * Convert an unknown thrown value into a SalesforceApiError shape.
- * Extracts statusCode from common SF error patterns.
+ *
+ * The code has to be read from `errorCode` first, not `statusCode`: jsforce's
+ * HttpApiError sets `errorCode` (and mirrors it onto `name`) and never defines
+ * `statusCode`, so keying on `statusCode` alone made every real Salesforce
+ * failure normalize to UNKNOWN_ERROR — which the classifier treats as
+ * non-retryable. UNABLE_TO_LOCK_ROW and REQUEST_LIMIT_EXCEEDED, the two errors
+ * the retry machinery exists for, were therefore never retried once.
+ *
+ * `statusCode` is still honoured because the REST/Bulk composite responses and
+ * this codebase's own synthesized errors use it, and `name` is the last resort
+ * since jsforce assigns the code there too.
  */
 function toSalesforceApiError(err: unknown): SalesforceApiError {
-  if (typeof err === 'object' && err !== null && 'statusCode' in err && 'message' in err) {
-    return err as SalesforceApiError;
+  if (typeof err !== 'object' || err === null) {
+    return { statusCode: 'UNKNOWN_ERROR', message: String(err) };
   }
-  const message = err instanceof Error ? err.message : String(err);
-  return { statusCode: 'UNKNOWN_ERROR', message };
+
+  const candidate = err as {
+    errorCode?: unknown;
+    statusCode?: unknown;
+    name?: unknown;
+    message?: unknown;
+    fields?: unknown;
+    data?: { fields?: unknown };
+  };
+
+  const code = [candidate.errorCode, candidate.statusCode, candidate.name].find(
+    (c): c is string => typeof c === 'string' && c.length > 0 && c !== 'Error',
+  );
+
+  const fields = candidate.fields ?? candidate.data?.fields;
+
+  return {
+    statusCode: code ?? 'UNKNOWN_ERROR',
+    errorCode: typeof candidate.errorCode === 'string' ? candidate.errorCode : undefined,
+    message: typeof candidate.message === 'string' ? candidate.message : String(err),
+    fields: Array.isArray(fields)
+      ? fields.filter((f): f is string => typeof f === 'string')
+      : undefined,
+  };
 }
