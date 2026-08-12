@@ -26,7 +26,7 @@ test.describe('AI diagnose failed job -> apply fix', () => {
     mockBridge = new MockBridge();
     await mockBridge.setup(page);
     await page.goto('/?e2e-harness=ai-diagnose');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await expect(page.getByTestId('monitor-failed-jobs-list')).toBeVisible();
   });
 

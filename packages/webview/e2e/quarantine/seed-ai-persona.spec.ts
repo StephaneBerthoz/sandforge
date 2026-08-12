@@ -22,7 +22,7 @@ test.describe('Seed AI persona -> execute', () => {
     mockBridge = new MockBridge();
     await mockBridge.setup(page);
     await page.goto('/?e2e-harness=seed-ai');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await expect(page.getByTestId('forge-page')).toBeVisible();
   });
 

@@ -5,11 +5,11 @@ test.describe('Theme', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
   });
 
   test('app shell renders with a background color', async ({ page }) => {
-    const shell = page.getByTestId('app-shell');
+    const shell = page.getByTestId('panel-app');
     await expect(shell).toBeVisible();
 
     // The app shell should have CSS classes applied (bg-surface-0)
@@ -20,9 +20,9 @@ test.describe('Theme', () => {
     // Emulate dark color scheme (VSCode dark theme)
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
-    const shell = page.getByTestId('app-shell');
+    const shell = page.getByTestId('panel-app');
     await expect(shell).toBeVisible();
   });
 
@@ -30,9 +30,9 @@ test.describe('Theme', () => {
     // Emulate light color scheme (VSCode light theme)
     await page.emulateMedia({ colorScheme: 'light' });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
-    const shell = page.getByTestId('app-shell');
+    const shell = page.getByTestId('panel-app');
     await expect(shell).toBeVisible();
   });
 

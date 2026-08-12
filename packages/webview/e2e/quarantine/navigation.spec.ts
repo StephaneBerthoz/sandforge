@@ -5,7 +5,7 @@ test.describe('Sidebar navigation', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
   });
 
   test('renders the sidebar with all main navigation items', async ({ page }) => {

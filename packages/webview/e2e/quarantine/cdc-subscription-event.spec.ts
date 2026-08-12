@@ -27,7 +27,7 @@ test.describe('CDC subscribe -> stream events -> unsubscribe', () => {
     mockBridge = new MockBridge();
     await mockBridge.setup(page);
     await page.goto('/?e2e-harness=cdc');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await expect(page.getByTestId('monitor-tab-cdc')).toBeVisible();
   });
 

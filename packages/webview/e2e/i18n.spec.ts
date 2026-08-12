@@ -5,7 +5,7 @@ test.describe('Internationalization (i18n)', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
   });
 
   test('default language is English', async ({ page }) => {
@@ -44,7 +44,7 @@ test.describe('Internationalization (i18n)', () => {
     }
 
     // Verify at least that the page renders without crashing after language attempt
-    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await expect(page.getByTestId('panel-app')).toBeVisible();
   });
 
   test('all navigation items have aria-label attributes', async ({ page }) => {

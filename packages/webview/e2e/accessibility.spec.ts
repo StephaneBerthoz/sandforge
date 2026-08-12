@@ -5,7 +5,7 @@ test.describe('Accessibility', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
   });
 
   test('sidebar is wrapped in a <nav> element', async ({ page }) => {

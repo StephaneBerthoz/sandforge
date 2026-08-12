@@ -1,5 +1,9 @@
 import type { Page } from '@playwright/test';
 import { injectVSCodeApiMock, sendExtensionMessage } from '../mocks/vscode-api';
+import { MOCK_ORGS } from '../fixtures';
+
+/** Orgs handed to the webview when a spec does not supply its own. */
+const DEFAULT_ORGS = MOCK_ORGS;
 
 /**
  * High-level test helper that wraps the VSCode API mock pattern.
@@ -20,6 +24,23 @@ export class MockBridge {
   }
 
   /**
+   * Answer the `org:list` request BridgeProvider fires on mount, so the org
+   * store fills and BridgeProvider auto-selects the first connected org.
+   *
+   * Without this, `orgs` stays empty and every org-gated page short-circuits to
+   * its EmptyState — which carries no page-level testid. That is why specs
+   * targeting Forge, AI and Autopilot timed out waiting for `forge-page`,
+   * `ai-chat-panel` and `autopilot-page`: the pages were fine, the fixture
+   * never gave them an org to render for.
+   *
+   * Call after `setup()` and `page.goto()`, before waiting on a page testid.
+   */
+  async seedOrgs(orgs: readonly unknown[] = DEFAULT_ORGS): Promise<void> {
+    await this.waitForMessage('org:list', { timeout: 10_000 });
+    await this.respond('org:list:response', { orgs: orgs as unknown[] });
+  }
+
+  /**
    * Wait for a message of the given type to appear in captured outgoing messages.
    * Uses `page.waitForFunction` instead of `waitForTimeout` for reliability.
    *
@@ -33,13 +54,15 @@ export class MockBridge {
 
     const message = await this.page.waitForFunction(
       ({ msgType }) => {
-        const msgs =
-          (
-            window as unknown as Record<string, unknown[]>
-          ).__SANDFORGE_MESSAGES__ ?? [];
-        return msgs.find(
-          (m) => (m as Record<string, unknown>).type === msgType,
-        ) as Record<string, unknown> | undefined;
+        const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+        // Since 1.5.0 the webview posts an envelope — the real message sits
+        // under `payload`, so matching a top-level `type` never hits.
+        return msgs
+          .map((m) => {
+            const e = m as Record<string, unknown>;
+            return (e.payload as Record<string, unknown> | undefined) ?? e;
+          })
+          .find((m) => m.type === msgType) as Record<string, unknown> | undefined;
       },
       { msgType: type },
       { timeout },
@@ -66,15 +89,14 @@ export class MockBridge {
       // Derive the request type from the response type (strip `:response` suffix)
       const requestType = type.replace(/:response$/, '');
       cid = await this.page.evaluate((reqType) => {
-        const msgs =
-          (
-            window as unknown as Record<string, unknown[]>
-          ).__SANDFORGE_MESSAGES__ ?? [];
+        const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
         const match = [...msgs]
+          .map((m) => {
+            const e = m as Record<string, unknown>;
+            return (e.payload as Record<string, unknown> | undefined) ?? e;
+          })
           .reverse()
-          .find(
-            (m) => (m as Record<string, unknown>).type === reqType,
-          ) as Record<string, unknown> | undefined;
+          .find((m) => m.type === reqType) as Record<string, unknown> | undefined;
         return (match?.id as string) ?? 'unknown';
       }, requestType);
     }
@@ -113,18 +135,14 @@ export class MockBridge {
   /**
    * Get all captured outgoing messages, optionally filtered by type.
    */
-  async getMessages(
-    type?: string,
-  ): Promise<Record<string, unknown>[]> {
+  async getMessages(type?: string): Promise<Record<string, unknown>[]> {
     return this.page.evaluate((msgType) => {
-      const msgs =
-        (
-          window as unknown as Record<string, unknown[]>
-        ).__SANDFORGE_MESSAGES__ ?? [];
+      const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
       if (!msgType) return msgs as Record<string, unknown>[];
-      return msgs.filter(
-        (m) => (m as Record<string, unknown>).type === msgType,
-      ) as Record<string, unknown>[];
+      return msgs.filter((m) => (m as Record<string, unknown>).type === msgType) as Record<
+        string,
+        unknown
+      >[];
     }, type ?? null);
   }
 

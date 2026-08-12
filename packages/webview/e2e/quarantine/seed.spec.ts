@@ -85,7 +85,7 @@ test.describe('Forge / Seed page', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
   });
 

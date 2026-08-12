@@ -12,6 +12,7 @@ async function setupAIPanel(bridge: MockBridge, page: import('@playwright/test')
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'ai';
   });
   await page.goto('/');
+  await bridge.seedOrgs();
   await page.waitForSelector('[data-testid="ai-chat-panel"]', { timeout: 10000 });
 }
 

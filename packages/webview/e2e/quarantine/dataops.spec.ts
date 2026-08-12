@@ -125,7 +125,7 @@ test.describe('DataOps page — empty state', () => {
   test('shows empty state when no orgs exist', async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     // Resolve with no orgs
     await page.waitForTimeout(200);
@@ -157,7 +157,7 @@ test.describe('DataOps page — with org', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
     // Navigate to DataOps

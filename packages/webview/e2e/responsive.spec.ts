@@ -9,7 +9,7 @@ test.describe('Responsive layout', () => {
   test('renders correctly at desktop viewport (1280x720)', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     const sidebar = page.getByTestId('sidebar');
     await expect(sidebar).toBeVisible();
@@ -21,7 +21,7 @@ test.describe('Responsive layout', () => {
   test('renders correctly at large desktop viewport (1920x1080)', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     await expect(page.getByTestId('sidebar')).toBeVisible();
     await expect(page.getByTestId('home-page')).toBeVisible();
@@ -31,10 +31,10 @@ test.describe('Responsive layout', () => {
   test('renders correctly at narrow viewport (800x600)', async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 600 });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     // App shell should still be visible
-    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await expect(page.getByTestId('panel-app')).toBeVisible();
 
     // Content should still be accessible
     await expect(page.getByTestId('home-page')).toBeVisible();
@@ -43,7 +43,7 @@ test.describe('Responsive layout', () => {
   test('sidebar and content area coexist at medium viewport (1024x768)', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     const sidebar = page.getByTestId('sidebar');
     const main = page.locator('main#main-content');
@@ -67,7 +67,7 @@ test.describe('Responsive layout', () => {
   test('sidebar can be collapsed via keyboard shortcut (Ctrl+B)', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     const sidebar = page.getByTestId('sidebar');
 
@@ -93,9 +93,9 @@ test.describe('Responsive layout', () => {
   test('app shell fills the entire viewport', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
-    const shell = page.getByTestId('app-shell');
+    const shell = page.getByTestId('panel-app');
     const box = await shell.boundingBox();
 
     expect(box).toBeTruthy();
@@ -108,7 +108,7 @@ test.describe('Responsive layout', () => {
   test('content area is scrollable when content overflows', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 400 });
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     const main = page.locator('main#main-content');
     const overflow = await main.evaluate((el) => {
