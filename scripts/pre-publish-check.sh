@@ -90,6 +90,44 @@ else
   echo "SKIP: build + package (SKIP_BUILD_CHECKS=1 — caller already ran them)"
 fi
 
+# 6b/6c. VSIX payload gates — the two files the extension loads lazily at
+# runtime. A VSIX missing either passes every other check and then breaks on
+# first use: no AI call, or no org connection at all.
+#
+# Placed immediately after packaging on purpose. Step 10 rebuilds dist/, so a
+# payload check after it judges an artifact that no longer corresponds to the
+# tree that produced it.
+#
+# NOT gated on SKIP_BUILD_CHECKS: these need only the packaged artifact. They
+# used to be, which meant release.yml — which packages separately and then
+# calls this script with SKIP_BUILD_CHECKS=1 — never ran either of them.
+#
+# grep -c, not grep -q: -q exits at the first match, SIGPIPEs unzip, and under
+# `set -o pipefail` that makes the pipeline non-zero even when the entry was
+# found. Counting consumes the whole listing, and reporting the count means a
+# failure distinguishes "payload absent" from "listing unreadable".
+if [[ -f "sandforge.vsix" ]]; then
+  VSIX_LINES=$(unzip -l sandforge.vsix | wc -l)
+
+  SDK_COUNT=$(unzip -l sandforge.vsix | grep -c 'extension/dist/node_modules/@anthropic-ai/sdk/' || true)
+  if (( SDK_COUNT > 0 )); then
+    echo "PASS: VSIX contains the vendored @anthropic-ai/sdk ($SDK_COUNT entries)"
+  else
+    echo "FAIL: VSIX has no @anthropic-ai/sdk entries (listing: $VSIX_LINES lines) — AI calls would break at runtime"
+    ERRORS=$((ERRORS + 1))
+  fi
+
+  CHUNK_COUNT=$(unzip -l sandforge.vsix | grep -c 'extension/dist/jsforceEntry.js' || true)
+  if (( CHUNK_COUNT > 0 )); then
+    echo "PASS: VSIX contains the lazy jsforce chunk"
+  else
+    echo "FAIL: VSIX has no extension/dist/jsforceEntry.js (listing: $VSIX_LINES lines) — every org connection would break at runtime"
+    ERRORS=$((ERRORS + 1))
+  fi
+else
+  echo "SKIP: VSIX payload gates (sandforge.vsix not present)"
+fi
+
 # 7. VSIX size check (< 5 MB) — cross-platform using node
 if [[ -f "sandforge.vsix" ]]; then
   SIZE=$(node -p "require('fs').statSync('sandforge.vsix').size")
@@ -170,42 +208,6 @@ if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then
   pnpm install --frozen-lockfile && pnpm validate || { echo "FAIL: Clean install + validate failed"; ERRORS=$((ERRORS + 1)); }
 else
   echo "SKIP: clean install validation (SKIP_BUILD_CHECKS=1)"
-fi
-
-# 10b. VSIX ships the vendored AI SDK — AnthropicAdapter loads it lazily from
-# extension/dist/node_modules, so a VSIX without it passes every other check
-# yet breaks every AI call at runtime. Only meaningful right after packaging.
-if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then
-  if [[ -f "sandforge.vsix" ]]; then
-    if unzip -l sandforge.vsix | grep -q 'extension/dist/node_modules/@anthropic-ai/sdk/'; then
-      echo "PASS: VSIX contains the vendored @anthropic-ai/sdk"
-    else
-      echo "FAIL: VSIX is missing extension/dist/node_modules/@anthropic-ai/sdk/ — AI calls would break at runtime"
-      ERRORS=$((ERRORS + 1))
-    fi
-  else
-    echo "SKIP: VSIX vendored-SDK check (sandforge.vsix not present)"
-  fi
-else
-  echo "SKIP: VSIX vendored-SDK check (SKIP_BUILD_CHECKS=1)"
-fi
-
-# 10c. VSIX ships the lazy jsforce chunk — ConnectionHelper and AuthProvider
-# import it at runtime from extension/dist/, so a VSIX without it passes every
-# other check yet breaks every org connection.
-if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then
-  if [[ -f "sandforge.vsix" ]]; then
-    if unzip -l sandforge.vsix | grep -q 'extension/dist/jsforceEntry.js'; then
-      echo "PASS: VSIX contains the lazy jsforce chunk"
-    else
-      echo "FAIL: VSIX is missing extension/dist/jsforceEntry.js — every org connection would break at runtime"
-      ERRORS=$((ERRORS + 1))
-    fi
-  else
-    echo "SKIP: VSIX jsforce-chunk check (sandforge.vsix not present)"
-  fi
-else
-  echo "SKIP: VSIX jsforce-chunk check (SKIP_BUILD_CHECKS=1)"
 fi
 
 # 11. Activation time check (MKT-08: < 2s)

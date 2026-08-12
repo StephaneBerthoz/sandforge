@@ -5,6 +5,34 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-08-12
+
+### Fixed
+
+- **Forge actually runs.** The wizard's "Execute Forge" button only switched screens — nothing in the shipped UI ever sent `forge:execute`. You completed discovery and review, clicked the button, and landed on a progress screen that counted upwards forever while nothing was written to the target org. The request is now sent, and a backend failure surfaces in the log stream instead of spinning silently.
+- **Abort stops the run.** Aborting a forge raised a generic error that the per-object handler absorbed as an object-level failure, so the run moved to the next object and kept writing to your target org. Abort is now a distinct signal that halts execution wherever it lands.
+- **Transient Salesforce errors are retried again.** The retry engine read `statusCode`, but the Salesforce client sets `errorCode` — so every real API error normalised to "unknown" and was classified non-retryable. `UNABLE_TO_LOCK_ROW` and `REQUEST_LIMIT_EXCEEDED`, the two errors the retry machinery exists for, were never retried once. On a bulk load hitting row-lock contention this is the difference between a run that finishes and one you re-drive by hand.
+- **Org selection reaches the extension.** `org:select` was implemented and unit-tested but never registered on the message router, so every selection message fell through to the unknown-type path.
+
+### Security
+
+- **Anonymisation `hash` is a real hash now.** Both engines implemented it as a 31-bit non-cryptographic hash while labelling the output `sha256:`, and those values are written into your org. Over low-entropy PII — SSNs, emails, phone numbers — that keyspace is exhausted in under a minute, so the stored values were reversible. Replaced with keyed HMAC-SHA256.
+  - **Breaking:** a hash rule without a `hashSalt` now fails instead of producing an unkeyed digest. Add a salt to affected rules. Failing loudly beats writing a reversible value into an org under the label "anonymised".
+- Client identity removed from all public artifacts. A prior engagement's name, org aliases, production data volumes and five real Salesforce record Ids were present in the public repository and in the changelog this page renders. A release gate now fails on any recurrence.
+
+### Performance
+
+- **Extension activation is roughly twice as fast.** jsforce and its 107-package transitive cluster were bundled into the activation path and evaluated on every VSCode start, whether or not you ever connected to an org. They now load on first connection. Main bundle 2,231 KB → 941 KB; measured activation 337 ms → 144 ms (mean of 6 interleaved A/B runs). The download is unchanged at 1.99 MB — the code still ships, it is just no longer on the startup path.
+
+### Changed
+
+- Activity-bar and Marketplace icons redrawn. The activity-bar mark was 8.6 px tall inside its 24 px slot and off-centre on both axes; it is now 14.2 px and centred. The PNG is generated from source via `scripts/render-icon.mjs`.
+
+### Internal
+
+- E2E suite repaired and made honest: a message-envelope mismatch dating from 1.5.0 had silently disabled every request/response fixture (13 → 45 passing). 11 specs driving surfaces that no longer exist are quarantined with a documented blocker each rather than deleted. 38 tests remain failing and are not yet addressed.
+- Release gates added: bundle size now fails above 1100 KB instead of warning above 2048 KB, the VSIX is checked for the lazy jsforce chunk, and a handler-routing test cross-checks every declared message type against the router in both directions.
+
 ## [1.12.0] - 2026-08-12
 
 ### Fixed
