@@ -907,6 +907,7 @@
     "quality": "Calidad",
     "qualityDesc": "Escanear y mejorar la calidad de datos",
     "selectOrg": "Seleccionar Org",
+    "noOrgSelected": "Ninguna org seleccionada: elija una en la página Organizaciones antes de ejecutar una copia de seguridad o anonimización.",
     "noBackups": "No hay respaldos disponibles",
     "createBackup": "Crear respaldo",
     "backupName": "Nombre del respaldo",

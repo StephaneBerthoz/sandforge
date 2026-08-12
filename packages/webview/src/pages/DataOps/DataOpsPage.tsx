@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type { BackupResult, AnonymizationTemplate } from '@sandforge/shared';
-import { useOrgStore } from '../../stores/useOrgStore';
+import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
@@ -12,6 +12,7 @@ import { PageTabs } from '../../components/ui/PageTabs';
 import type { PageTab } from '../../components/ui/PageTabs';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { OrgBadge } from '../../components/ui/OrgBadge';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { KPICard } from '../../components/ui/KPICard';
@@ -36,6 +37,9 @@ export const DataOpsPage: React.FC = () => {
     { id: 'quality', label: t('dataops.quality'), icon: 'checklist' },
   ];
   const orgs = useOrgStore((s) => s.orgs);
+  // The org the user actually picked — the same reactive selector MonitorPage
+  // and the rest of the product read.
+  const currentOrg = useOrgStore(selectSelectedOrg);
   const addNotification = useNotificationStore((s) => s.addNotification);
 
   const [activeTab, setActiveTab] = useState('backup');
@@ -101,30 +105,31 @@ export const DataOpsPage: React.FC = () => {
     t,
   ]);
 
+  // Both handlers previously targeted `orgs[0]` — the first org in the list,
+  // not the one the user selected — while the page header read "Select Org".
+  // Backup and anonymize both write to the org, so a user with several
+  // connections was anonymising a different org than the one on screen.
   const handleCreateBackup = () => {
-    const firstOrg = orgs[0];
-    if (!firstOrg) return;
+    if (!currentOrg) return;
     setError(null);
     backupMutation.mutate({
-      orgId: firstOrg.id,
+      orgId: currentOrg.id,
       objects: ['Account', 'Contact'],
     });
   };
 
   const handleRestore = (operationId: string) => {
-    const firstOrg = orgs[0];
-    if (!firstOrg) return;
+    if (!currentOrg) return;
     setError(null);
     void operationId;
     // Restore uses the same backup:execute pattern — could be extended
   };
 
   const handleApplyAnonymize = (templateId: string) => {
-    const firstOrg = orgs[0];
-    if (!firstOrg) return;
+    if (!currentOrg) return;
     setError(null);
     anonymizeMutation.mutate({
-      orgId: firstOrg.id,
+      orgId: currentOrg.id,
       templateId,
     });
   };
@@ -166,7 +171,31 @@ export const DataOpsPage: React.FC = () => {
       initial="hidden"
       animate="visible"
     >
-      <PageHeader title={t('dataops.title')} subtitle={t('dataops.selectOrg')} icon="tools" />
+      {/* The target org has to be visible before the user clicks: backup and
+          anonymize both write to it, and the page previously named no org at
+          all while silently acting on the first one in the list. */}
+      <PageHeader
+        title={t('dataops.title')}
+        subtitle={t('dataops.selectOrg')}
+        icon="tools"
+        actions={
+          currentOrg ? (
+            <OrgBadge
+              alias={currentOrg.alias || currentOrg.username}
+              orgType={String(currentOrg.orgType)}
+              status={currentOrg.status}
+              instanceUrl={currentOrg.instanceUrl}
+            />
+          ) : undefined
+        }
+      />
+
+      {!currentOrg && (
+        <ErrorBanner
+          message={t('dataops.noOrgSelected')}
+          data-testid="dataops-no-org"
+        />
+      )}
 
       {error && (
         <ErrorBanner message={error} onDismiss={() => setError(null)} data-testid="dataops-error" />
