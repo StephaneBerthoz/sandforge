@@ -129,7 +129,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:result');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policies:list', 'governance:error', err);
+      sendHandlerError(this.deps, 'governance:policies:list', 'governance:error', err, undefined, undefined, undefined, msg);
     }
   }
 
@@ -151,7 +151,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:result');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policy:get', 'governance:error', err);
+      sendHandlerError(this.deps, 'governance:policy:get', 'governance:error', err, undefined, undefined, undefined, msg);
     }
   }
 
@@ -173,7 +173,7 @@ export class GovernanceOpsHandler implements DomainHandler {
         sendHandlerError(
           this.deps,
           'governance:policy:save',
-          'governance:policy:save:response',
+          'governance:error',
           new Error(`Validation failed: ${policyParsed.error.message}`),
           'VALIDATION_ERROR',
         );
@@ -186,7 +186,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:save:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policy:save', 'governance:error', err);
+      sendHandlerError(this.deps, 'governance:policy:save', 'governance:error', err, undefined, undefined, undefined, msg);
     }
   }
 
@@ -210,7 +210,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:delete:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policy:delete', 'governance:error', err);
+      sendHandlerError(this.deps, 'governance:policy:delete', 'governance:error', err, undefined, undefined, undefined, msg);
     }
   }
 
@@ -227,7 +227,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:export:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policies:export', 'governance:error', err);
+      sendHandlerError(this.deps, 'governance:policies:export', 'governance:error', err, undefined, undefined, undefined, msg);
     }
   }
 
@@ -255,7 +255,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       sendHandlerError(
         this.deps,
         'governance:policies:import',
-        'governance:policies:import:response',
+        'governance:error',
         err,
       );
     }
@@ -285,7 +285,7 @@ export class GovernanceOpsHandler implements DomainHandler {
         sendHandlerError(
           this.deps,
           'governance:evaluate',
-          'governance:evaluate:response',
+          'governance:error',
           new Error(`Policy not found: ${payload.policyId}`),
           'NOT_FOUND',
         );
@@ -327,7 +327,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:evaluate:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:evaluate', 'governance:error', err);
+      sendHandlerError(this.deps, 'governance:evaluate', 'governance:error', err, undefined, undefined, undefined, msg);
     }
   }
 
@@ -344,7 +344,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:templates:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:templates', 'governance:error', err);
+      sendHandlerError(this.deps, 'governance:templates', 'governance:error', err, undefined, undefined, undefined, msg);
     }
   }
 }
