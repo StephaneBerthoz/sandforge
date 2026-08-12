@@ -36,3 +36,6 @@ stryker.log
 
 # Playwright MCP scratch output
 .playwright-mcp/
+
+# Icon size proofs (regenerate with: node scripts/render-icon.mjs --proof)
+.icon-proof/
