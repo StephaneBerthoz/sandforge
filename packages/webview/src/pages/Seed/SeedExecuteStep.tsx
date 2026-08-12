@@ -10,6 +10,10 @@ export interface SeedExecuteStepProps {
   isRunning: boolean;
   /** Per-object progress entries. */
   objectProgress: ObjectProgress[];
+  /** Overall completion 0-100, from the live operation:progress stream. */
+  overallPercent: number;
+  /** Wall-clock since the run started. */
+  elapsedMs: number;
   /** Whether the configure step was auto-skipped (shows the defaults banner). */
   configSkipped: boolean;
   /** Jump back to the configure step and clear the skipped flag. */
@@ -23,6 +27,8 @@ export interface SeedExecuteStepProps {
 export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
   isRunning,
   objectProgress,
+  overallPercent,
+  elapsedMs,
   configSkipped,
   onCustomize,
 }) => {
@@ -54,8 +60,8 @@ export const SeedExecuteStep: React.FC<SeedExecuteStepProps> = ({
       <Step7Execute
         isRunning={isRunning}
         objectProgress={objectProgress}
-        overallPercent={isRunning ? 50 : 0}
-        elapsedMs={0}
+        overallPercent={overallPercent}
+        elapsedMs={elapsedMs}
       />
     </div>
   );

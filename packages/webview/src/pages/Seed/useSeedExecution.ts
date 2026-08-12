@@ -3,6 +3,8 @@ import type { TFunction } from 'i18next';
 import type { SeedExecutionResult, SeedTemplate, SeedObjectConfig } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useOperationProgress } from '../../hooks/useOperationProgress';
+import { useElapsedSince } from '../../hooks/useElapsedSince';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
 import type { ObjectProgress } from './Step7_Execute';
 
@@ -16,6 +18,12 @@ export interface SeedExecutionState {
   handleExecute: () => void;
   /** Per-object progress entries derived from selected objects and volumes. */
   objectProgress: ObjectProgress[];
+  /** Overall completion, 0-100, from the live `operation:progress` stream. */
+  overallPercent: number;
+  /** Wall-clock since the run started, or 0 when idle. */
+  elapsedMs: number;
+  /** Step label reported by the extension, e.g. "Bulk insert Contact". */
+  progressLabel: string | null;
   /** Error from the execution mutation, if any. */
   executionError: string | undefined;
   /** Step to navigate to when execution completes (3), or null. */
@@ -38,6 +46,8 @@ export function useSeedExecution(
 
   const [executionResult, setExecutionResult] = useState<SeedExecutionResult | undefined>();
   const [executionCompletedStep, setExecutionCompletedStep] = useState<number | null>(null);
+  /** Set when the run is fired, so elapsed time is real rather than hardcoded 0. */
+  const [startedAt, setStartedAt] = useState<number | null>(null);
 
   const executeSeedMutation = useBridgeMutation<SeedExecutionResult>('seed:execute', {
     responseType: 'seed:execute:response',
@@ -99,31 +109,59 @@ export function useSeedExecution(
       updatedAt: new Date().toISOString(),
     };
 
+    setStartedAt(Date.now());
     executeSeedMutation.mutate({
       orgId: selectedOrgId,
       template: template as unknown as Record<string, unknown>,
     });
   }, [selectedOrgId, selectedObjects, volumes, fieldConfigs, executeSeedMutation]);
 
-  const objectProgress: ObjectProgress[] = useMemo(
-    () =>
-      selectedObjects.map(
-        (o): ObjectProgress => ({
-          objectApiName: o,
-          total: volumes[o]?.count ?? 100,
-          completed: 0,
-          failed: 0,
-          status: isRunning ? 'running' : 'pending',
-        }),
-      ),
-    [selectedObjects, volumes, isRunning],
-  );
+  // Live figures from the extension, which has been emitting operation:progress
+  // from SeedOpsHandler all along with nothing listening.
+  const { latest } = useOperationProgress();
+  const progress = isRunning ? latest : null;
+  const elapsedMs = useElapsedSince(isRunning ? startedAt : null);
+
+  const objectProgress: ObjectProgress[] = useMemo(() => {
+    // The stream reports one overall figure plus the step it is on, not a
+    // per-object breakdown. Deriving position from the step name states what
+    // the extension actually knows, instead of inventing a number per row —
+    // every row previously read "0/N · running" for the whole run.
+    const currentIndex = progress?.currentStep
+      ? selectedObjects.findIndex((name) => progress.currentStep.includes(name))
+      : -1;
+
+    return selectedObjects.map((o, index): ObjectProgress => {
+      const total = volumes[o]?.count ?? 100;
+      let status: ObjectProgress['status'];
+      if (currentIndex === -1) {
+        status = isRunning ? 'running' : 'pending';
+      } else if (index < currentIndex) {
+        status = 'done';
+      } else if (index === currentIndex) {
+        status = 'running';
+      } else {
+        status = 'pending';
+      }
+      return {
+        objectApiName: o,
+        total,
+        completed:
+          status === 'done' ? total : status === 'running' ? (progress?.processedRecords ?? 0) : 0,
+        failed: 0,
+        status,
+      };
+    });
+  }, [selectedObjects, volumes, isRunning, progress]);
 
   return {
     isRunning,
     executionResult,
     handleExecute,
     objectProgress,
+    overallPercent: progress?.percentage ?? 0,
+    elapsedMs,
+    progressLabel: progress?.currentStep ?? null,
     executionError: executeSeedMutation.error ?? undefined,
     executionCompletedStep,
   };

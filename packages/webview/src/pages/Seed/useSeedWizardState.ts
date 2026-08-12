@@ -96,6 +96,12 @@ export interface SeedWizardState {
   executionResult: SeedExecutionResult | undefined;
   handleExecute: () => void;
   objectProgress: ObjectProgress[];
+  /** Overall completion 0-100, from the live operation:progress stream. */
+  overallPercent: number;
+  /** Wall-clock since the run started, or 0 when idle. */
+  elapsedMs: number;
+  /** Step label reported by the extension, e.g. "Bulk insert Contact". */
+  progressLabel: string | null;
 
   /* Persona */
   /** Currently selected AI persona, or null. */
