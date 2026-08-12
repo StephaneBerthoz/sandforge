@@ -53,7 +53,7 @@ Before execution, the Review step shows:
 ### Execution and Results
 
 - Real-time progress bar with elapsed time
-- Grappe Engine integration for large datasets (auto-activates above threshold)
+- Sequential per-object execution; Grappe parallel execution is coming soon
 - Per-object result breakdown: processed, succeeded, and failed counts
 - Detailed error messages per object for troubleshooting
 
