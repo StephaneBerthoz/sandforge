@@ -523,6 +523,7 @@ export class ExtensionHandlers {
       [
         'backup:execute',
         'dataops:backup',
+        'backup:list',
         'dataops:rollback',
         'dataops:anonymize',
         'dataops:anonymization-templates',

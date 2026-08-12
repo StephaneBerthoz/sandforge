@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BackupResult } from '@sandforge/shared';
+import type { BackupSummary } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -9,7 +9,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 
 /** RestorePanel component props. */
 export interface RestorePanelProps {
-  backups?: BackupResult[];
+  backups?: BackupSummary[];
   selectedBackupId?: string;
   onSelectBackup?: (operationId: string) => void;
   onRestore?: (operationId: string) => void;
@@ -59,7 +59,7 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
           <div key={backup.operationId} data-testid={`restore-backup-${backup.operationId}`}>
             <Card hoverable onClick={() => onSelectBackup?.(backup.operationId)}>
               <CardHeader
-                title={backup.configId}
+                title={new Date(backup.timestamp).toLocaleString()}
                 subtitle={t('common.recordCount', { count: backup.totalRecords })}
                 action={
                   <div className="flex items-center gap-2">
@@ -84,7 +84,6 @@ export const RestorePanel: React.FC<RestorePanelProps> = ({
               <CardBody>
                 <div className="flex gap-4 text-xs text-text-secondary">
                   <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
-                  <span>{backup.startTime}</span>
                 </div>
               </CardBody>
             </Card>

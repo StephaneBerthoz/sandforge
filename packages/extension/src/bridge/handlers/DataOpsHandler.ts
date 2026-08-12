@@ -1,4 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, BackupSummary } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import {
@@ -20,6 +20,7 @@ import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import {
   validatePayload,
   dataOpsBackupPayloadSchema,
+  dataOpsBackupListPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
   dataOpsMaskingTemplatesPayloadSchema,
@@ -89,6 +90,7 @@ function describeToObjectDescribe(desc: Record<string, unknown>): ObjectDescribe
 /** Message types handled by DataOpsHandler. */
 const DATAOPS_TYPES = new Set([
   'backup:execute',
+  'backup:list',
   'dataops:backup',
   'dataops:rollback',
   'dataops:anonymize',
@@ -140,6 +142,9 @@ export class DataOpsHandler implements DomainHandler {
       case 'backup:execute':
       case 'dataops:backup':
         await this.handleBackup(msg);
+        return true;
+      case 'backup:list':
+        this.handleBackupList(msg);
         return true;
       case 'dataops:rollback':
         await this.handleRollback(msg);
@@ -273,7 +278,7 @@ export class DataOpsHandler implements DomainHandler {
 
       const response = buildResponse(this.deps, msg, 'dataops:backup:response', {
         operationId,
-        status: 'success',
+        status: 'completed',
         objects: results.map((r) => ({
           objectApiName: r.objectApiName,
           recordCount: r.recordCount,
@@ -303,6 +308,57 @@ export class DataOpsHandler implements DomainHandler {
    * oldest backups (by meta timestamp) beyond the cap are deleted, including
    * their per-object record payloads.
    */
+  /**
+   * Answer `backup:list` with the backups persisted for one org.
+   *
+   * The DataOps page has always listened on `backup:list:result`, but the
+   * request type was declared in no Zod member, so the broker rejected the
+   * message before any handler saw it: the list was permanently empty, the KPI
+   * row read 0, Restore had nothing to select, and the query eventually timed
+   * out into an error banner.
+   *
+   * Key partitioning mirrors pruneBackups: meta keys are `backup:<operationId>`,
+   * record keys are `backup:<operationId>:<objectApiName>`.
+   */
+  private handleBackupList(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(dataOpsBackupListPayloadSchema, msg, 'dataops:error', this.deps);
+    if (!parsed) return;
+
+    const backups: BackupSummary[] = [];
+    for (const key of this.deps.configStore.getKeysByPrefix('backup:')) {
+      if (key.slice('backup:'.length).includes(':')) continue;
+      const meta = this.deps.configStore.get<{
+        operationId?: string;
+        orgId?: string;
+        timestamp?: string;
+        totalRecords?: number;
+        objects?: Array<{ objectApiName: string; recordCount: number }>;
+      }>(key);
+      if (!meta || meta.orgId !== parsed.orgId) continue;
+      backups.push({
+        operationId: meta.operationId ?? key.slice('backup:'.length),
+        orgId: meta.orgId,
+        timestamp: meta.timestamp ?? '',
+        totalRecords: meta.totalRecords ?? 0,
+        // Byte size is not recorded at backup time; reporting 0 is honest,
+        // where a computed guess would not be.
+        totalSize: 0,
+        // A meta record only exists once the backup has been written, so a
+        // listed backup is by construction a completed one.
+        status: 'completed',
+        objectResults: meta.objects ?? [],
+      });
+    }
+    // Newest first — the list is a history, and the most recent restore point
+    // is the one a user reaches for.
+    backups.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+    const response = buildResponse(this.deps, msg, 'backup:list:result', { backups });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id} count=${backups.length}`);
+  }
+
   private pruneBackups(orgId: string): void {
     const maxCount = this.deps.services?.getSandforgeSetting?.('backup.maxCount', 10) ?? 10;
     const metas: Array<{ key: string; timestamp: string }> = [];

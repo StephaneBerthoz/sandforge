@@ -2,21 +2,26 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { RestorePanel } from './RestorePanel';
-import type { BackupResult } from '@sandforge/shared';
+import type { BackupSummary } from '@sandforge/shared';
 
-const backups: BackupResult[] = [
+const backups: BackupSummary[] = [
   {
-    configId: 'cfg-1',
     operationId: 'op-1',
+    orgId: 'org-1',
+    timestamp: '2026-01-01T00:00:00Z',
     status: 'completed',
-    objectResults: [{ objectApiName: 'Account', recordCount: 100, size: 5000, status: 'success' }],
+    objectResults: [{ objectApiName: 'Account', recordCount: 100 }],
     totalRecords: 100,
     totalSize: 5000,
-    filePath: '/backups/op-1.zip',
-    checksum: 'abc123',
-    startTime: '2026-01-01T00:00:00Z',
-    endTime: '2026-01-01T00:01:00Z',
-    duration: 60000,
+  },
+  {
+    operationId: 'op-2',
+    orgId: 'org-1',
+    timestamp: '2026-01-01T00:00:30Z',
+    status: 'failed',
+    objectResults: [],
+    totalRecords: 0,
+    totalSize: 0,
   },
 ];
 
