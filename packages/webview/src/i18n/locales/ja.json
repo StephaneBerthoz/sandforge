@@ -1892,7 +1892,13 @@
       "step5": "サンドボックスへ実行 — IDは自動で付け替えられます"
     },
     "soqlUnscopedWarnTitle": "WHERE 句は適用されません。",
-    "soqlUnscopedWarnBody": "SandForge は FROM の後のオブジェクト名のみを読み取ります。レコードはテーブル全体から取得され、グラフ内の関連オブジェクトも同様に複製されます（この実行ではオブジェクトあたり {{cap}} 件が上限）。"
+    "soqlUnscopedWarnBody": "SandForge は FROM の後のオブジェクト名のみを読み取ります。レコードはテーブル全体から取得され、グラフ内の関連オブジェクトも同様に複製されます（この実行ではオブジェクトあたり {{cap}} 件が上限）。",
+    "idMapping": {
+      "title": "レコード Id の対応",
+      "subtitle": "{{count}} 件のレコードを作成しました。左が元の Id、右がターゲット組織の新しい Id です。",
+      "sourceId": "元の Id",
+      "targetId": "新しい Id"
+    }
   },
   "autopilot": {
     "title": "Autopilot",

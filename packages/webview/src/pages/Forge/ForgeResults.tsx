@@ -75,6 +75,12 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
 
   const idRemaps = result?.idRemapCount ?? 0;
 
+  /** Source -> target Id pairs, ordered as the run produced them. */
+  const idRemapRows = useMemo(
+    () => Object.entries(result?.idRemapTable ?? {}),
+    [result?.idRemapTable],
+  );
+
   const successRate = useMemo(() => {
     const total = result?.graph.totalRecords ?? nodes.reduce((sum, n) => sum + n.recordCount, 0);
     if (total === 0) return 100;
@@ -354,6 +360,41 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </table>
         </div>
       </m.div>
+
+      {/* Source -> target Id map. The executor has always returned this table;
+          only its count used to survive, so a finished clone could report
+          "312 records" without being able to say where any one of them went. */}
+      {idRemapRows.length > 0 && (
+        <div
+          data-testid="forge-id-mapping"
+          className="rounded-lg border border-subtle bg-surface-1 p-3"
+        >
+          <h3 className="text-sm font-semibold text-text-primary mb-2">
+            {t('forge.idMapping.title')}
+          </h3>
+          <p className="text-xs text-text-secondary mb-2">
+            {t('forge.idMapping.subtitle', { count: idRemapRows.length })}
+          </p>
+          <div className="max-h-64 overflow-y-auto">
+            <table className="w-full text-xs" data-testid="forge-id-mapping-table">
+              <thead>
+                <tr className="text-left text-text-secondary">
+                  <th className="py-1 pr-3 font-medium">{t('forge.idMapping.sourceId')}</th>
+                  <th className="py-1 font-medium">{t('forge.idMapping.targetId')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {idRemapRows.map(([sourceId, targetId]) => (
+                  <tr key={sourceId} data-testid="forge-id-mapping-row">
+                    <td className="py-1 pr-3 font-mono text-text-secondary">{sourceId}</td>
+                    <td className="py-1 font-mono text-text-primary">{targetId}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Structured execution errors (Wave 2.6 — grouped by object/stage) */}
       {result?.errors && result.errors.length > 0 && <ForgeErrorsPanel errors={result.errors} />}

@@ -1899,7 +1899,13 @@
       "step5": "In Ihre Sandbox ausführen — IDs werden neu vergeben"
     },
     "soqlUnscopedWarnTitle": "Ihre WHERE-Klausel wird nicht angewendet.",
-    "soqlUnscopedWarnBody": "SandForge liest nur den Objektnamen nach FROM. Datensätze stammen aus der gesamten Tabelle, und jedes verknüpfte Objekt im Graphen wird genauso geklont — begrenzt auf {{cap}} Datensätze pro Objekt für diesen Lauf."
+    "soqlUnscopedWarnBody": "SandForge liest nur den Objektnamen nach FROM. Datensätze stammen aus der gesamten Tabelle, und jedes verknüpfte Objekt im Graphen wird genauso geklont — begrenzt auf {{cap}} Datensätze pro Objekt für diesen Lauf.",
+    "idMapping": {
+      "title": "Datensatz-Id-Zuordnung",
+      "subtitle": "{{count}} Datensätze erstellt. Quell-Id links, neue Id in der Ziel-Org rechts.",
+      "sourceId": "Quell-Id",
+      "targetId": "Neue Id"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
