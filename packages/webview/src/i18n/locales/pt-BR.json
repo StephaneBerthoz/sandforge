@@ -940,6 +940,15 @@
       "pathRequired": "Informe o caminho do arquivo a ser importado.",
       "pathNotAbsolute": "O caminho deve ser absoluto (ex.: C:/projetos/export.json ou /home/voce/export.json).",
       "pathExtension": "Extensão de arquivo não suportada. Esperado: {{extensions}}."
+    },
+    "run": {
+      "title": "Executar esta importação",
+      "subtitle": "Escolha as orgs de origem e destino — o arquivo importado nomeia as suas, que não existem aqui.",
+      "sourceOrg": "Org de origem",
+      "targetOrg": "Org de destino",
+      "action": "Executar sincronização",
+      "running": "Em execução…",
+      "orgsRequired": "Escolha duas orgs diferentes para executar esta importação."
     }
   },
   "dataops": {

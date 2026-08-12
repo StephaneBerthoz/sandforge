@@ -940,6 +940,15 @@
       "pathRequired": "Enter the path of the file to import.",
       "pathNotAbsolute": "The path must be absolute (e.g. C:/projects/export.json or /home/you/export.json).",
       "pathExtension": "Unsupported file extension. Expected: {{extensions}}."
+    },
+    "run": {
+      "title": "Run this import",
+      "subtitle": "Pick the source and target orgs — the imported file names its own, which do not exist here.",
+      "sourceOrg": "Source org",
+      "targetOrg": "Target org",
+      "action": "Run sync",
+      "running": "Running…",
+      "orgsRequired": "Pick two different orgs to run this import."
     }
   },
   "dataops": {

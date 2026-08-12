@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
+import { useOrgStore } from '../../stores/useOrgStore';
 import { MigrationPage } from './MigrationPage';
 
 /* ------------------------------------------------------------------ */
@@ -42,6 +43,8 @@ let mockUniversalState: MockMutationState = {
   reset: mockUniversalReset,
 };
 
+const mockRunMutate = vi.fn();
+
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
     if (type === 'migration:import-sfdmu') {
@@ -49,6 +52,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     }
     if (type === 'migration:import') {
       return mockUniversalState;
+    }
+    if (type === 'sync:execute') {
+      return { mutate: mockRunMutate, data: null, loading: false, error: null, reset: vi.fn() };
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
@@ -255,5 +261,54 @@ describe('MigrationPage', () => {
     expect(
       (screen.getByTestId('migration-path-input') as HTMLInputElement).value,
     ).toBe('');
+  });
+});
+
+
+describe('MigrationPage — running an imported config', () => {
+  beforeEach(() => {
+    mockRunMutate.mockClear();
+    useOrgStore.setState({
+      orgs: [
+        { id: 'org-a', alias: 'devA', username: 'a@e.com' },
+        { id: 'org-b', alias: 'devB', username: 'b@e.com' },
+      ] as never,
+    });
+    mockSfdmuState = {
+      mutate: mockSfdmuMutate,
+      data: { success: true, config: sfdmuConfig },
+      loading: false,
+      error: null,
+      reset: mockSfdmuReset,
+    };
+  });
+
+  it('runs the imported config against the orgs the user picks', () => {
+    // The importer fills sourceOrgId/targetOrgId with UUID placeholders, so an
+    // imported config was structurally runnable and pointed at nothing. Before
+    // this, the converted config was rendered and dropped on unmount.
+    render(<MigrationPage />);
+
+    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
+    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-b' } });
+    fireEvent.click(screen.getByTestId('migration-run-btn'));
+
+    expect(mockRunMutate).toHaveBeenCalledTimes(1);
+    const sent = mockRunMutate.mock.calls[0][0] as { config: Record<string, unknown> };
+    expect(sent.config.sourceOrgId).toBe('org-a');
+    expect(sent.config.targetOrgId).toBe('org-b');
+    // The rest of the converted config must survive untouched.
+    expect(sent.config.objects).toEqual(sfdmuConfig.objects);
+  });
+
+  it('refuses to run into the org it reads from', () => {
+    render(<MigrationPage />);
+
+    fireEvent.change(screen.getByTestId('migration-run-source'), { target: { value: 'org-a' } });
+    fireEvent.change(screen.getByTestId('migration-run-target'), { target: { value: 'org-a' } });
+    fireEvent.click(screen.getByTestId('migration-run-btn'));
+
+    expect(mockRunMutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('migration-run-hint')).toBeDefined();
   });
 });
