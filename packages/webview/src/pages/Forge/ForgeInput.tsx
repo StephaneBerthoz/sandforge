@@ -358,7 +358,7 @@ export const ForgeInput: React.FC = () => {
             </p>
           )}
 
-          {/* Reuse last graph — skip BFS rediscovery (~30s on REDACTED-CLIENT) */}
+          {/* Reuse last graph — skip BFS rediscovery (~30s on large orgs) */}
           {form.canReuseLastGraph && (
             <button
               type="button"

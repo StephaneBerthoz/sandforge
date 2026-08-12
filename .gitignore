@@ -33,3 +33,6 @@ stryker.log
 # Local backup files (e.g. CLAUDE.md.bak.<unix-ts> from save-memory ops)
 *.bak
 *.bak.*
+
+# Playwright MCP scratch output
+.playwright-mcp/

@@ -206,6 +206,22 @@ else
   ERRORS=$((ERRORS + 1))
 fi
 
+# 12. Client-confidentiality gate — no client identity may reach a public
+# artifact. Both the GitHub repo and the VSIX (which ships changelog.md as the
+# Marketplace "Changelog" tab) are public, so this scans the whole tracked tree.
+# Real Salesforce record Ids are blocked too: synthetic Ids use the 500XX prefix.
+CONFIDENTIAL_PATTERN='[Mm]utuaide|ORG-UAT|ORG-DEV|500AP00000'
+if git grep -inE "${CONFIDENTIAL_PATTERN}" -- . ':!scripts/pre-publish-check.sh' > /tmp/sf-confidential-hits.txt 2>/dev/null; then
+  echo "FAIL: client identity or real record Ids found in tracked files:"
+  head -20 /tmp/sf-confidential-hits.txt | sed 's/^/       /'
+  HIT_COUNT=$(wc -l < /tmp/sf-confidential-hits.txt)
+  echo "       ($HIT_COUNT occurrence(s) — scrub before publishing)"
+  ERRORS=$((ERRORS + 1))
+else
+  echo "PASS: No client identity in tracked files"
+fi
+rm -f /tmp/sf-confidential-hits.txt
+
 echo ""
 if [[ $ERRORS -gt 0 ]]; then
   echo "=== $ERRORS CHECK(S) FAILED ==="

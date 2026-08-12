@@ -144,7 +144,7 @@ export const FORGE_ANONYMIZATION_PRESETS: readonly ForgeAnonymizationPreset[] = 
     id: 'preset:healthcare',
     name: 'Healthcare — PHI',
     description:
-      'Anonymize PHI fields on insurance and patient-related custom objects (PolicyNumber__c, AssistanceRef__c, Birthdate__c, ...). Use on REDACTED-CLIENT-style health-services orgs.',
+      'Anonymize PHI fields on insurance and patient-related custom objects (PolicyNumber__c, AssistanceRef__c, Birthdate__c, ...). Use on insurance / health-services orgs.',
     rules: [
       {
         objectApiName: 'Contact',

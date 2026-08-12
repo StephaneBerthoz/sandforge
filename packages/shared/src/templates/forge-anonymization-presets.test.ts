@@ -41,7 +41,7 @@ describe('FORGE_ANONYMIZATION_PRESETS', () => {
     }
   });
 
-  it('healthcare preset includes REDACTED-CLIENT-style PHI fields', () => {
+  it('healthcare preset includes insurance-style PHI fields', () => {
     const healthcare = FORGE_ANONYMIZATION_PRESETS.find((p) => p.id === 'preset:healthcare')!;
     const asset = healthcare.rules.find((r) => r.objectApiName === 'Asset');
     expect(asset?.fieldNames).toContain('PolicyNumber__c');

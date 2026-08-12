@@ -22,9 +22,9 @@ const pB = new DeterministicPseudonymizer(SALT_B);
 const HMAC_DERIVED: Array<[PseudonymGenerator, unknown]> = [
   ['firstName', 'Jean'],
   ['lastName', 'Dupont'],
-  ['companyName', 'REDACTED-CLIENT Assistance'],
+  ['companyName', 'Acme Assistance'],
   ['phoneE164', '+33612345678'],
-  ['email', 'jean.dupont@REDACTED-CLIENT.fr'],
+  ['email', 'jean.dupont@example.com'],
   ['registrationSIV', 'AB-123-CD'],
   ['contractNumber', 'CTR-2024-AB123'],
   ['dateShift', '2024-03-15'],
@@ -101,9 +101,9 @@ describe('DeterministicPseudonymizer — formats', () => {
   });
 
   it('companyName is a two-part fictional name', () => {
-    const out = String(pA.pseudonymize('companyName', 'REDACTED-CLIENT'));
+    const out = String(pA.pseudonymize('companyName', 'Acme'));
     expect(out).toMatch(/^\p{Lu}\p{L}+ [\p{L} ]+$/u);
-    expect(out).not.toContain('REDACTED-CLIENT');
+    expect(out).not.toContain('Acme');
   });
 
   it('phoneE164 uses the fictional ARCEP range +3363998xxxx', () => {
@@ -111,7 +111,7 @@ describe('DeterministicPseudonymizer — formats', () => {
   });
 
   it('email lands on example.invalid', () => {
-    expect(pA.pseudonymize('email', 'jean.dupont@REDACTED-CLIENT.fr')).toMatch(
+    expect(pA.pseudonymize('email', 'jean.dupont@example.com')).toMatch(
       /^user-[0-9a-f]{8}@example\.invalid$/,
     );
   });

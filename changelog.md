@@ -774,11 +774,11 @@ P-03.5, P-03.6, P-03.7, P-03.10.
   `RecordTypeId` before insert. Records whose RecordTypeId has no mapping
   keep the source value (Salesforce will reject if not shared). The recipe
   pre-loads RecordTypes from both orgs and surfaces the mapping count in
-  Phase B (e.g. `268 RecordType mapping(s) resolved` for ORG-UAT ↔ ORG-DEV).
+  Phase B (e.g. `268 RecordType mapping(s) resolved` for SOURCE-UAT ↔ TARGET-DEV).
 - **`ExecuteOptions.maxRecordsPerObject`**: optional per-object hard cap
   appended as `LIMIT N` to every scoped query. Keeps dev-sized clones
   bounded even when a node's natural scope pulls thousands of rows
-  (typically `InsurancePolicyCoverage` / activity history on REDACTED-CLIENT).
+  (typically `InsurancePolicyCoverage` / activity history on large insurance orgs).
   Default: no cap.
 
 ### Added (Forge module, Wave 2 v3: 2-pass cycle FK update)
@@ -814,7 +814,7 @@ loop with a second pass.
   describe wiring now collects the *active* set of values on the target
   org. The cleaned-record step drops any source-side value that doesn't
   appear in the target's whitelist before insert, replacing the runtime
-  `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` rejection seen on REDACTED-CLIENT
+  `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` rejection seen on a partner org
   Case clones (`UncertainContract`, `Contrat non certain`, etc.) with a
   silent strip. Empty / missing whitelist = no validation, so non-restricted
   picklists are unaffected.
@@ -850,7 +850,7 @@ classes; this commit fixes them all.
   read-only entity skips and for `ReferenceDataMapper` "unmatched" rows
   (target row not found by Name).
 
-#### Validation runs on REDACTED-CLIENT UAT2 → ORG-DEV
+#### Validation runs on SOURCE-UAT → TARGET-DEV
 
 Two consecutive Wave-3 runs proved the fixes work end-to-end:
 
@@ -858,7 +858,7 @@ Two consecutive Wave-3 runs proved the fixes work end-to-end:
 |---|---|---|
 | Case | OK inserted | DUPLICATE_VALUE on existing v2 record (expected) |
 | Contact | OK 50/50 | OK 1/1 (Person Account `Name` strip works) |
-| Account | FAIL 0/3 (`__pc`/`Name` errors) | OK 1/3 (Business Account succeeds; Person Account `Name` errors gone; remaining 2 fail on locale-restricted picklists, a REDACTED-CLIENT-specific schema constraint) |
+| Account | FAIL 0/3 (`__pc`/`Name` errors) | OK 1/3 (Business Account succeeds; Person Account `Name` errors gone; remaining 2 fail on locale-restricted picklists, an org-specific schema constraint) |
 | BusinessHours | FAIL FIELD_INTEGRITY (duplicate) | OK Mapped via reference-data lookup (1 resolved) |
 | CaseHistory2 | FAIL entity not insertable | Skipped via `isObjectCreatable` |
 | InsurancePolicy | n/a | REQUIRED_FIELD_MISSING surfaced as structured error (NameInsuredId required). Wave 2 sampling-cap+orphan-record-skip will harden this next |
@@ -885,7 +885,7 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
   the `forge:execute:response` payload so the wizard can render an error
   panel grouped by object/stage.
 
-#### Wave 3 first real-org run on REDACTED-CLIENT UAT2 → ORG-DEV (Case 500AP00000fXeQsYAK)
+#### Wave 3 first real-org run on SOURCE-UAT → TARGET-DEV (Case 500XX00000000001AAA)
 
 - 1st attempt: 0/52 inserted; 3 systemic bugs found (above two + ref data).
 - 2nd attempt after fixes: **52/58 inserted on SBER**: Case (1/1),
@@ -901,7 +901,7 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 - **`ScopedSoqlBuilder`**: emits SOQL with `WHERE Id = '<rootId>'` for the root, `WHERE Id IN (...)` for objects already cached (including parent FK values seeded from earlier records), `WHERE FK IN (...)` for children of cached parents, or a zero-result query when no scoping path exists. Excluded targets (User, RecordType, ChangeEvent…) are filtered out so they never participate in scope SOQL.
 - **`ForgeExecutor` scoped + dry-run modes**: new `ExecuteOptions { rootRecordId, rootObjectApiName, dryRun }` parameter. When `rootRecordId` is set the executor switches to scoped mode: seeds the cache with the root, brings the root to the front of the topo order (so cycle waves don't starve the cache), uses `ScopedSoqlBuilder` per node, and propagates FK values from each query into the cache for multi-hop downstream scoping. `dryRun: true` runs every query but skips inserts, used by the recipe to preview cloning before any write.
 - **`FieldInfo.referenceTo`**: optional field on the executor describe contract so scope reasoning knows which parent each lookup points at (polymorphic-aware).
-- **`tools/recipe-forge-grappe.ts` Phase B**: read-only scoped dry-run report. Replaying the production executor against ORG-UAT → ORG-DEV for Case `500AP00000fXeQsYAK`: **261 858 records → 358** (−99.86%), 19 scoped queries, 0 write, 2 out-of-scope nodes correctly skipped.
+- **`tools/recipe-forge-grappe.ts` Phase B**: read-only scoped dry-run report. Replaying the production executor against SOURCE-UAT → TARGET-DEV for Case `500XX00000000001AAA`: **261 858 records → 358** (−99.86%), 19 scoped queries, 0 write, 2 out-of-scope nodes correctly skipped.
 - **`.planning/improvements/forge-record-scoped/PLAN.md`**: roadmap for Wave 2 hardening (IN chunking, reverse-lookup propagation, cycle handling, orphan strategies, sampling cap) and Wave 3 real execution.
 
 ### Fixed (Forge module)

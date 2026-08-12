@@ -23,24 +23,24 @@ describe('resolveStageConfig', () => {
 
   it('enters scoped mode and defaults fallback to nullify when root is provided', () => {
     const config = resolveStageConfig({
-      rootRecordId: '500AP00000fXeQsYAK',
+      rootRecordId: '500XX00000000001AAA',
       rootObjectApiName: 'Case',
     });
 
     expect(config.isScoped).toBe(true);
     expect(config.referenceFallback).toBe('nullify');
-    expect(config.rootRecordId).toBe('500AP00000fXeQsYAK');
+    expect(config.rootRecordId).toBe('500XX00000000001AAA');
     expect(config.rootObjectApiName).toBe('Case');
   });
 
   it('stays non-scoped when only one of rootRecordId / rootObjectApiName is set', () => {
-    expect(resolveStageConfig({ rootRecordId: '500AP00000fXeQsYAK' }).isScoped).toBe(false);
+    expect(resolveStageConfig({ rootRecordId: '500XX00000000001AAA' }).isScoped).toBe(false);
     expect(resolveStageConfig({ rootObjectApiName: 'Case' }).isScoped).toBe(false);
   });
 
   it('respects an explicit referenceFallback override', () => {
     const config = resolveStageConfig({
-      rootRecordId: '500AP00000fXeQsYAK',
+      rootRecordId: '500XX00000000001AAA',
       rootObjectApiName: 'Case',
       referenceFallback: 'keep',
     });

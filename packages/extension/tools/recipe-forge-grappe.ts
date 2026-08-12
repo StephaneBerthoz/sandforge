@@ -9,7 +9,7 @@
  * Usage:
  *   pnpm --filter @sandforge/extension exec tsx tools/recipe-forge-grappe.ts
  *
- * Default scenario: clone Case 500AP00000fXeQsYAK from ORG-UAT → ORG-DEV
+ * Default scenario: clone Case 500XX00000000001AAA from SOURCE-UAT → TARGET-DEV
  * with depth=custom=5 (matches the Forge wizard screenshot).
  */
 import { execFileSync } from 'node:child_process';
@@ -37,9 +37,9 @@ interface SfOrg {
 }
 
 const SCENARIO = {
-  sourceAlias: 'ORG-UAT',
-  targetAlias: 'ORG-DEV',
-  recordId: '500AP00000fXeQsYAK',
+  sourceAlias: 'SOURCE-UAT',
+  targetAlias: 'TARGET-DEV',
+  recordId: '500XX00000000001AAA',
   depth: 'custom' as const,
   customDepth: 5,
   anonymizePII: true,

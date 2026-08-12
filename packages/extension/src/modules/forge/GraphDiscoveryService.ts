@@ -170,7 +170,7 @@ export class GraphDiscoveryService {
   async discover(config: ForgeConfig, options?: DiscoveryOptions): Promise<ForgeGraph> {
     // Emit a synthetic "resolving" event so the wizard never sits silent
     // during the initial describeGlobal round-trip (5-50 MB on big orgs,
-    // can take 30-90s on REDACTED-CLIENT UAT2).
+    // can take 30-90s on SOURCE-UAT).
     options?.onProgress?.({
       objectApiName: '__resolving_root__',
       discoveredCount: 0,
@@ -215,7 +215,7 @@ export class GraphDiscoveryService {
 
     // Drain the queue in waves of WAVE_SIZE entries fetched in parallel.
     // Sequential await per node was the root cause of the 2:30 freeze on
-    // REDACTED-CLIENT UAT2 (50 nodes × ~1.5s/node ≈ 75s). With 6 concurrent
+    // SOURCE-UAT (50 nodes × ~1.5s/node ≈ 75s). With 6 concurrent
     // describe+queryCount calls we stay under jsforce's default 5-conn pool
     // + Salesforce per-IP cap while shaving ~6× off the wall-clock time.
     const WAVE_SIZE = 6;

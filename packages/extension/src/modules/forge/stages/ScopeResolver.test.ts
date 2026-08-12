@@ -165,7 +165,7 @@ describe('buildNodeQuery', () => {
 
   it('scopes the root node to WHERE Id = <rootRecordId>', () => {
     const cache = new RecordScopeCache();
-    cache.add('Case', ['500AP00000fXeQsYAK']);
+    cache.add('Case', ['500XX00000000001AAA']);
     const result = buildNodeQuery({
       node: makeNode('Case'),
       edges: [],
@@ -173,17 +173,17 @@ describe('buildNodeQuery', () => {
       scopedBuilder: new ScopedSoqlBuilder(),
       scopeCache: cache,
       rootObjectApiName: 'Case',
-      rootRecordId: '500AP00000fXeQsYAK',
+      rootRecordId: '500XX00000000001AAA',
     });
     expect(result).toEqual({
       kind: 'query',
-      soql: "SELECT Id, Name FROM Case WHERE Id = '500AP00000fXeQsYAK'",
+      soql: "SELECT Id, Name FROM Case WHERE Id = '500XX00000000001AAA'",
     });
   });
 
   it('returns skip with a reason when the node is out of scope', () => {
     const cache = new RecordScopeCache();
-    cache.add('Case', ['500AP00000fXeQsYAK']);
+    cache.add('Case', ['500XX00000000001AAA']);
     const result = buildNodeQuery({
       node: makeNode('Product2'),
       edges: [],
@@ -191,7 +191,7 @@ describe('buildNodeQuery', () => {
       scopedBuilder: new ScopedSoqlBuilder(),
       scopeCache: cache,
       rootObjectApiName: 'Case',
-      rootRecordId: '500AP00000fXeQsYAK',
+      rootRecordId: '500XX00000000001AAA',
     });
     expect(result.kind).toBe('skip');
     if (result.kind === 'skip') expect(result.reason.length).toBeGreaterThan(0);
@@ -205,7 +205,7 @@ describe('buildNodeQuery', () => {
       scopedBuilder: null,
       scopeCache: null,
       rootObjectApiName: 'Case',
-      rootRecordId: '500AP00000fXeQsYAK',
+      rootRecordId: '500XX00000000001AAA',
     });
     expect(result).toEqual({ kind: 'query', soql: 'SELECT Id, Name FROM Case' });
   });

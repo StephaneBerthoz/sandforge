@@ -33,7 +33,7 @@ function polymorphic(name: string, targets: string[]): ScopableField {
   return { name, type: 'reference', referenceTo: targets };
 }
 
-const ROOT_ID = '500AP00000fXeQsYAK';
+const ROOT_ID = '500XX00000000001AAA';
 
 describe('ScopedSoqlBuilder', () => {
   describe('root', () => {
