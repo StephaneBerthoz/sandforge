@@ -29,7 +29,7 @@ test.describe('Quick sync with conflict -> resolve', () => {
     mockBridge = new MockBridge();
     await mockBridge.setup(page);
     await page.goto('/?e2e-harness=sync-conflict');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await expect(page.getByTestId('sync-page')).toBeVisible();
   });
 

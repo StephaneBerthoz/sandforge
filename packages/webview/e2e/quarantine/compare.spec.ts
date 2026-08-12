@@ -82,7 +82,7 @@ test.describe('Compare page — empty state', () => {
   test('shows empty state when fewer than 2 orgs exist', async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     // Resolve with only 1 org
     await page.waitForTimeout(200);
@@ -114,7 +114,7 @@ test.describe('Compare page — with orgs', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
     // Navigate to Compare
@@ -190,7 +190,7 @@ test.describe('Compare page — results tabs', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
     await page.getByTestId('sidebar').getByRole('button', { name: 'Compare Org', exact: true }).click();

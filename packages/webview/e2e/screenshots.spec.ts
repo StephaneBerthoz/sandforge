@@ -187,7 +187,7 @@ test.describe('Marketplace Screenshots', () => {
     const bridge = new MockBridge();
     await bridge.setup(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
     // Navigate to Forge/Seed page
@@ -230,7 +230,7 @@ test.describe('Marketplace Screenshots', () => {
     const bridge = new MockBridge();
     await bridge.setup(page);
     await page.goto('/?panel=sync');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
     // Sync page with sidebar visible and orgs loaded
@@ -243,7 +243,7 @@ test.describe('Marketplace Screenshots', () => {
     const bridge = new MockBridge();
     await bridge.setup(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
     // Navigate to Monitor

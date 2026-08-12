@@ -59,12 +59,12 @@ test.describe('Sync page (via panel)', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/?panel=sync');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
   });
 
   test('app shell renders with sidebar and content area', async ({ page }) => {
-    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await expect(page.getByTestId('panel-app')).toBeVisible();
     await expect(page.getByTestId('sidebar')).toBeVisible();
   });
 
@@ -96,7 +96,7 @@ test.describe('Sync page — empty state', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
   });
 
   test('shows app shell even with no orgs when loading resolves to single org', async ({ page }) => {
@@ -118,6 +118,6 @@ test.describe('Sync page — empty state', () => {
       payload: { orgs: [MOCK_ORGS[0]] },
     });
 
-    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await expect(page.getByTestId('panel-app')).toBeVisible();
   });
 });

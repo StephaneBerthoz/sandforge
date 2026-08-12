@@ -98,7 +98,7 @@ test.describe('Monitor page — empty state', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await setupMonitorWithOrg(page);
   });
 
@@ -135,7 +135,7 @@ test.describe('Monitor page — dashboard', () => {
   test.beforeEach(async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
     await setupMonitorWithOrg(page);
 
     // Navigate to Monitor
@@ -178,7 +178,7 @@ test.describe('Monitor page — dashboard', () => {
 
     // The dashboard may or may not fully render depending on all required queries
     // At minimum, loading state should have been entered
-    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await expect(page.getByTestId('panel-app')).toBeVisible();
   });
 
   test('refresh button is visible and clickable', async ({ page }) => {
@@ -212,7 +212,7 @@ test.describe('Monitor page — no orgs connected', () => {
   test('shows empty state with no org hint when no orgs exist', async ({ page }) => {
     await injectVSCodeApiMock(page);
     await page.goto('/');
-    await page.waitForSelector('[data-testid="app-shell"]');
+    await page.waitForSelector('[data-testid="panel-app"]');
 
     // Resolve with empty org list
     await page.waitForTimeout(200);

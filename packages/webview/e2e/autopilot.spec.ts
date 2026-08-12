@@ -12,6 +12,7 @@ async function setupAutopilotPanel(bridge: MockBridge, page: import('@playwright
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'autopilot';
   });
   await page.goto('/');
+  await bridge.seedOrgs();
   await page.waitForSelector('[data-testid="autopilot-page"]', { timeout: 10000 });
 }
 
