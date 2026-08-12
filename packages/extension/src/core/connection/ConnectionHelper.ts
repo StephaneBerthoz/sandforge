@@ -1,4 +1,4 @@
-import jsforce, { type Connection } from 'jsforce';
+import type { Connection } from 'jsforce';
 import type { UUID } from '@sandforge/shared';
 import { SF_LIMITS } from '@sandforge/shared';
 import type { OrgRegistry } from './OrgRegistry';
@@ -198,6 +198,10 @@ export async function getJsforceConnection(
   orgRegistry: OrgRegistry,
   orgManager: OrgManager,
 ): Promise<Connection> {
+  // Lazy boundary: keeps jsforce and its 107-package cluster out of the
+  // activation path. See jsforceEntry.ts for why the named export matters.
+  const { jsforce } = await import('./jsforceEntry.js');
+
   const uid = orgId as UUID;
 
   const org = orgManager.getOrg(orgId);
@@ -268,7 +272,10 @@ export async function getJsforceConnection(
         // strict Connected App policy). Retrying would fail identically, and
         // persisting it would overwrite the vault with a known-bad token:
         // bail out now with a precise cause instead.
-        if (fresh.accessToken === credentials.accessToken && instanceUrl === credentials.instanceUrl) {
+        if (
+          fresh.accessToken === credentials.accessToken &&
+          instanceUrl === credentials.instanceUrl
+        ) {
           throw new Error(
             'sf CLI token store is stale too (same expired token) — re-authenticate the org',
           );
