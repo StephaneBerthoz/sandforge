@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ForgeExecutor } from './ForgeExecutor.js';
+import { ForgeExecutor, ForgeAbortedError } from './ForgeExecutor.js';
 import type { ForgeExecutorDeps, ForgeProgressEvent, FieldInfo } from './ForgeExecutor.js';
 import type { ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
 
@@ -11,21 +11,15 @@ const DEFAULT_FIELDS: FieldInfo[] = [
 
 function createMockDeps(): ForgeExecutorDeps {
   return {
-    queryRecords: vi
-      .fn<ForgeExecutorDeps['queryRecords']>()
-      .mockResolvedValue([
-        { Id: '001OLD1', Name: 'Record 1' },
-        { Id: '001OLD2', Name: 'Record 2' },
-      ]),
-    insertRecords: vi
-      .fn<ForgeExecutorDeps['insertRecords']>()
-      .mockResolvedValue([
-        { id: '001NEW1', success: true, errors: [] },
-        { id: '001NEW2', success: true, errors: [] },
-      ]),
-    describeFields: vi
-      .fn<ForgeExecutorDeps['describeFields']>()
-      .mockResolvedValue(DEFAULT_FIELDS),
+    queryRecords: vi.fn<ForgeExecutorDeps['queryRecords']>().mockResolvedValue([
+      { Id: '001OLD1', Name: 'Record 1' },
+      { Id: '001OLD2', Name: 'Record 2' },
+    ]),
+    insertRecords: vi.fn<ForgeExecutorDeps['insertRecords']>().mockResolvedValue([
+      { id: '001NEW1', success: true, errors: [] },
+      { id: '001NEW2', success: true, errors: [] },
+    ]),
+    describeFields: vi.fn<ForgeExecutorDeps['describeFields']>().mockResolvedValue(DEFAULT_FIELDS),
   };
 }
 
@@ -420,14 +414,40 @@ describe('ForgeExecutor', () => {
 
       const graph = makeGraph([makeNode('Account', { recordCount: 400, batchStrategy: 'rest' })]);
 
-      // Abort should cause the error to be caught and reported
-      await executor.execute(graph, 'src', 'tgt', onProgress);
+      // Abort must stop the run, not be absorbed as a node-level failure.
+      // The previous expectation — an 'error' progress event and a normal
+      // return — was the bug: the per-node catch swallowed the abort and the
+      // loop moved on to the next object, still writing to the target org.
+      await expect(executor.execute(graph, 'src', 'tgt', onProgress)).rejects.toThrow(
+        ForgeAbortedError,
+      );
 
-      // The abort happens after first batch, so second batch should not be processed
-      // The error catch in execute adds node.recordCount to failedCount
-      const errorEvents = progressEvents.filter((e) => e.status === 'error');
-      expect(errorEvents.length).toBeGreaterThanOrEqual(1);
-      expect(errorEvents[0].message).toContain('aborted');
+      // Nothing may be written after the user pressed Abort.
+      expect(batchCallCount).toBe(1);
+    });
+
+    it('should stop before the next object when aborted mid-graph', async () => {
+      vi.mocked(deps.queryRecords).mockResolvedValue([{ Id: '001OLD1', Name: 'R1' }]);
+
+      const written: string[] = [];
+      vi.mocked(deps.insertRecords).mockImplementation(async (_orgId, objName, recs) => {
+        written.push(objName);
+        executor.abort();
+        return recs.map((_, i) => ({ id: `001NEW${i}`, success: true, errors: [] }));
+      });
+
+      const graph = makeGraph([
+        makeNode('Account', { recordCount: 1, batchStrategy: 'rest' }),
+        makeNode('Contact', { recordCount: 1, batchStrategy: 'rest' }),
+      ]);
+
+      await expect(executor.execute(graph, 'src', 'tgt', onProgress)).rejects.toThrow(
+        ForgeAbortedError,
+      );
+
+      // The per-node abort guard is what stops the second object; without it
+      // the loop advanced and Contact was written after the abort.
+      expect(written).toEqual(['Account']);
     });
   });
 

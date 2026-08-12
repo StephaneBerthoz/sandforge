@@ -20,6 +20,21 @@ import { cleanNodeRecords, describeTargetFieldSets, intersect } from './stages/R
 import { BatchWriter, type PendingFkUpdate } from './stages/BatchWriter.js';
 import { patchCycleFkUpdates } from './stages/CycleFkPatcher.js';
 
+/**
+ * Raised when the user aborts a forge run.
+ *
+ * A distinct type is required, not a plain Error: the per-node catch treats
+ * every thrown value as a node-level failure, records it and moves on to the
+ * next object. An abort raised as a generic Error was therefore absorbed by
+ * that handler and the run kept writing to the target org.
+ */
+export class ForgeAbortedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ForgeAbortedError';
+  }
+}
+
 /** Result of a single record insert operation. */
 export interface InsertResult {
   /** New Salesforce record ID. */
@@ -415,7 +430,7 @@ export class ForgeExecutor {
    */
   private async waitIfPaused(): Promise<void> {
     if (this.isAborted) {
-      throw new Error(
+      throw new ForgeAbortedError(
         'Forge execution was aborted by user request. No further batches will be processed.',
       );
     }
@@ -426,7 +441,7 @@ export class ForgeExecutor {
       this.pauseResolve = resolve;
     });
     if (this.isAborted) {
-      throw new Error(
+      throw new ForgeAbortedError(
         'Forge execution was aborted while paused. No further batches will be processed.',
       );
     }
@@ -489,6 +504,21 @@ export class ForgeExecutor {
     );
 
     for (const node of sortedNodes) {
+      // Abort is checked per node, not only per batch: waitIfPaused() runs
+      // between batches, so a node small enough to fit one batch never reached
+      // it, and the per-node catch below swallowed every error anyway — the
+      // loop advanced to the next object and kept writing after Abort.
+      //
+      // Throwing rather than breaking keeps abort a single signal: the caller
+      // sees ForgeAbortedError whether the user hit Abort mid-batch or between
+      // objects, instead of a rejection in one case and a partial summary that
+      // looks like success in the other.
+      if (this.isAborted) {
+        throw new ForgeAbortedError(
+          'Forge execution was aborted by user request. Remaining objects were not processed.',
+        );
+      }
+
       if (!node.included) {
         state.skippedCount++;
         onProgress({
@@ -833,6 +863,11 @@ export class ForgeExecutor {
         });
       }
     } catch (err) {
+      // An abort is a control-flow signal, not a node failure. Recording it as
+      // one and continuing is what let a cancelled run carry on writing.
+      if (err instanceof ForgeAbortedError) {
+        throw err;
+      }
       state.failedObjects.add(node.objectApiName);
       state.failedCount += node.recordCount;
       state.errors.push({
