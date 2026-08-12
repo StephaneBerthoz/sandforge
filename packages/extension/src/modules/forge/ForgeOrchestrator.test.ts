@@ -118,6 +118,20 @@ describe('ForgeOrchestrator', () => {
   });
 
   describe('execute', () => {
+    it('should carry the source -> target Id map into the result', async () => {
+      // The executor has always returned remapTable; the orchestrator kept
+      // only its length, so a finished clone could report a record count while
+      // being unable to say where any single record landed.
+      const remapTable = { '001SRC000000001': '001TGT000000001' };
+      vi.mocked(deps.executor.execute).mockResolvedValue(createMockSummary({ remapTable }));
+
+      const orchestrator = new ForgeOrchestrator(deps);
+      const result = await orchestrator.execute(createMockGraph(), createMockConfig());
+
+      expect(result.idRemapTable).toEqual(remapTable);
+      expect(result.idRemapCount).toBe(5);
+    });
+
     it('should call executor with graph, source/target orgs, and progress callback', async () => {
       const graph = createMockGraph();
       const config = createMockConfig();

@@ -201,6 +201,18 @@ export interface ForgeExecutionResult {
   timestamp: string;
   /** Number of Salesforce IDs remapped from source to target */
   idRemapCount: number;
+  /**
+   * Source record Id -> target record Id for everything the run created.
+   *
+   * The executor has always built and returned this (`IdRemapper.toJSON()`),
+   * and the orchestrator kept only its length — so a finished clone could
+   * report "312 records" without being able to tell you where any single one
+   * of them landed. Answering "where did this Account go in the new sandbox?"
+   * needs the map, not the count.
+   *
+   * Optional because runs recorded before this field existed do not carry it.
+   */
+  idRemapTable?: Record<string, string>;
   /** Per-object error reports — populated when at least one record or
    *  object failed. Empty when the run was fully successful. */
   errors?: ForgeExecutionError[];
@@ -231,13 +243,7 @@ export interface ForgeTemplate {
 
 /** PII category for anonymization UI grouping. */
 export type ForgeAnonymizationCategory =
-  | 'email'
-  | 'phone'
-  | 'name'
-  | 'address'
-  | 'ssn_id'
-  | 'financial'
-  | 'other';
+  'email' | 'phone' | 'name' | 'address' | 'ssn_id' | 'financial' | 'other';
 
 /** Batch strategy for an object during execution. */
 export type ForgeBatchStrategy = 'rest' | 'bulk' | 'auto';

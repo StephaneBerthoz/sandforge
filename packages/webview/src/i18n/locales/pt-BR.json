@@ -1899,7 +1899,13 @@
       "step5": "Execute para sua sandbox — os IDs são remapeados"
     },
     "soqlUnscopedWarnTitle": "Sua cláusula WHERE não é aplicada.",
-    "soqlUnscopedWarnBody": "O SandForge lê apenas o nome do objeto após FROM. Os registros vêm da tabela inteira, e cada objeto relacionado do grafo é clonado da mesma forma — limitado a {{cap}} registros por objeto nesta execução."
+    "soqlUnscopedWarnBody": "O SandForge lê apenas o nome do objeto após FROM. Os registros vêm da tabela inteira, e cada objeto relacionado do grafo é clonado da mesma forma — limitado a {{cap}} registros por objeto nesta execução.",
+    "idMapping": {
+      "title": "Mapeamento de Ids",
+      "subtitle": "{{count}} registros criados. Id de origem à esquerda, novo Id na org de destino à direita.",
+      "sourceId": "Id de origem",
+      "targetId": "Novo Id"
+    }
   },
   "autopilot": {
     "title": "Autopilot",

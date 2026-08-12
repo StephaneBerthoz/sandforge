@@ -221,6 +221,9 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
         duration: Date.now() - startTime,
         timestamp: new Date().toISOString(),
         idRemapCount: summary.remapCount,
+        // The executor has always returned this table; projecting only its
+        // count is what left a finished run unable to say where anything went.
+        idRemapTable: summary.remapTable,
         errors: summary.errors,
       };
 

@@ -1899,7 +1899,13 @@
       "step5": "Exécutez vers votre sandbox — les IDs sont réattribués"
     },
     "soqlUnscopedWarnTitle": "Votre clause WHERE n’est pas appliquée.",
-    "soqlUnscopedWarnBody": "SandForge ne lit que le nom d’objet après FROM. Les enregistrements sont pris dans toute la table, et chaque objet lié du graphe est cloné de la même façon — plafonné à {{cap}} enregistrements par objet pour cette exécution."
+    "soqlUnscopedWarnBody": "SandForge ne lit que le nom d’objet après FROM. Les enregistrements sont pris dans toute la table, et chaque objet lié du graphe est cloné de la même façon — plafonné à {{cap}} enregistrements par objet pour cette exécution.",
+    "idMapping": {
+      "title": "Correspondance des Ids",
+      "subtitle": "{{count}} enregistrements créés. Id source à gauche, nouvel Id dans l’org cible à droite.",
+      "sourceId": "Id source",
+      "targetId": "Nouvel Id"
+    }
   },
   "autopilot": {
     "title": "Autopilot",

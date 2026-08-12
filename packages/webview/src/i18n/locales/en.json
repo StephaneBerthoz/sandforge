@@ -1899,7 +1899,13 @@
       "step5": "Execute toward your sandbox — IDs are remapped"
     },
     "soqlUnscopedWarnTitle": "Your WHERE clause is not applied.",
-    "soqlUnscopedWarnBody": "SandForge reads only the object name after FROM. Records are taken from the whole table, and every related object in the graph is cloned the same way — capped at {{cap}} records per object for this run."
+    "soqlUnscopedWarnBody": "SandForge reads only the object name after FROM. Records are taken from the whole table, and every related object in the graph is cloned the same way — capped at {{cap}} records per object for this run.",
+    "idMapping": {
+      "title": "Record Id mapping",
+      "subtitle": "{{count}} records created. Source Id on the left, the new Id in the target org on the right.",
+      "sourceId": "Source Id",
+      "targetId": "New Id"
+    }
   },
   "autopilot": {
     "title": "Autopilot",
