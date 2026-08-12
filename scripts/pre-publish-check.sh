@@ -190,14 +190,33 @@ else
   echo "SKIP: VSIX vendored-SDK check (SKIP_BUILD_CHECKS=1)"
 fi
 
+# 10c. VSIX ships the lazy jsforce chunk — ConnectionHelper and AuthProvider
+# import it at runtime from extension/dist/, so a VSIX without it passes every
+# other check yet breaks every org connection.
+if [[ "$SKIP_BUILD_CHECKS" != "1" ]]; then
+  if [[ -f "sandforge.vsix" ]]; then
+    if unzip -l sandforge.vsix | grep -q 'extension/dist/jsforceEntry.js'; then
+      echo "PASS: VSIX contains the lazy jsforce chunk"
+    else
+      echo "FAIL: VSIX is missing extension/dist/jsforceEntry.js — every org connection would break at runtime"
+      ERRORS=$((ERRORS + 1))
+    fi
+  else
+    echo "SKIP: VSIX jsforce-chunk check (sandforge.vsix not present)"
+  fi
+else
+  echo "SKIP: VSIX jsforce-chunk check (SKIP_BUILD_CHECKS=1)"
+fi
+
 # 11. Activation time check (MKT-08: < 2s)
 # Note: Precise activation time measurement requires running in VSCode via @vscode/test-electron.
 # This check verifies the extension bundle is small enough for fast activation.
 if [[ -f "packages/extension/dist/extension.js" ]]; then
   BUNDLE_SIZE=$(node -p "require('fs').statSync('packages/extension/dist/extension.js').size")
   BUNDLE_KB=$(node -p "Math.round(${BUNDLE_SIZE} / 1024)")
-  if (( BUNDLE_KB > 2048 )); then
-    echo "WARN: Extension bundle ${BUNDLE_KB}KB — may affect activation time (target < 2s)"
+  if (( BUNDLE_KB > 1100 )); then
+    echo "FAIL: Extension bundle ${BUNDLE_KB}KB > 1100KB — jsforce (or another heavy dep) is being bundled into the activation path again"
+    ERRORS=$((ERRORS + 1))
   else
     echo "PASS: Extension bundle ${BUNDLE_KB}KB — should activate in < 2s"
   fi

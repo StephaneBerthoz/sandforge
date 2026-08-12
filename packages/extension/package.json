@@ -345,7 +345,7 @@
     }
   },
   "scripts": {
-    "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@anthropic-ai/sdk \"--external:@anthropic-ai/sdk/*\" --format=cjs --platform=node --sourcemap --minify && node ../../scripts/vendor-ai-sdk.mjs",
+    "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@anthropic-ai/sdk \"--external:@anthropic-ai/sdk/*\" --external:./jsforceEntry.js --format=cjs --platform=node --sourcemap --minify && esbuild ./src/core/connection/jsforceEntry.ts --bundle --outfile=dist/jsforceEntry.js --format=cjs --platform=node --minify && node ../../scripts/vendor-ai-sdk.mjs",
     "typecheck": "tsc -p tsconfig.test.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

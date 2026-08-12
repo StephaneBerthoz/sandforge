@@ -1,4 +1,3 @@
-import jsforce from 'jsforce';
 import type { AuthMethod, ConnectionConfig } from '@sandforge/shared';
 import { DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
 import type { SfdxBridge } from './SfdxBridge';
@@ -91,6 +90,8 @@ export class AuthProvider {
    * Returns org identity info if successful.
    */
   async validateConnection(accessToken: string, instanceUrl: string): Promise<OrgIdentity> {
+    // Lazy boundary — see jsforceEntry.ts.
+    const { jsforce } = await import('./jsforceEntry.js');
     const conn = new jsforce.Connection({ accessToken, instanceUrl });
     const identity = await conn.identity();
 
@@ -161,6 +162,8 @@ export class AuthProvider {
     }
 
     try {
+      // Lazy boundary — see jsforceEntry.ts.
+      const { jsforce } = await import('./jsforceEntry.js');
       const conn = new jsforce.Connection({ loginUrl: credentials.loginUrl });
       const userInfo = await conn.login(
         credentials.username,
