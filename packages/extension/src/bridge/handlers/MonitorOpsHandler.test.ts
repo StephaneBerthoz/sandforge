@@ -104,9 +104,12 @@ describe('MonitorOpsHandler', () => {
     expect(response.payload.operations).toEqual([]);
   });
 
-  it('handles monitor:health-score and returns correlationId', async () => {
-    // getJsforceConnection is not configured, so it returns undefined and
-    // the handler hits the error path
+  it('reports monitor:health-score failure on monitor:error, correlated', async () => {
+    // getJsforceConnection is unconfigured, so the handler takes its error
+    // path. That is the contract under test: a failure must land on the domain
+    // error channel, correlated to the request — not on the :response channel,
+    // where the webview reads the success shape and silently renders an empty
+    // state instead of the failure.
     const msg: BaseMessage & { payload: { orgId: string } } = {
       id: 'req-health-1',
       type: 'monitor:health-score',
@@ -121,10 +124,10 @@ describe('MonitorOpsHandler', () => {
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
     const response = postToWebview.mock.calls[0][0] as BaseMessage;
-    expect(response.type).toBe('monitor:health-score:response');
+    expect(response.type).toBe('monitor:error');
   });
 
-  it('handles monitor:storage and returns correlationId', async () => {
+  it('reports monitor:storage failure on monitor:error, correlated', async () => {
     const msg: BaseMessage & { payload: { orgId: string } } = {
       id: 'req-storage-1',
       type: 'monitor:storage',
@@ -139,10 +142,10 @@ describe('MonitorOpsHandler', () => {
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
     const response = postToWebview.mock.calls[0][0] as BaseMessage;
-    expect(response.type).toBe('monitor:storage:response');
+    expect(response.type).toBe('monitor:error');
   });
 
-  it('handles monitor:deployments and returns correlationId', async () => {
+  it('reports monitor:deployments failure on monitor:error, correlated', async () => {
     const msg: BaseMessage & { payload: { orgId: string } } = {
       id: 'req-deploy-1',
       type: 'monitor:deployments',
@@ -157,10 +160,10 @@ describe('MonitorOpsHandler', () => {
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
     const response = postToWebview.mock.calls[0][0] as BaseMessage;
-    expect(response.type).toBe('monitor:deployments:response');
+    expect(response.type).toBe('monitor:error');
   });
 
-  it('handles monitor:api-usage and returns correlationId', async () => {
+  it('reports monitor:api-usage failure on monitor:error, correlated', async () => {
     const msg: BaseMessage & { payload: { orgId: string } } = {
       id: 'req-api-1',
       type: 'monitor:api-usage',
@@ -175,7 +178,7 @@ describe('MonitorOpsHandler', () => {
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
     const response = postToWebview.mock.calls[0][0] as BaseMessage;
-    expect(response.type).toBe('monitor:api-usage:response');
+    expect(response.type).toBe('monitor:error');
   });
 
   it('handles monitor:refresh error path with typed error response', async () => {
@@ -415,9 +418,14 @@ describe('MonitorOpsHandler', () => {
       expect(postToWebview).toHaveBeenCalledTimes(1);
 
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+        correlationId?: string;
         payload: { message: string };
       };
-      expect(response.type).toBe('monitor:error-logs:response');
+      // The failure must reach the domain error channel: posted on
+      // :response it would be read as a success payload and render as an
+      // empty log list, indistinguishable from an org with no errors.
+      expect(response.type).toBe('monitor:error');
+      expect(response.correlationId).toBe('req-err-2');
       expect(response.payload.message).toContain('auth failed');
     });
   });

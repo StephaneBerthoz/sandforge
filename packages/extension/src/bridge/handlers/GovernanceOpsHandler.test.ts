@@ -296,7 +296,7 @@ describe('GovernanceOpsHandler', () => {
     const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: { message: string };
     };
-    expect(errorResponse.type).toBe('governance:policies:import:response');
+    expect(errorResponse.type).toBe('governance:error');
   });
 
   it('handles governance:evaluate with mock connection and returns compliance score', async () => {
@@ -394,7 +394,7 @@ describe('GovernanceOpsHandler', () => {
     const errorResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: { message: string; code: string };
     };
-    expect(errorResponse.type).toBe('governance:evaluate:response');
+    expect(errorResponse.type).toBe('governance:error');
     expect(errorResponse.payload.code).toBe('NOT_FOUND');
   });
 
