@@ -900,6 +900,7 @@
     "quality": "品質",
     "qualityDesc": "データ品質のスキャンと改善",
     "selectOrg": "Orgを選択",
+    "noOrgSelected": "組織が選択されていません。バックアップまたは匿名化を実行する前に、組織ページで選択してください。",
     "noBackups": "バックアップがありません",
     "createBackup": "バックアップを作成",
     "backupName": "バックアップ名",

@@ -907,6 +907,7 @@
     "quality": "Qualitaet",
     "qualityDesc": "Datenqualitaet scannen und verbessern",
     "selectOrg": "Org auswaehlen",
+    "noOrgSelected": "Keine Org ausgewählt — wählen Sie eine auf der Seite Organisationen, bevor Sie eine Sicherung oder Anonymisierung starten.",
     "noBackups": "Keine Sicherungen verfuegbar",
     "createBackup": "Sicherung erstellen",
     "backupName": "Sicherungsname",

@@ -153,6 +153,40 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('dataops-page')).toBeDefined();
   });
 
+  describe('org targeting', () => {
+    /** A second org, so "first in the list" and "selected" are different. */
+    const secondOrg: SalesforceOrg = { ...mockOrgs[0], id: 'org-2', alias: 'prod-copy' };
+
+    it('should back up the SELECTED org, not the first in the list', () => {
+      useOrgStore.setState({ orgs: [mockOrgs[0], secondOrg], selectedOrgId: 'org-2' });
+      render(<DataOpsPage />);
+
+      fireEvent.click(screen.getByTestId('create-backup-btn'));
+
+      // Both handlers used to read orgs[0], so a user with several connections
+      // backed up and anonymised an org other than the one on screen.
+      expect(mockBackupMutate).toHaveBeenCalledWith(expect.objectContaining({ orgId: 'org-2' }));
+    });
+
+    it('should not run a backup when no org is selected', () => {
+      useOrgStore.setState({ orgs: [mockOrgs[0], secondOrg], selectedOrgId: null });
+      render(<DataOpsPage />);
+
+      fireEvent.click(screen.getByTestId('create-backup-btn'));
+
+      expect(mockBackupMutate).not.toHaveBeenCalled();
+      expect(screen.getByTestId('dataops-no-org')).toBeDefined();
+    });
+
+    it('should name the target org in the header before anything is clicked', () => {
+      useOrgStore.setState({ orgs: [mockOrgs[0], secondOrg], selectedOrgId: 'org-2' });
+      render(<DataOpsPage />);
+
+      // Writing to an org the page never names is the underlying hazard.
+      expect(screen.getByText('prod-copy')).toBeDefined();
+    });
+  });
+
   it('should show title', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);

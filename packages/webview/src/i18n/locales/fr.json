@@ -907,6 +907,7 @@
     "quality": "Qualite",
     "qualityDesc": "Scanner et ameliorer la qualite des donnees",
     "selectOrg": "Selectionner l'org",
+    "noOrgSelected": "Aucune org sélectionnée — choisissez-en une depuis la page Organisations avant de lancer une sauvegarde ou une anonymisation.",
     "noBackups": "Aucune sauvegarde disponible",
     "createBackup": "Creer une sauvegarde",
     "backupName": "Nom de la sauvegarde",
