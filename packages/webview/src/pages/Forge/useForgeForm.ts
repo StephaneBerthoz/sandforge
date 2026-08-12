@@ -18,7 +18,12 @@ import { useSendMessage } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
-import { extractRecordId, extractSalesforceDomain, smartLimitForCount } from './forgeUtils';
+import {
+  extractRecordId,
+  extractSalesforceDomain,
+  smartLimitForCount,
+  SOQL_UNSCOPED_RECORD_CAP,
+} from './forgeUtils';
 
 /** Depth option values for the chip selector. */
 export const DEPTH_OPTIONS: ForgeDepth[] = ['direct', 'full', 'custom'];
@@ -157,16 +162,26 @@ export function useForgeForm(): ForgeFormState {
    * before the preview lands, defaults to 100 as a safe-large-org fallback.
    */
   const recordLimitValue = useMemo<number | undefined>(() => {
+    let base: number | undefined;
     if (recordLimit === 'smart') {
       const count = preview?.estimatedRecordCount;
-      if (count == null) return 100;
-      const auto = smartLimitForCount(count);
-      return auto === 0 ? undefined : auto;
+      const auto = count == null ? 100 : smartLimitForCount(count);
+      base = auto === 0 ? undefined : auto;
+    } else if (recordLimit === 'all') {
+      base = undefined;
+    } else {
+      const n = Number(recordLimit);
+      base = Number.isFinite(n) && n > 0 ? n : undefined;
     }
-    if (recordLimit === 'all') return undefined;
-    const n = Number(recordLimit);
-    return Number.isFinite(n) && n > 0 ? n : undefined;
-  }, [recordLimit, preview]);
+
+    // SOQL mode discards the WHERE clause (only the FROM object survives
+    // parsing) and never enters the record-scoped path, so "all" would clone
+    // whole tables for every object in the graph. Bound it.
+    if (inputMode === 'soql') {
+      return Math.min(base ?? SOQL_UNSCOPED_RECORD_CAP, SOQL_UNSCOPED_RECORD_CAP);
+    }
+    return base;
+  }, [recordLimit, preview, inputMode]);
 
   /** Whether the current input has enough data to proceed. */
   const hasInput = useCallback((): boolean => {

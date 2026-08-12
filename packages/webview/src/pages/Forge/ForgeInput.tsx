@@ -22,7 +22,7 @@ import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
 import { ForgeOptionToggles } from './ForgeOptionToggles';
-import { extractRecordId } from './forgeUtils';
+import { extractRecordId, soqlHasWhereClause, SOQL_UNSCOPED_RECORD_CAP } from './forgeUtils';
 
 /** Tab configuration for the Forge input modes. */
 interface TabConfig {
@@ -218,6 +218,20 @@ export const ForgeInput: React.FC = () => {
                       'focus:outline-none focus:border-forge/50',
                     )}
                   />
+                  {/* The placeholder invites "SELECT Id, Name FROM Account WHERE ..."
+                      but only the FROM object survives parsing, so the filter is
+                      discarded and the clone is full-table. Say so rather than
+                      letting the user believe their filter applied. */}
+                  {soqlHasWhereClause(form.soqlQuery) && (
+                    <div
+                      data-testid="forge-soql-where-warning"
+                      role="status"
+                      className="mt-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-xs text-text-primary"
+                    >
+                      <strong className="font-semibold">{t('forge.soqlUnscopedWarnTitle')}</strong>{' '}
+                      {t('forge.soqlUnscopedWarnBody', { cap: SOQL_UNSCOPED_RECORD_CAP })}
+                    </div>
+                  )}
                 </Tabs.Content>
 
                 {/* Template tab — forceMount keeps state alive for CRUD management */}

@@ -1890,7 +1890,9 @@
       "step3": "関連グラフを検出",
       "step4": "深さ・レコード上限・匿名化を調整",
       "step5": "サンドボックスへ実行 — IDは自動で付け替えられます"
-    }
+    },
+    "soqlUnscopedWarnTitle": "WHERE 句は適用されません。",
+    "soqlUnscopedWarnBody": "SandForge は FROM の後のオブジェクト名のみを読み取ります。レコードはテーブル全体から取得され、グラフ内の関連オブジェクトも同様に複製されます（この実行ではオブジェクトあたり {{cap}} 件が上限）。"
   },
   "autopilot": {
     "title": "Autopilot",

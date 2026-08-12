@@ -1897,7 +1897,9 @@
       "step3": "Descubra su grafo de relaciones",
       "step4": "Ajuste profundidad, límite de registros y anonimización",
       "step5": "Ejecute hacia su sandbox — los IDs se reasignan"
-    }
+    },
+    "soqlUnscopedWarnTitle": "Su cláusula WHERE no se aplica.",
+    "soqlUnscopedWarnBody": "SandForge solo lee el nombre del objeto tras FROM. Los registros se toman de toda la tabla, y cada objeto relacionado del grafo se clona igual — limitado a {{cap}} registros por objeto en esta ejecución."
   },
   "autopilot": {
     "title": "Autopilot",
