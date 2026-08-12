@@ -63,7 +63,7 @@ sf org login web --alias MY-DEV
 
 # Clone a record graph (dry-run first, real second)
 pnpm tsx packages/extension/cli/sandforge-clone.ts \
-  --record 500AP00000fXeQsYAK \
+  --record 500XX00000000001AAA \
   --source MY-PARTIAL-COPY \
   --target MY-DEV \
   --depth custom --custom-depth 5 \
@@ -73,7 +73,7 @@ pnpm tsx packages/extension/cli/sandforge-clone.ts \
 
 # When happy, drop --dry-run
 pnpm tsx packages/extension/cli/sandforge-clone.ts \
-  --record 500AP00000fXeQsYAK \
+  --record 500XX00000000001AAA \
   --source MY-PARTIAL-COPY \
   --target MY-DEV \
   --depth custom --custom-depth 5 \

@@ -61,7 +61,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         { getJsforceConnection },
       ]) => {
         // Shared schema cache + timeout manager. Eliminates the 600+ describe
-        // round-trips per forge run on big orgs (REDACTED-CLIENT UAT2 = 350+ SObjects).
+        // round-trips per forge run on big orgs (SOURCE-UAT = 350+ SObjects).
         // Per-call timeouts: describe 30s, describeGlobal 60s, queryCount 15s.
         // Without timeouts, jsforce calls hang indefinitely on rate-limited orgs.
         //

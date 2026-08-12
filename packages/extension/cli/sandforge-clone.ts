@@ -14,8 +14,8 @@
  *                   [--max <n>] [--anonymize] [--dry-run]
  *
  * Example:
- *   sandforge-clone --record 500AP00000fXeQsYAK \
- *                   --source ORG-UAT --target ORG-DEV \
+ *   sandforge-clone --record 500XX00000000001AAA \
+ *                   --source SOURCE-UAT --target TARGET-DEV \
  *                   --depth custom --custom-depth 5 --max 50 --dry-run
  */
 import { execFileSync } from 'node:child_process';

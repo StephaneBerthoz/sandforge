@@ -4,7 +4,7 @@
 
 ## Pourquoi
 
-Avant : `Forge` avec `inputMode: 'record'` *découvrait* le graphe à partir d'un record racine puis exécutait `SELECT * FROM Object` (sans `WHERE`) pour chaque node. Sur REDACTED-CLIENT UAT2 partant d'un Case, ça représentait **261 858 records** copiés (Case ×11k, Account ×12k, Contact ×15k, InsurancePolicyCoverage ×155k…). Pas viable comme "jeu de données dev".
+Avant : `Forge` avec `inputMode: 'record'` *découvrait* le graphe à partir d'un record racine puis exécutait `SELECT * FROM Object` (sans `WHERE`) pour chaque node. Sur SOURCE-UAT partant d'un Case, ça représentait **261 858 records** copiés (Case ×11k, Account ×12k, Contact ×15k, InsurancePolicyCoverage ×155k…). Pas viable comme "jeu de données dev".
 
 Après : l'exécution est *scope-aware* : depuis le record racine, le moteur suit la transitive closure (parents via FK, enfants via reverse-lookup) et n'exécute que des SOQL avec `WHERE Id = …` ou `WHERE FK IN (cachedParentIds)`. Sur le même Case, **358 records** clonés au lieu de 261 858 (−99.86 %).
 
@@ -78,9 +78,9 @@ pipeline against real orgs (sf CLI tokens). Configure `SCENARIO`:
 
 ```ts
 const SCENARIO = {
-  sourceAlias: 'ORG-UAT',
-  targetAlias: 'ORG-DEV',
-  recordId: '500AP00000fXeQsYAK',
+  sourceAlias: 'SOURCE-UAT',
+  targetAlias: 'TARGET-DEV',
+  recordId: '500XX00000000001AAA',
   depth: 'custom',
   customDepth: 5,
   anonymizePII: true,

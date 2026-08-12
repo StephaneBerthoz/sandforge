@@ -45,7 +45,7 @@ function makeExtracted(): ExtractedDataset {
             sourceId: ACCOUNT_ID,
             fields: {
               Id: ACCOUNT_ID,
-              Name: 'REDACTED-CLIENT Assistance',
+              Name: 'Acme Assistance',
               Industry: 'Insurance',
               RecordTypeId: RT_BUSINESS,
               OwnerId: OWNER_ID,
@@ -64,7 +64,7 @@ function makeExtracted(): ExtractedDataset {
             fields: {
               Id: CONTACT_ID,
               LastName: 'Dupont',
-              Email: 'jean.dupont@REDACTED-CLIENT.fr',
+              Email: 'jean.dupont@example.com',
               AccountId: ACCOUNT_ID,
             },
           },
@@ -99,7 +99,7 @@ describe('FrozenDatasetAnonymizer', () => {
     });
     const account = frozen.objects[0].records[0];
     expect(account.fields.Name).toBe(
-      pseudonymizer.pseudonymize('companyName', 'REDACTED-CLIENT Assistance'),
+      pseudonymizer.pseudonymize('companyName', 'Acme Assistance'),
     );
     expect(account.fields.Industry).toBe('Insurance'); // approved keep
     const contact = frozen.objects[1].records[0];

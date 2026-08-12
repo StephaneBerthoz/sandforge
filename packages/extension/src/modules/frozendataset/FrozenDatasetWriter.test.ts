@@ -60,7 +60,7 @@ function runPipeline() {
             sourceId: SRC_ACCOUNT,
             fields: {
               Id: SRC_ACCOUNT,
-              Name: 'REDACTED-CLIENT Assistance',
+              Name: 'Acme Assistance',
               RecordTypeId: to18('012A000000bbbbB'),
               PersonContactId: SRC_CONTACT,
             },
@@ -76,7 +76,7 @@ function runPipeline() {
             fields: {
               Id: SRC_CONTACT,
               LastName: 'Dupont',
-              Email: 'jean.dupont@REDACTED-CLIENT.fr',
+              Email: 'jean.dupont@example.com',
               AccountId: SRC_ACCOUNT,
             },
           },
@@ -190,9 +190,9 @@ describe('FrozenDatasetWriter', () => {
     const result = writer.write(path.join(dir, 'dataset'), frozen, manifest, control);
 
     const originalValues = [
-      'REDACTED-CLIENT Assistance',
+      'Acme Assistance',
       'Dupont',
-      'jean.dupont@REDACTED-CLIENT.fr',
+      'jean.dupont@example.com',
       SRC_ACCOUNT,
       SRC_CONTACT,
     ];
@@ -207,6 +207,6 @@ describe('FrozenDatasetWriter', () => {
       }
     }
     // Sanity: the fixture DID contain those values before anonymization.
-    expect(JSON.stringify(extracted)).toContain('REDACTED-CLIENT Assistance');
+    expect(JSON.stringify(extracted)).toContain('Acme Assistance');
   });
 });

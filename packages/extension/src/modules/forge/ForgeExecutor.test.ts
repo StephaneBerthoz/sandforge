@@ -432,7 +432,7 @@ describe('ForgeExecutor', () => {
   });
 
   describe('record-scoped mode', () => {
-    const ROOT_ID = '500AP00000fXeQsYAK';
+    const ROOT_ID = '500XX00000000001AAA';
 
     it('should query the root with WHERE Id = ? when rootRecordId is provided', async () => {
       const graph = makeGraph([makeNode('Case')]);
@@ -566,7 +566,7 @@ describe('ForgeExecutor', () => {
   });
 
   describe('Wave 2 v3 — 2-pass cycle FK update', () => {
-    const ROOT_ID = '500AP00000fXeQsYAK';
+    const ROOT_ID = '500XX00000000001AAA';
 
     it('issues a pass-2 UPDATE for FKs nullified during pass-1 insert', async () => {
       const updateRecords = vi
@@ -735,7 +735,7 @@ describe('ForgeExecutor', () => {
       });
 
       await cycleExecutor.execute(graph, 'src', 'tgt', onProgress, {
-        rootRecordId: '500AP00000fXeQsYAK',
+        rootRecordId: '500XX00000000001AAA',
         rootObjectApiName: 'Account',
       });
 
@@ -783,7 +783,7 @@ describe('ForgeExecutor', () => {
   });
 
   describe('upsert mode (auto via externalId)', () => {
-    const ROOT_ID = '500AP00000fXeQsYAK';
+    const ROOT_ID = '500XX00000000001AAA';
 
     it('uses upsertRecords when upsertMode=auto and an externalId field exists', async () => {
       const upsertRecords = vi
@@ -874,7 +874,7 @@ describe('ForgeExecutor', () => {
   });
 
   describe('Wave 2 v4 — single-hop orphan parent expansion', () => {
-    const ROOT_ID = '500AP00000fXeQsYAK';
+    const ROOT_ID = '500XX00000000001AAA';
 
     it('fetches+inserts the missing parent when expandOrphanParents=true and patches the child FK', async () => {
       // Asset has Account as a *required* FK pointing at an Account that
@@ -1010,7 +1010,7 @@ describe('ForgeExecutor', () => {
   });
 
   describe('orphan FK handling (referenceFallback)', () => {
-    const ROOT_ID = '500AP00000fXeQsYAK';
+    const ROOT_ID = '500XX00000000001AAA';
 
     it('omits reference fields whose value is not in the remapper (default in scoped mode)', async () => {
       const graph = makeGraph([makeNode('Case')]);
@@ -1122,7 +1122,7 @@ describe('ForgeExecutor', () => {
   });
 
   describe('maxRecordsPerObject (sampling cap)', () => {
-    const ROOT_ID = '500AP00000fXeQsYAK';
+    const ROOT_ID = '500XX00000000001AAA';
 
     it('appends LIMIT N to scoped SOQL when maxRecordsPerObject is set', async () => {
       const graph = makeGraph([makeNode('Case')]);
@@ -1160,7 +1160,7 @@ describe('ForgeExecutor', () => {
   });
 
   describe('RecordType mapping', () => {
-    const ROOT_ID = '500AP00000fXeQsYAK';
+    const ROOT_ID = '500XX00000000001AAA';
     const SOURCE_RT = '012SOURCE000001';
     const TARGET_RT = '012TARGET000001';
 
@@ -1246,7 +1246,7 @@ describe('ForgeExecutor', () => {
   });
 
   describe('dryRun mode', () => {
-    const ROOT_ID = '500AP00000fXeQsYAK';
+    const ROOT_ID = '500XX00000000001AAA';
 
     it('should query source records but never call insertRecords', async () => {
       const graph = makeGraph([makeNode('Case')]);

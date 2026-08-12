@@ -19,7 +19,7 @@
  *                     [--objects A,B,C] [--max <n>] [--dry-run]
  *
  * Example:
- *   sandforge-cleanup --target ORG-DEV --since today --dry-run
+ *   sandforge-cleanup --target TARGET-DEV --since today --dry-run
  */
 import { execFileSync } from 'node:child_process';
 import jsforce from 'jsforce';

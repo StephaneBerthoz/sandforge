@@ -11,24 +11,24 @@ aliases.
 ```bash
 # Dry-run first (no writes)
 pnpm tsx packages/extension/cli/sandforge-clone.ts \
-  --record 500AP00000fXeQsYAK \
-  --source ORG-UAT \
-  --target ORG-DEV \
+  --record 500XX00000000001AAA \
+  --source SOURCE-UAT \
+  --target TARGET-DEV \
   --depth custom --custom-depth 5 \
   --max 50 \
   --dry-run
 
 # Real run with anonymization
 pnpm tsx packages/extension/cli/sandforge-clone.ts \
-  --record 500AP00000fXeQsYAK \
-  --source ORG-UAT \
-  --target ORG-DEV \
+  --record 500XX00000000001AAA \
+  --source SOURCE-UAT \
+  --target TARGET-DEV \
   --depth custom --custom-depth 5 \
   --max 50 \
   --anonymize
 ```
 
-Expected output (REDACTED-CLIENT UAT2 → ORG-DEV, fresh Case 00001120):
+Expected output (SOURCE-UAT → TARGET-DEV, fresh Case 00001234):
 
 ```
 Case          1/1 ✓
@@ -79,9 +79,9 @@ Two options depending on your External Id setup:
 ```bash
 # In the wizard, set "upsertMode: 'auto'" via ForgeConfig OR
 pnpm tsx packages/extension/cli/sandforge-clone.ts \
-  --record 500AP00000fXeQsYAK \
-  --source ORG-UAT \
-  --target ORG-DEV \
+  --record 500XX00000000001AAA \
+  --source SOURCE-UAT \
+  --target TARGET-DEV \
   --upsert-mode auto    # not yet a CLI flag — see ExecuteOptions.upsertMode in API
 ```
 
@@ -90,12 +90,12 @@ pnpm tsx packages/extension/cli/sandforge-clone.ts \
 ```bash
 # Step 1 — wipe today's clones
 pnpm tsx packages/extension/cli/sandforge-cleanup.ts \
-  --target ORG-DEV --since today
+  --target TARGET-DEV --since today
 
 # Step 2 — re-clone
 pnpm tsx packages/extension/cli/sandforge-clone.ts \
-  --record 500AP00000fXeQsYAK \
-  --source ORG-UAT --target ORG-DEV
+  --record 500XX00000000001AAA \
+  --source SOURCE-UAT --target TARGET-DEV
 ```
 
 ## Scenario 4 — CI gate (sandbox refresh job)
@@ -106,7 +106,7 @@ pnpm tsx packages/extension/cli/sandforge-clone.ts \
 # .github/workflows/seed-sandbox.yml
 - name: Seed sandbox
   run: |
-    for caseId in 500AP00000R5DoIYAV 500AP00000ac1RSYAY 500AP00000TQTQkYAP; do
+    for caseId in 500XX00000000003AAA 500XX00000000004AAA 500XX00000000005AAA; do
       pnpm tsx packages/extension/cli/sandforge-clone.ts \
         --record "$caseId" \
         --source PROD-COPY --target DEV-SHARED \

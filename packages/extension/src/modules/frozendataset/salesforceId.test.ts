@@ -17,7 +17,7 @@ describe('salesforceId checksum', () => {
   it('round-trips: every encoded ID validates', () => {
     const bodies = [
       '001g00000J95p3A',
-      '500AP00000fXeQs',
+      '500XX0000000000',
       '003XXXXXXXXXXXX',
       '012A000000BcdEF', // RecordType keyprefix (012) — different pod marker
       'a0B1n00000ZZZZZ',
