@@ -9,9 +9,25 @@ import { useForgeStore } from '../../stores/useForgeStore';
  * participating objects, estimated duration, and API calls.
  * Also renders cycle resolutions when detected.
  */
-export const ReviewPlanTab: React.FC = () => {
+/** Props for {@link ReviewPlanTab}. */
+export interface ReviewPlanTabProps {
+  /** Message from forge:plan:error, when the extension could not build a plan. */
+  error?: string | null;
+}
+
+export const ReviewPlanTab: React.FC<ReviewPlanTabProps> = ({ error = null }) => {
   const { t } = useTranslation();
   const plan = useForgeStore((s) => s.plan);
+
+  // A failed plan request used to be indistinguishable from a slow one: both
+  // showed the loading text forever.
+  if (error) {
+    return (
+      <div data-testid="plan-error" className="py-8 text-center text-sm text-status-error">
+        {error}
+      </div>
+    );
+  }
 
   if (!plan) {
     return (
