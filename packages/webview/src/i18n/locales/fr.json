@@ -1897,7 +1897,9 @@
       "step3": "Découvrez son graphe de relations",
       "step4": "Ajustez profondeur, limite d'enregistrements et anonymisation",
       "step5": "Exécutez vers votre sandbox — les IDs sont réattribués"
-    }
+    },
+    "soqlUnscopedWarnTitle": "Votre clause WHERE n’est pas appliquée.",
+    "soqlUnscopedWarnBody": "SandForge ne lit que le nom d’objet après FROM. Les enregistrements sont pris dans toute la table, et chaque objet lié du graphe est cloné de la même façon — plafonné à {{cap}} enregistrements par objet pour cette exécution."
   },
   "autopilot": {
     "title": "Autopilot",

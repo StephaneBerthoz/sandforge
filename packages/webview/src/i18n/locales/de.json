@@ -1897,7 +1897,9 @@
       "step3": "Beziehungsgraphen ermitteln",
       "step4": "Tiefe, Datensatzlimit und Anonymisierung anpassen",
       "step5": "In Ihre Sandbox ausführen — IDs werden neu vergeben"
-    }
+    },
+    "soqlUnscopedWarnTitle": "Ihre WHERE-Klausel wird nicht angewendet.",
+    "soqlUnscopedWarnBody": "SandForge liest nur den Objektnamen nach FROM. Datensätze stammen aus der gesamten Tabelle, und jedes verknüpfte Objekt im Graphen wird genauso geklont — begrenzt auf {{cap}} Datensätze pro Objekt für diesen Lauf."
   },
   "autopilot": {
     "title": "Autopilot",

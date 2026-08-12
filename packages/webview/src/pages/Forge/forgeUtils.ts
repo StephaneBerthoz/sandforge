@@ -70,3 +70,18 @@ export function extractSalesforceDomain(url: string): string | null {
     return null;
   }
 }
+
+/**
+ * Per-object record cap forced in SOQL mode.
+ *
+ * SandForge reads only the object name after FROM: the WHERE clause is parsed
+ * away and never reaches the executor, so a SOQL run clones whole tables — for
+ * the named object and for every related object the graph discovered. Until the
+ * filter is honoured, the run is bounded rather than left to pull an entire org.
+ */
+export const SOQL_UNSCOPED_RECORD_CAP = 200;
+
+/** True when a SOQL string carries a WHERE clause SandForge currently ignores. */
+export function soqlHasWhereClause(soql: string): boolean {
+  return /\bWHERE\b/i.test(soql);
+}
