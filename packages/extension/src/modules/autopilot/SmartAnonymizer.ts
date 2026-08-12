@@ -3,6 +3,8 @@
  * PersonaRegistry provides cross-object coherent fake data via deterministic hashing.
  */
 
+import { createHmac, randomBytes } from 'node:crypto';
+
 import type {
   AnonymizationMethod,
   AutopilotAnonymizationRule,
@@ -185,8 +187,21 @@ export class PersonaRegistry {
 export class SmartAnonymizer {
   private readonly personaRegistry: PersonaRegistry;
 
-  constructor(personaRegistry?: PersonaRegistry) {
+  /** HMAC key for the `hash` method. See the constructor for the fallback. */
+  private readonly hashSalt: string;
+
+  /**
+   * @param personaRegistry - Shared registry for cross-object coherent fakes.
+   * @param hashSalt - HMAC key for the `hash` method. When omitted, a random
+   *   per-instance key is generated: hashed values stay consistent within a run
+   *   (so foreign keys still join) but differ between runs. Pass an explicit
+   *   salt when you need the same input to map to the same output across runs.
+   *   There is deliberately no fixed default — a hardcoded key would make every
+   *   installation's digests interchangeable and reversible by lookup table.
+   */
+  constructor(personaRegistry?: PersonaRegistry, hashSalt?: string) {
     this.personaRegistry = personaRegistry ?? new PersonaRegistry();
+    this.hashSalt = hashSalt ?? randomBytes(32).toString('hex');
   }
 
   /** Get the persona registry for inspection/testing. */
@@ -289,10 +304,17 @@ export class SmartAnonymizer {
     return '*'.repeat(value.length - 4) + value.slice(-4);
   }
 
-  /** Hash: deterministic hex string from value. */
+  /**
+   * Hash: keyed HMAC-SHA256 over the value, truncated to 32 hex chars.
+   *
+   * Keyed rather than a bare digest because the inputs are low-entropy PII —
+   * an unkeyed hash of an email or a phone number is recovered by enumeration.
+   * `simpleHash` remains in use below for shuffle seeding and deterministic
+   * fake-value selection, where the output is never a stand-in for the
+   * original value and reversibility carries no disclosure risk.
+   */
   private applyHash(value: string): string {
-    const hash = this.simpleHash(value);
-    return hash.toString(16).padStart(8, '0');
+    return createHmac('sha256', this.hashSalt).update(value).digest('hex').slice(0, 32);
   }
 
   /**

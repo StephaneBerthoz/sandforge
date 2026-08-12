@@ -1,5 +1,7 @@
+import { createHmac } from 'node:crypto';
+
 import { describe, it, expect, beforeEach } from 'vitest';
-import { AnonymizationEngine } from './AnonymizationEngine';
+import { AnonymizationEngine, MissingHashSaltError } from './AnonymizationEngine';
 import type { DataOpsAnonymizationRule } from '@sandforge/shared';
 
 function createMaskRule(field: string): DataOpsAnonymizationRule {
@@ -80,15 +82,54 @@ describe('AnonymizationEngine', () => {
       expect(engine.applyRule('Active', rule)).toBe('REDACTED');
     });
 
-    it('should handle hash rule type', () => {
+    it('should produce a real HMAC-SHA256, not a value merely labelled sha256', () => {
       const rule: DataOpsAnonymizationRule = {
         objectApiName: 'Contact',
         fieldApiName: 'SSN',
         method: 'hash',
         config: { hashAlgorithm: 'sha256', hashSalt: 'salt' },
       };
-      const result = engine.applyRule('123-45-6789', rule);
-      expect(String(result)).toContain('sha256:');
+      // Computed independently: asserting only on the `sha256:` prefix is what
+      // let a 32-bit hashCode ship under a cryptographic label.
+      const expected = createHmac('sha256', 'salt')
+        .update('123-45-6789')
+        .digest('hex')
+        .slice(0, 32);
+      expect(engine.applyRule('123-45-6789', rule)).toBe(`sha256:${expected}`);
+    });
+
+    it('should be deterministic for the same value and salt', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'SSN',
+        method: 'hash',
+        config: { hashAlgorithm: 'sha256', hashSalt: 'salt' },
+      };
+      // Foreign keys only keep joining if the same input maps to the same output.
+      expect(engine.applyRule('123-45-6789', rule)).toBe(engine.applyRule('123-45-6789', rule));
+    });
+
+    it('should produce a different digest under a different salt', () => {
+      const base = { objectApiName: 'Contact', fieldApiName: 'SSN', method: 'hash' as const };
+      const a = engine.applyRule('123-45-6789', {
+        ...base,
+        config: { hashAlgorithm: 'sha256', hashSalt: 'salt-a' },
+      });
+      const b = engine.applyRule('123-45-6789', {
+        ...base,
+        config: { hashAlgorithm: 'sha256', hashSalt: 'salt-b' },
+      });
+      expect(a).not.toBe(b);
+    });
+
+    it('should refuse to hash without a salt rather than emit a reversible digest', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'SSN',
+        method: 'hash',
+        config: { hashAlgorithm: 'sha256' },
+      };
+      expect(() => engine.applyRule('123-45-6789', rule)).toThrow(MissingHashSaltError);
     });
 
     it('should handle fake rule type', () => {
@@ -186,6 +227,19 @@ describe('AnonymizationEngine', () => {
       ];
       const errors = engine.validateRules(rules);
       expect(errors.some((e) => e.includes('hashAlgorithm'))).toBe(true);
+    });
+
+    it('should return error for hash rule without a hashSalt', () => {
+      const rules: DataOpsAnonymizationRule[] = [
+        {
+          objectApiName: 'Contact',
+          fieldApiName: 'SSN',
+          method: 'hash',
+          config: { hashAlgorithm: 'sha256' },
+        },
+      ];
+      const errors = engine.validateRules(rules);
+      expect(errors.some((e) => e.includes('hashSalt'))).toBe(true);
     });
   });
 });
