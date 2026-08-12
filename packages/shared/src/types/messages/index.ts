@@ -164,6 +164,8 @@ import type {
 } from './compare.messages.js';
 import type {
   BackupExecuteRequest,
+  BackupListRequest,
+  BackupListResult,
   AnonymizationTemplatesRequest,
   AnonymizationTemplatesResponse,
   MaskingTemplatesByObjectRequest,
@@ -494,6 +496,7 @@ export type WebViewToExtensionMessage =
   | CompareSnapshotsRequest
   | CompareDriftRequest
   | BackupExecuteRequest
+  | BackupListRequest
   | AnonymizationTemplatesRequest
   | MaskingTemplatesByObjectRequest
   | PIIScanRequest
@@ -689,6 +692,7 @@ export type ExtensionToWebViewMessage =
   | AnonymizationTemplatesResponse
   | MaskingTemplatesByObjectResponse
   | PIIScanResponse
+  | BackupListResult
   | DataOpsBackupResponse
   | DataOpsRollbackResponse
   | DataOpsAnonymizeResponse

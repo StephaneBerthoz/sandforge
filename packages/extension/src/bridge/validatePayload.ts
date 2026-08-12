@@ -262,6 +262,9 @@ export const dataOpsBackupPayloadSchema = z.object({
   orgId: orgIdSchema,
   objects: z.array(sfApiNameSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
 });
+export const dataOpsBackupListPayloadSchema = z.object({
+  orgId: orgIdSchema,
+});
 export const dataOpsRollbackPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: opaqueIdSchema,

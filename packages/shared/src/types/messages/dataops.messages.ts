@@ -1,9 +1,38 @@
 import type { BaseMessage } from './base.messages.js';
+import type { BackupStatus } from '../dataops.types.js';
 
 /** Backup messages */
 export interface BackupExecuteRequest extends BaseMessage {
   type: 'backup:execute';
   payload: { configId: string };
+}
+
+/** Request the persisted backup history for one org. */
+export interface BackupListRequest extends BaseMessage {
+  type: 'backup:list';
+  payload: { orgId: string };
+}
+
+/**
+ * Result of `backup:list`. The channel is `:result`, not `:response`, because
+ * that is what the DataOps page has always listened on — the request side was
+ * simply never declared, so the broker rejected it before any handler saw it
+ * and the backup list was permanently empty.
+ */
+export interface BackupListResult extends BaseMessage {
+  type: 'backup:list:result';
+  payload: { backups: BackupSummary[] };
+}
+
+/** One entry of the backup history, as persisted by dataops:backup. */
+export interface BackupSummary {
+  operationId: string;
+  orgId: string;
+  timestamp: string;
+  totalRecords: number;
+  totalSize: number;
+  status: BackupStatus;
+  objectResults: Array<{ objectApiName: string; recordCount: number }>;
 }
 
 /** Anonymization templates */

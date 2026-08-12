@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
-import type { BackupResult, AnonymizationTemplate } from '@sandforge/shared';
+import type { BackupSummary, AnonymizationTemplate } from '@sandforge/shared';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
@@ -50,11 +50,19 @@ export const DataOpsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   /** Bridge query: load saved backups. */
-  const backupsQuery = useBridgeQuery<{ backups: BackupResult[] }>('backup:list', undefined, {
-    responseType: 'backup:list:result',
-    // DataOpsHandler reports failures on the dataops domain channel.
-    errorType: 'dataops:error',
-  });
+  // The request type was declared in no Zod member, so the broker rejected the
+  // message and this query never resolved — the list stayed empty and the KPI
+  // row read 0 until the 30 s timeout turned it into an error banner.
+  const backupsQuery = useBridgeQuery<{ backups: BackupSummary[] }>(
+    'backup:list',
+    currentOrg ? { orgId: currentOrg.id } : undefined,
+    {
+      responseType: 'backup:list:result',
+      // DataOpsHandler reports failures on the dataops domain channel.
+      errorType: 'dataops:error',
+      skip: !currentOrg,
+    },
+  );
 
   /** Bridge mutation: create a backup. */
   const backupMutation = useBridgeMutation<Record<string, unknown>>('backup:execute', {
@@ -62,6 +70,15 @@ export const DataOpsPage: React.FC = () => {
     errorType: 'dataops:error',
     // Bulk write: can exceed the 30 s default on real volumes; operation:progress
     // events keep flowing while the response is pending.
+    timeoutMs: 120_000,
+  });
+
+  /** Bridge mutation: restore a backup (dataops:rollback). */
+  const rollbackMutation = useBridgeMutation<Record<string, unknown>>('dataops:rollback', {
+    responseType: 'dataops:rollback:response',
+    errorType: 'dataops:error',
+    // Upserts every backed-up record in 200-row batches; the 30 s default is
+    // far too short for a real restore.
     timeoutMs: 120_000,
   });
 
@@ -118,11 +135,14 @@ export const DataOpsPage: React.FC = () => {
     });
   };
 
+  // `dataops:rollback` has been implemented, routed and unit-tested on the
+  // extension side all along — CRUD/FLS guard, 200-record upsert batching, api
+  // limit checks, progress events — and nothing had ever sent it. The Restore
+  // button voided its argument behind a comment saying it "could be extended".
   const handleRestore = (operationId: string) => {
     if (!currentOrg) return;
     setError(null);
-    void operationId;
-    // Restore uses the same backup:execute pattern — could be extended
+    rollbackMutation.mutate({ orgId: currentOrg.id, operationId });
   };
 
   const handleApplyAnonymize = (templateId: string) => {
@@ -155,10 +175,7 @@ export const DataOpsPage: React.FC = () => {
   }
 
   const recordsProcessed = backups.reduce((sum, b) => sum + b.totalRecords, 0);
-  const failedObjects = backups.reduce(
-    (sum, b) => sum + b.objectResults.filter((r) => r.status === 'failure').length,
-    0,
-  );
+  const failedObjects = backups.filter((b) => b.status === 'failed').length;
   const totalObjects = backups.reduce((sum, b) => sum + b.objectResults.length, 0);
   const errorRate = totalObjects > 0 ? ((failedObjects / totalObjects) * 100).toFixed(1) : '0.0';
   const templateCount = templatesQuery.data?.templates?.length ?? 0;
@@ -191,10 +208,7 @@ export const DataOpsPage: React.FC = () => {
       />
 
       {!currentOrg && (
-        <ErrorBanner
-          message={t('dataops.noOrgSelected')}
-          data-testid="dataops-no-org"
-        />
+        <ErrorBanner message={t('dataops.noOrgSelected')} data-testid="dataops-no-org" />
       )}
 
       {error && (

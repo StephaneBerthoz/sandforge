@@ -1,15 +1,14 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type { BackupResult, BackupStatus } from '@sandforge/shared';
+import type { BackupSummary, BackupStatus } from '@sandforge/shared';
 import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { formatFileSize } from '../../utils/formatters';
 
 /** BackupPanel component props. */
 export interface BackupPanelProps {
-  backups?: BackupResult[];
+  backups?: BackupSummary[];
   isCreating?: boolean;
   onCreate?: () => void;
   onDelete?: (operationId: string) => void;
@@ -59,8 +58,11 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
         <div key={backup.operationId} data-testid={`backup-${backup.operationId}`}>
           <Card>
             <CardHeader
-              title={backup.configId}
-              subtitle={`${t('common.recordCount', { count: backup.totalRecords })} · ${formatFileSize(backup.totalSize)}`}
+              // A backup records its timestamp, not a config id or a byte size,
+              // so the header names the moment it was taken. Rendering fields
+              // the backup never captured would only ever print blanks.
+              title={new Date(backup.timestamp).toLocaleString()}
+              subtitle={t('common.recordCount', { count: backup.totalRecords })}
               action={
                 <div className="flex items-center gap-2">
                   <Badge variant={STATUS_VARIANT[backup.status]}>{backup.status}</Badge>
@@ -79,10 +81,6 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
             />
             <CardBody>
               <div className="flex gap-4 text-xs text-text-secondary">
-                <span>
-                  {t('dataops.backupSize')}: {formatFileSize(backup.totalSize)}
-                </span>
-                <span>{backup.duration}ms</span>
                 <span>{t('common.objectCount', { count: backup.objectResults.length })}</span>
               </div>
             </CardBody>
