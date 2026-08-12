@@ -242,6 +242,12 @@ export class ExtensionHandlers {
   setBackgroundRegistry(registry: BackgroundOperationRegistry): void {
     this.syncHandler.setRegistry(registry);
     this.seedHandler.setRegistry(registry);
+    // Clone, CSV import and frozen-dataset loads run through BulkDataWriter
+    // too. Without the registry they passed a throwaway AbortController, so
+    // execution:abort answered "Operation not found" and the run continued.
+    this.seedCloneHandler.setRegistry(registry);
+    this.seedCsvHandler.setRegistry(registry);
+    this.frozenHandler.setRegistry(registry);
     // The sync history store + sync handler turn execution:manual-retry into a
     // real replay for failed sync runs (rerunFromSnapshot path).
     this.executionHandler = new ExecutionHandler(

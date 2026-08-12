@@ -7,6 +7,7 @@ import type {
 } from '@sandforge/shared';
 import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -64,8 +65,18 @@ const RECORD_COUNT_NOT_COMPUTED = -1;
  * `operation:failed` (same convention as seed:execute / sync:execute).
  */
 export class SeedCloneHandler implements DomainHandler {
+  private registry?: BackgroundOperationRegistry;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * Inject the shared registry so this module's runs are cancellable.
+   * Called from ExtensionHandlers, same as SeedOpsHandler.
+   */
+  setRegistry(registry: BackgroundOperationRegistry): void {
+    this.registry = registry;
+  }
 
   /**
    * Handle an incoming bridge message.
@@ -226,6 +237,26 @@ export class SeedCloneHandler implements DomainHandler {
     const operationId = msg.id;
     const startedAt = Date.now();
 
+    // The signal handed to BulkDataWriter used to come from a throwaway
+    // `new AbortController()` that nothing kept a reference to, so it could
+    // never fire and this operation was never registered — `execution:abort`
+    // reported "Operation not found" and the run carried on to completion.
+    const abortController = new AbortController();
+    let settle: (err?: unknown) => void = () => {};
+    const tracked = new Promise<void>((resolve, reject) => {
+      settle = (err) => (err === undefined ? resolve() : reject(err));
+    });
+    // The registry attaches its own handlers; this one only stops an
+    // unhandled rejection when no registry has been injected.
+    tracked.catch(() => {});
+    this.registry?.register(
+      operationId,
+      'clone',
+      `Clone ${parsed.objects.length} object(s)`,
+      tracked,
+      abortController,
+    );
+
     try {
       // Production guard check on target org (mirror SyncOpsHandler).
       if (this.deps.infraServices?.productionGuard) {
@@ -285,7 +316,7 @@ export class SeedCloneHandler implements DomainHandler {
         bulkManager: new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs),
         retryConfig: robustnessConfig.retry,
         describeTimeoutMs: robustnessConfig.timeouts.describe,
-        signal: new AbortController().signal,
+        signal: abortController.signal,
         onProgress: (processed, total, label) => {
           sendOperationProgress(
             this.deps,
@@ -427,11 +458,13 @@ export class SeedCloneHandler implements DomainHandler {
       );
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} status=${result.status}`);
+      settle();
     } catch (err: unknown) {
       // Single failure emission: `operation:failed` only (same convention as
       // seed:execute / sync:execute — the webview consumes that channel).
       this.deps.log(`[ERR] seed:clone:execute: ${extractErrorMessage(err)}`);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
+      settle(err);
     }
   }
 }

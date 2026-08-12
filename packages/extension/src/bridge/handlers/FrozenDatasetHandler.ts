@@ -13,6 +13,7 @@ import type {
 } from '@sandforge/shared';
 import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -284,8 +285,18 @@ function toLoadReportInfo(report: FrozenLoadReport): FrozenLoadReportInfo {
  *  - control violation details are redacted/truncated (residual values).
  */
 export class FrozenDatasetHandler implements DomainHandler {
+  private registry?: BackgroundOperationRegistry;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
+
+  /**
+   * Inject the shared registry so dataset loads are cancellable.
+   * Called from ExtensionHandlers, same as SeedOpsHandler.
+   */
+  setRegistry(registry: BackgroundOperationRegistry): void {
+    this.registry = registry;
+  }
 
   /**
    * Handle an incoming bridge message.
@@ -903,12 +914,21 @@ export class FrozenDatasetHandler implements DomainHandler {
     }
 
     const operationId = `frozen-load-${this.deps.nextId()}`;
-    sendOperationStarted(
-      this.deps,
-      operationId,
-      'frozen',
-      parsed.pilot ? 'Pilot load (one root folder)' : 'Loading frozen dataset',
-    );
+    const description = parsed.pilot ? 'Pilot load (one root folder)' : 'Loading frozen dataset';
+    sendOperationStarted(this.deps, operationId, 'frozen', description);
+
+    // A throwaway `new AbortController()` was handed to BulkDataWriter, so its
+    // signal could never fire and the load was never registered —
+    // execution:abort answered "Operation not found" and the write continued.
+    const abortController = new AbortController();
+    let settle: (err?: unknown) => void = () => {};
+    const tracked = new Promise<void>((resolve, reject) => {
+      settle = (err) => (err === undefined ? resolve() : reject(err));
+    });
+    // The registry attaches its own handlers; this only prevents an unhandled
+    // rejection when no registry has been injected.
+    tracked.catch(() => {});
+    this.registry?.register(operationId, 'frozen', description, tracked, abortController);
 
     // Throttle load progress events to ~10/s (same rationale as forge).
     const throttledProgress = throttle((event: FrozenLoadProgressEvent) => {
@@ -937,7 +957,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         bulkManager: new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs),
         retryConfig: robustnessConfig.retry,
         describeTimeoutMs: robustnessConfig.timeouts.describe,
-        signal: new AbortController().signal,
+        signal: abortController.signal,
         onProgress: () => undefined,
         log: (message) => this.deps.log(message),
       });
@@ -1002,6 +1022,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         config,
         onProgress: throttledProgress,
       });
+      settle();
     } catch (err: unknown) {
       throttledProgress.flush();
       sendHandlerError(
@@ -1012,6 +1033,7 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.errorCodeFor(err, 'LOAD_ERROR'),
         err instanceof TimeoutError,
       );
+      settle(err);
     }
   }
 
