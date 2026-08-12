@@ -314,16 +314,28 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         return;
       }
-      // Uri.parse throws on a malformed instanceUrl (hand-edited storage,
-      // partial sfdx import) — fail with a clean message instead of an
-      // unhandled command error.
+      // instanceUrl comes from stored org state, which is hand-editable and
+      // also populated by an sfdx import. `Uri.parse` is lenient — it accepts
+      // `javascript:` and `file:` and does not throw on them — so the previous
+      // try/catch caught almost nothing and any scheme reached openExternal.
+      // Allowlist https, matching the check OrgHandler already applies to a
+      // login URL.
+      let parsed: URL;
       try {
-        void vscode.env.openExternal(vscode.Uri.parse(org.instanceUrl));
+        parsed = new URL(org.instanceUrl);
       } catch {
         void vscode.window.showErrorMessage(
           `SandForge: cannot open "${org.alias}" — invalid instance URL: ${org.instanceUrl}`,
         );
+        return;
       }
+      if (parsed.protocol !== 'https:') {
+        void vscode.window.showErrorMessage(
+          `SandForge: refusing to open "${org.alias}" — instance URL must use HTTPS, got "${parsed.protocol}".`,
+        );
+        return;
+      }
+      void vscode.env.openExternal(vscode.Uri.parse(org.instanceUrl));
     },
   );
 
