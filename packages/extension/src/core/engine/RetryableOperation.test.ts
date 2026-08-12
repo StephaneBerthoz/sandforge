@@ -10,6 +10,21 @@ function createSfError(
   return { statusCode, message };
 }
 
+/**
+ * A thrown error shaped exactly like jsforce's HttpApiError: the code lands on
+ * `errorCode` and on `name`, and `statusCode` is never defined. Building the
+ * error this way is the point of the test — every pre-existing case
+ * constructed `{ statusCode }` by hand, which is a shape the Salesforce client
+ * never actually throws, so the suite stayed green while no real error was
+ * ever retried.
+ */
+function createJsforceError(errorCode: string, message = `Error: ${errorCode}`): Error {
+  const err = new Error(message) as Error & { errorCode: string; data?: { fields?: string[] } };
+  err.name = errorCode;
+  err.errorCode = errorCode;
+  return err;
+}
+
 describe('RetryableOperation', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -17,6 +32,51 @@ describe('RetryableOperation', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  describe('execute — errors as the Salesforce client actually throws them', () => {
+    it('should retry UNABLE_TO_LOCK_ROW thrown with errorCode and no statusCode', async () => {
+      const op = new RetryableOperation({ retryConfig: { jitter: false, maxRetries: 2 } });
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(createJsforceError('UNABLE_TO_LOCK_ROW'))
+        .mockResolvedValue('ok');
+
+      const promise = op.execute(fn);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(fn).toHaveBeenCalledTimes(2);
+      expect(result.success).toBe(true);
+    });
+
+    it('should retry REQUEST_LIMIT_EXCEEDED thrown with errorCode and no statusCode', async () => {
+      const op = new RetryableOperation({ retryConfig: { jitter: false, maxRetries: 2 } });
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(createJsforceError('REQUEST_LIMIT_EXCEEDED'))
+        .mockResolvedValue('ok');
+
+      const promise = op.execute(fn);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      expect(fn).toHaveBeenCalledTimes(2);
+      expect(result.success).toBe(true);
+    });
+
+    it('should still fail fast on a non-retryable errorCode', async () => {
+      const op = new RetryableOperation({ retryConfig: { jitter: false, maxRetries: 3 } });
+      const fn = vi.fn().mockRejectedValue(createJsforceError('INVALID_FIELD'));
+
+      const promise = op.execute(fn);
+      await vi.runAllTimersAsync();
+      const result = await promise;
+
+      // The widened normalization must not turn every failure into a retry.
+      expect(fn).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(false);
+    });
   });
 
   describe('execute', () => {
