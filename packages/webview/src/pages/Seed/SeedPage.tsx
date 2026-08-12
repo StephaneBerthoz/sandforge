@@ -345,6 +345,8 @@ export const SeedPage: React.FC = () => {
                   <SeedExecuteStep
                     isRunning={state.isRunning}
                     objectProgress={state.objectProgress}
+                    overallPercent={state.overallPercent}
+                    elapsedMs={state.elapsedMs}
                     configSkipped={configSkipped}
                     onCustomize={handleCustomize}
                   />

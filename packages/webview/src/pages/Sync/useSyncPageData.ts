@@ -18,6 +18,8 @@ import type { PIIScanResponse } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
+import { useOperationProgress } from '../../hooks/useOperationProgress';
+import { useElapsedSince } from '../../hooks/useElapsedSince';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { FieldInfo } from './FieldMappingCanvas';
 import type { ObjectSetEntry } from './ObjectSetEditor';
@@ -199,9 +201,8 @@ export function useSyncPageData(): SyncPageData {
     setDraft,
   ]);
 
-  // Progress tracking (updated via future progress messages)
-  const overallPercent = 0;
-  const elapsedMs = 0;
+  /** Set when the run is fired, so elapsed time is real rather than a literal 0. */
+  const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
 
   // Bridge query: fetch available objects from source org
   const objectsQuery = useBridgeQuery<{ objects: string[] }>(
@@ -253,6 +254,13 @@ export function useSyncPageData(): SyncPageData {
   // Derive execution result and running state from bridge mutation
   const result = executeMutation.data;
   const isRunning = executeMutation.loading;
+
+  // SyncOpsHandler emits operation:progress throughout the run; nothing
+  // consumed it, so the bar sat at 0 % and the timer at 0.0s for the whole
+  // sync — a healthy long run looked identical to a hung one.
+  const { latest: syncProgress } = useOperationProgress();
+  const overallPercent = isRunning ? (syncProgress?.percentage ?? 0) : 0;
+  const elapsedMs = useElapsedSince(isRunning ? syncStartedAt : null);
 
   // Show error notifications from bridge hooks
   useEffect(() => {
@@ -375,20 +383,18 @@ export function useSyncPageData(): SyncPageData {
       targetOrgId,
       direction,
       mode,
-      objects: objectEntries.map(
-        (entry, index): SyncObjectConfig => ({
-          objectApiName: entry.objectApiName,
-          operation: entry.operation,
-          externalIdField: entry.externalIdField,
-          batchSize: entry.batchSize,
-          where: entry.where || undefined,
-          fieldMappings: mappings,
-          transformRules: transforms,
-          excludedFields: [],
-          addOnFields: [],
-          insertOrder: index,
-        }),
-      ),
+      objects: objectEntries.map((entry, index): SyncObjectConfig => ({
+        objectApiName: entry.objectApiName,
+        operation: entry.operation,
+        externalIdField: entry.externalIdField,
+        batchSize: entry.batchSize,
+        where: entry.where || undefined,
+        fieldMappings: mappings,
+        transformRules: transforms,
+        excludedFields: [],
+        addOnFields: [],
+        insertOrder: index,
+      })),
       conflictStrategy,
       enableRollback: false,
       dryRun: false,
@@ -396,6 +402,7 @@ export function useSyncPageData(): SyncPageData {
       updatedAt: new Date().toISOString(),
     };
 
+    setSyncStartedAt(Date.now());
     executeMutation.mutate({ config: config as unknown as Record<string, unknown> });
   };
 
