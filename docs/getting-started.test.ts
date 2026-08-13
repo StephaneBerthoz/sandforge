@@ -25,12 +25,15 @@ import { describe, expect, it } from 'vitest';
 const DOCS_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(DOCS_DIR, '..');
 
+// Line endings are normalised because the markers below are LF-anchored
+// (`## heading\n`), and none of them match on a CRLF checkout.
 const read = (relativePath: string): string =>
-  readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
+  readFileSync(resolve(REPO_ROOT, relativePath), 'utf8').replace(/\r\n/g, '\n');
 
 const GUIDE = read('docs/getting-started.md');
 const SIDE_PANEL = read('packages/webview/src/SidePanel.tsx');
 const MODULE_COMMANDS_SRC = read('packages/extension/src/composition/moduleCommands.ts');
+const SHORTCUTS_SRC = read('packages/webview/src/hooks/useGlobalShortcuts.ts');
 
 /** English nav labels — the strings the launcher actually renders. */
 const NAV_LABELS = (
@@ -123,6 +126,15 @@ describe('docs/getting-started.md', () => {
       } else {
         expect(body).toMatch(/\bHome\b/);
         expect(body).toMatch(/Ctrl\+K/);
+        // Both in-panel routes, not just the palette. The section called the
+        // palette "the one way in" while the chord map has bound `h` to home
+        // since chords existed, so the sentence sent readers the long way
+        // round and the gate did not notice: it only looked for "Ctrl+K".
+        const chordsHome = /\bh:\s*'home'/.test(SHORTCUTS_SRC);
+        if (chordsHome) {
+          expect(body).not.toMatch(/the one way in/);
+          expect(body).toMatch(/`G`/);
+        }
       }
     });
   });

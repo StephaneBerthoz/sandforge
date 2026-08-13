@@ -1,0 +1,16 @@
+{
+  "SandForge: org unreachable — {0} operation queued, it will replay automatically when connectivity returns.": "SandForge: org unreachable — {0} operation queued, it will replay automatically when connectivity returns.",
+  "SandForge: queued {0} operation restarted — it is running again in the background.": "SandForge: queued {0} operation restarted — it is running again in the background.",
+  "SandForge: queued {0} operation could not be replayed and was dropped from the offline queue.": "SandForge: queued {0} operation could not be replayed and was dropped from the offline queue.",
+  "SandForge: production operation": "SandForge: production operation",
+  "{0}\n\nThis operation writes data to a PRODUCTION org.": "{0}\n\nThis operation writes data to a PRODUCTION org.",
+  "Execute": "Execute",
+  "SandForge: {0} completed": "SandForge: {0} completed",
+  "SandForge: {0} completed — {1}": "SandForge: {0} completed — {1}",
+  "SandForge: {0} failed": "SandForge: {0} failed",
+  "SandForge: {0} failed — {1}": "SandForge: {0} failed — {1}",
+  "Show Details": "Show Details",
+  "SandForge: pick an org in the launcher dropdown first.": "SandForge: pick an org in the launcher dropdown first.",
+  "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: cannot open \"{0}\" — invalid instance URL: {1}",
+  "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\"."
+}

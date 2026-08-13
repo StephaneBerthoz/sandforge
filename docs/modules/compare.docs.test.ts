@@ -26,7 +26,8 @@ import { describe, expect, it } from 'vitest';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..');
 
-const DOC = readFileSync(resolve(HERE, 'compare.md'), 'utf8');
+// Normalised: the assertions below are LF-anchored and miss on a CRLF checkout.
+const DOC = readFileSync(resolve(HERE, 'compare.md'), 'utf8').replace(/\r\n/g, '\n');
 const COMPARE_PAGE = readFileSync(
   resolve(REPO_ROOT, 'packages/webview/src/pages/Compare/ComparePage.tsx'),
   'utf8',

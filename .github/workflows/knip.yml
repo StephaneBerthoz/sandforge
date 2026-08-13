@@ -1,8 +1,10 @@
 name: Knip
 
-# Non-blocking dead-code scan. Publishes findings as an artifact and optional
-# PR comment; NEVER fails the build (per Phase 01 HARD-04 decision — promote to
-# blocking in v1.4 after initial cleanup baseline stabilizes).
+# Blocking dead-code gate. Phase 01 HARD-04 deferred the block until the
+# baseline stabilised; knip.json now silences only the false positives (the
+# sidepanel build entry, the specs playwright itself ignores, workspace-root
+# tooling deps), so every remaining line in the report is real dead weight and
+# a red job is the correct answer.
 
 on:
   push:
@@ -12,7 +14,7 @@ on:
 
 jobs:
   knip:
-    name: Dead-code scan (non-blocking)
+    name: Dead-code scan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -34,9 +36,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run Knip (markdown report)
-        run: |
-          # Always exit 0 — this job is informational, not blocking.
-          pnpm knip --reporter markdown > knip-report.md || true
+        # The redirect writes the report before knip's exit code propagates, so
+        # a failing run still leaves an artifact and a PR comment to read.
+        run: pnpm knip --reporter markdown > knip-report.md
 
       - name: Upload Knip report artifact
         if: always()
@@ -47,7 +49,9 @@ jobs:
           retention-days: 30
 
       - name: Comment Knip report on PR
-        if: github.event_name == 'pull_request'
+        # always() — the interesting case is precisely the one where the scan
+        # failed, so the comment must survive the failing step above.
+        if: always() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
@@ -65,10 +69,11 @@ jobs:
                 '\n\n_...report truncated; see artifact `knip-report` for full output._';
             }
             const body = [
-              '### Knip — Dead-code scan (non-blocking)',
+              '### Knip — Dead-code scan',
               '',
-              'This report lists unused files, exports, and dependencies detected by Knip.',
-              'Findings are informational only and do NOT fail CI.',
+              'Unused files, exports and dependencies detected by Knip.',
+              'This check is blocking: anything listed below has to be deleted, wired up,',
+              'or justified in `knip.json` before the PR can merge.',
               '',
               '<details><summary>Click to expand full report</summary>',
               '',

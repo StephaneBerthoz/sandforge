@@ -16,20 +16,23 @@ catalog:
   vitest: "^3"
 
 # pnpm 11 build-script approvals (replaces onlyBuiltDependencies).
-# esbuild: required for the extension bundle. keytar: native secrets backend.
-# @vscode/vsce-sign: required by `vsce package`. core-js*: postinstall is a
-# funding banner only — stays blocked.
+# esbuild: required for the extension bundle. @vscode/vsce-sign: required by
+# `vsce package`. core-js*: postinstall is a funding banner only — stays
+# blocked. keytar: optional dependency of @vscode/vsce, reached only by the
+# interactive `vsce login` keychain flow; releases authenticate with VSCE_PAT
+# and the extension itself stores secrets through VSCode SecretStorage
+# (adapters/storage/StorageAdapter.ts), so its node-gyp build never runs on a
+# path we use — stays blocked.
 allowBuilds:
   '@vscode/vsce-sign': true
   core-js: false
   core-js-pure: false
   esbuild: true
-  keytar: true
+  keytar: false
 
 onlyBuiltDependencies:
   - esbuild
   - "@vscode/vsce-sign"
-  - keytar
 
 # Security overrides — all entries close high-severity CVEs surfaced by `pnpm audit`.
 # picomatch / lodash: see Round 1 commit 1b27ff9.
@@ -38,7 +41,13 @@ onlyBuiltDependencies:
 # (vsce uses `__importDefault(require('minimatch'))` which only works on 3.x).
 # vsce specifically pinned at 3.1.2 belt-and-braces.
 # rollup >=4.59.0: sourcemap-injection in older 4.x. flatted >=3.4.2: prototype
-# pollution. All devDep-only — they don't ship in the marketplace VSIX.
+# pollution. picomatch, minimatch, rollup and flatted are devDep-only — they
+# don't ship in the marketplace VSIX. lodash is the exception: recharts depends
+# on it, so this range rewrites code that ships inside webview-dist. It stays
+# global rather than narrowed to `recharts>lodash` because 4.18.1 is already
+# the single resolution — narrowing would re-resolve a chart dependency for no
+# security gain. Any lodash bump must be smoke-tested before publishing:
+# render one Monitor chart from the packaged VSIX.
 overrides:
   "picomatch@<4.0.4": ">=4.0.4"
   "lodash@<4.18.0": ">=4.18.0"
