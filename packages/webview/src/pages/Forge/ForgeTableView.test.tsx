@@ -68,7 +68,7 @@ describe('ForgeTableView', () => {
     expect(rows).toHaveLength(3);
   });
 
-  it('should call onNodeClick when a row is clicked', () => {
+  it('should call onNodeClick from the object-name button', () => {
     const graph = makeGraph();
     render(
       <ForgeTableView
@@ -78,9 +78,49 @@ describe('ForgeTableView', () => {
         onToggleIncluded={mockOnToggleIncluded}
       />,
     );
-    const rows = screen.getAllByTestId('forge-table-row');
-    fireEvent.click(rows[0]);
+    const selectButton = screen.getByTestId('forge-table-select-Account');
+    expect(selectButton.tagName).toBe('BUTTON');
+    fireEvent.click(selectButton);
     expect(mockOnNodeClick).toHaveBeenCalledWith('Account');
+  });
+
+  it('should not select a node from the row itself, only from focusable controls', () => {
+    const graph = makeGraph();
+    render(
+      <ForgeTableView
+        graph={graph}
+        selectedNodeName={null}
+        onNodeClick={mockOnNodeClick}
+        onToggleIncluded={mockOnToggleIncluded}
+      />,
+    );
+    // A handler on the <tr> would be mouse-only: nothing focuses a table row.
+    fireEvent.click(screen.getAllByTestId('forge-table-row')[0]);
+    expect(mockOnNodeClick).not.toHaveBeenCalled();
+  });
+
+  it('should expose column headers as buttons carrying aria-sort on the th', () => {
+    const graph = makeGraph();
+    render(
+      <ForgeTableView
+        graph={graph}
+        selectedNodeName={null}
+        onNodeClick={mockOnNodeClick}
+        onToggleIncluded={mockOnToggleIncluded}
+      />,
+    );
+    const sortButton = screen.getByTestId('forge-table-sort-recordCount');
+    expect(sortButton.tagName).toBe('BUTTON');
+    expect(sortButton.getAttribute('type')).toBe('button');
+
+    const header = sortButton.closest('th');
+    expect(header).not.toBeNull();
+    expect(header?.getAttribute('aria-sort')).toBeNull();
+
+    fireEvent.click(sortButton);
+    expect(header?.getAttribute('aria-sort')).toBe('ascending');
+    fireEvent.click(sortButton);
+    expect(header?.getAttribute('aria-sort')).toBe('descending');
   });
 
   it('should call onToggleIncluded when a checkbox is changed', () => {

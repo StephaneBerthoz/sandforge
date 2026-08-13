@@ -1,8 +1,9 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgePlanResponse } from '@sandforge/shared';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useMessageListener } from '../../hooks/useMessageBus';
+import type { MetadataDiffEntry } from '../../stores/useForgeStore';
 import { useForgeStore } from '../../stores/useForgeStore';
 import { LiveGraph } from '../../components/graph/LiveGraph';
 import { ReviewPlanTab } from './ReviewPlanTab';
@@ -13,6 +14,16 @@ import { ForgePreviewCard } from './ForgePreviewCard';
 
 /** Tabs available in the Review phase right panel. */
 type ReviewTab = 'plan' | 'anonymization' | 'compliance' | 'metadata';
+
+/**
+ * Objects sent per diff request.
+ *
+ * The extension-side Zod schema caps the array at 100 (each entry costs a
+ * describe on both orgs), and it rejects the whole payload past that — so a
+ * wide graph has to be trimmed here or the tab gets an INVALID_PAYLOAD error
+ * instead of the diffs for the objects that did fit.
+ */
+const METADATA_DIFF_MAX_OBJECTS = 100;
 
 /**
  * Main review phase component for the Forge wizard.
@@ -55,6 +66,59 @@ export const ForgeReview: React.FC = () => {
   useMessageListener<BaseMessage & { payload: { message: string } }>(
     'forge:plan:error',
     useCallback((msg) => setPlanError(msg.payload.message), []),
+  );
+
+  const setMetadataDiffs = useForgeStore((s) => s.setMetadataDiffs);
+  const [metadataPending, setMetadataPending] = useState(false);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
+  const metadataRequested = useRef(false);
+
+  /**
+   * Ask the extension to diff source and target schemas.
+   *
+   * `forge:metadata-diff:request` has been routed and implemented since
+   * Forge v2, but no webview code ever sent it: `metadataDiffs` had no writer,
+   * so the Metadata tab reported "no differences" for orgs that were in fact
+   * incompatible. The ref makes it one request per Review mount — the handler
+   * emits an `operation:started` per request, and re-firing on every render
+   * would flood the activity feed with phantom operations.
+   */
+  useEffect(() => {
+    if (!graph || !config || metadataRequested.current) return;
+    metadataRequested.current = true;
+    setMetadataPending(true);
+    sendBridgeMessage<{ sourceOrgId: string; targetOrgId: string; objectApiNames: string[] }>(
+      'forge:metadata-diff:request',
+      {
+        sourceOrgId: config.sourceOrgId,
+        targetOrgId: config.targetOrgId,
+        objectApiNames: graph.nodes
+          .slice(0, METADATA_DIFF_MAX_OBJECTS)
+          .map((node) => node.objectApiName),
+      },
+    );
+  }, [graph, config]);
+
+  useMessageListener<BaseMessage & { payload: { diffs: MetadataDiffEntry[] } }>(
+    'forge:metadata-diff:response',
+    useCallback(
+      (msg) => {
+        setMetadataDiffs(msg.payload.diffs);
+        setMetadataPending(false);
+        setMetadataError(null);
+      },
+      [setMetadataDiffs],
+    ),
+  );
+
+  // NOT_INITIALIZED (no diff service configured) is a plausible steady state,
+  // so without this the tab would sit on its loading text forever.
+  useMessageListener<BaseMessage & { payload: { message: string } }>(
+    'forge:metadata-diff:error',
+    useCallback((msg) => {
+      setMetadataError(msg.payload.message);
+      setMetadataPending(false);
+    }, []),
   );
 
   /**
@@ -158,7 +222,9 @@ export const ForgeReview: React.FC = () => {
             {activeTab === 'plan' && <ReviewPlanTab error={planError} />}
             {activeTab === 'anonymization' && <ReviewAnonymizationTab />}
             {activeTab === 'compliance' && <ReviewComplianceTab />}
-            {activeTab === 'metadata' && <ReviewMetadataTab />}
+            {activeTab === 'metadata' && (
+              <ReviewMetadataTab pending={metadataPending} error={metadataError} />
+            )}
           </div>
         </div>
       </div>

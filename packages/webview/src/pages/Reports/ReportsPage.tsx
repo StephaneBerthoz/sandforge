@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type {
@@ -7,13 +7,9 @@ import type {
   AuditLogEntry,
   DataLineageGraph,
 } from '@sandforge/shared';
-import { useBridgeQuery } from '../../hooks/useBridgeQuery';
-import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { Tabs } from '../../components/ui/Tabs';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
 import { KPICard } from '../../components/ui/KPICard';
-import { Skeleton } from '../../components/ui/Skeleton';
-import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { ExecutionReportView } from './ExecutionReportView';
 import { AnalyticsDashboard } from './AnalyticsDashboard';
@@ -23,7 +19,7 @@ import { LineageGraph } from './LineageGraph';
 
 /** ReportsPage component props. */
 export interface ReportsPageProps {
-  /** Override reports (used in tests or when data is passed from parent). */
+  /** Reports to display — the page has no data source of its own. */
   reports?: GeneratedReport[];
   analyticsSummary?: AnalyticsSummary;
   operationsOverTime?: AnalyticsTimeSeries;
@@ -34,9 +30,16 @@ export interface ReportsPageProps {
   onExportReport?: (id: string) => void;
 }
 
-/** Main reports and analytics page with tabbed navigation — wired to extension via bridge hooks. */
+/**
+ * Main reports and analytics page with tabbed navigation.
+ *
+ * Presentational only: there is no `reports:*` channel in the shared protocol
+ * and no handler behind one, so every datum arrives through props. It used to
+ * fire `reports:list` / `reports:export` on the bridge — the broker dropped
+ * both as undeclared and the page sat on a 30 s timeout it then swallowed.
+ */
 export const ReportsPage: React.FC<ReportsPageProps> = ({
-  reports: reportsProp,
+  reports,
   analyticsSummary,
   operationsOverTime,
   errorTimeSeries,
@@ -48,29 +51,6 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('executions');
   const [selectedReportId, setSelectedReportId] = useState<string | undefined>();
-
-  /** Bridge query: load reports list. */
-  const reportsQuery = useBridgeQuery<{ reports: GeneratedReport[] }>('reports:list', undefined, {
-    responseType: 'reports:list:result',
-  });
-
-  /** Bridge mutation: export a report. */
-  const exportMutation = useBridgeMutation<{ url: string }>('reports:export', {
-    responseType: 'reports:export:result',
-  });
-
-  // Suppress unused variable warning for export mutation data
-  void exportMutation;
-
-  // Use prop override if provided, otherwise use bridge query data
-  const reports = reportsProp ?? reportsQuery.data?.reports;
-
-  /** Show error from bridge hooks (silent — no notification store dependency). */
-  useEffect(() => {
-    if (reportsQuery.error) {
-      // Error is available via reportsQuery.error for consumers
-    }
-  }, [reportsQuery.error]);
 
   const tabs = [
     { id: 'executions', label: t('reports.executions') },
@@ -85,7 +65,6 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   };
 
   const handleExportReport = (id: string): void => {
-    exportMutation.mutate({ reportId: id });
     onExportReport?.(id);
   };
 
@@ -103,20 +82,6 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
       animate="visible"
     >
       <h1 className="text-lg font-bold text-text-primary">{t('reports.title')}</h1>
-
-      {reportsQuery.error && (
-        <ErrorBanner message={reportsQuery.error} data-testid="reports-error" />
-      )}
-
-      {reportsQuery.loading && !reportsProp && (
-        <div className="flex gap-3" data-testid="reports-loading">
-          {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className="flex-1">
-              <Skeleton variant="rect" height="88px" />
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* KPI summary row */}
       <m.div

@@ -8,6 +8,7 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import type { SupportedLanguage } from '../../i18n';
 import { changeLanguageLazy } from '../../i18n';
+import { ConfigProfilePanel } from './ConfigProfilePanel';
 import { useSettingsPageData } from './useSettingsPageData';
 
 /**
@@ -86,15 +87,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const telemetryEnabled = telemetryStatus?.enabled ?? false;
 
-  /** Plugins list — static defaults until plugin manager is fully implemented. */
-  const plugins: Array<{ name: string; version: string; description: string; enabled: boolean }> =
-    [];
-
   const tabs = [
     { id: 'general', label: t('settings.general') },
     { id: 'ai', label: t('settings.ai') },
     { id: 'advanced', label: t('settings.advanced') },
-    { id: 'plugins', label: t('settings.plugins') },
+    { id: 'profiles', label: t('settings.profiles') },
     { id: 'telemetry', label: t('settings.telemetry') },
   ];
 
@@ -117,24 +114,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <CardHeader title={t('settings.general')} />
               <CardBody>
                 <div className="flex flex-col gap-3">
-                  {/* Language */}
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">{t('settings.language')}</label>
-                    <Select
-                      data-testid="language-select"
-                      aria-label={t('settings.language')}
-                      options={LANGUAGE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-                      value={settings.language}
-                      onChange={(e) => {
-                        const language = e.target.value as SupportedLanguage;
-                        updateSetting('language', language);
-                        // Apply immediately — loads the locale bundle over
-                        // the bridge when needed; the i18n module persists
-                        // the choice to the webview state on every change.
-                        void changeLanguageLazy(language);
-                      }}
-                    />
-                  </div>
+                  {/* Language — Select renders and binds its own caption. */}
+                  <Select
+                    data-testid="language-select"
+                    label={t('settings.language')}
+                    options={LANGUAGE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                    value={settings.language}
+                    onChange={(e) => {
+                      const language = e.target.value as SupportedLanguage;
+                      updateSetting('language', language);
+                      // Apply immediately — loads the locale bundle over
+                      // the bridge when needed; the i18n module persists
+                      // the choice to the webview state on every change.
+                      void changeLanguageLazy(language);
+                    }}
+                  />
                 </div>
               </CardBody>
             </Card>
@@ -168,13 +162,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     </div>
                   )}
 
-                  {/* API Key */}
+                  {/* API Key — Input renders and binds its own caption, so the
+                      Save button aligns on the bottom edge of the field. */}
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs text-text-primary">{t('settings.aiApiKey')}</label>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-end">
                       <div className="flex-1">
                         <Input
                           data-testid="ai-api-key-input"
+                          label={t('settings.aiApiKey')}
                           type="password"
                           placeholder={
                             aiStatus?.enabled ? t('settings.aiKeyConfigured') : 'sk-ant-...'
@@ -253,47 +248,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         )}
 
-        {activeTab === 'plugins' && (
+        {activeTab === 'profiles' && (
           <div
-            data-testid="plugins-settings"
-            id="tabpanel-plugins"
+            data-testid="profiles-settings"
+            id="tabpanel-profiles"
             role="tabpanel"
-            aria-labelledby="tab-plugins"
+            aria-labelledby="tab-profiles"
             className="flex flex-col gap-3"
           >
-            <Card>
-              <CardHeader title={t('settings.plugins')} />
-              <CardBody>
-                <div className="flex flex-col gap-3">
-                  {plugins.length > 0 ? (
-                    plugins.map((plugin) => (
-                      <div
-                        key={plugin.name}
-                        className="flex items-center justify-between p-2 rounded border border-[var(--sf-border)] bg-[var(--sf-bg-primary)]"
-                        data-testid={`plugin-${plugin.name}`}
-                      >
-                        <div className="flex flex-col">
-                          <span className="text-xs font-medium text-text-primary">
-                            {plugin.name}{' '}
-                            <span className="text-text-secondary">v{plugin.version}</span>
-                          </span>
-                          <span className="text-xs text-text-secondary">{plugin.description}</span>
-                        </div>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded ${plugin.enabled ? 'text-[var(--sf-success)] bg-[var(--sf-success)]/10' : 'text-text-secondary bg-[var(--sf-text-secondary)]/10'}`}
-                        >
-                          {plugin.enabled
-                            ? t('settings.pluginEnabled')
-                            : t('settings.pluginDisabled')}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-text-secondary">{t('settings.noPlugins')}</p>
-                  )}
-                </div>
-              </CardBody>
-            </Card>
+            <ConfigProfilePanel />
           </div>
         )}
 

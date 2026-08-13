@@ -102,6 +102,17 @@ describe('i18n', () => {
     await changeLanguageLazy('en');
   });
 
+  it('should mirror the active language onto <html lang>', async () => {
+    await changeLanguageLazy('ja');
+    expect(document.documentElement.lang).toBe('ja');
+
+    await changeLanguageLazy('pt-BR');
+    expect(document.documentElement.lang).toBe('pt-BR');
+
+    await changeLanguageLazy('en');
+    expect(document.documentElement.lang).toBe('en');
+  });
+
   it('should fall back to English for unsupported languages', async () => {
     // Direct instance call: an unsupported code never crosses the bridge
     // (changeLanguageLazy is typed on SupportedLanguage) — i18next falls

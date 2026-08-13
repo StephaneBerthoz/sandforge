@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 
 /** Status types for timeline items. */
@@ -27,8 +28,14 @@ const statusDotClasses: Record<TimelineStatus, string> = {
 
 /** Vertical timeline displaying events with status indicators. */
 export const Timeline: React.FC<TimelineProps> = ({ items, className }) => {
+  const { t } = useTranslation();
+
   return (
-    <div className={cn('relative', className)} role="list" aria-label="Timeline">
+    <div
+      className={cn('relative', className)}
+      role="list"
+      aria-label={t('a11y.timeline', 'Timeline')}
+    >
       {items.map((item, index) => {
         const isLast = index === items.length - 1;
         const dotClass = item.status

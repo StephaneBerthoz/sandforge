@@ -148,7 +148,31 @@ describe('GovernancePanel', () => {
     render(<GovernancePanel policies={policies} />);
     fireEvent.click(screen.getByTestId('policy-pol-1'));
     const policyEl = screen.getByTestId('policy-pol-1');
-    expect(policyEl.className).toContain('--sf-accent');
+    expect(policyEl.parentElement?.className).toContain('--sf-accent');
+  });
+
+  it('exposes the policy row as a button reflecting selection via aria-pressed', () => {
+    render(<GovernancePanel policies={[makePolicy()]} />);
+    const policyEl = screen.getByTestId('policy-pol-1');
+    expect(policyEl.tagName).toBe('BUTTON');
+    expect(policyEl.getAttribute('type')).toBe('button');
+    expect(policyEl.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(policyEl);
+    expect(screen.getByTestId('policy-pol-1').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('keeps the delete action outside the policy button', () => {
+    render(<GovernancePanel policies={[makePolicy()]} onDeletePolicy={vi.fn()} />);
+    const policyEl = screen.getByTestId('policy-pol-1');
+    const deleteEl = screen.getByTestId('delete-policy-pol-1');
+    expect(policyEl.contains(deleteEl)).toBe(false);
+  });
+
+  it('puts the policy row in the tab order', () => {
+    render(<GovernancePanel policies={[makePolicy()]} />);
+    const policyEl = screen.getByTestId('policy-pol-1') as HTMLElement;
+    policyEl.focus();
+    expect(document.activeElement).toBe(policyEl);
   });
 
   it('shows compliance score', () => {

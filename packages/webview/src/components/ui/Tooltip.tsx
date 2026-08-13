@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { cn } from '../../theme';
 
@@ -27,6 +28,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   dismissible = false,
   onDismiss,
 }) => {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -76,7 +78,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
                 type="button"
                 onClick={onDismiss}
                 className="inline-flex items-center justify-center w-3 h-3 rounded-sm hover:bg-[var(--vscode-toolbar-hoverBackground,#5a5d5e)] transition-colors"
-                aria-label="Dismiss"
+                aria-label={t('common.dismiss', 'Dismiss')}
                 data-testid="tooltip-dismiss"
               >
                 <X className="w-2.5 h-2.5" />

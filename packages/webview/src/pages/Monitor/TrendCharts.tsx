@@ -240,7 +240,7 @@ export const TrendCharts: React.FC<TrendChartsProps> = ({ series, className, onP
                   viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
                   preserveAspectRatio="none"
                   role="img"
-                  aria-label="Trend chart"
+                  aria-label={t('a11y.trendChart', 'Trend chart')}
                 >
                   {/* Y-axis labels */}
                   {Y_LABELS.map((pct) => {

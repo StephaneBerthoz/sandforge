@@ -40,6 +40,14 @@ let mockBackupsQueryState = {
   refetch: vi.fn(),
 };
 
+/** Mutable query state for dataops:anonymization-templates. */
+let mockTemplatesQueryState = {
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  refetch: vi.fn(),
+};
+
 /** Mutable mutation state for backup:execute. */
 let mockBackupMutationState = {
   mutate: mockBackupMutate,
@@ -64,7 +72,7 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
       return mockBackupsQueryState;
     }
     if (type === 'dataops:anonymization-templates') {
-      return { data: null, loading: false, error: null, refetch: vi.fn() };
+      return mockTemplatesQueryState;
     }
     return { data: null, loading: false, error: null, refetch: vi.fn() };
   },
@@ -98,6 +106,12 @@ describe('DataOpsPage', () => {
     mockAnonymizeReset.mockClear();
     // Reset to default idle state
     mockBackupsQueryState = {
+      data: null,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+    mockTemplatesQueryState = {
       data: null,
       loading: false,
       error: null,
@@ -264,5 +278,98 @@ describe('DataOpsPage', () => {
     render(<DataOpsPage />);
     expect(screen.getByTestId('dataops-kpi-row')).toBeDefined();
     expect(screen.getAllByTestId('bento-tile').length).toBeGreaterThanOrEqual(1);
+  });
+
+  describe('per-tab loading state', () => {
+    /** A backup list already in hand, so a stale skeleton would stack on top of it. */
+    const loadedBackups = {
+      backups: [
+        {
+          operationId: 'op-1',
+          orgId: 'org-1',
+          timestamp: '2024-01-01T00:00:00Z',
+          totalRecords: 42,
+          totalSize: 1024,
+          status: 'completed',
+          objectResults: [{ objectApiName: 'Account', recordCount: 42 }],
+        },
+      ],
+    };
+
+    const loading = () => ({ data: null, loading: true, error: null, refetch: vi.fn() });
+
+    beforeEach(() => {
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    });
+
+    it('should keep the loaded backup list visible while the templates query is still in flight', () => {
+      mockBackupsQueryState = {
+        data: loadedBackups,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      mockTemplatesQueryState = loading();
+      render(<DataOpsPage />);
+
+      // The Backup tab never reads dataops:anonymization-templates, so that
+      // query's latency must not paint anything over its data.
+      expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
+      expect(screen.getByTestId('backup-panel')).toBeDefined();
+      expect(screen.getByTestId('backup-op-1')).toBeDefined();
+    });
+
+    it('should keep the anonymize templates visible while the backups query is still in flight', () => {
+      mockBackupsQueryState = loading();
+      mockTemplatesQueryState = {
+        data: { templates: [] },
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Anonymize'));
+
+      expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
+      expect(screen.getByTestId('anonymize-panel')).toBeDefined();
+    });
+
+    it('should show the skeleton alone on the backup tab while its own query loads', () => {
+      mockBackupsQueryState = loading();
+      render(<DataOpsPage />);
+
+      expect(screen.getByTestId('dataops-skeleton')).toBeDefined();
+      expect(screen.queryByTestId('backup-panel')).toBeNull();
+    });
+
+    it('should show the skeleton alone on the restore tab while the backups query loads', () => {
+      mockBackupsQueryState = loading();
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Restore'));
+
+      // Restore reads the same backup list; it used to render its panel
+      // underneath the skeleton, showing both states at once.
+      expect(screen.getByTestId('dataops-skeleton')).toBeDefined();
+      expect(screen.queryByTestId('restore-panel')).toBeNull();
+    });
+
+    it('should show the skeleton alone on the anonymize tab while the templates query loads', () => {
+      mockTemplatesQueryState = loading();
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Anonymize'));
+
+      expect(screen.getByTestId('dataops-skeleton')).toBeDefined();
+      expect(screen.queryByTestId('anonymize-panel')).toBeNull();
+    });
+
+    it('should never skeleton a tab that reads no query', () => {
+      mockBackupsQueryState = loading();
+      mockTemplatesQueryState = loading();
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Cleanup'));
+
+      expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
+      expect(screen.getByTestId('dataops-cleanup-soon')).toBeDefined();
+    });
   });
 });

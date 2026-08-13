@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import './i18n';
 import { BridgeProvider } from './bridge/BridgeProvider';
 import { MotionProvider } from './motion/MotionProvider';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { FloatingToasts } from './components/ui/FloatingToasts';
+import { SkipLink } from './components/ui/SkipLink';
 import { ProtocolMismatchBanner } from './components/ProtocolMismatchBanner';
 import { CommandPalette } from './components/CommandPalette/CommandPalette';
 import { WelcomePage } from './pages/Welcome/WelcomePage';
@@ -32,6 +34,8 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
    * follow store *changes* from `moduleId` onwards instead of reading it
    * directly.
    */
+  const { t } = useTranslation();
+
   const [route, setRoute] = useState(moduleId);
   useEffect(() => {
     setRoute(moduleId);
@@ -129,20 +133,28 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
 
   return (
     <>
+      <SkipLink />
       <ProtocolMismatchBanner />
-      <div
+      {/*
+       * The panel body is the page's single `main` landmark: screen readers
+       * jump straight here, and `tabIndex={-1}` makes it a valid target for
+       * SkipLink's programmatic focus (a `main` is not focusable otherwise).
+       */}
+      <main
+        id="main-content"
+        tabIndex={-1}
         className="h-screen w-full overflow-auto bg-[var(--sf-bg-primary)] text-[var(--sf-text-primary)]"
         data-testid="panel-app"
       >
         <PanelRouter moduleId={route} />
-      </div>
+      </main>
       <CommandPalette />
       {showWelcome && (
         <div
           className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center"
           role="dialog"
           aria-modal="true"
-          aria-label="Welcome wizard"
+          aria-label={t('a11y.welcomeWizard', 'Welcome wizard')}
         >
           <div className="w-full max-h-screen overflow-auto">
             <WelcomePage onComplete={handleWelcomeComplete} />
@@ -154,7 +166,7 @@ const PanelInner: React.FC<PanelAppProps> = ({ moduleId }) => {
           className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center"
           role="dialog"
           aria-modal="true"
-          aria-label="What's new"
+          aria-label={t('a11y.whatsNew', "What's new")}
         >
           <div className="w-full max-h-screen overflow-auto">
             <WhatsNewPage version={whatsNewVersion} onDismiss={handleWhatsNewDismiss} />

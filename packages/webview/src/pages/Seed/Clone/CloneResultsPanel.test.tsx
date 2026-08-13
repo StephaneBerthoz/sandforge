@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../../i18n';
 import { CloneResultsPanel } from './CloneResultsPanel';
 import type { CloneExecutionResult } from '@sandforge/shared';
@@ -58,6 +58,53 @@ const mockPartialResult: CloneExecutionResult = {
         { sourceId: '003xx002', message: 'REQUIRED_FIELD_MISSING: LastName' },
         { sourceId: '003xx003', message: 'DUPLICATE_VALUE: Email' },
       ],
+    },
+  ],
+};
+
+/** 30 failures on a single object, no mappings, so only the errors table renders. */
+const mockManyErrorsResult: CloneExecutionResult = {
+  status: 'failure',
+  totalSourceRecords: 30,
+  totalInserted: 0,
+  totalFailed: 30,
+  durationMs: 3000,
+  objectResults: [
+    {
+      objectApiName: 'Contact',
+      sourceCount: 30,
+      insertedCount: 0,
+      failedCount: 30,
+      idMappings: [],
+      errors: Array.from({ length: 30 }, (_, i) => ({
+        sourceId: `003xx${String(i).padStart(3, '0')}`,
+        message: `REQUIRED_FIELD_MISSING: LastName #${i}`,
+      })),
+    },
+  ],
+};
+
+/** Both tables overflow a page, so each needs its own pagination state. */
+const mockBothOverflowResult: CloneExecutionResult = {
+  status: 'partial',
+  totalSourceRecords: 60,
+  totalInserted: 30,
+  totalFailed: 30,
+  durationMs: 4000,
+  objectResults: [
+    {
+      objectApiName: 'Contact',
+      sourceCount: 60,
+      insertedCount: 30,
+      failedCount: 30,
+      idMappings: Array.from({ length: 30 }, (_, i) => ({
+        sourceId: `003src${String(i).padStart(3, '0')}`,
+        targetId: `003tgt${String(i).padStart(3, '0')}`,
+      })),
+      errors: Array.from({ length: 30 }, (_, i) => ({
+        sourceId: `003err${String(i).padStart(3, '0')}`,
+        message: `DUPLICATE_VALUE: Email #${i}`,
+      })),
     },
   ],
 };
@@ -121,5 +168,36 @@ describe('CloneResultsPanel', () => {
     const panel = screen.getByTestId('clone-results-panel');
     // The accordion content contains error info for Contact
     expect(panel.textContent).toContain('Contact');
+  });
+
+  it('should paginate the errors table instead of rendering every failure', () => {
+    render(<CloneResultsPanel result={mockManyErrorsResult} onDone={vi.fn()} />);
+
+    expect(screen.getAllByTestId(/^table-row-/)).toHaveLength(25);
+    expect(screen.getByTestId('pagination-summary').textContent).toContain('30');
+    expect(screen.getByText('REQUIRED_FIELD_MISSING: LastName #24')).toBeDefined();
+    expect(screen.queryByText('REQUIRED_FIELD_MISSING: LastName #25')).toBeNull();
+  });
+
+  it('should show the remaining errors on the next page', () => {
+    render(<CloneResultsPanel result={mockManyErrorsResult} onDone={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+
+    expect(screen.getAllByTestId(/^table-row-/)).toHaveLength(5);
+    expect(screen.getByText('REQUIRED_FIELD_MISSING: LastName #25')).toBeDefined();
+    expect(screen.queryByText('REQUIRED_FIELD_MISSING: LastName #24')).toBeNull();
+  });
+
+  it('should page the errors table without moving the mappings table', () => {
+    render(<CloneResultsPanel result={mockBothOverflowResult} onDone={vi.fn()} />);
+
+    const [mappingsTable, errorsTable] = screen.getAllByTestId('data-table');
+    const errorsNext = screen.getAllByRole('button', { name: 'Next page' })[1];
+    fireEvent.click(errorsNext);
+
+    expect(within(errorsTable).getByText('DUPLICATE_VALUE: Email #25')).toBeDefined();
+    expect(within(mappingsTable).getAllByTestId(/^table-row-/)).toHaveLength(25);
+    expect(within(mappingsTable).getByText('003src000')).toBeDefined();
   });
 });

@@ -4,9 +4,10 @@ import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
+import { useForgeStore } from '../../stores/useForgeStore';
 import { HomePage } from './HomePage';
 import { OrgSafetyTier } from '@sandforge/shared';
-import type { SalesforceOrg } from '@sandforge/shared';
+import type { ApiLimit, SalesforceOrg } from '@sandforge/shared';
 
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
@@ -20,8 +21,26 @@ let mockOrgListState = {
   refetch: mockRefetch,
 };
 
+/** Response state for the `monitor:refresh` query used by useOrgHealthSummary. */
+let mockMonitorState = {
+  data: null as { limits: ApiLimit[]; healthScore: number } | null,
+  loading: false,
+  error: null as string | null,
+  refetch: mockRefetch,
+};
+
+/** Request types seen by useBridgeQuery, in call order. */
+const bridgeQueryCalls: Array<{ requestType: string; payload: unknown; skip: boolean }> = [];
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => mockOrgListState,
+  useBridgeQuery: (
+    requestType: string,
+    payload?: Record<string, unknown>,
+    options?: { skip?: boolean },
+  ) => {
+    bridgeQueryCalls.push({ requestType, payload, skip: options?.skip ?? false });
+    return requestType === 'monitor:refresh' ? mockMonitorState : mockOrgListState;
+  },
 }));
 
 /* ------------------------------------------------------------------ */
@@ -101,7 +120,15 @@ describe('HomePage', () => {
     useAppStore.setState({ currentRoute: 'home' });
     useOrgStore.setState({ orgs: [], selectedOrgId: null });
     useRecentOpsStore.setState({ ops: [] });
+    useForgeStore.setState({ config: null });
+    bridgeQueryCalls.length = 0;
     mockOrgListState = {
+      data: null,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    mockMonitorState = {
       data: null,
       loading: false,
       error: null,
@@ -238,6 +265,8 @@ describe('HomePage', () => {
     expect(startBtn).toBeDefined();
     fireEvent.click(startBtn);
     expect(useAppStore.getState().currentRoute).toBe('forge');
+    // Empty field -- the button is a plain CTA, it must not seed a config.
+    expect(useForgeStore.getState().config).toBeNull();
   });
 
   it('should render the health tile', () => {
@@ -258,6 +287,117 @@ describe('HomePage', () => {
   it('should render the forge record input', () => {
     render(<HomePage />);
     expect(screen.getByTestId('forge-record-input')).toBeDefined();
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Hero record-id wiring                                             */
+  /* ---------------------------------------------------------------- */
+
+  it('should seed the forge config with the typed record id before navigating', () => {
+    useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
+    render(<HomePage />);
+    fireEvent.change(screen.getByTestId('forge-record-input'), {
+      target: { value: '0015g00000ABCDEAA3' },
+    });
+    fireEvent.click(screen.getByTestId('start-forge-btn'));
+
+    expect(useForgeStore.getState().config).toMatchObject({
+      inputMode: 'record',
+      recordId: '0015g00000ABCDEAA3',
+      sourceOrgId: 'org-1',
+    });
+    expect(useAppStore.getState().currentRoute).toBe('forge');
+  });
+
+  it('should extract the record id from a pasted Salesforce URL', () => {
+    render(<HomePage />);
+    fireEvent.change(screen.getByTestId('forge-record-input'), {
+      target: {
+        value: 'https://acme.lightning.force.com/lightning/r/Account/0015g00000ABCDEAA3/view',
+      },
+    });
+    fireEvent.click(screen.getByTestId('start-forge-btn'));
+
+    expect(useForgeStore.getState().config?.recordId).toBe('0015g00000ABCDEAA3');
+  });
+
+  it('should seed the forge config when Enter is pressed in the record input', () => {
+    render(<HomePage />);
+    const input = screen.getByTestId('forge-record-input');
+    fireEvent.change(input, { target: { value: '0015g00000ABCDEAA3' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(useForgeStore.getState().config?.recordId).toBe('0015g00000ABCDEAA3');
+    expect(useAppStore.getState().currentRoute).toBe('forge');
+  });
+
+  it('should keep focus in the field and not navigate when the record id is unparseable', () => {
+    render(<HomePage />);
+    const input = screen.getByTestId('forge-record-input');
+    fireEvent.change(input, { target: { value: 'not-an-id' } });
+    fireEvent.click(screen.getByTestId('start-forge-btn'));
+
+    expect(useAppStore.getState().currentRoute).toBe('home');
+    expect(useForgeStore.getState().config).toBeNull();
+    expect(document.activeElement).toBe(input);
+    expect(screen.getByTestId('forge-record-error')).toBeDefined();
+  });
+
+  it('should size the forge hero tile to its content rather than spanning two rows', () => {
+    render(<HomePage />);
+    const tile = screen.getByTestId('forge-hero-card').parentElement;
+    expect(tile?.className).toContain('col-span-2');
+    expect(tile?.className).not.toContain('row-span-2');
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Org health summary (sourced, never invented)                      */
+  /* ---------------------------------------------------------------- */
+
+  /** Reads the value of the KPI card whose text contains `label`. */
+  function kpiValue(label: string): string {
+    const card = screen.getAllByTestId('kpi-card').find((c) => c.textContent?.includes(label));
+    return card?.querySelector('[data-testid="kpi-value"]')?.textContent ?? '';
+  }
+
+  it('should skip the health query and show a dash when no org is selected', () => {
+    useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: null });
+    render(<HomePage />);
+
+    const monitorCall = bridgeQueryCalls.find((c) => c.requestType === 'monitor:refresh');
+    expect(monitorCall?.skip).toBe(true);
+    expect(kpiValue('Limit Warnings')).toBe('—');
+    expect(kpiValue('Health Score')).toBe('—');
+    expect(kpiValue('API usage')).toBe('—');
+  });
+
+  it('should render limit warnings, health score and api usage from monitor data', () => {
+    useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
+    mockMonitorState.data = {
+      healthScore: 72,
+      limits: [
+        { name: 'DailyApiRequests', max: 100, remaining: 25, usedPercent: 75 },
+        { name: 'DataStorageMB', max: 100, remaining: 38, usedPercent: 62 },
+        { name: 'FileStorageMB', max: 100, remaining: 90, usedPercent: 10 },
+      ],
+    };
+    render(<HomePage />);
+
+    const monitorCall = bridgeQueryCalls.find((c) => c.requestType === 'monitor:refresh');
+    expect(monitorCall?.payload).toEqual({ orgId: 'org-1' });
+    expect(monitorCall?.skip).toBe(false);
+    expect(kpiValue('Limit Warnings')).toBe('2');
+    expect(kpiValue('Health Score')).toBe('72%');
+    expect(kpiValue('API usage')).toBe('75%');
+  });
+
+  it('should show a skeleton instead of a health number while the query is in flight', () => {
+    useOrgStore.setState({ orgs: [createMockOrg()], selectedOrgId: 'org-1' });
+    mockMonitorState.loading = true;
+    render(<HomePage />);
+
+    expect(screen.queryByText('Limit Warnings')).toBeNull();
+    expect(screen.getAllByTestId('skeleton').length).toBeGreaterThan(0);
   });
 
   it('should show sandbox banner when sandbox org exists', () => {

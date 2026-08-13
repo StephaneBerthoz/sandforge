@@ -88,6 +88,21 @@ describe('CommandPalette', () => {
     expect(input.getAttribute('placeholder')).toBe('Search commands...');
   });
 
+  it('should expose the container as a labelled modal dialog', () => {
+    render(<CommandPalette />);
+    openPalette();
+    const container = screen.getByTestId('command-palette');
+    expect(container.getAttribute('role')).toBe('dialog');
+    expect(container.getAttribute('aria-modal')).toBe('true');
+    expect(container.getAttribute('aria-label')).toBe('Search commands...');
+  });
+
+  it('should focus the search input when opened', () => {
+    render(<CommandPalette />);
+    openPalette();
+    expect(document.activeElement).toBe(screen.getByTestId('command-palette-input'));
+  });
+
   it('should show navigation items', () => {
     render(<CommandPalette />);
     openPalette();

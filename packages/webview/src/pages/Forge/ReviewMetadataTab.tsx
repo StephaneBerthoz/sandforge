@@ -9,15 +9,51 @@ const SEVERITY_STYLES: Record<string, string> = {
   error: 'bg-red-500/20 text-red-400',
 };
 
+/** Props for {@link ReviewMetadataTab}. */
+export interface ReviewMetadataTabProps {
+  /** True while ForgeReview's forge:metadata-diff:request is still in flight. */
+  pending?: boolean;
+  /** Message from forge:metadata-diff:error, when the comparison could not run. */
+  error?: string | null;
+}
+
 /**
  * Metadata tab within the Forge Review phase.
  *
  * Shows a list of metadata differences (missing fields, type mismatches,
  * permission issues) between source and target orgs, each with a severity badge.
+ *
+ * The request itself lives in ForgeReview so it fires once per phase mount
+ * rather than on every visit to this tab; the two props carry its outcome.
  */
-export const ReviewMetadataTab: React.FC = () => {
+export const ReviewMetadataTab: React.FC<ReviewMetadataTabProps> = ({
+  pending = false,
+  error = null,
+}) => {
   const { t } = useTranslation();
   const diffs = useForgeStore((s) => s.metadataDiffs);
+
+  if (error) {
+    return (
+      <div data-testid="review-metadata-tab" className="py-4">
+        <p data-testid="metadata-error" className="text-xs text-status-error text-center">
+          {error}
+        </p>
+      </div>
+    );
+  }
+
+  // An empty list means "not compared yet" until the response lands, so
+  // claiming "no differences" while the diff is still running would be a lie.
+  if (pending) {
+    return (
+      <div data-testid="review-metadata-tab" className="py-4">
+        <p data-testid="metadata-loading" className="text-xs text-text-muted text-center">
+          {t('forge.review.diffsLoading', 'Comparing metadata schemas...')}
+        </p>
+      </div>
+    );
+  }
 
   if (diffs.length === 0) {
     return (

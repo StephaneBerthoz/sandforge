@@ -10,14 +10,26 @@ vi.mock('react-i18next', () => ({
 }));
 
 const mockNavigate = vi.fn();
-vi.mock('../../stores/useAppStore', () => ({
-  useAppStore: (selector: (s: { navigate: typeof mockNavigate }) => unknown) =>
-    selector({ navigate: mockNavigate }),
-}));
+const mockSetShowWelcome = vi.fn();
+interface MockAppState {
+  navigate: typeof mockNavigate;
+  setShowWelcome: typeof mockSetShowWelcome;
+}
+vi.mock('../../stores/useAppStore', () => {
+  // Built on each access: the factory is hoisted above the mock declarations.
+  const getState = (): MockAppState => ({
+    navigate: mockNavigate,
+    setShowWelcome: mockSetShowWelcome,
+  });
+  const useAppStore = (selector: (s: MockAppState) => unknown): unknown => selector(getState());
+  useAppStore.getState = getState;
+  return { useAppStore };
+});
 
 describe('HelpPage', () => {
   beforeEach(() => {
     mockNavigate.mockClear();
+    mockSetShowWelcome.mockClear();
   });
 
   it('should render the help page', () => {
@@ -149,9 +161,12 @@ describe('HelpPage', () => {
     expect(screen.getByTestId('help-start-tour')).toBeDefined();
   });
 
-  it('should navigate to welcome when Start Guided Tour is clicked', () => {
+  it('should raise the welcome overlay when Start Guided Tour is clicked', () => {
+    // Routing to 'welcome' has no page behind it — PanelRouter would render
+    // its unknown-module fallback instead of the wizard.
     render(<HelpPage />);
     fireEvent.click(screen.getByTestId('help-start-tour'));
-    expect(mockNavigate).toHaveBeenCalledWith('welcome');
+    expect(mockSetShowWelcome).toHaveBeenCalledWith(true);
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

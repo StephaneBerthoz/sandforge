@@ -214,6 +214,15 @@ export const DataOpsPage: React.FC = () => {
   const errorRate = totalObjects > 0 ? ((failedObjects / totalObjects) * 100).toFixed(1) : '0.0';
   const templateCount = templatesQuery.data?.templates?.length ?? 0;
 
+  // A tab waits only on the query it actually reads. Gating the skeleton on
+  // both queries at once let a slow templates response paint a skeleton on top
+  // of an already-loaded backup list; the three ComingSoon tabs read neither
+  // query and must never spin.
+  const tabLoading =
+    activeTab === 'anonymize'
+      ? templatesQuery.loading
+      : (activeTab === 'backup' || activeTab === 'restore') && backupsQuery.loading;
+
   return (
     <m.div
       className="flex flex-col gap-[var(--sf-space-4)] p-[var(--sf-space-4)]"
@@ -288,7 +297,7 @@ export const DataOpsPage: React.FC = () => {
 
       <BentoTile className="p-0">
         <div className="p-4" data-testid="dataops-content">
-          {(backupsQuery.loading || templatesQuery.loading) && (
+          {tabLoading && (
             <div className="flex flex-col gap-[var(--sf-space-3)]" data-testid="dataops-skeleton">
               <Skeleton variant="text" width="30%" height="1em" />
               <Skeleton variant="rect" height="120px" />
@@ -297,7 +306,7 @@ export const DataOpsPage: React.FC = () => {
             </div>
           )}
 
-          {activeTab === 'backup' && !backupsQuery.loading && (
+          {activeTab === 'backup' && !tabLoading && (
             <BackupPanel
               backups={backups}
               onCreate={handleCreateBackup}
@@ -305,7 +314,7 @@ export const DataOpsPage: React.FC = () => {
             />
           )}
 
-          {activeTab === 'restore' && (
+          {activeTab === 'restore' && !tabLoading && (
             <RestorePanel
               backups={backups}
               selectedBackupId={selectedBackupId}
@@ -314,7 +323,7 @@ export const DataOpsPage: React.FC = () => {
             />
           )}
 
-          {activeTab === 'anonymize' && (
+          {activeTab === 'anonymize' && !tabLoading && (
             <AnonymizePanel
               templates={templatesQuery.data?.templates ?? []}
               selectedTemplateId={selectedTemplateId}
@@ -335,11 +344,17 @@ export const DataOpsPage: React.FC = () => {
           )}
 
           {activeTab === 'cleanup' && (
-            <ComingSoon data-testid="dataops-cleanup-soon" description={t('dataops.soon.cleanup')} />
+            <ComingSoon
+              data-testid="dataops-cleanup-soon"
+              description={t('dataops.soon.cleanup')}
+            />
           )}
 
           {activeTab === 'quality' && (
-            <ComingSoon data-testid="dataops-quality-soon" description={t('dataops.soon.quality')} />
+            <ComingSoon
+              data-testid="dataops-quality-soon"
+              description={t('dataops.soon.quality')}
+            />
           )}
         </div>
       </BentoTile>

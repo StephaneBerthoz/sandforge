@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { ReportsPage } from './ReportsPage';
@@ -31,25 +31,31 @@ vi.mock('recharts', () => ({
   CartesianGrid: () => <div />,
 }));
 
-/* ------------------------------------------------------------------ */
-/* Mock bridge hooks                                                   */
-/* ------------------------------------------------------------------ */
-const mockExportMutate = vi.fn();
-const mockExportReset = vi.fn();
-
-vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => ({ data: null, loading: false, error: null, refetch: vi.fn() }),
-}));
-
-vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => ({
-    mutate: mockExportMutate,
-    data: null,
-    loading: false,
-    error: null,
-    reset: mockExportReset,
+/*
+ * No bridge-hook mocks: the page is presentational. If it ever reaches for the
+ * bridge again the missing mock is not what catches it — sentChannels.test.ts
+ * is, because `reports:*` is declared nowhere in the shared protocol.
+ */
+const mockPostMessage = vi.fn();
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+  getVscodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
   }),
 }));
+
+/** Outbound message types the page produced, envelope-unwrapped. */
+function reportsChannelsSent(): string[] {
+  return mockPostMessage.mock.calls
+    .map((call: unknown[]) => (call[0] as { payload?: { type?: string } })?.payload?.type)
+    .filter((type): type is string => typeof type === 'string' && type.startsWith('reports:'));
+}
 
 const reports: GeneratedReport[] = [
   {
@@ -92,6 +98,10 @@ const lineageData: DataLineageGraph = {
 };
 
 describe('ReportsPage', () => {
+  beforeEach(() => {
+    mockPostMessage.mockClear();
+  });
+
   it('should render the page', () => {
     render(<ReportsPage />);
     expect(screen.getByTestId('reports-page')).toBeDefined();
@@ -141,7 +151,7 @@ describe('ReportsPage', () => {
     expect(onSelect).toHaveBeenCalledWith('rpt-1');
   });
 
-  it('should call onExportReport and bridge mutation', () => {
+  it('should call onExportReport without touching the bridge', () => {
     const onExport = vi.fn();
     render(<ReportsPage reports={reports} onExportReport={onExport} />);
     /* Select the report first */
@@ -149,7 +159,13 @@ describe('ReportsPage', () => {
     fireEvent.click(wrapper.querySelector('[role="button"]')!);
     fireEvent.click(screen.getByTestId('export-report-btn'));
     expect(onExport).toHaveBeenCalledWith('rpt-1');
-    expect(mockExportMutate).toHaveBeenCalledWith({ reportId: 'rpt-1' });
+    /* `reports:export` is declared nowhere — sending it would only time out. */
+    expect(reportsChannelsSent()).toEqual([]);
+  });
+
+  it('should send no message on mount', () => {
+    render(<ReportsPage />);
+    expect(reportsChannelsSent()).toEqual([]);
   });
 
   it('should render KPI summary row', () => {

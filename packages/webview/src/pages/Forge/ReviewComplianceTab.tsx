@@ -64,10 +64,8 @@ export const ReviewComplianceTab: React.FC = () => {
 
   return (
     <div data-testid="review-compliance-tab" className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <label className="text-xs text-text-muted">
-          {t('forge.review.framework', 'Framework')}:
-        </label>
+      <label className="flex items-center gap-2 text-xs text-text-muted">
+        {t('forge.review.framework', 'Framework')}:
         <select
           data-testid="framework-select"
           value={framework}
@@ -80,7 +78,7 @@ export const ReviewComplianceTab: React.FC = () => {
             </option>
           ))}
         </select>
-      </div>
+      </label>
 
       {framework === 'none' && (
         <p data-testid="no-compliance" className="text-xs text-text-muted py-4">

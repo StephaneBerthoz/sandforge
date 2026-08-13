@@ -120,7 +120,7 @@ export const CsvUploadWizard: React.FC<CsvUploadWizardProps> = ({ onBack }) => {
       <nav
         className="flex gap-1"
         role="group"
-        aria-label="CSV import steps"
+        aria-label={t('a11y.csvImportSteps', 'CSV import steps')}
         data-testid="csv-step-indicator"
       >
         {CSV_STEPS.map((step, i) => {

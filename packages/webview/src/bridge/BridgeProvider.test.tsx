@@ -143,6 +143,29 @@ describe('BridgeProvider', () => {
     expect(useNotificationStore.getState().notifications[0].title).toBe('Test');
   });
 
+  it('should surface a bridge:error as an error notification', () => {
+    // The broker drops the offending message, so nothing else will ever
+    // report it — without this listener the sender just waits out a timeout.
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'bridge-err-1',
+      type: 'bridge:error',
+      timestamp: Date.now(),
+      payload: { reason: 'invalid-payload', details: 'payload.orgId: Required' },
+    });
+
+    const notifications = useNotificationStore.getState().notifications;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].level).toBe('error');
+    expect(notifications[0].message).toContain('invalid-payload');
+    expect(notifications[0].message).toContain('payload.orgId: Required');
+  });
+
   it('should set loading on operation:started and clear on operation:completed', () => {
     render(
       <BridgeProvider>

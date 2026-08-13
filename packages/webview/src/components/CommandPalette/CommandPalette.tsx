@@ -240,13 +240,17 @@ export const CommandPalette: React.FC = () => {
             data-testid="command-palette-overlay"
           />
 
-          {/* Dialog container */}
+          {/* Dialog container — cmdk exposes combobox/listbox roles but never a
+              dialog, so the modal semantics live on this wrapper. */}
           <m.div
             className="fixed top-[15vh] left-1/2 -translate-x-1/2 z-[201] w-full max-w-lg"
             variants={dialogVariants}
             initial="hidden"
             animate="visible"
             exit="exit"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('commandPalette.placeholder')}
             data-testid="command-palette"
           >
             <Command
@@ -264,7 +268,10 @@ export const CommandPalette: React.FC = () => {
               {/* Search input */}
               <div className="flex items-center gap-2 px-4 py-3 border-b border-subtle">
                 <Search className="h-4 w-4 shrink-0 text-muted" />
+                {/* Autofocus is safe here: the palette only mounts on an
+                    explicit Ctrl+K, so typing is what the user just asked for. */}
                 <Command.Input
+                  autoFocus
                   value={search}
                   onValueChange={setSearch}
                   className="flex-1 bg-transparent text-sm text-text-primary placeholder-[var(--sf-text-secondary)] outline-none"

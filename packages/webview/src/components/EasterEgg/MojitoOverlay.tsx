@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /** Props for the MojitoOverlay component. */
 export interface MojitoOverlayProps {
@@ -11,6 +12,8 @@ export interface MojitoOverlayProps {
  * Dismissed by clicking anywhere or pressing Escape.
  */
 export const MojitoOverlay: React.FC<MojitoOverlayProps> = ({ onClose }) => {
+  const { t } = useTranslation();
+
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
@@ -27,7 +30,7 @@ export const MojitoOverlay: React.FC<MojitoOverlayProps> = ({ onClose }) => {
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label="Easter egg"
+      aria-label={t('a11y.easterEgg', 'Easter egg')}
       style={{
         position: 'fixed',
         inset: 0,

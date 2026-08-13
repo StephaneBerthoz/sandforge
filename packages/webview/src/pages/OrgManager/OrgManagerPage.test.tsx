@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -146,12 +146,42 @@ describe('OrgManagerPage', () => {
     expect(useOrgStore.getState().selectedOrgId).toBe('org-1');
   });
 
-  it('should remove org on disconnect', () => {
+  it('should not disconnect on the bare card click — it only opens the confirmation', () => {
     useOrgStore.setState({ orgs: [mockOrg] });
     render(<OrgManagerPage />);
     fireEvent.click(screen.getByText('Disconnect'));
+    expect(screen.getByTestId('danger-input')).toBeDefined();
+    expect(useOrgStore.getState().orgs).toHaveLength(1);
+    expect(mockDisconnectMutate).not.toHaveBeenCalled();
+  });
+
+  it('should name the org in the confirmation and warn about the lost customisations', () => {
+    useOrgStore.setState({ orgs: [mockOrg] });
+    render(<OrgManagerPage />);
+    fireEvent.click(screen.getByText('Disconnect'));
+    // The alias also appears on the card behind the dialog, so scope the query.
+    const dialog = screen.getByTestId('danger-title').parentElement as HTMLElement;
+    expect(within(dialog).getByText(/Dev Sandbox/).textContent).toContain('safety tier');
+  });
+
+  it('should remove org once the disconnect is confirmed', () => {
+    useOrgStore.setState({ orgs: [mockOrg] });
+    render(<OrgManagerPage />);
+    fireEvent.click(screen.getByText('Disconnect'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Disconnect' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
     expect(useOrgStore.getState().orgs).toHaveLength(0);
     expect(mockDisconnectMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
+  });
+
+  it('should keep the org when the confirmation is cancelled', () => {
+    useOrgStore.setState({ orgs: [mockOrg] });
+    render(<OrgManagerPage />);
+    fireEvent.click(screen.getByText('Disconnect'));
+    const dialog = screen.getByTestId('danger-title').parentElement as HTMLElement;
+    fireEvent.click(within(dialog).getByText('Cancel'));
+    expect(useOrgStore.getState().orgs).toHaveLength(1);
+    expect(mockDisconnectMutate).not.toHaveBeenCalled();
   });
 
   it('should render the connect banner with auth methods', () => {

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AnimatePresence, m } from 'framer-motion';
 import { cn } from '../../theme';
@@ -128,17 +128,26 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
                     <Dialog.Description className="text-xs text-[var(--vscode-descriptionForeground,#868686)] mt-2">
                       {description}
                     </Dialog.Description>
+                    {/* One translated sentence rather than three glued
+                        fragments: languages that put the literal first or last
+                        need the <code> to move with it. */}
                     <p className="text-xs text-[var(--vscode-editor-foreground,#d4d4d4)] mt-3">
-                      Type{' '}
-                      <code
-                        className={cn(
-                          'px-1 py-0.5 rounded bg-[var(--vscode-input-background,#3c3c3c)] font-mono',
-                          styles.accent,
-                        )}
-                      >
-                        {confirmText}
-                      </code>{' '}
-                      to confirm:
+                      <Trans
+                        i18nKey="common.typeToConfirm"
+                        t={t}
+                        defaults="Type <code>{{text}}</code> to confirm:"
+                        values={{ text: confirmText }}
+                        components={{
+                          code: (
+                            <code
+                              className={cn(
+                                'px-1 py-0.5 rounded bg-[var(--vscode-input-background,#3c3c3c)] font-mono',
+                                styles.accent,
+                              )}
+                            />
+                          ),
+                        }}
+                      />
                     </p>
                     <input
                       ref={inputRef}

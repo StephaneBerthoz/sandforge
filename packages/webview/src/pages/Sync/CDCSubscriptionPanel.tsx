@@ -18,13 +18,13 @@ const statusVariantMap: Record<CDCConnectionStatus, BadgeVariant> = {
   error: 'error',
 };
 
-/** Conflict strategy options for the select dropdown. */
-const conflictOptions: { value: ConflictStrategy; label: string }[] = [
-  { value: 'source_wins', label: 'Source Wins' },
-  { value: 'target_wins', label: 'Target Wins' },
-  { value: 'newest_wins', label: 'Newest Wins' },
-  { value: 'manual', label: 'Manual' },
-  { value: 'merge', label: 'Merge' },
+/** Conflict strategy options for the select dropdown, resolved at render. */
+const conflictOptions: { value: ConflictStrategy; labelKey: string }[] = [
+  { value: 'source_wins', labelKey: 'sync.realtime.conflict.source_wins' },
+  { value: 'target_wins', labelKey: 'sync.realtime.conflict.target_wins' },
+  { value: 'newest_wins', labelKey: 'sync.realtime.conflict.newest_wins' },
+  { value: 'manual', labelKey: 'sync.realtime.conflict.manual' },
+  { value: 'merge', labelKey: 'sync.realtime.conflict.merge' },
 ];
 
 /** Props for the CDCSubscriptionPanel component. */
@@ -50,6 +50,11 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ avai
 
   const isStreaming = status === 'syncing' || status === 'connecting' || status === 'paused';
   const isConnecting = status === 'connecting';
+
+  const conflictSelectOptions = React.useMemo(
+    () => conflictOptions.map((opt) => ({ value: opt.value, label: t(opt.labelKey) })),
+    [t],
+  );
 
   /** Toggle an object in the watched list. */
   const handleObjectToggle = (objectName: string, checked: boolean): void => {
@@ -143,7 +148,7 @@ export const CDCSubscriptionPanel: React.FC<CDCSubscriptionPanelProps> = ({ avai
                     </label>
                     {config && (
                       <Select
-                        options={conflictOptions}
+                        options={conflictSelectOptions}
                         value={config.conflictStrategy}
                         onChange={(e) =>
                           setConflictStrategy(objectName, e.target.value as ConflictStrategy)

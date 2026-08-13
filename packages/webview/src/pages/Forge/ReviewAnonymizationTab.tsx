@@ -29,15 +29,15 @@ const METHODS: AnonymizationMethod[] = [
   'generalize',
 ];
 
-/** Human-readable labels for each PII category. */
-const CATEGORY_LABELS: Record<ForgeAnonymizationCategory, string> = {
-  email: 'Email',
-  phone: 'Phone',
-  name: 'Name (First/Last)',
-  address: 'Address',
-  ssn_id: 'SSN / National ID',
-  financial: 'Financial',
-  other: 'Other',
+/** i18n keys for each PII category label. */
+const CATEGORY_LABEL_KEYS: Record<ForgeAnonymizationCategory, string> = {
+  email: 'forge.anonCategory.email',
+  phone: 'forge.anonCategory.phone',
+  name: 'forge.anonCategory.name',
+  address: 'forge.anonCategory.address',
+  ssn_id: 'forge.anonCategory.ssn_id',
+  financial: 'forge.anonCategory.financial',
+  other: 'forge.anonCategory.other',
 };
 
 /**
@@ -129,7 +129,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
                 data-testid={`anon-row-${cat}`}
                 className="border-b border-subtle last:border-b-0"
               >
-                <td className="px-3 py-2 text-text-primary">{CATEGORY_LABELS[cat]}</td>
+                <td className="px-3 py-2 text-text-primary">{t(CATEGORY_LABEL_KEYS[cat])}</td>
                 <td className="px-3 py-2">
                   <select
                     data-testid={`anon-select-${cat}`}
@@ -139,7 +139,7 @@ export const ReviewAnonymizationTab: React.FC = () => {
                   >
                     {METHODS.map((m) => (
                       <option key={m} value={m}>
-                        {m}
+                        {t(`forge.anonMethod.${m}`)}
                       </option>
                     ))}
                   </select>

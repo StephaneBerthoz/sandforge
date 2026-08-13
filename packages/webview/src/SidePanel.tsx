@@ -361,9 +361,7 @@ export const SidePanel: React.FC = () => {
                         />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{org.alias || org.username}</div>
-                          <div className="text-[10px] text-text-muted truncate">
-                            {org.username}
-                          </div>
+                          <div className="text-[10px] text-text-muted truncate">{org.username}</div>
                         </div>
                         <span
                           className={cn(
@@ -511,7 +509,11 @@ export const SidePanel: React.FC = () => {
           <div className="text-[10px] font-semibold uppercase tracking-wider text-text-muted px-1 mb-1.5">
             {t('sidePanel.favorites', 'Favorites')}
           </div>
-          <nav className="flex flex-col gap-0.5" data-testid="sidepanel-favorites">
+          <nav
+            className="flex flex-col gap-0.5"
+            aria-label={t('sidePanel.favorites', 'Favorites')}
+            data-testid="sidepanel-favorites"
+          >
             {MODULE_ITEMS.filter((item) => favorites.includes(item.id)).map((item) => (
               <button
                 key={item.id}
@@ -536,7 +538,11 @@ export const SidePanel: React.FC = () => {
         <div className="text-[10px] font-semibold uppercase tracking-widest text-text-muted px-1 mb-2">
           {t('sidePanel.modules', 'Modules')}
         </div>
-        <nav className="flex flex-col gap-0.5" data-testid="sidepanel-modules">
+        <nav
+          className="flex flex-col gap-0.5"
+          aria-label={t('sidePanel.modules', 'Modules')}
+          data-testid="sidepanel-modules"
+        >
           {MODULE_ITEMS.map((item) => (
             <div key={item.id} className="flex items-center group">
               <button
@@ -578,7 +584,11 @@ export const SidePanel: React.FC = () => {
         <div className="text-[10px] font-semibold uppercase tracking-widest text-text-muted px-1 mb-2">
           {t('sidePanel.tools', 'Tools')}
         </div>
-        <nav className="flex flex-col gap-0.5" data-testid="sidepanel-tools">
+        <nav
+          className="flex flex-col gap-0.5"
+          aria-label={t('sidePanel.tools', 'Tools')}
+          data-testid="sidepanel-tools"
+        >
           {TOOL_ITEMS.map((item) => (
             <button
               key={item.id}
