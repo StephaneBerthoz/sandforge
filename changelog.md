@@ -5,6 +5,36 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] - 2026-08-13
+
+Three findings the last audit rated high, and the discovery that the
+Marketplace listing had been showing six broken images.
+
+### Performance
+
+- **A backup no longer slows down every setting you change.** Backup record
+  sets were written into VSCode's `globalState`, a store VSCode re-serializes
+  in full on every write. One backup put megabytes behind every unrelated save
+  — a toggled setting, a saved template, an org refresh — and behind startup,
+  which parses the whole thing before the first panel opens. Records now go to
+  files. Existing backups stay restorable: the readers fall back to the old
+  location, so nothing needs migrating.
+
+### Documentation
+
+- **The screenshots show the product you actually get.** Every one of them
+  pictured a UI deleted three minor versions ago — a navigation sidebar removed
+  in 1.10, a "v3.0.0" watermark from the pre-1.0 internal numbering, an
+  untranslated label. The generator that made them drove that same deleted
+  sidebar, so it could not have been re-run: it broke when the screenshots
+  became wrong, and nothing failed. Four modules are now shown with real
+  content, and the release fails if the shipped images stop matching.
+- **The Marketplace images load at all.** They pointed at a private repository,
+  and the Marketplace fetches images anonymously from the public internet, so
+  every one returned 404 — the listing has been showing six broken images. They
+  now come from a public assets repository, checked on every release both for
+  reachability and for being the same bytes as the files here.
+
 ## [1.15.0] - 2026-08-13
 
 This release finishes things the codebase had already built. Four of the six
