@@ -18,6 +18,7 @@ import type {
 import type { SmartAnonymizer } from './SmartAnonymizer.js';
 import type { RecordIdRemapper } from './RecordIdRemapper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { logger } from '../../logger.js';
 
 /** Local alias matching the autopilot domain name. */
 type AnonymizationRule = AutopilotAnonymizationRule;
@@ -45,6 +46,17 @@ export interface InsertResult {
   errors: string[];
 }
 
+/**
+ * Fatal-crash event. Carries the message the run died with, so a listener that
+ * only observes events (and never sees the thrown error) can still report why.
+ */
+export interface AutopilotExecutionFailedEvent extends AutopilotEvent {
+  /** Event type discriminator */
+  readonly type: 'execution-failed';
+  /** Message the execution died with */
+  readonly error: string;
+}
+
 /** Events emitted by AutopilotExecutor */
 export type AutopilotExecutorEvents = {
   [key: string]: unknown;
@@ -54,7 +66,7 @@ export type AutopilotExecutorEvents = {
   'wave-completed': AutopilotEvent;
   'execution-started': AutopilotEvent;
   'execution-completed': AutopilotEvent;
-  'execution-failed': AutopilotEvent;
+  'execution-failed': AutopilotExecutionFailedEvent;
   paused: AutopilotEvent;
   resumed: AutopilotEvent;
 };
@@ -75,6 +87,17 @@ export interface ExecutionResult {
   failedObjects: string[];
   /** Objects that were skipped */
   skippedObjects: string[];
+  /**
+   * First error message per failed object, keyed by API name. The aggregate
+   * counters cannot carry it, and it is what the UI shows on the failed node.
+   */
+  nodeErrors?: Record<string, string>;
+  /**
+   * Message the run died with. Set only when execution crashed, in which case
+   * the counters above are partial and the executor rethrows instead of
+   * returning this result.
+   */
+  fatalError?: string;
 }
 
 /** Dependencies for the executor */
@@ -134,6 +157,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
     recordCounts: Map<string, number>,
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
+    const nodeErrors: Record<string, string> = {};
     const result: ExecutionResult = {
       totalSuccess: 0,
       totalFailure: 0,
@@ -142,6 +166,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       completedObjects: [],
       failedObjects: [],
       skippedObjects: [],
+      nodeErrors,
     };
 
     this.emit(
@@ -179,6 +204,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
 
               if (objResult.errors.length > 0 && objResult.success === 0) {
                 result.failedObjects.push(objectApiName);
+                nodeErrors[objectApiName] = objResult.errors[0];
                 this.emit(
                   'node-failed',
                   this.makeEvent({
@@ -207,6 +233,7 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
             } catch (err) {
               result.failedObjects.push(objectApiName);
               const errorMsg = extractErrorMessage(err);
+              nodeErrors[objectApiName] = errorMsg;
               this.emit(
                 'node-failed',
                 this.makeEvent({
@@ -242,16 +269,21 @@ export class AutopilotExecutor extends TypedEventEmitter<AutopilotExecutorEvents
       );
 
       return result;
-    } catch {
+    } catch (err) {
       result.elapsedMs = Date.now() - startTime;
+      result.fatalError = extractErrorMessage(err);
+      logger.error('Autopilot execution crashed', { error: result.fatalError });
       this.emit(
         'execution-failed',
         this.makeEvent({
           type: 'execution-failed' as const,
           timestamp: '',
+          error: result.fatalError,
         }),
       );
-      return result;
+      // Rethrow: returning hands the caller partial counters indistinguishable
+      // from a finished run, which is how a crash reaches the user as a success.
+      throw err;
     }
   }
 

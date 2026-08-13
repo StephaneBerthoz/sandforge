@@ -5,44 +5,36 @@ import type { ForgeConfig } from '@sandforge/shared';
 
 function createMockDeps(): GraphDiscoveryDeps {
   return {
-    describeObject: vi
-      .fn<GraphDiscoveryDeps['describeObject']>()
-      .mockResolvedValue({
-        name: 'Account',
-        fields: [
-          {
-            name: 'Id',
-            type: 'id',
-            referenceTo: [],
-            relationshipName: null,
-            isMasterDetail: false,
-          },
-          {
-            name: 'Name',
-            type: 'string',
-            referenceTo: [],
-            relationshipName: null,
-            isMasterDetail: false,
-          },
-        ],
-        childRelationships: [],
-      }),
-    queryCount: vi
-      .fn<GraphDiscoveryDeps['queryCount']>()
-      .mockResolvedValue(10),
-    detectPII: vi
-      .fn<GraphDiscoveryDeps['detectPII']>()
-      .mockReturnValue([]),
-    describeGlobal: vi
-      .fn<GraphDiscoveryDeps['describeGlobal']>()
-      .mockResolvedValue([
-        { name: 'Account', keyPrefix: '001' },
-        { name: 'Contact', keyPrefix: '003' },
-        { name: 'Opportunity', keyPrefix: '006' },
-        { name: 'Lead', keyPrefix: '00Q' },
-        { name: 'Case', keyPrefix: '500' },
-        { name: 'CustomObj__c', keyPrefix: 'a0B' },
-      ]),
+    describeObject: vi.fn<GraphDiscoveryDeps['describeObject']>().mockResolvedValue({
+      name: 'Account',
+      fields: [
+        {
+          name: 'Id',
+          type: 'id',
+          referenceTo: [],
+          relationshipName: null,
+          isMasterDetail: false,
+        },
+        {
+          name: 'Name',
+          type: 'string',
+          referenceTo: [],
+          relationshipName: null,
+          isMasterDetail: false,
+        },
+      ],
+      childRelationships: [],
+    }),
+    queryCount: vi.fn<GraphDiscoveryDeps['queryCount']>().mockResolvedValue(10),
+    detectPII: vi.fn<GraphDiscoveryDeps['detectPII']>().mockReturnValue([]),
+    describeGlobal: vi.fn<GraphDiscoveryDeps['describeGlobal']>().mockResolvedValue([
+      { name: 'Account', keyPrefix: '001' },
+      { name: 'Contact', keyPrefix: '003' },
+      { name: 'Opportunity', keyPrefix: '006' },
+      { name: 'Lead', keyPrefix: '00Q' },
+      { name: 'Case', keyPrefix: '500' },
+      { name: 'CustomObj__c', keyPrefix: 'a0B' },
+    ]),
   };
 }
 
@@ -492,6 +484,110 @@ describe('GraphDiscoveryService', () => {
     it('should throw for unsupported input mode without recordId or soqlQuery', async () => {
       const config = createConfig({ inputMode: 'template', recordId: undefined });
       await expect(service.discover(config)).rejects.toThrow('Cannot resolve root object');
+    });
+
+    it('should emit an error node when describeObject rejects', async () => {
+      vi.mocked(deps.describeObject).mockRejectedValue(new Error('INSUFFICIENT_ACCESS'));
+
+      const config = createConfig();
+      const graph = await service.discover(config);
+
+      expect(graph.nodes).toHaveLength(1);
+      const node = graph.nodes[0];
+      expect(node.objectApiName).toBe('Account');
+      expect(node.status).toBe('error');
+      expect(node.included).toBe(false);
+      expect(node.fieldCount).toBe(0);
+      expect(node.recordCount).toBe(0);
+      expect(node.errors[0]).toContain('INSUFFICIENT_ACCESS');
+    });
+
+    it('should keep discovering siblings when one describe rejects', async () => {
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+            {
+              childSObject: 'Opportunity',
+              field: 'AccountId',
+              relationshipName: 'Opportunities',
+              isCascadeDelete: false,
+            },
+          ]);
+        }
+        if (objectName === 'Contact') {
+          throw new Error('Describe timed out');
+        }
+        return { name: objectName, fields: [], childRelationships: [] };
+      });
+
+      const config = createConfig({ depth: 'direct' });
+      const graph = await service.discover(config);
+
+      const byName = new Map(graph.nodes.map((n) => [n.objectApiName, n]));
+      expect([...byName.keys()]).toEqual(['Account', 'Contact', 'Opportunity']);
+      expect(byName.get('Contact')?.status).toBe('error');
+      expect(byName.get('Contact')?.errors[0]).toContain('Describe timed out');
+      expect(byName.get('Opportunity')?.status).toBe('idle');
+    });
+
+    it('should report the node in error when the record count query rejects', async () => {
+      vi.mocked(deps.describeObject).mockResolvedValue(makeAccountDescribe());
+      vi.mocked(deps.queryCount).mockRejectedValue(new Error('non-queryable entity'));
+
+      const config = createConfig();
+      const graph = await service.discover(config);
+
+      const node = graph.nodes[0];
+      expect(node.status).toBe('error');
+      expect(node.included).toBe(false);
+      expect(node.recordCount).toBe(0);
+      expect(node.fieldCount).toBe(2);
+      expect(node.errors).toEqual(['Record count unavailable: non-queryable entity']);
+      expect(graph.totalRecords).toBe(0);
+      expect(graph.estimatedSizeMB).toBe(0);
+    });
+
+    it('should still walk relations when only the record count fails', async () => {
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+          ]);
+        }
+        return makeContactDescribe();
+      });
+      vi.mocked(deps.queryCount).mockRejectedValue(new Error('QUERY_TIMEOUT'));
+
+      const config = createConfig({ depth: 'direct' });
+      const graph = await service.discover(config);
+
+      expect(graph.nodes.map((n) => n.objectApiName)).toEqual(['Account', 'Contact']);
+      expect(graph.edges.length).toBeGreaterThan(0);
+    });
+
+    it('should emit progress for nodes that failed to describe', async () => {
+      vi.mocked(deps.describeObject).mockRejectedValue(new Error('boom'));
+
+      const onProgress = vi.fn();
+      const config = createConfig();
+      await service.discover(config, { onProgress });
+
+      expect(onProgress).toHaveBeenCalledWith({
+        objectApiName: 'Account',
+        discoveredCount: 1,
+        queueRemaining: 0,
+      });
     });
   });
 

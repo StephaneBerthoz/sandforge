@@ -1,4 +1,5 @@
-import type { BaseMessage, NotificationMessage } from '@sandforge/shared';
+import type { BaseMessage, NotificationMessage, GrappeConfig } from '@sandforge/shared';
+import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import type { MessageBroker } from '../MessageBroker.js';
 import type { OrgManager } from '../../core/connection/OrgManager.js';
@@ -225,6 +226,70 @@ export function sendHandlerError(
   };
   deps.broker.postToWebview(errMsg);
   deps.log(`[TX] ${messageType}: ${message}`);
+}
+
+/** The shape every orchestrator's optional `onGrappeEvent` callback receives. */
+export interface GrappeEventEnvelope {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Forward an orchestrator grappe event onto the bridge.
+ *
+ * The three orchestrators (seed, sync, autopilot) emit `grappe:started`,
+ * `grappe:partitionProgress` and `grappe:completed` through an OPTIONAL
+ * injected callback. Nothing assigned it, so BridgeProvider's three listeners
+ * and the whole Grappe page were fed by no one. Every construction site must
+ * pass this — see the guard in shared's `emittedChannels.test.ts`.
+ */
+export function postGrappeEvent(
+  deps: Pick<HandlerDeps, 'broker' | 'nextId'>,
+  event: GrappeEventEnvelope,
+): void {
+  const msg: BaseMessage & { payload: Record<string, unknown> } = {
+    id: deps.nextId(),
+    type: event.type,
+    timestamp: Date.now(),
+    payload: event.payload,
+  };
+  deps.broker.postToWebview(msg);
+}
+
+/**
+ * Build the grappe configuration from the `sandforge.grappe.*` settings
+ * (contributed in package.json).
+ *
+ * Returns `undefined` when the settings bundle is unavailable or grappe is
+ * off, which is what every `isGrappeActive()` reads as "stay sequential" —
+ * partitioned execution is opt-in and must never turn itself on.
+ */
+export function readGrappeConfig(services: Services | undefined): GrappeConfig | undefined {
+  const get = services?.getSandforgeSetting;
+  if (!get || !get<boolean>('grappe.enabled', false)) {
+    return undefined;
+  }
+  return {
+    enabled: true,
+    autoActivateThreshold: get<number>('grappe.autoActivateThreshold', 10_000),
+    // Not a contributed setting: every grappe path is a sequential for-await
+    // loop, so there is nothing to size. It was published as
+    // `sandforge.grappe.maxWorkers` — "partitions processed concurrently" — for
+    // one release, promising a concurrency that does not exist anywhere.
+    maxWorkers: DEFAULT_GRAPPE_CONFIG.maxWorkers,
+    grappeSize: get<number>('grappe.grappeSize', 5000),
+    strategy: 'round_robin',
+    backPressure: {
+      enabled: false,
+      maxQueueDepth: 3,
+      highWaterMark: 80,
+      lowWaterMark: 60,
+      strategy: 'pause',
+      monitoringInterval: 5000,
+    },
+    checkpointing: true,
+    isolationLevel: 'per_grappe',
+  };
 }
 
 /** Send operation:failed lifecycle message. */

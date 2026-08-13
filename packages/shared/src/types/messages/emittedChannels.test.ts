@@ -76,7 +76,31 @@ const EMISSION_PATTERNS: ReadonlyArray<RegExp> = [
   // miss — it exists so future expression-arg call sites cannot slip through.
   /\b(?:validatePayload|parsePayload)\s*\([\s\S]{0,400}?'([^']+)'\s*,\s*(?:this\.)?deps[\s,)]/g,
   /\bpostTo(?:Webview|AllPanels)\s*\(\s*\{[^}]*?type:\s*'([^']+)'/g,
+  // 5. emission through an optional injected callback —
+  //    `this.deps.onGrappeEvent?.({ type: 'x:y'`. See CALLBACK_EMISSION_RE.
+  /\bthis\.deps\.\w+\?\.\(\s*\{\s*type:\s*'([^']+)'/g,
 ];
+
+/**
+ * Same emission as idiom 5, but capturing the callback name (group 1) as well
+ * as the channel (group 2).
+ *
+ * Declaring the channel is not enough when nothing ever *assigns* the
+ * callback. The three `grappe:*` channels shipped exactly that way: declared
+ * on both sides, emitted from three orchestrators, and injected by none of
+ * their construction sites — so BridgeProvider's listeners and the whole
+ * Grappe page were fed by no one, invisibly to every other guard in this file.
+ */
+const CALLBACK_EMISSION_RE = /\bthis\.deps\.(\w+)\?\.\(\s*\{\s*type:\s*'([^']+)'/g;
+
+/**
+ * Matches an *assignment* of `name` in an object literal (`name: (e) => …`),
+ * never its declaration — an optional property is written `name?:`, which the
+ * `\s*:` here cannot reach past the `?`.
+ */
+function assignmentRe(name: string): RegExp {
+  return new RegExp(`\\b${name}\\s*:\\s*(?:\\(|async|function|this\\.|[A-Za-z_$])`);
+}
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -138,6 +162,34 @@ describe('emitted channels (emission-side anti-drift)', () => {
     const zodLiterals = readZodLiterals();
     const missing = [...readEmittedChannels().keys()].filter((l) => !zodLiterals.has(l));
     expect(missing).toEqual([]);
+  });
+
+  it('every channel emitted through an optional callback has that callback injected', () => {
+    // types/messages -> types -> src -> shared -> packages, then extension/src
+    const extSrc = join(__dirname, '..', '..', '..', '..', 'extension', 'src');
+    const files = walk(extSrc).map((file) => ({ file, src: readFileSync(file, 'utf8') }));
+
+    /** callback name -> channels it is the sole emission site of. */
+    const byCallback = new Map<string, Set<string>>();
+    for (const { src } of files) {
+      for (const m of src.matchAll(CALLBACK_EMISSION_RE)) {
+        const channels = byCallback.get(m[1]) ?? new Set<string>();
+        channels.add(m[2]);
+        byCallback.set(m[1], channels);
+      }
+    }
+
+    // Sanity: the extraction must find the grappe trio, not pass vacuously.
+    expect([...byCallback.keys()]).toContain('onGrappeEvent');
+
+    const orphaned: string[] = [];
+    for (const [callback, channels] of byCallback) {
+      const re = assignmentRe(callback);
+      if (!files.some(({ src }) => re.test(src))) {
+        orphaned.push(`${callback} (never injected; would silence ${[...channels].join(', ')})`);
+      }
+    }
+    expect(orphaned).toEqual([]);
   });
 
   it('every emitted channel has a TS message interface in a domain file', () => {

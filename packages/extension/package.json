@@ -78,6 +78,7 @@
     }
   },
   "main": "./dist/extension.js",
+  "l10n": "./l10n",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -340,6 +341,23 @@
           "type": "boolean",
           "default": true,
           "description": "%config.safety.auditLogging.description%"
+        },
+        "sandforge.grappe.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run large seed, sync and autopilot operations in partitioned (grappe) mode, with per-partition progress in the Grappe view."
+        },
+        "sandforge.grappe.autoActivateThreshold": {
+          "type": "number",
+          "default": 10000,
+          "minimum": 1,
+          "description": "Record count at or above which grappe mode activates (seed and autopilot). Ignored when sandforge.grappe.enabled is off."
+        },
+        "sandforge.grappe.grappeSize": {
+          "type": "number",
+          "default": 5000,
+          "minimum": 1,
+          "description": "Records per grappe partition."
         }
       }
     }

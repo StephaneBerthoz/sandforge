@@ -1,6 +1,8 @@
 /** Re-exported from the central AI types module (single source of truth). */
 export type { AIProvider } from './types.js';
 import type { AIProvider } from './types.js';
+import { wrapAsUserData } from '../../adapters/ai/safety/index.js';
+import { NL2SOQL_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js';
 
 /** Schema context describing Salesforce objects and their fields. */
 export interface SchemaContext {
@@ -55,7 +57,7 @@ export class NL2SOQL {
    */
   async generateSOQL(naturalLanguage: string, schema: SchemaContext): Promise<NL2SOQLResult> {
     const prompt = buildPrompt(naturalLanguage, schema);
-    const raw = await this.provider(prompt);
+    const raw = await this.provider(prompt, NL2SOQL_SYSTEM_PROMPT);
     const result = parseAIResponse(raw);
 
     this.history.push(result);
@@ -170,7 +172,10 @@ function buildPrompt(naturalLanguage: string, schema: SchemaContext): string {
     'Available schema:',
     ...objectDescriptions,
     '',
-    `User query: ${naturalLanguage}`,
+    // The query is free text the user pastes — and may itself have been copied
+    // out of a record — so it crosses the <user-data> boundary instead of
+    // sitting at instruction level next to the schema description.
+    `User query: ${wrapAsUserData('userQuery', naturalLanguage)}`,
     '',
     'Respond with ONLY a JSON object in this exact format (no markdown, no explanation outside the JSON):',
     '{',

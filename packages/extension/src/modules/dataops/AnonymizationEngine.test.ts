@@ -140,17 +140,62 @@ describe('AnonymizationEngine', () => {
         config: { fakerMethod: 'internet.email', fakerLocale: 'en' },
       };
       const result = engine.applyRule('real@example.com', rule);
-      expect(String(result)).toContain('fake_internet.email_en_');
+      // A fake email has to be an email, or the anonymized org fails the
+      // validation rules the real one passed.
+      expect(String(result)).toMatch(/^[a-z]+\.[a-z]+@example\.com$/);
     });
 
-    it('should handle truncate rule type', () => {
+    it('should not encode the original value length in a fake value', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Notes__c',
+        method: 'fake',
+        config: {},
+      };
+      // The old output was `fake_<method>_<locale>_<length>`: the character
+      // count alone re-identifies a record inside a known population.
+      expect(String(engine.applyRule('ab', rule))).toMatch(/^fake_[0-9a-f]{8}$/);
+      expect(String(engine.applyRule('a'.repeat(200), rule))).toMatch(/^fake_[0-9a-f]{8}$/);
+    });
+
+    it('should draw every fake field of one record from the same persona', () => {
+      const records = [
+        { Id: '003xx000001', FirstName: 'Alexander', Email: 'alexander.hamilton@treasury.gov' },
+      ];
+      const rules: DataOpsAnonymizationRule[] = [
+        { objectApiName: 'Contact', fieldApiName: 'FirstName', method: 'fake', config: {} },
+        { objectApiName: 'Contact', fieldApiName: 'Email', method: 'fake', config: {} },
+      ];
+
+      const [result] = engine.anonymize(records, rules);
+
+      const firstName = String(result['FirstName']).toLowerCase();
+      expect(String(result['Email']).startsWith(`${firstName}.`)).toBe(true);
+    });
+
+    it('should keep no plaintext prefix when truncating', () => {
       const rule: DataOpsAnonymizationRule = {
         objectApiName: 'Contact',
         fieldApiName: 'Description',
         method: 'truncate',
         config: {},
       };
-      expect(engine.applyRule('Long description text', rule)).toBe('Lon');
+      // `slice(0, 3)` left "Lon" — the opening characters are the identifying
+      // ones, and no configured length means keep nothing.
+      expect(engine.applyRule('Long description text', rule)).toBe('');
+    });
+
+    it('should keep the last N characters when config.truncateLength is set', () => {
+      const config: DataOpsAnonymizationRule['config'] & { truncateLength: number } = {
+        truncateLength: 4,
+      };
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Description',
+        method: 'truncate',
+        config,
+      };
+      expect(engine.applyRule('Long description text', rule)).toBe('text');
     });
 
     it('should handle preserve_format rule type', () => {
@@ -172,6 +217,36 @@ describe('AnonymizationEngine', () => {
       };
       const result = engine.applyRule('ABCD', rule);
       expect(String(result)).toHaveLength(4);
+    });
+
+    it('should not shuffle by a fixed rotation anyone can undo', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Code',
+        method: 'shuffle',
+        config: { hashSalt: 'salt' },
+      };
+      // The old implementation rotated every value right by one character, so
+      // the anonymized output was recovered by rotating it back.
+      expect(engine.applyRule('ABCDEFGHIJ', rule)).not.toBe('JABCDEFGHI');
+    });
+
+    it('should produce a different permutation under a different salt', () => {
+      const base = { objectApiName: 'Contact', fieldApiName: 'Code', method: 'shuffle' as const };
+      const a = engine.applyRule('ABCDEFGHIJ', { ...base, config: { hashSalt: 'salt-a' } });
+      const b = engine.applyRule('ABCDEFGHIJ', { ...base, config: { hashSalt: 'salt-b' } });
+      expect(a).not.toBe(b);
+    });
+
+    it('should be deterministic for the same value and salt', () => {
+      const rule: DataOpsAnonymizationRule = {
+        objectApiName: 'Contact',
+        fieldApiName: 'Code',
+        method: 'shuffle',
+        config: { hashSalt: 'salt' },
+      };
+      // Re-running the same extract must not produce a second, different value.
+      expect(engine.applyRule('ABCDEFGHIJ', rule)).toBe(engine.applyRule('ABCDEFGHIJ', rule));
     });
   });
 

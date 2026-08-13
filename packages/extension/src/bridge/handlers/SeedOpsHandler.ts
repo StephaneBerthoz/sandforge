@@ -5,7 +5,7 @@ import {
   RobustnessConfigSchema,
 } from '@sandforge/shared';
 import type { RobustnessConfig } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, GrappeEventEnvelope } from './HandlerTypes.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -13,6 +13,8 @@ import {
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  postGrappeEvent,
+  readGrappeConfig,
 } from './HandlerTypes.js';
 import { SeedTemplateStore } from '../../modules/seed/SeedTemplateStore.js';
 import { SeedTemplateManager } from '../../modules/seed/SeedTemplateManager.js';
@@ -533,13 +535,15 @@ export class SeedOpsHandler implements DomainHandler {
             // Settle the in-flight useBridgeMutation listener on seed:error
             // (same dual-channel contract as sync — without it the mutation
             // spun until its 120 s timeout). Correlated to the request so the
-            // webview can drop stale error responses.
+            // webview can drop stale error responses. The code is stable and
+            // SandForge-authored (unlike pass-through Salesforce messages), so
+            // the UI can key off it instead of matching English prose.
             sendHandlerError(
               this.deps,
               'seed:execute',
               'seed:error',
               new Error(message),
-              undefined,
+              'PROD_CONFIRMATION_DECLINED',
               false,
               undefined,
               msg,
@@ -750,7 +754,13 @@ export class SeedOpsHandler implements DomainHandler {
               }
             }
           } else {
-            errors.push(retryResult.error?.message ?? 'Insert failed after retries');
+            // The whole batch is lost, not one record: `errors.length` is what
+            // SeedOrchestrator reports as recordsFailed, so a single push made
+            // a 180-record wipe-out read as "1 failed".
+            const failMsg = retryResult.error?.message ?? 'Insert failed after retries';
+            for (let k = 0; k < batch.length; k++) {
+              errors.push(failMsg);
+            }
           }
         }
 
@@ -772,6 +782,10 @@ export class SeedOpsHandler implements DomainHandler {
       const validator = new SeedValidator();
       const planBuilder = new DataPlanBuilder();
 
+      const { SeedGrappeAdapter } = await import('../../modules/seed/SeedGrappeAdapter.js');
+
+      const grappeConfig = readGrappeConfig(this.deps.services);
+
       const seedDeps = {
         validator,
         planBuilder,
@@ -781,6 +795,12 @@ export class SeedOpsHandler implements DomainHandler {
         generateId: () => crypto.randomUUID(),
         now: () => new Date().toISOString(),
         services: this.deps.services,
+        // Grappe stays sequential unless `sandforge.grappe.enabled` is on AND
+        // the template crosses the threshold — but adapter, config and callback
+        // must all be present, or the Grappe page renders an empty shell.
+        grappeAdapter: new SeedGrappeAdapter(() => crypto.randomUUID(), grappeConfig?.grappeSize),
+        grappeConfig,
+        onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
       };
       if (!this.deps.services) {
         throw new Error(

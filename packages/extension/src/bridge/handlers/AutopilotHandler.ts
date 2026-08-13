@@ -356,7 +356,10 @@ export class AutopilotHandler implements DomainHandler {
             });
           } else if (failedSet.has(name)) {
             this.sendNodeProgress(msg, name, 'failed', wave.order, {
-              error: `Execution failed for ${name}`,
+              // The Salesforce message is the only actionable part; the generic
+              // line is a fallback for a failure the executor could not
+              // attribute to the node.
+              error: result.nodeErrors?.[name] ?? `Execution failed for ${name}`,
             });
           } else if (skippedSet.has(name)) {
             this.sendNodeProgress(msg, name, 'completed', wave.order, {

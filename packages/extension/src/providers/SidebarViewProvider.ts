@@ -49,6 +49,12 @@ export class SidebarViewProvider {
     private broker?: MessageBroker,
     private settingsGetter?: () => Record<string, unknown>,
     private selectedOrgGetter?: () => string | undefined,
+    /**
+     * Configured UI language for `<html lang>`. Separate from settingsGetter
+     * on purpose: the shell is rebuilt on every reveal, and folding it into
+     * the settings-request path would tie two unrelated read cadences.
+     */
+    private languageGetter?: () => string | undefined,
   ) {}
 
   /**
@@ -234,6 +240,9 @@ export class SidebarViewProvider {
       styleUri,
       title: 'SandForge Sidebar',
       moduleId: 'sidepanel',
+      // Stamped on the first paint, before the bundle has restored its own
+      // language — the i18n `languageChanged` listener keeps it in step after.
+      lang: this.languageGetter?.(),
     });
   }
 }

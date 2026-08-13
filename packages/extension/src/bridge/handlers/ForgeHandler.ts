@@ -1,5 +1,6 @@
 import type {
   BaseMessage,
+  ForgeConfig,
   ForgeExecutionResult,
   ForgeTemplate,
   ComplianceFrameworkType,
@@ -191,6 +192,21 @@ const HISTORY_KEY = 'forge:history';
 
 /** ConfigStore category for all forge data. */
 const FORGE_CATEGORY = 'forge';
+
+/**
+ * Drop the org pair from a config so it can be stored as a replay recipe.
+ *
+ * Copy-then-delete rather than rest destructuring: the repo's
+ * `no-unused-vars` rule flags the two discarded bindings. Spreading keeps
+ * every other field, including ones added to ForgeConfig later — an explicit
+ * field list would silently stop persisting them.
+ */
+function stripOrgIds(config: ForgeConfig): Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'> {
+  const copy: Partial<ForgeConfig> = { ...config };
+  delete copy.sourceOrgId;
+  delete copy.targetOrgId;
+  return copy as Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;
+}
 
 /**
  * Domain handler for forge-related webview-to-extension messages.
@@ -619,8 +635,13 @@ export class ForgeHandler implements DomainHandler {
       logger.info('Forge execute started');
       const result = await this.orchestrator.execute(graph, config);
 
-      // Persist to history via ConfigStore
-      const history = [result, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY);
+      // Persist to history via ConfigStore, carrying the config that produced
+      // the run. Without it a history entry is inspectable but not repeatable
+      // — there is nothing to rebuild a `forge:execute` from. Org ids are
+      // stripped (same shape as ForgeTemplate.config): a re-run re-picks
+      // source and target instead of replaying yesterday's org pair.
+      const entry: ForgeExecutionResult = { ...result, config: stripOrgIds(config) };
+      const history = [entry, ...this.loadHistory()].slice(0, ForgeHandler.MAX_HISTORY);
       this.saveHistory(history);
 
       const response = buildResponse(this.deps, msg, 'forge:execute:response', {

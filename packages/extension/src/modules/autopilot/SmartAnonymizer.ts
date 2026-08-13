@@ -16,7 +16,7 @@ import type {
 type AnonymizationRule = AutopilotAnonymizationRule;
 
 /** Field name mapping from Salesforce API names to persona properties */
-const PERSONA_FIELD_MAP: Record<string, keyof AnonymizedPersona> = {
+export const PERSONA_FIELD_MAP: Record<string, keyof AnonymizedPersona> = {
   FirstName: 'firstName',
   LastName: 'lastName',
   Email: 'email',
@@ -39,6 +39,43 @@ const PERSONA_FIELD_MAP: Record<string, keyof AnonymizedPersona> = {
   CompanyName: 'company',
   Name: 'company',
 };
+
+/**
+ * Keyed Fisher-Yates permutation of the characters of `value`.
+ *
+ * The swap sequence comes from an HMAC keystream, so the permutation cannot be
+ * reproduced — and therefore cannot be undone — without `key`. Seeding from the
+ * value itself makes the shuffle a public function of its own input: anyone
+ * holding the anonymized data can recompute the permutation and invert it, so
+ * the value is not protected at all. Deterministic for the same `value` and
+ * `key`, so re-running a dataset still produces the same output.
+ *
+ * A permutation preserves the multiset of characters no matter how it is
+ * derived, so `shuffle` stays the weakest method on offer: it hides ordering,
+ * not content. Prefer `fake` or `hash` for anything that identifies a person.
+ */
+export function keyedShuffle(value: string, key: string): string {
+  const chars = value.split('');
+  if (chars.length < 2) {
+    return value;
+  }
+  // 4 bytes per swap: modulo bias against a 2^32 range is negligible here.
+  const stream = keystream(key, value, 4 * (chars.length - 1));
+  for (let i = chars.length - 1, offset = 0; i > 0; i--, offset += 4) {
+    const j = stream.readUInt32BE(offset) % (i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
+
+/** HMAC-SHA256 in counter mode: `byteLength` bytes derived from `key` and `seed`. */
+function keystream(key: string, seed: string, byteLength: number): Buffer {
+  const blocks: Buffer[] = [];
+  while (blocks.length * 32 < byteLength) {
+    blocks.push(createHmac('sha256', key).update(`${blocks.length}:${seed}`).digest());
+  }
+  return Buffer.concat(blocks).subarray(0, byteLength);
+}
 
 /** Registry of deterministic fake personas for cross-object coherence. */
 export class PersonaRegistry {
@@ -266,7 +303,7 @@ export class SmartAnonymizer {
       case 'shuffle':
         return this.applyShuffle(value);
       case 'truncate':
-        return this.applyTruncate(value);
+        return this.applyTruncate();
       case 'preserve_format':
         return this.applyPreserveFormat(value);
       case 'age_band':
@@ -309,32 +346,36 @@ export class SmartAnonymizer {
    *
    * Keyed rather than a bare digest because the inputs are low-entropy PII —
    * an unkeyed hash of an email or a phone number is recovered by enumeration.
-   * `simpleHash` remains in use below for shuffle seeding and deterministic
-   * fake-value selection, where the output is never a stand-in for the
-   * original value and reversibility carries no disclosure risk.
+   * `simpleHash` remains in use below for persona selection and format
+   * preservation, where the output is a freshly invented value rather than a
+   * transformation of the original and reversibility carries no disclosure risk.
    */
   private applyHash(value: string): string {
     return createHmac('sha256', this.hashSalt).update(value).digest('hex').slice(0, 32);
   }
 
   /**
-   * Shuffle: randomize character order using deterministic seed.
-   * Uses Fisher-Yates with seeded pseudo-random for reproducibility.
+   * Shuffle: randomize character order, keyed by the instance salt.
+   *
+   * The seed is the salt rather than the value: a permutation derived from the
+   * value alone is one anybody can recompute from the anonymized output and run
+   * backwards.
    */
   private applyShuffle(value: string): string {
-    const chars = value.split('');
-    let seed = this.simpleHash(value);
-    for (let i = chars.length - 1; i > 0; i--) {
-      seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
-      const j = seed % (i + 1);
-      [chars[i], chars[j]] = [chars[j], chars[i]];
-    }
-    return chars.join('');
+    return keyedShuffle(value, this.hashSalt);
   }
 
-  /** Truncate: reduce to approximately half length, minimum 1 character. */
-  private applyTruncate(value: string): string {
-    return value.slice(0, Math.max(1, Math.floor(value.length / 2)));
+  /**
+   * Truncate: keep the last N characters — and N is 0 here.
+   *
+   * The opening characters of a name, an email local part or a record id are
+   * the identifying ones — halving "Alexander" leaves "Alex" standing — so a
+   * kept prefix is not anonymization. A suffix discloses far less, but autopilot
+   * rules carry no per-rule config, so there is no N to honour here and the safe
+   * default applies: keep nothing.
+   */
+  private applyTruncate(): string {
+    return '';
   }
 
   /**

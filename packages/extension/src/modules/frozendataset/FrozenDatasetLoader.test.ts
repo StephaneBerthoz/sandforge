@@ -197,6 +197,32 @@ describe('FrozenDatasetLoader — guards', () => {
     ).rejects.toThrow(LoadGuardError);
     expect(calls).toEqual([]);
   });
+
+  it('aborts before any DML when the guard withholds confirmation', async () => {
+    const dataset = makeAccountContactDataset();
+    const calls: DmlCall[] = [];
+    // The entry guards only let development/scratch through, and those tiers
+    // never ask ProductionGuard for a confirmation — so this is defence in
+    // depth against a host-injected guard, not a path the stock guard reaches.
+    // The check is stubbed to demand the confirmation the user then declines.
+    const guard = new ProductionGuard({ requestConfirmation: async () => false });
+    vi.spyOn(guard, 'check').mockReturnValue({
+      allowed: true,
+      requiresConfirmation: true,
+      requiresApproval: false,
+      warnings: [],
+      impactSummary: 'INSERT 1 Account record(s)',
+    });
+    const deps = makeDeps({ dataset, writer: makeWriter(calls), guard });
+    const loader = new FrozenDatasetLoader(deps);
+
+    const error: unknown = await loader.load(makeOptions(deps, dataset)).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(LoadGuardError);
+    expect((error as LoadGuardError).code).toBe('guard-refused');
+    // Refusal happens on the FIRST batch: nothing reached the target org.
+    expect(calls).toEqual([]);
+  });
 });
 
 describe('FrozenDatasetLoader — fresh load', () => {
@@ -232,8 +258,9 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(contract.objects.Account).toMatchObject({ fromFiles: 1, excluded: 0, expected: 1 });
     expect(contract.objects.Contact).toMatchObject({ fromFiles: 1, excluded: 0, expected: 1 });
     expect(report.mappingPath).toContain('referenceid-mapping.json');
-    // ProductionGuard audit trail recorded every DML batch.
-    expect(guard.getAuditLog().length).toBeGreaterThanOrEqual(2);
+    // ProductionGuard audit trail recorded every DML batch — exactly the two
+    // inserts of the fixture, no silent extra write.
+    expect(guard.getAuditLog()).toHaveLength(2);
     expect(guard.getAuditLog()[0].request.module).toBe('frozendataset');
     // Progress callbacks for the bridge.
     expect(progress).toContain('guards');

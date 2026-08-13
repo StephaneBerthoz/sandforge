@@ -1,5 +1,6 @@
 import type { ForgeConfig, ForgeGraph, ForgeGraphNode, ForgeGraphEdge } from '@sandforge/shared';
 import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { logger } from '../../logger.js';
 
 /** Describe result for an object returned by the org connection. */
@@ -246,12 +247,18 @@ export class GraphDiscoveryService {
       // Fetch describe + record count in parallel for every entry in the
       // wave. Per-call timeouts in the deps wrapper guarantee that one bad
       // jsforce call does not block the whole wave forever.
+      // `describe: null` / `recordCount: -1` are the two failure sentinels:
+      // an object we could not describe at all, and one we described but
+      // could not count. Both still become nodes below — a graph that
+      // silently omits them looks complete when it is not.
       type WaveResult = {
         objectName: string;
         depth: number;
-        describe: ObjectDescribe;
+        describe: ObjectDescribe | null;
         recordCount: number;
-      } | null;
+        countError?: string;
+        describeError?: string;
+      };
       // PERF-001: wave is processed cooperatively — Promise.all gathers
       // all describes/queryCounts (bounded by per-call timeouts in the
       // adapter layer) and the abort latch in the result-processing loop
@@ -261,6 +268,7 @@ export class GraphDiscoveryService {
       // surfaced even when abort fires mid-wave).
       const waveResults: WaveResult[] = await Promise.all(
         wave.map(async ([objectName, depth]): Promise<WaveResult> => {
+          let countError: string | undefined = undefined;
           try {
             const [describe, recordCount] = await Promise.all([
               this.deps.describeObject(config.sourceOrgId, objectName),
@@ -269,13 +277,24 @@ export class GraphDiscoveryService {
                   config.sourceOrgId,
                   `SELECT COUNT() FROM ${assertSoqlIdentifier(objectName)}`,
                 )
-                .catch(() => 0),
+                .catch((e: unknown) => {
+                  countError = extractErrorMessage(e);
+                  return -1;
+                }),
             ]);
-            return { objectName, depth, describe, recordCount };
-          } catch {
-            // Hard failure (timeout, FLS-blocked, non-queryable) —
-            // emit empty node so the user sees we tried, then skip.
-            return null;
+            return { objectName, depth, describe, recordCount, countError };
+          } catch (e) {
+            // Describe failed hard (timeout, FLS-blocked, non-queryable).
+            // We know nothing about the object's shape, so it carries no
+            // fields and no relations to walk — but it stays in the graph
+            // as an error node so the user sees which branch we lost.
+            return {
+              objectName,
+              depth,
+              describe: null,
+              recordCount: -1,
+              describeError: extractErrorMessage(e),
+            };
           }
         }),
       );
@@ -286,26 +305,61 @@ export class GraphDiscoveryService {
       // still added (consistent with sequential semantics).
       for (const r of waveResults) {
         if (aborted) break;
-        if (!r) continue;
-        const { objectName, depth, describe, recordCount } = r;
+        const { objectName, depth, describe, recordCount, countError, describeError } = r;
+
+        if (!describe) {
+          nodes.push({
+            objectApiName: objectName,
+            recordCount: 0,
+            fieldCount: 0,
+            status: 'error',
+            progress: 0,
+            included: false,
+            piiFields: [],
+            anonymizeFields: [],
+            level: depth,
+            successCount: 0,
+            failureCount: 0,
+            errors: [`Describe unavailable: ${describeError ?? 'unknown error'}`],
+            createableFieldCount: 0,
+            estimatedSizeMB: 0,
+            estimatedApiCalls: 0,
+            batchStrategy: 'auto' as const,
+          });
+          options?.onProgress?.({
+            objectApiName: objectName,
+            discoveredCount: nodes.length,
+            queueRemaining: queue.length,
+          });
+          if (options?.signal?.aborted) {
+            aborted = true;
+          }
+          continue;
+        }
+
+        // The count query failed while the describe succeeded: keep the
+        // object visible with its real shape, but excluded — cloning an
+        // unknown number of records is not something the user can size.
+        const countFailed = recordCount < 0;
+        const effectiveCount = countFailed ? 0 : recordCount;
         const piiFields = this.deps.detectPII(describe.fields);
         const createableFieldCount = describe.fields.filter((f) => f.type !== 'id').length;
         const node: ForgeGraphNode = {
           objectApiName: objectName,
-          recordCount,
+          recordCount: effectiveCount,
           fieldCount: describe.fields.length,
-          status: 'idle',
+          status: countFailed ? 'error' : 'idle',
           progress: 0,
-          included: !config.skipEmpty || recordCount > 0,
+          included: countFailed ? false : !config.skipEmpty || effectiveCount > 0,
           piiFields,
           anonymizeFields: config.anonymizePII ? piiFields : [],
           level: depth,
           successCount: 0,
           failureCount: 0,
-          errors: [],
+          errors: countFailed ? [`Record count unavailable: ${countError ?? 'unknown error'}`] : [],
           createableFieldCount,
-          estimatedSizeMB: recordCount * MB_PER_RECORD,
-          estimatedApiCalls: Math.ceil(recordCount / 200),
+          estimatedSizeMB: effectiveCount * MB_PER_RECORD,
+          estimatedApiCalls: Math.ceil(effectiveCount / 200),
           batchStrategy: 'auto' as const,
         };
         nodes.push(node);
