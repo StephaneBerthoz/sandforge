@@ -5,6 +5,46 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] - 2026-08-13
+
+A new mark, and 56 of the 69 medium audit findings.
+
+### Changed
+
+- **New icon.** The anvil is replaced by fire in a hearth — heat inside a
+  container, which is what SandForge does to an empty sandbox. The old mark
+  pictured the tool and said nothing about filling anything. Both the
+  Marketplace icon and the activity-bar icon change; five other silhouettes
+  were drawn and rejected against this one at 20, 24, 42 and 96 px.
+
+### Accessibility
+
+- **Inputs have names.** Not one `<label>` in the entire UI was tied to its
+  input, so a screen reader announced 29 controls as unlabelled. Sortable
+  table headers and clickable rows now have keyboard paths, focus rings that
+  had been removed and never replaced are back, and the `aria-label`s that
+  were hardcoded English in a six-locale product are translated.
+
+### Fixed
+
+- **The record id you type on Home reaches the Forge form.** It was written
+  to the store and never read, so the shortcut ended with you retyping the
+  same 18 characters.
+- **Grappe's empty state points somewhere useful.** Its call to action opened
+  Forge, the one module that cannot produce a grappe run.
+- **The French UI has its accents back.** Roughly 15% of the French strings,
+  and the whole French Marketplace description, were written without them.
+- **AI error resolution answers the question.** The assistant was being given
+  instructions written for a different task, so it was told to refuse the very
+  input it always receives, and every failed operation was answered with
+  "Unable to determine root cause."
+
+### Removed
+
+- A `sandforge.grappe.maxWorkers` setting that promised parallelism the
+  product does not have. Nothing read it.
+- 47 modules the UI stopped rendering releases ago.
+
 ## [1.16.0] - 2026-08-13
 
 Three findings the last audit rated high, and the discovery that the
