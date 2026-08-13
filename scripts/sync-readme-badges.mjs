@@ -59,8 +59,15 @@ function buildBlock({ languages, linkVersion }) {
   const versionBadge = `![Version](https://img.shields.io/badge/version-${esc(version)}-blue)`;
   const lines = [
     linkVersion ? `[${versionBadge}](${MARKETPLACE})` : versionBadge,
-    // Live, not asserted: this one goes red on its own when CI does.
-    `[![CI](https://github.com/${REPO}/actions/workflows/ci.yml/badge.svg)](https://github.com/${REPO}/actions/workflows/ci.yml)`,
+    // Live, not asserted: this one goes red on its own when CI does. It is
+    // absent from the Marketplace README on purpose — GitHub serves the badge
+    // of a private repo only to a signed-in collaborator, so on the listing it
+    // renders as a broken image to everyone. `linkVersion` marks that README.
+    ...(linkVersion
+      ? []
+      : [
+          `[![CI](https://github.com/${REPO}/actions/workflows/ci.yml/badge.svg)](https://github.com/${REPO}/actions/workflows/ci.yml)`,
+        ]),
     `![TypeScript](https://img.shields.io/badge/typescript-strict-blue)`,
     `![License](https://img.shields.io/badge/license-MIT-green)`,
     `![Languages](https://img.shields.io/badge/i18n-${languages}%20languages-orange)`,
