@@ -482,6 +482,76 @@ describe('AIChatHandler', () => {
         }),
       );
     });
+
+    it('turns AI on by writing sandforge.ai.enabled after the key is stored', async () => {
+      const setSandforgeSetting = vi.fn().mockResolvedValue(undefined);
+      deps.services = { setSandforgeSetting } as unknown as HandlerDeps['services'];
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(setSandforgeSetting).toHaveBeenCalledWith('ai.enabled', true);
+    });
+
+    it('does not enable AI when the key could not be stored', async () => {
+      const setSandforgeSetting = vi.fn().mockResolvedValue(undefined);
+      deps.services = { setSandforgeSetting } as unknown as HandlerDeps['services'];
+      (deps.secretVault.storeSecret as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('keychain locked'),
+      );
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(setSandforgeSetting).not.toHaveBeenCalled();
+      expect(deps.broker.postToWebview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ai:save-key:response',
+          payload: expect.objectContaining({ success: false }),
+        }),
+      );
+    });
+
+    it('still reports success when the settings backend cannot enable AI', async () => {
+      deps.services = {
+        setSandforgeSetting: vi.fn().mockRejectedValue(new Error('config write refused')),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(deps.broker.postToWebview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ai:save-key:response',
+          payload: expect.objectContaining({ success: true }),
+        }),
+      );
+    });
+
+    it('still reports success when no settings backend is injected at all', async () => {
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(deps.broker.postToWebview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ai:save-key:response',
+          payload: expect.objectContaining({ success: true }),
+        }),
+      );
+    });
+
+    it('pushes a fresh ai:status:response so the webview flips without a reload', async () => {
+      deps.services = {
+        setSandforgeSetting: vi.fn().mockResolvedValue(undefined),
+      } as unknown as HandlerDeps['services'];
+      (deps.secretVault.hasSecret as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+      handler.setAIAssistant(createMockAssistant());
+
+      await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
+
+      expect(deps.broker.postToWebview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ai:status:response',
+          payload: expect.objectContaining({ enabled: true }),
+        }),
+      );
+    });
   });
 
   it('exposes getAIAssistant for other sub-handlers', () => {

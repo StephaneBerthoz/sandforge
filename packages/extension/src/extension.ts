@@ -8,6 +8,8 @@ import { StatusBarProvider } from './providers/StatusBarProvider';
 import { WebviewPanelManager } from './providers/WebviewPanelManager';
 import type { UriJoinPath } from './providers/WebviewPanelManager';
 import { SidebarViewProvider } from './providers/SidebarViewProvider';
+import { readConfiguredLanguage } from './providers/webviewHtml';
+import { postGrappeEvent, readGrappeConfig } from './bridge/handlers/HandlerTypes';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
 import { MaskingTemplateService } from './modules/dataops/templates/MaskingTemplateService';
@@ -206,7 +208,22 @@ export function activate(context: vscode.ExtensionContext): void {
   // NOT_INITIALIZED / AI_NOT_CONFIGURED until then — contract documented in
   // composition/lateServices.ts).
   initForgeComposition({ handlers, orgRegistry, orgManager, configStore, piiDetector, log });
-  void initAutopilotComposition({ handlers, log });
+  // The autopilot orchestrator's grappe lifecycle events go straight to the
+  // webview (they correlate to no request), so they carry their own id source
+  // rather than a handler's response builder. Captured in a const because the
+  // closure outlives this statement's narrowing of the module-level `broker`.
+  const eventBroker = broker;
+  let autopilotEventSeq = 0;
+  void initAutopilotComposition({
+    handlers,
+    log,
+    grappeConfig: readGrappeConfig(services),
+    onGrappeEvent: (event) =>
+      postGrappeEvent(
+        { broker: eventBroker, nextId: () => `autopilot-grappe-${++autopilotEventSeq}` },
+        event,
+      ),
+  });
   const runAI = (): Promise<void> =>
     initAIComposition({
       services,
@@ -235,6 +252,9 @@ export function activate(context: vscode.ExtensionContext): void {
       }),
     context.extensionUri,
     vscode.Uri.joinPath as UriJoinPath,
+    // Same settings closure the sidebar gets (step 10) — the panel shell needs
+    // it for `<html lang>` on first paint.
+    () => readConfiguredLanguage(configStore.getByCategory('settings')),
   );
 
   // 9b. Background-operation lifecycle -> stateSync + native notifications
@@ -283,6 +303,8 @@ export function activate(context: vscode.ExtensionContext): void {
     () => configStore.getByCategory('settings'),
     // Lets a re-resolved sidebar restore the current selection.
     () => selectedOrgId,
+    // `<html lang>` on the sidebar shell — same closure the panels get.
+    () => readConfiguredLanguage(configStore.getByCategory('settings')),
   );
   const sidebarRegistration = vscode.window.registerWebviewViewProvider(
     SidebarViewProvider.viewType,
@@ -324,7 +346,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const org = typeof orgId === 'string' ? orgManager.getOrg(orgId) : undefined;
       if (!org) {
         void vscode.window.showInformationMessage(
-          'SandForge: pick an org in the launcher dropdown first.',
+          vscode.l10n.t('SandForge: pick an org in the launcher dropdown first.'),
         );
         return;
       }
@@ -339,13 +361,21 @@ export function activate(context: vscode.ExtensionContext): void {
         parsed = new URL(org.instanceUrl);
       } catch {
         void vscode.window.showErrorMessage(
-          `SandForge: cannot open "${org.alias}" — invalid instance URL: ${org.instanceUrl}`,
+          vscode.l10n.t(
+            'SandForge: cannot open "{0}" — invalid instance URL: {1}',
+            org.alias,
+            org.instanceUrl,
+          ),
         );
         return;
       }
       if (parsed.protocol !== 'https:') {
         void vscode.window.showErrorMessage(
-          `SandForge: refusing to open "${org.alias}" — instance URL must use HTTPS, got "${parsed.protocol}".`,
+          vscode.l10n.t(
+            'SandForge: refusing to open "{0}" — instance URL must use HTTPS, got "{1}".',
+            org.alias,
+            parsed.protocol,
+          ),
         );
         return;
       }

@@ -1,16 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// backgroundComposition imports vscode for ProductionGuard confirmations —
-// none of that runs in these tests.
+// backgroundComposition imports vscode for ProductionGuard confirmations and
+// for l10n. `l10n.t` is stubbed with the host's semantics — look the source
+// string up in a bundle, fall back to it, then interpolate `{0}`. The bundle
+// carries a single entry so the action label of the production modal is
+// genuinely translated while the rest stays English and readable.
+const l10nBundle = vi.hoisted(() => ({ current: {} as Record<string, string> }));
+
 vi.mock('vscode', () => ({
   window: {
     showInformationMessage: vi.fn(),
     showWarningMessage: vi.fn(),
   },
+  l10n: {
+    t: (message: string, ...args: unknown[]): string =>
+      (l10nBundle.current[message] ?? message).replace(/\{(\d+)\}/g, (_m, i: string) =>
+        String(args[Number(i)] ?? ''),
+      ),
+  },
 }));
 
 import * as vscode from 'vscode';
-import { wireOfflineNotifications, wireOfflineReplay } from './backgroundComposition';
+import {
+  createBackgroundComposition,
+  wireOfflineNotifications,
+  wireOfflineReplay,
+} from './backgroundComposition';
+import type { Services } from '../services';
+import type { SafetyCheckResult } from '../core/precheck/ProductionGuard';
 import { OfflineManager } from '../core/connection/OfflineManager';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
@@ -127,5 +144,80 @@ describe('wireOfflineNotifications', () => {
       expect.stringContaining('dropped'),
     );
     manager.dispose();
+  });
+});
+
+describe('production confirmation modal (localized)', () => {
+  const services = {
+    getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
+  } as unknown as Services;
+
+  /** A check result that actually reaches the confirmation UI. */
+  const needsConfirmation: SafetyCheckResult = {
+    allowed: true,
+    requiresConfirmation: true,
+    requiresApproval: false,
+    impactSummary: '1 200 records on Account',
+    warnings: [],
+  };
+
+  beforeEach(() => {
+    vi.mocked(vscode.window.showWarningMessage).mockReset();
+    l10nBundle.current = {};
+  });
+
+  it('accepts the confirmation when the action label is translated', async () => {
+    l10nBundle.current = { Execute: 'Exécuter' };
+    // The host hands back the label of the button the user pressed.
+    vi.mocked(vscode.window.showWarningMessage).mockImplementation(
+      (...args: unknown[]) => Promise.resolve(args[args.length - 1]) as never,
+    );
+
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+    const confirmed = await productionGuard.confirmIfNeeded(needsConfirmation);
+
+    // Comparing the choice against a hardcoded English 'Execute' would deny
+    // every production write for a translated UI.
+    expect(confirmed).toBe(true);
+    const call = vi.mocked(vscode.window.showWarningMessage).mock.calls[0];
+    expect(call[call.length - 1]).toBe('Exécuter');
+  });
+
+  it('still declines when the user dismisses the modal', async () => {
+    l10nBundle.current = { Execute: 'Exécuter' };
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+
+    await expect(productionGuard.confirmIfNeeded(needsConfirmation)).resolves.toBe(false);
+  });
+
+  it('routes the modal body through l10n with the impact summary interpolated', async () => {
+    l10nBundle.current = {
+      '{0}\n\nThis operation writes data to a PRODUCTION org.':
+        '{0}\n\nCette opération écrit des données dans une org de PRODUCTION.',
+    };
+    vi.mocked(vscode.window.showWarningMessage).mockResolvedValue(undefined as never);
+
+    const { productionGuard } = createBackgroundComposition({
+      services,
+      configStore: createMockConfigStore(),
+    });
+    await productionGuard.confirmIfNeeded(needsConfirmation);
+
+    const options = vi.mocked(vscode.window.showWarningMessage).mock.calls[0][1] as {
+      modal: boolean;
+      detail: string;
+    };
+    expect(options.modal).toBe(true);
+    expect(options.detail).toBe(
+      '1 200 records on Account\n\nCette opération écrit des données dans une org de PRODUCTION.',
+    );
   });
 });

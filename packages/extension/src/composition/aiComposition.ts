@@ -88,10 +88,11 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   log('AI Assistant initialized (unified adapter stack).');
 
   // Wire up AI modules (Tier 2) using the same unified client
-  const aiProvider = async (prompt: string): Promise<string> => {
+  const aiProvider = async (prompt: string, system?: string): Promise<string> => {
     const result = await services.aiClient().chat({
       messages: [{ role: 'user', content: prompt }],
       maxTokens: AI_CONFIG.MAX_TOKENS,
+      system,
     });
     return result.text;
   };

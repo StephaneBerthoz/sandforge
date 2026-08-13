@@ -1,6 +1,8 @@
 /** Re-exported from the central AI types module (single source of truth). */
 export type { AIProvider } from './types.js';
 import type { AIProvider } from './types.js';
+import { wrapAsUserData } from '../../adapters/ai/safety/index.js';
+import { ERROR_RESOLVE_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js';
 
 /** Represents a Salesforce API error. */
 export interface SalesforceError {
@@ -662,7 +664,7 @@ export class ErrorResolver {
     context: OperationContext,
   ): Promise<ErrorResolution> {
     const prompt = buildAIPrompt(error, context);
-    const raw = await this.provider(prompt);
+    const raw = await this.provider(prompt, ERROR_RESOLVE_SYSTEM_PROMPT);
     return parseAIResolution(raw);
   }
 
@@ -728,11 +730,15 @@ function enrichExplanation(baseExplanation: string, error: SalesforceError): str
  * Build the prompt for AI-based error resolution.
  */
 function buildAIPrompt(error: SalesforceError, context: OperationContext): string {
+  // Salesforce echoes org-writable text back in error messages — a validation
+  // rule's custom text (FIELD_CUSTOM_VALIDATION_EXCEPTION) or the offending
+  // field value (DUPLICATE_VALUE) — so the message is untrusted input and must
+  // cross the <user-data> boundary rather than land at instruction level.
   const lines = [
     'You are a Salesforce error resolution expert. Analyze the following error and provide a resolution.',
     '',
     `Error code: ${error.errorCode}`,
-    `Error message: ${error.message}`,
+    `Error message: ${wrapAsUserData('errorMessage', error.message)}`,
   ];
 
   if (error.fields) {

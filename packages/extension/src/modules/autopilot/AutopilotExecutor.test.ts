@@ -9,6 +9,7 @@ import type {
 } from '@sandforge/shared';
 import {
   AutopilotExecutor,
+  type AutopilotExecutionFailedEvent,
   type AutopilotExecutorDeps,
   type InsertResult,
   type QueryFn,
@@ -342,6 +343,24 @@ describe('AutopilotExecutor', () => {
     expect(failedEvents).toHaveLength(1);
     expect(failedEvents[0].objectApiName).toBe('Account');
     expect(failedEvents[0].errors).toContain('FIELD_INTEGRITY_EXCEPTION: invalid field');
+    // The per-node message rides on the result too: the handler reports node
+    // status from the result, not from the events.
+    expect(result.nodeErrors?.['Account']).toBe('FIELD_INTEGRITY_EXCEPTION: invalid field');
+    expect(result.nodeErrors?.['Contact']).toBeUndefined();
+  });
+
+  // ── Test 5b: A throwing object carries its message on the result ───────────
+
+  it('should record the thrown message in nodeErrors when an object crashes', async () => {
+    const plan = makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1);
+    const recordCounts = new Map([['Account', 1]]);
+
+    vi.mocked(deps.query).mockRejectedValueOnce(new Error('INVALID_SESSION_ID: expired session'));
+
+    const result = await executor.execute(plan, [], [], recordCounts);
+
+    expect(result.failedObjects).toContain('Account');
+    expect(result.nodeErrors?.['Account']).toContain('INVALID_SESSION_ID: expired session');
   });
 
   // ── Test 6: Remap IDs correctly across waves ─────────────────────────────
@@ -520,5 +539,30 @@ describe('AutopilotExecutor', () => {
     expect(result.completedObjects).toContain('Lead');
     expect(result.skippedObjects).toContain('Contact');
     expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+  });
+
+  // ── Test 11: A crashed run rejects instead of returning partial counts ─────
+
+  it('should emit execution-failed with the message and reject when the run crashes', async () => {
+    const failedEvents: AutopilotExecutionFailedEvent[] = [];
+    const completedEvents: string[] = [];
+    executor.on('execution-failed', (e) => failedEvents.push(e));
+    executor.on('execution-completed', () => completedEvents.push('completed'));
+
+    const plan = makePlan([{ order: 0, objects: ['Account'], dependsOn: [] }], 1);
+    const recordCounts = new Map([['Account', 1]]);
+    // Fault injected outside the per-object guard, so the whole run dies
+    // rather than a single node — the only path to the top-level catch.
+    recordCounts.get = () => {
+      throw new Error('record counts unavailable');
+    };
+
+    await expect(executor.execute(plan, [], [], recordCounts)).rejects.toThrow(
+      'record counts unavailable',
+    );
+
+    expect(failedEvents).toHaveLength(1);
+    expect(failedEvents[0].error).toContain('record counts unavailable');
+    expect(completedEvents).toEqual([]);
   });
 });

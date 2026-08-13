@@ -82,14 +82,13 @@ export function isBuiltinForgeTemplate(id: string): boolean {
  */
 export const BUILTIN_TEMPLATE_OBJECTS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   'builtin:account-360': ['Account', 'Contact', 'Opportunity', 'Case'],
-  'builtin:case-workflow': [
-    'Account',
-    'Contact',
-    'Case',
-    'EmailMessage',
-    'CaseComment',
-    'Attachment',
-  ],
+  // No 'Attachment': Forge has no blob-transfer stage. The node would query
+  // Attachment.Body like any other field and then hand it to a writer that
+  // routes anything over 200 records through Bulk API 2.0, which rejects
+  // base64 — a starter template must not promise a payload the engine cannot
+  // carry. Files travel again once a ContentVersion/ContentDocumentLink stage
+  // exists (deliberately its own change, and never through Bulk).
+  'builtin:case-workflow': ['Account', 'Contact', 'Case', 'EmailMessage', 'CaseComment'],
   'builtin:lead-to-opp': ['Campaign', 'Lead', 'Account', 'Contact', 'Opportunity'],
 });
 

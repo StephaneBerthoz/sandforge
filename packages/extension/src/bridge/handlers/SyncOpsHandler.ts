@@ -5,7 +5,7 @@ import {
   RobustnessConfigSchema,
 } from '@sandforge/shared';
 import type { RobustnessConfig } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, GrappeEventEnvelope } from './HandlerTypes.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -13,6 +13,8 @@ import {
   sendOperationProgress,
   sendOperationCompleted,
   sendOperationFailed,
+  postGrappeEvent,
+  readGrappeConfig,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
@@ -493,8 +495,16 @@ export class SyncOpsHandler implements DomainHandler {
         if (!confirmed) {
           const message = 'Operation cancelled by user (production confirmation declined).';
           // Settle the in-flight useBridgeMutation listener on sync:error
-          // (same dual-channel contract as the catch paths below).
-          sendHandlerError(this.deps, 'sync:execute', 'sync:error', new Error(message));
+          // (same dual-channel contract as the catch paths below). Stable
+          // code, same as seed's decline path — this prose is SandForge's own,
+          // not a pass-through Salesforce error.
+          sendHandlerError(
+            this.deps,
+            'sync:execute',
+            'sync:error',
+            new Error(message),
+            'PROD_CONFIRMATION_DECLINED',
+          );
           sendOperationFailed(this.deps, operationId, message, false);
           return;
         }
@@ -730,6 +740,10 @@ export class SyncOpsHandler implements DomainHandler {
         querySource: buildQueryFn(sourceConn),
         queryTarget: buildQueryFn(targetConn),
         services: this.deps.services,
+        // Same contract as seed: without BOTH the config and the callback the
+        // `grappe:*` channels never fire and the Grappe page stays blank.
+        grappeConfig: readGrappeConfig(this.deps.services),
+        onGrappeEvent: (event: GrappeEventEnvelope) => postGrappeEvent(this.deps, event),
       };
       if (!this.deps.services) {
         throw new Error(

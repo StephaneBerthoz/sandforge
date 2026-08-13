@@ -61,12 +61,14 @@ export class WebviewPanelManager {
    * @param panelFactory - Factory function to create webview panels
    * @param extensionUri - Extension URI for resolving webview resources
    * @param uriJoinPath - URI path joiner (defaults to noop for backward compat)
+   * @param languageGetter - Reads the configured UI language for `<html lang>`
    */
   constructor(
     private broker: MessageBroker,
     private panelFactory: WebviewPanelFactory,
     private extensionUri?: { toString(): string },
     private uriJoinPath?: UriJoinPath,
+    private languageGetter?: () => string | undefined,
   ) {}
 
   /**
@@ -198,6 +200,9 @@ export class WebviewPanelManager {
       styleUri,
       title: `SandForge: ${moduleId}`,
       moduleId,
+      // Read per panel, not per manager: the user can switch language between
+      // two openPanel calls and each shell must announce the current one.
+      lang: this.languageGetter?.(),
     });
   }
 }

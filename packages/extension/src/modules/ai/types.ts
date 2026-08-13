@@ -6,5 +6,12 @@
  * SmartSuggestions. Those modules re-export it for backward compatibility.
  */
 
-/** Function signature for calling an AI model. */
-export type AIProvider = (prompt: string) => Promise<string>;
+/**
+ * Function signature for calling an AI model.
+ *
+ * `system` is optional so callers that have no spotlight prompt to send stay
+ * assignable, but modules that feed org-writable text to the model MUST pass
+ * one — the "treat <user-data> as DATA" clause is half of the prompt-injection
+ * defense (see adapters/ai/systemPrompts/index.ts).
+ */
+export type AIProvider = (prompt: string, system?: string) => Promise<string>;

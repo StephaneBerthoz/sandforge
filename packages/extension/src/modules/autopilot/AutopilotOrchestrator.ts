@@ -259,6 +259,9 @@ export class AutopilotOrchestrator {
     } finally {
       this.runningExecutors.splice(this.runningExecutors.indexOf(executor), 1);
     }
+    // Deliberately after the try, not inside it: a crashed execution rethrows,
+    // and neither the completion event nor the grappe:completed below may fire
+    // for a run that never finished.
     this.emitEvent({ type: 'execution-completed', timestamp: new Date().toISOString() });
 
     if (grappeActive) {

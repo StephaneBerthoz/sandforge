@@ -3,11 +3,24 @@ import { sanitizeSoqlObjectName } from '@sandforge/shared';
 import type { ApiName } from '@sandforge/shared';
 import { queryWithFieldsFallback } from '../core/common/soqlQueryHelper';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
+import type { GrappeConfig } from '@sandforge/shared';
+import type { GrappeEventEnvelope } from '../bridge/handlers/HandlerTypes';
 
 /** Inputs required to wire the Autopilot orchestrator (Tier 4). */
 export interface AutopilotCompositionDeps {
   handlers: ExtensionHandlers;
   log: (msg: string) => void;
+  /**
+   * Grappe settings snapshot (`sandforge.grappe.*`). Absent keeps partitioned
+   * mode off — `isGrappeActive` requires an enabled config.
+   */
+  grappeConfig?: GrappeConfig;
+  /**
+   * Forwards the orchestrator's grappe lifecycle events to the webview. Built
+   * by the activation root, which owns the broker; without it the three
+   * `grappe:*` channels never fire and the Grappe page stays blank.
+   */
+  onGrappeEvent?: (event: GrappeEventEnvelope) => void;
 }
 
 /**
@@ -35,7 +48,7 @@ export interface AutopilotCompositionDeps {
  * tests can await it.
  */
 export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promise<void> {
-  const { handlers, log } = deps;
+  const { handlers, log, grappeConfig, onGrappeEvent } = deps;
 
   return Promise.all([
     import('../modules/autopilot/SchemaScanner.js'),
@@ -148,8 +161,12 @@ export function initAutopilotComposition(deps: AutopilotCompositionDeps): Promis
             });
           },
           grappeAdapter: new AutopilotGrappeAdapter(),
-          // No grappeConfig: grappe mode stays off by default (isGrappeActive
-          // requires an enabled config).
+          // Grappe mode is opt-in (`sandforge.grappe.enabled`): an absent config
+          // is what isGrappeActive reads as "stay sequential". The callback is
+          // passed through regardless — it was the missing half that left the
+          // `grappe:*` channels silent even when the mode was on.
+          grappeConfig,
+          onGrappeEvent,
         });
 
         handlers.setAutopilotOrchestrator(orchestrator);

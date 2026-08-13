@@ -90,7 +90,10 @@ export function wireOfflineNotifications(offlineManager: OfflineManager): void {
     switch (event.type) {
       case 'operationQueued':
         void vscode.window.showInformationMessage(
-          `SandForge: org unreachable — ${operation.type} operation queued, it will replay automatically when connectivity returns.`,
+          vscode.l10n.t(
+            'SandForge: org unreachable — {0} operation queued, it will replay automatically when connectivity returns.',
+            operation.type,
+          ),
         );
         break;
       case 'operationExecuted':
@@ -99,12 +102,18 @@ export function wireOfflineNotifications(offlineManager: OfflineManager): void {
         // NOT that the replay succeeded. The outcome surfaces separately via
         // the operation:failed / registry lifecycle notifications.
         void vscode.window.showInformationMessage(
-          `SandForge: queued ${operation.type} operation restarted — it is running again in the background.`,
+          vscode.l10n.t(
+            'SandForge: queued {0} operation restarted — it is running again in the background.',
+            operation.type,
+          ),
         );
         break;
       case 'operationFailed':
         void vscode.window.showWarningMessage(
-          `SandForge: queued ${operation.type} operation could not be replayed and was dropped from the offline queue.`,
+          vscode.l10n.t(
+            'SandForge: queued {0} operation could not be replayed and was dropped from the offline queue.',
+            operation.type,
+          ),
         );
         break;
       default:
@@ -133,15 +142,23 @@ export function createBackgroundComposition(
       services.getSandforgeSetting('safety.requireProdConfirmation', true),
     isAuditLoggingEnabled: () => services.getSandforgeSetting('safety.auditLogging', true),
     requestConfirmation: async (impactSummary) => {
+      // The action label doubles as the equality check, so it MUST be the same
+      // value on both sides — comparing against a hardcoded 'Execute' would
+      // make the guard always-false (i.e. silently deny every prod write) as
+      // soon as the UI runs in a translated locale.
+      const execute = vscode.l10n.t('Execute');
       const choice = await vscode.window.showWarningMessage(
-        'SandForge: production operation',
+        vscode.l10n.t('SandForge: production operation'),
         {
           modal: true,
-          detail: `${impactSummary}\n\nThis operation writes data to a PRODUCTION org.`,
+          detail: vscode.l10n.t(
+            '{0}\n\nThis operation writes data to a PRODUCTION org.',
+            impactSummary,
+          ),
         },
-        'Execute',
+        execute,
       );
-      return choice === 'Execute';
+      return choice === execute;
     },
   });
   const offlineManager = new OfflineManager(configStore);
@@ -173,12 +190,21 @@ export function wireBackgroundNotifications(deps: BackgroundNotificationDeps): v
       // Native VSCode notification if no SandForge panel is visible
       if (!panelManager.isAnyPanelVisible() && !operation.notifiedNatively) {
         backgroundRegistry.markNotifiedNatively(operationId);
+        // Four variants rather than one string plus a glued-on suffix: the
+        // summary separator and word order are not the translator's to guess.
+        const summary = operation.resultSummary;
         const label =
           type === 'completed'
-            ? `SandForge: ${operation.module} completed${operation.resultSummary ? ' — ' + operation.resultSummary : ''}`
-            : `SandForge: ${operation.module} failed${operation.resultSummary ? ' — ' + operation.resultSummary : ''}`;
-        void vscode.window.showInformationMessage(label, 'Show Details').then((action) => {
-          if (action === 'Show Details') {
+            ? summary
+              ? vscode.l10n.t('SandForge: {0} completed — {1}', operation.module, summary)
+              : vscode.l10n.t('SandForge: {0} completed', operation.module)
+            : summary
+              ? vscode.l10n.t('SandForge: {0} failed — {1}', operation.module, summary)
+              : vscode.l10n.t('SandForge: {0} failed', operation.module);
+        // Same label/equality coupling as the production modal above.
+        const showDetails = vscode.l10n.t('Show Details');
+        void vscode.window.showInformationMessage(label, showDetails).then((action) => {
+          if (action === showDetails) {
             // Open the Monitor module — openPanel only assigns webview.html
             // when a moduleId is provided (same id as sandforge.openMonitor).
             panelManager.openPanel({

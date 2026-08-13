@@ -219,24 +219,38 @@ describe('SmartAnonymizer', () => {
       anonymizer.anonymize(records2, rules, 'Contact' as ApiName);
       expect(records1[0]['FirstName']).toBe(records2[0]['FirstName']);
     });
+
+    it('permutes differently under a different salt', () => {
+      const rules = [makeRule({ fieldApiName: 'FirstName', method: 'shuffle' })];
+      const withSaltA: Record<string, unknown>[] = [{ Id: '001', FirstName: 'abcdefghij' }];
+      const withSaltB: Record<string, unknown>[] = [{ Id: '001', FirstName: 'abcdefghij' }];
+
+      new SmartAnonymizer(registry, 'salt-a').anonymize(withSaltA, rules, 'Contact' as ApiName);
+      new SmartAnonymizer(registry, 'salt-b').anonymize(withSaltB, rules, 'Contact' as ApiName);
+
+      // A permutation seeded from the value alone is one anybody can recompute
+      // from the anonymized output and run backwards; only the key stops that.
+      expect(withSaltA[0]['FirstName']).not.toBe(withSaltB[0]['FirstName']);
+    });
   });
 
   describe('truncate method', () => {
-    it('reduces to half length', () => {
+    it('keeps no plaintext prefix', () => {
       const records: Record<string, unknown>[] = [{ Id: '001', FirstName: 'Alexander' }];
       const rules = [makeRule({ fieldApiName: 'FirstName', method: 'truncate' })];
 
       anonymizer.anonymize(records, rules, 'Contact' as ApiName);
-      // floor(9/2) = 4
-      expect(records[0]['FirstName']).toBe('Alex');
+      // Halving used to leave "Alex" — the opening characters of a name are the
+      // identifying ones, and autopilot rules carry no length to honour.
+      expect(records[0]['FirstName']).toBe('');
     });
 
-    it('keeps at least 1 character', () => {
+    it('empties short values too', () => {
       const records: Record<string, unknown>[] = [{ Id: '001', FirstName: 'A' }];
       const rules = [makeRule({ fieldApiName: 'FirstName', method: 'truncate' })];
 
       anonymizer.anonymize(records, rules, 'Contact' as ApiName);
-      expect(records[0]['FirstName']).toBe('A');
+      expect(records[0]['FirstName']).toBe('');
     });
   });
 

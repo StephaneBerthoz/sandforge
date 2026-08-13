@@ -216,6 +216,19 @@ export interface ForgeExecutionResult {
   /** Per-object error reports — populated when at least one record or
    *  object failed. Empty when the run was fully successful. */
   errors?: ForgeExecutionError[];
+  /**
+   * The configuration that produced this run, minus the org ids.
+   *
+   * History used to store graph + timings + remap table and nothing you could
+   * re-run from: a past clone could be inspected and never repeated. Same
+   * shape as {@link ForgeTemplate.config} — the org pair is deliberately
+   * dropped, a re-run must re-pick source and target explicitly rather than
+   * silently replay against whatever the last run touched.
+   *
+   * Optional because runs recorded before this field existed do not carry it;
+   * a history entry without it simply cannot offer a re-run.
+   */
+  config?: Omit<ForgeConfig, 'sourceOrgId' | 'targetOrgId'>;
 }
 
 /**

@@ -366,10 +366,21 @@ export class AIChatHandler implements DomainHandler {
 
   private async handleStatus(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    await this.postStatus(msg);
+  }
 
+  /**
+   * Emit the current AI availability on `ai:status:response`.
+   * Shared by the `ai:status` query and the key-save flow, which pushes a
+   * fresh status of its own (the webview tracks availability by message type,
+   * not by correlation).
+   *
+   * @param request - The request the response is correlated to.
+   */
+  private async postStatus(request: BaseMessage): Promise<void> {
     const hasKey = await this.deps.secretVault.hasSecret(AI_API_KEY_SECRET);
 
-    const response = buildResponse(this.deps, msg, 'ai:status:response', {
+    const response = buildResponse(this.deps, request, 'ai:status:response', {
       enabled: !!this.aiAssistant && hasKey,
       provider: this.aiAssistant ? AI_PROVIDER : 'none',
       model: this.aiAssistant ? AI_CONFIG.MODEL : '',
@@ -381,6 +392,28 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[TX] ai:status:response`);
   }
 
+  /**
+   * Turn the stored key into an actually usable assistant by flipping
+   * `sandforge.ai.enabled`. It defaults to false and no control in the UI
+   * ever wrote it, so a saved key alone left the AI stack uninitialised for
+   * good — the key input was a dead end. The `sandforge.ai` config listener
+   * re-runs the AI composition on this change.
+   *
+   * Failures never fail the save: the key IS stored, so answering
+   * `success: false` would be a lie. They are logged instead.
+   */
+  private async enableAIFeature(): Promise<void> {
+    if (!this.deps.services?.setSandforgeSetting) {
+      this.deps.log('[WARN] ai:save-key: no settings backend — sandforge.ai.enabled left as-is.');
+      return;
+    }
+    try {
+      await this.deps.services.setSandforgeSetting('ai.enabled', true);
+    } catch (err: unknown) {
+      this.deps.log(`[ERR] ai:save-key: enabling sandforge.ai failed: ${extractErrorMessage(err)}`);
+    }
+  }
+
   private async handleSaveKey(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiSaveKeyPayloadSchema, msg, 'ai:error', this.deps);
@@ -388,11 +421,17 @@ export class AIChatHandler implements DomainHandler {
     const { apiKey } = parsed;
     try {
       await this.deps.secretVault.storeSecret(AI_API_KEY_SECRET, apiKey);
+      await this.enableAIFeature();
       const response = buildResponse(this.deps, msg, 'ai:save-key:response', {
         success: true,
       });
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ai:save-key:response success`);
+      // Refresh the availability flag the webview keeps in its store. The
+      // re-init triggered by the setting above is asynchronous, so this
+      // snapshot can still read "disabled" — the Settings tab re-probes once
+      // the host has had time to wire the assistant.
+      await this.postStatus(msg);
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       this.deps.log(`[ERR] ai:save-key: ${message}`);
