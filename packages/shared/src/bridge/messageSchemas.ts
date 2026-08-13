@@ -202,6 +202,8 @@ const DataOpsMessages = [
   msg('backup:execute'),
   msg('backup:list'),
   msg('backup:list:result'),
+  msg('backup:export'),
+  msg('backup:export:result'),
   msg('dataops:backup'),
   msg('dataops:rollback'),
   msg('dataops:anonymize'),

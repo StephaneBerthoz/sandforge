@@ -21,6 +21,7 @@ import {
   validatePayload,
   dataOpsBackupPayloadSchema,
   dataOpsBackupListPayloadSchema,
+  dataOpsBackupExportPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
   dataOpsMaskingTemplatesPayloadSchema,
@@ -91,6 +92,7 @@ function describeToObjectDescribe(desc: Record<string, unknown>): ObjectDescribe
 const DATAOPS_TYPES = new Set([
   'backup:execute',
   'backup:list',
+  'backup:export',
   'dataops:backup',
   'dataops:rollback',
   'dataops:anonymize',
@@ -145,6 +147,9 @@ export class DataOpsHandler implements DomainHandler {
         return true;
       case 'backup:list':
         this.handleBackupList(msg);
+        return true;
+      case 'backup:export':
+        this.handleBackupExport(msg);
         return true;
       case 'dataops:rollback':
         await this.handleRollback(msg);
@@ -357,6 +362,67 @@ export class DataOpsHandler implements DomainHandler {
     const response = buildResponse(this.deps, msg, 'backup:list:result', { backups });
     this.deps.broker.postToWebview(response);
     this.deps.log(`[TX] ${response.type} id=${response.id} count=${backups.length}`);
+  }
+
+  /**
+   * Serialize one backup, records included, so it can leave the machine.
+   *
+   * dataops:backup writes record payloads into ConfigStore, which is VSCode
+   * globalState: a backup lived on one laptop with no way out. Nothing here
+   * touches the org — it reads what was already stored and hands back a
+   * document the webview downloads, the same shape sync:history:export uses.
+   */
+  private handleBackupExport(msg: BaseMessage): void {
+    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
+    const parsed = validatePayload(
+      dataOpsBackupExportPayloadSchema,
+      msg,
+      'dataops:error',
+      this.deps,
+    );
+    if (!parsed) return;
+
+    const metaKey = `backup:${parsed.operationId}`;
+    const meta = this.deps.configStore.get<{
+      orgId?: string;
+      timestamp?: string;
+      totalRecords?: number;
+      objects?: Array<{ objectApiName: string; recordCount: number }>;
+    }>(metaKey);
+
+    if (!meta || meta.orgId !== parsed.orgId) {
+      sendHandlerError(
+        this.deps,
+        'backup:export',
+        'dataops:error',
+        new Error(`Backup not found: ${parsed.operationId}`),
+        'BACKUP_NOT_FOUND',
+      );
+      return;
+    }
+
+    const objects: Record<string, unknown[]> = {};
+    for (const obj of meta.objects ?? []) {
+      objects[obj.objectApiName] =
+        this.deps.configStore.get<unknown[]>(`${metaKey}:${obj.objectApiName}`) ?? [];
+    }
+
+    const document = {
+      sandforgeBackupVersion: 1,
+      operationId: parsed.operationId,
+      orgId: meta.orgId,
+      timestamp: meta.timestamp ?? '',
+      totalRecords: meta.totalRecords ?? 0,
+      objects,
+    };
+
+    const response = buildResponse(this.deps, msg, 'backup:export:result', {
+      operationId: parsed.operationId,
+      filename: `sandforge-backup-${parsed.operationId}.json`,
+      data: JSON.stringify(document, null, 2),
+    });
+    this.deps.broker.postToWebview(response);
+    this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
 
   private pruneBackups(orgId: string): void {

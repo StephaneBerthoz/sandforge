@@ -1080,7 +1080,8 @@
       "step2": "Vor riskanten Operationen ein Backup erstellen",
       "step3": "Sensible Felder mit einer Vorlage anonymisieren",
       "step4": "Bereinigungen planen und Datenqualität verfolgen"
-    }
+    },
+    "exportBackup": "Exportieren"
   },
   "automation": {
     "title": "Automatisierung",

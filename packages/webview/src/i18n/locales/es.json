@@ -1080,7 +1080,8 @@
       "step2": "Cree un respaldo antes de cualquier operación arriesgada",
       "step3": "Anonimice campos sensibles con una plantilla",
       "step4": "Programe limpiezas y siga la calidad de los datos"
-    }
+    },
+    "exportBackup": "Exportar"
   },
   "automation": {
     "title": "Automatizacion",

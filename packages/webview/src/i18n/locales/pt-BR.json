@@ -1080,7 +1080,8 @@
       "step2": "Crie um backup antes de qualquer operação arriscada",
       "step3": "Anonimize campos sensíveis com um template",
       "step4": "Agende limpezas e acompanhe a qualidade dos dados"
-    }
+    },
+    "exportBackup": "Exportar"
   },
   "automation": {
     "title": "Automacao",

@@ -12,6 +12,8 @@ export interface BackupPanelProps {
   isCreating?: boolean;
   onCreate?: () => void;
   onDelete?: (operationId: string) => void;
+  /** Download this backup, records included, so it can leave the machine. */
+  onExport?: (operationId: string) => void;
 }
 
 const STATUS_VARIANT: Record<BackupStatus, 'default' | 'success' | 'warning' | 'error' | 'info'> = {
@@ -28,6 +30,7 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
   isCreating = false,
   onCreate,
   onDelete,
+  onExport,
 }) => {
   const { t } = useTranslation();
 
@@ -66,6 +69,16 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({
               action={
                 <div className="flex items-center gap-2">
                   <Badge variant={STATUS_VARIANT[backup.status]}>{backup.status}</Badge>
+                  {onExport && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onExport(backup.operationId)}
+                      data-testid={`export-backup-${backup.operationId}`}
+                    >
+                      {t('dataops.exportBackup')}
+                    </Button>
+                  )}
                   {onDelete && (
                     <Button
                       variant="ghost"
