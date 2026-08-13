@@ -164,7 +164,7 @@ See the full list of settings in the VSCode Settings UI under "SandForge".
 
 ## Internationalization
 
-Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Portuguese. All UI text uses `t('key')` via react-i18next, and numbers, dates, and durations are formatted with Intl APIs.
+Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Portuguese. All UI text uses `t('key')` via react-i18next, and numbers and dates are formatted with Intl APIs using the editor locale. Durations are not: they are composed from fixed `h`/`min`/`s`/`ms` tokens and read the same in every locale.
 
 ---
 

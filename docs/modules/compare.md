@@ -1,6 +1,6 @@
 # Compare
 
-Compare metadata, permissions, and configuration between two Salesforce orgs. Identify differences, track drift, analyze impact, and deploy changes -- all from a single tabbed interface.
+Compare metadata, permissions, and configuration between two Salesforce orgs. Identify differences and track drift from a single tabbed interface. Deploying those differences is not wired yet -- see [Deploy from Diff](#deploy-from-diff).
 
 ## Quick Start
 
@@ -8,7 +8,7 @@ Compare metadata, permissions, and configuration between two Salesforce orgs. Id
 2. Select a source org and a target org using the org selector
 3. Choose metadata component types to compare (fields, objects, flows, Apex classes, profiles, etc.)
 4. Click **Run Compare** to execute the comparison
-5. Browse results across six tabs: Diff, Permissions, Snapshots, Drift, Impact, and Deploy
+5. Browse results across five tabs: Diff, Permissions, Snapshots, Drift, and Deploy
 
 ## Features
 
@@ -44,19 +44,9 @@ Automated detection of configuration drift between orgs:
 - Identifies when sandbox configuration has diverged from production
 - Useful for compliance and governance workflows
 
-### Impact Graph
-
-An interactive dependency visualization showing downstream effects of metadata changes:
-
-- See which components would be affected by a change
-- Helps assess risk before deploying modifications
-
 ### Deploy from Diff
 
-Select individual metadata differences and deploy them directly to the target org:
-
-- Cherry-pick specific changes from the diff results
-- Deploy without leaving SandForge
+> **Coming soon:** the Deploy tab renders an empty state as of v1.16.0 -- no deployment channel is wired to it, so nothing can be pushed to the target org from here yet. Cherry-picking changes out of a diff and deploying them without leaving SandForge is the planned design.
 
 ### Schema Advice (AI)
 
@@ -71,5 +61,5 @@ The Schema Advice button uses AI to analyze your source org schema and surface i
 - Run a compare before any major deployment to understand the full scope of changes
 - Use the Risk Score Card to quickly assess whether changes are safe to deploy
 - The Permission Matrix is the fastest way to audit security differences between orgs
-- Enable Drift Detection for scheduled monitoring of configuration divergence
-- Use Deploy from Diff for targeted deployments instead of deploying everything at once
+- Re-run the Drift tab after each release to catch configuration divergence early
+- Once Deploy from Diff ships, prefer it over deploying everything at once

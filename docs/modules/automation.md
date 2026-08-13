@@ -1,13 +1,13 @@
 # Automation
 
-Build, schedule, and run multi-step data pipelines with a visual drag-and-drop canvas. Automation brings together Seed, Sync, DataOps, and custom steps into repeatable workflows with triggers, scheduling, and execution history.
+Build and run multi-step data pipelines with a visual drag-and-drop canvas. Automation brings together Seed, Sync, DataOps, and custom steps into repeatable workflows with an execution history.
 
 ## Quick Start
 
 1. Navigate to **Automation** from the sidebar
 2. Click **Create Pipeline** to start a new pipeline
 3. Drag steps from the Step Palette onto the Pipeline Canvas
-4. Configure each step, add triggers, and set a schedule
+4. Configure each step
 5. Click **Run** to execute the pipeline and monitor progress in real time
 
 ## Features
@@ -91,4 +91,3 @@ Browse and install pre-configured pipeline templates:
 - Add an Approval step before any pipeline that modifies Production data
 - Check Execution History after each run to identify bottlenecks and optimize step order
 - Browse the Marketplace for templates that match your use case before building from scratch
-- Use triggers to automate recurring operations (e.g., nightly data refresh, weekly cleanup)

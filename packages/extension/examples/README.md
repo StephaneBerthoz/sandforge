@@ -82,7 +82,7 @@ pnpm tsx packages/extension/cli/sandforge-clone.ts \
   --record 500XX00000000001AAA \
   --source SOURCE-UAT \
   --target TARGET-DEV \
-  --upsert-mode auto    # not yet a CLI flag — see ExecuteOptions.upsertMode in API
+  --upsert
 ```
 
 **B) Without External Id** — clean up first, then re-clone:
@@ -119,8 +119,9 @@ CLI returns exit code `1` if all records failed, `0` otherwise — fail the job 
 
 ## Tips
 
-- **Always dry-run first** the recipe `tools/recipe-forge-grappe.ts` to inspect SOQL and counts before writing.
+- **Always dry-run first** with `--dry-run` to inspect SOQL and counts before writing.
+- **Inspect the graph alone** with `tools/recipe-forge-grappe.ts` — a repo-only dev recipe that replays discovery and planning against live orgs. It does run the executor, but `SCENARIO.dryRun` is hardcoded `true` and the write deps are stubbed under that flag, so nothing reaches the target org until you flip it.
 - **Cap with `--max`** while iterating — start at 5, raise once you trust the output.
 - **Use `--anonymize`** as soon as you share the dev sandbox with anyone outside your immediate team.
-- **Pick a fresh Case** for each demo — re-runs hit `DUPLICATE_VALUE` until you enable upsert.
+- **Pick a fresh Case** for each demo — re-runs hit `DUPLICATE_VALUE` until you pass `--upsert`.
 - **Cleanup** after sensitive demos: `sandforge-cleanup --target X --since today`.
