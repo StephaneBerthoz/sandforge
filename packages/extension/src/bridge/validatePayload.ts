@@ -265,6 +265,10 @@ export const dataOpsBackupPayloadSchema = z.object({
 export const dataOpsBackupListPayloadSchema = z.object({
   orgId: orgIdSchema,
 });
+export const dataOpsBackupExportPayloadSchema = z.object({
+  orgId: orgIdSchema,
+  operationId: z.string().min(1).max(200),
+});
 export const dataOpsRollbackPayloadSchema = z.object({
   orgId: orgIdSchema,
   operationId: opaqueIdSchema,

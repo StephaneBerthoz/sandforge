@@ -82,6 +82,16 @@ export const DataOpsPage: React.FC = () => {
     timeoutMs: 120_000,
   });
 
+  /** Bridge mutation: export one backup as a downloadable document. */
+  const exportMutation = useBridgeMutation<{
+    operationId: string;
+    filename: string;
+    data: string;
+  }>('backup:export', {
+    responseType: 'backup:export:result',
+    errorType: 'dataops:error',
+  });
+
   /** Bridge mutation: anonymize data. */
   const anonymizeMutation = useBridgeMutation<Record<string, unknown>>('dataops:anonymize', {
     responseType: 'dataops:anonymize:response',
@@ -103,7 +113,11 @@ export const DataOpsPage: React.FC = () => {
   /** Show error notifications from bridge hooks. */
   useEffect(() => {
     const bridgeError =
-      backupsQuery.error ?? backupMutation.error ?? anonymizeMutation.error ?? templatesQuery.error;
+      backupsQuery.error ??
+      backupMutation.error ??
+      exportMutation.error ??
+      anonymizeMutation.error ??
+      templatesQuery.error;
     if (bridgeError) {
       setError(bridgeError);
       addNotification({
@@ -144,6 +158,28 @@ export const DataOpsPage: React.FC = () => {
     setError(null);
     rollbackMutation.mutate({ orgId: currentOrg.id, operationId });
   };
+
+  // dataops:backup writes record payloads into ConfigStore, which is VSCode
+  // globalState: a backup lived on one laptop with no way out of it.
+  const handleExportBackup = (operationId: string) => {
+    if (!currentOrg) return;
+    setError(null);
+    exportMutation.mutate({ orgId: currentOrg.id, operationId });
+  };
+
+  /** Hand the serialized backup to the browser as a download. */
+  useEffect(() => {
+    const payload = exportMutation.data;
+    if (!payload?.data) return;
+    const blob = new Blob([payload.data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = payload.filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    exportMutation.reset();
+  }, [exportMutation]);
 
   const handleApplyAnonymize = (templateId: string) => {
     if (!currentOrg) return;
@@ -264,7 +300,11 @@ export const DataOpsPage: React.FC = () => {
           )}
 
           {activeTab === 'backup' && !backupsQuery.loading && (
-            <BackupPanel backups={backups} onCreate={handleCreateBackup} />
+            <BackupPanel
+              backups={backups}
+              onCreate={handleCreateBackup}
+              onExport={handleExportBackup}
+            />
           )}
 
           {activeTab === 'restore' && (

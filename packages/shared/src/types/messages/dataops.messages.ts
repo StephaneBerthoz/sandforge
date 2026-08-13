@@ -35,6 +35,18 @@ export interface BackupSummary {
   objectResults: Array<{ objectApiName: string; recordCount: number }>;
 }
 
+/** Export one backup, records included, so it can leave the machine. */
+export interface BackupExportRequest extends BaseMessage {
+  type: 'backup:export';
+  payload: { orgId: string; operationId: string };
+}
+
+/** Result of `backup:export` — a serialized document ready to download. */
+export interface BackupExportResult extends BaseMessage {
+  type: 'backup:export:result';
+  payload: { operationId: string; filename: string; data: string };
+}
+
 /** Anonymization templates */
 export interface AnonymizationTemplatesRequest extends BaseMessage {
   type: 'dataops:anonymization-templates';
