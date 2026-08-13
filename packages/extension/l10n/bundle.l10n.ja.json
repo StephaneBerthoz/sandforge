@@ -1,0 +1,16 @@
+{
+  "SandForge: org unreachable — {0} operation queued, it will replay automatically when connectivity returns.": "SandForge: 組織に接続できません — {0} 操作をキューに登録しました。接続が回復すると自動的に再実行されます。",
+  "SandForge: queued {0} operation restarted — it is running again in the background.": "SandForge: キューに登録された {0} 操作を再開しました — バックグラウンドで再実行中です。",
+  "SandForge: queued {0} operation could not be replayed and was dropped from the offline queue.": "SandForge: キューに登録された {0} 操作を再実行できなかったため、オフラインキューから削除しました。",
+  "SandForge: production operation": "SandForge: 本番組織への操作",
+  "{0}\n\nThis operation writes data to a PRODUCTION org.": "{0}\n\nこの操作は本番組織にデータを書き込みます。",
+  "Execute": "実行",
+  "SandForge: {0} completed": "SandForge: {0} が完了しました",
+  "SandForge: {0} completed — {1}": "SandForge: {0} が完了しました — {1}",
+  "SandForge: {0} failed": "SandForge: {0} が失敗しました",
+  "SandForge: {0} failed — {1}": "SandForge: {0} が失敗しました — {1}",
+  "Show Details": "詳細を表示",
+  "SandForge: pick an org in the launcher dropdown first.": "SandForge: 先にランチャーのドロップダウンで組織を選択してください。",
+  "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: 「{0}」を開けません — インスタンス URL が無効です: {1}",
+  "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: 「{0}」を開くことを拒否しました — インスタンス URL は HTTPS である必要がありますが、「{1}」でした。"
+}

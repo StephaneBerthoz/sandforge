@@ -28,7 +28,8 @@ function commandLines(source: string): string[] {
 }
 
 function read(name: string): string {
-  return readFileSync(join(EXAMPLES_DIR, name), 'utf8');
+  // Normalised: the assertions are LF-anchored and miss on a CRLF checkout.
+  return readFileSync(join(EXAMPLES_DIR, name), 'utf8').replace(/\r\n/g, '\n');
 }
 
 describe('ci-examples quality stage', () => {

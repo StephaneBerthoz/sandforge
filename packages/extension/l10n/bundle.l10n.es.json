@@ -1,0 +1,16 @@
+{
+  "SandForge: org unreachable — {0} operation queued, it will replay automatically when connectivity returns.": "SandForge: org inaccesible — operación {0} en cola, se reintentará automáticamente cuando vuelva la conectividad.",
+  "SandForge: queued {0} operation restarted — it is running again in the background.": "SandForge: operación {0} en cola reiniciada — se está ejecutando de nuevo en segundo plano.",
+  "SandForge: queued {0} operation could not be replayed and was dropped from the offline queue.": "SandForge: la operación {0} en cola no pudo reintentarse y se descartó de la cola sin conexión.",
+  "SandForge: production operation": "SandForge: operación en producción",
+  "{0}\n\nThis operation writes data to a PRODUCTION org.": "{0}\n\nEsta operación escribe datos en una org de PRODUCCIÓN.",
+  "Execute": "Ejecutar",
+  "SandForge: {0} completed": "SandForge: {0} completado",
+  "SandForge: {0} completed — {1}": "SandForge: {0} completado — {1}",
+  "SandForge: {0} failed": "SandForge: {0} falló",
+  "SandForge: {0} failed — {1}": "SandForge: {0} falló — {1}",
+  "Show Details": "Ver detalles",
+  "SandForge: pick an org in the launcher dropdown first.": "SandForge: primero seleccione una org en la lista del lanzador.",
+  "SandForge: cannot open \"{0}\" — invalid instance URL: {1}": "SandForge: no se puede abrir «{0}» — URL de instancia no válida: {1}",
+  "SandForge: refusing to open \"{0}\" — instance URL must use HTTPS, got \"{1}\".": "SandForge: se rechaza abrir «{0}» — la URL de instancia debe usar HTTPS, se recibió «{1}»."
+}

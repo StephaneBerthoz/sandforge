@@ -1,32 +1,27 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
+    ".": {
+      "entry": ["scripts/*.test.{ts,mjs}"]
+    },
     "packages/shared": {
-      "entry": ["src/index.ts"],
       "project": ["src/**/*.ts"]
     },
     "packages/extension": {
-      "entry": [
-        "src/extension.ts",
-        "src/adapters/index.ts",
-        "src/adapters/**/*.ts!"
-      ],
-      "project": ["src/**/*.ts"],
-      "ignoreBinaries": ["esbuild", "vsce"]
+      "entry": ["src/adapters/index.ts", "src/adapters/**/*.ts!"],
+      "project": ["src/**/*.ts"]
     },
     "packages/webview": {
-      "entry": [
-        "src/main.tsx",
-        "src/PanelApp.tsx",
-        "vite.config.ts",
-        "vite.config.e2e.ts",
-        "playwright.config.ts",
-        "postcss.config.cjs",
-        "tailwind.config.ts"
-      ],
+      "entry": ["src/main.sidepanel.tsx", "src/PanelApp.tsx", "vite.config.e2e.ts"],
       "project": ["src/**/*.{ts,tsx}"]
     }
   },
-  "ignore": [".stryker-tmp/**"],
-  "ignoreDependencies": ["@types/.*"]
+  "rules": {
+    "types": "off",
+    "enumMembers": "off"
+  },
+  "ignoreExportsUsedInFile": true,
+  "ignore": ["scripts/render-icon.mjs", "packages/webview/e2e/quarantine/**"],
+  "ignoreBinaries": ["vsce"],
+  "ignoreDependencies": ["@types/.*", "@vitest/coverage-v8", "@vscode/vsce", "@axe-core/playwright"]
 }

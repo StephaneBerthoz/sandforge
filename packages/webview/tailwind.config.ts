@@ -20,6 +20,15 @@ const config: Config = {
         compare: { DEFAULT: '#A855F7', light: '#EDE9FE', dark: '#5B21B6' },
         dataops: { DEFAULT: '#06B6D4', light: '#CFFAFE', dark: '#0E7490' },
         automation: { DEFAULT: '#F43F5E', light: '#FFE4E6', dark: '#9F1239' },
+        // Severity — mapped to VSCode CSS variables. A fixed palette hue such as
+        // red-400 only clears AA against a dark editor; on a light theme it drops
+        // to ~2.8:1, so severity has to follow the theme rather than the palette.
+        status: {
+          error: 'var(--sf-error)',
+          warning: 'var(--sf-warning)',
+          success: 'var(--sf-success)',
+          info: 'var(--sf-info)',
+        },
         // Text — mapped to VSCode CSS variables
         'text-primary': 'var(--sf-text-primary, #F2F2F2)',
         'text-secondary': 'var(--sf-text-secondary, #A3A3A3)',
@@ -28,7 +37,9 @@ const config: Config = {
       borderColor: {
         subtle: 'var(--sf-border-subtle, rgba(255,255,255,0.06))',
         DEFAULT: 'var(--sf-border, rgba(255,255,255,0.10))',
-        active: 'rgba(255,255,255,0.16)',
+        // Marks hover/focus state, so it must stay visible on light themes too —
+        // a translucent white is invisible against a light editor background.
+        active: 'var(--sf-accent)',
       },
       borderRadius: {
         xl: '12px',
