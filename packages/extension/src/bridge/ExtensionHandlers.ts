@@ -19,6 +19,7 @@ import type { Services } from '../services.js';
 
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker.js';
 import type { MaskingTemplateService } from '../modules/dataops/templates/MaskingTemplateService.js';
+import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js';
 import type { HandlerDeps, DomainHandler, InfraServices } from './handlers/HandlerTypes.js';
 import { OrgHandler } from './handlers/OrgHandler.js';
 import { SettingsHandler } from './handlers/SettingsHandler.js';
@@ -205,6 +206,10 @@ export class ExtensionHandlers {
   }
 
   /** Inject masking template service for dataops:masking-templates-by-object messages. */
+  setBackupRecordStore(store: BackupRecordStore): void {
+    this.dataOpsHandler.setBackupRecordStore(store);
+  }
+
   setMaskingTemplateService(service: MaskingTemplateService): void {
     this.dataOpsHandler.setMaskingTemplateService(service);
   }

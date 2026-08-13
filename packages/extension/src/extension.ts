@@ -11,6 +11,7 @@ import { SidebarViewProvider } from './providers/SidebarViewProvider';
 import { PipelineMarketplace } from './modules/automation/PipelineMarketplace';
 import { LiveOperationTracker } from './modules/monitor/LiveOperationTracker';
 import { MaskingTemplateService } from './modules/dataops/templates/MaskingTemplateService';
+import { BackupRecordStore } from './modules/dataops/BackupRecordStore';
 import { CacheManager } from './core/cache/CacheManager';
 import { createServices } from './services.js';
 import type { Services } from './services.js';
@@ -165,6 +166,18 @@ export function activate(context: vscode.ExtensionContext): void {
     // webview build output) served by the I18nHandler.
     localesDir: vscode.Uri.joinPath(context.extensionUri, 'webview-dist', 'locales').fsPath,
   });
+  // Backup record payloads go to files under the extension's own storage
+  // directory instead of globalState, which VSCode re-serializes in full on
+  // every write — a single backup could put megabytes behind every unrelated
+  // settings save and behind activation itself.
+  const backupRecordStore = new BackupRecordStore({
+    storagePath: context.globalStorageUri.fsPath,
+    readFile: (p) => fs.readFile(p, 'utf-8'),
+    writeFile: (p, content) => fs.writeFile(p, content, 'utf-8'),
+    mkdir: (p) => fs.mkdir(p, { recursive: true }).then(() => undefined),
+    rm: (p) => fs.rm(p, { force: true }),
+  });
+
   applyLateServices(handlers, {
     onboardingService,
     hintTracker,
@@ -174,6 +187,7 @@ export function activate(context: vscode.ExtensionContext): void {
     pipelineMarketplace,
     liveOperationTracker,
     maskingTemplateService,
+    backupRecordStore,
   });
   // Replays operations queued on transport failure once connectivity returns
   // (the queue drains on the offline→online probe transition).

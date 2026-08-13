@@ -6,6 +6,7 @@ import type { BackgroundOperationRegistry } from '../core/engine/BackgroundOpera
 import type { PipelineMarketplace } from '../modules/automation/PipelineMarketplace';
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker';
 import type { MaskingTemplateService } from '../modules/dataops/templates/MaskingTemplateService';
+import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js';
 
 /**
  * LateServices — the dependencies injected into `ExtensionHandlers` through
@@ -48,6 +49,12 @@ export interface LateServices {
   liveOperationTracker: LiveOperationTracker;
   /** Masking template catalog serving dataops:masking-templates-by-object. */
   maskingTemplateService: MaskingTemplateService;
+  /**
+   * File-backed store for backup record payloads, keeping megabytes of SOQL
+   * results out of globalState — VSCode re-serializes that memento in full on
+   * every write.
+   */
+  backupRecordStore: BackupRecordStore;
 }
 
 /**
@@ -65,4 +72,5 @@ export function applyLateServices(handlers: ExtensionHandlers, late: LateService
   handlers.setPipelineMarketplace(late.pipelineMarketplace);
   handlers.setLiveOperationTracker(late.liveOperationTracker);
   handlers.setMaskingTemplateService(late.maskingTemplateService);
+  handlers.setBackupRecordStore(late.backupRecordStore);
 }
