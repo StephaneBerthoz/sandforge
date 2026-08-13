@@ -43,7 +43,8 @@
     "componentCount_one": "{{count}} componente",
     "componentCount_other": "{{count}} componentes",
     "typeCount_one": "{{count}} tipo",
-    "typeCount_other": "{{count}} tipos"
+    "typeCount_other": "{{count}} tipos",
+    "comingSoon": "Em breve"
   },
   "status": {
     "connectedOrgs": "Orgs conectadas",
@@ -1081,7 +1082,12 @@
       "step3": "Anonimize campos sensíveis com um template",
       "step4": "Agende limpezas e acompanhe a qualidade dos dados"
     },
-    "exportBackup": "Exportar"
+    "exportBackup": "Exportar",
+    "soon": {
+      "gdpr": "Solicitações de titulares e inventário de dados pessoais. A detecção de PII já roda nas verificações prévias de Seed e Sync; falta o fluxo de conformidade em volta.",
+      "cleanup": "Encontrar registros obsoletos, órfãos e duplicados para arquivar ou excluir. Nenhuma varredura produz essas recomendações ainda.",
+      "quality": "Avaliar completude de campos, validade de formatos e duplicatas. Nenhuma varredura de qualidade roda ainda."
+    }
   },
   "automation": {
     "title": "Automacao",

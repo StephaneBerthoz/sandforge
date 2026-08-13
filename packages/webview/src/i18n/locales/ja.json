@@ -38,7 +38,8 @@
     "objectCount_other": "{{count}}個のオブジェクト",
     "changeCount_other": "{{count}}件の変更",
     "componentCount_other": "{{count}}個のコンポーネント",
-    "typeCount_other": "{{count}}個のタイプ"
+    "typeCount_other": "{{count}}個のタイプ",
+    "comingSoon": "近日公開"
   },
   "status": {
     "connectedOrgs": "接続済みOrg",
@@ -1074,7 +1075,12 @@
       "step3": "テンプレートで機密フィールドを匿名化",
       "step4": "クリーンアップを計画しデータ品質を追跡"
     },
-    "exportBackup": "エクスポート"
+    "exportBackup": "エクスポート",
+    "soon": {
+      "gdpr": "データ主体の請求と個人データの棚卸し。PII 検出は Seed と Sync の事前チェックですでに動作していますが、その周辺のコンプライアンス処理は未実装です。",
+      "cleanup": "古い・孤立した・重複したレコードを見つけて、アーカイブまたは削除します。これらの推奨事項を生成するスキャンはまだありません。",
+      "quality": "項目の充足度、形式の妥当性、重複を評価します。品質スキャンはまだ実行されません。"
+    }
   },
   "automation": {
     "title": "自動化",

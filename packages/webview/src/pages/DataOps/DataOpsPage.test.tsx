@@ -221,18 +221,21 @@ describe('DataOpsPage', () => {
     expect(screen.getByTestId('anonymize-panel')).toBeDefined();
   });
 
-  it('should switch to cleanup tab', () => {
+  it('should tell the user the cleanup tab is not built rather than show an empty list', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
     fireEvent.click(screen.getByText('Cleanup'));
-    expect(screen.getByTestId('cleanup-panel')).toBeDefined();
+    // The panel used to mount against a hardcoded [], so it rendered an
+    // ordinary "nothing found" list — indistinguishable from a scan that ran
+    // and found nothing. No scan exists.
+    expect(screen.getByTestId('dataops-cleanup-soon')).toBeDefined();
   });
 
-  it('should switch to quality tab', () => {
+  it('should tell the user the quality tab is not built rather than show an empty list', () => {
     useOrgStore.setState({ orgs: mockOrgs });
     render(<DataOpsPage />);
     fireEvent.click(screen.getByText('Quality'));
-    expect(screen.getByTestId('quality-dashboard')).toBeDefined();
+    expect(screen.getByTestId('dataops-quality-soon')).toBeDefined();
   });
 
   it('should display error from bridge hook', () => {
