@@ -2,7 +2,6 @@
 
 <!-- badges:start -->
 [![Version](https://img.shields.io/badge/version-1.15.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
-[![CI](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
@@ -20,7 +19,7 @@
 4. Click **Discover Graph**, then tune **Depth**, **Records per object**, and **Anonymize PII**.
 5. Click **Review & Execute** toward your dev sandbox. Every ID is remapped automatically.
 
-![Forge flow: from a record to a populated sandbox](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/forge-flow.gif)
+![Forge flow: from a record to a populated sandbox](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/forge-flow.gif)
 
 New here? The built-in **Get Started** walkthrough (Help → Welcome → "Get started with SandForge") guides you through these steps directly inside VS Code.
 
@@ -53,13 +52,13 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ## Screenshots
 
-![Home — orgs, health and the forge entry point](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/home.png)
+![Home — orgs, health and the forge entry point](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/home.png)
 
-![Forge — live record preview, dependency estimate and PII detection](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/forge.png)
+![Forge — live record preview, dependency estimate and PII detection](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/forge.png)
 
-![Monitor — health score, governor limits and storage breakdown](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/monitor.png)
+![Monitor — health score, governor limits and storage breakdown](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/monitor.png)
 
-![DataOps — backup history with per-object results](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/dataops.png)
+![DataOps — backup history with per-object results](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/dataops.png)
 
 ---
 

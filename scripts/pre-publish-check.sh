@@ -263,6 +263,22 @@ else
 fi
 rm -f /tmp/sf-images.txt
 
+# 11d. The published images are the ones on disk.
+#
+# 11c only proves the URLs resolve. Because the Marketplace images live in a
+# separate public repo (this one is private and the Marketplace fetches
+# anonymously), a screenshot can be regenerated here and never pushed there —
+# the listing then shows the old UI while every check passes. This compares
+# bytes, so a stale published copy fails as loudly as a missing one.
+if node scripts/sync-assets-repo.mjs --check > /tmp/sf-assets.txt 2>&1; then
+  echo "PASS: $(tail -1 /tmp/sf-assets.txt)"
+else
+  echo "FAIL: published images differ from the repository — run 'pnpm sync:assets'"
+  grep -E "✗" /tmp/sf-assets.txt | sed 's/^/       /'
+  ERRORS=$((ERRORS + 1))
+fi
+rm -f /tmp/sf-assets.txt
+
 # 12. Client-confidentiality gate — no client identity may reach a public
 # artifact. Both the GitHub repo and the VSIX (which ships changelog.md as the
 # Marketplace "Changelog" tab) are public, so this scans the whole tracked tree.

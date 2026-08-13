@@ -28,7 +28,8 @@
     "prepare": "pnpm setup:hooks",
     "clean": "pnpm -r run clean && node -e \"fs.rmSync('node_modules',{recursive:true,force:true})\"",
     "sync:badges": "node scripts/sync-readme-badges.mjs",
-    "check:images": "node scripts/check-readme-images.mjs"
+    "check:images": "node scripts/check-readme-images.mjs",
+    "sync:assets": "node scripts/sync-assets-repo.mjs"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

@@ -30,8 +30,11 @@ const LOCAL_ONLY = process.argv.includes('--local');
 
 /** READMEs to scan, with the directory their relative links resolve against. */
 const TARGETS = [
-  { file: 'README.md', base: ROOT },
-  { file: 'packages/extension/README.md', base: join(ROOT, 'packages', 'extension') },
+  // GitHub renders this one to signed-in collaborators of a private repo, so a
+  // link only they can resolve is fine here; the files still have to exist.
+  { file: 'README.md', base: ROOT, anonymous: false },
+  // The Marketplace renders this one on its own site to the whole internet.
+  { file: 'packages/extension/README.md', base: join(ROOT, 'packages', 'extension'), anonymous: true },
 ];
 
 /** Every markdown image reference in a document. */
@@ -58,7 +61,7 @@ async function isReachable(url) {
 const failures = [];
 let checked = 0;
 
-for (const { file, base } of TARGETS) {
+for (const { file, base, anonymous } of TARGETS) {
   const path = join(ROOT, file);
   if (!existsSync(path)) continue;
 
@@ -66,7 +69,7 @@ for (const { file, base } of TARGETS) {
     checked += 1;
 
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      if (LOCAL_ONLY) continue;
+      if (LOCAL_ONLY || !anonymous) continue;
       const { ok, status } = await isReachable(url);
       if (!ok) {
         failures.push(`${file}: ${url} → ${status} (a Marketplace visitor sees a broken image)`);
