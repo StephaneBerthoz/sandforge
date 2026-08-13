@@ -1,23 +1,41 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
   <!--
-    SandForge activity-bar mark — anvil, single mass.
+    SandForge activity-bar mark — fire in the hearth.
 
-    Deliberately WITHOUT the strike spark that the Marketplace mark carries.
-    Rendered side by side at 20 px, the two-shape version turns the spark into
-    an indistinct blob and crowds the silhouette; the anvil alone stays legible.
-    A 20 px slot affords one idea, and the anvil is the one.
+    Two masses, one idea: heat inside a container. The crucible is the sandbox,
+    the flame is what SandForge puts in it. It replaces the anvil, which said
+    "forge" but said nothing about filling anything.
+
+    The flame is deliberately asymmetric, with an inner lick on the left. A
+    symmetrical teardrop was tried first and read as a water drop at every
+    size — fatal for a product whose whole metaphor is heat. The lick closes up
+    below about 22 px, but by then the outer silhouette carries the read on its
+    own: narrow leaning tip, wide shoulders, round base.
+
+    The flame overruns the crucible's mouth on both sides and descends into the
+    floor band, so the two fuse into one mass. Three weaker arrangements were
+    drawn and rejected against this one:
+      - flame clearing the mouth entirely: read as a blob hovering over a
+        bracket, the two never became one object
+      - flame on a solid trapezoid hearth: the round base and the sloped sides
+        merged into a mountain
+      - flame on a plain bar: the bar detached into an underline at 96 px and
+        vanished into a dash at 20 px
+    What survives at the mouth are two small triangular notches — the only
+    detail that still says "container" once the fill has taken over.
 
     Construction (grid units):
-      ink      x 2.4 -> 21.0 (18.6 wide), y 5.6 -> 18.4 (12.8 tall)
-      padding  L 2.4  R 3.0  T 5.6  B 5.6
-      centre   h 11.7 / v 12.0 — the 0.3 left bias is deliberate: the horn
-               carries less visual mass than the base, so geometric centring
-               reads as leaning right.
-      masses   face 4.4 thick, waist 4.8 wide, base 3.4 thick — all well clear
-               of the ~1.5 unit floor where features close up at 20 px.
+      ink      x 3.4 -> 20.6 (17.2 wide), y 2.2 -> 21.6 (19.4 tall)
+      padding  2.2 top, 2.4 bottom, 3.4 sides
+      masses   crucible walls 3.0, floor 3.2, flame 12.6 at its widest — all
+               well clear of the ~1.5 unit floor where features close up at
+               20 px.
 
     VSCode may render this as a mask, so it must hold as a flat silhouette with
     no reliance on internal contrast. No defs, no gradient, no stroke.
   -->
-  <path d="M2.4 8.8 L7.6 5.6 H21 V10 H14.4 L15.7 15 H19.6 V18.4 H4.4 V15 H8.3 L9.6 10 H6 Z"/>
+  <path d="M3.4 13.6 H6.4 V18.4 H17.6 V13.6 H20.6 V21.6 H3.4 Z"/>
+  <path d="M12.2 2.2 C13.7 6.6 18.3 8.4 18.3 12.9 C18.3 16.1 15.6 19.6 12 19.6
+           C8.4 19.6 5.7 16.1 5.7 12.9 C5.7 9.9 7.8 8.5 9.5 6.2
+           C10 8.7 10.9 9.5 11.5 9.3 C12.2 9 11.6 5.2 12.2 2.2 Z"/>
 </svg>
