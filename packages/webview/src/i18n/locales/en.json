@@ -43,7 +43,8 @@
     "componentCount_one": "{{count}} component",
     "componentCount_other": "{{count}} components",
     "typeCount_one": "{{count}} type",
-    "typeCount_other": "{{count}} types"
+    "typeCount_other": "{{count}} types",
+    "comingSoon": "Coming soon"
   },
   "status": {
     "connectedOrgs": "Connected orgs",
@@ -1081,7 +1082,12 @@
       "step3": "Anonymize sensitive fields with a template",
       "step4": "Schedule cleanups and track data quality"
     },
-    "exportBackup": "Export"
+    "exportBackup": "Export",
+    "soon": {
+      "gdpr": "Data subject requests and PII inventory. PII detection already runs in the Seed and Sync pre-flight checks; the compliance workflow around it is not built yet.",
+      "cleanup": "Find stale, orphaned and duplicate records so you can archive or delete them. No scan produces these recommendations yet.",
+      "quality": "Score field completeness, format validity and duplicates across your org. No quality scan runs yet."
+    }
   },
   "automation": {
     "title": "Automation",

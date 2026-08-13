@@ -43,7 +43,8 @@
     "componentCount_one": "{{count}} Komponente",
     "componentCount_other": "{{count}} Komponenten",
     "typeCount_one": "{{count}} Typ",
-    "typeCount_other": "{{count}} Typen"
+    "typeCount_other": "{{count}} Typen",
+    "comingSoon": "Demnächst"
   },
   "status": {
     "connectedOrgs": "Verbundene Orgs",
@@ -1081,7 +1082,12 @@
       "step3": "Sensible Felder mit einer Vorlage anonymisieren",
       "step4": "Bereinigungen planen und Datenqualität verfolgen"
     },
-    "exportBackup": "Exportieren"
+    "exportBackup": "Exportieren",
+    "soon": {
+      "gdpr": "Betroffenenanfragen und PII-Inventar. Die PII-Erkennung läuft bereits in den Vorabprüfungen von Seed und Sync; der Compliance-Ablauf darum herum fehlt noch.",
+      "cleanup": "Veraltete, verwaiste und doppelte Datensätze finden, um sie zu archivieren oder zu löschen. Noch erzeugt kein Scan diese Empfehlungen.",
+      "quality": "Feldvollständigkeit, Formatgültigkeit und Duplikate bewerten. Noch läuft kein Qualitätsscan."
+    }
   },
   "automation": {
     "title": "Automatisierung",

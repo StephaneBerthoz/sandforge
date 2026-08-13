@@ -20,9 +20,7 @@ import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { BackupPanel } from './BackupPanel';
 import { RestorePanel } from './RestorePanel';
 import { AnonymizePanel } from './AnonymizePanel';
-import { CleanupPanel } from './CleanupPanel';
-import { QualityDashboard } from './QualityDashboard';
-import { GDPRPanel } from './GDPRPanel';
+import { ComingSoon } from '../../components/ui/ComingSoon';
 
 /** Main DataOps page — wired to extension via bridge hooks. */
 export const DataOpsPage: React.FC = () => {
@@ -326,11 +324,23 @@ export const DataOpsPage: React.FC = () => {
             />
           )}
 
-          {activeTab === 'gdpr' && <GDPRPanel />}
+          {/* These three tabs used to mount their panels against hardcoded
+              empty arrays, so they rendered an ordinary "nothing found" list.
+              A user who clicks Cleanup and sees an empty list concludes the
+              scan ran and found nothing. It never ran: there is no producer
+              for StorageRecommendation, DataQualityScanResult or the DSR list
+              anywhere in the codebase. */}
+          {activeTab === 'gdpr' && (
+            <ComingSoon data-testid="dataops-gdpr-soon" description={t('dataops.soon.gdpr')} />
+          )}
 
-          {activeTab === 'cleanup' && <CleanupPanel recommendations={[]} />}
+          {activeTab === 'cleanup' && (
+            <ComingSoon data-testid="dataops-cleanup-soon" description={t('dataops.soon.cleanup')} />
+          )}
 
-          {activeTab === 'quality' && <QualityDashboard results={[]} />}
+          {activeTab === 'quality' && (
+            <ComingSoon data-testid="dataops-quality-soon" description={t('dataops.soon.quality')} />
+          )}
         </div>
       </BentoTile>
     </m.div>

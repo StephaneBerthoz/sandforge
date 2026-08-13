@@ -1,3 +1,13 @@
+/**
+ * NOT MOUNTED. The DataOps tab for stale/orphaned/duplicate record recommendations renders `ComingSoon`
+ * instead, because nothing in the codebase produces the data this
+ * component expects — mounting it against a hardcoded empty array made
+ * an unimplemented feature look like a scan that found nothing.
+ *
+ * Kept rather than deleted: it is the finished UI for when the backend
+ * lands, and nothing imports it, so it is tree-shaken out of the build.
+ * Re-mount it in DataOpsPage the moment a real producer exists.
+ */
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import type { StorageRecommendation } from '@sandforge/shared';
