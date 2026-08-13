@@ -1,12 +1,12 @@
 # SandForge: Salesforce DevOps Toolkit
 
-![Version](https://img.shields.io/badge/version-1.12.0-blue)
-![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Tests](https://img.shields.io/badge/tests-7409-brightgreen)
+<!-- badges:start -->
+![Version](https://img.shields.io/badge/version-1.15.0-blue)
+[![CI](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
-![VSIX](https://img.shields.io/badge/vsix-1.9%20MB-green)
+<!-- badges:end -->
 
 **Forge your Salesforce sandboxes.** SandForge populates your developer sandbox with realistic data: cloned from a real record or generated synthetically, with production guardrails. One WebView UI, no Command Palette required.
 
