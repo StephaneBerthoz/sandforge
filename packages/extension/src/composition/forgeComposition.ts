@@ -247,13 +247,18 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
           },
         });
 
+        // No workspace folder means no `.sandforge/` to write into, so the
+        // store is not constructed at all and the handler stays on its
+        // ConfigStore path rather than writing to a path rooted at ''.
         const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-        const templateStore = new ForgeTemplateStore({
-          workspacePath,
-          readFile: (path) => fs.readFile(path, 'utf-8'),
-          writeFile: (path, content) => fs.writeFile(path, content, 'utf-8'),
-          mkdir: (path) => fs.mkdir(path, { recursive: true }).then(() => undefined),
-        });
+        const templateStore = workspacePath
+          ? new ForgeTemplateStore({
+              workspacePath,
+              readFile: (path) => fs.readFile(path, 'utf-8'),
+              writeFile: (path, content) => fs.writeFile(path, content, 'utf-8'),
+              mkdir: (path) => fs.mkdir(path, { recursive: true }).then(() => undefined),
+            })
+          : undefined;
 
         const historyStore = new ForgeHistoryStore({
           get: (key) => configStore.get(key),
