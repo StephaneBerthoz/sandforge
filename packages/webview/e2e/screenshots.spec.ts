@@ -201,7 +201,12 @@ test.describe('Marketplace Screenshots', () => {
   });
 
   test('home', async ({ page }) => {
-    await openModule(page, 'home');
+    const bridge = await openModule(page, 'home');
+    // Home's KPI row no longer fabricates zeros — it reads the same
+    // monitor:refresh round trip Monitor does, and renders skeletons until it
+    // answers. Leaving it unanswered shoots three blank cards.
+    await bridge.waitForMessage('monitor:refresh', { timeout: 10_000 });
+    await respondToAll(page, 'monitor:refresh', 'monitor:data', MOCK_HEALTH);
     await page.waitForSelector('[data-testid="home-page"]');
     await page.waitForSelector('[data-testid="forge-hero-card"]');
     await settle(page);

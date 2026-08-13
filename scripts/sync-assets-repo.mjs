@@ -32,6 +32,9 @@ const ASSETS_BRANCH = 'main';
 const RAW_BASE = `https://raw.githubusercontent.com/${ASSETS_REPO}/${ASSETS_BRANCH}`;
 const LOCAL_DIR = join(ROOT, 'assets', 'screenshots');
 
+/** Unique per invocation — see the fetch below for why it must not be content-keyed. */
+const NONCE = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
 /** sha256 of a buffer, hex. */
 const digest = (buffer) => createHash('sha256').update(buffer).digest('hex');
 
@@ -50,7 +53,15 @@ async function check() {
     const local = readFileSync(join(LOCAL_DIR, name));
     let remote;
     try {
-      const response = await fetch(`${RAW_BASE}/${name}`);
+      // raw.githubusercontent serves Cache-Control: max-age=300, so for five
+      // minutes after a push this check compares fresh local bytes against the
+      // previous published copy and reports drift that no longer exists.
+      //
+      // The nonce has to be unique per run, not derived from the content: a
+      // content-keyed buster caches the stale response under the very key the
+      // next check uses, which is worse than no buster at all — it pins the
+      // wrong answer instead of expiring it.
+      const response = await fetch(`${RAW_BASE}/${name}?nonce=${NONCE}`, { cache: 'no-store' });
       if (!response.ok) {
         stale.push(`${name} → HTTP ${response.status} (never published)`);
         continue;
