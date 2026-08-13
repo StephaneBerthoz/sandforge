@@ -53,15 +53,13 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ## Screenshots
 
-![Home Dashboard](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/home.png)
+![Home — orgs, health and the forge entry point](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/home.png)
 
-![Seed Wizard](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/seed.png)
+![Forge — live record preview, dependency estimate and PII detection](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/forge.png)
 
-![Sync Field Mapping](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/sync.png)
+![Monitor — health score, governor limits and storage breakdown](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/monitor.png)
 
-![Monitor Dashboard](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/monitor.png)
-
-![Autopilot Execution](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/autopilot.png)
+![DataOps — backup history with per-object results](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge/master/assets/screenshots/dataops.png)
 
 ---
 

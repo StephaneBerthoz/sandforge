@@ -245,6 +245,24 @@ else
 fi
 rm -f /tmp/sf-badges.txt
 
+# 11c. Every README image reaches an anonymous reader.
+#
+# The Marketplace renders packages/extension/README.md on its own site and
+# fetches the images over the public internet — it cannot see inside the VSIX
+# and it has no GitHub session. All six screenshots pointed at
+# raw.githubusercontent.com on a private repo, so the listing shipped with six
+# broken images while every file sat present and correct on disk.
+#
+# NOT gated on SKIP_BUILD_CHECKS, for the same reason as 11b.
+if node scripts/check-readme-images.mjs > /tmp/sf-images.txt 2>&1; then
+  echo "PASS: $(tail -1 /tmp/sf-images.txt)"
+else
+  echo "FAIL: README images are unreachable to a Marketplace visitor"
+  grep -E "✗|→" /tmp/sf-images.txt | sed 's/^/       /'
+  ERRORS=$((ERRORS + 1))
+fi
+rm -f /tmp/sf-images.txt
+
 # 12. Client-confidentiality gate — no client identity may reach a public
 # artifact. Both the GitHub repo and the VSIX (which ships changelog.md as the
 # Marketplace "Changelog" tab) are public, so this scans the whole tracked tree.

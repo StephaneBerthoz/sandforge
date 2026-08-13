@@ -69,15 +69,13 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ## Screenshots
 
-![Home Dashboard](assets/screenshots/home.png)
+![Home — orgs, health and the forge entry point](assets/screenshots/home.png)
 
-![Seed Wizard](assets/screenshots/seed.png)
+![Forge — live record preview, dependency estimate and PII detection](assets/screenshots/forge.png)
 
-![Sync Field Mapping](assets/screenshots/sync.png)
+![Monitor — health score, governor limits and storage breakdown](assets/screenshots/monitor.png)
 
-![Monitor Dashboard](assets/screenshots/monitor.png)
-
-![Autopilot Execution](assets/screenshots/autopilot.png)
+![DataOps — backup history with per-object results](assets/screenshots/dataops.png)
 
 ---
 

@@ -1,19 +1,27 @@
 import { test } from '@playwright/test';
-import { MockBridge } from './helpers';
-import { MOCK_ORGS, createOrgListResponse } from './fixtures';
-import { sendExtensionMessage } from './mocks/vscode-api';
 import path from 'path';
 import { fileURLToPath } from 'url';
+
+import { MockBridge } from './helpers';
+import { MOCK_ORGS } from './fixtures';
+import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
  * Marketplace screenshot generator.
  *
- * This spec is excluded from the regular E2E suite by default.
- * Run it on-demand to regenerate screenshots:
+ * Excluded from the regular E2E suite. Regenerate on demand:
  *
  *   SCREENSHOTS=1 npx playwright test screenshots.spec.ts
  *
- * Screenshots are saved to assets/screenshots/ at the project root.
+ * Output lands in assets/screenshots/ at the repo root, and
+ * `scripts/check-screenshots.mjs` fails the release if what ships no longer
+ * matches what this file produces.
+ *
+ * Each shot boots one module panel directly (`__SANDFORGE_MODULE__`) because
+ * that is how the extension opens them — there has been no in-app navigation
+ * sidebar since 1.10. The previous version of this file clicked through that
+ * sidebar, which is why the shipped screenshots showed a UI that no longer
+ * exists.
  */
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,8 +29,66 @@ const __dirname = path.dirname(__filename);
 const SCREENSHOT_DIR = path.resolve(__dirname, '../../../assets/screenshots');
 const VIEWPORT = { width: 1280, height: 800 };
 
-/** Mock monitor data for a visually rich dashboard. */
-const MOCK_MONITOR_DATA = {
+/** Boot the app straight into one module panel, orgs already connected. */
+async function openModule(
+  page: import('@playwright/test').Page,
+  moduleId: string,
+): Promise<MockBridge> {
+  const bridge = new MockBridge();
+  await bridge.setup(page);
+  await page.addInitScript((id) => {
+    (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = id;
+  }, moduleId);
+  await page.goto('/');
+  await bridge.seedOrgs(MOCK_ORGS);
+  return bridge;
+}
+
+/**
+ * Answer *every* pending request of a type, not just the first.
+ *
+ * React StrictMode mounts effects twice in dev, so a panel can have two
+ * in-flight queries of the same type with different ids; answering only the
+ * first leaves the live one hanging and the panel stuck on its skeleton.
+ */
+async function respondToAll(
+  page: import('@playwright/test').Page,
+  requestType: string,
+  responseType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const ids = await page.evaluate((type) => {
+    const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+    return msgs
+      .map((m) => {
+        const e = m as Record<string, unknown>;
+        return (e.payload as Record<string, unknown> | undefined) ?? e;
+      })
+      .filter((m) => m.type === type)
+      .map((m) => m.id as string);
+  }, requestType);
+
+  for (const correlationId of ids) {
+    await sendExtensionMessage(page, {
+      type: responseType,
+      id: `resp-${correlationId}`,
+      correlationId,
+      payload,
+    });
+  }
+}
+
+/**
+ * Let entry animations and layout settle before capturing.
+ *
+ * Long enough to outlast Recharts' 1500ms default entry animation — a shorter
+ * wait catches the donut mid-sweep as a partial off-centre arc.
+ */
+async function settle(page: import('@playwright/test').Page): Promise<void> {
+  await page.waitForTimeout(2500);
+}
+
+const MOCK_HEALTH = {
   healthScore: 85,
   healthReport: null,
   jobs: [
@@ -85,80 +151,49 @@ const MOCK_MONITOR_DATA = {
   activeAlertsCount: 2,
 };
 
-/** Mock schema objects for Autopilot graph. */
-const MOCK_SCHEMA_OBJECTS = [
-  { apiName: 'Account', label: 'Account', recordCount: 500 },
-  { apiName: 'Contact', label: 'Contact', recordCount: 1200 },
-  { apiName: 'Opportunity', label: 'Opportunity', recordCount: 300 },
-  { apiName: 'Lead', label: 'Lead', recordCount: 800 },
-  { apiName: 'Case', label: 'Case', recordCount: 450 },
-];
-
-/**
- * Build a mock AutopilotGraph with nodes in various execution states
- * for a visually interesting screenshot.
- */
-function buildExecutionGraph(): Record<string, unknown> {
-  const statuses = ['completed', 'completed', 'processing', 'pending', 'pending'];
-  const progresses = [100, 100, 65, 0, 0];
-
-  return {
-    nodes: MOCK_SCHEMA_OBJECTS.map((obj, i) => ({
-      objectApiName: obj.apiName,
-      recordCount: obj.recordCount,
-      estimatedApiCalls: Math.ceil(obj.recordCount / 200),
-      piiFields: [],
-      anonymizationRules: [],
-      status: statuses[i],
-      progress: progresses[i],
-      insertOrder: i,
-      level: i < 2 ? 0 : i < 4 ? 1 : 2,
-      successCount: statuses[i] === 'completed' ? obj.recordCount : Math.floor(obj.recordCount * progresses[i] / 100),
-      failureCount: 0,
-      elapsedMs: statuses[i] === 'completed' ? obj.recordCount * 10 : 0,
-      apiCallsUsed: statuses[i] === 'completed' ? Math.ceil(obj.recordCount / 200) : 0,
-    })),
-    edges: [
-      { source: 'Account', target: 'Contact' },
-      { source: 'Account', target: 'Opportunity' },
-      { source: 'Contact', target: 'Case' },
-    ],
-    cycles: [],
-    stats: {
-      totalObjects: MOCK_SCHEMA_OBJECTS.length,
-      totalRelationships: 3,
-      cycleCount: 0,
-      maxDepth: 2,
+const MOCK_BACKUPS = {
+  backups: [
+    {
+      operationId: 'op-2026-08-12-1',
+      orgId: 'org-src-1',
+      timestamp: '2026-08-12T09:14:00Z',
       totalRecords: 3250,
-      totalEstimatedApiCalls: 25,
+      totalSize: 4_812_000,
+      status: 'completed',
+      objectResults: [
+        { objectApiName: 'Account', recordCount: 500 },
+        { objectApiName: 'Contact', recordCount: 1200 },
+        { objectApiName: 'Opportunity', recordCount: 300 },
+      ],
     },
-  };
-}
+    {
+      operationId: 'op-2026-08-11-2',
+      orgId: 'org-src-1',
+      timestamp: '2026-08-11T17:02:00Z',
+      totalRecords: 1250,
+      totalSize: 1_940_000,
+      status: 'completed',
+      objectResults: [
+        { objectApiName: 'Lead', recordCount: 800 },
+        { objectApiName: 'Case', recordCount: 450 },
+      ],
+    },
+  ],
+};
 
-/** Helper: resolve the org:list query that fires on mount. */
-async function resolveOrgListLoading(page: import('@playwright/test').Page): Promise<void> {
-  await page.waitForTimeout(200);
-
-  const correlationId = await page.evaluate(() => {
-    const msgs =
-      (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find(
-      (m) => (m as Record<string, unknown>).type === 'org:list',
-    ) as Record<string, unknown> | undefined;
-    return orgListMsg?.id as string | undefined;
-  });
-
-  await sendExtensionMessage(page, {
-    type: 'org:list:response',
-    id: `resp-${Date.now()}`,
-    correlationId: correlationId ?? 'unknown',
-    payload: createOrgListResponse(MOCK_ORGS),
-  });
-}
+const MOCK_STORAGE = {
+  success: true,
+  totalRecords: 3250,
+  objects: [
+    { objectName: 'Contact', label: 'Contact', recordCount: 1200 },
+    { objectName: 'Lead', label: 'Lead', recordCount: 800 },
+    { objectName: 'Account', label: 'Account', recordCount: 500 },
+    { objectName: 'Case', label: 'Case', recordCount: 450 },
+    { objectName: 'Opportunity', label: 'Opportunity', recordCount: 300 },
+  ],
+};
 
 test.describe('Marketplace Screenshots', () => {
-  // This spec only runs when explicitly requested via SCREENSHOTS=1 env var.
-  // It is excluded from regular E2E runs and CI.
   test.skip(!process.env.SCREENSHOTS, 'Screenshots are generated on demand (set SCREENSHOTS=1)');
 
   test.beforeEach(async ({ page }) => {
@@ -166,165 +201,76 @@ test.describe('Marketplace Screenshots', () => {
   });
 
   test('home', async ({ page }) => {
-    const bridge = new MockBridge();
-    await bridge.setup(page);
-    await page.goto('/');
+    await openModule(page, 'home');
     await page.waitForSelector('[data-testid="home-page"]');
-    await resolveOrgListLoading(page);
-
-    // Wait for the dashboard to fully render with cards
-    await page.waitForSelector('[data-testid="forge-hero-card"]', { timeout: 5000 });
-    await page.waitForSelector('[data-testid="quick-actions-tile"]', { timeout: 5000 });
-    await page.waitForSelector('[data-testid="health-tile"]', { timeout: 5000 });
-
-    // Allow animations to settle
-    await page.waitForTimeout(500);
-
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/home.png`, fullPage: false });
+    await page.waitForSelector('[data-testid="forge-hero-card"]');
+    await settle(page);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/home.png` });
   });
 
-  test('seed wizard', async ({ page }) => {
-    const bridge = new MockBridge();
-    await bridge.setup(page);
-    await page.goto('/');
-    await page.waitForSelector('[data-testid="panel-app"]');
-    await resolveOrgListLoading(page);
+  test('forge', async ({ page }) => {
+    const bridge = await openModule(page, 'forge');
+    await page.waitForSelector('[data-testid="forge-page"]');
 
-    // Navigate to Forge/Seed page
-    await page.getByTestId('sidebar-forge-hero').click();
-    await page.waitForSelector('[data-testid="forge-page"]', { timeout: 5000 });
+    // Pick a target org so the CTA is enabled and the estimate panel fills —
+    // an unconfigured form with a greyed-out button is a poor first impression.
+    await page.getByTestId('forge-target-org').click();
+    await page.getByTestId('forge-target-org-option-org-tgt-1').click();
 
-    // Fill in form to show an active state
-    await page.getByTestId('forge-source-org').selectOption('org-src-1');
-    await page.getByTestId('forge-target-org').selectOption('org-tgt-1');
-    await page.getByTestId('forge-input-record').fill('001000000000001');
-
-    // Request preview to show a record preview
+    await page.getByTestId('forge-input-record').fill('001000000000001AAA');
     await page.getByTestId('forge-preview-btn').click();
-
-    // Simulate extension preview response
-    await sendExtensionMessage(page, {
-      type: 'forge:preview:response',
-      id: `resp-${Date.now()}`,
-      payload: {
-        objectApiName: 'Account',
-        objectLabel: 'Account',
-        recordId: '001000000000001AAA',
-        fields: [
-          { name: 'Name', value: 'Acme Corporation' },
-          { name: 'Industry', value: 'Technology' },
-          { name: 'Type', value: 'Enterprise' },
-          { name: 'Website', value: 'https://acme.com' },
-          { name: 'Phone', value: '+1 (555) 123-4567' },
-        ],
-      },
+    // Typing into the input invalidates the in-flight preview and schedules a
+    // debounced one; answer after that fires, or the response reads as stale.
+    await bridge.waitForMessage('forge:preview', { timeout: 10_000 });
+    await page.waitForTimeout(1200);
+    await respondToAll(page, 'forge:preview', 'forge:preview:response', {
+      objectApiName: 'Account',
+      objectLabel: 'Account',
+      recordId: '001000000000001AAA',
+      fields: [
+        { name: 'Name', value: 'Acme Corporation' },
+        { name: 'Industry', value: 'Technology' },
+        { name: 'Type', value: 'Enterprise' },
+        { name: 'Website', value: 'https://acme.com' },
+        { name: 'Phone', value: '+1 (555) 123-4567' },
+      ],
     });
 
-    await page.waitForSelector('[data-testid="forge-record-preview"]', { timeout: 5000 });
-    await page.waitForTimeout(500);
-
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/seed.png`, fullPage: false });
+    await page.waitForSelector('[data-testid="forge-record-preview"]');
+    await settle(page);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/forge.png` });
   });
 
-  test('sync mapping', async ({ page }) => {
-    const bridge = new MockBridge();
-    await bridge.setup(page);
-    await page.goto('/?panel=sync');
-    await page.waitForSelector('[data-testid="panel-app"]');
-    await resolveOrgListLoading(page);
-
-    // Sync page with sidebar visible and orgs loaded
-    await page.waitForTimeout(500);
-
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/sync.png`, fullPage: false });
+  test('monitor', async ({ page }) => {
+    const bridge = await openModule(page, 'monitor');
+    await bridge.respondToNext('monitor:refresh', 'monitor:data', MOCK_HEALTH);
+    // Without this the storage panel stays on its loading skeleton and the
+    // shot shows a 200px grey slab in the middle of the dashboard.
+    await bridge.waitForMessage('monitor:storage', { timeout: 10_000 });
+    await respondToAll(page, 'monitor:storage', 'monitor:storage:response', MOCK_STORAGE);
+    await page.waitForSelector('[data-testid="monitor-page"]');
+    await page.waitForSelector('[data-testid="storage-donut-chart"]');
+    await settle(page);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/monitor.png` });
   });
 
-  test('monitor dashboard', async ({ page }) => {
-    const bridge = new MockBridge();
-    await bridge.setup(page);
-    await page.goto('/');
-    await page.waitForSelector('[data-testid="panel-app"]');
-    await resolveOrgListLoading(page);
-
-    // Navigate to Monitor
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Monitor', exact: true }).click();
-    await page.waitForSelector('[data-testid="monitor-empty"]', { timeout: 5000 });
-
-    // Select an org to enter the dashboard
-    await page.getByTestId('empty-org-org-src-1').click();
-
-    // Wait for monitor data request then respond
-    await page.waitForTimeout(300);
-
-    const correlationId = await page.evaluate(() => {
-      const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      const monitorMsg = msgs.find(
-        (m) => {
-          const msg = m as Record<string, unknown>;
-          return typeof msg.type === 'string' && (msg.type as string).startsWith('monitor:');
-        },
-      ) as Record<string, unknown> | undefined;
-      return monitorMsg?.id as string | undefined;
-    });
-
-    if (correlationId) {
-      await sendExtensionMessage(page, {
-        type: 'monitor:health:response',
-        id: `resp-${Date.now()}`,
-        correlationId,
-        payload: MOCK_MONITOR_DATA,
-      });
-    }
-
-    // Wait for dashboard to render with data
-    await page.waitForTimeout(1000);
-
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/monitor.png`, fullPage: false });
+  test('dataops', async ({ page }) => {
+    const bridge = await openModule(page, 'dataops');
+    await bridge.waitForMessage('backup:list', { timeout: 10_000 });
+    await respondToAll(page, 'backup:list', 'backup:list:result', MOCK_BACKUPS);
+    // The tab body renders a skeleton while EITHER query is loading, so the
+    // templates query has to be answered even for the Backup tab.
+    await bridge.waitForMessage('dataops:anonymization-templates', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'dataops:anonymization-templates',
+      'dataops:anonymization-templates:response',
+      { templates: [] },
+    );
+    await page.waitForSelector('[data-testid="dataops-page"]');
+    await settle(page);
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/dataops.png` });
   });
 
-  test('autopilot graph', async ({ page }) => {
-    const bridge = new MockBridge();
-    await bridge.setup(page);
-    await page.addInitScript(() => {
-      (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'autopilot';
-    });
-    await page.goto('/');
-    await page.waitForSelector('[data-testid="autopilot-page"]', { timeout: 10000 });
 
-    // Inject execution state via the Zustand store
-    const graph = buildExecutionGraph();
-    await page.evaluate((g) => {
-      const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
-        { setState: (state: Record<string, unknown>) => void } | undefined;
-      if (store) {
-        store.setState({
-          step: 'executing',
-          executionStatus: 'executing',
-          graph: g,
-        });
-      }
-    }, graph);
-
-    await page.waitForSelector('[data-testid="autopilot-graph-area"]', { timeout: 5000 });
-    await page.waitForTimeout(500);
-
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/autopilot.png`, fullPage: false });
-  });
-
-  test('banner', async ({ page }) => {
-    const bridge = new MockBridge();
-    await bridge.setup(page);
-
-    // Banner uses wider viewport
-    await page.setViewportSize({ width: 1440, height: 480 });
-    await page.goto('/');
-    await page.waitForSelector('[data-testid="home-page"]');
-    await resolveOrgListLoading(page);
-
-    // Wait for the branding elements to render
-    await page.waitForSelector('[data-testid="forge-hero-card"]', { timeout: 5000 });
-    await page.waitForTimeout(500);
-
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/banner.png`, fullPage: false });
-  });
 });
