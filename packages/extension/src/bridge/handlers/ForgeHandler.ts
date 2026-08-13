@@ -143,7 +143,11 @@ export interface ForgeServices {
   complianceService?: ForgeComplianceService;
   /** Optional metadata diff service for schema comparison. */
   metadataDiff?: ForgeMetadataDiff;
-  /** @deprecated Templates are now persisted via ConfigStore. Accepted for backward compatibility. */
+  /**
+   * Workspace-file template store. Present only when a folder is open — a
+   * folderless window has no `.sandforge/` to write into and falls back to
+   * ConfigStore.
+   */
   templateStore?: ForgeTemplateStore;
   /** @deprecated History is now persisted via ConfigStore. Accepted for backward compatibility. */
   historyStore?: ForgeHistoryStore;
@@ -202,6 +206,14 @@ export class ForgeHandler implements DomainHandler {
   private planGenerator?: ForgePlanGenerator;
   private complianceService?: ForgeComplianceService;
   private metadataDiff?: ForgeMetadataDiff;
+  /**
+   * Workspace-file template store, present only when a folder is open.
+   *
+   * Templates live in `.sandforge/forge-templates.json` so a recipe can be
+   * committed and shared. ConfigStore (VSCode globalState) stays the fallback
+   * for a folderless window, and holds any templates saved before this.
+   */
+  private templateStore?: ForgeTemplateStore;
 
   /** Tracks DML operations to prevent duplicate forge executions. */
   private readonly dmlTracker = new DmlOperationTracker();
@@ -224,6 +236,10 @@ export class ForgeHandler implements DomainHandler {
       this.planGenerator = services.planGenerator;
       this.complianceService = services.complianceService;
       this.metadataDiff = services.metadataDiff;
+      // Composition has always built and passed this store; the assignment was
+      // simply missing, so every saved recipe went to globalState instead of
+      // `.sandforge/forge-templates.json` and could not be committed or shared.
+      this.templateStore = services.templateStore;
     }
   }
 
@@ -258,13 +274,13 @@ export class ForgeHandler implements DomainHandler {
         this.handleAbort(msg);
         return true;
       case 'forge:templates:list':
-        this.handleTemplatesList(msg);
+        await this.handleTemplatesList(msg);
         return true;
       case 'forge:templates:save':
-        this.handleSaveTemplate(msg);
+        await this.handleSaveTemplate(msg);
         return true;
       case 'forge:templates:delete':
-        this.handleDeleteTemplate(msg);
+        await this.handleDeleteTemplate(msg);
         return true;
       case 'forge:history:list':
         this.handleHistoryList(msg);
@@ -287,13 +303,42 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /** Load templates from ConfigStore. */
-  private loadTemplates(): ForgeTemplate[] {
-    return this.deps.configStore.get<ForgeTemplate[]>(TEMPLATES_KEY) ?? [];
+  private async loadTemplates(): Promise<ForgeTemplate[]> {
+    const legacy = this.deps.configStore.get<ForgeTemplate[]>(TEMPLATES_KEY) ?? [];
+    if (!this.templateStore) return legacy;
+
+    const fromFile = await this.templateStore.list();
+    if (fromFile.length > 0) return fromFile;
+
+    // One-shot migration: templates saved before recipes became portable live
+    // in globalState. Move them into the workspace file the first time it is
+    // read empty, so nobody loses a recipe to the change.
+    if (legacy.length > 0) {
+      await this.saveTemplates(legacy);
+      logger.info(`Migrated ${legacy.length} forge template(s) into .sandforge/`);
+      return legacy;
+    }
+    return [];
   }
 
-  /** Save templates to ConfigStore. */
-  private saveTemplates(templates: ForgeTemplate[]): void {
+  /**
+   * Persist templates.
+   *
+   * Writes to the workspace file when a folder is open so the recipe can be
+   * committed and shared; ConfigStore is the fallback for a folderless window.
+   * The ConfigStore copy is kept in sync either way — it is what a window
+   * without a workspace will read.
+   */
+  private async saveTemplates(templates: ForgeTemplate[]): Promise<void> {
     this.deps.configStore.set(TEMPLATES_KEY, templates, FORGE_CATEGORY);
+    if (!this.templateStore) return;
+    const existing = await this.templateStore.list();
+    for (const stale of existing.filter((t) => !templates.some((n) => n.id === t.id))) {
+      await this.templateStore.delete(stale.id);
+    }
+    for (const template of templates) {
+      await this.templateStore.save(template);
+    }
   }
 
   /** Load execution history from ConfigStore. */
@@ -381,7 +426,16 @@ export class ForgeHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'forge:preview', 'forge:preview:error', err, 'PREVIEW_ERROR', undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'forge:preview',
+        'forge:preview:error',
+        err,
+        'PREVIEW_ERROR',
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -622,13 +676,13 @@ export class ForgeHandler implements DomainHandler {
     logger.info('Forge aborted');
   }
 
-  private handleTemplatesList(msg: BaseMessage): void {
-    const templates = this.loadTemplates();
+  private async handleTemplatesList(msg: BaseMessage): Promise<void> {
+    const templates = await this.loadTemplates();
     const response = buildResponse(this.deps, msg, 'forge:templates:list:response', { templates });
     this.deps.broker.postToWebview(response);
   }
 
-  private handleSaveTemplate(msg: BaseMessage): void {
+  private async handleSaveTemplate(msg: BaseMessage): Promise<void> {
     const parsed = parsePayload(
       saveTemplatePayloadSchema,
       msg,
@@ -637,15 +691,18 @@ export class ForgeHandler implements DomainHandler {
     );
     if (!parsed) return;
     const { template } = parsed;
-    const templates = [template, ...this.loadTemplates().filter((t) => t.id !== template.id)];
-    this.saveTemplates(templates);
+    const templates = [
+      template,
+      ...(await this.loadTemplates()).filter((t) => t.id !== template.id),
+    ];
+    await this.saveTemplates(templates);
     const response = buildResponse(this.deps, msg, 'forge:templates:save:response', {
       success: true,
     });
     this.deps.broker.postToWebview(response);
   }
 
-  private handleDeleteTemplate(msg: BaseMessage): void {
+  private async handleDeleteTemplate(msg: BaseMessage): Promise<void> {
     const parsed = parsePayload(
       deleteTemplatePayloadSchema,
       msg,
@@ -654,8 +711,8 @@ export class ForgeHandler implements DomainHandler {
     );
     if (!parsed) return;
     const { templateId } = parsed;
-    const templates = this.loadTemplates().filter((t) => t.id !== templateId);
-    this.saveTemplates(templates);
+    const templates = (await this.loadTemplates()).filter((t) => t.id !== templateId);
+    await this.saveTemplates(templates);
     const response = buildResponse(this.deps, msg, 'forge:templates:delete:response', {
       success: true,
     });
