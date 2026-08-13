@@ -5,6 +5,61 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-08-13
+
+This release finishes things the codebase had already built. Four of the six
+changes below needed no new backend at all — the implementation existed, fully
+routed and unit-tested, and nothing called it.
+
+### Features
+
+- **Restore works.** The rollback engine has been complete since it shipped —
+  permission checks before any write, batched upserts, API-limit guards,
+  progress reporting — and the Restore button sent nothing. It now runs.
+- **Your backup list appears.** The list request was not merely unhandled: it
+  was declared in no schema, so the message was rejected before reaching any
+  handler. The list was permanently empty, the counters read zero, Restore had
+  nothing to select, and after 30 seconds the page showed an error.
+- **A finished Forge run tells you what it created.** The source-to-target
+  record Id map was built during every run and discarded when the result was
+  assembled, so a clone could report "312 records" without giving you the new
+  Id of any of them. The results screen now lists them.
+- **An imported SFDMU config can be run.** The importer produced a complete,
+  valid configuration, displayed it as JSON, and dropped it when you left the
+  page. It now runs — after asking which orgs to use, because the imported file
+  names orgs that do not exist in your setup.
+- **Forge recipes are portable.** Saved recipes went to VSCode's internal
+  storage: they survived restarts but could not leave the machine. They are now
+  written to `.sandforge/forge-templates.json` in your workspace, so a recipe
+  can be committed next to the project it describes and shared. Existing
+  recipes are migrated automatically on first use.
+
+### Security
+
+- **Removed an arbitrary code-execution path.** A bridge message accepted a
+  file path and imported it as a module, with no restriction beyond a length
+  limit. It backed a plugin feature with no interface, whose list always
+  returned empty and whose unload did nothing. The whole surface is gone.
+- Opening an org in the browser now requires an HTTPS instance URL. The
+  previous guard caught nothing: the URL parser it relied on accepts
+  `javascript:` and `file:` without complaint.
+
+### Changed
+
+- **Forge SOQL mode no longer looks like it filters.** Only the object name
+  after `FROM` is used — your `WHERE` clause is discarded, and the clone covers
+  whole tables for every related object. The tab now says so when your query
+  contains a filter, and the run is capped at 200 records per object instead of
+  being unbounded. Honouring the filter for real is still to come.
+- New icon. The Marketplace mark gains a strike spark; the activity-bar mark
+  deliberately does not — at 20 px two shapes crowd each other, so each size
+  gets one idea.
+
+### Performance
+
+- Frozen-dataset coverage selection no longer repeats a full schema discovery
+  for every candidate root.
+
 ## [1.14.0] - 2026-08-12
 
 Everything below came out of a systematic audit of the shipped product. The
