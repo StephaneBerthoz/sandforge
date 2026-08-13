@@ -30,6 +30,7 @@ import {
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { resolveOrgTier, getQueryLimits } from '../../core/common/queryLimits.js';
 import type { MaskingTemplateService } from '../../modules/dataops/templates/MaskingTemplateService.js';
+import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 
 /**
  * Convert a jsforce DescribeSObjectResult to the ObjectDescribe shape
@@ -120,6 +121,14 @@ export class DataOpsHandler implements DomainHandler {
   /** Optional masking template service for per-object template lookups. */
   private maskingTemplateService?: MaskingTemplateService;
 
+  /**
+   * File-backed store for backup record payloads.
+   *
+   * Present once composition supplies a storage path. Absent in tests and in
+   * any host without one, where the ConfigStore path below still works.
+   */
+  private backupRecords?: BackupRecordStore;
+
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
@@ -129,6 +138,14 @@ export class DataOpsHandler implements DomainHandler {
    */
   setMaskingTemplateService(service: MaskingTemplateService): void {
     this.maskingTemplateService = service;
+  }
+
+  /**
+   * Inject the file-backed record store so backups stop inflating globalState.
+   * Called from composition, which owns the extension's storage path.
+   */
+  setBackupRecordStore(store: BackupRecordStore): void {
+    this.backupRecords = store;
   }
 
   /**
@@ -149,7 +166,7 @@ export class DataOpsHandler implements DomainHandler {
         this.handleBackupList(msg);
         return true;
       case 'backup:export':
-        this.handleBackupExport(msg);
+        await this.handleBackupExport(msg);
         return true;
       case 'dataops:rollback':
         await this.handleRollback(msg);
@@ -267,7 +284,14 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.configStore.set(backupKey, backupMeta, 'backups');
 
       for (const r of results) {
-        this.deps.configStore.set(`${backupKey}:${r.objectApiName}`, r.records, 'backups');
+        // Record payloads go to a file, not globalState: VSCode re-serializes
+        // that memento in full on every write, so megabytes of backup made
+        // every unrelated setting save pay for them.
+        if (this.backupRecords) {
+          await this.backupRecords.save(operationId, r.objectApiName, r.records);
+        } else {
+          this.deps.configStore.set(`${backupKey}:${r.objectApiName}`, r.records, 'backups');
+        }
       }
 
       // `sandforge.backup.maxCount` retention: prune oldest backups for this org.
@@ -372,7 +396,7 @@ export class DataOpsHandler implements DomainHandler {
    * touches the org — it reads what was already stored and hands back a
    * document the webview downloads, the same shape sync:history:export uses.
    */
-  private handleBackupExport(msg: BaseMessage): void {
+  private async handleBackupExport(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       dataOpsBackupExportPayloadSchema,
@@ -403,8 +427,10 @@ export class DataOpsHandler implements DomainHandler {
 
     const objects: Record<string, unknown[]> = {};
     for (const obj of meta.objects ?? []) {
+      const fromFile = await this.backupRecords?.read(parsed.operationId, obj.objectApiName);
+      // Backups written before the file store still live in ConfigStore.
       objects[obj.objectApiName] =
-        this.deps.configStore.get<unknown[]>(`${metaKey}:${obj.objectApiName}`) ?? [];
+        fromFile ?? this.deps.configStore.get<unknown[]>(`${metaKey}:${obj.objectApiName}`) ?? [];
     }
 
     const document = {
@@ -445,6 +471,7 @@ export class DataOpsHandler implements DomainHandler {
       }>(key);
       for (const obj of meta?.objects ?? []) {
         this.deps.configStore.delete(`${key}:${obj.objectApiName}`);
+        void this.backupRecords?.delete(key.slice('backup:'.length), obj.objectApiName);
       }
       this.deps.configStore.delete(key);
       this.deps.log(`[INFO] Pruned backup ${key} (retention: ${maxCount} per org)`);
@@ -518,9 +545,16 @@ export class DataOpsHandler implements DomainHandler {
       for (let i = 0; i < backupMeta.objects.length; i++) {
         const obj = backupMeta.objects[i];
         const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
-        const records = this.deps.configStore.get<Record<string, unknown>[]>(
-          `${backupKey}:${obj.objectApiName}`,
-        );
+        const fromFile = (await this.backupRecords?.read(
+          payload.operationId,
+          obj.objectApiName,
+        )) as Record<string, unknown>[] | null | undefined;
+        // Backups written before the file store still live in ConfigStore.
+        const records =
+          fromFile ??
+          this.deps.configStore.get<Record<string, unknown>[]>(
+            `${backupKey}:${obj.objectApiName}`,
+          );
 
         if (!records || records.length === 0) {
           this.deps.log(`[WARN] No backup records for ${obj.objectApiName}, skipping.`);
