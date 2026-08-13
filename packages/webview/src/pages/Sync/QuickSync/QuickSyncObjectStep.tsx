@@ -142,7 +142,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
               <button
                 key={s.objectApiName}
                 type="button"
-                className="focus:outline-none"
+                className="rounded-full focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
                 onClick={() => {
                   if (!isSelected && s.isAvailable) {
                     handleAddObject(s.objectApiName);
@@ -214,7 +214,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
               <button
                 key={name}
                 type="button"
-                className="w-full text-left px-2 py-1 text-xs text-text-primary hover:bg-[var(--sf-bg-hover)] focus:outline-none"
+                className="w-full text-left px-2 py-1 text-xs text-text-primary hover:bg-[var(--sf-bg-hover)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
                 onClick={() => {
                   handleAddObject(name);
                   setSearchTerm('');
@@ -249,7 +249,7 @@ export const QuickSyncObjectStep: React.FC<QuickSyncObjectStepProps> = ({
                   <button
                     type="button"
                     onClick={() => onRemoveObject(name)}
-                    className="codicon codicon-close text-[10px] text-text-secondary hover:text-[var(--sf-error)] focus:outline-none"
+                    className="codicon codicon-close text-[10px] text-text-secondary hover:text-[var(--sf-error)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)]"
                     aria-label={`Remove ${name}`}
                     data-testid={`remove-object-${name}`}
                   />

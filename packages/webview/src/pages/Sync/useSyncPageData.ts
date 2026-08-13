@@ -226,11 +226,6 @@ export function useSyncPageData(): SyncPageData {
     timeoutMs: 120_000,
   });
 
-  // Bridge mutation: dry-run preview (unused in UI for now)
-  void useBridgeMutation<Record<string, unknown>>('sync:preview', {
-    responseType: 'sync:preview:response',
-  });
-
   // PII scan for selected objects before sync execution
   const piiScan = useBridgeMutation<PIIScanResponse['payload']>('precheck:pii-scan');
 

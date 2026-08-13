@@ -48,6 +48,14 @@ export interface DataTableProps<T> {
   maxHeight?: string;
 }
 
+/**
+ * Largest table that still gets the entrance stagger. Each row waits 40 ms more
+ * than the one before it, so the reveal grows with the row count: 50 rows take
+ * ~2 s, 500 would take ~20 s of rows trickling in. Past this size the whole body
+ * appears at once.
+ */
+export const STAGGER_MAX_ROWS = 50;
+
 /** Sort direction type. */
 type SortDirection = 'asc' | 'desc';
 
@@ -105,6 +113,8 @@ export function DataTable<T extends Record<string, unknown>>({
     });
   }, [data, sort]);
 
+  const useStagger = sortedData.length <= STAGGER_MAX_ROWS;
+
   const virtualizer = useVirtualizer({
     count: enableVirtualization ? sortedData.length : 0,
     getScrollElement: () => scrollContainerRef.current,
@@ -161,7 +171,7 @@ export function DataTable<T extends Record<string, unknown>>({
             className={cn(
               'font-semibold border-b border-[var(--sf-border)]',
               alignClass(col.align),
-              col.sortable && 'cursor-pointer select-none',
+              col.sortable && 'select-none',
             )}
             style={{
               padding: 'var(--sf-space-2) var(--sf-space-3)',
@@ -169,7 +179,6 @@ export function DataTable<T extends Record<string, unknown>>({
               fontSize: 'var(--sf-font-size-sm)',
               width: col.width,
             }}
-            onClick={() => handleSort(col)}
             aria-sort={
               sort?.key === col.key
                 ? sort.direction === 'asc'
@@ -178,15 +187,32 @@ export function DataTable<T extends Record<string, unknown>>({
                 : undefined
             }
           >
-            <span className="inline-flex items-center" style={{ gap: 'var(--sf-space-1)' }}>
-              {col.header}
-              {col.sortable && getSortIcon(col.key) && (
-                <Icon name={getSortIcon(col.key) as string} className="text-xs" />
-              )}
-              {col.sortable && !getSortIcon(col.key) && (
-                <Icon name="arrow-swap" className="text-xs opacity-30" />
-              )}
-            </span>
+            {/* The sort trigger is a real button: a click handler on the <th>
+                alone is unreachable by keyboard, and <th> keeps the aria-sort
+                semantics that a wrapping button would not carry. */}
+            {col.sortable ? (
+              <button
+                type="button"
+                onClick={() => handleSort(col)}
+                className={cn(
+                  'inline-flex w-full cursor-pointer items-center',
+                  col.align === 'right' && 'justify-end',
+                  col.align === 'center' && 'justify-center',
+                )}
+                style={{ gap: 'var(--sf-space-1)' }}
+              >
+                {col.header}
+                {getSortIcon(col.key) ? (
+                  <Icon name={getSortIcon(col.key) as string} className="text-xs" />
+                ) : (
+                  <Icon name="arrow-swap" className="text-xs opacity-30" />
+                )}
+              </button>
+            ) : (
+              <span className="inline-flex items-center" style={{ gap: 'var(--sf-space-1)' }}>
+                {col.header}
+              </span>
+            )}
           </th>
         ))}
       </tr>
@@ -316,7 +342,7 @@ export function DataTable<T extends Record<string, unknown>>({
         <m.tbody
           ref={tbodyRef}
           onKeyDown={handleTableKeyDown}
-          variants={staggerContainer}
+          variants={useStagger ? staggerContainer : undefined}
           initial="hidden"
           animate="visible"
         >
@@ -325,7 +351,7 @@ export function DataTable<T extends Record<string, unknown>>({
             : sortedData.map((row, rowIndex) => (
                 <m.tr
                   key={keyExtractor(row, rowIndex)}
-                  variants={fadeIn}
+                  variants={useStagger ? fadeIn : undefined}
                   className={cn(
                     'transition-colors hover:bg-[var(--sf-bg-hover)]',
                     onRowClick && 'cursor-pointer',

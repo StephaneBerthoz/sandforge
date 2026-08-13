@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useSettingsPageData } from './useSettingsPageData';
+import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import i18n from '../../i18n';
 import { defaultSettings } from './SettingsPage';
@@ -90,19 +91,101 @@ describe('useSettingsPageData', () => {
     expect(result.current.aiApiKey).toBe('sk-test-key');
   });
 
-  it('should persist the LIVE i18n language on save, not the local snapshot', async () => {
-    const mutateSpy = vi.fn();
-    const mockedMutation = vi.mocked(useBridgeMutation);
-    // Route the settings:update mutation to the spy.
-    mockedMutation.mockImplementation(
-      ((type: string) => ({
-        mutate: type === 'settings:update' ? mutateSpy : vi.fn(),
+  describe('AI key save → status refresh', () => {
+    /**
+     * Wires the ai:status query to `refetch` and reports the ai:save-key
+     * mutation as already succeeded, so mounting the hook replays exactly
+     * what happens right after the user saves a key.
+     */
+    function mockSavedKey(refetch: () => void): void {
+      // Stable reference: the real mutation hook keeps the same `data` object
+      // until a new response lands, and the refresh effect keys off identity.
+      const saveKeyResponse = { success: true };
+      vi.mocked(useBridgeQuery).mockImplementation(((requestType: string) => ({
+        data: null,
+        loading: false,
+        error: null,
+        refetch: requestType === 'ai:status' ? refetch : vi.fn(),
+      })) as unknown as typeof useBridgeQuery);
+      vi.mocked(useBridgeMutation).mockImplementation(((requestType: string) => ({
+        mutate: vi.fn(),
+        data: requestType === 'ai:save-key' ? saveKeyResponse : null,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+      })) as unknown as typeof useBridgeMutation);
+    }
+
+    function restoreBridgeMocks(): void {
+      vi.mocked(useBridgeQuery).mockImplementation((() => ({
+        data: null,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      })) as unknown as typeof useBridgeQuery);
+      vi.mocked(useBridgeMutation).mockImplementation((() => ({
+        mutate: vi.fn(),
         data: null,
         loading: false,
         error: null,
         reset: vi.fn(),
-      })) as unknown as typeof useBridgeMutation,
-    );
+      })) as unknown as typeof useBridgeMutation);
+    }
+
+    it('re-probes AI status after the host had time to wire the assistant', () => {
+      vi.useFakeTimers();
+      const refetch = vi.fn();
+      mockSavedKey(refetch);
+      try {
+        renderHook(() => useSettingsPageData());
+
+        // Immediate probe can still catch the host mid-init…
+        expect(refetch).toHaveBeenCalledTimes(1);
+
+        act(() => {
+          vi.advanceTimersByTime(2_000);
+        });
+
+        // …so a second one must land once the AI stack is up.
+        expect(refetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+        restoreBridgeMocks();
+      }
+    });
+
+    it('drops the pending re-probe when the page unmounts', () => {
+      vi.useFakeTimers();
+      const refetch = vi.fn();
+      mockSavedKey(refetch);
+      try {
+        const { unmount } = renderHook(() => useSettingsPageData());
+        expect(refetch).toHaveBeenCalledTimes(1);
+
+        unmount();
+        act(() => {
+          vi.advanceTimersByTime(2_000);
+        });
+
+        expect(refetch).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+        restoreBridgeMocks();
+      }
+    });
+  });
+
+  it('should persist the LIVE i18n language on save, not the local snapshot', async () => {
+    const mutateSpy = vi.fn();
+    const mockedMutation = vi.mocked(useBridgeMutation);
+    // Route the settings:update mutation to the spy.
+    mockedMutation.mockImplementation(((type: string) => ({
+      mutate: type === 'settings:update' ? mutateSpy : vi.fn(),
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
+    })) as unknown as typeof useBridgeMutation);
     try {
       const onSave = vi.fn();
       const { result } = renderHook(() => useSettingsPageData(undefined, onSave));
@@ -124,15 +207,13 @@ describe('useSettingsPageData', () => {
       expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ language: 'fr' }));
     } finally {
       await i18n.changeLanguage('en');
-      mockedMutation.mockImplementation(
-        (() => ({
-          mutate: vi.fn(),
-          data: null,
-          loading: false,
-          error: null,
-          reset: vi.fn(),
-        })) as unknown as typeof useBridgeMutation,
-      );
+      mockedMutation.mockImplementation((() => ({
+        mutate: vi.fn(),
+        data: null,
+        loading: false,
+        error: null,
+        reset: vi.fn(),
+      })) as unknown as typeof useBridgeMutation);
     }
   });
 });

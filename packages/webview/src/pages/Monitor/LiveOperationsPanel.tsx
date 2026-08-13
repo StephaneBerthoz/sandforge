@@ -61,13 +61,13 @@ function moduleBadgeVariant(module: string): 'default' | 'info' | 'warning' | 's
 const StatusIcon: React.FC<{ status: LiveOperationSnapshot['status'] }> = ({ status }) => {
   switch (status) {
     case 'running':
-      return <Activity className="w-3.5 h-3.5 text-blue-400 animate-pulse" />;
+      return <Activity className="w-3.5 h-3.5 text-status-info animate-pulse" />;
     case 'paused':
-      return <Pause className="w-3.5 h-3.5 text-amber-400" />;
+      return <Pause className="w-3.5 h-3.5 text-status-warning" />;
     case 'completed':
-      return <CheckCircle className="w-3.5 h-3.5 text-green-400" />;
+      return <CheckCircle className="w-3.5 h-3.5 text-status-success" />;
     case 'failed':
-      return <AlertTriangle className="w-3.5 h-3.5 text-red-400" />;
+      return <AlertTriangle className="w-3.5 h-3.5 text-status-error" />;
     case 'cancelled':
     default:
       return <X className="w-3.5 h-3.5 text-gray-400" />;
@@ -136,7 +136,7 @@ const OperationRow: React.FC<{
 
       {/* Error message */}
       {operation.error && (
-        <div className="text-[10px] text-red-400 truncate">{operation.error}</div>
+        <div className="text-[10px] text-status-error truncate">{operation.error}</div>
       )}
 
       {/* Action buttons */}

@@ -55,6 +55,15 @@ interface TelemetryToggleResponse {
  */
 const TELEMETRY_STATUS_TIMEOUT_MS = 5_000;
 
+/**
+ * Saving a key enables AI in two asynchronous steps host-side: the secret is
+ * stored, then `sandforge.ai.enabled` is written, which re-runs the AI
+ * composition. The status probe fired the instant the save is acknowledged can
+ * therefore still catch the host mid-wiring and answer "disabled"; one deferred
+ * re-probe settles the badge instead of leaving it red until a panel reload.
+ */
+const AI_STATUS_RECHECK_MS = 1_500;
+
 /** Return type for the settings page data hook. */
 export interface SettingsPageData {
   /** Current settings state. */
@@ -147,13 +156,14 @@ export function useSettingsPageData(
   const [aiApiKey, setAiApiKey] = useState('');
   const [aiKeySaved, setAiKeySaved] = useState(false);
 
-  /** When AI key is saved, refresh status. */
+  /** When AI key is saved, refresh status — twice, see AI_STATUS_RECHECK_MS. */
   useEffect(() => {
-    if (aiSaveKeyMutation.data?.success) {
-      setAiKeySaved(true);
-      setAiApiKey('');
-      aiStatusQuery.refetch();
-    }
+    if (!aiSaveKeyMutation.data?.success) return;
+    setAiKeySaved(true);
+    setAiApiKey('');
+    aiStatusQuery.refetch();
+    const recheck = setTimeout(() => aiStatusQuery.refetch(), AI_STATUS_RECHECK_MS);
+    return () => clearTimeout(recheck);
   }, [aiSaveKeyMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** When settings are loaded from extension, update local state. */

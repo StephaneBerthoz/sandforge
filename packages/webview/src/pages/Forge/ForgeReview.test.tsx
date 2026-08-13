@@ -12,6 +12,7 @@ const mockSetPhase = vi.fn();
 const mockToggleNodeIncluded = vi.fn();
 const mockSendBridgeMessage = vi.fn();
 const mockSetPlan = vi.fn();
+const mockSetMetadataDiffs = vi.fn();
 
 vi.mock('../../bridge/sendBridgeMessage', () => ({
   sendBridgeMessage: (...args: unknown[]) => mockSendBridgeMessage(...args),
@@ -50,8 +51,21 @@ const defaultGraph: ForgeGraph = {
   estimatedDurationSeconds: 10,
 };
 
+/** Only the ForgeConfig fields ForgeReview reads. */
+interface MockConfig {
+  anonymizePII: boolean;
+  sourceOrgId: string;
+  targetOrgId: string;
+}
+
+const defaultConfig: MockConfig = {
+  anonymizePII: true,
+  sourceOrgId: 'src-org',
+  targetOrgId: 'tgt-org',
+};
+
 let mockGraph: ForgeGraph | null = defaultGraph;
-let mockConfig: { anonymizePII: boolean } | null = { anonymizePII: true };
+let mockConfig: MockConfig | null = { ...defaultConfig };
 let mockMetadataDiffs: MetadataDiffEntry[] = [];
 const mockAnonymizationRules: Record<ForgeAnonymizationCategory, AnonymizationMethod> = {
   email: 'fake',
@@ -82,6 +96,7 @@ vi.mock('../../stores/useForgeStore', () => {
     setPhase: (...args: unknown[]) => mockSetPhase(...args),
     toggleNodeIncluded: (...args: unknown[]) => mockToggleNodeIncluded(...args),
     setPlan: (...args: unknown[]) => mockSetPlan(...args),
+    setMetadataDiffs: (...args: unknown[]) => mockSetMetadataDiffs(...args),
     setAnonymizationRule: vi.fn(),
     updateNodeBatchStrategy: vi.fn(),
   };
@@ -111,10 +126,25 @@ describe('ForgeReview', () => {
     mockToggleNodeIncluded.mockClear();
     mockSendBridgeMessage.mockClear();
     mockSetPlan.mockClear();
+    mockSetMetadataDiffs.mockClear();
     mockGraph = defaultGraph;
-    mockConfig = { anonymizePII: true };
+    mockConfig = { ...defaultConfig };
     mockMetadataDiffs = [];
   });
+
+  /** Deliver an extension -> webview message the way the real bus does. */
+  function sendFromExtension(type: string, payload: Record<string, unknown>): void {
+    // act(): the listener sets React state, so the re-render has to be
+    // flushed before asserting on the DOM.
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type, id: `resp-${type}`, timestamp: Date.now(), payload },
+          origin: '',
+        }),
+      );
+    });
+  }
 
   it('should render with data-testid="forge-review"', () => {
     render(<ForgeReview />);
@@ -168,20 +198,6 @@ describe('ForgeReview', () => {
   });
 
   describe('plan channel', () => {
-    /** Deliver an extension -> webview message the way the real bus does. */
-    function sendFromExtension(type: string, payload: Record<string, unknown>): void {
-      // act(): the listener sets React state, so the re-render has to be
-      // flushed before asserting on the DOM.
-      act(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            data: { type, id: `resp-${type}`, timestamp: Date.now(), payload },
-            origin: '',
-          }),
-        );
-      });
-    }
-
     it('should store the plan when forge:plan:response arrives', () => {
       render(<ForgeReview />);
       // useForgeForm sends forge:plan:request and the extension answers, but
@@ -202,8 +218,100 @@ describe('ForgeReview', () => {
     });
   });
 
+  describe('metadata-diff channel', () => {
+    /** The metadata-diff requests recorded on the mocked transport. */
+    function diffRequests(): unknown[][] {
+      return mockSendBridgeMessage.mock.calls.filter(
+        (call) => call[0] === 'forge:metadata-diff:request',
+      );
+    }
+
+    it('should request the diff on mount with the org ids and graph objects', () => {
+      render(<ForgeReview />);
+      // The channel was routed and implemented on the extension side but never
+      // sent, so metadataDiffs had no writer at all.
+      expect(mockSendBridgeMessage).toHaveBeenCalledWith('forge:metadata-diff:request', {
+        sourceOrgId: 'src-org',
+        targetOrgId: 'tgt-org',
+        objectApiNames: ['Account', 'Contact'],
+      });
+    });
+
+    it('should request the diff only once when the graph identity changes', () => {
+      const { rerender } = render(<ForgeReview />);
+      // Toggling a node replaces the graph object in the store, which is a
+      // dependency of the request effect. The handler emits an
+      // operation:started per request, so every toggle would otherwise push a
+      // phantom operation into the activity feed.
+      mockGraph = { ...defaultGraph, nodes: [...defaultGraph.nodes] };
+      rerender(<ForgeReview />);
+      mockGraph = { ...defaultGraph, nodes: [...defaultGraph.nodes] };
+      rerender(<ForgeReview />);
+
+      expect(diffRequests()).toHaveLength(1);
+    });
+
+    it('should cap the requested objects at the 100 the extension schema accepts', () => {
+      mockGraph = {
+        ...defaultGraph,
+        nodes: Array.from({ length: 120 }, (_, i) => makeNode({ objectApiName: `Obj${i}__c` })),
+      };
+      render(<ForgeReview />);
+
+      const payload = diffRequests()[0][1] as { objectApiNames: string[] };
+      expect(payload.objectApiNames).toHaveLength(100);
+    });
+
+    it('should not request the diff when the config is missing', () => {
+      mockConfig = null;
+      render(<ForgeReview />);
+      expect(diffRequests()).toHaveLength(0);
+    });
+
+    it('should store the diffs when forge:metadata-diff:response arrives', () => {
+      render(<ForgeReview />);
+      const diffs = [
+        {
+          objectApiName: 'Account',
+          fieldApiName: 'CustomField__c',
+          issue: 'missing',
+          severity: 'error',
+          details: 'Field does not exist in target org',
+        },
+      ];
+      sendFromExtension('forge:metadata-diff:response', { diffs });
+
+      expect(mockSetMetadataDiffs).toHaveBeenCalledWith(diffs);
+    });
+
+    it('should show the metadata tab as pending until the response lands', () => {
+      render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-metadata'));
+      // An empty diff list means "not compared yet" while the request is in
+      // flight; "no differences" there would be a lie.
+      expect(screen.getByTestId('metadata-loading')).toBeDefined();
+      expect(screen.queryByTestId('no-diffs')).toBeNull();
+
+      sendFromExtension('forge:metadata-diff:response', { diffs: [] });
+      expect(screen.getByTestId('no-diffs')).toBeDefined();
+    });
+
+    it('should surface forge:metadata-diff:error instead of loading forever', () => {
+      render(<ForgeReview />);
+      fireEvent.click(screen.getByTestId('tab-metadata'));
+      sendFromExtension('forge:metadata-diff:error', {
+        message: 'Metadata diff service not configured',
+      });
+
+      expect(screen.getByTestId('metadata-error').textContent).toContain(
+        'Metadata diff service not configured',
+      );
+      expect(screen.queryByTestId('metadata-loading')).toBeNull();
+    });
+  });
+
   it('should disable anonymization tab when anonymizePII is false', () => {
-    mockConfig = { anonymizePII: false };
+    mockConfig = { ...defaultConfig, anonymizePII: false };
     render(<ForgeReview />);
     const anonTab = screen.getByTestId('tab-anonymization');
     expect(anonTab).toHaveProperty('disabled', true);

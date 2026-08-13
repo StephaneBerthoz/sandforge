@@ -252,10 +252,15 @@ export const HelpPage: React.FC = () => {
         >
           {t('onboarding.openSettings')}
         </Button>
+        {/*
+          The welcome wizard is an overlay owned by PanelApp, not a routed
+          page — navigating to it lands on PanelRouter's unknown-module
+          fallback. Raise the overlay flag the way `onboarding:show` does.
+        */}
         <Button
           variant="secondary"
           size="sm"
-          onClick={() => navigate('welcome')}
+          onClick={() => useAppStore.getState().setShowWelcome(true)}
           data-testid="help-start-tour"
         >
           {t('help.startTour')}

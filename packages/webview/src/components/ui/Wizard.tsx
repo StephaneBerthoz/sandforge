@@ -23,6 +23,14 @@ export interface WizardProps {
   canGoBack?: boolean;
   onFinish?: () => void;
   isFinished?: boolean;
+  /**
+   * Escape hatch for a step that started long-running work: Back and Next are
+   * both dead while a run is in flight, so without this the footer traps the
+   * user until the backend answers. Rendered only when supplied.
+   */
+  onCancel?: () => void;
+  /** i18n key for the cancel control. Defaults to `common.cancel`. */
+  cancelLabelKey?: string;
   testIdPrefix?: string;
   className?: string;
 }
@@ -42,6 +50,8 @@ export const Wizard: React.FC<WizardProps> = ({
   canGoBack = true,
   onFinish,
   isFinished = false,
+  onCancel,
+  cancelLabelKey = 'common.cancel',
   testIdPrefix = 'wizard',
   className,
 }) => {
@@ -56,7 +66,7 @@ export const Wizard: React.FC<WizardProps> = ({
       <nav
         className="w-48 shrink-0 flex flex-col gap-1"
         role="group"
-        aria-label="Step progress"
+        aria-label={t('a11y.stepProgress', 'Step progress')}
         data-testid={tid(testIdPrefix, 'step-indicator')}
       >
         {steps.map((step, i) => {
@@ -139,15 +149,27 @@ export const Wizard: React.FC<WizardProps> = ({
         {/* Navigation */}
         {!isFinished && (
           <div className="flex justify-between items-center pt-2 border-t border-[var(--vscode-panel-border,#3c3c3c)]">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => onStepChange(currentStep - 1)}
-              disabled={isFirst || !canGoBack}
-              data-testid={tid(testIdPrefix, 'wizard-back')}
-            >
-              {t('common.back')}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onStepChange(currentStep - 1)}
+                disabled={isFirst || !canGoBack}
+                data-testid={tid(testIdPrefix, 'wizard-back')}
+              >
+                {t('common.back')}
+              </Button>
+              {onCancel && (
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={onCancel}
+                  data-testid={tid(testIdPrefix, 'wizard-cancel')}
+                >
+                  {t(cancelLabelKey)}
+                </Button>
+              )}
+            </div>
             {isLast ? (
               <Button
                 variant="primary"

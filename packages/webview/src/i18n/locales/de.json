@@ -2,6 +2,7 @@
   "common": {
     "save": "Speichern",
     "cancel": "Abbrechen",
+    "cancelRun": "Lauf abbrechen",
     "confirm": "Bestaetigen",
     "delete": "Loeschen",
     "edit": "Bearbeiten",
@@ -13,9 +14,11 @@
     "success": "Erfolg",
     "warning": "Warnung",
     "noData": "Keine Daten verfuegbar",
+    "noLogEntries": "Keine Protokolleinträge",
     "search": "Suchen",
     "filter": "Filtern",
     "refresh": "Aktualisieren",
+    "reload": "Neu laden",
     "retry": "Erneut versuchen",
     "copy": "Kopieren",
     "export": "Exportieren",
@@ -44,7 +47,11 @@
     "componentCount_other": "{{count}} Komponenten",
     "typeCount_one": "{{count}} Typ",
     "typeCount_other": "{{count}} Typen",
-    "comingSoon": "Demnächst"
+    "comingSoon": "Demnächst",
+    "typeToConfirm": "Geben Sie <code>{{text}}</code> ein, um zu bestätigen:",
+    "time": "Zeit",
+    "recordIds": "Datensatz-IDs",
+    "statusAbbrev": "St"
   },
   "status": {
     "connectedOrgs": "Verbundene Orgs",
@@ -74,6 +81,7 @@
     "title": "Organisationen",
     "connect": "Org verbinden",
     "disconnect": "Trennen",
+    "disconnectConfirm": "{{alias}} trennen? SandForge vergisst diese Org: Alias, Tags, Farbe und Sicherheitsstufe werden gelöscht, und eine erneute Verbindung beginnt mit den Standardwerten.",
     "edit": "Org bearbeiten",
     "noOrgs": "Keine Organisationen verbunden",
     "status_connected": "Verbunden",
@@ -112,6 +120,8 @@
     "bannerEmpty": "Importieren Sie Ihre Orgs aus der Salesforce CLI oder verbinden Sie sie manuell"
   },
   "monitor": {
+    "refresh": "Aktualisieren",
+    "autoRefresh": "Automatisch aktualisieren",
     "liveOps": {
       "title": "Live-Operationen",
       "noOperations": "Keine laufenden Operationen",
@@ -246,7 +256,13 @@
     "export": {
       "button": "CSV exportieren",
       "success": "Limits exportiert",
-      "successDetail": "CSV-Datei erfolgreich heruntergeladen"
+      "successDetail": "CSV-Datei erfolgreich heruntergeladen",
+      "noHistory": "Keine historischen Daten",
+      "noHistoryDetail": "Keine Trend-Zeitstempel für den historischen Export verfügbar",
+      "buttonHistorical": "Verlauf exportieren",
+      "modeLabel": "Exportmodus",
+      "modeCurrent": "Aktuell",
+      "modeHistorical": "Historisch"
     },
     "refreshFailed": "Dashboard-Daten konnten nicht aktualisiert werden",
     "retry": "Erneut versuchen",
@@ -255,7 +271,62 @@
     "refreshNow": "Jetzt aktualisieren",
     "connectionLost": "Verbindung verloren. Auto-Aktualisierung ist {{count}}-mal fehlgeschlagen.",
     "tryReconnect": "Erneut verbinden",
-    "sectionError": "Abschnitt {{section}} fehlgeschlagen: {{error}}"
+    "sectionError": "Abschnitt {{section}} fehlgeschlagen: {{error}}",
+    "alertHistory": "Warnungsverlauf",
+    "alertHistoryTimeline": "Zeitleiste",
+    "noAlertHistory": "Noch kein Warnungsverlauf",
+    "alertValue": "Wert",
+    "alertThreshold": "Schwellenwert",
+    "ack": "Bestätigen",
+    "resolved": "Behoben",
+    "showMore": "Mehr anzeigen",
+    "remaining": "verbleibend",
+    "alertHistoryCount": "{{count}} Ereignisse",
+    "activeAlertCount": "{{count}} aktiv",
+    "apexInsights": {
+      "title": "Apex-Einblicke",
+      "empty": "Keine Apex-Logdaten verfügbar",
+      "noIssues": "Keine Performance-Probleme erkannt",
+      "logId": "Log-ID",
+      "duration": "Dauer",
+      "soql": "SOQL",
+      "dml": "DML",
+      "heap": "Heap"
+    },
+    "errorLogs": {
+      "title": "Fehlerprotokolle",
+      "empty": "Keine aktuellen Fehler erkannt",
+      "time": "Zeit",
+      "type": "Typ",
+      "message": "Meldung",
+      "user": "Benutzer"
+    },
+    "healthCheck": {
+      "title": "Org-Zustandsprüfung",
+      "empty": "Zustandsdaten werden mit der Dashboard-Aktualisierung geladen",
+      "apiLimits": "API-Limits",
+      "storage": "Speicher",
+      "jobs": "Aktive Jobs",
+      "errors": "Aktuelle Fehler",
+      "lastChecked": "Zuletzt geprüft"
+    },
+    "fileStorage": "Dateispeicher",
+    "noTrends": "Noch nicht genügend Daten für Trends",
+    "sandboxRefresh": {
+      "title": "Sandbox-Aktualisierungen",
+      "empty": "Keine Sandbox-Aktualisierungsereignisse",
+      "inProgress": "Aktualisierung läuft"
+    },
+    "resetIn": "Zurücksetzen in",
+    "sessions": {
+      "title": "Aktive Sitzungen",
+      "empty": "Keine aktiven Sitzungen",
+      "activeUsers": "{{count}} aktive(r) Benutzer",
+      "username": "Benutzername",
+      "sessionType": "Sitzungstyp",
+      "loginTime": "Anmeldezeit",
+      "sourceIp": "Quell-IP"
+    }
   },
   "compare": {
     "title": "Org vergleichen",
@@ -321,7 +392,11 @@
       "step2": "Quell- und Ziel-Org auswählen",
       "step3": "Zu vergleichende Metadatenkategorien auswählen",
       "step4": "Vergleich starten und Diffs prüfen"
-    }
+    },
+    "schemaAdvice": "Schema-Empfehlungen",
+    "schemaAdviceResults": "Schema-Empfehlungen",
+    "schemaAdviceIssues": "{{count}} Probleme gefunden",
+    "recommendations": "Empfehlungen"
   },
   "precheck": {
     "title": "Vorabpruefung",
@@ -352,6 +427,7 @@
     "reviewPlanDesc": "Ueberpruefen Sie den Datenplan vor der Ausfuehrung",
     "execute": "Ausfuehren",
     "executeDesc": "Seed-Operation starten",
+    "cancelRunConfirm": "Laufenden Seed stoppen? Bereits eingefügte Datensätze bleiben in der Org.",
     "results": "Ergebnisse",
     "resultsDesc": "Seed-Ausfuehrungsergebnisse anzeigen",
     "strategy": "Strategie",
@@ -618,7 +694,10 @@
       "step3": "Objekte und Datensatzmengen festlegen",
       "step4": "Ausführen und Ergebnisse prüfen"
     },
-    "nl2soqlError": "Diese Beschreibung konnte nicht in SOQL übersetzt werden. Nennen Sie Objekt und Filter explizit."
+    "nl2soqlError": "Diese Beschreibung konnte nicht in SOQL übersetzt werden. Nennen Sie Objekt und Filter explizit.",
+    "graph": {
+      "title": "Abhängigkeitsgraph"
+    }
   },
   "sync": {
     "title": "Daten synchronisieren",
@@ -728,22 +807,22 @@
     "previewConflicts": "Konflikte",
     "previewApiCalls": "API-Aufrufe",
     "previewDuration": "Gesch. Dauer",
-    "selectAndConfigure": "Select Orgs & Objects",
+    "selectAndConfigure": "Orgs und Objekte auswählen",
     "templates": {
-      "title": "Quick Start Templates",
-      "useThis": "Use This",
-      "objectCount": "{{count}} objects",
+      "title": "Schnellstart-Vorlagen",
+      "useThis": "Verwenden",
+      "objectCount": "{{count}} Objekte",
       "accountHierarchy": {
-        "name": "Full Account Hierarchy",
-        "description": "Sync accounts with contacts, opportunities, tasks and notes"
+        "name": "Vollständige Account-Hierarchie",
+        "description": "Accounts mit Kontakten, Opportunities, Aufgaben und Notizen synchronisieren"
       },
       "oppsProducts": {
-        "name": "Opportunities + Products",
-        "description": "Sync the full opportunity pipeline with products and pricing"
+        "name": "Opportunities + Produkte",
+        "description": "Die gesamte Opportunity-Pipeline mit Produkten und Preisen synchronisieren"
       },
       "casesAttachments": {
-        "name": "Cases + Attachments",
-        "description": "Sync service cases with comments and file attachments"
+        "name": "Kundenvorgänge + Anhänge",
+        "description": "Service-Kundenvorgänge mit Kommentaren und Dateianhängen synchronisieren"
       }
     },
     "realtime": {
@@ -777,6 +856,13 @@
       "autoSync": "Auto-Sync",
       "autoSyncDesc": "Änderungen automatisch auf das Ziel anwenden",
       "conflictStrategy": "Konfliktstrategie",
+      "conflict": {
+        "source_wins": "Quelle gewinnt",
+        "target_wins": "Ziel gewinnt",
+        "newest_wins": "Neuestes gewinnt",
+        "manual": "Manuell",
+        "merge": "Zusammenführen"
+      },
       "objectPicker": "Objekte auswählen",
       "totalEvents": "Ereignisse gesamt",
       "bufferFull": "Puffer voll – älteste Ereignisse verworfen",
@@ -903,7 +989,8 @@
       "runAgain": "Erneut ausführen",
       "emptyTitle": "Noch keine Ausführungen",
       "emptyDesc": "Abgeschlossene Syncs erscheinen hier mit ihren Ergebnissen pro Objekt."
-    }
+    },
+    "piiWarningTitle": "PII erkannt"
   },
   "migration": {
     "title": "Migration",
@@ -1249,7 +1336,8 @@
       "cancelled": "KI-Anfrage abgebrochen.",
       "transient": "Vorübergehender KI-Fehler. Wiederholung möglich.",
       "unknown": "Unerwarteter KI-Fehler."
-    }
+    },
+    "conversations": "Unterhaltungen"
   },
   "notifications": {
     "title": "Benachrichtigungen",
@@ -1393,6 +1481,7 @@
     "notifications": "Benachrichtigungen",
     "notificationsDesc": "Benachrichtigungseinstellungen konfigurieren",
     "advanced": "Erweitert",
+    "profiles": "Profile",
     "advancedDesc": "Erweiterte Konfigurationsoptionen",
     "language": "Sprache",
     "theme": "Design",
@@ -1440,11 +1529,6 @@
     "securityDesc": "Sicherheit und Produktionsschutz",
     "requireProdConfirmation": "Bestaetigung fuer Produktionsoperationen erforderlich",
     "auditLogging": "Audit-Protokollierung aktivieren",
-    "plugins": "Plugins",
-    "pluginsDesc": "SandForge-Plugins verwalten",
-    "pluginEnabled": "Aktiviert",
-    "pluginDisabled": "Deaktiviert",
-    "noPlugins": "Keine Plugins installiert",
     "telemetry": "Telemetrie",
     "telemetryDesc": "Einstellungen zur Nutzungstelemetrie",
     "telemetryStatus": "Status",
@@ -1473,7 +1557,10 @@
     "notYetConnected": "Noch nicht mit der Salesforce-API verbunden",
     "orgConnected": "Organisation verbunden",
     "orgDisconnected": "Organisation getrennt",
-    "settingsSaved": "Einstellungen in der Erweiterung gespeichert"
+    "settingsSaved": "Einstellungen in der Erweiterung gespeichert",
+    "protocolMismatch": {
+      "message": "SandForge wurde aktualisiert. Laden Sie das Fenster neu, um die neue Version zu übernehmen."
+    }
   },
   "onboarding": {
     "welcomeTitle": "Willkommen bei SandForge",
@@ -1702,6 +1789,7 @@
     "forgeDescription": "Klonen Sie Datensätze mit vollständiger Abhängigkeitsauflösung",
     "recordIdPlaceholder": "Datensatz-ID (z. B. 001...)",
     "startForge": "Forge starten",
+    "invalidRecordId": "Keine gültige Salesforce-Datensatz-ID oder URL",
     "sandboxHealth": "Sandbox-Gesundheit",
     "smartAction": {
       "title": "Empfohlene Aktion",
@@ -1830,6 +1918,32 @@
     "logFilterAll": "Alle",
     "logFilterErrors": "Fehler",
     "logFilterWarnings": "Warnungen",
+    "stage": {
+      "insert": "Einfügen",
+      "query": "Abfrage",
+      "scope": "Umfang"
+    },
+    "anonCategory": {
+      "email": "E-Mail",
+      "phone": "Telefon",
+      "name": "Name (Vor-/Nachname)",
+      "address": "Adresse",
+      "ssn_id": "SV-Nummer / nationale ID",
+      "financial": "Finanzdaten",
+      "other": "Sonstige"
+    },
+    "anonMethod": {
+      "fake": "Fiktiv",
+      "mask": "Maskieren",
+      "hash": "Hashen",
+      "nullify": "Leeren",
+      "redact": "Schwärzen",
+      "shuffle": "Mischen",
+      "truncate": "Kürzen",
+      "preserve_format": "Format beibehalten",
+      "age_band": "Altersgruppe",
+      "generalize": "Verallgemeinern"
+    },
     "apiCallsConsumed": "API-Aufrufe",
     "exportJson": "JSON exportieren",
     "retryFailed": "Fehlgeschlagene wiederholen",
@@ -1921,6 +2035,43 @@
       "subtitle": "{{count}} Datensätze erstellt. Quell-Id links, neue Id in der Ziel-Org rechts.",
       "sourceId": "Quell-Id",
       "targetId": "Neue Id"
+    },
+    "apiCalls": "API-Aufrufe",
+    "preview": {
+      "title": "Was bei der Ausführung passiert",
+      "truncated": "Graph gekürzt (Obergrenze von 50 Knoten erreicht)",
+      "willClone": "Wird geklont",
+      "willMap": "Wird zugeordnet",
+      "skippedExcluded": "Übersprungen (ausgeschlossen)",
+      "skippedEmpty": "Übersprungen (leer)",
+      "cycles": "Zyklen (UPDATE in 2 Durchläufen)"
+    },
+    "errorsPanel": {
+      "title": "Ausführungsfehler"
+    },
+    "review": {
+      "planTab": "Plan",
+      "anonymizationTab": "Anonymisierung",
+      "complianceTab": "Compliance",
+      "metadataTab": "Metadaten",
+      "tabs": "Prüfungs-Registerkarten",
+      "back": "← Zurück zur Erkundung",
+      "preset": "Voreinstellung",
+      "presetCustom": "Benutzerdefiniert (keine Voreinstellung)",
+      "category": "Kategorie",
+      "method": "Methode",
+      "anonymizationDesc": "{{count}} PII-Felder erkannt. Anonymisierungsmethode pro Kategorie konfigurieren.",
+      "framework": "Framework",
+      "noCompliance": "Kein Compliance-Framework ausgewählt. Wählen Sie eines aus, um einen Bericht zu erzeugen.",
+      "complianceLoading": "Compliance wird analysiert...",
+      "complianceWaiting": "Wählen Sie ein Framework und führen Sie die Operation aus, um den Compliance-Bericht zu erzeugen.",
+      "complianceStatus": "Status",
+      "diffsLoading": "Metadaten-Schemas werden verglichen...",
+      "noDiffs": "Keine Metadaten-Unterschiede erkannt.",
+      "diffsFound": "{{count}} Unterschiede zwischen Quelle und Ziel gefunden.",
+      "planLoading": "Ausführungsplan wird erstellt...",
+      "wave": "Welle",
+      "cycles": "Zyklusauflösungen"
     }
   },
   "autopilot": {
@@ -2228,12 +2379,24 @@
     }
   },
   "grappe": {
+    "emptyDesc": "Grappe schaltet sich automatisch ein, sobald eine Operation groß genug ist, um sie in Partitionen aufzuteilen. Starten Sie einen Seed, eine Sync oder einen Autopilot-Plan mit einem größeren Datenbestand, um es zu sehen.",
     "active": "Grappe",
     "completed": "Abgeschlossen",
     "partitions": "Partitionen",
     "totalRecords": "Datensätze",
     "processed": "verarbeitet",
-    "failed": "fehlgeschlagen"
+    "failed": "fehlgeschlagen",
+    "subtitle": "Parallele Ausführungs-Engine für Datenoperationen im großen Maßstab",
+    "activeTitle": "Aktive Ausführung",
+    "emptyTitle": "Keine aktiven Grappes",
+    "howItWorks": "So funktioniert Grappe",
+    "step1Title": "Intelligente Partitionierung",
+    "step1Desc": "Daten werden anhand von Abhängigkeiten und Größe in optimale Partitionen aufgeteilt",
+    "step2Title": "Worker-Pool",
+    "step2Desc": "Parallele Worker verarbeiten Partitionen mit Gegendruck-Steuerung",
+    "step3Title": "Adaptive Drosselung",
+    "step3Desc": "Überwacht API-Limits und passt den Durchsatz in Echtzeit an",
+    "openSeed": "Seed öffnen"
   },
   "errorBoundary": {
     "title": "Etwas ist schiefgelaufen",
@@ -2434,5 +2597,17 @@
     "noFailures": "Keine fehlgeschlagenen Operationen",
     "errorDetails": "Fehlerdetails",
     "manualRetryTriggered": "Manueller Wiederholungsversuch ausgelöst"
+  },
+  "a11y": {
+    "welcomeWizard": "Willkommensassistent",
+    "whatsNew": "Neuerungen",
+    "stepProgress": "Schrittfortschritt",
+    "sparklineChart": "Sparkline-Diagramm",
+    "trendChart": "Trenddiagramm",
+    "timeline": "Zeitleiste",
+    "logo": "SandForge-Logo",
+    "easterEgg": "Easter Egg",
+    "csvImportSteps": "Schritte des CSV-Imports",
+    "mapped": "Zugeordnet"
   }
 }

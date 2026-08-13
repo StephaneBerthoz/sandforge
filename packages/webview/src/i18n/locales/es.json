@@ -2,6 +2,7 @@
   "common": {
     "save": "Guardar",
     "cancel": "Cancelar",
+    "cancelRun": "Cancelar ejecución",
     "confirm": "Confirmar",
     "delete": "Eliminar",
     "edit": "Editar",
@@ -13,9 +14,11 @@
     "success": "Exito",
     "warning": "Advertencia",
     "noData": "No hay datos disponibles",
+    "noLogEntries": "Sin entradas de registro",
     "search": "Buscar",
     "filter": "Filtrar",
     "refresh": "Actualizar",
+    "reload": "Recargar",
     "retry": "Reintentar",
     "copy": "Copiar",
     "export": "Exportar",
@@ -44,7 +47,11 @@
     "componentCount_other": "{{count}} componentes",
     "typeCount_one": "{{count}} tipo",
     "typeCount_other": "{{count}} tipos",
-    "comingSoon": "Próximamente"
+    "comingSoon": "Próximamente",
+    "typeToConfirm": "Escriba <code>{{text}}</code> para confirmar:",
+    "time": "Hora",
+    "recordIds": "ID de registro",
+    "statusAbbrev": "St"
   },
   "status": {
     "connectedOrgs": "Orgs conectadas",
@@ -74,6 +81,7 @@
     "title": "Organizaciones",
     "connect": "Conectar Org",
     "disconnect": "Desconectar",
+    "disconnectConfirm": "¿Desconectar {{alias}}? SandForge olvida esta organización: su alias, etiquetas, color y nivel de seguridad se eliminan, y al reconectar se parte de los valores predeterminados.",
     "edit": "Editar Org",
     "noOrgs": "No hay organizaciones conectadas",
     "status_connected": "Conectada",
@@ -112,6 +120,8 @@
     "bannerEmpty": "Importe sus orgs desde Salesforce CLI o conéctelas manualmente"
   },
   "monitor": {
+    "refresh": "Actualizar",
+    "autoRefresh": "Actualización automática",
     "liveOps": {
       "title": "Operaciones en vivo",
       "noOperations": "Sin operaciones en ejecución",
@@ -246,7 +256,13 @@
     "export": {
       "button": "Exportar CSV",
       "success": "Límites exportados",
-      "successDetail": "Archivo CSV descargado exitosamente"
+      "successDetail": "Archivo CSV descargado exitosamente",
+      "noHistory": "No hay datos históricos",
+      "noHistoryDetail": "No hay marcas de tiempo de tendencia disponibles para la exportación histórica",
+      "buttonHistorical": "Exportar historial",
+      "modeLabel": "Modo de exportación",
+      "modeCurrent": "Actual",
+      "modeHistorical": "Histórico"
     },
     "refreshFailed": "Error al actualizar los datos del panel",
     "retry": "Reintentar",
@@ -255,7 +271,62 @@
     "refreshNow": "Actualizar ahora",
     "connectionLost": "Conexión perdida. La actualización automática falló {{count}} veces.",
     "tryReconnect": "Intentar reconectar",
-    "sectionError": "La sección {{section}} falló: {{error}}"
+    "sectionError": "La sección {{section}} falló: {{error}}",
+    "alertHistory": "Historial de alertas",
+    "alertHistoryTimeline": "Cronología",
+    "noAlertHistory": "Aún no hay historial de alertas",
+    "alertValue": "Valor",
+    "alertThreshold": "umbral",
+    "ack": "Confirmar",
+    "resolved": "Resuelta",
+    "showMore": "Mostrar más",
+    "remaining": "restantes",
+    "alertHistoryCount": "{{count}} eventos",
+    "activeAlertCount": "{{count}} activas",
+    "apexInsights": {
+      "title": "Análisis de Apex",
+      "empty": "No hay datos de registro de Apex disponibles",
+      "noIssues": "No se detectaron problemas de rendimiento",
+      "logId": "ID de registro",
+      "duration": "Duración",
+      "soql": "SOQL",
+      "dml": "DML",
+      "heap": "Memoria"
+    },
+    "errorLogs": {
+      "title": "Registros de errores",
+      "empty": "No se detectaron errores recientes",
+      "time": "Hora",
+      "type": "Tipo",
+      "message": "Mensaje",
+      "user": "Usuario"
+    },
+    "healthCheck": {
+      "title": "Chequeo de salud de la org",
+      "empty": "Los datos de salud se cargan al actualizar el panel",
+      "apiLimits": "Límites de API",
+      "storage": "Almacenamiento",
+      "jobs": "Trabajos activos",
+      "errors": "Errores recientes",
+      "lastChecked": "Última comprobación"
+    },
+    "fileStorage": "Almacenamiento de archivos",
+    "noTrends": "Todavía no hay datos suficientes para las tendencias",
+    "sandboxRefresh": {
+      "title": "Actualizaciones de sandbox",
+      "empty": "No hay eventos de actualización de sandbox",
+      "inProgress": "Actualización en curso"
+    },
+    "resetIn": "Reinicio en",
+    "sessions": {
+      "title": "Sesiones activas",
+      "empty": "No hay sesiones activas",
+      "activeUsers": "{{count}} usuario(s) activo(s)",
+      "username": "Nombre de usuario",
+      "sessionType": "Tipo de sesión",
+      "loginTime": "Hora de inicio de sesión",
+      "sourceIp": "IP de origen"
+    }
   },
   "compare": {
     "title": "Comparar Org",
@@ -321,7 +392,11 @@
       "step2": "Elija las orgs de origen y destino",
       "step3": "Seleccione las categorías de metadatos a comparar",
       "step4": "Ejecute la comparación y revise las diferencias"
-    }
+    },
+    "schemaAdvice": "Recomendaciones de esquema",
+    "schemaAdviceResults": "Recomendaciones de esquema",
+    "schemaAdviceIssues": "{{count}} problemas encontrados",
+    "recommendations": "Recomendaciones"
   },
   "precheck": {
     "title": "Pre-verificacion",
@@ -352,6 +427,7 @@
     "reviewPlanDesc": "Revise el plan de datos antes de la ejecucion",
     "execute": "Ejecutar",
     "executeDesc": "Ejecutar la operacion de seed",
+    "cancelRunConfirm": "¿Detener la generación en curso? Los registros ya insertados permanecen en la org.",
     "results": "Resultados",
     "resultsDesc": "Ver resultados de la ejecucion de seed",
     "strategy": "Estrategia",
@@ -618,7 +694,10 @@
       "step3": "Elija objetos y volúmenes de registros",
       "step4": "Ejecute y revise los resultados"
     },
-    "nl2soqlError": "No se pudo convertir esa descripción en SOQL. Indique explícitamente el objeto y el filtro."
+    "nl2soqlError": "No se pudo convertir esa descripción en SOQL. Indique explícitamente el objeto y el filtro.",
+    "graph": {
+      "title": "Grafo de dependencias"
+    }
   },
   "sync": {
     "title": "Sincronizar datos",
@@ -728,22 +807,22 @@
     "previewConflicts": "Conflictos",
     "previewApiCalls": "Llamadas API",
     "previewDuration": "Dur. estimada",
-    "selectAndConfigure": "Select Orgs & Objects",
+    "selectAndConfigure": "Seleccionar orgs y objetos",
     "templates": {
-      "title": "Quick Start Templates",
-      "useThis": "Use This",
-      "objectCount": "{{count}} objects",
+      "title": "Plantillas de inicio rápido",
+      "useThis": "Usar",
+      "objectCount": "{{count}} objetos",
       "accountHierarchy": {
-        "name": "Full Account Hierarchy",
-        "description": "Sync accounts with contacts, opportunities, tasks and notes"
+        "name": "Jerarquía de cuentas completa",
+        "description": "Sincronizar cuentas con contactos, oportunidades, tareas y notas"
       },
       "oppsProducts": {
-        "name": "Opportunities + Products",
-        "description": "Sync the full opportunity pipeline with products and pricing"
+        "name": "Oportunidades + productos",
+        "description": "Sincronizar todo el pipeline de oportunidades con productos y precios"
       },
       "casesAttachments": {
-        "name": "Cases + Attachments",
-        "description": "Sync service cases with comments and file attachments"
+        "name": "Casos + archivos adjuntos",
+        "description": "Sincronizar casos de servicio con comentarios y archivos adjuntos"
       }
     },
     "realtime": {
@@ -777,6 +856,13 @@
       "autoSync": "Sync automático",
       "autoSyncDesc": "Aplicar cambios al destino automáticamente",
       "conflictStrategy": "Estrategia de conflictos",
+      "conflict": {
+        "source_wins": "Gana el origen",
+        "target_wins": "Gana el destino",
+        "newest_wins": "Gana el más reciente",
+        "manual": "Manual",
+        "merge": "Combinar"
+      },
       "objectPicker": "Seleccionar objetos",
       "totalEvents": "Total de eventos",
       "bufferFull": "Búfer lleno — se descartaron los eventos más antiguos",
@@ -903,7 +989,8 @@
       "runAgain": "Ejecutar de nuevo",
       "emptyTitle": "Aún no hay ejecuciones",
       "emptyDesc": "Las sincronizaciones completadas aparecen aquí con sus resultados por objeto."
-    }
+    },
+    "piiWarningTitle": "PII detectada"
   },
   "migration": {
     "title": "Migración",
@@ -1249,7 +1336,8 @@
       "cancelled": "Solicitud de IA cancelada.",
       "transient": "Error temporal de IA. Reintento disponible.",
       "unknown": "Error inesperado de IA."
-    }
+    },
+    "conversations": "Conversaciones"
   },
   "notifications": {
     "title": "Notificaciones",
@@ -1393,6 +1481,7 @@
     "notifications": "Notificaciones",
     "notificationsDesc": "Configurar preferencias de notificacion",
     "advanced": "Avanzado",
+    "profiles": "Perfiles",
     "advancedDesc": "Opciones de configuracion avanzada",
     "language": "Idioma",
     "theme": "Tema",
@@ -1440,11 +1529,6 @@
     "securityDesc": "Seguridad y protecciones de produccion",
     "requireProdConfirmation": "Requerir confirmacion para operaciones en produccion",
     "auditLogging": "Habilitar registro de auditoria",
-    "plugins": "Plugins",
-    "pluginsDesc": "Administrar plugins de SandForge",
-    "pluginEnabled": "Habilitado",
-    "pluginDisabled": "Deshabilitado",
-    "noPlugins": "No hay plugins instalados",
     "telemetry": "Telemetría",
     "telemetryDesc": "Configuración de telemetría de uso",
     "telemetryStatus": "Estado",
@@ -1473,7 +1557,10 @@
     "notYetConnected": "Aun no conectado a la API de Salesforce",
     "orgConnected": "Organizacion conectada",
     "orgDisconnected": "Organizacion desconectada",
-    "settingsSaved": "Configuracion guardada en la extension"
+    "settingsSaved": "Configuracion guardada en la extension",
+    "protocolMismatch": {
+      "message": "SandForge se ha actualizado. Recargue la ventana para aplicar la nueva versión."
+    }
   },
   "onboarding": {
     "welcomeTitle": "Bienvenido a SandForge",
@@ -1702,6 +1789,7 @@
     "forgeDescription": "Clone registros con resolución completa de dependencias",
     "recordIdPlaceholder": "ID de registro (p. ej. 001...)",
     "startForge": "Iniciar Forge",
+    "invalidRecordId": "ID o URL de registro de Salesforce no válido",
     "sandboxHealth": "Salud de sandbox",
     "smartAction": {
       "title": "Acción recomendada",
@@ -1830,6 +1918,32 @@
     "logFilterAll": "Todos",
     "logFilterErrors": "Errores",
     "logFilterWarnings": "Advertencias",
+    "stage": {
+      "insert": "Inserción",
+      "query": "Consulta",
+      "scope": "Alcance"
+    },
+    "anonCategory": {
+      "email": "Correo electrónico",
+      "phone": "Teléfono",
+      "name": "Nombre (nombre/apellidos)",
+      "address": "Dirección",
+      "ssn_id": "NSS / identificación nacional",
+      "financial": "Datos financieros",
+      "other": "Otros"
+    },
+    "anonMethod": {
+      "fake": "Ficticio",
+      "mask": "Enmascarar",
+      "hash": "Hash",
+      "nullify": "Vaciar",
+      "redact": "Censurar",
+      "shuffle": "Mezclar",
+      "truncate": "Truncar",
+      "preserve_format": "Conservar el formato",
+      "age_band": "Franja de edad",
+      "generalize": "Generalizar"
+    },
     "apiCallsConsumed": "Llamadas API",
     "exportJson": "Exportar JSON",
     "retryFailed": "Reintentar fallidos",
@@ -1921,6 +2035,43 @@
       "subtitle": "{{count}} registros creados. Id de origen a la izquierda, nuevo Id en la org destino a la derecha.",
       "sourceId": "Id de origen",
       "targetId": "Nuevo Id"
+    },
+    "apiCalls": "Llamadas a la API",
+    "preview": {
+      "title": "Qué ocurrirá al ejecutar",
+      "truncated": "Grafo truncado (límite de 50 nodos alcanzado)",
+      "willClone": "Se clonará",
+      "willMap": "Se asignará",
+      "skippedExcluded": "Omitido (excluido)",
+      "skippedEmpty": "Omitido (vacío)",
+      "cycles": "ciclos (UPDATE en 2 pasadas)"
+    },
+    "errorsPanel": {
+      "title": "Errores de ejecución"
+    },
+    "review": {
+      "planTab": "Plan",
+      "anonymizationTab": "Anonimización",
+      "complianceTab": "Cumplimiento",
+      "metadataTab": "Metadatos",
+      "tabs": "Pestañas de revisión",
+      "back": "← Volver al descubrimiento",
+      "preset": "Preajuste",
+      "presetCustom": "Personalizado (sin preajuste)",
+      "category": "Categoría",
+      "method": "Método",
+      "anonymizationDesc": "{{count}} campos de PII detectados. Configure el método de anonimización por categoría.",
+      "framework": "Marco",
+      "noCompliance": "No hay ningún marco de cumplimiento seleccionado. Elija uno para generar un informe.",
+      "complianceLoading": "Analizando el cumplimiento...",
+      "complianceWaiting": "Seleccione un marco y ejecute para generar el informe de cumplimiento.",
+      "complianceStatus": "Estado",
+      "diffsLoading": "Comparando esquemas de metadatos...",
+      "noDiffs": "No se detectaron diferencias de metadatos.",
+      "diffsFound": "{{count}} diferencias encontradas entre origen y destino.",
+      "planLoading": "Generando el plan de ejecución...",
+      "wave": "Oleada",
+      "cycles": "Resoluciones de ciclos"
     }
   },
   "autopilot": {
@@ -2228,12 +2379,24 @@
     }
   },
   "grappe": {
+    "emptyDesc": "Grappe se activa automáticamente cuando una operación es lo bastante grande como para dividirla en particiones. Ejecuta un Seed, una Sync o un plan de Autopilot sobre un conjunto de datos considerable para verlo funcionar.",
     "active": "Grappe",
     "completed": "Completado",
     "partitions": "Particiones",
     "totalRecords": "Registros",
     "processed": "procesados",
-    "failed": "fallidos"
+    "failed": "fallidos",
+    "subtitle": "Motor de ejecución paralela para operaciones de datos a gran escala",
+    "activeTitle": "Ejecución activa",
+    "emptyTitle": "No hay grappes activos",
+    "howItWorks": "Cómo funciona Grappe",
+    "step1Title": "Particionado inteligente",
+    "step1Desc": "Los datos se dividen en particiones óptimas según las dependencias y el tamaño",
+    "step2Title": "Grupo de workers",
+    "step2Desc": "Workers paralelos procesan las particiones con control de contrapresión",
+    "step3Title": "Regulación adaptativa",
+    "step3Desc": "Supervisa los límites de la API y ajusta el rendimiento en tiempo real",
+    "openSeed": "Abrir Seed"
   },
   "errorBoundary": {
     "title": "Algo salió mal",
@@ -2434,5 +2597,17 @@
     "noFailures": "Sin operaciones fallidas",
     "errorDetails": "Detalles del error",
     "manualRetryTriggered": "Reintento manual iniciado"
+  },
+  "a11y": {
+    "welcomeWizard": "Asistente de bienvenida",
+    "whatsNew": "Novedades",
+    "stepProgress": "Progreso de pasos",
+    "sparklineChart": "Gráfico sparkline",
+    "trendChart": "Gráfico de tendencia",
+    "timeline": "Cronología",
+    "logo": "Logotipo de SandForge",
+    "easterEgg": "Easter egg",
+    "csvImportSteps": "Pasos de importación CSV",
+    "mapped": "Asignado"
   }
 }

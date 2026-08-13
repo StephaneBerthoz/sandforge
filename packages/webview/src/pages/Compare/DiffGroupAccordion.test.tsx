@@ -4,6 +4,24 @@ import '../../i18n';
 import { DiffGroupAccordion } from './DiffGroupAccordion';
 import type { EnrichedDiff } from '@sandforge/shared';
 
+/* jsdom gives every element a zero height, so the real virtualizer would report
+   an empty window and render nothing. Same stand-in as VirtualList.test.tsx. */
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: () => number; overscan: number }) => {
+    const rowHeight = opts.estimateSize();
+    const overscan = opts.overscan ?? 5;
+    const visibleCount = Math.min(opts.count, 10 + overscan * 2);
+    const items: Array<{ index: number; start: number; size: number }> = [];
+    for (let i = 0; i < visibleCount; i++) {
+      items.push({ index: i, start: i * rowHeight, size: rowHeight });
+    }
+    return {
+      getVirtualItems: () => items,
+      getTotalSize: () => opts.count * rowHeight,
+    };
+  },
+}));
+
 function createDiff(overrides: Partial<EnrichedDiff> = {}): EnrichedDiff {
   return {
     category: 'ApexClass',
@@ -131,6 +149,23 @@ describe('DiffGroupAccordion', () => {
     expect(screen.getByText('+')).toBeDefined();
     expect(screen.getByText('-')).toBeDefined();
     expect(screen.getByText('~')).toBeDefined();
+  });
+
+  it('should virtualize a large group instead of mounting every diff row', () => {
+    const diffs = Array.from({ length: 500 }, (_, i) =>
+      createDiff({ name: `Class${i}`, group: 'Apex Code' }),
+    );
+    render(<DiffGroupAccordion diffs={diffs} />);
+
+    fireEvent.click(screen.getByTestId('diff-group-toggle-Apex Code'));
+
+    // The header still accounts for all 500, but only a window of rows is mounted.
+    expect(screen.getByText('500 changes')).toBeDefined();
+    const rows = screen
+      .getByTestId('diff-group-items-Apex Code')
+      .querySelectorAll('[data-testid^="diff-item-"]');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.length).toBeLessThan(50);
   });
 
   it('should render multiple groups independently', () => {

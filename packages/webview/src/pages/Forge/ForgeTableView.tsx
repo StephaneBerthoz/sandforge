@@ -106,15 +106,27 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
     );
   };
 
-  /** Render a sortable column header. */
+  /**
+   * Render a sortable column header. The trigger is a real button — a click
+   * handler on the `<th>` alone is unreachable by keyboard — while `aria-sort`
+   * stays on the `<th>`, the only element screen readers read it from.
+   */
   const renderHeader = (field: SortField, label: string): React.ReactNode => (
     <th
-      data-testid={`forge-table-sort-${field}`}
-      className="cursor-pointer select-none px-3 py-2 text-left text-xs font-medium text-text-secondary hover:text-text-primary"
-      onClick={() => handleSort(field)}
+      className="select-none px-3 py-2 text-left text-xs font-medium text-text-secondary"
+      aria-sort={
+        sortField === field ? (sortDirection === 'asc' ? 'ascending' : 'descending') : undefined
+      }
     >
-      {label}
-      {renderSortIndicator(field)}
+      <button
+        type="button"
+        data-testid={`forge-table-sort-${field}`}
+        className="inline-flex w-full cursor-pointer items-center gap-1 text-left hover:text-text-primary"
+        onClick={() => handleSort(field)}
+      >
+        {label}
+        {renderSortIndicator(field)}
+      </button>
     </th>
   );
 
@@ -151,10 +163,9 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
               key={node.objectApiName}
               data-testid="forge-table-row"
               className={cn(
-                'cursor-pointer border-b border-subtle/50 transition-colors hover:bg-surface-2',
+                'border-b border-subtle/50 transition-colors hover:bg-surface-2',
                 selectedNodeName === node.objectApiName && 'bg-forge/10 border-l-2 border-forge',
               )}
-              onClick={() => onNodeClick(node.objectApiName)}
             >
               <td className="px-3 py-2">
                 <input
@@ -163,10 +174,22 @@ export const ForgeTableView: React.FC<ForgeTableViewProps> = ({
                   checked={node.included}
                   onChange={() => onToggleIncluded(node.objectApiName)}
                   className="accent-forge"
-                  onClick={(e) => e.stopPropagation()}
                 />
               </td>
-              <td className="px-3 py-2 font-medium text-text-primary">{node.objectApiName}</td>
+              {/* Selection hangs off the object name rather than the whole row:
+                  a keyboard user already tabs through the row's checkbox, so a
+                  focusable `<tr>` on top of it would be a second stop for the
+                  same record. */}
+              <td className="px-3 py-2 font-medium text-text-primary">
+                <button
+                  type="button"
+                  data-testid={`forge-table-select-${node.objectApiName}`}
+                  className="w-full cursor-pointer text-left"
+                  onClick={() => onNodeClick(node.objectApiName)}
+                >
+                  {node.objectApiName}
+                </button>
+              </td>
               <td className="px-3 py-2 text-text-secondary">{node.recordCount}</td>
               <td className="px-3 py-2 text-text-secondary">{node.fieldCount}</td>
               <td className="px-3 py-2">

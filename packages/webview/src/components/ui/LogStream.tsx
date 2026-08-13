@@ -25,10 +25,10 @@ export interface LogStreamProps {
   className?: string;
 }
 
-const FILTER_TABS: { key: LogFilter; label: string; testId: string }[] = [
-  { key: 'all', label: 'All', testId: 'logstream-filter-all' },
-  { key: 'error', label: 'Errors', testId: 'logstream-filter-error' },
-  { key: 'warn', label: 'Warnings', testId: 'logstream-filter-warn' },
+const FILTER_TABS: { key: LogFilter; labelKey: string; testId: string }[] = [
+  { key: 'all', labelKey: 'forge.logFilterAll', testId: 'logstream-filter-all' },
+  { key: 'error', labelKey: 'forge.logFilterErrors', testId: 'logstream-filter-error' },
+  { key: 'warn', labelKey: 'forge.logFilterWarnings', testId: 'logstream-filter-warn' },
 ];
 
 const levelColorClasses: Record<LogEntry['level'], string> = {
@@ -138,7 +138,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
                   : 'text-text-muted hover:text-text-secondary',
               )}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </button>
           ))}
         </div>
@@ -202,7 +202,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
       >
         {visibleEntries.length === 0 ? (
           <p data-testid="logstream-empty" className="text-text-muted text-center py-4">
-            No log entries
+            {t('common.noLogEntries')}
           </p>
         ) : (
           visibleEntries.map((entry) => (

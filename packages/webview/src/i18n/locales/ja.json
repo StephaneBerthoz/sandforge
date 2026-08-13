@@ -2,6 +2,7 @@
   "common": {
     "save": "保存",
     "cancel": "キャンセル",
+    "cancelRun": "実行をキャンセル",
     "confirm": "確認",
     "delete": "削除",
     "edit": "編集",
@@ -13,9 +14,11 @@
     "success": "成功",
     "warning": "警告",
     "noData": "データがありません",
+    "noLogEntries": "ログエントリはありません",
     "search": "検索",
     "filter": "フィルター",
     "refresh": "更新",
+    "reload": "再読み込み",
     "retry": "再試行",
     "copy": "コピー",
     "export": "エクスポート",
@@ -39,7 +42,11 @@
     "changeCount_other": "{{count}}件の変更",
     "componentCount_other": "{{count}}個のコンポーネント",
     "typeCount_other": "{{count}}個のタイプ",
-    "comingSoon": "近日公開"
+    "comingSoon": "近日公開",
+    "typeToConfirm": "確認するには <code>{{text}}</code> と入力してください:",
+    "time": "時刻",
+    "recordIds": "レコード ID",
+    "statusAbbrev": "状"
   },
   "status": {
     "connectedOrgs": "接続済みOrg",
@@ -69,6 +76,7 @@
     "title": "組織",
     "connect": "Orgを接続",
     "disconnect": "切断",
+    "disconnectConfirm": "{{alias}} を切断しますか？SandForge はこの組織を忘れます。エイリアス、タグ、色、安全レベルは削除され、再接続時は既定値から始まります。",
     "edit": "Orgを編集",
     "noOrgs": "接続されている組織はありません",
     "status_connected": "接続済み",
@@ -107,6 +115,8 @@
     "bannerEmpty": "Salesforce CLIからOrgをインポートするか、手動で接続してください"
   },
   "monitor": {
+    "refresh": "更新",
+    "autoRefresh": "自動更新",
     "liveOps": {
       "title": "ライブオペレーション",
       "noOperations": "実行中の操作はありません",
@@ -240,7 +250,13 @@
     "export": {
       "button": "CSVをエクスポート",
       "success": "制限をエクスポートしました",
-      "successDetail": "CSVファイルが正常にダウンロードされました"
+      "successDetail": "CSVファイルが正常にダウンロードされました",
+      "noHistory": "履歴データがありません",
+      "noHistoryDetail": "履歴エクスポートに使用できるトレンドのタイムスタンプがありません",
+      "buttonHistorical": "履歴をエクスポート",
+      "modeLabel": "エクスポートモード",
+      "modeCurrent": "現在",
+      "modeHistorical": "履歴"
     },
     "refreshFailed": "ダッシュボードデータの更新に失敗しました",
     "retry": "再試行",
@@ -249,7 +265,62 @@
     "refreshNow": "今すぐ更新",
     "connectionLost": "接続が失われました。自動更新が{{count}}回失敗しました。",
     "tryReconnect": "再接続を試行",
-    "sectionError": "セクション{{section}}が失敗しました： {{error}}"
+    "sectionError": "セクション{{section}}が失敗しました： {{error}}",
+    "alertHistory": "アラート履歴",
+    "alertHistoryTimeline": "タイムライン",
+    "noAlertHistory": "アラート履歴はまだありません",
+    "alertValue": "値",
+    "alertThreshold": "しきい値",
+    "ack": "確認",
+    "resolved": "解決済み",
+    "showMore": "さらに表示",
+    "remaining": "残り",
+    "alertHistoryCount": "{{count}} 件のイベント",
+    "activeAlertCount": "{{count}} 件がアクティブ",
+    "apexInsights": {
+      "title": "Apex インサイト",
+      "empty": "Apex ログデータがありません",
+      "noIssues": "パフォーマンスの問題は検出されませんでした",
+      "logId": "ログ ID",
+      "duration": "処理時間",
+      "soql": "SOQL",
+      "dml": "DML",
+      "heap": "ヒープ"
+    },
+    "errorLogs": {
+      "title": "エラーログ",
+      "empty": "最近のエラーは検出されませんでした",
+      "time": "時刻",
+      "type": "種別",
+      "message": "メッセージ",
+      "user": "ユーザー"
+    },
+    "healthCheck": {
+      "title": "組織のヘルスチェック",
+      "empty": "ヘルスデータはダッシュボードの更新時に読み込まれます",
+      "apiLimits": "API 制限",
+      "storage": "ストレージ",
+      "jobs": "実行中のジョブ",
+      "errors": "最近のエラー",
+      "lastChecked": "最終確認"
+    },
+    "fileStorage": "ファイルストレージ",
+    "noTrends": "トレンドを表示するにはデータが不足しています",
+    "sandboxRefresh": {
+      "title": "Sandbox の更新",
+      "empty": "Sandbox の更新イベントはありません",
+      "inProgress": "更新中"
+    },
+    "resetIn": "リセットまで",
+    "sessions": {
+      "title": "アクティブなセッション",
+      "empty": "アクティブなセッションはありません",
+      "activeUsers": "アクティブユーザー {{count}} 人",
+      "username": "ユーザー名",
+      "sessionType": "セッション種別",
+      "loginTime": "ログイン時刻",
+      "sourceIp": "送信元 IP"
+    }
   },
   "compare": {
     "title": "Org比較",
@@ -315,7 +386,11 @@
       "step2": "ソースとターゲットのOrgを選択",
       "step3": "比較するメタデータカテゴリを選択",
       "step4": "比較を実行して差分を確認"
-    }
+    },
+    "schemaAdvice": "スキーマの推奨事項",
+    "schemaAdviceResults": "スキーマの推奨事項",
+    "schemaAdviceIssues": "{{count}} 件の問題を検出",
+    "recommendations": "推奨事項"
   },
   "precheck": {
     "title": "事前チェック",
@@ -346,6 +421,7 @@
     "reviewPlanDesc": "実行前にデータプランを確認してください",
     "execute": "実行",
     "executeDesc": "Seed操作を実行",
+    "cancelRunConfirm": "実行中のデータ生成を停止しますか？挿入済みのレコードは組織に残ります。",
     "results": "結果",
     "resultsDesc": "Seed実行結果を表示",
     "strategy": "戦略",
@@ -612,7 +688,10 @@
       "step3": "オブジェクトとレコード数を選択",
       "step4": "実行して結果を確認"
     },
-    "nl2soqlError": "その説明を SOQL に変換できませんでした。オブジェクトとフィルターを明示してください。"
+    "nl2soqlError": "その説明を SOQL に変換できませんでした。オブジェクトとフィルターを明示してください。",
+    "graph": {
+      "title": "依存関係グラフ"
+    }
   },
   "sync": {
     "title": "データ同期",
@@ -722,22 +801,22 @@
     "previewConflicts": "競合",
     "previewApiCalls": "APIコール",
     "previewDuration": "推定所要時間",
-    "selectAndConfigure": "Select Orgs & Objects",
+    "selectAndConfigure": "組織とオブジェクトを選択",
     "templates": {
-      "title": "Quick Start Templates",
-      "useThis": "Use This",
-      "objectCount": "{{count}} objects",
+      "title": "クイックスタートテンプレート",
+      "useThis": "使用する",
+      "objectCount": "{{count}} 個のオブジェクト",
       "accountHierarchy": {
-        "name": "Full Account Hierarchy",
-        "description": "Sync accounts with contacts, opportunities, tasks and notes"
+        "name": "取引先階層すべて",
+        "description": "取引先を、取引先責任者・商談・ToDo・メモとあわせて同期します"
       },
       "oppsProducts": {
-        "name": "Opportunities + Products",
-        "description": "Sync the full opportunity pipeline with products and pricing"
+        "name": "商談 + 商品",
+        "description": "商談パイプライン全体を商品と価格とあわせて同期します"
       },
       "casesAttachments": {
-        "name": "Cases + Attachments",
-        "description": "Sync service cases with comments and file attachments"
+        "name": "ケース + 添付ファイル",
+        "description": "サービスケースをコメントおよび添付ファイルとあわせて同期します"
       }
     },
     "realtime": {
@@ -771,6 +850,13 @@
       "autoSync": "自動同期",
       "autoSyncDesc": "変更をターゲットへ自動的に適用",
       "conflictStrategy": "競合戦略",
+      "conflict": {
+        "source_wins": "ソース優先",
+        "target_wins": "ターゲット優先",
+        "newest_wins": "最新優先",
+        "manual": "手動",
+        "merge": "マージ"
+      },
       "objectPicker": "オブジェクトを選択",
       "totalEvents": "合計イベント",
       "bufferFull": "バッファが満杯です — 古いイベントから破棄されます",
@@ -897,7 +983,8 @@
       "runAgain": "再実行",
       "emptyTitle": "実行履歴がありません",
       "emptyDesc": "完了した同期がオブジェクト別の結果とともに表示されます。"
-    }
+    },
+    "piiWarningTitle": "PII を検出"
   },
   "migration": {
     "title": "移行",
@@ -1242,7 +1329,8 @@
       "cancelled": "AIリクエストがキャンセルされました。",
       "transient": "一時的なAIエラーです。再試行できます。",
       "unknown": "予期しないAIエラーです。"
-    }
+    },
+    "conversations": "会話"
   },
   "notifications": {
     "title": "通知",
@@ -1386,6 +1474,7 @@
     "notifications": "通知",
     "notificationsDesc": "通知設定の構成",
     "advanced": "詳細設定",
+    "profiles": "プロファイル",
     "advancedDesc": "詳細な設定オプション",
     "language": "言語",
     "theme": "テーマ",
@@ -1433,11 +1522,6 @@
     "securityDesc": "セキュリティと本番環境の保護",
     "requireProdConfirmation": "本番操作の確認を必須にする",
     "auditLogging": "監査ログを有効にする",
-    "plugins": "プラグイン",
-    "pluginsDesc": "SandForgeプラグインの管理",
-    "pluginEnabled": "有効",
-    "pluginDisabled": "無効",
-    "noPlugins": "インストールされているプラグインはありません",
     "telemetry": "テレメトリ",
     "telemetryDesc": "使用状況テレメトリ設定",
     "telemetryStatus": "ステータス",
@@ -1466,7 +1550,10 @@
     "notYetConnected": "Salesforce APIにまだ接続されていません",
     "orgConnected": "組織が接続されました",
     "orgDisconnected": "組織が切断されました",
-    "settingsSaved": "設定が拡張機能に保存されました"
+    "settingsSaved": "設定が拡張機能に保存されました",
+    "protocolMismatch": {
+      "message": "SandForge が更新されました。新しいバージョンを適用するにはウィンドウを再読み込みしてください。"
+    }
   },
   "onboarding": {
     "welcomeTitle": "SandForgeへようこそ",
@@ -1695,6 +1782,7 @@
     "forgeDescription": "完全な依存関係解決でレコードをクローン",
     "recordIdPlaceholder": "レコードID（例： 001...）",
     "startForge": "Forgeを開始",
+    "invalidRecordId": "有効なSalesforceレコードIDまたはURLではありません",
     "sandboxHealth": "Sandboxの健全性",
     "smartAction": {
       "title": "推奨アクション",
@@ -1823,6 +1911,32 @@
     "logFilterAll": "すべて",
     "logFilterErrors": "エラー",
     "logFilterWarnings": "警告",
+    "stage": {
+      "insert": "挿入",
+      "query": "クエリ",
+      "scope": "対象範囲"
+    },
+    "anonCategory": {
+      "email": "メールアドレス",
+      "phone": "電話番号",
+      "name": "氏名（姓/名）",
+      "address": "住所",
+      "ssn_id": "社会保障番号 / 国民ID",
+      "financial": "金融情報",
+      "other": "その他"
+    },
+    "anonMethod": {
+      "fake": "ダミー値",
+      "mask": "マスク",
+      "hash": "ハッシュ",
+      "nullify": "空にする",
+      "redact": "墨消し",
+      "shuffle": "シャッフル",
+      "truncate": "切り詰め",
+      "preserve_format": "書式を保持",
+      "age_band": "年齢帯",
+      "generalize": "一般化"
+    },
     "apiCallsConsumed": "APIコール",
     "exportJson": "JSONをエクスポート",
     "retryFailed": "失敗を再試行",
@@ -1914,6 +2028,43 @@
       "subtitle": "{{count}} 件のレコードを作成しました。左が元の Id、右がターゲット組織の新しい Id です。",
       "sourceId": "元の Id",
       "targetId": "新しい Id"
+    },
+    "apiCalls": "API コール数",
+    "preview": {
+      "title": "実行時に行われる処理",
+      "truncated": "グラフが切り詰められました (50 ノードの上限に到達)",
+      "willClone": "複製される",
+      "willMap": "マッピングされる",
+      "skippedExcluded": "スキップ (除外)",
+      "skippedEmpty": "スキップ (空)",
+      "cycles": "サイクル (2 パスの UPDATE)"
+    },
+    "errorsPanel": {
+      "title": "実行エラー"
+    },
+    "review": {
+      "planTab": "プラン",
+      "anonymizationTab": "匿名化",
+      "complianceTab": "コンプライアンス",
+      "metadataTab": "メタデータ",
+      "tabs": "レビュータブ",
+      "back": "← 探索に戻る",
+      "preset": "プリセット",
+      "presetCustom": "カスタム (プリセットなし)",
+      "category": "カテゴリ",
+      "method": "手法",
+      "anonymizationDesc": "{{count}} 件の PII 項目を検出しました。カテゴリごとに匿名化手法を設定してください。",
+      "framework": "フレームワーク",
+      "noCompliance": "コンプライアンスフレームワークが選択されていません。レポートを生成するには 1 つ選択してください。",
+      "complianceLoading": "コンプライアンスを分析しています...",
+      "complianceWaiting": "フレームワークを選択して実行すると、コンプライアンスレポートが生成されます。",
+      "complianceStatus": "ステータス",
+      "diffsLoading": "メタデータスキーマを比較しています...",
+      "noDiffs": "メタデータの差分は検出されませんでした。",
+      "diffsFound": "ソースとターゲットの間で {{count}} 件の差分が見つかりました。",
+      "planLoading": "実行プランを生成しています...",
+      "wave": "ウェーブ",
+      "cycles": "循環参照の解決"
     }
   },
   "autopilot": {
@@ -2221,12 +2372,24 @@
     }
   },
   "grappe": {
+    "emptyDesc": "Grappeは、パーティションに分割する価値があるほど処理が大きくなると自動的に起動します。大きめのデータセットでSeed、Sync、またはAutopilotプランを実行すると動作を確認できます。",
     "active": "Grappe",
     "completed": "完了",
     "partitions": "パーティション",
     "totalRecords": "レコード",
     "processed": "処理済み",
-    "failed": "失敗"
+    "failed": "失敗",
+    "subtitle": "大規模データ操作のための並列実行エンジン",
+    "activeTitle": "実行中",
+    "emptyTitle": "アクティブな Grappe はありません",
+    "howItWorks": "Grappe のしくみ",
+    "step1Title": "スマートパーティショニング",
+    "step1Desc": "依存関係とサイズに基づいて、データを最適なパーティションに分割します",
+    "step2Title": "ワーカープール",
+    "step2Desc": "並列ワーカーがバックプレッシャー制御のもとでパーティションを処理します",
+    "step3Title": "適応スロットリング",
+    "step3Desc": "API 制限を監視し、スループットをリアルタイムに調整します",
+    "openSeed": "Seedを開く"
   },
   "errorBoundary": {
     "title": "問題が発生しました",
@@ -2427,5 +2590,17 @@
     "noFailures": "失敗した操作はありません",
     "errorDetails": "エラー詳細",
     "manualRetryTriggered": "手動再試行を開始しました"
+  },
+  "a11y": {
+    "welcomeWizard": "ようこそウィザード",
+    "whatsNew": "新機能",
+    "stepProgress": "ステップの進捗",
+    "sparklineChart": "スパークラインチャート",
+    "trendChart": "トレンドチャート",
+    "timeline": "タイムライン",
+    "logo": "SandForge ロゴ",
+    "easterEgg": "イースターエッグ",
+    "csvImportSteps": "CSV インポートの手順",
+    "mapped": "マッピング済み"
   }
 }

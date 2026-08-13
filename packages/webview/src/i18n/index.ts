@@ -91,7 +91,16 @@ void i18n.use(initReactI18next).init({
   },
 });
 
-i18n.on('languageChanged', persistLanguage);
+i18n.on('languageChanged', (lng: string) => {
+  persistLanguage(lng);
+  // The shell HTML is stamped with the language the extension had at build
+  // time; keeping `<html lang>` in step here covers both the boot restore and
+  // a runtime switch, so assistive tech never announces French in an English
+  // voice. Guarded for the non-DOM contexts i18n is imported from.
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = lng;
+  }
+});
 
 /** A pending locale request waiting for its correlated bridge response. */
 interface PendingLocaleRequest {
@@ -245,7 +254,10 @@ function readLanguageCandidate(settings: unknown): SupportedLanguage | undefined
   const blob = settings as Record<string, unknown> | null | undefined;
   const nested = blob?.['settings'] as Record<string, unknown> | null | undefined;
   const candidate = blob?.['language'] ?? nested?.['language'];
-  if (typeof candidate === 'string' && (SUPPORTED_LANGUAGES as readonly string[]).includes(candidate)) {
+  if (
+    typeof candidate === 'string' &&
+    (SUPPORTED_LANGUAGES as readonly string[]).includes(candidate)
+  ) {
     return candidate as SupportedLanguage;
   }
   return undefined;

@@ -82,7 +82,7 @@ export const CsvColumnMapper: React.FC<CsvColumnMapperProps> = ({
         />
       );
     }
-    return <Check className="w-4 h-4 text-emerald-400" aria-label="Mapped" />;
+    return <Check className="w-4 h-4 text-emerald-400" aria-label={t('a11y.mapped', 'Mapped')} />;
   };
 
   return (

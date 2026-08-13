@@ -239,8 +239,8 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       </h4>
 
       {/* Name */}
-      <div>
-        <label className={labelClass}>{t('sync.schedules.name')}</label>
+      <label className="flex flex-col gap-1">
+        <span className={labelClass}>{t('sync.schedules.name')}</span>
         <input
           type="text"
           className={inputClass}
@@ -250,11 +250,11 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
           required
           data-testid="schedule-name-input"
         />
-      </div>
+      </label>
 
       {/* Config selector */}
-      <div>
-        <label className={labelClass}>{t('sync.schedules.syncConfig')}</label>
+      <label className="flex flex-col gap-1">
+        <span className={labelClass}>{t('sync.schedules.syncConfig')}</span>
         <select
           className={inputClass}
           value={configId}
@@ -267,7 +267,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
             </option>
           ))}
         </select>
-      </div>
+      </label>
 
       {/* Mode toggle */}
       <div className="flex gap-[var(--sf-space-2)]">
@@ -293,8 +293,8 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       {mode === 'simple' && (
         <div className="flex flex-col gap-[var(--sf-space-2)]" data-testid="simple-mode-panel">
           {/* Preset selector */}
-          <div>
-            <label className={labelClass}>{t('sync.schedules.frequency')}</label>
+          <label className="flex flex-col gap-1">
+            <span className={labelClass}>{t('sync.schedules.frequency')}</span>
             <select
               className={inputClass}
               value={preset}
@@ -306,13 +306,13 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
               <option value="weekly">{t('sync.schedules.presetWeekly')}</option>
               <option value="monthly">{t('sync.schedules.presetMonthly')}</option>
             </select>
-          </div>
+          </label>
 
           {/* Time picker (for daily/weekly/monthly) */}
           {preset !== 'hourly' && (
             <div className="flex gap-[var(--sf-space-2)]">
-              <div>
-                <label className={labelClass}>{t('sync.schedules.hour')}</label>
+              <label className="flex flex-col gap-1">
+                <span className={labelClass}>{t('sync.schedules.hour')}</span>
                 <select
                   className={inputClass}
                   value={hour}
@@ -325,9 +325,9 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                     </option>
                   ))}
                 </select>
-              </div>
-              <div>
-                <label className={labelClass}>{t('sync.schedules.minute')}</label>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className={labelClass}>{t('sync.schedules.minute')}</span>
                 <select
                   className={inputClass}
                   value={minute}
@@ -340,15 +340,17 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                     </option>
                   ))}
                 </select>
-              </div>
+              </label>
             </div>
           )}
 
           {/* Day-of-week picker (for weekly) */}
           {preset === 'weekly' && (
             <div>
-              <label className={labelClass}>{t('sync.schedules.daysOfWeek')}</label>
-              <div className="flex gap-1">
+              {/* Toggle buttons are not labelable, so the caption names a group
+                  instead of a control. */}
+              <span className={labelClass}>{t('sync.schedules.daysOfWeek')}</span>
+              <div className="flex gap-1" role="group" aria-label={t('sync.schedules.daysOfWeek')}>
                 {DAYS_OF_WEEK.map((day) => (
                   <button
                     key={day}
@@ -374,8 +376,8 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
           {/* Day-of-month picker (for monthly) */}
           {preset === 'monthly' && (
-            <div>
-              <label className={labelClass}>{t('sync.schedules.dayOfMonth')}</label>
+            <label className="flex flex-col gap-1">
+              <span className={labelClass}>{t('sync.schedules.dayOfMonth')}</span>
               <select
                 className={inputClass}
                 value={dayOfMonth}
@@ -388,7 +390,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
           )}
         </div>
       )}
@@ -396,34 +398,40 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
       {/* Advanced mode */}
       {mode === 'advanced' && (
         <div data-testid="advanced-mode-panel">
-          <label className={labelClass}>{t('sync.schedules.cronExpression')}</label>
-          <input
-            type="text"
-            className={inputClass}
-            value={rawCron}
-            onChange={(e) => setRawCron(e.target.value)}
-            placeholder="* * * * *"
-            data-testid="raw-cron-input"
-          />
+          <label className="flex flex-col gap-1">
+            <span className={labelClass}>{t('sync.schedules.cronExpression')}</span>
+            <input
+              type="text"
+              className={inputClass}
+              value={rawCron}
+              onChange={(e) => setRawCron(e.target.value)}
+              placeholder="* * * * *"
+              data-testid="raw-cron-input"
+            />
+          </label>
           <p className="text-[10px] text-text-secondary mt-1">{t('sync.schedules.cronHelp')}</p>
         </div>
       )}
 
       {/* Timezone */}
       <div>
-        <label className={labelClass}>{t('sync.schedules.timezone')}</label>
+        {/* Two controls under one caption: a wrapping label would bind to the
+            search box only, so each control carries its own name. */}
+        <span className={labelClass}>{t('sync.schedules.timezone')}</span>
         <input
           type="text"
           className={`${inputClass} mb-1`}
           value={timezoneSearch}
           onChange={(e) => setTimezoneSearch(e.target.value)}
           placeholder={t('sync.schedules.searchTimezone')}
+          aria-label={t('sync.schedules.searchTimezone')}
           data-testid="timezone-search"
         />
         <select
           className={inputClass}
           value={timezone}
           onChange={(e) => setTimezone(e.target.value)}
+          aria-label={t('sync.schedules.timezone')}
           data-testid="timezone-selector"
         >
           {filteredTimezones.map((tz) => (
@@ -436,9 +444,9 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
 
       {/* Options */}
       <div className="flex flex-col gap-[var(--sf-space-1)]">
-        <label className={labelClass}>{t('sync.schedules.options')}</label>
-        <div className="flex items-center gap-[var(--sf-space-2)]">
-          <label className="text-[10px] text-text-primary">{t('sync.schedules.maxRetries')}</label>
+        <span className={labelClass}>{t('sync.schedules.options')}</span>
+        <label className="flex items-center gap-[var(--sf-space-2)] text-[10px] text-text-primary">
+          {t('sync.schedules.maxRetries')}
           <input
             type="number"
             className="w-16 px-1 py-0.5 text-xs rounded border border-[var(--sf-border-input)] bg-[var(--sf-bg-input)] text-[var(--sf-text-input)]"
@@ -448,7 +456,7 @@ export const CronScheduleBuilder: React.FC<CronScheduleBuilderProps> = ({
             max={10}
             data-testid="max-retries-input"
           />
-        </div>
+        </label>
         <label className="flex items-center gap-1 text-[10px] text-text-primary">
           <input
             type="checkbox"

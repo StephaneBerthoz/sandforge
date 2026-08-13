@@ -65,6 +65,10 @@ export const ForgeDiscovery: React.FC = () => {
     'forge:discover:response',
     useCallback(
       (msg) => {
+        // Discovery is fire-and-forget: leaving the phase does not stop the
+        // BFS, and the response still lands during the exit animation. Adopting
+        // that graph would drop the user back into a phase they walked out of.
+        if (useForgeStore.getState().phase !== 'discovery') return;
         setGraph(msg.payload.graph);
         setLoading(false);
         setError(null);
@@ -186,6 +190,16 @@ export const ForgeDiscovery: React.FC = () => {
             })}
           </p>
         )}
+        {/* A BFS over a wide org can run for minutes; without this the spinner
+            is the whole screen and the only way out is reloading the window. */}
+        <Button
+          data-testid="forge-discovery-cancel"
+          variant="secondary"
+          onClick={handleBack}
+          icon={<ArrowLeft size={14} />}
+        >
+          {t('common.back')}
+        </Button>
       </div>
     );
   }

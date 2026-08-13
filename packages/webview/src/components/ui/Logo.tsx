@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 /** Logo display size. */
 export type LogoSize = 'small' | 'medium' | 'large';
@@ -31,6 +32,7 @@ const SIZE_MAP: Record<LogoSize, number> = {
  * `prefers-reduced-motion`.
  */
 export const Logo: React.FC<LogoProps> = ({ size = 'medium', mono = false, className }) => {
+  const { t } = useTranslation();
   const px = SIZE_MAP[size];
   const flameColor = mono ? 'currentColor' : '#F5A623';
   const emberColor = mono ? 'currentColor' : '#FFD97A';
@@ -43,7 +45,7 @@ export const Logo: React.FC<LogoProps> = ({ size = 'medium', mono = false, class
       height={px}
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      aria-label="SandForge logo"
+      aria-label={t('a11y.logo', 'SandForge logo')}
       className={className}
       data-testid="logo-svg"
     >

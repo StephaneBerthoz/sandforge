@@ -2,6 +2,7 @@
   "common": {
     "save": "Save",
     "cancel": "Cancel",
+    "cancelRun": "Cancel run",
     "confirm": "Confirm",
     "delete": "Delete",
     "edit": "Edit",
@@ -13,9 +14,11 @@
     "success": "Success",
     "warning": "Warning",
     "noData": "No data available",
+    "noLogEntries": "No log entries",
     "search": "Search",
     "filter": "Filter",
     "refresh": "Refresh",
+    "reload": "Reload",
     "retry": "Retry",
     "copy": "Copy",
     "export": "Export",
@@ -44,7 +47,11 @@
     "componentCount_other": "{{count}} components",
     "typeCount_one": "{{count}} type",
     "typeCount_other": "{{count}} types",
-    "comingSoon": "Coming soon"
+    "comingSoon": "Coming soon",
+    "typeToConfirm": "Type <code>{{text}}</code> to confirm:",
+    "time": "Time",
+    "recordIds": "Record IDs",
+    "statusAbbrev": "St"
   },
   "status": {
     "connectedOrgs": "Connected orgs",
@@ -74,6 +81,7 @@
     "title": "Organizations",
     "connect": "Connect Org",
     "disconnect": "Disconnect",
+    "disconnectConfirm": "Disconnect {{alias}}? SandForge forgets this org: its alias, tags, colour and safety tier are deleted, and reconnecting starts from defaults.",
     "edit": "Edit Org",
     "noOrgs": "No organizations connected",
     "status_connected": "Connected",
@@ -112,6 +120,8 @@
     "bannerEmpty": "Import your orgs from Salesforce CLI or connect manually"
   },
   "monitor": {
+    "refresh": "Refresh",
+    "autoRefresh": "Auto-refresh",
     "liveOps": {
       "title": "Live Operations",
       "noOperations": "No operations running",
@@ -246,7 +256,13 @@
     "export": {
       "button": "Export CSV",
       "success": "Limits exported",
-      "successDetail": "CSV file downloaded successfully"
+      "successDetail": "CSV file downloaded successfully",
+      "noHistory": "No historical data",
+      "noHistoryDetail": "No trend timestamps available for historical export",
+      "buttonHistorical": "Export History",
+      "modeLabel": "Export mode",
+      "modeCurrent": "Current",
+      "modeHistorical": "Historical"
     },
     "refreshFailed": "Failed to refresh dashboard data",
     "retry": "Retry",
@@ -255,7 +271,62 @@
     "refreshNow": "Refresh now",
     "connectionLost": "Connection lost. Auto-refresh failed {{count}} times.",
     "tryReconnect": "Try Reconnect",
-    "sectionError": "Section {{section}} failed: {{error}}"
+    "sectionError": "Section {{section}} failed: {{error}}",
+    "alertHistory": "Alert History",
+    "alertHistoryTimeline": "Timeline",
+    "noAlertHistory": "No alert history yet",
+    "alertValue": "Value",
+    "alertThreshold": "threshold",
+    "ack": "Ack",
+    "resolved": "Resolved",
+    "showMore": "Show more",
+    "remaining": "remaining",
+    "alertHistoryCount": "{{count}} events",
+    "activeAlertCount": "{{count}} active",
+    "apexInsights": {
+      "title": "Apex Insights",
+      "empty": "No Apex log data available",
+      "noIssues": "No performance issues detected",
+      "logId": "Log ID",
+      "duration": "Duration",
+      "soql": "SOQL",
+      "dml": "DML",
+      "heap": "Heap"
+    },
+    "errorLogs": {
+      "title": "Error Logs",
+      "empty": "No recent errors detected",
+      "time": "Time",
+      "type": "Type",
+      "message": "Message",
+      "user": "User"
+    },
+    "healthCheck": {
+      "title": "Org Health Check",
+      "empty": "Health data loads with dashboard refresh",
+      "apiLimits": "API Limits",
+      "storage": "Storage",
+      "jobs": "Active Jobs",
+      "errors": "Recent Errors",
+      "lastChecked": "Last checked"
+    },
+    "fileStorage": "File Storage",
+    "noTrends": "Not enough data for trends yet",
+    "sandboxRefresh": {
+      "title": "Sandbox Refreshes",
+      "empty": "No sandbox refresh events",
+      "inProgress": "Refresh in progress"
+    },
+    "resetIn": "Reset in",
+    "sessions": {
+      "title": "Active Sessions",
+      "empty": "No active sessions",
+      "activeUsers": "{{count}} active user(s)",
+      "username": "Username",
+      "sessionType": "Session Type",
+      "loginTime": "Login Time",
+      "sourceIp": "Source IP"
+    }
   },
   "compare": {
     "title": "Compare Org",
@@ -321,7 +392,11 @@
       "step2": "Pick source and target orgs",
       "step3": "Select the metadata categories to diff",
       "step4": "Run the comparison and review the diffs"
-    }
+    },
+    "schemaAdvice": "Schema Advice",
+    "schemaAdviceResults": "Schema Advice",
+    "schemaAdviceIssues": "{{count}} issues found",
+    "recommendations": "Recommendations"
   },
   "precheck": {
     "title": "Pre-Check",
@@ -352,6 +427,7 @@
     "reviewPlanDesc": "Review the data plan before execution",
     "execute": "Execute",
     "executeDesc": "Run the seed operation",
+    "cancelRunConfirm": "Stop the running seed? Records already inserted stay in the org.",
     "results": "Results",
     "resultsDesc": "View seed execution results",
     "strategy": "Strategy",
@@ -618,7 +694,10 @@
       "step3": "Choose objects and record volumes",
       "step4": "Execute and review the results"
     },
-    "nl2soqlError": "Could not turn that description into SOQL. Try naming the object and the filter explicitly."
+    "nl2soqlError": "Could not turn that description into SOQL. Try naming the object and the filter explicitly.",
+    "graph": {
+      "title": "Dependency Graph"
+    }
   },
   "sync": {
     "title": "Sync Data",
@@ -777,6 +856,13 @@
       "autoSync": "Auto-Sync",
       "autoSyncDesc": "Automatically apply changes to target",
       "conflictStrategy": "Conflict Strategy",
+      "conflict": {
+        "source_wins": "Source Wins",
+        "target_wins": "Target Wins",
+        "newest_wins": "Newest Wins",
+        "manual": "Manual",
+        "merge": "Merge"
+      },
       "objectPicker": "Select Objects",
       "totalEvents": "Total Events",
       "bufferFull": "Buffer full - oldest events dropped",
@@ -903,7 +989,8 @@
       "runAgain": "Run again",
       "emptyTitle": "No runs yet",
       "emptyDesc": "Completed syncs appear here with their per-object results."
-    }
+    },
+    "piiWarningTitle": "PII Detected"
   },
   "migration": {
     "title": "Migration",
@@ -1249,7 +1336,8 @@
       "cancelled": "AI request cancelled.",
       "transient": "Temporary AI error. Retry available.",
       "unknown": "Unexpected AI error."
-    }
+    },
+    "conversations": "Conversations"
   },
   "notifications": {
     "title": "Notifications",
@@ -1393,6 +1481,7 @@
     "notifications": "Notifications",
     "notificationsDesc": "Configure notification preferences",
     "advanced": "Advanced",
+    "profiles": "Profiles",
     "advancedDesc": "Advanced configuration options",
     "language": "Language",
     "theme": "Theme",
@@ -1440,11 +1529,6 @@
     "securityDesc": "Security and production safeguards",
     "requireProdConfirmation": "Require confirmation for production operations",
     "auditLogging": "Enable audit logging",
-    "plugins": "Plugins",
-    "pluginsDesc": "Manage SandForge plugins",
-    "pluginEnabled": "Enabled",
-    "pluginDisabled": "Disabled",
-    "noPlugins": "No plugins installed",
     "telemetry": "Telemetry",
     "telemetryDesc": "Usage telemetry settings",
     "telemetryStatus": "Status",
@@ -1473,7 +1557,10 @@
     "notYetConnected": "Not yet connected to the Salesforce API",
     "orgConnected": "Organization connected",
     "orgDisconnected": "Organization disconnected",
-    "settingsSaved": "Settings saved to extension"
+    "settingsSaved": "Settings saved to extension",
+    "protocolMismatch": {
+      "message": "SandForge has been updated. Reload the window to apply the new version."
+    }
   },
   "onboarding": {
     "welcomeTitle": "Welcome to SandForge",
@@ -1702,6 +1789,7 @@
     "forgeDescription": "Clone records with full dependency resolution",
     "recordIdPlaceholder": "Record ID (e.g. 001...)",
     "startForge": "Start Forge",
+    "invalidRecordId": "Not a valid Salesforce record ID or URL",
     "sandboxHealth": "Sandbox Health",
     "smartAction": {
       "title": "Recommended Action",
@@ -1830,6 +1918,32 @@
     "logFilterAll": "All",
     "logFilterErrors": "Errors",
     "logFilterWarnings": "Warnings",
+    "stage": {
+      "insert": "Insert",
+      "query": "Query",
+      "scope": "Scope"
+    },
+    "anonCategory": {
+      "email": "Email",
+      "phone": "Phone",
+      "name": "Name (First/Last)",
+      "address": "Address",
+      "ssn_id": "SSN / National ID",
+      "financial": "Financial",
+      "other": "Other"
+    },
+    "anonMethod": {
+      "fake": "Fake",
+      "mask": "Mask",
+      "hash": "Hash",
+      "nullify": "Nullify",
+      "redact": "Redact",
+      "shuffle": "Shuffle",
+      "truncate": "Truncate",
+      "preserve_format": "Preserve format",
+      "age_band": "Age band",
+      "generalize": "Generalize"
+    },
     "apiCallsConsumed": "API Calls",
     "exportJson": "Export JSON",
     "retryFailed": "Retry Failed",
@@ -1921,6 +2035,43 @@
       "subtitle": "{{count}} records created. Source Id on the left, the new Id in the target org on the right.",
       "sourceId": "Source Id",
       "targetId": "New Id"
+    },
+    "apiCalls": "API calls",
+    "preview": {
+      "title": "What will happen on Execute",
+      "truncated": "Graph truncated (50-node cap hit)",
+      "willClone": "Will clone",
+      "willMap": "Will map",
+      "skippedExcluded": "Skipped (excluded)",
+      "skippedEmpty": "Skipped (empty)",
+      "cycles": "cycles (2-pass UPDATE)"
+    },
+    "errorsPanel": {
+      "title": "Execution errors"
+    },
+    "review": {
+      "planTab": "Plan",
+      "anonymizationTab": "Anonymization",
+      "complianceTab": "Compliance",
+      "metadataTab": "Metadata",
+      "tabs": "Review tabs",
+      "back": "← Back to Discovery",
+      "preset": "Preset",
+      "presetCustom": "Custom (no preset)",
+      "category": "Category",
+      "method": "Method",
+      "anonymizationDesc": "{{count}} PII fields detected. Configure anonymization method per category.",
+      "framework": "Framework",
+      "noCompliance": "No compliance framework selected. Select one to generate a report.",
+      "complianceLoading": "Analyzing compliance...",
+      "complianceWaiting": "Select a framework and execute to generate compliance report.",
+      "complianceStatus": "Status",
+      "diffsLoading": "Comparing metadata schemas...",
+      "noDiffs": "No metadata differences detected.",
+      "diffsFound": "{{count}} differences found between source and target.",
+      "planLoading": "Generating execution plan...",
+      "wave": "Wave",
+      "cycles": "Cycle Resolutions"
     }
   },
   "autopilot": {
@@ -2228,12 +2379,24 @@
     }
   },
   "grappe": {
+    "emptyDesc": "Grappe engages automatically when an operation is large enough to be worth splitting into partitions. Run a Seed, a Sync or an Autopilot plan on a sizeable dataset to see it work.",
     "active": "Grappe",
     "completed": "Completed",
     "partitions": "Partitions",
     "totalRecords": "Records",
     "processed": "processed",
-    "failed": "failed"
+    "failed": "failed",
+    "subtitle": "Parallel execution engine for large-scale data operations",
+    "activeTitle": "Active Execution",
+    "emptyTitle": "No Active Grappes",
+    "howItWorks": "How Grappe Works",
+    "step1Title": "Smart Partitioning",
+    "step1Desc": "Data is split into optimal partitions based on dependencies and size",
+    "step2Title": "Worker Pool",
+    "step2Desc": "Parallel workers process partitions with back-pressure control",
+    "step3Title": "Adaptive Throttle",
+    "step3Desc": "Monitors API limits and adjusts throughput in real-time",
+    "openSeed": "Open Seed"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -2434,5 +2597,17 @@
     "noFailures": "No failed operations",
     "errorDetails": "Error Details",
     "manualRetryTriggered": "Manual retry triggered"
+  },
+  "a11y": {
+    "welcomeWizard": "Welcome wizard",
+    "whatsNew": "What's new",
+    "stepProgress": "Step progress",
+    "sparklineChart": "Sparkline chart",
+    "trendChart": "Trend chart",
+    "timeline": "Timeline",
+    "logo": "SandForge logo",
+    "easterEgg": "Easter egg",
+    "csvImportSteps": "CSV import steps",
+    "mapped": "Mapped"
   }
 }

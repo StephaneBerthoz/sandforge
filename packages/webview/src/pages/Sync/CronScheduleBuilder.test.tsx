@@ -95,6 +95,79 @@ describe('CronScheduleBuilder', () => {
   });
 });
 
+/** Accessible name of a form control: its own aria-label, else its labels. */
+function accessibleName(el: HTMLElement): string {
+  const aria = el.getAttribute('aria-label');
+  if (aria) return aria.trim();
+  const labels = (el as HTMLInputElement | HTMLSelectElement).labels;
+  return Array.from(labels ?? [])
+    .map((l) => l.textContent ?? '')
+    .join(' ')
+    .trim();
+}
+
+/** Labels that name nothing — the accessible name is lost for their control. */
+function orphanLabels(root: HTMLElement): string[] {
+  return Array.from(root.querySelectorAll('label'))
+    .filter((l) => l.control === null)
+    .map((l) => (l.textContent ?? '').trim());
+}
+
+describe('CronScheduleBuilder accessible names', () => {
+  it('should name every control of the simple-mode form', () => {
+    render(<CronScheduleBuilder {...defaultProps} />);
+    for (const testId of [
+      'schedule-name-input',
+      'config-selector',
+      'preset-selector',
+      'hour-selector',
+      'minute-selector',
+      'timezone-search',
+      'timezone-selector',
+      'max-retries-input',
+      'notify-complete-checkbox',
+      'notify-failure-checkbox',
+    ]) {
+      expect(accessibleName(screen.getByTestId(testId)), testId).not.toBe('');
+    }
+  });
+
+  it('should name the raw cron input in advanced mode', () => {
+    render(<CronScheduleBuilder {...defaultProps} />);
+    fireEvent.click(screen.getByTestId('mode-advanced-btn'));
+    expect(accessibleName(screen.getByTestId('raw-cron-input'))).not.toBe('');
+  });
+
+  it('should name the monthly day selector', () => {
+    render(<CronScheduleBuilder {...defaultProps} />);
+    fireEvent.change(screen.getByTestId('preset-selector'), { target: { value: 'monthly' } });
+    expect(accessibleName(screen.getByTestId('day-of-month-selector'))).not.toBe('');
+  });
+
+  it('should expose the day-of-week toggles as a named group', () => {
+    render(<CronScheduleBuilder {...defaultProps} />);
+    fireEvent.change(screen.getByTestId('preset-selector'), { target: { value: 'weekly' } });
+    const group = screen.getByTestId('day-btn-MON').parentElement as HTMLElement;
+    expect(group.getAttribute('role')).toBe('group');
+    expect(group.getAttribute('aria-label')).toBeTruthy();
+  });
+
+  it('should leave no orphan label in any mode', () => {
+    render(<CronScheduleBuilder {...defaultProps} />);
+    const form = screen.getByTestId('cron-schedule-builder');
+    expect(orphanLabels(form)).toEqual([]);
+
+    fireEvent.change(screen.getByTestId('preset-selector'), { target: { value: 'weekly' } });
+    expect(orphanLabels(form)).toEqual([]);
+
+    fireEvent.change(screen.getByTestId('preset-selector'), { target: { value: 'monthly' } });
+    expect(orphanLabels(form)).toEqual([]);
+
+    fireEvent.click(screen.getByTestId('mode-advanced-btn'));
+    expect(orphanLabels(form)).toEqual([]);
+  });
+});
+
 describe('cronToHuman', () => {
   it('should convert daily cron to human-readable', () => {
     expect(cronToHuman('0 9 * * *')).toBe('Every day at 09:00');

@@ -67,19 +67,19 @@ function statusBadgeVariant(status: 'pass' | 'warning' | 'fail'): BadgeVariant {
 function statusIcon(status: 'pass' | 'warning' | 'fail'): React.ReactNode {
   switch (status) {
     case 'pass':
-      return <CheckCircle className="w-4 h-4 text-green-400" />;
+      return <CheckCircle className="w-4 h-4 text-status-success" />;
     case 'warning':
-      return <AlertTriangle className="w-4 h-4 text-amber-400" />;
+      return <AlertTriangle className="w-4 h-4 text-status-warning" />;
     case 'fail':
-      return <XCircle className="w-4 h-4 text-red-400" />;
+      return <XCircle className="w-4 h-4 text-status-error" />;
   }
 }
 
 /** Score color based on compliance percentage. */
 function scoreColor(score: number): string {
-  if (score >= 80) return 'text-green-400';
-  if (score >= 60) return 'text-amber-400';
-  return 'text-red-400';
+  if (score >= 80) return 'text-status-success';
+  if (score >= 60) return 'text-status-warning';
+  return 'text-status-error';
 }
 
 /**
@@ -173,28 +173,31 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
               {policies.map((policy) => (
                 <div
                   key={policy.id}
-                  data-testid={`policy-${policy.id}`}
-                  className={`flex items-center justify-between p-2 rounded border cursor-pointer transition-colors ${
+                  className={`flex items-center justify-between p-2 rounded border transition-colors ${
                     selectedPolicyId === policy.id
                       ? 'border-[var(--sf-accent)] bg-[var(--sf-bg-active)]'
                       : 'border-[var(--sf-border)] bg-[var(--sf-bg-primary)]'
                   }`}
-                  onClick={() => setSelectedPolicyId(policy.id)}
                 >
-                  <div className="flex flex-col">
+                  {/* The delete action is a sibling, not a child: a button inside
+                      a button is invalid HTML and unreachable by keyboard. */}
+                  <button
+                    type="button"
+                    data-testid={`policy-${policy.id}`}
+                    className="flex flex-col text-left flex-1 cursor-pointer"
+                    aria-pressed={selectedPolicyId === policy.id}
+                    onClick={() => setSelectedPolicyId(policy.id)}
+                  >
                     <span className="text-xs font-medium text-text-primary">{policy.name}</span>
                     <span className="text-[10px] text-text-secondary">
                       {policy.description} — {policy.ruleCount} {t('governance.rules', 'rules')}
                     </span>
-                  </div>
+                  </button>
                   {onDeletePolicy && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeletePolicy(policy.id);
-                      }}
+                      onClick={() => onDeletePolicy(policy.id)}
                       data-testid={`delete-policy-${policy.id}`}
                     >
                       <Trash2 className="w-3 h-3" />

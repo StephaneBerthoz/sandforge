@@ -83,6 +83,7 @@ export const ForgeNodeDetail: React.FC<ForgeNodeDetailProps> = ({
           type="button"
           data-testid="node-include-toggle"
           role="switch"
+          aria-label={t('forge.includeNode')}
           aria-checked={node.included}
           onClick={onToggleIncluded}
           className={cn(

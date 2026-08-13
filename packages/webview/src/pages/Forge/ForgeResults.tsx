@@ -290,44 +290,71 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           <table className="w-full text-sm" data-testid="forge-results-table">
             <thead>
               <tr className="border-b border-subtle text-left text-text-secondary">
+                {/* Each sort trigger is a real button — a click handler on the
+                    <th> alone is unreachable by keyboard — while aria-sort stays
+                    on the <th>, the only element it is announced from. */}
                 <th
-                  className="px-4 py-2 font-medium cursor-pointer hover:text-text-primary select-none"
-                  data-testid="forge-results-sort-object"
-                  onClick={() => handleSort('objectApiName')}
+                  className="px-4 py-2 font-medium select-none"
+                  aria-sort={
+                    sortField === 'objectApiName'
+                      ? sortDir === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : undefined
+                  }
                 >
-                  {t('forge.object')}
-                  {sortField === 'objectApiName' &&
-                    (sortDir === 'asc' ? (
-                      <ChevronUp size={12} className="inline ml-1" />
-                    ) : (
-                      <ChevronDown size={12} className="inline ml-1" />
-                    ))}
+                  <button
+                    type="button"
+                    data-testid="forge-results-sort-object"
+                    className="inline-flex w-full cursor-pointer items-center gap-1 text-left hover:text-text-primary"
+                    onClick={() => handleSort('objectApiName')}
+                  >
+                    {t('forge.object')}
+                    {sortField === 'objectApiName' &&
+                      (sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
+                  </button>
                 </th>
                 <th
-                  className="px-4 py-2 font-medium cursor-pointer hover:text-text-primary select-none"
-                  data-testid="forge-results-sort-records"
-                  onClick={() => handleSort('recordCount')}
+                  className="px-4 py-2 font-medium select-none"
+                  aria-sort={
+                    sortField === 'recordCount'
+                      ? sortDir === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : undefined
+                  }
                 >
-                  {t('forge.records')}
-                  {sortField === 'recordCount' &&
-                    (sortDir === 'asc' ? (
-                      <ChevronUp size={12} className="inline ml-1" />
-                    ) : (
-                      <ChevronDown size={12} className="inline ml-1" />
-                    ))}
+                  <button
+                    type="button"
+                    data-testid="forge-results-sort-records"
+                    className="inline-flex w-full cursor-pointer items-center gap-1 text-left hover:text-text-primary"
+                    onClick={() => handleSort('recordCount')}
+                  >
+                    {t('forge.records')}
+                    {sortField === 'recordCount' &&
+                      (sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
+                  </button>
                 </th>
                 <th
-                  className="px-4 py-2 font-medium cursor-pointer hover:text-text-primary select-none"
-                  data-testid="forge-results-sort-status"
-                  onClick={() => handleSort('status')}
+                  className="px-4 py-2 font-medium select-none"
+                  aria-sort={
+                    sortField === 'status'
+                      ? sortDir === 'asc'
+                        ? 'ascending'
+                        : 'descending'
+                      : undefined
+                  }
                 >
-                  {t('forge.status')}
-                  {sortField === 'status' &&
-                    (sortDir === 'asc' ? (
-                      <ChevronUp size={12} className="inline ml-1" />
-                    ) : (
-                      <ChevronDown size={12} className="inline ml-1" />
-                    ))}
+                  <button
+                    type="button"
+                    data-testid="forge-results-sort-status"
+                    className="inline-flex w-full cursor-pointer items-center gap-1 text-left hover:text-text-primary"
+                    onClick={() => handleSort('status')}
+                  >
+                    {t('forge.status')}
+                    {sortField === 'status' &&
+                      (sortDir === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
+                  </button>
                 </th>
                 <th className="px-4 py-2 font-medium">{t('forge.errors')}</th>
               </tr>
@@ -485,11 +512,11 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
   );
 };
 
-/** Stage label colour and human-readable text. */
-const stageStyles: Record<ForgeExecutionError['stage'], { label: string; cls: string }> = {
-  insert: { label: 'Insert', cls: 'bg-red-500/20 text-red-400' },
-  query: { label: 'Query', cls: 'bg-orange-500/20 text-orange-400' },
-  scope: { label: 'Scope', cls: 'bg-yellow-500/20 text-yellow-400' },
+/** Stage label colour and i18n key. */
+const stageStyles: Record<ForgeExecutionError['stage'], { labelKey: string; cls: string }> = {
+  insert: { labelKey: 'forge.stage.insert', cls: 'bg-red-500/20 text-red-400' },
+  query: { labelKey: 'forge.stage.query', cls: 'bg-orange-500/20 text-orange-400' },
+  scope: { labelKey: 'forge.stage.scope', cls: 'bg-yellow-500/20 text-yellow-400' },
 };
 
 /**
@@ -559,7 +586,7 @@ const ForgeErrorsPanel: React.FC<{ errors: ForgeExecutionError[] }> = ({ errors 
                     stage.cls,
                   )}
                 >
-                  {stage.label}
+                  {t(stage.labelKey)}
                 </span>
                 <span className="ml-auto text-xs text-text-secondary tabular-nums">
                   {err.failedCount}

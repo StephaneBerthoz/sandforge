@@ -5,8 +5,12 @@ import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
+import { useOperationProgress } from '../../hooks/useOperationProgress';
+import { useSendMessage } from '../../hooks/useMessageBus';
+import { buildMessage } from '../../bridge/messageHelpers';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { OrgBadge } from '../../components/ui/OrgBadge';
 import { Card, CardBody } from '../../components/ui/Card';
@@ -52,6 +56,14 @@ export const SeedPage: React.FC = () => {
   const prevStepRef = useRef(state.currentStep);
   const setSelectedPersona = useSeedWizardStore((s) => s.setSelectedPersona);
   const setCurrentStep = state.setCurrentStep;
+  const sendMessage = useSendMessage();
+  /**
+   * The run's id only reaches the webview through the progress stream — the
+   * mutation hooks never surface the id of the request they sent — so the
+   * abort target is the latest `operation:progress` event.
+   */
+  const { latest: latestProgress } = useOperationProgress();
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const handleSelectTemplate = (
     template: SeedTemplate,
@@ -104,6 +116,21 @@ export const SeedPage: React.FC = () => {
   const handleSeedAgain = useCallback(() => {
     setCurrentStep(0);
   }, [setCurrentStep]);
+
+  /**
+   * Stop a running seed. `execution:abort` is the channel that reaches the
+   * AbortController SeedOpsHandler registers in the BackgroundOperationRegistry;
+   * `operation:cancel` only reaches the pipeline orchestrators.
+   */
+  const handleConfirmCancelRun = useCallback(() => {
+    setShowCancelConfirm(false);
+    const operationId = latestProgress?.operationId;
+    if (!operationId) return;
+    sendMessage(buildMessage<{ operationId: string }>('execution:abort', { operationId }));
+  }, [latestProgress, sendMessage]);
+
+  /** Cancel is only offered while a run is actually abortable. */
+  const canCancelRun = state.isRunning && !!latestProgress?.operationId;
 
   if (orgs.length === 0) {
     return (
@@ -309,6 +336,8 @@ export const SeedPage: React.FC = () => {
                 canGoNext={state.canGoNext}
                 isFinished={state.isFinished}
                 onFinish={state.handleExecute}
+                onCancel={canCancelRun ? () => setShowCancelConfirm(true) : undefined}
+                cancelLabelKey="common.cancelRun"
               >
                 {/* STEP 1: SELECT */}
                 {state.currentStep === 0 && (
@@ -364,6 +393,15 @@ export const SeedPage: React.FC = () => {
           )}
         </>
       )}
+
+      <DangerConfirm
+        open={showCancelConfirm}
+        onClose={() => setShowCancelConfirm(false)}
+        onConfirm={handleConfirmCancelRun}
+        title={t('common.cancelRun')}
+        description={t('seed.cancelRunConfirm')}
+        confirmText={t('common.cancel')}
+      />
     </div>
   );
 };

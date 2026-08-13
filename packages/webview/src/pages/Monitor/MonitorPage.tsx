@@ -35,7 +35,6 @@ import { MonitorOrgInfoBar } from './MonitorOrgInfoBar';
 import { MonitorTrendsJobsRow } from './MonitorTrendsJobsRow';
 import { MonitorLimitsSection } from './MonitorLimitsSection';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
-import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { SalesforceOrg, LiveOperationSnapshot } from '@sandforge/shared';
 
 /* Re-export so existing importers (`JobsTable`, `useMonitorPageData`) keep working. */
@@ -141,19 +140,6 @@ export const MonitorPage: React.FC = () => {
     undefined,
     { responseType: 'monitor:live-operations:response', skip: !selectedOrgId },
   );
-  // AutomationHandler reports operation:* failures on the pipeline channel.
-  const cancelOp = useBridgeMutation<{ success: boolean }>('operation:cancel', {
-    responseType: 'operation:cancel:response',
-    errorType: 'pipeline:error',
-  });
-  const pauseOp = useBridgeMutation<{ success: boolean }>('operation:pause', {
-    responseType: 'operation:pause:response',
-    errorType: 'pipeline:error',
-  });
-  const resumeOp = useBridgeMutation<{ success: boolean }>('operation:resume', {
-    responseType: 'operation:resume:response',
-    errorType: 'pipeline:error',
-  });
   const liveOperations = liveOpsQuery.data?.operations ?? [];
 
   const navigate = useAppStore((s) => s.navigate);
@@ -247,9 +233,10 @@ export const MonitorPage: React.FC = () => {
           {currentOrg && (
             <>
               <span className="h-2.5 w-2.5 rounded-full bg-green-500 shrink-0 animate-pulse" />
-              <span className="text-base font-semibold text-text-primary truncate">
+              {/* The org under observation is what this dashboard is about, so it carries the page's only h1. */}
+              <h1 className="text-base font-semibold text-text-primary truncate">
                 {currentOrg.alias || currentOrg.username}
-              </span>
+              </h1>
               <span
                 className={cn(
                   'text-[9px] font-bold px-1.5 py-0.5 rounded border shrink-0',
@@ -276,6 +263,7 @@ export const MonitorPage: React.FC = () => {
             size="sm"
             onClick={handleRefresh}
             disabled={loading}
+            aria-label={t('monitor.refresh')}
             data-testid="refresh-btn"
           >
             <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
@@ -284,6 +272,8 @@ export const MonitorPage: React.FC = () => {
             variant={autoRefresh ? 'primary' : 'ghost'}
             size="sm"
             onClick={() => setAutoRefresh(!autoRefresh)}
+            aria-label={t('monitor.autoRefresh')}
+            aria-pressed={autoRefresh}
             data-testid="auto-refresh-toggle"
           >
             <Clock className="w-3.5 h-3.5" />
@@ -429,11 +419,18 @@ export const MonitorPage: React.FC = () => {
               className="rounded-lg border border-blue-500/20 bg-surface-1 p-4"
               data-testid="live-ops-section"
             >
+              {/*
+                Fire-and-forget on purpose: AutomationHandler acknowledges
+                cancel/pause/resume with a `notification`, never an
+                `operation:*:response`. Sending these through a request/response
+                hook armed a 30 s timer per click that could only ever expire,
+                on a channel the shared protocol does not declare.
+              */}
               <LiveOperationsPanel
                 operations={liveOperations}
-                onCancel={(opId) => cancelOp.mutate({ operationId: opId })}
-                onPause={(opId) => pauseOp.mutate({ operationId: opId })}
-                onResume={(opId) => resumeOp.mutate({ operationId: opId })}
+                onCancel={(opId) => sendBridgeMessage('operation:cancel', { operationId: opId })}
+                onPause={(opId) => sendBridgeMessage('operation:pause', { operationId: opId })}
+                onResume={(opId) => sendBridgeMessage('operation:resume', { operationId: opId })}
               />
             </div>
           )}

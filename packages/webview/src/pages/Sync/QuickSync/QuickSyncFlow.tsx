@@ -38,7 +38,7 @@ export const QuickSyncFlow: React.FC<QuickSyncFlowProps> = ({ onBack }) => {
       <button
         type="button"
         onClick={onBack}
-        className="inline-flex items-center gap-1 text-xs text-[var(--sf-text-link)] hover:underline focus:outline-none self-start"
+        className="inline-flex items-center gap-1 text-xs text-[var(--sf-text-link)] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--sf-accent)] self-start"
         data-testid="quick-sync-back-to-wizard"
       >
         <span className="codicon codicon-arrow-left" aria-hidden="true" />

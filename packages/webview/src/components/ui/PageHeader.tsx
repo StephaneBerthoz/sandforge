@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 import { Icon } from './Icon';
 
@@ -30,6 +31,8 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
   breadcrumb,
   className,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <div
       data-testid="page-header"
@@ -47,7 +50,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
             fontSize: 'var(--sf-font-size-sm)',
             color: 'var(--sf-text-muted)',
           }}
-          aria-label="Breadcrumb"
+          aria-label={t('common.breadcrumb', 'Breadcrumb')}
         >
           {breadcrumb.map((segment, index) => (
             <React.Fragment key={index}>

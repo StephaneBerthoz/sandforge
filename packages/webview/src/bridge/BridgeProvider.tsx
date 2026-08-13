@@ -1,5 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import type { BaseMessage, SalesforceOrg, AIStatusResponse } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  BridgeErrorMessage,
+  SalesforceOrg,
+  AIStatusResponse,
+} from '@sandforge/shared';
 import { useSendMessage, useMessageListener } from '../hooks/useMessageBus';
 import { useRecentOpsFeed } from '../hooks/useRecentOpsFeed';
 import { useOrgStore } from '../stores/useOrgStore';
@@ -130,6 +135,20 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     if (msg.payload.level === 'error' || msg.payload.level === 'success') {
       useOrgStore.getState().setConnecting(false);
     }
+  });
+
+  // Listen for bridge:error → surface the drop.
+  // The broker replies on this channel when an inbound envelope fails Zod
+  // validation, and then discards the message: no handler runs, no domain
+  // error comes back, and the sender only learns about it 30 s later as a
+  // generic timeout. A rejected message has to be visible while it is still
+  // attached to the action that caused it.
+  useMessageListener<BridgeErrorMessage>('bridge:error', (msg) => {
+    useNotificationStore.getState().addNotification({
+      level: 'error',
+      title: 'Bridge error',
+      message: `${msg.payload.reason}: ${msg.payload.details}`,
+    });
   });
 
   // Listen for operation lifecycle → setLoading

@@ -97,10 +97,11 @@ export const OrgDropdown: React.FC<OrgDropdownProps> = ({
         data-testid={testId}
         aria-label={ariaLabel}
         aria-expanded={open}
+        aria-haspopup="listbox"
         onClick={() => setOpen(!open)}
         className={cn(
           'w-full flex items-center gap-2 text-sm font-semibold cursor-pointer',
-          'focus:outline-none',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--vscode-focusBorder,#007fd4)]',
           selectedOrg ? 'text-text-primary' : 'text-text-muted',
         )}
       >

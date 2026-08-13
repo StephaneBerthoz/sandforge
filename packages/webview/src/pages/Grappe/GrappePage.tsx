@@ -5,6 +5,7 @@ import { Card, CardBody } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { useGrappeStore } from '../../stores/useGrappeStore';
+import { useAppStore } from '../../stores/useAppStore';
 
 /**
  * Grappe module page — Parallel execution engine dashboard.
@@ -12,6 +13,7 @@ import { useGrappeStore } from '../../stores/useGrappeStore';
  */
 export const GrappePage: React.FC = () => {
   const { t } = useTranslation();
+  const navigate = useAppStore((s) => s.navigate);
   const active = useGrappeStore((s) => s.active);
   const totalPartitions = useGrappeStore((s) => s.totalPartitions);
   const totalRecords = useGrappeStore((s) => s.totalRecords);
@@ -168,16 +170,24 @@ export const GrappePage: React.FC = () => {
               <h2 className="text-sm font-semibold text-text-primary mb-1">
                 {t('grappe.emptyTitle', 'No Active Grappes')}
               </h2>
-              <p className="text-xs text-text-secondary max-w-sm">
-                {t(
-                  'grappe.emptyDesc',
-                  'Grappe automatically activates when operations exceed the parallel threshold. Configure threshold in Settings or launch a Forge operation with large datasets.',
-                )}
-              </p>
+              <p className="text-xs text-text-secondary max-w-sm">{t('grappe.emptyDesc')}</p>
             </div>
+            {/*
+             * Grappe has no settings of its own — it engages by itself once a
+             * run is large enough — so the only useful thing to offer from an
+             * idle dashboard is a module that produces such runs. Seed, Sync
+             * and Autopilot are the three that emit grappe:* events; Forge
+             * emits none, so the CTA that pointed there could never populate
+             * this page. Seed is the shortest path of the three.
+             */}
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="sm" data-testid="grappe-settings">
-                {t('grappe.configureThreshold', 'Configure Threshold')}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate('seed')}
+                data-testid="grappe-settings"
+              >
+                {t('grappe.openSeed')}
               </Button>
             </div>
           </CardBody>

@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
 import { Flame } from 'lucide-react';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
+import { useForgeStore } from '../../stores/useForgeStore';
 import { useRecentOpsStore } from '../../stores/useRecentOpsStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
@@ -21,7 +22,9 @@ import { SandboxBanner } from '../../components/ui/SandboxBanner';
 import { useSandboxDetection } from '../../hooks/useSandboxDetection';
 import { moduleColors, cn } from '../../theme';
 import type { SalesforceOrg } from '@sandforge/shared';
+import { extractRecordId } from '../Forge/forgeUtils';
 import { useSmartAction } from './useSmartAction';
+import { useOrgHealthSummary } from './useOrgHealthSummary';
 import { SmartActionCard } from './SmartActionCard';
 
 /** Payload from org:list bridge query. */
@@ -44,6 +47,7 @@ const statusBadgeMap: Record<string, 'success' | 'warning' | 'error'> = {
 export const HomePage: React.FC = () => {
   const { t } = useTranslation();
   const orgs = useOrgStore((s) => s.orgs);
+  const selectedOrgId = useOrgStore((s) => s.selectedOrgId);
   const navigate = useAppStore((s) => s.navigate);
   const recentOps = useRecentOpsStore((s) => s.ops);
 
@@ -77,6 +81,49 @@ export const HomePage: React.FC = () => {
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
     return recentOps.filter((op) => op.timestamp >= sevenDaysAgo).length;
   }, [recentOps]);
+
+  /**
+   * Real health figures for the selected org. Every field is nullable: a
+   * dashboard that cannot measure shows a dash, never a reassuring zero.
+   */
+  const health = useOrgHealthSummary(selectedOrgId);
+
+  /** Placeholder shown wherever a measurement is not available. */
+  const NO_VALUE = '—';
+
+  const [heroRecordId, setHeroRecordId] = useState('');
+  const [heroIdInvalid, setHeroIdInvalid] = useState(false);
+  const heroInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Carry the hero field's record id into the Forge module instead of
+   * dropping it. An id the parser rejects keeps focus in the field rather
+   * than navigating away with the typed value silently discarded; an empty
+   * field leaves the button as a plain call to action.
+   */
+  const handleStartForge = useCallback(() => {
+    const raw = heroRecordId.trim();
+    if (raw.length > 0) {
+      const parsed = extractRecordId(raw);
+      if (parsed === null) {
+        setHeroIdInvalid(true);
+        heroInputRef.current?.focus();
+        return;
+      }
+      useForgeStore.getState().setConfig({
+        inputMode: 'record',
+        recordId: parsed,
+        depth: 'direct',
+        sourceOrgId: selectedOrgId ?? '',
+        targetOrgId: '',
+        anonymizePII: false,
+        skipEmpty: false,
+        batchSize: 'auto',
+      });
+    }
+    setHeroIdInvalid(false);
+    navigate('forge');
+  }, [heroRecordId, navigate, selectedOrgId]);
 
   return (
     <m.div
@@ -139,13 +186,17 @@ export const HomePage: React.FC = () => {
               />
             </m.div>
             <m.div className="flex-1 min-w-[140px]" variants={slideUp}>
-              <KPICard
-                icon="warning"
-                label={t('home.limitWarnings')}
-                value="0"
-                accentColor={moduleColors.monitor}
-                variant="warning"
-              />
+              {health.loading ? (
+                <Skeleton variant="rect" height="88px" />
+              ) : (
+                <KPICard
+                  icon="warning"
+                  label={t('home.limitWarnings')}
+                  value={health.limitWarnings ?? NO_VALUE}
+                  accentColor={moduleColors.monitor}
+                  variant="warning"
+                />
+              )}
             </m.div>
           </m.div>
         )}
@@ -179,31 +230,51 @@ export const HomePage: React.FC = () => {
       {/* Bento Grid */}
       <BentoGrid columns={3}>
         {/* Forge Hero Tile */}
-        <BentoTile colSpan={2} rowSpan={2} className="border-forge/30">
+        <BentoTile colSpan={2} className="border-forge/30">
           <div className="flex flex-col h-full" data-testid="forge-hero-card">
             <div className="flex items-center gap-2 mb-3">
               <Flame className="w-6 h-6" style={{ color: moduleColors.forge }} />
-              <h2 className="text-lg font-semibold text-text-primary">{t('home.forgeASandbox')}</h2>
+              <h1 className="text-lg font-semibold text-text-primary">{t('home.forgeASandbox')}</h1>
             </div>
             <p className="text-sm text-text-secondary mb-6">{t('home.forgeDescription')}</p>
-            <div className="flex items-center gap-2 mt-auto">
-              <input
-                type="text"
-                placeholder={t('home.recordIdPlaceholder')}
-                className={cn(
-                  'flex-1 rounded border border-subtle bg-surface-2 px-3 py-1.5 text-sm',
-                  'text-text-primary placeholder:text-text-muted',
-                  'focus:outline-none focus:ring-1 focus:ring-[var(--sf-accent)]',
-                )}
-                data-testid="forge-record-input"
-              />
-              <Button
-                variant="primary"
-                onClick={() => navigate('forge')}
-                data-testid="start-forge-btn"
-              >
-                {t('home.startForge')}
-              </Button>
+            <div className="mt-auto">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={heroInputRef}
+                  type="text"
+                  value={heroRecordId}
+                  onChange={(e) => {
+                    setHeroRecordId(e.target.value);
+                    setHeroIdInvalid(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleStartForge();
+                  }}
+                  placeholder={t('home.recordIdPlaceholder')}
+                  aria-label={t('home.recordIdPlaceholder')}
+                  aria-invalid={heroIdInvalid}
+                  aria-describedby={heroIdInvalid ? 'forge-record-error' : undefined}
+                  className={cn(
+                    'flex-1 rounded border bg-surface-2 px-3 py-1.5 text-sm',
+                    'text-text-primary placeholder:text-text-muted',
+                    'focus:outline-none focus:ring-1 focus:ring-[var(--sf-accent)]',
+                    heroIdInvalid ? 'border-[var(--sf-error)]' : 'border-subtle',
+                  )}
+                  data-testid="forge-record-input"
+                />
+                <Button variant="primary" onClick={handleStartForge} data-testid="start-forge-btn">
+                  {t('home.startForge')}
+                </Button>
+              </div>
+              {heroIdInvalid && (
+                <p
+                  id="forge-record-error"
+                  className="mt-1.5 text-xs text-[var(--sf-error)]"
+                  data-testid="forge-record-error"
+                >
+                  {t('home.invalidRecordId')}
+                </p>
+              )}
             </div>
           </div>
         </BentoTile>
@@ -332,20 +403,35 @@ export const HomePage: React.FC = () => {
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
           data-testid="health-summary"
         >
-          <KPICard
-            icon="pulse"
-            label={t('home.healthScore')}
-            value={connectedOrgs.length > 0 ? '100%' : '0%'}
-            subtitle={t('home.healthSummary')}
-            variant={connectedOrgs.length > 0 ? 'success' : 'default'}
-          />
+          {health.loading ? (
+            <Skeleton variant="rect" height="112px" />
+          ) : (
+            <KPICard
+              icon="pulse"
+              label={t('home.healthScore')}
+              value={health.healthScore !== null ? `${health.healthScore}%` : NO_VALUE}
+              subtitle={t('home.healthSummary')}
+              variant={
+                health.healthScore !== null && health.healthScore >= 80 ? 'success' : 'default'
+              }
+            />
+          )}
           <KPICard
             icon="organization"
             label={t('home.connectedOrgs')}
             value={connectedOrgs.length}
             variant="success"
           />
-          <KPICard icon="database" label={t('status.apiUsage')} value={0} variant="default" />
+          {health.loading ? (
+            <Skeleton variant="rect" height="112px" />
+          ) : (
+            <KPICard
+              icon="database"
+              label={t('status.apiUsage')}
+              value={health.apiUsedPercent !== null ? `${health.apiUsedPercent}%` : NO_VALUE}
+              variant="default"
+            />
+          )}
           <KPICard
             icon="tasklist"
             label={t('status.activeJobs')}

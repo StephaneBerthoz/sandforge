@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '../../components/ui/Badge';
 import type { BadgeVariant } from '../../components/ui/Badge';
+import { VirtualList } from '../../components/ui/VirtualList';
 import type { EnrichedDiff, DiffRiskLevel } from '@sandforge/shared';
 
 /** Props for the DiffGroupAccordion component. */
@@ -32,6 +33,32 @@ const changeSymbol: Record<EnrichedDiff['changeType'], string> = {
   added: '+',
   removed: '-',
   modified: '~',
+};
+
+/** Row height fed to the virtualizer — must stay in sync with DIFF_ROW_STYLE's box. */
+const DIFF_ROW_HEIGHT = 36;
+
+/** Row chrome shared by every diff; only the tint and the cursor vary per row. */
+const DIFF_ROW_STYLE: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--sf-space-2)',
+  width: '100%',
+  /* Fill the slot the virtualizer reserves, so rows neither gap nor overlap. */
+  height: '100%',
+  boxSizing: 'border-box',
+  padding: 'var(--sf-space-2) var(--sf-space-4)',
+  borderTop: '1px solid var(--sf-border)',
+  border: 'none',
+  color: 'var(--sf-text-primary)',
+  fontSize: 'var(--sf-font-size-xs)',
+  textAlign: 'left',
+};
+
+/** Faint tint that keeps the diffs worth reviewing first visible while scrolling. */
+const RISK_TINT: Partial<Record<DiffRiskLevel, string>> = {
+  critical: 'color-mix(in srgb, var(--sf-error) 5%, transparent)',
+  high: 'color-mix(in srgb, var(--sf-warning) 5%, transparent)',
 };
 
 /** Group info computed from diffs. */
@@ -185,77 +212,70 @@ export const DiffGroupAccordion: React.FC<DiffGroupAccordionProps> = ({
               <Badge variant={riskBadge[group.maxRisk]}>{group.maxRisk}</Badge>
             </button>
 
-            {/* Expanded diff items */}
+            {/* Expanded diff items — virtualized because a single group can be huge:
+                "Data Model" collects CustomObject, CustomField and RecordType, the
+                three highest-cardinality types, so a real org compare lands thousands
+                of rows on one click. */}
             {isExpanded && (
               <div data-testid={`diff-group-items-${group.name}`}>
-                {group.diffs.map((diff, idx) => (
-                  <button
-                    key={`${diff.name}-${idx}`}
-                    type="button"
-                    onClick={() => onSelectDiff?.(diff)}
-                    data-testid={`diff-item-${diff.name}`}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--sf-space-2)',
-                      width: '100%',
-                      padding: 'var(--sf-space-2) var(--sf-space-4)',
-                      borderTop: '1px solid var(--sf-border)',
-                      backgroundColor:
-                        diff.riskLevel === 'critical'
-                          ? 'color-mix(in srgb, var(--sf-error) 5%, transparent)'
-                          : diff.riskLevel === 'high'
-                            ? 'color-mix(in srgb, var(--sf-warning) 5%, transparent)'
-                            : 'transparent',
-                      border: 'none',
-                      cursor: onSelectDiff ? 'pointer' : 'default',
-                      color: 'var(--sf-text-primary)',
-                      fontSize: 'var(--sf-font-size-xs)',
-                      textAlign: 'left',
-                    }}
-                  >
-                    {/* Change symbol */}
-                    <span
+                <VirtualList
+                  items={group.diffs}
+                  keyExtractor={(diff, idx) => `${diff.name}-${idx}`}
+                  estimatedItemHeight={DIFF_ROW_HEIGHT}
+                  renderItem={(diff) => (
+                    <button
+                      type="button"
+                      onClick={() => onSelectDiff?.(diff)}
+                      data-testid={`diff-item-${diff.name}`}
                       style={{
-                        width: '18px',
-                        height: '18px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                        fontFamily: 'monospace',
-                        color:
-                          diff.changeType === 'added'
-                            ? 'var(--sf-success)'
-                            : diff.changeType === 'removed'
-                              ? 'var(--sf-error)'
-                              : 'var(--sf-warning)',
+                        ...DIFF_ROW_STYLE,
+                        backgroundColor: RISK_TINT[diff.riskLevel] ?? 'transparent',
+                        cursor: onSelectDiff ? 'pointer' : 'default',
                       }}
                     >
-                      {changeSymbol[diff.changeType]}
-                    </span>
-
-                    {/* Category + Name */}
-                    <Badge variant={changeBadge[diff.changeType]}>{diff.changeType}</Badge>
-                    <span style={{ color: 'var(--sf-text-secondary)' }}>{diff.category}</span>
-                    <span style={{ flex: 1, fontFamily: 'monospace' }}>{diff.name}</span>
-
-                    {/* Risk badge */}
-                    <Badge variant={riskBadge[diff.riskLevel]}>{diff.riskLevel}</Badge>
-
-                    {/* Dependencies count */}
-                    {diff.dependencies.length > 0 && (
+                      {/* Change symbol */}
                       <span
                         style={{
-                          fontSize: 'var(--sf-font-size-xs)',
-                          color: 'var(--sf-text-muted)',
+                          width: '18px',
+                          height: '18px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontWeight: 700,
+                          fontFamily: 'monospace',
+                          color:
+                            diff.changeType === 'added'
+                              ? 'var(--sf-success)'
+                              : diff.changeType === 'removed'
+                                ? 'var(--sf-error)'
+                                : 'var(--sf-warning)',
                         }}
                       >
-                        {diff.dependencies.length} {t('compare.deps', 'deps')}
+                        {changeSymbol[diff.changeType]}
                       </span>
-                    )}
-                  </button>
-                ))}
+
+                      {/* Category + Name */}
+                      <Badge variant={changeBadge[diff.changeType]}>{diff.changeType}</Badge>
+                      <span style={{ color: 'var(--sf-text-secondary)' }}>{diff.category}</span>
+                      <span style={{ flex: 1, fontFamily: 'monospace' }}>{diff.name}</span>
+
+                      {/* Risk badge */}
+                      <Badge variant={riskBadge[diff.riskLevel]}>{diff.riskLevel}</Badge>
+
+                      {/* Dependencies count */}
+                      {diff.dependencies.length > 0 && (
+                        <span
+                          style={{
+                            fontSize: 'var(--sf-font-size-xs)',
+                            color: 'var(--sf-text-muted)',
+                          }}
+                        >
+                          {diff.dependencies.length} {t('compare.deps', 'deps')}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                />
               </div>
             )}
           </div>

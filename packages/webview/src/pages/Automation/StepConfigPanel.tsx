@@ -92,10 +92,10 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
       </div>
 
       {/* Step name */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[10px] text-[var(--sf-text-muted,#868686)]">
+      <label className="flex flex-col gap-1">
+        <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
           {t('automation.stepName', 'Step Name')}
-        </label>
+        </span>
         <input
           type="text"
           value={step.name}
@@ -103,13 +103,13 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
           className="text-xs p-1.5 rounded border border-[var(--sf-border,#3c3c3c)] bg-[var(--sf-bg-input,#1e1e1e)] text-[var(--sf-text-primary,#d4d4d4)]"
           data-testid="step-name-input"
         />
-      </div>
+      </label>
 
       {/* Timeout */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[10px] text-[var(--sf-text-muted,#868686)]">
+      <label className="flex flex-col gap-1">
+        <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
           {t('automation.timeout', 'Timeout (seconds)')}
-        </label>
+        </span>
         <input
           type="number"
           value={step.timeout ?? ''}
@@ -120,13 +120,13 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
           className="text-xs p-1.5 rounded border border-[var(--sf-border,#3c3c3c)] bg-[var(--sf-bg-input,#1e1e1e)] text-[var(--sf-text-primary,#d4d4d4)]"
           data-testid="step-timeout-input"
         />
-      </div>
+      </label>
 
       {/* Retries */}
-      <div className="flex flex-col gap-1">
-        <label className="text-[10px] text-[var(--sf-text-muted,#868686)]">
+      <label className="flex flex-col gap-1">
+        <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
           {t('automation.retries', 'Retries')}
-        </label>
+        </span>
         <input
           type="number"
           value={step.retries ?? ''}
@@ -139,7 +139,7 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
           className="text-xs p-1.5 rounded border border-[var(--sf-border,#3c3c3c)] bg-[var(--sf-bg-input,#1e1e1e)] text-[var(--sf-text-primary,#d4d4d4)]"
           data-testid="step-retries-input"
         />
-      </div>
+      </label>
 
       {/* Continue on error */}
       <label className="flex items-center gap-2 text-xs text-[var(--sf-text-primary,#d4d4d4)]">
@@ -161,22 +161,27 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
           <span className="text-[10px] font-semibold text-[var(--sf-text-muted,#868686)] uppercase">
             {t('automation.typeConfig', 'Type-specific config')}
           </span>
-          {configFields.map((field) => (
-            <div key={field.key} className="flex flex-col gap-1">
-              <label className="text-[10px] text-[var(--sf-text-muted,#868686)]">
+          {/* A checkbox already carries its caption inside its own wrapping
+              label, so only the other field types need a caption of their own. */}
+          {configFields.map((field) =>
+            field.type === 'boolean' ? (
+              <label
+                key={field.key}
+                className="flex items-center gap-2 text-xs text-[var(--sf-text-primary,#d4d4d4)]"
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(step.config[field.key])}
+                  onChange={(e) => handleConfigUpdate(field.key, e.target.checked)}
+                  data-testid={`config-${field.key}`}
+                />
                 {t(field.labelKey)}
               </label>
-              {field.type === 'boolean' ? (
-                <label className="flex items-center gap-2 text-xs text-[var(--sf-text-primary,#d4d4d4)]">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(step.config[field.key])}
-                    onChange={(e) => handleConfigUpdate(field.key, e.target.checked)}
-                    data-testid={`config-${field.key}`}
-                  />
+            ) : (
+              <label key={field.key} className="flex flex-col gap-1">
+                <span className="text-[10px] text-[var(--sf-text-muted,#868686)]">
                   {t(field.labelKey)}
-                </label>
-              ) : (
+                </span>
                 <input
                   type={field.type}
                   value={String(step.config[field.key] ?? '')}
@@ -189,9 +194,9 @@ export const StepConfigPanel: React.FC<StepConfigPanelProps> = ({ step, onUpdate
                   className="text-xs p-1.5 rounded border border-[var(--sf-border,#3c3c3c)] bg-[var(--sf-bg-input,#1e1e1e)] text-[var(--sf-text-primary,#d4d4d4)]"
                   data-testid={`config-${field.key}`}
                 />
-              )}
-            </div>
-          ))}
+              </label>
+            ),
+          )}
         </div>
       )}
     </div>

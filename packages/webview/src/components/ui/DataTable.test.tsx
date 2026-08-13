@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { DataTable } from './DataTable';
+import { DataTable, STAGGER_MAX_ROWS } from './DataTable';
 import type { DataTableColumn } from './DataTable';
 
 vi.mock('react-i18next', () => ({
@@ -28,6 +28,9 @@ vi.mock('framer-motion', async () => {
       for (const [k, v] of Object.entries(props)) {
         if (!MOTION_KEYS.has(k)) filtered[k] = v;
       }
+      /* Motion props are stripped from the DOM, so mirror whether variants were
+         handed over — that presence is the only observable trace of the stagger. */
+      filtered['data-motion-variants'] = props.variants ? 'on' : 'off';
       return React.createElement(tag, { ...filtered, ref });
     });
   return {
@@ -195,6 +198,24 @@ describe('DataTable', () => {
     );
   });
 
+  it('should expose the sort trigger as a button inside the th', () => {
+    render(<DataTable columns={columns} data={data} keyExtractor={keyExtractor} />);
+    const sortButton = screen.getByRole('button', { name: 'Name' });
+    expect(sortButton.getAttribute('type')).toBe('button');
+    const header = sortButton.closest('th');
+    expect(header).not.toBeNull();
+
+    fireEvent.click(sortButton);
+    expect(header?.getAttribute('aria-sort')).toBe('ascending');
+    expect(screen.getByTestId('table-row-0').textContent).toContain('Alpha');
+  });
+
+  it('should not render a sort button for non-sortable columns', () => {
+    const plainColumns: DataTableColumn<TestRow>[] = [{ key: 'name', header: 'Name' }];
+    render(<DataTable columns={plainColumns} data={data} keyExtractor={keyExtractor} />);
+    expect(screen.queryByRole('button', { name: 'Name' })).toBeNull();
+  });
+
   it('should set aria-sort on sorted column header', () => {
     render(<DataTable columns={columns} data={data} keyExtractor={keyExtractor} />);
     fireEvent.click(screen.getByText('Name'));
@@ -280,6 +301,39 @@ describe('DataTable', () => {
     expect(screen.getByTestId('table-row-0')).toBeDefined();
     expect(screen.getByTestId('table-row-1')).toBeDefined();
     expect(screen.getByTestId('table-row-2')).toBeDefined();
+  });
+});
+
+describe('DataTable - stagger bounding', () => {
+  const makeRows = (count: number): TestRow[] =>
+    Array.from({ length: count }, (_, i) => ({
+      id: String(i),
+      name: `Item ${i}`,
+      count: i,
+    }));
+
+  it('should stagger the reveal at the row-count threshold', () => {
+    render(
+      <DataTable columns={columns} data={makeRows(STAGGER_MAX_ROWS)} keyExtractor={keyExtractor} />,
+    );
+    const firstRow = screen.getByTestId('table-row-0');
+    expect(firstRow.getAttribute('data-motion-variants')).toBe('on');
+    expect(firstRow.closest('tbody')?.getAttribute('data-motion-variants')).toBe('on');
+  });
+
+  it('should drop the stagger past the row-count threshold', () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(STAGGER_MAX_ROWS + 1)}
+        keyExtractor={keyExtractor}
+      />,
+    );
+    const firstRow = screen.getByTestId('table-row-0');
+    const lastRow = screen.getByTestId(`table-row-${STAGGER_MAX_ROWS}`);
+    expect(firstRow.getAttribute('data-motion-variants')).toBe('off');
+    expect(lastRow.getAttribute('data-motion-variants')).toBe('off');
+    expect(firstRow.closest('tbody')?.getAttribute('data-motion-variants')).toBe('off');
   });
 });
 

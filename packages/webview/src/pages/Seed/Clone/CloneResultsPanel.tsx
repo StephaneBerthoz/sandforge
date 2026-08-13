@@ -51,6 +51,9 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
     setObjectPages((prev) => ({ ...prev, [objectApiName]: page }));
   };
 
+  /** Page key for the errors table, kept distinct so it pages independently of the mappings. */
+  const errorPageKey = (objectApiName: string): string => `${objectApiName}::errors`;
+
   /** ID mapping table columns. */
   const mappingColumns: DataTableColumn<{ sourceId: string; targetId: string }>[] = [
     { key: 'sourceId', header: 'Source ID' },
@@ -89,6 +92,13 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
     const start = (page - 1) * MAPPING_PAGE_SIZE;
     const paginatedMappings = objResult.idMappings.slice(start, start + MAPPING_PAGE_SIZE);
 
+    const errorKey = errorPageKey(objResult.objectApiName);
+    const errorPage = getPage(errorKey);
+    const totalErrors = objResult.errors.length;
+    const errorTotalPages = Math.max(1, Math.ceil(totalErrors / MAPPING_PAGE_SIZE));
+    const errorStart = (errorPage - 1) * MAPPING_PAGE_SIZE;
+    const paginatedErrors = objResult.errors.slice(errorStart, errorStart + MAPPING_PAGE_SIZE);
+
     return (
       <div className="flex flex-col gap-2">
         {/* ID Mappings */}
@@ -121,17 +131,31 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         )}
 
         {/* Errors */}
-        {objResult.errors.length > 0 && (
+        {totalErrors > 0 && (
           <>
             <span className="text-xs font-medium text-[var(--sf-error)]">
-              {t('seed.clone.results.failed')} ({objResult.errors.length})
+              {t('seed.clone.results.failed')} ({totalErrors})
             </span>
             <DataTable
               columns={errorColumns}
-              data={objResult.errors}
+              data={paginatedErrors}
               keyExtractor={(row) => row.sourceId}
               enableVirtualization={false}
             />
+            {errorTotalPages > 1 && (
+              <Pagination
+                page={errorPage}
+                pageSize={MAPPING_PAGE_SIZE}
+                totalItems={totalErrors}
+                totalPages={errorTotalPages}
+                canNext={errorPage < errorTotalPages}
+                canPrev={errorPage > 1}
+                onPageChange={(p) => setPage(errorKey, p)}
+                onPageSizeChange={() => {
+                  /* fixed page size */
+                }}
+              />
+            )}
           </>
         )}
       </div>

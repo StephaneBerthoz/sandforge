@@ -179,23 +179,23 @@ const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate,
         <Badge variant="default">{pattern.fieldType}</Badge>
       </div>
 
+      {/* Input binds its own label to its input; the ids are scoped per field
+          because the same captions repeat on every row of the panel. */}
       {pattern.generator === 'range' && edit && (
         <div className="flex gap-2 items-center mt-1">
-          <label className="text-[10px] text-[var(--sf-text-secondary)]">
-            {t('seed.persona.customize.rangeMin')}
-          </label>
           <Input
             type="number"
+            id={`field-min-${fieldName}`}
+            label={t('seed.persona.customize.rangeMin')}
             value={edit.min ?? ''}
             onChange={(e) => onUpdate('min', e.target.value)}
             className="w-20 text-xs"
             data-testid={`field-min-${fieldName}`}
           />
-          <label className="text-[10px] text-[var(--sf-text-secondary)]">
-            {t('seed.persona.customize.rangeMax')}
-          </label>
           <Input
             type="number"
+            id={`field-max-${fieldName}`}
+            label={t('seed.persona.customize.rangeMax')}
             value={edit.max ?? ''}
             onChange={(e) => onUpdate('max', e.target.value)}
             className="w-20 text-xs"
@@ -206,10 +206,9 @@ const FieldRow: React.FC<FieldRowProps> = ({ fieldName, pattern, edit, onUpdate,
 
       {(pattern.generator === 'random_pick' || pattern.generator === 'weighted_pick') && edit && (
         <div className="flex flex-col gap-1 mt-1">
-          <label className="text-[10px] text-[var(--sf-text-secondary)]">
-            {t('seed.persona.customize.values')}
-          </label>
           <Input
+            id={`field-values-${fieldName}`}
+            label={t('seed.persona.customize.values')}
             value={edit.values ?? ''}
             onChange={(e) => onUpdate('values', e.target.value)}
             className="text-xs"

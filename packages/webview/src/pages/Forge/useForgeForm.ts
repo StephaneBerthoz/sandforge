@@ -148,6 +148,25 @@ export function useForgeForm(): ForgeFormState {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * Adopt a record id handed over by another page.
+   *
+   * The Home hero writes the id the user typed into the store and navigates
+   * here. This form keeps its fields in local state, so without this the id
+   * was written and never read: the user landed on a blank Record ID and
+   * retyped all 18 characters.
+   *
+   * Mount-only, and only when the field is still empty — the store config is a
+   * handoff, not a second source of truth for a field the user is editing.
+   */
+  useEffect(() => {
+    const handedOver = useForgeStore.getState().config?.recordId;
+    if (handedOver && !recordId) {
+      setInputMode('record');
+      setRecordId(handedOver);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   /* ---- Record preview (composed hook) ---- */
   const { preview, previewLoading, previewError, handlePreview, resetPreview, closePreview } =
     useRecordPreview(recordId, sourceOrgId);

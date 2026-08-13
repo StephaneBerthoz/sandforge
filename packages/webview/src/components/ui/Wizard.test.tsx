@@ -141,6 +141,68 @@ describe('Wizard', () => {
     expect(screen.getByTestId('wizard-step-gamma')).toHaveProperty('disabled', true);
   });
 
+  it('should not render a cancel control when onCancel is omitted', () => {
+    render(
+      <Wizard steps={steps} currentStep={1} onStepChange={vi.fn()}>
+        <div>Content</div>
+      </Wizard>,
+    );
+    expect(screen.queryByTestId('wizard-wizard-cancel')).toBeNull();
+  });
+
+  it('should call onCancel when the cancel control is clicked', () => {
+    const onCancel = vi.fn();
+    render(
+      <Wizard steps={steps} currentStep={1} onStepChange={vi.fn()} onCancel={onCancel}>
+        <div>Content</div>
+      </Wizard>,
+    );
+    fireEvent.click(screen.getByTestId('wizard-wizard-cancel'));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it('should keep the cancel control usable while back and next are disabled', () => {
+    const onCancel = vi.fn();
+    render(
+      <Wizard
+        steps={steps}
+        currentStep={0}
+        onStepChange={vi.fn()}
+        canGoNext={false}
+        onCancel={onCancel}
+      >
+        <div>Content</div>
+      </Wizard>,
+    );
+    expect(screen.getByTestId('wizard-wizard-back')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('wizard-wizard-next')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('wizard-wizard-cancel')).toHaveProperty('disabled', false);
+  });
+
+  it('should label the cancel control from cancelLabelKey', () => {
+    render(
+      <Wizard
+        steps={steps}
+        currentStep={1}
+        onStepChange={vi.fn()}
+        onCancel={vi.fn()}
+        cancelLabelKey="common.cancelRun"
+      >
+        <div>Content</div>
+      </Wizard>,
+    );
+    expect(screen.getByTestId('wizard-wizard-cancel').textContent).toBe('Cancel run');
+  });
+
+  it('should hide the cancel control once the wizard is finished', () => {
+    render(
+      <Wizard steps={steps} currentStep={2} onStepChange={vi.fn()} onCancel={vi.fn()} isFinished>
+        <div>Done</div>
+      </Wizard>,
+    );
+    expect(screen.queryByTestId('wizard-wizard-cancel')).toBeNull();
+  });
+
   it('should show description when descriptionKey is provided', () => {
     render(
       <Wizard steps={steps} currentStep={0} onStepChange={vi.fn()}>

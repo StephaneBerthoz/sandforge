@@ -34,8 +34,12 @@ const mockTelemetryStatus: {
   error: string | null;
 } = { data: null, error: null };
 
+/** Request types issued through useBridgeQuery, in call order. */
+const bridgeQueryTypes: string[] = [];
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
   useBridgeQuery: (type: string) => {
+    bridgeQueryTypes.push(type);
     if (type === 'telemetry:status') {
       return {
         data: mockTelemetryStatus.data,
@@ -80,6 +84,7 @@ describe('SettingsPage', () => {
     mockTelemetryStatus.error = null;
     mockTelemetryMutate.mockClear();
     mockTelemetryRefetch.mockClear();
+    bridgeQueryTypes.length = 0;
     // Auto-answer lazy locale requests with the real bundles.
     stubLocaleBridge(mockPostMessage);
   });
@@ -157,11 +162,42 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(i18n.language).toBe('en'));
   });
 
-  it('should show plugins tab with no plugins message', () => {
+  it('should not ship a plugins tab — the plugin manager never existed', () => {
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Plugins'));
-    expect(screen.getByTestId('plugins-settings')).toBeDefined();
-    expect(screen.getByText('No plugins installed')).toBeDefined();
+    expect(screen.queryByText('Plugins')).toBeNull();
+    expect(screen.queryByTestId('plugins-settings')).toBeNull();
+  });
+
+  it('should offer the implemented tabs and no plugins tab', () => {
+    render(<SettingsPage />);
+    const tabLabels = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    expect(tabLabels).toEqual(
+      expect.arrayContaining(['General', 'AI', 'Advanced', 'Profiles', 'Telemetry']),
+    );
+    expect(tabLabels).not.toContain('Plugins');
+  });
+
+  it('should mount the config profile panel on the profiles tab', () => {
+    render(<SettingsPage />);
+    expect(screen.queryByTestId('config-profile-panel')).toBeNull();
+
+    fireEvent.click(screen.getByText('Profiles'));
+
+    const panel = screen.getByTestId('profiles-settings');
+    expect(panel.getAttribute('role')).toBe('tabpanel');
+    expect(panel.getAttribute('aria-labelledby')).toBe('tab-profiles');
+    expect(screen.getByTestId('config-profile-panel')).toBeDefined();
+    expect(screen.getByTestId('config-export-section')).toBeDefined();
+    expect(screen.getByTestId('config-import-section')).toBeDefined();
+  });
+
+  it('should request config:categories once the profiles tab is opened', () => {
+    render(<SettingsPage />);
+    expect(bridgeQueryTypes).not.toContain('config:categories');
+
+    fireEvent.click(screen.getByText('Profiles'));
+
+    expect(bridgeQueryTypes).toContain('config:categories');
   });
 
   it('should show telemetry tab with disabled status', () => {

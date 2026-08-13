@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 
 /** Props for the Sparkline SVG component. */
@@ -105,8 +106,10 @@ export const Sparkline: React.FC<SparklineProps> = ({
   animate = false,
   className,
 }) => {
+  const { t } = useTranslation();
   const gradientId = React.useMemo(() => `sparkline-grad-${++gradientIdCounter}`, []);
   const padding = 2;
+  const chartLabel = t('a11y.sparklineChart', 'Sparkline chart');
 
   // Edge case: empty data
   if (data.length === 0) {
@@ -131,7 +134,7 @@ export const Sparkline: React.FC<SparklineProps> = ({
         height={height}
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="Sparkline chart"
+        aria-label={chartLabel}
       >
         <circle cx={cx} cy={cy} r={strokeWidth} fill={color} />
       </svg>
@@ -157,7 +160,7 @@ export const Sparkline: React.FC<SparklineProps> = ({
       height={height}
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label="Sparkline chart"
+      aria-label={chartLabel}
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">

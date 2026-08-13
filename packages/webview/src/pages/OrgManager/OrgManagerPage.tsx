@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { OrgCard } from './OrgCard';
 import type { ConnectOrgPayload } from './OrgConnectDialog';
 import { OrgEditDialog } from './OrgEditDialog';
@@ -97,6 +98,7 @@ export const OrgManagerPage: React.FC = () => {
 
   const [activeMethod, setActiveMethod] = useState<AuthMethod | null>(null);
   const [editingOrg, setEditingOrg] = useState<SalesforceOrg | null>(null);
+  const [orgPendingDisconnect, setOrgPendingDisconnect] = useState<SalesforceOrg | null>(null);
 
   // Inline form state
   const [alias, setAlias] = useState('');
@@ -231,13 +233,23 @@ export const OrgManagerPage: React.FC = () => {
   );
 
   const disconnectMutate = disconnectMutation.mutate;
+
+  // Disconnect drops the registry entry host-side, so the alias, tags, colour
+  // and safety tier typed here are gone for good — a re-connect starts from
+  // defaults. Too destructive for a bare click, hence the typed confirmation.
   const handleDisconnect = useCallback(
     (orgId: string) => {
-      disconnectMutate({ orgId });
-      removeOrg(orgId);
+      setOrgPendingDisconnect(orgs.find((o) => o.id === orgId) ?? null);
     },
-    [disconnectMutate, removeOrg],
+    [orgs],
   );
+
+  const confirmDisconnect = useCallback(() => {
+    if (!orgPendingDisconnect) return;
+    disconnectMutate({ orgId: orgPendingDisconnect.id });
+    removeOrg(orgPendingDisconnect.id);
+    setOrgPendingDisconnect(null);
+  }, [orgPendingDisconnect, disconnectMutate, removeOrg]);
 
   return (
     <div className="flex flex-col gap-4" data-testid="org-manager-page">
@@ -250,7 +262,7 @@ export const OrgManagerPage: React.FC = () => {
         <div className="flex items-center gap-3 px-4 py-3">
           <Plug className="w-5 h-5 text-text-secondary shrink-0" />
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-semibold text-text-primary">{t('org.title')}</h2>
+            <h1 className="text-sm font-semibold text-text-primary">{t('org.title')}</h1>
             <p className="text-xs text-text-secondary mt-0.5">
               {orgs.length > 0
                 ? t('org.bannerConnected', { count: connectedOrgs.length, total: orgs.length })
@@ -426,6 +438,17 @@ export const OrgManagerPage: React.FC = () => {
         open={editingOrg !== null}
         onClose={() => setEditingOrg(null)}
         onSave={handleSave}
+      />
+
+      <DangerConfirm
+        open={orgPendingDisconnect !== null}
+        onClose={() => setOrgPendingDisconnect(null)}
+        onConfirm={confirmDisconnect}
+        title={t('org.disconnect')}
+        description={t('org.disconnectConfirm', {
+          alias: orgPendingDisconnect?.alias || orgPendingDisconnect?.username || '',
+        })}
+        confirmText={t('org.disconnect')}
       />
     </div>
   );

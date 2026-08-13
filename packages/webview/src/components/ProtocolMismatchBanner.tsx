@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { BaseMessage } from '@sandforge/shared';
 import { useMessageListener, useSendMessage } from '../hooks/useMessageBus';
 import { buildMessage } from '../bridge/messageHelpers';
@@ -22,6 +23,9 @@ interface ReloadBannerPayload {
 export const ProtocolMismatchBanner: React.FC = () => {
   const [visible, setVisible] = useState(false);
   const sendMessage = useSendMessage();
+  // The banner mounts above the app shell, which can render before i18n has
+  // resolved a bundle, so every string carries its English fallback inline.
+  const { t } = useTranslation();
 
   useMessageListener<BaseMessage & { payload: ReloadBannerPayload }>('bridge:reload-banner', () => {
     setVisible(true);
@@ -45,7 +49,12 @@ export const ProtocolMismatchBanner: React.FC = () => {
       data-testid="protocol-mismatch-banner"
       className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-between gap-3 border-b border-yellow-500/40 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-100 shadow-md"
     >
-      <span>SandForge has been updated. Reload the window to apply the new version.</span>
+      <span>
+        {t(
+          'bridge.protocolMismatch.message',
+          'SandForge has been updated. Reload the window to apply the new version.',
+        )}
+      </span>
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -53,13 +62,13 @@ export const ProtocolMismatchBanner: React.FC = () => {
           onClick={handleReload}
           className="rounded bg-yellow-500 px-3 py-1 text-xs font-medium text-black hover:bg-yellow-400"
         >
-          Reload
+          {t('common.reload', 'Reload')}
         </button>
         <button
           type="button"
           data-testid="protocol-mismatch-dismiss"
           onClick={handleDismiss}
-          aria-label="Dismiss"
+          aria-label={t('common.dismiss', 'Dismiss')}
           className="rounded bg-transparent px-2 py-1 text-xs text-yellow-100 hover:bg-yellow-500/20"
         >
           ×
