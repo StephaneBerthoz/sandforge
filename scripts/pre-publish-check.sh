@@ -227,6 +227,24 @@ else
   ERRORS=$((ERRORS + 1))
 fi
 
+# 11b. README badges match reality.
+#
+# The badges are a public claim nobody re-reads, so they decay: version sat at
+# 1.12.0 through two releases, the VSIX size was 130 KB out, and a hardcoded
+# `build-passing` asserted a green build while CI was red.
+#
+# NOT gated on SKIP_BUILD_CHECKS — release.yml calls this script with that flag
+# set, and a gate it never runs is the same mistake the VSIX payload checks
+# made. It needs only the packaged artifact, which exists by this point.
+if node scripts/sync-readme-badges.mjs --check > /tmp/sf-badges.txt 2>&1; then
+  echo "PASS: README badges match the repository state"
+else
+  echo "FAIL: README badges are stale — run 'pnpm sync:badges'"
+  grep -E "measured:|STALE" /tmp/sf-badges.txt | sed 's/^/       /'
+  ERRORS=$((ERRORS + 1))
+fi
+rm -f /tmp/sf-badges.txt
+
 # 12. Client-confidentiality gate — no client identity may reach a public
 # artifact. Both the GitHub repo and the VSIX (which ships changelog.md as the
 # Marketplace "Changelog" tab) are public, so this scans the whole tracked tree.
