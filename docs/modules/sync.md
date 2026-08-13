@@ -1,11 +1,11 @@
 # Sync
 
-Synchronize data between two Salesforce orgs with full control over direction, field mapping, transforms, and conflict resolution. Sync supports bidirectional flows, incremental deltas, and Change Data Capture (CDC) for real-time change tracking.
+Synchronize data between two Salesforce orgs with full control over direction, field mapping, transforms, and conflict resolution.
 
 ## Quick Start
 
 1. Navigate to **Sync** from the sidebar (requires at least 2 connected orgs)
-2. Select a source org and a target org, then choose direction, mode, and conflict strategy
+2. Select a source org and a target org, then choose direction and conflict strategy
 3. Configure the object set -- pick which objects to sync and set batch sizes
 4. Map fields between source and target using the drag-and-drop Field Mapper or auto-match
 5. Add transforms (optional), review the Sankey flow diagram, then execute
@@ -16,7 +16,7 @@ Synchronize data between two Salesforce orgs with full control over direction, f
 
 - **Source and Target Orgs** -- Select from your connected orgs with OrgBadge indicators
 - **3 Directions** -- Source-to-target, target-to-source, or bidirectional
-- **4 Sync Modes** -- Full, Incremental, Delta, and Change Data Capture (CDC)
+- **Full Sync Only** -- Every run syncs the complete object set; mode selection returns when incremental, delta, and CDC are implemented
 - **5 Conflict Strategies** -- Source wins, target wins, newest wins, manual merge, or auto-merge
 
 ### Object Set Editor
@@ -45,7 +45,7 @@ The Transform Builder lets you add data transformation rules that run during syn
 
 Before execution, the Review step shows:
 
-- Summary badges for direction, mode, and conflict strategy
+- Summary badges for direction and conflict strategy
 - Object count, field mapping count, and transform count
 - PII warnings if sensitive fields are detected in the sync scope
 - A **Sankey Flow Diagram** visualizing data flow from source objects through mappings to target objects
@@ -60,8 +60,7 @@ Before execution, the Review step shows:
 ## Tips
 
 - Use "Auto Match" in the Field Mapper first, then manually adjust the few fields that do not match
-- Incremental mode is faster than Full for recurring syncs -- it only processes changed records
-- CDC mode uses Salesforce Change Data Capture events for near-real-time sync
+- Narrow the object set and batch sizes for recurring syncs -- every run reprocesses the full scope
 - Always review PII warnings in the Review step before executing
 - If sync fails on certain objects, check field-level security on the target org
 - Use the Sankey diagram to verify data flow before execution

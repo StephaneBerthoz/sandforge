@@ -54,7 +54,7 @@ Yes. SandForge detects self-referential relationships and uses a two-pass insert
 
 ### Can I automate recurring operations?
 
-Yes. The **Automation** module provides a visual pipeline builder where you can compose multi-step workflows (query, transform, load, validate, notify) and run them manually or on a schedule. Additional trigger types (webhook, file watch, record change) are coming soon.
+Partly. The **Automation** module provides a visual pipeline builder where you can compose multi-step workflows (query, transform, load, validate, notify) and run them manually. Scheduled and event-driven triggers (cron, webhook, file watch, record change) are not wired yet — see the [Automation guide](modules/automation.md). The recurrence is still yours to start; the steps in between are automated.
 
 ### Does SandForge support Salesforce DX and scratch orgs?
 

@@ -150,7 +150,7 @@ See the full list of settings in the VSCode Settings UI under "SandForge".
 
 ## Internationalization
 
-Full UI in 6 languages, at 100% translation coverage enforced in CI: English, French, German, Spanish, Japanese, Brazilian Portuguese. Your language choice persists across sessions.
+Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Portuguese. Key parity across locales is enforced in CI. Your language choice persists across sessions.
 
 ---
 

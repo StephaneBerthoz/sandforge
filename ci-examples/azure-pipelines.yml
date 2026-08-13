@@ -1,7 +1,7 @@
 # SandForge — Azure DevOps Pipeline (EXAMPLE)
 #
 # Honest example built on what actually exists in this repo:
-#   1. Quality gates   — typecheck + unit tests + minified extension build
+#   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 #   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
 #   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
 #   4. VSIX package    — pnpm package, published as a pipeline artifact
@@ -56,7 +56,7 @@ stages:
     displayName: 'Quality Gates'
     jobs:
       - job: Test
-        displayName: 'Typecheck, Tests, Build'
+        displayName: 'Validate (typecheck, lint, tests, build)'
         steps:
           - task: NodeTool@0
             inputs:
@@ -69,14 +69,13 @@ stages:
           - script: pnpm install --frozen-lockfile
             displayName: 'Install dependencies'
 
-          - script: pnpm typecheck
-            displayName: 'Typecheck'
-
-          - script: pnpm test
-            displayName: 'Unit tests'
-
-          - script: pnpm build:extension
-            displayName: 'Build extension (minified)'
+          # Chains build:shared → typecheck → lint → test → check:i18n →
+          # build. build:shared has to run first: the other packages import
+          # @sandforge/shared from its dist/, so a bare `pnpm typecheck` on a
+          # fresh checkout dies there. Split into separate script steps only
+          # with build:shared in front.
+          - script: pnpm validate
+            displayName: 'Validate'
 
   # ── Forge clone + cleanup (real CLIs, dry-run default) ──────
   - stage: Clone

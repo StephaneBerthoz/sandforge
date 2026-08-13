@@ -11,7 +11,7 @@ Before you begin, make sure you have:
 - **Visual Studio Code** 1.95 or later
 - **Salesforce CLI** (`sf`) installed and authenticated with at least one org
 - **A Salesforce sandbox or scratch org** to work with (Developer Edition works fine)
-- *(Optional)* An Anthropic (Claude) API key for AI-powered data generation
+- _(Optional)_ An Anthropic (Claude) API key for AI-powered data generation
 
 Verify your Salesforce CLI setup:
 
@@ -43,25 +43,28 @@ You should see at least one authenticated org in the output.
 
 ## First Launch
 
-After installation, you will see the SandForge icon in the VSCode Activity Bar (left sidebar). Click it to open the SandForge panel.
+After installation, you will see the SandForge flame in the VSCode Activity Bar (left edge). Click it to open the **launcher** — a narrow sidebar view, not a dashboard. Everything starts here, and each module you pick opens in its own editor tab.
 
-The **Home Dashboard** appears with a bento-grid layout showing:
+Top to bottom, the launcher gives you:
 
-- **KPI Row** -- Connected orgs count, active jobs, recent operations, and limit warnings
-- **Forge Hero Card** -- Quick-launch area with a record ID input and "Start Forge" button
-- **Sandbox Health** -- Status of your connected orgs at a glance
-- **Quick Actions** -- One-click access to Forge, Grappe, Monitor, and Automation
-- **Recent Operations** -- Your last 5 operations with status badges
+- **Org switcher** -- The current org with a live status dot and its type badge (PROD, SANDBOX, SCRATCH...). Open it to list every registered org, jump to one in a browser, or pick **New organization...** at the bottom to go to Organizations.
+- **Orgs / Ops** -- Two counters, connected orgs and recent operations. Collapsible, and collapsed for you on short viewports.
+- **Forge** -- The orange hero button, straight into the record-scoped clone journey. This is the shortcut you will use most.
+- **Favorites** -- Only shown once you star something. Every module in the list below has a star button.
+- **Modules** -- Monitor, Seed, Sync, Grappe, Autopilot, Frozen Dataset, Compare Org, DataOps, Automation, Migration, AI Assistant.
+- **Tools** -- Organizations, Settings, Help.
+- **Running / Last Operation** -- The operation in flight, or the last one to finish with its status and age.
+- **Open Full UI** -- Opens Monitor in a full editor tab.
 
-If you have no connected orgs, a **Getting Started** card will guide you through the first steps.
+> **Note:** the **Home** dashboard — KPI row, sandbox health, recent operations — is an in-panel view only. It has no launcher entry and no `SandForge: Open ...` command, so it is reached from inside a SandForge panel: either the `G` then `H` chord, or the SandForge command palette on `Ctrl+K` (`Cmd+K` on macOS). That palette is SandForge's own, distinct from the VSCode palette on `Ctrl+Shift+P`.
 
-![Home Dashboard](../assets/screenshots/home.png)
+![Home — the in-panel dashboard, reached with Ctrl+K](../assets/screenshots/home.png)
 
 ---
 
 ## Connect Your Org
 
-1. Navigate to **Organizations** using the sidebar or click "Connect Org" on the Home page
+1. Open **Organizations** from the launcher's Tools section, or pick **New organization...** at the bottom of the org switcher
 2. The Org Manager page shows a connection banner with five auth methods:
    - **SFDX Import** -- Imports orgs already authenticated via Salesforce CLI (fastest option)
    - **OAuth Web** -- Opens a browser window for standard OAuth flow
@@ -89,14 +92,12 @@ See the [Forge Quickstart](forge-quickstart.md) for the full walkthrough (includ
 
 No real data to copy yet? The **Seed** module generates test data instead:
 
-1. Navigate to **Seed** from the sidebar or Quick Actions
+1. Navigate to **Seed** from the launcher's Modules list
 2. Choose a seed mode from the mode selector: **AI Generate**, **CSV Upload**, or **Clone from Org**
 3. For **AI Generate**: Select your org, pick objects, set record counts, configure field rules, then execute
 4. For **CSV Upload**: Select your org and object, drag-and-drop a CSV file, map columns, validate, then execute
 5. For **Clone from Org**: Select source and target orgs, pick objects to clone, preview the insertion order, then execute
 6. View results with per-object record counts, error details, and export options
-
-![Seed Wizard](../assets/screenshots/seed.png)
 
 The **NL2SOQL** helper in Step 1 lets you describe what you want in plain English (e.g., "All accounts created this month with more than 10 employees") and generates the SOQL query for you.
 

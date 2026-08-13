@@ -1,7 +1,7 @@
 # SandForge — GitHub Actions CI/CD Pipeline (EXAMPLE)
 #
 # Honest example built on what actually exists in this repo:
-#   1. Quality gates   — typecheck + unit tests + minified extension build
+#   1. Quality gates   — pnpm validate (build:shared, typecheck, lint, tests, i18n, build)
 #   2. Clone (dry-run) — packages/extension/cli/sandforge-clone.ts via tsx
 #   3. Cleanup (dry-run) — packages/extension/cli/sandforge-cleanup.ts via tsx
 #   4. VSIX package    — pnpm package, uploaded as an artifact
@@ -60,14 +60,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Unit tests
-        run: pnpm test
-
-      - name: Build extension (minified)
-        run: pnpm build:extension
+      # `pnpm validate` chains build:shared → typecheck → lint → test →
+      # check:i18n → build. Keeping it as one step is deliberate: build:shared
+      # has to run first because every other package imports @sandforge/shared
+      # from its dist/, and a bare `pnpm typecheck` on a fresh checkout dies
+      # there before reaching a real error. Split the steps for finer reporting
+      # only if `pnpm build:shared` stays in front.
+      - name: Validate
+        run: pnpm validate
 
   clone-dry-run:
     name: Forge clone (CLI)

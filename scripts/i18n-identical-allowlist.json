@@ -1,0 +1,25 @@
+{
+  "note": "Multi-word values whose non-English form is legitimately identical to English: product and protocol names, code samples, units, and interpolation-only strings. Section 4 of check-i18n-parity.ts filters out single-word values on its own, so an entry only belongs here when its en.json value has two words or more.",
+  "keys": [
+    "a11y.easterEgg",
+    "auth.jwt",
+    "auth.oauthWeb",
+    "automation.timeout",
+    "common.typeCount_one",
+    "common.typeCount_other",
+    "common.versionLabel",
+    "dataops.frameworks.pci_dss",
+    "forge.soqlPlaceholder",
+    "help.sfStackExchange",
+    "help.sfTrailhead",
+    "home.smartAction.action.quick-seed",
+    "migration.type.sfdmu.title",
+    "org.tagsPlaceholder",
+    "seed.templates.salesCloudStarter.name",
+    "seed.templates.serviceCloudStarter.name",
+    "settings.importExport",
+    "settings.themes.auto",
+    "sidePanel.orgType.devPro",
+    "sync.conflictResolution.conflictTypes.editEdit"
+  ]
+}
