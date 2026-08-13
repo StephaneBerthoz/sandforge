@@ -1,22 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
   <!--
-    SandForge activity-bar mark — anvil silhouette.
+    SandForge activity-bar mark — anvil, single mass.
 
-    Drawn natively at 24 rather than scaled down from the 256 mark: the
-    activity bar renders this at ~20 CSS px and VSCode may treat it as a mask,
-    so it has to read as a solid silhouette with no internal contrast.
+    Deliberately WITHOUT the strike spark that the Marketplace mark carries.
+    Rendered side by side at 20 px, the two-shape version turns the spark into
+    an indistinct blob and crowds the silhouette; the anvil alone stays legible.
+    A 20 px slot affords one idea, and the anvil is the one.
 
     Construction (grid units):
-      ink      x 2.4 -> 21.0 (18.6 wide), y 5.0 -> 19.2 (14.2 tall)
-      padding  L 2.4  R 3.0  T 5.0  B 4.8
-      centre   h 11.7 / v 12.1  — the 0.3 left bias is deliberate: the horn
+      ink      x 2.4 -> 21.0 (18.6 wide), y 5.6 -> 18.4 (12.8 tall)
+      padding  L 2.4  R 3.0  T 5.6  B 5.6
+      centre   h 11.7 / v 12.0 — the 0.3 left bias is deliberate: the horn
                carries less visual mass than the base, so geometric centring
-               reads as if the mark leans right.
-      masses   face 4.2 thick, waist 4.8 wide, base 4.6 thick — all well above
-               the ~1.5 unit floor where features close up at 20 px.
+               reads as leaning right.
+      masses   face 4.4 thick, waist 4.8 wide, base 3.4 thick — all well clear
+               of the ~1.5 unit floor where features close up at 20 px.
 
-    The previous mark was 8.6 px tall inside the 24 px slot with its centre at
-    (57, 67) in a 128 box: small, and visibly off-centre both axes.
+    VSCode may render this as a mask, so it must hold as a flat silhouette with
+    no reliance on internal contrast. No defs, no gradient, no stroke.
   -->
-  <path d="M2.4 8.2 L7.6 5 H21 V9.2 H14.4 L15.6 14.6 H19.6 V19.2 H4.4 V14.6 H8.4 L9.6 9.2 H6 Z"/>
+  <path d="M2.4 8.8 L7.6 5.6 H21 V10 H14.4 L15.7 15 H19.6 V18.4 H4.4 V15 H8.3 L9.6 10 H6 Z"/>
 </svg>

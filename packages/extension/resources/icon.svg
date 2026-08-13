@@ -1,13 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <!--
-    SandForge Marketplace mark.
+    SandForge Marketplace mark — anvil struck.
 
-    Binding constraint is the ~42 px thumbnail in Marketplace search results,
-    not the 128 px extension page: one dominant shape (the anvil) plus exactly
-    one accent (the strike spark). Anything else turns to noise at that size.
+    The binding constraint is the ~42 px thumbnail in Marketplace search, not
+    the 128 px extension page: one dominant shape plus exactly one accent.
 
-    Shares its geometry with resources/icons/toolkit.svg — same anvil, scaled
-    8.5x and optically centred — so the two marks read as one identity.
+    The spark is a solid four-point diamond sitting on the anvil's right
+    shoulder. An earlier pass used a thin wedge, which read as a scratch rather
+    than a strike at every size, and a small floating diamond that resolved to
+    under 3 px in the thumbnail — noise, not an accent. Sitting on the shoulder
+    costs no vertical room, so the anvil keeps the mass.
+
+    The activity-bar mark (resources/icons/toolkit.svg) drops the spark on
+    purpose: at 20 px two shapes crowd each other. Same anvil, one idea each.
+
     Regenerate the PNG with `node scripts/render-icon.mjs`.
   -->
   <defs>
@@ -22,21 +28,15 @@
     </linearGradient>
   </defs>
 
-  <!-- Full-bleed rounded ground. The Marketplace does not reliably round the
-       thumbnail itself, so the mark carries its own radius. -->
+  <!-- Full-bleed rounded ground: the Marketplace does not reliably round the
+       listing thumbnail, so the mark carries its own radius. -->
   <rect width="256" height="256" rx="56" fill="url(#sf-bg)"/>
 
-  <!-- The single accent: a strike spark off the anvil face. Sized to survive
-       the 42 px thumbnail — the first pass used an 17 px diamond that landed
-       at under 3 px there, i.e. invisible noise. Solid fill, not a gradient
-       wash, for the same reason. -->
-  <path d="M180 34 L196 62 L180 90 L164 62 Z" fill="#F7CD72"/>
-
-  <!-- Anvil — same path as the 24px mono mark, scaled and optically centred.
-       Scale 7.6 rather than 8.5: at 8.5 the base sat 12 px off the bottom edge
-       and the mark read as bottom-heavy inside the rounded square. -->
-  <g transform="translate(39 52) scale(7.6)">
-    <path d="M2.4 8.2 L7.6 5 H21 V9.2 H14.4 L15.6 14.6 H19.6 V19.2 H4.4 V14.6 H8.4 L9.6 9.2 H6 Z"
+  <g transform="translate(14 12) scale(9.7)">
+    <!-- Strike spark — solid, so it survives downscaling to the thumbnail. -->
+    <path d="M18 2.4 L20.6 5.8 L18 9.2 L15.4 5.8 Z" fill="#F7CD72"/>
+    <!-- Anvil — same geometry as the activity-bar mark. -->
+    <path d="M2.4 12 L7.6 9 H20.4 V13 H14.4 L15.6 17.4 H19.2 V21 H4.6 V17.4 H8.2 L9.4 13 H6 Z"
           fill="url(#sf-metal)"/>
   </g>
 </svg>
