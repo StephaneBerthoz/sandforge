@@ -1,18 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <!--
-    SandForge Marketplace mark — anvil struck.
+    SandForge Marketplace mark — fire in the hearth.
 
     The binding constraint is the ~42 px thumbnail in Marketplace search, not
-    the 128 px extension page: one dominant shape plus exactly one accent.
+    the 128 px extension page: one dominant shape plus one supporting one.
 
-    The spark is a solid four-point diamond sitting on the anvil's right
-    shoulder. An earlier pass used a thin wedge, which read as a scratch rather
-    than a strike at every size, and a small floating diamond that resolved to
-    under 3 px in the thumbnail — noise, not an accent. Sitting on the shoulder
-    costs no vertical room, so the anvil keeps the mass.
+    Same two masses as the activity-bar mark (resources/icons/toolkit.svg), but
+    256 px affords what 20 px cannot: the flame and the crucible get separate
+    materials — hot gold against cool steel — so they read as fire inside a
+    vessel rather than as one silhouette. The activity-bar version cannot do
+    this, because VSCode may render it as a mask and discard every internal
+    contrast; it relies on the outline alone.
 
-    The activity-bar mark (resources/icons/toolkit.svg) drops the spark on
-    purpose: at 20 px two shapes crowd each other. Same anvil, one idea each.
+    Paint order matters here and only here: the crucible goes down first and
+    the flame on top. Drawing the steel last laid a grey bar across the flame's
+    flanks at exactly the value where the two gradients meet, and the mark
+    collapsed into a single shape at thumbnail size. The monochrome mark has no
+    such problem — it is one fill, so its order is irrelevant.
 
     Regenerate the PNG with `node scripts/render-icon.mjs`.
   -->
@@ -21,22 +25,35 @@
       <stop offset="0%" stop-color="#2E2E44"/>
       <stop offset="100%" stop-color="#16161F"/>
     </linearGradient>
-    <linearGradient id="sf-metal" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#F7CD72"/>
-      <stop offset="55%" stop-color="#EDA83A"/>
-      <stop offset="100%" stop-color="#D98A22"/>
+    <linearGradient id="sf-flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFD97A"/>
+      <stop offset="45%" stop-color="#F5A623"/>
+      <stop offset="100%" stop-color="#E2661C"/>
     </linearGradient>
+    <linearGradient id="sf-steel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8B95B2"/>
+      <stop offset="100%" stop-color="#454E66"/>
+    </linearGradient>
+    <radialGradient id="sf-glow" cx="50%" cy="46%" r="50%">
+      <stop offset="0%" stop-color="#F5A623" stop-opacity="0.42"/>
+      <stop offset="100%" stop-color="#F5A623" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
   <!-- Full-bleed rounded ground: the Marketplace does not reliably round the
        listing thumbnail, so the mark carries its own radius. -->
   <rect width="256" height="256" rx="56" fill="url(#sf-bg)"/>
 
-  <g transform="translate(14 12) scale(9.7)">
-    <!-- Strike spark — solid, so it survives downscaling to the thumbnail. -->
-    <path d="M18 2.4 L20.6 5.8 L18 9.2 L15.4 5.8 Z" fill="#F7CD72"/>
-    <!-- Anvil — same geometry as the activity-bar mark. -->
-    <path d="M2.4 12 L7.6 9 H20.4 V13 H14.4 L15.6 17.4 H19.2 V21 H4.6 V17.4 H8.2 L9.4 13 H6 Z"
-          fill="url(#sf-metal)"/>
+  <!-- Heat cast onto the ground behind the flame. Purely atmospheric: the mark
+       still reads with it removed, which is the test any glow has to pass. -->
+  <circle cx="128" cy="112" r="86" fill="url(#sf-glow)"/>
+
+  <g transform="translate(14 12) scale(9.5)">
+    <path d="M3.4 13.6 H6.4 V18.4 H17.6 V13.6 H20.6 V21.6 H3.4 Z"
+          fill="url(#sf-steel)"/>
+    <path d="M12.2 2.2 C13.7 6.6 18.3 8.4 18.3 12.9 C18.3 16.1 15.6 19.6 12 19.6
+             C8.4 19.6 5.7 16.1 5.7 12.9 C5.7 9.9 7.8 8.5 9.5 6.2
+             C10 8.7 10.9 9.5 11.5 9.3 C12.2 9 11.6 5.2 12.2 2.2 Z"
+          fill="url(#sf-flame)"/>
   </g>
 </svg>
