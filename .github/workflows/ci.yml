@@ -9,7 +9,12 @@ on:
 jobs:
   validate:
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # Windows runs the same `validate` in 28 minutes that ubuntu runs in 7 and
+    # macOS in 5 — and it is the only leg that also runs the Playwright E2E
+    # suite. At 30 the job was cancelled mid-validate every time, which is what
+    # the run history shows: a wall of "cancelled" at 30m2x for months, and an
+    # E2E suite that has never once executed in CI.
+    timeout-minutes: 45
     strategy:
       # Sans ceci, un lint rouge sur ubuntu annule windows — le seul job qui
       # execute la suite E2E — et l'artefact Playwright est publie vide.
