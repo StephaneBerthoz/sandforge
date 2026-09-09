@@ -50,6 +50,7 @@ import { SyncScheduleHandler } from './handlers/SyncScheduleHandler.js';
 import { NoOpHandler } from './handlers/NoOpHandler.js';
 import { CacheHandler as CacheDomainHandler } from './handlers/CacheHandler.js';
 import { FileHandler } from './handlers/FileHandler.js';
+import { ReportsHandler } from './handlers/ReportsHandler.js';
 import { SmartActionHandler } from './handlers/SmartActionHandler.js';
 import { ExecutionHandler } from './handlers/ExecutionHandler.js';
 import { I18nHandler } from './handlers/I18nHandler.js';
@@ -136,6 +137,7 @@ export class ExtensionHandlers {
   private readonly noOpHandler: NoOpHandler;
   private readonly cacheHandler: CacheDomainHandler;
   private readonly fileHandler: FileHandler;
+  private readonly reportsHandler: ReportsHandler;
   private readonly smartActionHandler: SmartActionHandler;
   private readonly i18nHandler: I18nHandler;
   private readonly syncHistoryStore: SyncHistoryStore;
@@ -195,6 +197,7 @@ export class ExtensionHandlers {
     this.noOpHandler = new NoOpHandler(this.handlerDeps);
     this.cacheHandler = new CacheDomainHandler(this.handlerDeps);
     this.fileHandler = new FileHandler(this.handlerDeps);
+    this.reportsHandler = new ReportsHandler(this.handlerDeps);
     this.smartActionHandler = new SmartActionHandler(this.handlerDeps);
     this.i18nHandler = new I18nHandler(this.handlerDeps, deps.localesDir);
   }
@@ -648,6 +651,7 @@ export class ExtensionHandlers {
     // Smart Action
     route(['smart-action:analyze'], this.smartActionHandler);
     route(['file:save'], this.fileHandler);
+    route(['reports:list'], this.reportsHandler);
 
     // Execution lifecycle (abort/status/list/manual-retry)
     if (this.executionHandler) {

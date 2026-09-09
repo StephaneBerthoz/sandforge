@@ -63,6 +63,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('general');
+  /**
+   * "Reset to Defaults" wipes the whole page state (today: the UI language)
+   * in one click, so it asks first — the confirmation is dropped whenever
+   * the user leaves the tab.
+   */
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   const {
     settings,
@@ -99,7 +105,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     <div data-testid="settings-page" className="flex flex-col gap-3 p-4">
       <h1 className="text-lg font-bold text-text-primary">{t('settings.title')}</h1>
 
-      <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+      <Tabs
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={(id) => {
+          setConfirmingReset(false);
+          setActiveTab(id);
+        }}
+      />
 
       <div className="mt-2">
         {activeTab === 'general' && (
@@ -222,7 +235,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <CardBody>
                 <div className="flex flex-col gap-3">
                   {/* Action buttons */}
-                  <div className="flex gap-2 mt-2">
+                  <div className="flex flex-wrap items-center gap-2 mt-2">
                     {onClearCache && (
                       <Button
                         data-testid="clear-cache-btn"
@@ -233,14 +246,46 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         {t('settings.clearCache')}
                       </Button>
                     )}
-                    <Button
-                      data-testid="reset-btn"
-                      variant="secondary"
-                      size="sm"
-                      onClick={handleReset}
-                    >
-                      {t('settings.resetSettings')}
-                    </Button>
+                    {confirmingReset ? (
+                      <>
+                        <Button
+                          data-testid="reset-confirm-btn"
+                          variant="danger"
+                          size="sm"
+                          onClick={() => {
+                            setConfirmingReset(false);
+                            handleReset();
+                            /*
+                             * handleReset only rewinds the local snapshot, so
+                             * the language select would jump to the default
+                             * while the UI kept rendering in the old language.
+                             * Apply the default for real — the select and the
+                             * rendered UI must agree.
+                             */
+                            void changeLanguageLazy(defaultSettings.language);
+                          }}
+                        >
+                          {t('common.confirm')}
+                        </Button>
+                        <Button
+                          data-testid="reset-cancel-btn"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setConfirmingReset(false)}
+                        >
+                          {t('common.cancel')}
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        data-testid="reset-btn"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setConfirmingReset(true)}
+                      >
+                        {t('settings.resetSettings')}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardBody>
@@ -335,12 +380,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         )}
       </div>
 
-      {/* Save button */}
-      <div className="flex justify-end mt-2">
-        <Button data-testid="save-settings-btn" variant="primary" size="sm" onClick={handleSave}>
-          {t('common.save')}
-        </Button>
-      </div>
+      {/*
+        Save button — General only. It persists the settings blob of this page,
+        and General holds the only field in it. On the other tabs it saved
+        nothing while sitting next to controls that persist on their own: worst
+        of all on AI, where a typed API key is committed by the Save button
+        INSIDE the field row, so pressing this one dropped the key silently.
+      */}
+      {activeTab === 'general' && (
+        <div className="flex justify-end mt-2">
+          <Button data-testid="save-settings-btn" variant="primary" size="sm" onClick={handleSave}>
+            {t('common.save')}
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

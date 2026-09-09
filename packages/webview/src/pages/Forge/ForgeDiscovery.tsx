@@ -15,6 +15,7 @@ import {
   CheckSquare,
   XSquare,
   Search,
+  AlertTriangle,
 } from 'lucide-react';
 import { SplitView } from '../../components/ui/SplitView';
 import { LiveGraph } from '../../components/graph/LiveGraph';
@@ -128,6 +129,15 @@ export const ForgeDiscovery: React.FC = () => {
     setPhase('review');
   }, [setPhase]);
 
+  /** Re-run the same discovery from the stored config. */
+  const handleRetry = useCallback(() => {
+    if (!config) return;
+    setLoading(true);
+    setError(null);
+    setDiscoveryProgress(null);
+    sendMessage(buildMessage<{ config: ForgeConfig }>('forge:discover', { config }));
+  }, [config, sendMessage]);
+
   /** Handle include toggle for the selected node. */
   const handleToggleIncluded = useCallback(() => {
     if (selectedNodeName) {
@@ -220,12 +230,7 @@ export const ForgeDiscovery: React.FC = () => {
             <Button
               variant="primary"
               data-testid="forge-retry-discovery"
-              onClick={() => {
-                setLoading(true);
-                setError(null);
-                setDiscoveryProgress(null);
-                sendMessage(buildMessage<{ config: ForgeConfig }>('forge:discover', { config }));
-              }}
+              onClick={handleRetry}
               icon={<RotateCcw size={14} />}
             >
               {t('forge.retryDiscovery')}
@@ -244,6 +249,35 @@ export const ForgeDiscovery: React.FC = () => {
       initial="hidden"
       animate="visible"
     >
+      {/* A failed discovery only reached the screen when there was nothing to
+          show. Re-discovering from an earlier graph (Back -> Discover, or a
+          return from Review) leaves that graph in the store, so `!graph` is
+          false and the error had nowhere to render: the user kept reading the
+          previous org's graph as if it were the new one, and could execute it.
+          Say the run failed, next to the graph it failed to replace. */}
+      {error && (
+        <m.div
+          variants={slideUp}
+          role="alert"
+          data-testid="forge-discovery-error"
+          className="flex items-center gap-2 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-xs text-text-primary"
+        >
+          <AlertTriangle size={14} className="shrink-0 text-status-error" />
+          <span className="flex-1">{error}</span>
+          {config && (
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="forge-discovery-error-retry"
+              onClick={handleRetry}
+              icon={<RotateCcw size={12} />}
+            >
+              {t('forge.retryDiscovery')}
+            </Button>
+          )}
+        </m.div>
+      )}
+
       {/* UX-11/UX-22: View mode toggle + search input */}
       <m.div variants={slideUp} className="flex items-center gap-2">
         <div className="flex rounded-md border border-subtle overflow-hidden">

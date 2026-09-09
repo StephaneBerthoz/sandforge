@@ -131,12 +131,79 @@ describe('SettingsPage', () => {
     );
   });
 
-  it('should call onReset when reset clicked', () => {
+  it('should call onReset once the reset is confirmed', () => {
     const onReset = vi.fn();
     render(<SettingsPage onReset={onReset} />);
     fireEvent.click(screen.getByText('Advanced'));
     fireEvent.click(screen.getByTestId('reset-btn'));
+    fireEvent.click(screen.getByTestId('reset-confirm-btn'));
     expect(onReset).toHaveBeenCalled();
+  });
+
+  it('should ask before resetting, and do nothing when cancelled', () => {
+    const onReset = vi.fn();
+    render(<SettingsPage onReset={onReset} />);
+    fireEvent.click(screen.getByText('Advanced'));
+
+    fireEvent.click(screen.getByTestId('reset-btn'));
+    expect(onReset).not.toHaveBeenCalled();
+    expect(screen.getByTestId('reset-confirm-btn')).toBeDefined();
+
+    fireEvent.click(screen.getByTestId('reset-cancel-btn'));
+    expect(onReset).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('reset-confirm-btn')).toBeNull();
+    expect(screen.getByTestId('reset-btn')).toBeDefined();
+  });
+
+  it('should drop a pending reset confirmation when the tab changes', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Advanced'));
+    fireEvent.click(screen.getByTestId('reset-btn'));
+    expect(screen.getByTestId('reset-confirm-btn')).toBeDefined();
+
+    fireEvent.click(screen.getByText('Telemetry'));
+    fireEvent.click(screen.getByText('Advanced'));
+
+    expect(screen.queryByTestId('reset-confirm-btn')).toBeNull();
+    expect(screen.getByTestId('reset-btn')).toBeDefined();
+  });
+
+  it('should apply the default language on reset, not just show it', async () => {
+    render(<SettingsPage />);
+    fireEvent.change(screen.getByTestId('language-select'), { target: { value: 'fr' } });
+    await waitFor(() => expect(i18n.language).toBe('fr'));
+
+    fireEvent.click(screen.getByText('Avancé'));
+    fireEvent.click(screen.getByTestId('reset-btn'));
+    fireEvent.click(screen.getByTestId('reset-confirm-btn'));
+
+    // Without applying it, the select would read "English" while the UI kept
+    // rendering in French — the dropdown lying about the live language.
+    await waitFor(() => expect(i18n.language).toBe(defaultSettings.language));
+    fireEvent.click(screen.getByText('General'));
+    expect((screen.getByTestId('language-select') as HTMLSelectElement).value).toBe(
+      defaultSettings.language,
+    );
+  });
+
+  it('should keep the page-level save on the only tab it saves', () => {
+    render(<SettingsPage />);
+    expect(screen.getByTestId('save-settings-btn')).toBeDefined();
+
+    // AI: the key is committed by the button inside the field row. A second
+    // button also labelled "Save" dropped the typed key without a word.
+    fireEvent.click(screen.getByText('AI'));
+    expect(screen.queryByTestId('save-settings-btn')).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Save' })).toHaveLength(1);
+    expect(screen.getByTestId('ai-save-key-btn')).toBeDefined();
+
+    for (const tab of ['Advanced', 'Profiles', 'Telemetry']) {
+      fireEvent.click(screen.getByText(tab));
+      expect(screen.queryByTestId('save-settings-btn')).toBeNull();
+    }
+
+    fireEvent.click(screen.getAllByText('General')[0]);
+    expect(screen.getByTestId('save-settings-btn')).toBeDefined();
   });
 
   it('should call onClearCache when clear cache clicked', () => {

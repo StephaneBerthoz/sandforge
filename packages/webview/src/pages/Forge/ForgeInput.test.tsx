@@ -366,6 +366,63 @@ describe('ForgeInput', () => {
     expect(mockSetPhase).not.toHaveBeenCalled();
   });
 
+  /* ---- Unreadable record id: caught here, not after the org round trip ---- */
+  it('should flag an unreadable record id and refuse to discover with it', () => {
+    render(<ForgeInput />);
+    const input = screen.getByTestId('forge-input-record') as HTMLInputElement;
+    // A paste that lost a chunk in the middle: extractRecordId returns null,
+    // so the config would travel with recordId: undefined.
+    fireEvent.change(input, { target: { value: '001XXXX XXXXXXXXXX' } });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    expect(screen.getByTestId('forge-record-id-error')).toBeDefined();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByTestId('forge-discover-btn'));
+    expect(mockSetConfig).not.toHaveBeenCalled();
+    expect(mockSetPhase).not.toHaveBeenCalled();
+  });
+
+  it('should not flag a record id the parser can read', () => {
+    render(<ForgeInput />);
+    const input = screen.getByTestId('forge-input-record') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        value: 'https://myorg.lightning.force.com/lightning/r/Account/001XXXXXXXXXXXXXXX/view',
+      },
+    });
+    expect(screen.queryByTestId('forge-record-id-error')).toBeNull();
+    // 15-char ids are legal too — the executor resolves the object from the prefix.
+    fireEvent.change(input, { target: { value: '001XXXXXXXXXXXX' } });
+    expect(screen.queryByTestId('forge-record-id-error')).toBeNull();
+  });
+
+  /* ---- Enter submits from the record field (SOQL/AI tabs already did) ---- */
+  it('should launch discovery on Enter from the record field', () => {
+    render(<ForgeInput />);
+    const input = screen.getByTestId('forge-input-record') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: '001XXXXXXXXXXXXXXX' } });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(mockSetConfig).toHaveBeenCalledTimes(1);
+    expect(mockSetConfig.mock.calls[0][0].recordId).toBe('001XXXXXXXXXXXXXXX');
+    expect(mockSetPhase).toHaveBeenCalledWith('discovery');
+  });
+
+  it('should not launch discovery on Enter when the record id is unreadable', () => {
+    render(<ForgeInput />);
+    const input = screen.getByTestId('forge-input-record') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'not-an-id' } });
+    selectOrg('forge-target-org', 'org-tgt');
+
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(mockSetPhase).not.toHaveBeenCalled();
+  });
+
   /* ---- UX-09: Preview panel shows record-mode text by default ---- */
   it('should show record-mode preview placeholder on record tab', () => {
     render(<ForgeInput />);

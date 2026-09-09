@@ -7,7 +7,7 @@ import { SyncPage } from './pages/Sync/SyncPage';
 import { DataOpsPage } from './pages/DataOps/DataOpsPage';
 import { AutomationPage } from './pages/Automation/AutomationPage';
 import { MigrationPage } from './pages/Migration/MigrationPage';
-import { ReportsPage } from './pages/Reports/ReportsPage';
+import { ReportsContainer } from './pages/Reports/ReportsContainer';
 import { SettingsPage } from './pages/Settings/SettingsPage';
 import { HelpPage } from './pages/Help/HelpPage';
 import { ForgePage } from './pages/Forge/ForgePage';
@@ -29,7 +29,7 @@ const panelComponents: Record<string, React.FC> = {
   dataops: DataOpsPage,
   automation: AutomationPage,
   migration: MigrationPage,
-  reports: ReportsPage,
+  reports: ReportsContainer,
   settings: SettingsPage,
   help: HelpPage,
   // Legacy routes (kept for backwards compat)

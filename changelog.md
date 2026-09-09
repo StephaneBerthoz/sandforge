@@ -5,6 +5,87 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] - 2026-09-09
+
+Reports stops apologising and starts reporting, and fifteen smaller things.
+
+The three previous releases removed what the product claimed and did not do.
+This one adds: a module that shipped as four empty tabs now reads the run
+history two other modules have been keeping since they shipped.
+
+### Added
+
+- **Reports works.** It shipped as four tabs with no producer anywhere in the
+  codebase, printing 0 / 0 / 0.0% / 0 — figures a reader takes for
+  measurements ("this org ran nothing and fails everything") rather than for an
+  absent feature; v1.19.0 made it say so instead. Nothing was missing but the
+  reading: Forge stores its runs under `forge:history` and Sync under
+  `sync:history:all`, each with a status, a duration and a record count. The
+  Executions tab and the success-rate figures come from those, with no new
+  storage, no call to your org and no invented number. Each report exports as
+  JSON through the same Save dialog every other export now uses. Audit trail
+  and data lineage have no such store and still say so.
+- **Copy an error in one click**, from any banner in the product — the thing
+  you actually want when you are about to paste it into an issue. Long and
+  multi-line errors stay fully readable instead of being clipped.
+- **Search your orgs** once you have more than five, and an Organizations panel
+  that shows what it is doing during the initial load and the CLI import
+  instead of staying blank.
+
+### Fixed
+
+- **Forge refuses an unreadable record id on the spot.** A half-pasted id, or
+  one with a space in it, left the button enabled and sent the run anyway — you
+  waited for a round trip to the org to get back `Cannot resolve root object
+for inputMode "record"`. And **Enter now starts discovery** from the record
+  field, which the SOQL and AI tabs already allowed.
+- **A failed discovery is no longer hidden behind the previous graph.** From
+  the second discovery of a session, the earlier graph was still on screen, so
+  the error had nowhere to render: you read — and could execute — the previous
+  org's graph believing it was the new one.
+- **Failures come first.** Job groups carrying failures and governance rules in
+  breach now sort above the rest, and each job filter says how many jobs it
+  keeps, instead of leaving you to count.
+- **Salesforce error codes reach the message.** `INSUFFICIENT_ACCESS_ON_CROSS_
+REFERENCE_ENTITY`, `ENTITY_IS_DELETED`, `DUPLICATE_VALUE` and their kin were
+  carried on fields the message never read, so you saw a description with no
+  code — or an empty string. `MULTIPLE_API_ERRORS` showed "Multiple errors
+  returned. Check `error.data`" instead of the errors it was holding.
+- **The Settings save button belongs to the tab it saves.** It rendered on
+  every tab while writing only one. "Reset to defaults" now asks first, and
+  actually restores the default language.
+- **The Reports KPI row is gated per tile.** It required all four figures to
+  have a source, so the three that do would have been hidden to avoid printing
+  the one that does not. Each tile appears with its own source.
+
+### Security
+
+- **The critical advisory in the shipped VSIX is closed.** Of seventy
+  advisories in the tree, two reached users: `websocket-driver` (critical),
+  bundled through `jsforce → faye`, and `form-data` (high). Both are pinned to
+  patched versions. `csv-parse` moves 5 → 7 across a major boundary, verified
+  against all four of jsforce's CSV entry points including the streaming path
+  the Bulk API results use.
+
+### Build
+
+- **The vendoring guard no longer fails open.** It matched `from`, `require()`
+  and `import()` but not `import 'pkg';` — the side-effect form with no
+  binding. A dependency reached only that way was never vendored, and the VSIX
+  shipped with the exact `MODULE_NOT_FOUND` the guard exists to prevent, while
+  the build stayed green.
+- **The dead-key baseline can only shrink.** It held 590 entries and had grown
+  every time code was deleted; it now refuses to grow, drops entries that
+  regain a consumer, and prints its own census — `587 recorded, 586 listed
+today (1 removed since)`.
+- **The screenshot gate stopped crying wolf.** It called four correct images
+  stale after a Prettier reflow, and again after a regeneration, because it
+  read a deleted file's old commit. Staleness is judged on what the generator
+  does, and a file written since its last commit is current.
+- **The link check answers in twenty seconds**, not twenty minutes: it checked
+  the same URL once per occurrence and then multiplied each rate-limited one by
+  four retries. One verdict per URL, two retries, a ninety-second ceiling.
+
 ## [1.19.0] - 2026-09-09
 
 Buttons that told you they had worked, and the two habits behind them.

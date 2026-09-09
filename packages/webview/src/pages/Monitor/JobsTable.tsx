@@ -50,7 +50,7 @@ function groupJobs(jobs: JobDisplayInfo[]): JobGroup[] {
     groups.set(key, group);
   }
 
-  return Array.from(groups.entries()).map(([className, classJobs]) => {
+  const built = Array.from(groups.entries()).map(([className, classJobs]) => {
     const completed = classJobs.filter((j) => j.status === 'Completed');
     const failed = classJobs.filter((j) => j.status === 'Failed');
     const successRate =
@@ -67,6 +67,16 @@ function groupJobs(jobs: JobDisplayInfo[]): JobGroup[] {
       failedCount: failed.length,
     };
   });
+
+  /* Groups carrying failures come first: the accordion is collapsed by default,
+     so whatever lands on top is what gets opened. Map insertion order used to
+     bury a class with 5 failures under the healthy ones. */
+  return built.sort(
+    (a, b) =>
+      b.failedCount - a.failedCount ||
+      b.totalRuns - a.totalRuns ||
+      a.className.localeCompare(b.className),
+  );
 }
 
 /** Filter jobs by status */
@@ -143,6 +153,19 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
   const filteredJobs = useMemo(() => filterJobs(jobs, filter), [jobs, filter]);
   const groups = useMemo(() => groupJobs(filteredJobs), [filteredJobs]);
 
+  /** How many jobs each filter keeps — shown on the buttons so a failure is
+      visible without clicking, and so an empty list is explained rather than
+      read as "this org has no jobs". */
+  const filterCounts = useMemo<Record<JobFilter, number>>(
+    () => ({
+      all: jobs.length,
+      running: filterJobs(jobs, 'running').length,
+      failed: filterJobs(jobs, 'failed').length,
+      completed: filterJobs(jobs, 'completed').length,
+    }),
+    [jobs],
+  );
+
   const activeCount = jobs.filter((j) => j.status === 'Processing' || j.status === 'Queued').length;
 
   const handleExportCsv = useCallback(() => {
@@ -211,6 +234,9 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
               data-testid={`filter-${f.key}`}
               onClick={() => setFilter(f.key)}
               style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
                 padding: '2px 8px',
                 fontSize: 'var(--sf-font-size-xs)',
                 borderRadius: 'var(--sf-radius-sm)',
@@ -220,7 +246,17 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
                 cursor: 'pointer',
               }}
             >
-              {f.label}
+              <span>{f.label}</span>
+              <span
+                data-testid={`filter-count-${f.key}`}
+                style={{
+                  fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums',
+                  opacity: filterCounts[f.key] === 0 ? 0.5 : 1,
+                }}
+              >
+                {formatNumber(filterCounts[f.key])}
+              </span>
             </button>
           ))}
         </div>

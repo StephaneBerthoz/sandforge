@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Shield, CheckCircle, AlertTriangle, XCircle, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
@@ -75,6 +75,18 @@ function statusIcon(status: 'pass' | 'warning' | 'fail'): React.ReactNode {
   }
 }
 
+/**
+ * Display rank for a rule result: what is broken is read first.
+ *
+ * The engine returns rules in policy order, so a single failure in a 20-rule
+ * security policy used to sit wherever the template happened to declare it.
+ */
+const STATUS_RANK: Record<GovernanceRuleDisplay['status'], number> = {
+  fail: 0,
+  warning: 1,
+  pass: 2,
+};
+
 /** Score color based on compliance percentage. */
 function scoreColor(score: number): string {
   if (score >= 80) return 'text-status-success';
@@ -98,6 +110,12 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
 }) => {
   const { t } = useTranslation();
   const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null);
+
+  /** Failing rules first, then warnings — sort is stable, so policy order holds within a status. */
+  const sortedResults = useMemo(
+    () => [...ruleResults].sort((a, b) => STATUS_RANK[a.status] - STATUS_RANK[b.status]),
+    [ruleResults],
+  );
 
   const handleEvaluate = useCallback(() => {
     if (selectedPolicyId && onEvaluate) {
@@ -216,7 +234,7 @@ export const GovernancePanel: React.FC<GovernancePanelProps> = ({
           <CardHeader title={t('governance.ruleResults', 'Rule Results')} />
           <CardBody>
             <div className="flex flex-col gap-2" data-testid="rule-results">
-              {ruleResults.map((result) => (
+              {sortedResults.map((result) => (
                 <div
                   key={result.ruleId}
                   data-testid={`rule-result-${result.ruleId}`}
