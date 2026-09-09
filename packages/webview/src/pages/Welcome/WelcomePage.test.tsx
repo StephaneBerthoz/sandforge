@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { WelcomePage } from './WelcomePage';
 
 const mockChangeLanguage = vi.fn();
@@ -18,6 +18,13 @@ vi.mock('react-i18next', () => ({
     t: (key: string, fallback?: string) => fallback ?? key,
     i18n: { changeLanguage: mockChangeLanguage, language: 'en' },
   }),
+}));
+
+/* The wizard mirrors an applied language choice into the extension-side
+   settings blob through the enveloped bridge helper. */
+const mockSendBridgeMessage = vi.fn();
+vi.mock('../../bridge/sendBridgeMessage', () => ({
+  sendBridgeMessage: (type: string, payload?: unknown) => mockSendBridgeMessage(type, payload),
 }));
 
 const mockNavigate = vi.fn();
@@ -57,6 +64,9 @@ describe('WelcomePage', () => {
     mockNavigate.mockClear();
     mockChangeLanguage.mockClear();
     mockChangeLanguageLazy.mockClear();
+    /* changeLanguageLazy resolves `true` when the language was applied. */
+    mockChangeLanguageLazy.mockResolvedValue(true);
+    mockSendBridgeMessage.mockClear();
     mockPersistedState.reset();
   });
 
@@ -297,6 +307,44 @@ describe('WelcomePage', () => {
     fireEvent.click(screen.getByTestId('welcome-open-seed-btn'));
     expect(onComplete).toHaveBeenCalledOnce();
     expect(mockNavigate).toHaveBeenCalledWith('seed');
+  });
+
+  it('should persist the chosen language into the extension settings blob', async () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('lang-fr'));
+
+    // The webview state the i18n module writes dies with the onboarding
+    // panel; only this `settings:update` write (globalState) survives it.
+    await waitFor(() => {
+      expect(mockSendBridgeMessage).toHaveBeenCalledWith('settings:update', {
+        key: 'settings',
+        value: { language: 'fr' },
+      });
+    });
+  });
+
+  it('should persist a non-European language choice the same way', async () => {
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('lang-ja'));
+
+    await waitFor(() => {
+      expect(mockSendBridgeMessage).toHaveBeenCalledWith('settings:update', {
+        key: 'settings',
+        value: { language: 'ja' },
+      });
+    });
+  });
+
+  it('should NOT persist the language when the locale bundle failed to load', async () => {
+    // changeLanguageLazy keeps the current language on bridge failure —
+    // persisting the requested one would leave the blob describing a
+    // language nobody is looking at.
+    mockChangeLanguageLazy.mockResolvedValue(false);
+    render(<WelcomePage onComplete={onComplete} />);
+    fireEvent.click(screen.getByTestId('lang-de'));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockSendBridgeMessage).not.toHaveBeenCalled();
   });
 
   it('should navigate to frozen when the frozen path CTA is clicked', () => {

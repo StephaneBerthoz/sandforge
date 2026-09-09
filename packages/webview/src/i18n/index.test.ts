@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { stubLocaleBridge } from './testing/mockLocaleBridge';
+import { answerCapturedLocaleRequests, stubLocaleBridge } from './testing/mockLocaleBridge';
 
 /**
  * VS Code API mock + locale bridge double. The i18n module lazy-loads every
@@ -186,5 +186,103 @@ describe('i18n', () => {
     }
 
     await changeLanguageLazy('en');
+  });
+});
+
+/**
+ * Boot-time editor-locale detection (the `auto` language setting).
+ *
+ * Every case re-imports the module with `vi.resetModules()` so the module-load
+ * boot restore runs again against a controlled webview state and a controlled
+ * `navigator`. The locale bridge stub answers the bundle request the restore
+ * fires, exactly like the extension would.
+ */
+describe('i18n editor-locale detection at boot', () => {
+  beforeEach(() => {
+    stubLocaleBridge(vscodeApiMock.postMessage);
+    vscodeApiMock.state.current = {};
+    vscodeApiMock.postMessage.mockClear();
+    vscodeApiMock.setState.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * Re-import the i18n module and wait for its boot restore to settle.
+   *
+   * `vi.resetModules()` re-evaluates this module but NOT `i18next`, which
+   * lives in node_modules and stays the same singleton: re-running its
+   * `init()` re-emits `languageChanged`, and the previous module instance's
+   * listener would write the current language straight back into the webview
+   * state — masking the very "nothing persisted" case under test. Detaching
+   * the stale listener first leaves only the freshly imported module wired,
+   * which is the real single-import situation in a webview.
+   */
+  async function bootFreshI18n(): Promise<typeof import('./index')> {
+    i18n.off('languageChanged');
+    vi.resetModules();
+    const fresh = await import('./index');
+    await answerCapturedLocaleRequests(vscodeApiMock.postMessage);
+    await fresh.i18nReady;
+    return fresh;
+  }
+
+  it('adopts the editor locale on first launch when nothing was persisted', async () => {
+    vi.stubGlobal('navigator', { language: 'fr-FR', languages: ['fr-FR', 'fr'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('fr');
+    expect(fresh.default.t('common.save')).toBe('Enregistrer');
+  });
+
+  it('maps a regional tag onto the shipped locale (pt-PT → pt-BR)', async () => {
+    vi.stubGlobal('navigator', { language: 'pt-PT', languages: ['pt-PT'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('pt-BR');
+  });
+
+  it('skips editor locales with no shipped bundle and keeps English', async () => {
+    vi.stubGlobal('navigator', { language: 'zh-CN', languages: ['zh-CN'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('en');
+  });
+
+  it('falls through the editor preference list to the first shipped locale', async () => {
+    vi.stubGlobal('navigator', { language: 'zh-CN', languages: ['zh-CN', 'ko-KR', 'ja-JP'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('ja');
+  });
+
+  it('lets a persisted user choice win over the editor locale', async () => {
+    vscodeApiMock.state.current = { language: 'de' };
+    vi.stubGlobal('navigator', { language: 'ja-JP', languages: ['ja-JP'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('de');
+  });
+
+  it('does NOT persist a detected language — the settings blob must still win', async () => {
+    vi.stubGlobal('navigator', { language: 'fr-FR', languages: ['fr-FR'] });
+
+    const fresh = await bootFreshI18n();
+
+    expect(fresh.default.language).toBe('fr');
+    // Nothing written to the webview state: `importLanguageFromSettings`
+    // still sees "no user choice here" and can recover the real one.
+    expect(vscodeApiMock.state.current['language']).toBeUndefined();
+
+    fresh.importLanguageFromSettings({ settings: { language: 'de' } });
+    await answerCapturedLocaleRequests(vscodeApiMock.postMessage);
+    expect(fresh.default.language).toBe('de');
   });
 });

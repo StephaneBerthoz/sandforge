@@ -70,6 +70,7 @@ function describeToObjectDescribe(desc: Record<string, unknown>): ObjectDescribe
       calculated: (f.calculated as boolean) ?? false,
       autoNumber: (f.autoNumber as boolean) ?? false,
       unique: (f.unique as boolean) ?? false,
+      permissionable: (f.permissionable as boolean) ?? true,
     })),
     recordTypeInfos:
       (desc.recordTypeInfos as Array<{
@@ -534,6 +535,46 @@ export class DataOpsHandler implements DomainHandler {
         throw new Error(`No backup found for operation ${payload.operationId}. Cannot rollback.`);
       }
 
+      // A backup belongs to the org it was taken from. Without this, the
+      // records of org A could be poured into org B.
+      if (backupMeta.orgId !== payload.orgId) {
+        throw new Error(
+          `Backup ${payload.operationId} was taken from org ${backupMeta.orgId} and cannot be ` +
+            `restored into org ${payload.orgId}.`,
+        );
+      }
+
+      // Rollback writes records over live data — the same Production Guard as
+      // every other write path applies (see handleAnonymize).
+      if (this.deps.infraServices?.productionGuard) {
+        const guard = this.deps.infraServices.productionGuard;
+        const org = this.deps.orgManager.getOrg(payload.orgId);
+        const guardRequest = {
+          orgId: payload.orgId,
+          orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
+          operation: 'upsert' as const,
+          objectName: backupMeta.objects.map((o) => o.objectApiName).join(', ') || 'RollbackData',
+          recordCount: backupMeta.totalRecords ?? 0,
+          module: 'dataops',
+        };
+        const check = guard.check(guardRequest);
+        guard.logOperation(guardRequest, check);
+        if (!check.allowed) {
+          throw new Error(
+            `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
+          );
+        }
+        // `safety.requireProdConfirmation`: explicit user consent before
+        // writing to a production org.
+        const confirmed = await guard.confirmIfNeeded(check);
+        if (!confirmed) {
+          const message = 'Operation cancelled by user (production confirmation declined).';
+          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', new Error(message));
+          sendOperationFailed(this.deps, rollbackOpId, message, false);
+          return;
+        }
+      }
+
       sendOperationStarted(
         this.deps,
         rollbackOpId,
@@ -552,33 +593,58 @@ export class DataOpsHandler implements DomainHandler {
         // Backups written before the file store still live in ConfigStore.
         const records =
           fromFile ??
-          this.deps.configStore.get<Record<string, unknown>[]>(
-            `${backupKey}:${obj.objectApiName}`,
-          );
+          this.deps.configStore.get<Record<string, unknown>[]>(`${backupKey}:${obj.objectApiName}`);
 
         if (!records || records.length === 0) {
           this.deps.log(`[WARN] No backup records for ${obj.objectApiName}, skipping.`);
           continue;
         }
 
-        // Verify CRUD/FLS permissions before upsert
-        const fieldNames =
-          records.length > 0
-            ? Object.keys(records[0]).filter((k) => k !== 'attributes' && k !== 'Id')
-            : [];
-        const flsCheck = await crudFlsGuard.checkCrudAndFls(safeObj, 'upsert', fieldNames);
-        if (!flsCheck.allowed) {
-          this.deps.log(
-            `[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${flsCheck.reason}`,
-          );
+        // Can this org upsert the object at all? That question is all-or-nothing
+        // and still gates the restore.
+        const crudCheck = await crudFlsGuard.checkCrudPermission(safeObj, 'upsert');
+        if (!crudCheck.allowed) {
+          this.deps.log(`[WARN] CRUD check failed for rollback on ${safeObj}: ${crudCheck.reason}`);
           sendHandlerError(
             this.deps,
             'dataops:rollback',
             'dataops:error',
-            new Error(flsCheck.reason),
+            new Error(crudCheck.reason),
           );
-          sendOperationFailed(this.deps, rollbackOpId, flsCheck.reason, false);
+          sendOperationFailed(this.deps, rollbackOpId, crudCheck.reason, false);
           return;
+        }
+
+        // Which of the backup's fields can actually be written? A backup is a
+        // verbatim `SELECT FIELDS(ALL)` snapshot, so it always carries fields
+        // nobody may write. Asking "may I write ALL of these?" made every
+        // restore fail; the describe answers the field-by-field question.
+        const payloadFields = Object.keys(records[0]).filter((k) => k !== 'attributes');
+        const { skipped, denied } = await crudFlsGuard.partitionWritableFields(
+          safeObj,
+          'upsert',
+          payloadFields,
+        );
+        // A business field this org may not write is still a hard stop: dropping
+        // it would restore the record with that column silently missing.
+        if (denied.length > 0) {
+          const reason = `FLS violation on '${safeObj}': fields [${denied.join(', ')}] are not updateable.`;
+          this.deps.log(`[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${reason}`);
+          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', new Error(reason));
+          sendOperationFailed(this.deps, rollbackOpId, reason, false);
+          return;
+        }
+        // `Id` is the upsert match key, not a field being written.
+        const droppedFields = new Set(
+          skipped.filter((f) => f.toLowerCase() !== 'id').map((f) => f.toLowerCase()),
+        );
+        if (droppedFields.size > 0) {
+          // Reported, never silent: a partial restore the user is not told
+          // about is a different lie from the one this replaces.
+          this.deps.log(
+            `[INFO] Rollback on ${safeObj}: ${droppedFields.size} non-writable field(s) ` +
+              `excluded from the payload — ${[...droppedFields].sort().join(', ')}`,
+          );
         }
 
         type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
@@ -587,8 +653,14 @@ export class DataOpsHandler implements DomainHandler {
         for (let j = 0; j < records.length; j += batchSize) {
           const batch = records.slice(j, j + batchSize);
           const cleaned = batch.map((r) => {
-            const copy = { ...r };
-            delete copy['attributes'];
+            const copy: Record<string, unknown> = {};
+            for (const [key, value] of Object.entries(r)) {
+              if (key === 'attributes') continue;
+              // `Id` is the upsert match key — kept; everything the describe
+              // says this org cannot write is dropped.
+              if (droppedFields.has(key.toLowerCase())) continue;
+              copy[key] = value;
+            }
             return copy;
           });
           const results = (await conn

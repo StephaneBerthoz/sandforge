@@ -1,7 +1,7 @@
 # SandForge: Salesforce DevOps Toolkit
 
 <!-- badges:start -->
-[![Version](https://img.shields.io/badge/version-1.17.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
+[![Version](https://img.shields.io/badge/version-1.18.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
@@ -19,7 +19,7 @@
 4. Click **Discover Graph**, then tune **Depth**, **Records per object**, and **Anonymize PII**.
 5. Click **Review & Execute** toward your dev sandbox. Every ID is remapped automatically.
 
-![Forge flow: from a record to a populated sandbox](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/forge-flow.gif)
+![Forge — live record preview, dependency estimate and PII detection](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/forge.png)
 
 New here? The built-in **Get Started** walkthrough (Help → Welcome → "Get started with SandForge") guides you through these steps directly inside VS Code.
 
@@ -40,7 +40,7 @@ SandForge ships 14 modules in a single extension:
 | **DataOps** | Org backup and PII anonymization templates *(restore, compliance workflows and quality rules coming soon)* |
 | **Automation** | Visual pipeline builder with 15 step types and dry-run mode (scheduling and triggers coming soon) |
 | **AI Assistant** | NL2SOQL and failed-job diagnosis over 10 read-only tools |
-| **Grappe** | Partitioned parallel execution engine for large datasets *(coming soon — the engine ships, no operation activates it yet)* |
+| **Grappe** | Per-partition progress reporting for large Seed, Sync and Autopilot runs, behind `sandforge.grappe.enabled` (off by default). Execution itself is sequential — this splits the *reporting*, not the work |
 | **Migration** | Import existing SFDMU `export.json` or CSV/JSON files into Sync configs |
 | **Autopilot** | Zero-config sandbox seeding through a guided wizard, with GDPR, CCPA, HIPAA and PCI-DSS anonymization rule sets |
 | **Organizations** | Org registry with SF CLI import and tier-based safety coloring |
@@ -52,13 +52,11 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ## Screenshots
 
-![Home — orgs, health and the forge entry point](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/home.png)
+![Home — orgs, health and the forge entry point](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/home.png)
 
-![Forge — live record preview, dependency estimate and PII detection](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/forge.png)
+![Monitor — health score, governor limits and storage breakdown](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/monitor.png)
 
-![Monitor — health score, governor limits and storage breakdown](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/monitor.png)
-
-![DataOps — backup history with per-object results](https://raw.githubusercontent.com/StephaneBerthoz/sand-forge-assets/main/dataops.png)
+![DataOps — backup history with per-object results](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/dataops.png)
 
 ---
 
@@ -76,17 +74,17 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 | Guide | Description |
 |---|---|
-| [Getting Started](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/getting-started.md) | Install, connect your org, run your first operation |
-| [Forge: Dev Sandbox Quickstart](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/forge-quickstart.md) | Clone a record graph from a partial-copy sandbox into your dev sandbox (wizard + CLI) |
-| [Forge: Record-Scoped Architecture](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/forge-record-scoped.md) | Internals of the scoped clone pipeline (BFS discovery, RecordType mapping, cycle 2-pass, orphan parent expansion) |
-| [Frozen Dataset](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/modules/frozen-dataset.md) | Replayable reference datasets |
-| [Seed](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/modules/seed.md) | AI generation, CSV import, org-to-org cloning |
-| [Sync](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/modules/sync.md) | Bidirectional data synchronization between orgs |
-| [Monitor](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/modules/monitor.md) | Real-time org health, API limits, and job tracking |
-| [Compare](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/modules/compare.md) | Metadata diff, permission matrix, and drift detection |
-| [DataOps](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/modules/dataops.md) | Backup, restore, anonymization, and data quality |
-| [Automation](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/modules/automation.md) | Visual pipeline builder with scheduling |
-| [FAQ & Troubleshooting](https://github.com/StephaneBerthoz/sand-forge/blob/master/docs/faq.md) | Common questions and solutions to frequent issues |
+| [Getting Started](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/getting-started.md) | Install, connect your org, run your first operation |
+| [Forge: Dev Sandbox Quickstart](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/forge-quickstart.md) | Clone a record graph from a partial-copy sandbox into your dev sandbox (wizard + CLI) |
+| [Forge: Record-Scoped Architecture](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/forge-record-scoped.md) | Internals of the scoped clone pipeline (BFS discovery, RecordType mapping, cycle 2-pass, orphan parent expansion) |
+| [Frozen Dataset](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/modules/frozen-dataset.md) | Replayable reference datasets |
+| [Seed](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/modules/seed.md) | AI generation, CSV import, org-to-org cloning |
+| [Sync](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/modules/sync.md) | Bidirectional data synchronization between orgs |
+| [Monitor](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/modules/monitor.md) | Real-time org health, API limits, and job tracking |
+| [Compare](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/modules/compare.md) | Metadata diff, permission matrix, and drift detection |
+| [DataOps](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/modules/dataops.md) | Backup, restore, anonymization, and data quality |
+| [Automation](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/modules/automation.md) | Visual pipeline builder (scheduling and triggers coming soon) |
+| [FAQ & Troubleshooting](https://github.com/StephaneBerthoz/sandforge/blob/master/docs/faq.md) | Common questions and solutions to frequent issues |
 
 ---
 
@@ -111,7 +109,7 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ### From VSIX
 
-Download `sandforge.vsix` from the [Releases](https://github.com/StephaneBerthoz/sand-forge/releases) page, then run **Extensions: Install from VSIX...** from the Command Palette.
+Download `sandforge.vsix` from the [Releases](https://github.com/StephaneBerthoz/sandforge/releases) page, then run **Extensions: Install from VSIX...** from the Command Palette.
 
 ---
 
@@ -156,12 +154,12 @@ Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Po
 
 ## Support
 
-- [Report an issue](https://github.com/StephaneBerthoz/sand-forge/issues)
-- [Ask a question (Q&A)](https://github.com/StephaneBerthoz/sand-forge/discussions)
-- [Changelog](https://github.com/StephaneBerthoz/sand-forge/blob/master/changelog.md)
-- [Security policy](https://github.com/StephaneBerthoz/sand-forge/blob/master/SECURITY.md)
+- [Report an issue](https://github.com/StephaneBerthoz/sandforge/issues)
+- [Ask a question (Q&A)](https://github.com/StephaneBerthoz/sandforge/discussions)
+- [Changelog](https://github.com/StephaneBerthoz/sandforge/blob/master/changelog.md)
+- [Security policy](https://github.com/StephaneBerthoz/sandforge/blob/master/SECURITY.md)
 
-Missing a feature? [Open a feature request](https://github.com/StephaneBerthoz/sand-forge/issues/new?template=feature_request.yml) — responses are fast.
+Missing a feature? [Open a feature request](https://github.com/StephaneBerthoz/sandforge/issues/new?template=feature_request.yml) — responses are fast.
 
 ## Author
 
@@ -169,4 +167,4 @@ Missing a feature? [Open a feature request](https://github.com/StephaneBerthoz/s
 
 ## License
 
-[MIT](https://github.com/StephaneBerthoz/sand-forge/blob/master/LICENSE)
+[MIT](https://github.com/StephaneBerthoz/sandforge/blob/master/LICENSE)

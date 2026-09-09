@@ -76,7 +76,16 @@ export class ConfigHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:export:response (${result.entriesExported} entries)`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'config:export', 'config:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'config:export',
+        'config:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -99,7 +108,16 @@ export class ConfigHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:import:response (${result.entriesImported} entries)`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'config:import', 'config:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'config:import',
+        'config:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -115,7 +133,16 @@ export class ConfigHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:categories:response`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'config:categories', 'config:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'config:categories',
+        'config:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -136,7 +163,16 @@ export class ConfigHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:validate:response`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'config:validate', 'config:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'config:validate',
+        'config:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 }

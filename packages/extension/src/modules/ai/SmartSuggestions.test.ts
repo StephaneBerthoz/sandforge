@@ -171,18 +171,14 @@ describe('SmartSuggestions', () => {
   });
 
   it('should handle AI provider returning invalid JSON gracefully', async () => {
-    const mockProvider = vi
-      .fn<AIProvider>()
-      .mockResolvedValue('not valid json');
+    const mockProvider = vi.fn<AIProvider>().mockResolvedValue('not valid json');
     const engineWithAI = new SmartSuggestions(mockProvider);
     const suggestions = await engineWithAI.suggest('unknown', {});
     expect(suggestions).toEqual([]);
   });
 
   it('should not call AI provider when built-in rules match', async () => {
-    const mockProvider = vi
-      .fn<AIProvider>()
-      .mockResolvedValue('[]');
+    const mockProvider = vi.fn<AIProvider>().mockResolvedValue('[]');
     const engineWithAI = new SmartSuggestions(mockProvider);
     await engineWithAI.suggest('seed', { errorCount: 1 });
     expect(mockProvider).not.toHaveBeenCalled();

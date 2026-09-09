@@ -10,9 +10,7 @@ describe('ConfigCompare', () => {
 
   beforeEach(() => {
     diffEngine = new DiffEngine();
-    fetchConfig = vi
-      .fn<FetchConfigFn>()
-      .mockResolvedValue(new Map());
+    fetchConfig = vi.fn<FetchConfigFn>().mockResolvedValue(new Map());
     configCompare = new ConfigCompare(fetchConfig, diffEngine);
   });
 

@@ -64,13 +64,46 @@ describe('AnonymizePanel', () => {
     expect(screen.getByText('Phone: Fake')).toBeDefined();
   });
 
-  it('should call onPreview when preview clicked', () => {
-    const onPreview = vi.fn();
-    render(
-      <AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onPreview={onPreview} />,
-    );
-    fireEvent.click(screen.getByTestId('preview-btn'));
-    expect(onPreview).toHaveBeenCalledWith('tpl-1');
+  it('should leave the preview button inert instead of masking data for real', () => {
+    // Preview and Apply were wired to one handler, so "Preview" ran the
+    // irreversible org write. No dry-run exists in the message contract.
+    const onApply = vi.fn();
+    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    const preview = screen.getByTestId('preview-btn') as HTMLButtonElement;
+    expect(preview.disabled).toBe(true);
+    fireEvent.click(preview);
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('should say the preview is not built yet', () => {
+    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" />);
+    expect(screen.getByTestId('preview-unavailable').textContent).toBe('Coming soon');
+  });
+
+  it('should not anonymize on the apply click alone', () => {
+    const onApply = vi.fn();
+    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    fireEvent.click(screen.getByTestId('apply-btn'));
+    expect(onApply).not.toHaveBeenCalled();
+    expect(screen.getByTestId('danger-title')).toBeDefined();
+  });
+
+  it('should anonymize once the confirmation word is typed', () => {
+    const onApply = vi.fn();
+    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    fireEvent.click(screen.getByTestId('apply-btn'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(onApply).toHaveBeenCalledWith('tpl-1');
+  });
+
+  it('should not anonymize when the typed confirmation does not match', () => {
+    const onApply = vi.fn();
+    render(<AnonymizePanel templates={templates} selectedTemplateId="tpl-1" onApply={onApply} />);
+    fireEvent.click(screen.getByTestId('apply-btn'));
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'nope' } });
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+    expect(onApply).not.toHaveBeenCalled();
   });
 
   it('should show preview data table', () => {

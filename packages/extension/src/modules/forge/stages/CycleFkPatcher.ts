@@ -5,7 +5,15 @@
  * yet at insert time would stay disconnected without this pass. Pending
  * updates are grouped by (objectApiName, newId) so multiple FK fields on
  * the same record collapse to a single UPDATE call, then dispatched
- * through `deps.updateRecords` in a per-object batch.
+ * through `deps.updateRecords` in per-object batches.
+ *
+ * Those batches are bounded by the same REST limit as pass 1 (PERF-01).
+ * `deps.updateRecords` is wired onto `conn.sobject(name).update(records)`,
+ * and jsforce only splits an oversized array when `options.allowRecursive`
+ * is set, which that call site does not pass — so the whole array went out
+ * as one request. Pass 1 was bounded and pass 2, which it feeds, was not:
+ * a cyclic clone (Account.ParentId, Contact.ReportsToId) of more than 200
+ * records still failed entirely, one stage later.
  */
 
 import type {
@@ -16,7 +24,11 @@ import type {
 } from '../ForgeExecutor.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import type { IdRemapper } from '../IdRemapper.js';
-import { summarizeRecordForError, type PendingFkUpdate } from './BatchWriter.js';
+import {
+  WRITE_API_MAX_BATCH,
+  summarizeRecordForError,
+  type PendingFkUpdate,
+} from './BatchWriter.js';
 
 /** Inputs for {@link patchCycleFkUpdates}. */
 export interface CycleFkPatchInput {
@@ -97,29 +109,35 @@ export async function patchCycleFkUpdates(
   }
   let pass2Failed = 0;
   const pass2Samples: ExecutionErrorSample[] = [];
+  const maxPerCall = WRITE_API_MAX_BATCH['rest'];
   for (const [objectApiName, perObj] of updatesByObject) {
     const recordsToUpdate = [...perObj.values()];
-    try {
-      const updateResults = await updateRecords(targetOrgId, objectApiName, recordsToUpdate);
-      for (let i = 0; i < updateResults.length; i++) {
-        const r = updateResults[i];
-        if (!r.success) {
-          pass2Failed++;
-          if (pass2Samples.length < 3) {
-            pass2Samples.push({
-              recordSummary: summarizeRecordForError(recordsToUpdate[i]),
-              messages: r.errors,
-            });
+    for (let offset = 0; offset < recordsToUpdate.length; offset += maxPerCall) {
+      const batch = recordsToUpdate.slice(offset, offset + maxPerCall);
+      try {
+        const updateResults = await updateRecords(targetOrgId, objectApiName, batch);
+        for (let i = 0; i < updateResults.length; i++) {
+          const r = updateResults[i];
+          if (!r.success) {
+            pass2Failed++;
+            if (pass2Samples.length < 3) {
+              pass2Samples.push({
+                recordSummary: summarizeRecordForError(batch[i]),
+                messages: r.errors,
+              });
+            }
           }
         }
-      }
-    } catch (err) {
-      pass2Failed += recordsToUpdate.length;
-      if (pass2Samples.length < 3) {
-        pass2Samples.push({
-          recordSummary: `${objectApiName} batch failed`,
-          messages: [extractErrorMessage(err)],
-        });
+      } catch (err) {
+        // One rejected batch does not abandon the rest: the records in the
+        // other batches are independent FK patches.
+        pass2Failed += batch.length;
+        if (pass2Samples.length < 3) {
+          pass2Samples.push({
+            recordSummary: `${objectApiName} batch failed`,
+            messages: [extractErrorMessage(err)],
+          });
+        }
       }
     }
   }

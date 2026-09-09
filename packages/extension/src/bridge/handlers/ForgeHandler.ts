@@ -234,6 +234,25 @@ export class ForgeHandler implements DomainHandler {
   /** Tracks DML operations to prevent duplicate forge executions. */
   private readonly dmlTracker = new DmlOperationTracker();
 
+  /**
+   * Cooldown after a run that actually wrote records, keyed by the
+   * content-derived operation id -> epoch ms of that run's completion.
+   *
+   * Only a run that created something arms it: a failed clone, or one that
+   * wrote nothing, must be retryable immediately.
+   */
+  private readonly lastWriteAt = new Map<string, number>();
+
+  /**
+   * How long an identical, already-executed forge run is refused.
+   *
+   * The guard exists to swallow an accidental double submit, not to lock a
+   * recipe out: the tracker's 1h TTL used to do exactly that, and it applied
+   * to failed runs too — a clone that died on the first object could not be
+   * retried for a full hour.
+   */
+  private static readonly DUPLICATE_COOLDOWN_MS = 60_000;
+
   /** Maximum number of history entries to retain. */
   private static readonly MAX_HISTORY = 20;
 
@@ -365,6 +384,20 @@ export class ForgeHandler implements DomainHandler {
   /** Save execution history to ConfigStore. */
   private saveHistory(history: ForgeExecutionResult[]): void {
     this.deps.configStore.set(HISTORY_KEY, history, FORGE_CATEGORY);
+  }
+
+  /**
+   * Start the duplicate cooldown for a run that wrote records, dropping the
+   * stamps that already expired so the map stays bounded.
+   */
+  private noteForgeWrite(forgeOpId: string): void {
+    const now = Date.now();
+    for (const [id, at] of this.lastWriteAt) {
+      if (now - at >= ForgeHandler.DUPLICATE_COOLDOWN_MS) {
+        this.lastWriteAt.delete(id);
+      }
+    }
+    this.lastWriteAt.set(forgeOpId, now);
   }
 
   /** Preview a single record by ID (resolve object type, fetch standard fields). */
@@ -588,7 +621,16 @@ export class ForgeHandler implements DomainHandler {
     const objectKeys = graph.nodes?.map((n) => n.objectApiName).join(',') ?? '';
     const forgeOpId = `forge:${configKey}:${objectKeys}:${graph.totalRecords ?? 0}`;
 
-    if (this.dmlTracker.isDuplicate(forgeOpId)) {
+    // Refuse the payload only while an identical run is still in flight, or
+    // during a short cooldown after one that actually wrote records. Anything
+    // else — a failed run, a run that created nothing — is retryable at once.
+    const tracked = this.dmlTracker.isDuplicate(forgeOpId)
+      ? this.dmlTracker.get(forgeOpId)
+      : undefined;
+    const lastWrite = this.lastWriteAt.get(forgeOpId);
+    const inCooldown =
+      lastWrite !== undefined && Date.now() - lastWrite < ForgeHandler.DUPLICATE_COOLDOWN_MS;
+    if (tracked?.status === 'pending' || inCooldown) {
       logger.warn('Duplicate forge execution detected', { operationId: forgeOpId });
       sendHandlerError(
         this.deps,
@@ -601,7 +643,17 @@ export class ForgeHandler implements DomainHandler {
     }
 
     const totalRecords = graph.totalRecords ?? 0;
-    this.dmlTracker.register(forgeOpId, 'forge', 'upsert', totalRecords);
+    if (tracked) {
+      // A previous attempt with this exact payload reached a terminal state.
+      // `register()` throws on an id it already knows and the tracker exposes
+      // no release call, so re-arm the entry in place — including its
+      // registration stamp, which anchors the TTL to this attempt.
+      tracked.status = 'pending';
+      tracked.recordCount = totalRecords;
+      tracked.registeredAt = new Date().toISOString();
+    } else {
+      this.dmlTracker.register(forgeOpId, 'forge', 'upsert', totalRecords);
+    }
 
     this.abortController = new AbortController();
     const operationId = `forge-execute-${this.deps.nextId()}`;
@@ -635,6 +687,13 @@ export class ForgeHandler implements DomainHandler {
       logger.info('Forge execute started');
       const result = await this.orchestrator.execute(graph, config);
 
+      // Arm the duplicate cooldown only when the run wrote something: a
+      // failure, or a run that remapped no record at all, leaves the recipe
+      // immediately re-runnable.
+      if (result.status !== 'failure' && result.idRemapCount > 0) {
+        this.noteForgeWrite(forgeOpId);
+      }
+
       // Persist to history via ConfigStore, carrying the config that produced
       // the run. Without it a history entry is inspectable but not repeatable
       // — there is nothing to rebuild a `forge:execute` from. Org ids are
@@ -653,6 +712,9 @@ export class ForgeHandler implements DomainHandler {
       sendOperationCompleted(this.deps, operationId, { status: result.status });
     } catch (error: unknown) {
       this.dmlTracker.markFailed(forgeOpId);
+      // A failed run wrote nothing worth protecting — clear any cooldown so
+      // the user can fix the cause and re-run immediately.
+      this.lastWriteAt.delete(forgeOpId);
       // Single error channel (see handleDiscover): `forge:execute:error`
       // only — no duplicate `operation:failed` / parasitic ai:resolve-error.
       sendHandlerError(

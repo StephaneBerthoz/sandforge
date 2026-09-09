@@ -1,4 +1,9 @@
-import type { BaseMessage, SyncConfig, SyncExecutionResult } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  SyncConfig,
+  SyncExecutionResult,
+  SyncOperation,
+} from '@sandforge/shared';
 import {
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
@@ -39,6 +44,7 @@ import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
 import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
+import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 
@@ -52,6 +58,18 @@ const SYNC_TYPES = new Set([
   'sync:config:list',
   'sync:config:delete',
 ]);
+
+/**
+ * Severity ranking used to collapse a multi-object sync into the single
+ * operation the Production Guard judges. Highest wins, so one `delete` object
+ * makes the whole run destructive in the guard's eyes.
+ */
+const SYNC_OPERATION_SEVERITY: Record<SyncOperation, number> = {
+  insert: 0,
+  update: 1,
+  upsert: 2,
+  delete: 3,
+};
 
 /**
  * Domain handler for sync-related webview-to-extension messages.
@@ -238,6 +256,45 @@ export class SyncOpsHandler implements DomainHandler {
     return RobustnessConfigSchema.parse(raw ?? {});
   }
 
+  /**
+   * Build the Production Guard request describing a sync run on its target org.
+   *
+   * The guard judges one operation on one object, while a sync config carries
+   * one operation per object — both are collapsed conservatively:
+   * - `operation`: the most destructive operation configured (see
+   *   {@link SYNC_OPERATION_SEVERITY}). This used to be hard-coded to
+   *   `'upsert'`, which presented a delete-mode sync as a write and let it
+   *   straight past the rule that blocks destructive operations on production.
+   * - `objectName`: every object in the config, not just the first — the audit
+   *   entry and the confirmation prompt must name what is actually touched.
+   * - `recordCount`: 0. The source rows are only queried later, inside the
+   *   orchestrator, so no count is known at gate time; 0 reports "unknown"
+   *   (same convention as ForgeHandler's `graph.totalRecords ?? 0`) instead of
+   *   the previous hard-coded 1, which claimed a volume nobody had measured.
+   *
+   * @param config - The sync config about to be executed.
+   * @returns The guard request for its target org.
+   */
+  private buildGuardRequest(config: SyncConfig): OperationRequest {
+    const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
+    const objects = config.objects ?? [];
+    let operation: SyncOperation = 'insert';
+    for (const object of objects) {
+      if (SYNC_OPERATION_SEVERITY[object.operation] > SYNC_OPERATION_SEVERITY[operation]) {
+        operation = object.operation;
+      }
+    }
+    const objectNames = objects.map((o) => o.objectApiName);
+    return {
+      orgId: config.targetOrgId,
+      orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
+      operation,
+      objectName: objectNames.length > 0 ? objectNames.join(', ') : 'SyncData',
+      recordCount: 0,
+      module: 'sync',
+    };
+  }
+
   private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncDescribeGlobalPayloadSchema, msg, 'sync:error', this.deps);
@@ -403,15 +460,7 @@ export class SyncOpsHandler implements DomainHandler {
     // or declined run rejects so the scheduler marks the schedule as failed.
     if (this.deps.infraServices?.productionGuard) {
       const guard = this.deps.infraServices.productionGuard;
-      const targetOrg = this.deps.orgManager.getOrg(filledConfig.targetOrgId);
-      const guardRequest = {
-        orgId: filledConfig.targetOrgId,
-        orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-        operation: 'upsert' as const,
-        objectName: filledConfig.objects?.[0]?.objectApiName ?? 'SyncData',
-        recordCount: 1,
-        module: 'sync',
-      };
+      const guardRequest = this.buildGuardRequest(filledConfig);
       const check = guard.check(guardRequest);
       guard.logOperation(guardRequest, check);
       if (!check.allowed) {
@@ -473,15 +522,7 @@ export class SyncOpsHandler implements DomainHandler {
       // Production guard check on target org
       if (this.deps.infraServices?.productionGuard) {
         const guard = this.deps.infraServices.productionGuard;
-        const targetOrg = this.deps.orgManager.getOrg(config.targetOrgId);
-        const guardRequest = {
-          orgId: config.targetOrgId,
-          orgTier: orgTypeToGuardTier(targetOrg?.orgType ?? ''),
-          operation: 'upsert' as const,
-          objectName: config.objects?.[0]?.objectApiName ?? 'SyncData',
-          recordCount: 1,
-          module: 'sync',
-        };
+        const guardRequest = this.buildGuardRequest(config);
         const check = guard.check(guardRequest);
         guard.logOperation(guardRequest, check);
         if (!check.allowed) {

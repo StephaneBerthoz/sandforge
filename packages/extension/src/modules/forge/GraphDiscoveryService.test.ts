@@ -576,6 +576,50 @@ describe('GraphDiscoveryService', () => {
       expect(graph.edges.length).toBeGreaterThan(0);
     });
 
+    // ERRORS-07: ScopeResolver (and every other consumer that has to explain
+    // a missing object) reads `status`/`errors` to tell an object that is
+    // genuinely empty from one whose size could not be established. Both end
+    // up with `included === false` and `recordCount === 0`, so the boolean
+    // alone cannot carry the difference — this locks the pair that can.
+    it('should keep an unmeasurable object distinguishable from a genuinely empty one', async () => {
+      vi.mocked(deps.describeObject).mockImplementation(async (_orgId, objectName) => {
+        if (objectName === 'Account') {
+          return makeAccountDescribe([
+            {
+              childSObject: 'Contact',
+              field: 'AccountId',
+              relationshipName: 'Contacts',
+              isCascadeDelete: false,
+            },
+          ]);
+        }
+        return makeContactDescribe();
+      });
+      vi.mocked(deps.queryCount).mockImplementation(async (_orgId, soql) => {
+        if (soql.includes('FROM Contact')) {
+          throw new Error('QUERY_TIMEOUT');
+        }
+        return 0;
+      });
+
+      const config = createConfig({ depth: 'direct', skipEmpty: true });
+      const graph = await service.discover(config);
+
+      const byName = new Map(graph.nodes.map((n) => [n.objectApiName, n]));
+      const empty = byName.get('Account');
+      const unmeasured = byName.get('Contact');
+
+      expect(empty?.included).toBe(false);
+      expect(unmeasured?.included).toBe(false);
+      expect(empty?.recordCount).toBe(0);
+      expect(unmeasured?.recordCount).toBe(0);
+
+      expect(empty?.status).toBe('idle');
+      expect(empty?.errors).toEqual([]);
+      expect(unmeasured?.status).toBe('error');
+      expect(unmeasured?.errors[0]).toContain('QUERY_TIMEOUT');
+    });
+
     it('should emit progress for nodes that failed to describe', async () => {
       vi.mocked(deps.describeObject).mockRejectedValue(new Error('boom'));
 

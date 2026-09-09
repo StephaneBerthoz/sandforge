@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        > **Security finding?** Do NOT open a public issue — follow [SECURITY.md](https://github.com/StephaneBerthoz/sand-forge/blob/master/SECURITY.md) instead.
+        > **Security finding?** Do NOT open a public issue — follow [SECURITY.md](https://github.com/StephaneBerthoz/sandforge/blob/master/SECURITY.md) instead.
   - type: input
     id: version
     attributes:

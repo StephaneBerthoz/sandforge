@@ -78,11 +78,7 @@ export class UniversalImporter {
    * @param options - Optional import configuration
    * @returns Parsed and converted SyncConfig
    */
-  importContent(
-    content: string,
-    filePath: string,
-    options?: Partial<ImportOptions>,
-  ): SyncConfig {
+  importContent(content: string, filePath: string, options?: Partial<ImportOptions>): SyncConfig {
     const validatedOptions = importOptionsSchema.parse(options ?? {});
     const format = this.detectFormat(content, filePath);
     const records = this.parseContent(content, format, validatedOptions.delimiter);

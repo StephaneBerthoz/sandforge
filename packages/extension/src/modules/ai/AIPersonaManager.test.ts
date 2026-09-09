@@ -129,9 +129,7 @@ describe('AIPersonaManager', () => {
     });
 
     it('should find a custom persona by ID after creation', async () => {
-      const mockProvider = vi
-        .fn<AIProvider>()
-        .mockResolvedValue(createMockPersonaResponse());
+      const mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockPersonaResponse());
       const created = await manager.createCustomPersona('Vet clinic', mockProvider);
 
       const found = manager.getPersona(created.id);
@@ -146,9 +144,7 @@ describe('AIPersonaManager', () => {
     let mockProvider: Mock<AIProvider>;
 
     beforeEach(() => {
-      mockProvider = vi
-        .fn<AIProvider>()
-        .mockResolvedValue(createMockPersonaResponse());
+      mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockPersonaResponse());
     });
 
     it('should call the AI provider with the description', async () => {
@@ -265,18 +261,14 @@ describe('AIPersonaManager', () => {
     });
 
     it('should include created custom personas', async () => {
-      const mockProvider = vi
-        .fn<AIProvider>()
-        .mockResolvedValue(createMockPersonaResponse());
+      const mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockPersonaResponse());
       await manager.createCustomPersona('Test', mockProvider);
 
       expect(manager.getCustomPersonas()).toHaveLength(1);
     });
 
     it('should accumulate multiple custom personas', async () => {
-      const mockProvider = vi
-        .fn<AIProvider>()
-        .mockResolvedValue(createMockPersonaResponse());
+      const mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockPersonaResponse());
       await manager.createCustomPersona('Test A', mockProvider);
       await manager.createCustomPersona('Test B', mockProvider);
 

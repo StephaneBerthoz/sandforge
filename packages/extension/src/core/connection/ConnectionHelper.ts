@@ -13,6 +13,29 @@ const MAX_BUFFER = 10 * 1024 * 1024;
 /** Module-level singleton connection pool */
 const connectionPool = new ConnectionPool();
 
+/**
+ * Max age of a pooled connection before its access token must be re-validated.
+ *
+ * A pool hit used to be handed back blind for the whole VS Code session: once
+ * the org's token expired mid-session, every subsequent call rebuilt a
+ * Connection around the same dead token, the org stayed unusable until the
+ * window was reloaded, and nothing told the user why. Re-validating on every
+ * call would cost an identity() round-trip per request, so pooled entries
+ * simply age out instead: past this window the next call falls through to the
+ * normal identity() + CLI-refresh path, which replaces the pooled entry (and
+ * the vault token) exactly like a cold connection.
+ */
+const POOL_REVALIDATE_AFTER_MS = 5 * 60 * 1000;
+
+/**
+ * Epoch ms of the last successful identity() validation, per orgId.
+ *
+ * Kept here rather than on the pooled entry because `ConnectionPool.acquire()`
+ * preserves `createdAt` when it refreshes an existing entry — reusing it would
+ * mark the connection permanently stale and re-validate on every call.
+ */
+const lastValidatedAt = new Map<string, number>();
+
 /** Circuit breaker config — identical for every org. */
 const BREAKER_CONFIG = {
   failureThreshold: 3,
@@ -42,6 +65,11 @@ export function getCircuitBreaker(orgId: string): CircuitBreaker {
     circuitBreakers.set(orgId, breaker);
   }
   return breaker;
+}
+
+/** Forget every recorded validation timestamp (for testing). */
+export function resetConnectionValidation(): void {
+  lastValidatedAt.clear();
 }
 
 /** Reset and drop all per-org breakers (for testing). */
@@ -188,10 +216,11 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
  * *establishment* only. A token that expires mid-operation — after this
  * function has returned its Connection — surfaces to the caller as the raw
  * jsforce error. Request-level retry would require wrapping every jsforce
- * entry point used by handlers and was rejected as too invasive. Likewise,
- * pool hits skip re-validation by design, so a pooled connection whose token
- * expired since validation is returned as-is; its next request fails fast and
- * recovery kicks in on the following non-pooled getJsforceConnection call.
+ * entry point used by handlers and was rejected as too invasive. Pool hits
+ * still skip the identity() call, but only for POOL_REVALIDATE_AFTER_MS after
+ * the last successful validation: past that the pooled entry is treated as
+ * expired and goes through validation and refresh again, so an expired session
+ * heals on its own instead of lasting until the window is reloaded.
  */
 export async function getJsforceConnection(
   orgId: string,
@@ -216,9 +245,12 @@ export async function getJsforceConnection(
 
   const apiVersion = org.metadata.apiVersion || SF_LIMITS.DEFAULT_API_VERSION;
 
-  // Check the pool for an existing connection with a matching token
+  // Check the pool for an existing connection with a matching token. The entry
+  // is trusted only while its last identity() validation is recent: past
+  // POOL_REVALIDATE_AFTER_MS it counts as expired and is rebuilt below.
   const pooled = connectionPool.get(uid);
-  if (pooled && pooled.active && pooled.accessToken === credentials.accessToken) {
+  const pooledIsFresh = Date.now() - (lastValidatedAt.get(orgId) ?? 0) < POOL_REVALIDATE_AFTER_MS;
+  if (pooled && pooled.active && pooled.accessToken === credentials.accessToken && pooledIsFresh) {
     pooled.lastUsedAt = Date.now();
     return new jsforce.Connection({
       instanceUrl: pooled.instanceUrl,
@@ -250,10 +282,12 @@ export async function getJsforceConnection(
     circuitBreaker.recordSuccess();
     connectionPool.acquire(uid, credentials.instanceUrl, credentials.accessToken);
     connectionPool.recordLatency(uid, latency);
+    lastValidatedAt.set(orgId, Date.now());
     return conn;
   } catch (err: unknown) {
     const latency = Date.now() - start;
     connectionPool.remove(uid);
+    lastValidatedAt.delete(orgId);
 
     // Authentication failure (expired/revoked token): attempt ONE token
     // refresh via the SF CLI, then re-validate the rebuilt connection ONCE.
@@ -301,6 +335,7 @@ export async function getJsforceConnection(
         circuitBreaker.recordSuccess();
         connectionPool.acquire(uid, instanceUrl, fresh.accessToken);
         connectionPool.recordLatency(uid, latency);
+        lastValidatedAt.set(orgId, Date.now());
         return refreshedConn;
       } catch (recoveryErr: unknown) {
         // Refresh failed or the new token was rejected too: this DOES count

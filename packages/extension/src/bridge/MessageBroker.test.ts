@@ -545,8 +545,7 @@ describe('MessageBroker', () => {
         .map((args) => args[0] as BaseMessage & { payload: { details: string } })
         .find((m) => m.type === 'bridge:error');
       expect(errorPost).toBeDefined();
-      const details = (errorPost as BaseMessage & { payload: { details: string } }).payload
-        .details;
+      const details = (errorPost as BaseMessage & { payload: { details: string } }).payload.details;
       expect(details.length).toBeLessThanOrEqual(520);
       expect(details).toContain('…(+');
     });
@@ -621,9 +620,7 @@ describe('MessageBroker', () => {
       // Valid literal, but no handler registered for it.
       messageCallback(enveloped(createMessage('sync:execute')));
 
-      expect(logFn).toHaveBeenCalledWith(
-        '[MessageBroker] Unhandled message type: "sync:execute"',
-      );
+      expect(logFn).toHaveBeenCalledWith('[MessageBroker] Unhandled message type: "sync:execute"');
     });
 
     it('should not log a warning when a handler is registered', () => {

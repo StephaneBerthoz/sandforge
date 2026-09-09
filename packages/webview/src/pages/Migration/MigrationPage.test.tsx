@@ -258,12 +258,9 @@ describe('MigrationPage', () => {
     fireEvent.click(screen.getByTestId('migration-reset-btn'));
     expect(mockSfdmuReset).toHaveBeenCalled();
     expect(mockUniversalReset).toHaveBeenCalled();
-    expect(
-      (screen.getByTestId('migration-path-input') as HTMLInputElement).value,
-    ).toBe('');
+    expect((screen.getByTestId('migration-path-input') as HTMLInputElement).value).toBe('');
   });
 });
-
 
 describe('MigrationPage — running an imported config', () => {
   beforeEach(() => {

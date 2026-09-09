@@ -129,7 +129,16 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:result');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policies:list', 'governance:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'governance:policies:list',
+        'governance:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -151,7 +160,16 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:result');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policy:get', 'governance:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'governance:policy:get',
+        'governance:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -186,7 +204,16 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:save:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policy:save', 'governance:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'governance:policy:save',
+        'governance:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -210,7 +237,16 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:delete:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policy:delete', 'governance:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'governance:policy:delete',
+        'governance:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -227,7 +263,16 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:export:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policies:export', 'governance:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'governance:policies:export',
+        'governance:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -252,12 +297,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:import:response');
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'governance:policies:import',
-        'governance:error',
-        err,
-      );
+      sendHandlerError(this.deps, 'governance:policies:import', 'governance:error', err);
     }
   }
 
@@ -327,7 +367,16 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:evaluate:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:evaluate', 'governance:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'governance:evaluate',
+        'governance:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -344,7 +393,16 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:templates:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:templates', 'governance:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'governance:templates',
+        'governance:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 }

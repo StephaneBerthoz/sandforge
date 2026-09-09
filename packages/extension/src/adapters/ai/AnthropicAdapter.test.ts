@@ -365,6 +365,49 @@ describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
     await expect(p3).rejects.toBeTruthy();
   });
 
+  it('two concurrent calls share ONE client: one secret read, one SDK construction', async () => {
+    // Regression: getClient() had no in-flight dedup, so parallel calls each
+    // ran the whole construction — two SecretStorage round-trips, two SDK
+    // module loads, two clients, and this.client left holding whichever
+    // finished last. Under vitest the second concurrent dynamic import even
+    // escaped the module mock and issued a live HTTPS request.
+    const { storage, getSecretSpy } = makeStorage();
+    const adapter = new AnthropicAdapter({ storage });
+
+    mockMessagesCreate.mockResolvedValue(mkOkChat());
+
+    const [a, b] = await Promise.all([
+      adapter.chat({ messages: [{ role: 'user', content: 'A' }] }),
+      adapter.chat({ messages: [{ role: 'user', content: 'B' }] }),
+    ]);
+
+    expect(a.text).toBe('hello');
+    expect(b.text).toBe('hello');
+    expect(getSecretSpy).toHaveBeenCalledTimes(1);
+    expect(ConstructorSpy).toHaveBeenCalledTimes(1);
+    expect(mockMessagesCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed client construction is not cached: the next call retries', async () => {
+    const getSecretSpy = vi.fn();
+    getSecretSpy.mockRejectedValueOnce(new Error('vault locked'));
+    getSecretSpy.mockResolvedValue('sk-ant-fake-test-key-1234567890');
+    const storage = {
+      getSecret: getSecretSpy,
+      setSecret: vi.fn(),
+      deleteSecret: vi.fn(),
+    } as unknown as StorageAdapter;
+    const adapter = new AnthropicAdapter({ storage });
+
+    mockMessagesCreate.mockResolvedValue(mkOkChat());
+
+    await expect(adapter.chat({ messages: [{ role: 'user', content: 'A' }] })).rejects.toThrow();
+    const ok = await adapter.chat({ messages: [{ role: 'user', content: 'B' }] });
+
+    expect(ok.text).toBe('hello');
+    expect(getSecretSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('aborting one user signal does NOT propagate to a sibling call (Pitfall #3 isolation)', async () => {
     const { storage } = makeStorage();
     const adapter = new AnthropicAdapter({ storage });

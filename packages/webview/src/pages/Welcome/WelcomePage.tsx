@@ -6,6 +6,7 @@ import { changeLanguageLazy } from '../../i18n';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { getPersistedItem, setPersistedItem } from '../../utils/webviewStorage';
+import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 
 /** Webview state key for "Don't show again" persistence. */
 const DONT_SHOW_KEY = 'sandforge-welcome-dont-show';
@@ -134,8 +135,24 @@ export const WelcomePage: React.FC<WelcomePageProps> = ({ onComplete, orgType = 
 
   const handleLanguageChange = useCallback((code: SupportedLanguage): void => {
     // Loads the locale bundle over the bridge first when it is not loaded
-    // yet; the i18n module persists the choice on every applied change.
-    void changeLanguageLazy(code);
+    // yet; the i18n module mirrors every applied change into the VS Code
+    // webview state. That state is per-document and dies with the panel, so
+    // the wizard's choice must ALSO reach the extension-side settings blob
+    // (globalState) — the exact `settings:update` write the Settings page
+    // performs on save. Without it the language picked here is gone the
+    // moment the onboarding panel closes.
+    // Only a change that actually applied is persisted: when the bundle
+    // fails to load the UI keeps its current language, and writing the
+    // requested one would leave the blob describing a language nobody sees.
+    void changeLanguageLazy(code).then((applied) => {
+      if (!applied) {
+        return;
+      }
+      sendBridgeMessage<{ key: string; value: Record<string, unknown> }>('settings:update', {
+        key: 'settings',
+        value: { language: code },
+      });
+    });
   }, []);
 
   /** Open a use-case path module and close the wizard. */

@@ -44,19 +44,17 @@ const ASSET_FIELDS: FieldInfo[] = [
 
 function makeDeps(overrides?: Partial<ExpanderDeps>): ExpanderDeps {
   return {
-    describeFields: vi
-      .fn<ExpanderDeps['describeFields']>()
-      .mockResolvedValue([
-        { name: 'Id', queryable: true, createable: false, isReference: false },
-        { name: 'Name', queryable: true, createable: true, isReference: false },
-        {
-          name: 'OwnerId',
-          queryable: true,
-          createable: true,
-          isReference: true,
-          referenceTo: ['User'],
-        },
-      ]),
+    describeFields: vi.fn<ExpanderDeps['describeFields']>().mockResolvedValue([
+      { name: 'Id', queryable: true, createable: false, isReference: false },
+      { name: 'Name', queryable: true, createable: true, isReference: false },
+      {
+        name: 'OwnerId',
+        queryable: true,
+        createable: true,
+        isReference: true,
+        referenceTo: ['User'],
+      },
+    ]),
     queryRecords: vi
       .fn<ExpanderDeps['queryRecords']>()
       .mockResolvedValue([{ Id: ORPHAN_ID, Name: 'GAN ASSURANCES', OwnerId: '005USER' }]),

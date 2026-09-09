@@ -1000,9 +1000,7 @@ describe('SeedOpsHandler', () => {
   });
 
   describe('seed:error channel', () => {
-    function postedMessages(): Array<
-      BaseMessage & { payload?: Record<string, unknown> }
-    > {
+    function postedMessages(): Array<BaseMessage & { payload?: Record<string, unknown> }> {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       return postToWebview.mock.calls.map((c) => c[0]);
     }

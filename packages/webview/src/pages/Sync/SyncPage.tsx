@@ -1,11 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import type {
-  SyncDirection,
-  ConflictStrategy,
-  MappingType,
-  FieldMapping,
-} from '@sandforge/shared';
+import type { SyncDirection, ConflictStrategy, MappingType, FieldMapping } from '@sandforge/shared';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -454,10 +449,12 @@ export const SyncPage: React.FC = () => {
               <FieldMapper
                 sourceFields={sourceFields.map((f) => f.apiName)}
                 targetFields={targetFields.map((f) => f.apiName)}
-                mappings={mappings.map((m): FieldMapperMapping => ({
-                  sourceField: m.sourceField,
-                  targetField: m.targetField,
-                }))}
+                mappings={mappings.map(
+                  (m): FieldMapperMapping => ({
+                    sourceField: m.sourceField,
+                    targetField: m.targetField,
+                  }),
+                )}
                 onMappingChange={(fmMappings) => {
                   setMappings(
                     fmMappings.map((fm) => ({

@@ -4,6 +4,7 @@ import {
   getConnectionPool,
   getCircuitBreaker,
   resetCircuitBreakers,
+  resetConnectionValidation,
 } from './ConnectionHelper';
 import type { OrgRegistry } from './OrgRegistry';
 import type { OrgManager } from './OrgManager';
@@ -107,6 +108,7 @@ describe('ConnectionHelper', () => {
     // Reset singleton pool and per-org circuit breakers between tests
     getConnectionPool().dispose();
     resetCircuitBreakers();
+    resetConnectionValidation();
   });
 
   afterEach(() => {
@@ -480,6 +482,80 @@ describe('ConnectionHelper', () => {
       expect(orgRegistry.saveOrg).toHaveBeenCalledWith(
         org,
         expect.objectContaining({ instanceUrl: 'https://newdomain.my.salesforce.com' }),
+      );
+    });
+  });
+
+  describe('pooled connection expiry', () => {
+    it('serves a recently validated pooled connection without calling identity() again', async () => {
+      vi.useFakeTimers();
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+      mockIdentity.mockResolvedValue({ user_id: 'u1' });
+
+      await getJsforceConnection('org-1', orgRegistry, orgManager);
+      vi.advanceTimersByTime(60_000);
+      const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      expect(conn).toBeDefined();
+      // Still inside the revalidation window: the pool hit stands, no extra
+      // round-trip. (Guards against over-correcting into per-call auth.)
+      expect(mockIdentity).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-validates a pooled connection once its validation window has elapsed', async () => {
+      vi.useFakeTimers();
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+      mockIdentity.mockResolvedValue({ user_id: 'u1' });
+
+      await getJsforceConnection('org-1', orgRegistry, orgManager);
+      // Past POOL_REVALIDATE_AFTER_MS (5 min): the pooled entry has expired.
+      vi.advanceTimersByTime(6 * 60_000);
+      const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      expect(conn).toBeDefined();
+      expect(mockIdentity).toHaveBeenCalledTimes(2);
+    });
+
+    it('refreshes the token of a pooled connection whose session expired mid-session', async () => {
+      vi.useFakeTimers();
+      const org = makeOrg();
+      const creds = makeCreds();
+      const orgManager = createMockOrgManager(org);
+      const orgRegistry = createMockOrgRegistry(creds);
+
+      // First call validates and pools the connection.
+      mockIdentity.mockResolvedValueOnce({ user_id: 'u1' });
+      await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      // The session dies while the pooled entry sits there. Past the window,
+      // the next call must notice — instead of handing back the dead token
+      // until the VS Code window is reloaded.
+      vi.advanceTimersByTime(6 * 60_000);
+      mockIdentity
+        .mockRejectedValueOnce(new Error('INVALID_SESSION_ID'))
+        .mockResolvedValueOnce({ user_id: 'u1' });
+      mockCliInvoker
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { instanceUrl: 'https://test.my.salesforce.com' } }),
+          stderr: '',
+        } as never)
+        .mockResolvedValueOnce({
+          stdout: JSON.stringify({ result: { accessToken: 'pool-refreshed-token' } }),
+          stderr: '',
+        } as never);
+
+      const conn = await getJsforceConnection('org-1', orgRegistry, orgManager);
+
+      expect(conn).toBeDefined();
+      expect(orgRegistry.saveOrg).toHaveBeenCalledWith(
+        org,
+        expect.objectContaining({ accessToken: 'pool-refreshed-token' }),
       );
     });
   });

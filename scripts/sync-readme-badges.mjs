@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CHECK_ONLY = process.argv.includes('--check');
 
-const REPO = 'StephaneBerthoz/sand-forge';
+const REPO = 'StephaneBerthoz/sandforge';
 const MARKETPLACE = `https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge`;
 
 /** Markers delimiting the generated block, so the rest of the README is ours to edit. */

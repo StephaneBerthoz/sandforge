@@ -254,30 +254,23 @@ rm -f /tmp/sf-badges.txt
 # broken images while every file sat present and correct on disk.
 #
 # NOT gated on SKIP_BUILD_CHECKS, for the same reason as 11b.
-if node scripts/check-readme-images.mjs > /tmp/sf-images.txt 2>&1; then
-  echo "PASS: $(tail -1 /tmp/sf-images.txt)"
+if node scripts/check-public-links.mjs > /tmp/sf-links.txt 2>&1; then
+  echo "PASS: $(tail -1 /tmp/sf-links.txt)"
 else
   echo "FAIL: README images are unreachable to a Marketplace visitor"
-  grep -E "✗|→" /tmp/sf-images.txt | sed 's/^/       /'
+  grep -E "✗|→" /tmp/sf-links.txt | sed 's/^/       /'
   ERRORS=$((ERRORS + 1))
 fi
-rm -f /tmp/sf-images.txt
+rm -f /tmp/sf-links.txt
 
-# 11d. The published images are the ones on disk.
+# 11d. (retired in v1.18.0)
 #
-# 11c only proves the URLs resolve. Because the Marketplace images live in a
-# separate public repo (this one is private and the Marketplace fetches
-# anonymously), a screenshot can be regenerated here and never pushed there —
-# the listing then shows the old UI while every check passes. This compares
-# bytes, so a stale published copy fails as loudly as a missing one.
-if node scripts/sync-assets-repo.mjs --check > /tmp/sf-assets.txt 2>&1; then
-  echo "PASS: $(tail -1 /tmp/sf-assets.txt)"
-else
-  echo "FAIL: published images differ from the repository — run 'pnpm sync:assets'"
-  grep -E "✗" /tmp/sf-assets.txt | sed 's/^/       /'
-  ERRORS=$((ERRORS + 1))
-fi
-rm -f /tmp/sf-assets.txt
+# This step compared the bytes of every screenshot against a copy published in
+# a separate public repository, because this one was private and the
+# Marketplace fetches images anonymously. Making the repository public removed
+# the second copy, and with it the drift it existed to catch: the listing now
+# reads its images out of the same commit as the file on disk. 11c above still
+# proves every URL resolves to an anonymous visitor.
 
 # 12. Client-confidentiality gate — no client identity may reach a public
 # artifact. Both the GitHub repo and the VSIX (which ships changelog.md as the

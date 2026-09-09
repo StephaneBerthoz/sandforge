@@ -168,6 +168,63 @@ describe('ReportsPage', () => {
     expect(reportsChannelsSent()).toEqual([]);
   });
 
+  /*
+   * PanelRouter mounts the page with no props, so this is what every user
+   * actually sees. Four tiles reading 0 / 0 / 0.0 % / 0 are not an empty
+   * state — nothing produced them, and "0.0 % success" in amber reads as a
+   * failing org rather than as an unbuilt feature.
+   */
+  describe('with no data source (the shipped state)', () => {
+    it('should print no KPI figures', () => {
+      render(<ReportsPage />);
+
+      expect(screen.queryByTestId('reports-kpi-row')).toBeNull();
+      expect(screen.queryAllByTestId('kpi-card')).toHaveLength(0);
+      expect(screen.queryByText('0.0%')).toBeNull();
+    });
+
+    it('should say the executions tab is not wired yet', () => {
+      render(<ReportsPage />);
+
+      expect(screen.getByTestId('reports-executions-soon')).toBeDefined();
+      expect(screen.queryByTestId('execution-report-view')).toBeNull();
+      expect(screen.getByText('Coming soon')).toBeDefined();
+    });
+
+    it('should say the analytics tab is not wired yet', () => {
+      render(<ReportsPage />);
+      fireEvent.click(screen.getByText('Analytics'));
+
+      expect(screen.getByTestId('reports-analytics-soon')).toBeDefined();
+      expect(screen.queryByTestId('analytics-dashboard')).toBeNull();
+    });
+
+    it('should say the audit tab is not wired yet', () => {
+      render(<ReportsPage />);
+      fireEvent.click(screen.getByText('Audit Trail'));
+
+      expect(screen.getByTestId('reports-audit-soon')).toBeDefined();
+      expect(screen.queryByTestId('audit-trail-viewer')).toBeNull();
+    });
+
+    it('should say the lineage tab is not wired yet', () => {
+      render(<ReportsPage />);
+      fireEvent.click(screen.getByText('Data Lineage'));
+
+      expect(screen.getByTestId('reports-lineage-soon')).toBeDefined();
+      expect(screen.queryByTestId('lineage-graph')).toBeNull();
+    });
+  });
+
+  it('should render a measured empty list rather than a coming-soon notice', () => {
+    // `[]` is a producer saying "nothing to report"; `undefined` is no
+    // producer at all. Only the second is a coming-soon state.
+    render(<ReportsPage reports={[]} />);
+
+    expect(screen.getByTestId('execution-report-view')).toBeDefined();
+    expect(screen.queryByTestId('reports-executions-soon')).toBeNull();
+  });
+
   it('should render KPI summary row', () => {
     render(
       <ReportsPage reports={reports} analyticsSummary={summary} auditEntries={auditEntries} />,

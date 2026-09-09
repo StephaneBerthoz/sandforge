@@ -43,9 +43,7 @@ describe('NL2SOQL', () => {
   let converter: NL2SOQL;
 
   beforeEach(() => {
-    mockProvider = vi
-      .fn<AIProvider>()
-      .mockResolvedValue(createMockAIResponse());
+    mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockAIResponse());
     converter = new NL2SOQL(mockProvider);
   });
 

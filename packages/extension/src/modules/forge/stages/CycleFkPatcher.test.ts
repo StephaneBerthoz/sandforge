@@ -97,6 +97,73 @@ describe('patchCycleFkUpdates', () => {
     expect(objects).toEqual(['Account', 'Contact']);
   });
 
+  it('splits pass 2 at the REST limit instead of posting one oversized UPDATE (PERF-01)', async () => {
+    // deps.updateRecords is `conn.sobject(name).update(records)`, and jsforce
+    // only chunks an oversized array when `options.allowRecursive` is passed,
+    // which that call site does not. Pass 1 was bounded and pass 2, which it
+    // feeds, was not: a cyclic clone above 200 records failed one stage later.
+    const remapper = new IdRemapper();
+    const pending: PendingFkUpdate[] = [];
+    for (let i = 0; i < 450; i++) {
+      remapper.add(`003OLD${i}`, `003NEW${i}`);
+      pending.push(
+        makePending({
+          objectApiName: 'Contact',
+          newId: `003NEW${i}`,
+          sourceId: `003OLD${i}`,
+          fieldName: 'ReportsToId',
+          sourceRefId: `003OLD${i}`,
+        }),
+      );
+    }
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockImplementation((_org, _obj, records) =>
+        Promise.resolve(records.map((r) => ({ id: String(r['Id']), success: true, errors: [] }))),
+      );
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ pendingFkUpdates: pending, remapper, updateRecords }),
+    );
+
+    expect(error).toBeFalsy();
+    expect(updateRecords.mock.calls.map((c) => c[2].length)).toEqual([200, 200, 50]);
+    // Every record still travels exactly once, and only once.
+    const sent = updateRecords.mock.calls.flatMap((c) => c[2].map((r) => r['Id']));
+    expect(new Set(sent).size).toBe(450);
+  });
+
+  it('keeps patching the remaining batches when one rejected batch throws', async () => {
+    const remapper = new IdRemapper();
+    const pending: PendingFkUpdate[] = [];
+    for (let i = 0; i < 250; i++) {
+      remapper.add(`003OLD${i}`, `003NEW${i}`);
+      pending.push(
+        makePending({
+          objectApiName: 'Contact',
+          newId: `003NEW${i}`,
+          sourceId: `003OLD${i}`,
+          fieldName: 'ReportsToId',
+          sourceRefId: `003OLD${i}`,
+        }),
+      );
+    }
+    const updateRecords = vi
+      .fn<UpdateRecordsFn>()
+      .mockRejectedValueOnce(new Error('REQUEST_LIMIT_EXCEEDED'))
+      .mockImplementation((_org, _obj, records) =>
+        Promise.resolve(records.map((r) => ({ id: String(r['Id']), success: true, errors: [] }))),
+      );
+
+    const error = await patchCycleFkUpdates(
+      makeInput({ pendingFkUpdates: pending, remapper, updateRecords }),
+    );
+
+    expect(updateRecords).toHaveBeenCalledTimes(2);
+    expect(error?.failedCount).toBe(200);
+    expect(error?.attemptedCount).toBe(250);
+  });
+
   it('reports unresolved FKs when the parent was never cloned', async () => {
     const input = makeInput({ pendingFkUpdates: [makePending()] });
 
@@ -153,9 +220,7 @@ describe('patchCycleFkUpdates', () => {
   it('counts a thrown batch as failed for every record in it', async () => {
     const remapper = new IdRemapper();
     remapper.add('003OLD1', '003NEW1');
-    const updateRecords = vi
-      .fn<UpdateRecordsFn>()
-      .mockRejectedValue(new Error('ECONNRESET'));
+    const updateRecords = vi.fn<UpdateRecordsFn>().mockRejectedValue(new Error('ECONNRESET'));
     const input = makeInput({
       remapper,
       updateRecords,

@@ -9,6 +9,7 @@ import type {
 } from '@sandforge/shared';
 import { Tabs } from '../../components/ui/Tabs';
 import { BentoGrid, BentoTile } from '../../components/ui/BentoGrid';
+import { ComingSoon } from '../../components/ui/ComingSoon';
 import { KPICard } from '../../components/ui/KPICard';
 import { fadeIn, staggerContainer, slideUp } from '../../motion/presets';
 import { ExecutionReportView } from './ExecutionReportView';
@@ -37,6 +38,14 @@ export interface ReportsPageProps {
  * and no handler behind one, so every datum arrives through props. It used to
  * fire `reports:list` / `reports:export` on the bridge — the broker dropped
  * both as undeclared and the page sat on a 30 s timeout it then swallowed.
+ *
+ * PanelRouter mounts it with no props at all, so in the shipped product every
+ * prop below is `undefined`. Rendering the panels anyway printed four KPI
+ * tiles reading 0 / 0 / 0.0 % / 0 — figures with no source behind them, which
+ * a reader takes for measurements ("this org ran nothing and fails every
+ * operation") rather than for an absent feature. A tab whose data has no
+ * producer says so, through the same {@link ComingSoon} notice DataOps uses;
+ * the KPI row only appears once every figure it prints has a source.
  */
 export const ReportsPage: React.FC<ReportsPageProps> = ({
   reports,
@@ -73,6 +82,22 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const successRate = analyticsSummary?.successRate ?? 0;
   const auditCount = auditEntries?.length ?? 0;
 
+  /**
+   * Whether each tab has been given something to show. `undefined` means "no
+   * producer supplied this", which is not the same as an empty array: `[]` is
+   * a measured "nothing to report" and still renders the real view.
+   */
+  const hasReports = reports !== undefined;
+  const hasAnalytics =
+    analyticsSummary !== undefined ||
+    operationsOverTime !== undefined ||
+    errorTimeSeries !== undefined;
+  const hasAudit = auditEntries !== undefined;
+  const hasLineage = lineageData !== undefined;
+
+  /** Every KPI tile needs its own source — a partial row is the same lie in miniature. */
+  const hasMetrics = hasReports && analyticsSummary !== undefined && hasAudit;
+
   return (
     <m.div
       data-testid="reports-page"
@@ -83,48 +108,50 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
     >
       <h1 className="text-lg font-bold text-text-primary">{t('reports.title')}</h1>
 
-      {/* KPI summary row */}
-      <m.div
-        variants={staggerContainer}
-        initial="hidden"
-        animate="visible"
-        data-testid="reports-kpi-row"
-      >
-        <BentoGrid columns={4} gap="md">
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="file"
-              label={t('reports.totalReports')}
-              value={reportCount}
-              variant="default"
-            />
-          </m.div>
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="pulse"
-              label={t('reports.totalOperations')}
-              value={totalOps.toLocaleString()}
-              variant="default"
-            />
-          </m.div>
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="check"
-              label={t('reports.successRate')}
-              value={`${successRate.toFixed(1)}%`}
-              variant={successRate >= 90 ? 'success' : 'warning'}
-            />
-          </m.div>
-          <m.div variants={slideUp}>
-            <KPICard
-              icon="shield"
-              label={t('reports.auditEntries')}
-              value={auditCount}
-              variant="default"
-            />
-          </m.div>
-        </BentoGrid>
-      </m.div>
+      {/* KPI summary row — omitted entirely when nothing feeds it. */}
+      {hasMetrics && (
+        <m.div
+          variants={staggerContainer}
+          initial="hidden"
+          animate="visible"
+          data-testid="reports-kpi-row"
+        >
+          <BentoGrid columns={4} gap="md">
+            <m.div variants={slideUp}>
+              <KPICard
+                icon="file"
+                label={t('reports.totalReports')}
+                value={reportCount}
+                variant="default"
+              />
+            </m.div>
+            <m.div variants={slideUp}>
+              <KPICard
+                icon="pulse"
+                label={t('reports.totalOperations')}
+                value={totalOps.toLocaleString()}
+                variant="default"
+              />
+            </m.div>
+            <m.div variants={slideUp}>
+              <KPICard
+                icon="check"
+                label={t('reports.successRate')}
+                value={`${successRate.toFixed(1)}%`}
+                variant={successRate >= 90 ? 'success' : 'warning'}
+              />
+            </m.div>
+            <m.div variants={slideUp}>
+              <KPICard
+                icon="shield"
+                label={t('reports.auditEntries')}
+                value={auditCount}
+                variant="default"
+              />
+            </m.div>
+          </BentoGrid>
+        </m.div>
+      )}
 
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -139,23 +166,54 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           >
             {activeTab === tab.id && (
               <div className="p-4">
-                {tab.id === 'executions' && (
-                  <ExecutionReportView
-                    reports={reports}
-                    selectedReportId={selectedReportId}
-                    onSelectReport={handleSelectReport}
-                    onExport={handleExportReport}
-                  />
-                )}
-                {tab.id === 'analytics' && (
-                  <AnalyticsDashboard
-                    summary={analyticsSummary}
-                    operationsOverTime={operationsOverTime}
-                    errorTimeSeries={errorTimeSeries}
-                  />
-                )}
-                {tab.id === 'audit' && <AuditTrailViewer entries={auditEntries} />}
-                {tab.id === 'lineage' && <LineageGraph lineage={lineageData} />}
+                {/* Each panel either shows data it was given, or says the
+                    capability is not wired. An empty list here would read as
+                    "the report ran and found nothing" — it never ran. */}
+                {tab.id === 'executions' &&
+                  (hasReports ? (
+                    <ExecutionReportView
+                      reports={reports}
+                      selectedReportId={selectedReportId}
+                      onSelectReport={handleSelectReport}
+                      onExport={handleExportReport}
+                    />
+                  ) : (
+                    <ComingSoon
+                      data-testid="reports-executions-soon"
+                      description={t('reports.executionsDesc')}
+                    />
+                  ))}
+                {tab.id === 'analytics' &&
+                  (hasAnalytics ? (
+                    <AnalyticsDashboard
+                      summary={analyticsSummary}
+                      operationsOverTime={operationsOverTime}
+                      errorTimeSeries={errorTimeSeries}
+                    />
+                  ) : (
+                    <ComingSoon
+                      data-testid="reports-analytics-soon"
+                      description={t('reports.analyticsDesc')}
+                    />
+                  ))}
+                {tab.id === 'audit' &&
+                  (hasAudit ? (
+                    <AuditTrailViewer entries={auditEntries} />
+                  ) : (
+                    <ComingSoon
+                      data-testid="reports-audit-soon"
+                      description={t('reports.auditDesc')}
+                    />
+                  ))}
+                {tab.id === 'lineage' &&
+                  (hasLineage ? (
+                    <LineageGraph lineage={lineageData} />
+                  ) : (
+                    <ComingSoon
+                      data-testid="reports-lineage-soon"
+                      description={t('reports.lineageDesc')}
+                    />
+                  ))}
               </div>
             )}
           </div>

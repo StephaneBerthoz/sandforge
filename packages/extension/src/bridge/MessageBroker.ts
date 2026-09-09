@@ -1,10 +1,6 @@
 import type * as vscode from 'vscode';
 import type { BaseMessage } from '@sandforge/shared';
-import {
-  EnvelopedMessageSchema,
-  PROTOCOL_VERSION,
-  isVersionCompatible,
-} from '@sandforge/shared';
+import { EnvelopedMessageSchema, PROTOCOL_VERSION, isVersionCompatible } from '@sandforge/shared';
 import { extractErrorMessage } from '../core/common/extractErrorMessage.js';
 import { RateLimiter } from '../core/common/RateLimiter.js';
 

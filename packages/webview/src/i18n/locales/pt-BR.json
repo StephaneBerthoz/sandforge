@@ -821,8 +821,8 @@
         "description": "Sincronizar todo o pipeline de oportunidades com produtos e preços"
       },
       "casesAttachments": {
-        "name": "Casos + anexos",
-        "description": "Sincronizar casos de atendimento com comentários e arquivos anexados"
+        "name": "Casos + comentários",
+        "description": "Sincronizar casos de atendimento com seus comentários — arquivos e anexos não são transferidos"
       }
     },
     "realtime": {
@@ -1501,7 +1501,7 @@
     "defaultBatchSize": "Tamanho de lote padrao",
     "maxConcurrentOps": "Operacoes simultaneas maximas",
     "enableGrappe": "Habilitar modo Grappe",
-    "enableGrappeDesc": "Particiona automaticamente operações grandes em clusters paralelos para execução mais rápida.",
+    "enableGrappeDesc": "Informa execuções grandes de Seed, Sync e Autopilot partição por partição. A execução permanece sequencial.",
     "grappeThreshold": "Limite do Grappe (registros)",
     "apiTimeout": "Timeout de API (ms)",
     "retryAttempts": "Tentativas de reexecucao",
@@ -1661,7 +1661,7 @@
     "gettingStartedContent": "1. Conecte sua org Salesforce pela pagina de Organizacoes.\n2. Abra o Monitor para verificar a saude da sua org.\n3. Use Seed para gerar dados de teste na sua sandbox.\n4. Configure Sync para manter os ambientes sincronizados.\n5. Explore Compare, DataOps e Automacao para fluxos de trabalho avancados.",
     "monitorContent": "O painel de Monitor mostra a saude da org em tempo real:\n- Indicador de pontuacao de saude com fatores contribuintes\n- Limites de API com tendencias de uso e previsoes\n- Jobs Apex ativos e recentes\n- Alertas para limites criticos\n\nDica: Habilite a atualizacao automatica para monitoramento continuo.",
     "seedContent": "O assistente de Seed gera dados de teste realistas:\n1. Selecione sua org de destino\n2. Escolha os objetos para popular\n3. Configure as regras de campos (IA, Faker, estatico, sequencia...)\n4. Defina relacionamentos e volumes\n5. Revise e execute\n\nDica: Use a geracao por IA para os dados mais realistas.",
-    "syncContent": "Sincronize dados entre duas orgs Salesforce:\n- 4 modos de sync: Completo, Incremental, Delta, CDC\n- Mapeamento automatico de campos com pontuacoes de confianca\n- 13 tipos de transformacao para manipulacao de dados\n- Estrategias de resolucao de conflitos\n- Suporte a rollback para operacoes seguras",
+    "syncContent": "Sincronize dados entre duas orgs Salesforce:\n- Somente sincronização completa: cada execução reprocessa todo o conjunto de objetos (incremental, delta e CDC não estão implementados)\n- Mapeamento automatico de campos com pontuacoes de confianca\n- 13 tipos de transformacao para manipulacao de dados\n- Estrategias de resolucao de conflitos\n- Suporte a rollback para operacoes seguras",
     "compareContent": "Compare metadados entre duas orgs:\n- Visualizador de diferencas agrupado por categoria e nivel de risco\n- Comparacao de matriz de permissoes\n- Painel de deteccao de drift\n- Grafico de analise de impacto\n- Implantacao direta a partir dos resultados de diferenca",
     "dataopsContent": "Suite completa de operacoes de dados:\n- Backup e restauracao com agendamento\n- Anonimizacao LGPD/CCPA/HIPAA\n- Escaneamento de qualidade de dados com 7 tipos de regras\n- Exclusao em massa e otimizacao de armazenamento\n- Gerenciamento de solicitacoes de titulares de dados (DSR)",
     "automationContent": "Construtor visual de pipelines para automacao:\n- 15 tipos de etapas em 4 categorias\n- 6 tipos de gatilhos incluindo agendamento e webhooks\n- Roteamento condicional com 11 operadores\n- Historico de execucao e acompanhamento de taxa de sucesso\n- Modelos de pipeline para configuracao rapida",
@@ -2229,7 +2229,7 @@
     "forge": "Forge",
     "forgeDesc": "Gerar, sincronizar e transformar dados",
     "grappe": "Grappe",
-    "grappeDesc": "Motor de execução paralela",
+    "grappeDesc": "Progresso por partição em execuções grandes",
     "favorites": "Favoritos",
     "modules": "Módulos",
     "tools": "Ferramentas",
