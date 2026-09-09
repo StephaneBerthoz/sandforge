@@ -263,6 +263,20 @@ else
 fi
 rm -f /tmp/sf-links.txt
 
+# 11e. The shipped screenshots were produced by the generator that exists.
+#
+# Needs real history (the release workflow checks out with fetch-depth: 0);
+# on a shallow clone every lookup returns nothing and the check skips rather
+# than lying, which is why it lives here and not in ci.yml.
+if node scripts/check-screenshots.mjs > /tmp/sf-shots.txt 2>&1; then
+  echo "PASS: $(tail -1 /tmp/sf-shots.txt)"
+else
+  echo "FAIL: shipped screenshots are older than the generator that makes them"
+  grep -E "✗" /tmp/sf-shots.txt | sed 's/^/       /'
+  ERRORS=$((ERRORS + 1))
+fi
+rm -f /tmp/sf-shots.txt
+
 # 11d. (retired in v1.18.0)
 #
 # This step compared the bytes of every screenshot against a copy published in
