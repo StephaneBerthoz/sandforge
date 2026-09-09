@@ -14,6 +14,7 @@
 
 export * from './base.messages.js';
 export * from './bridge.messages.js';
+export * from './file.messages.js';
 export * from './org.messages.js';
 export * from './seed.messages.js';
 export * from './sync.messages.js';
@@ -49,6 +50,7 @@ import type {
   WorkbenchReloadRequest,
   ErrorBoundaryReport,
 } from './bridge.messages.js';
+import type { FileSaveRequest, FileSaveResponse } from './file.messages.js';
 import type {
   SeedExecuteRequest,
   SeedDescribeGlobalRequest,
@@ -439,6 +441,8 @@ import type {
 
 /** Message from WebView to Extension (requests) */
 export type WebViewToExtensionMessage =
+  // File
+  | FileSaveRequest
   // Org
   | OrgListRequest
   | OrgConnectRequest
@@ -624,6 +628,8 @@ export type WebViewToExtensionMessage =
 
 /** Message from Extension to WebView (responses / events) */
 export type ExtensionToWebViewMessage =
+  // File
+  | FileSaveResponse
   // Org
   | OrgListResponse
   | OrgStatusChanged

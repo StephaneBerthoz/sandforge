@@ -22,6 +22,7 @@
     "retry": "再試行",
     "copy": "コピー",
     "export": "エクスポート",
+    "exportSaved": "{{path}} に保存しました",
     "dismiss": "閉じる",
     "toggleSidebar": "サイドバーの切り替え",
     "breadcrumb": "パンくずリスト",
@@ -249,8 +250,6 @@
     },
     "export": {
       "button": "CSVをエクスポート",
-      "success": "制限をエクスポートしました",
-      "successDetail": "CSVファイルが正常にダウンロードされました",
       "noHistory": "履歴データがありません",
       "noHistoryDetail": "履歴エクスポートに使用できるトレンドのタイムスタンプがありません",
       "buttonHistorical": "履歴をエクスポート",
@@ -2064,6 +2063,17 @@
       "planLoading": "実行プランを生成しています...",
       "wave": "ウェーブ",
       "cycles": "循環参照の解決"
+    },
+    "history": {
+      "title": "最近の実行",
+      "reuse": "設定を再利用",
+      "reuseHint": "この実行の設定をフォームに再入力します。組織は復元されないため、選択してから探索を開始してください。",
+      "noConfig": "設定が保存される前に記録されたため、再入力できません。",
+      "loadError": "実行履歴を読み込めませんでした。",
+      "reused": "{{date}} の実行からフォームを再入力しました。",
+      "statusSuccess": "成功",
+      "statusPartial": "部分的",
+      "statusFailure": "失敗"
     }
   },
   "autopilot": {

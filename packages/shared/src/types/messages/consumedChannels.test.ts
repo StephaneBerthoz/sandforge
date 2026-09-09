@@ -112,7 +112,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
   { channel: 'forge:templates:list', reason: 'The Forge recipe library UI was never built.' },
   { channel: 'forge:templates:save', reason: 'Same recipe library slice.' },
   { channel: 'forge:templates:delete', reason: 'Same recipe library slice.' },
-  { channel: 'forge:history:list', reason: 'No Forge run-history panel exists.' },
   { channel: 'forge:target-preflight:request', reason: 'Forge v2 preflight panel not built.' },
   { channel: 'cache:get-stats', reason: 'The Settings cache section was removed; nothing reads.' },
   { channel: 'cache:invalidate-all', reason: 'Same removed section — nothing clears the cache.' },

@@ -21,8 +21,29 @@ export interface SelectProps extends Omit<
 
 /** Styled select component matching VSCode theme. */
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, placeholder, className, id, ...props }, ref) => {
-    const selectId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
+  (
+    {
+      label,
+      error,
+      options,
+      placeholder,
+      className,
+      id,
+      'aria-label': ariaLabel,
+      'aria-labelledby': ariaLabelledBy,
+      ...props
+    },
+    ref,
+  ) => {
+    // Derived from the label text this id collided as soon as two selects on the
+    // same screen shared a label: both got the same id, so both <label for> tags
+    // resolved to the first select and the others lost their accessible name.
+    const generatedId = React.useId();
+    const selectId = id ?? generatedId;
+    // A <select> takes no accessible name from a placeholder <option> — that
+    // option is only its initial value. Without a visible label the control is
+    // anonymous to a screen reader, so the placeholder becomes its aria-label.
+    const resolvedAriaLabel = ariaLabel ?? (!label && !ariaLabelledBy ? placeholder : undefined);
     return (
       <div className="flex flex-col gap-1">
         {label && (
@@ -36,6 +57,8 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         <select
           ref={ref}
           id={selectId}
+          aria-label={resolvedAriaLabel}
+          aria-labelledby={ariaLabelledBy}
           className={cn(
             'w-full px-2 py-1.5 text-sm rounded appearance-none',
             'bg-[var(--vscode-input-background,#3c3c3c)]',

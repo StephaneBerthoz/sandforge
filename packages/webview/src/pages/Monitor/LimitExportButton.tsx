@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Download } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { useNotificationStore } from '../../stores/useNotificationStore';
+import { useFileSave } from '../../hooks/useFileSave';
 import type { ApiLimit, TrendData } from '@sandforge/shared';
 
 /** Export mode: current snapshot or full historical trend data. */
@@ -75,11 +76,12 @@ export function generateHistoricalCsv(trends: Record<string, TrendData>): string
  * - "historical": exports one row per limit per timestamp using trend data.
  *
  * Uses Blob + URL.createObjectURL for browser-side download.
- * Shows a success toast notification after export.
+ * Reports where the file was saved, or why it was not.
  */
 export const LimitExportButton: React.FC<LimitExportButtonProps> = ({ limits, trends }) => {
   const { t } = useTranslation();
   const addNotification = useNotificationStore((s) => s.addNotification);
+  const { save } = useFileSave();
   const [exportMode, setExportMode] = useState<ExportMode>('current');
 
   const handleExport = useCallback(() => {
@@ -109,22 +111,13 @@ export const LimitExportButton: React.FC<LimitExportButtonProps> = ({ limits, tr
       filename = `sandforge-limits-${date}.csv`;
     }
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.click();
-
-    URL.revokeObjectURL(url);
-
-    addNotification({
-      level: 'success',
-      title: t('monitor.export.success', 'Limits exported'),
-      message: t('monitor.export.successDetail', 'CSV file downloaded successfully'),
-    });
-  }, [limits, trends, exportMode, addNotification, t]);
+    // The host saves it: a webview is sandboxed without `allow-downloads`, so
+    // the detached-anchor click this replaces frequently wrote nothing — and
+    // the toast that followed said "downloaded successfully" regardless, with
+    // no branch and nothing to branch on. `useFileSave` announces the real
+    // outcome, including the path.
+    save(filename, csv, ['csv']);
+  }, [limits, trends, exportMode, save]);
 
   return (
     <div className="flex items-center" data-testid="export-group">

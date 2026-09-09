@@ -22,6 +22,7 @@
     "retry": "Retry",
     "copy": "Copy",
     "export": "Export",
+    "exportSaved": "Saved to {{path}}",
     "dismiss": "Dismiss",
     "toggleSidebar": "Toggle sidebar",
     "breadcrumb": "Breadcrumb",
@@ -255,8 +256,6 @@
     },
     "export": {
       "button": "Export CSV",
-      "success": "Limits exported",
-      "successDetail": "CSV file downloaded successfully",
       "noHistory": "No historical data",
       "noHistoryDetail": "No trend timestamps available for historical export",
       "buttonHistorical": "Export History",
@@ -2071,6 +2070,17 @@
       "planLoading": "Generating execution plan...",
       "wave": "Wave",
       "cycles": "Cycle Resolutions"
+    },
+    "history": {
+      "title": "Recent runs",
+      "reuse": "Reuse configuration",
+      "reuseHint": "Refills the form with this run's settings. Orgs are not restored — pick them, then start discovery.",
+      "noConfig": "Recorded before run configurations were kept — nothing to refill.",
+      "loadError": "Run history could not be loaded.",
+      "reused": "Form refilled from the run of {{date}}.",
+      "statusSuccess": "Success",
+      "statusPartial": "Partial",
+      "statusFailure": "Failed"
     }
   },
   "autopilot": {

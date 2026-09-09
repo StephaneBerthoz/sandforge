@@ -10,11 +10,13 @@ import { useForgeStore } from '../../stores/useForgeStore';
 import type {
   ForgeConfig,
   ForgeDepth,
+  ForgeExecutionResult,
   ForgeInputMode,
   ForgeTemplate,
 } from '../../stores/useForgeStore';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useSendMessage } from '../../hooks/useMessageBus';
+import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { buildMessage } from '../../bridge/messageHelpers';
 import { useRecordPreview } from './useRecordPreview';
 import type { RecordPreviewState } from './useRecordPreview';
@@ -41,6 +43,36 @@ export const DEPTH_TOOLTIP_KEYS: Record<ForgeDepth, string> = {
   full: 'forge.depthFullTooltip',
   custom: 'forge.depthCustomTooltip',
 };
+
+/**
+ * The stored half of a past run: the config the extension persists alongside
+ * every history entry, minus the org pair it deliberately strips.
+ */
+export type ForgeRunConfig = NonNullable<ForgeExecutionResult['config']>;
+
+/**
+ * Numeric caps offered by the records-per-object dropdown, ascending.
+ * Mirrors the `<option>` values in ForgeInput — a value outside this set
+ * leaves the select with nothing to show.
+ */
+const RECORD_LIMIT_PRESETS = [10, 50, 100, 500, 1000] as const;
+
+/**
+ * Translate a stored `maxRecordsPerObject` back into a dropdown value.
+ *
+ * `undefined` means "no cap" — the `all` option. Every cap the form can
+ * produce is one of {@link RECORD_LIMIT_PRESETS}, a `smartLimitForCount`
+ * result (50/100/500/1000) or a builtin template cap (50/100), so the exact
+ * value survives the round trip. The one outlier is the SOQL cap of 200,
+ * which has no option: it rounds up to the next preset rather than down, so
+ * the replay never quietly clones fewer records than the run it repeats —
+ * and in SOQL mode `recordLimitValue` clamps it back to 200 anyway.
+ */
+export function recordLimitOptionFor(max: number | undefined): string {
+  if (max == null) return 'all';
+  const preset = RECORD_LIMIT_PRESETS.find((n) => n >= max);
+  return preset === undefined ? 'all' : String(preset);
+}
 
 /** Return type for the useForgeForm hook. */
 export interface ForgeFormState {
@@ -104,6 +136,14 @@ export interface ForgeFormState {
   handleReuseLastGraph: () => void;
   /** Build a ForgeTemplate config snapshot from the current form state. */
   buildTemplateConfig: () => ForgeTemplate['config'];
+
+  /* Run history (persisted by the extension, newest first) */
+  /** Past runs the extension kept, newest first. Empty until the reply lands. */
+  runHistory: ForgeExecutionResult[];
+  /** Message shown when the history request failed; null while it is fine. */
+  historyError: string | null;
+  /** Refill every form field from a past run's stored configuration. */
+  applyHistoryConfig: (config: ForgeRunConfig) => void;
 }
 
 /**
@@ -170,6 +210,18 @@ export function useForgeForm(): ForgeFormState {
   /* ---- Record preview (composed hook) ---- */
   const { preview, previewLoading, previewError, handlePreview, resetPreview, closePreview } =
     useRecordPreview(recordId, sourceOrgId);
+
+  /**
+   * Past runs, from the extension's own store rather than this session's.
+   *
+   * The webview store only holds what `forge:execute:response` returned, and
+   * that payload carries the result without its config — so the in-session
+   * history can be displayed and never replayed. The persisted entries the
+   * extension writes do carry the config, and `forge:history:list` is how
+   * they are asked for.
+   */
+  const historyQuery = useBridgeQuery<{ history: ForgeExecutionResult[] }>('forge:history:list');
+  const runHistory = useMemo(() => historyQuery.data?.history ?? [], [historyQuery.data]);
 
   /* ---- Derived state ---- */
   const sourceOrg = useMemo(() => orgs.find((o) => o.id === sourceOrgId), [orgs, sourceOrgId]);
@@ -445,6 +497,47 @@ export function useForgeForm(): ForgeFormState {
     sendMessage,
   ]);
 
+  /**
+   * Refill the form from a past run's stored configuration.
+   *
+   * Forge runs in three steps (discover -> plan -> execute), so a re-run puts
+   * the settings back in front of the user instead of firing the clone: the
+   * graph is rediscovered against whatever the orgs hold today, and the user
+   * confirms before anything is written.
+   *
+   * Source and target org are *not* restored — the extension strips them from
+   * the stored config on purpose, so a replay re-picks its orgs explicitly
+   * rather than silently repeating against yesterday's pair.
+   *
+   * Fields belonging to the other input modes are cleared, so the form shows
+   * the run it claims to show rather than a mix of it and what was typed.
+   *
+   * `fieldExclusions`, `ownerMappings`, `objectSoqlFilters` and `fieldMappings`
+   * are not restored: the form has no control for them, and no Forge screen
+   * sets them, so a stored config never carries them.
+   */
+  const applyHistoryConfig = useCallback(
+    (config: ForgeRunConfig): void => {
+      setInputMode(config.inputMode);
+      setRecordId(config.inputMode === 'record' ? (config.recordId ?? '') : '');
+      setSoqlQuery(config.inputMode === 'soql' ? (config.soqlQuery ?? '') : '');
+      setSelectedTemplate(config.inputMode === 'template' ? (config.templateId ?? '') : '');
+      setAiPrompt(config.inputMode === 'ai' ? (config.aiPrompt ?? '') : '');
+      setDepth(config.depth);
+      if (config.depth === 'custom' && config.customDepth != null) {
+        setCustomDepth(config.customDepth);
+      }
+      setAnonymize(config.anonymizePII);
+      setSkipEmpty(config.skipEmpty);
+      setExpandOrphanParents(config.expandOrphanParents ?? false);
+      setRecordLimit(recordLimitOptionFor(config.maxRecordsPerObject));
+      // The preview describes the record id that was in the field a moment
+      // ago; keeping it would caption the new one with the old one's counts.
+      resetPreview();
+    },
+    [resetPreview],
+  );
+
   /** Snapshot the current form state as a ForgeTemplate config. */
   const buildTemplateConfig = useCallback((): ForgeTemplate['config'] => {
     return {
@@ -524,5 +617,8 @@ export function useForgeForm(): ForgeFormState {
     canReuseLastGraph,
     handleReuseLastGraph,
     buildTemplateConfig,
+    runHistory,
+    historyError: historyQuery.error,
+    applyHistoryConfig,
   };
 }

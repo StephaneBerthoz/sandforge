@@ -22,6 +22,7 @@
     "retry": "Erneut versuchen",
     "copy": "Kopieren",
     "export": "Exportieren",
+    "exportSaved": "Gespeichert unter {{path}}",
     "dismiss": "Verwerfen",
     "toggleSidebar": "Seitenleiste umschalten",
     "breadcrumb": "Breadcrumb",
@@ -255,8 +256,6 @@
     },
     "export": {
       "button": "CSV exportieren",
-      "success": "Limits exportiert",
-      "successDetail": "CSV-Datei erfolgreich heruntergeladen",
       "noHistory": "Keine historischen Daten",
       "noHistoryDetail": "Keine Trend-Zeitstempel für den historischen Export verfügbar",
       "buttonHistorical": "Verlauf exportieren",
@@ -2071,6 +2070,17 @@
       "planLoading": "Ausführungsplan wird erstellt...",
       "wave": "Welle",
       "cycles": "Zyklusauflösungen"
+    },
+    "history": {
+      "title": "Letzte Durchläufe",
+      "reuse": "Konfiguration wiederverwenden",
+      "reuseHint": "Füllt das Formular mit den Einstellungen dieses Durchlaufs. Orgs werden nicht wiederhergestellt — wählen Sie sie aus und starten Sie dann die Erkennung.",
+      "noConfig": "Vor der Speicherung von Konfigurationen aufgezeichnet — es gibt nichts zu übernehmen.",
+      "loadError": "Der Verlauf der Durchläufe konnte nicht geladen werden.",
+      "reused": "Formular aus dem Durchlauf vom {{date}} übernommen.",
+      "statusSuccess": "Erfolgreich",
+      "statusPartial": "Teilweise",
+      "statusFailure": "Fehlgeschlagen"
     }
   },
   "autopilot": {

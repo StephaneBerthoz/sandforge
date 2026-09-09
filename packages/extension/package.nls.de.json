@@ -39,7 +39,7 @@
   "config.sync.defaultBatchSize.description": "Standard-Batchgröße für Sync-Datenvorgänge",
   "config.sync.maxConcurrentOps.description": "Maximale Anzahl gleichzeitiger Sync-Vorgänge",
   "config.ai.enabled.description": "KI-Assistent aktivieren (erfordert API-Schlüssel in den Secrets)",
-  "config.ai.provider.description": "KI-Anbieter für den Assistenten (anthropic, openai, custom)",
+  "config.ai.provider.description": "KI-Anbieter. Nur `anthropic` ist implementiert; `openai` und `custom` sind deklariert, aber jeder Aufruf löst „nicht implementiert\" aus.",
   "config.ai.model.description": "Zu verwendendes KI-Modell für den Assistenten",
   "config.ai.tokenBudgetMaxPerSession.description": "Maximales KI-Token-Budget pro Assistenten-Panel-Sitzung. Der Zähler wird beim Schließen des Panels zurückgesetzt. SandForge warnt bei 80 % und lehnt weitere Anfragen bei 100 % ab.",
   "config.backup.maxCount.description": "Maximale Anzahl der pro Org aufzubewahrenden Backups",

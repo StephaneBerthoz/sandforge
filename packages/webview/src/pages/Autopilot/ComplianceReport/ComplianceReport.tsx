@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { useFileSave } from '../../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import type {
   ComplianceFrameworkType,
@@ -25,6 +26,7 @@ const FRAMEWORK_LABELS: Record<ComplianceFrameworkType, string> = {
  * the orchestrator — no store-derived demo data.
  */
 export const ComplianceReport: React.FC = () => {
+  const { save } = useFileSave();
   const { t } = useTranslation();
   const {
     data: report,
@@ -40,14 +42,10 @@ export const ComplianceReport: React.FC = () => {
   /** Export the fetched report as JSON. */
   const handleExportJson = useCallback((): void => {
     if (!report) return;
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `compliance-report-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [report]);
+    // Saved by the host: a webview is sandboxed without `allow-downloads`, so
+    // the detached-anchor click this replaces frequently wrote nothing.
+    save(`compliance-report-${Date.now()}.json`, JSON.stringify(report, null, 2), ['json']);
+  }, [report, save]);
 
   if (loading) {
     return (

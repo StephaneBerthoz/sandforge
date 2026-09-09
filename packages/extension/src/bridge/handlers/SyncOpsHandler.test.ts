@@ -1124,4 +1124,286 @@ describe('SyncOpsHandler', () => {
       expect(syncErrors[0].payload.message).toBe('connection failed');
     });
   });
+
+  describe('PERF-04: the source read is paginated, and a bound that cuts it is announced', () => {
+    /**
+     * One row as a real `SELECT FIELDS(ALL) FROM Account` returns it:
+     * `attributes` plus ~35 columns. A three-field fixture pages exactly the
+     * same way and proves nothing about what a real page costs or carries.
+     */
+    function accountRow(index: number): Record<string, unknown> {
+      const id = `001AB000${String(index).padStart(6, '0')}`;
+      return {
+        attributes: { type: 'Account', url: `/services/data/v62.0/sobjects/Account/${id}` },
+        Id: id,
+        IsDeleted: false,
+        MasterRecordId: null,
+        Name: `Account ${index}`,
+        Type: 'Customer - Direct',
+        ParentId: null,
+        BillingStreet: `${index} rue de la Paix`,
+        BillingCity: 'Paris',
+        BillingState: 'IDF',
+        BillingPostalCode: '75002',
+        BillingCountry: 'France',
+        ShippingStreet: `${index} rue de la Paix`,
+        ShippingCity: 'Paris',
+        ShippingState: 'IDF',
+        ShippingPostalCode: '75002',
+        ShippingCountry: 'France',
+        Phone: '+33 1 23 45 67 89',
+        Fax: null,
+        AccountNumber: `CD${index}`,
+        Website: 'https://example.invalid',
+        Sic: '5712',
+        Industry: 'Technology',
+        AnnualRevenue: 1_000_000 + index,
+        NumberOfEmployees: 42,
+        Ownership: 'Private',
+        TickerSymbol: null,
+        Description: 'Seeded by the sync test double.',
+        Rating: 'Warm',
+        Site: null,
+        OwnerId: '005AB0000012345',
+        CreatedDate: '2026-01-01T00:00:00.000+0000',
+        CreatedById: '005AB0000012345',
+        LastModifiedDate: '2026-02-01T00:00:00.000+0000',
+        LastModifiedById: '005AB0000012345',
+        SystemModstamp: '2026-02-01T00:00:00.000+0000',
+        LastActivityDate: null,
+      };
+    }
+
+    /**
+     * A connection double that behaves like the API the handler talks to:
+     * `query` honours the `LIMIT` clause of the SOQL it is given, returns one
+     * page at a time, and hands back a cursor for the rest. A double that
+     * ignores `LIMIT` hides the whole defect — it pages happily while the real
+     * org stops at the limit and says `done: true`.
+     */
+    function createOrgConnection(total: number, pageSize: number) {
+      const page = (cap: number, offset: number) => {
+        const count = Math.max(0, Math.min(pageSize, cap - offset));
+        const next = offset + count;
+        const done = next >= cap;
+        return {
+          totalSize: cap,
+          done,
+          records: Array.from({ length: count }, (_, i) => accountRow(offset + i)),
+          // The cursor carries the cap so the double stays stateless.
+          ...(done ? {} : { nextRecordsUrl: `/services/data/v62.0/query/01g000-${cap}-${next}` }),
+        };
+      };
+      return {
+        query: vi.fn(async (soql: string) => {
+          const limit = /\bLIMIT\s+(\d+)/i.exec(soql);
+          return page(limit ? Math.min(Number(limit[1]), total) : total, 0);
+        }),
+        queryMore: vi.fn(async (url: string) => {
+          const [, cap, offset] = url.split('-');
+          return page(Number(cap), Number(offset));
+        }),
+        describe: vi.fn(),
+        sobject: vi.fn().mockReturnValue({
+          create: vi.fn().mockResolvedValue([]),
+          upsert: vi.fn().mockResolvedValue([]),
+          update: vi.fn().mockResolvedValue([]),
+          destroy: vi.fn().mockResolvedValue([]),
+        }),
+        tooling: { executeAnonymous: vi.fn() },
+        limitInfo: undefined,
+      };
+    }
+
+    /** Shape of the query function the handler hands to the orchestrator. */
+    type QueryFn = (
+      orgId: string,
+      objectConfig: import('@sandforge/shared').SyncObjectConfig,
+    ) => Promise<Record<string, unknown>[]>;
+
+    /**
+     * Run `sync:execute` and hand back the `querySource` closure the handler
+     * built for the orchestrator — the code under test.
+     */
+    /**
+     * Both read closures, with a distinct org type per side.
+     *
+     * The single-tier version of this helper could not have caught the
+     * inversion below: it made both orgs the same type, which is exactly the
+     * case where reading the tier from the source alone looks correct.
+     */
+    async function captureQueryFns(
+      sourceType: string,
+      targetType: string = sourceType,
+    ): Promise<{ querySource: QueryFn; queryTarget: QueryFn }> {
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockImplementation((id: string) => ({
+        orgType: id === validSyncConfig().sourceOrgId ? sourceType : targetType,
+      }));
+      let both: { querySource: QueryFn; queryTarget: QueryFn } | undefined;
+      deps.services = {
+        getSandforgeSetting: vi.fn(() => 200),
+        syncOrchestrator: vi.fn((d: unknown) => {
+          both = d as { querySource: QueryFn; queryTarget: QueryFn };
+          return { execute: vi.fn().mockResolvedValue({ status: 'completed' }) };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle({
+        id: `sync-perf04-${sourceType}-${targetType}`,
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      } as BaseMessage);
+
+      if (!both) throw new Error('syncOrchestrator was never called');
+      return both;
+    }
+
+    async function captureQuerySource(orgType: string): Promise<QueryFn> {
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType });
+      let captured: { querySource: QueryFn } | undefined;
+      deps.services = {
+        getSandforgeSetting: vi.fn(() => 200),
+        syncOrchestrator: vi.fn((d: unknown) => {
+          captured = d as { querySource: QueryFn };
+          return { execute: vi.fn().mockResolvedValue({ status: 'completed' }) };
+        }),
+      } as unknown as HandlerDeps['services'];
+
+      await handler.handle({
+        id: `sync-perf04-${orgType}`,
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      } as BaseMessage);
+
+      if (!captured) throw new Error('syncOrchestrator was never called');
+      return captured.querySource;
+    }
+
+    /** The object config the wizard produces for `Account`. */
+    function accountConfig(): import('@sandforge/shared').SyncObjectConfig {
+      return (validSyncConfig().objects as import('@sandforge/shared').SyncObjectConfig[])[0];
+    }
+
+    /** Every `notification` message posted to the webview. */
+    function notifications(): Array<{ level: string; title: string; message: string }> {
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      return postToWebview.mock.calls
+        .map(
+          (c) =>
+            c[0] as BaseMessage & { payload: { level: string; title: string; message: string } },
+        )
+        .filter((m) => m.type === 'notification')
+        .map((m) => m.payload);
+    }
+
+    it('reads every page of a sandbox source, not just the first', async () => {
+      const conn = createOrgConnection(6_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const querySource = await captureQuerySource('Sandbox');
+      const records = await querySource('src-org', accountConfig());
+
+      // The whole object, not the first page: 6 000 rows over three pages.
+      expect(records).toHaveLength(6_000);
+      expect(conn.queryMore).toHaveBeenCalledTimes(2);
+      // And no server-side truncation to hide behind.
+      expect(conn.query.mock.calls[0][0]).not.toMatch(/\bLIMIT\b/i);
+      expect(notifications()).toHaveLength(0);
+    });
+
+    it('says so when a read bound cuts the object short', async () => {
+      // A cursor that never ends. Small pages so the 500-page bound is the one
+      // reached: 500 pages of 2 000 rows would materialise a million records
+      // in the test for the identical code path.
+      const conn = createOrgConnection(1_000_000, 10);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const querySource = await captureQuerySource('Sandbox');
+      const records = await querySource('src-org', accountConfig());
+
+      expect(records).toHaveLength(5_000);
+      const warned = notifications().filter((n) => n.level === 'warning');
+      expect(warned).toHaveLength(1);
+      expect(warned[0].message).toContain('Account');
+      expect(warned[0].message).toContain('5000 record(s)');
+      expect(warned[0].message).toContain('500 pages');
+      // The side matters: a short read means something different on each.
+      expect(warned[0].message).toContain('from the source');
+      expect(warned[0].message).toContain('copies a subset');
+      expect(deps.log).toHaveBeenCalledWith(
+        expect.stringContaining(
+          '[WARN] sync:execute Account (source): read stopped at 5000 record(s)',
+        ),
+      );
+    });
+
+    it('caps the PRODUCTION side of a sandbox -> production sync', async () => {
+      // The regression this pins: the tier was read from the source alone and
+      // the same closure served both reads. Harmless while every read carried
+      // a LIMIT — but once the cap became conditional it inverted the
+      // protection, and the production TARGET was read with no cap at all,
+      // against the very org whose API budget the cap exists to protect.
+      const conn = createOrgConnection(100_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const { querySource, queryTarget } = await captureQueryFns('Sandbox', 'Production');
+
+      const fromTarget = await queryTarget('tgt-org', accountConfig());
+      expect(fromTarget).toHaveLength(500);
+      expect(conn.query).toHaveBeenLastCalledWith(expect.stringContaining('LIMIT 500'));
+
+      // And the sandbox source is still read in full, as PERF-04 requires.
+      const fromSource = await querySource('src-org', accountConfig());
+      expect(fromSource.length).toBeGreaterThan(500);
+    });
+
+    it('keeps the conservative production cap — and announces it', async () => {
+      const conn = createOrgConnection(100_000, 2_000);
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const querySource = await captureQuerySource('Production');
+      const records = await querySource('src-org', accountConfig());
+
+      // The 500-record production cap is a deliberate guard on a business
+      // org's API budget: it stays, server-side.
+      expect(conn.query.mock.calls[0][0]).toContain('LIMIT 500');
+      expect(records).toHaveLength(500);
+      // What changes is that the user is told the sync is partial.
+      const warned = notifications().filter((n) => n.level === 'warning');
+      expect(warned).toHaveLength(1);
+      expect(warned[0].message).toContain('production-tier query cap');
+    });
+
+    it('still falls back to an explicit field list when the org rejects FIELDS()', async () => {
+      // Regression guard: the paged read must not cost the FIELDS() fallback,
+      // which is the path every org below API 51 takes.
+      const conn = createOrgConnection(3, 2_000);
+      // Typed from the mock itself: `tsconfig.test.json` checks this file, and
+      // a hand-written `Promise<unknown>` does not satisfy the query result shape.
+      const realQuery = conn.query.getMockImplementation() as NonNullable<
+        ReturnType<typeof conn.query.getMockImplementation>
+      >;
+      conn.query.mockImplementation(async (soql: string) => {
+        if (soql.includes('FIELDS(ALL)')) {
+          throw new Error('MALFORMED_QUERY: FIELDS(ALL) is not supported in this API version');
+        }
+        return realQuery(soql);
+      });
+      conn.describe.mockResolvedValue({
+        fields: [{ name: 'Id' }, { name: 'Name' }, { name: 'Custom__c', custom: true }],
+      });
+      mockGetConn.mockResolvedValue(conn as never);
+
+      const querySource = await captureQuerySource('Sandbox');
+      const records = await querySource('src-org', accountConfig());
+
+      expect(records).toHaveLength(3);
+      expect(conn.describe).toHaveBeenCalledWith('Account');
+      const lastSoql = conn.query.mock.calls[conn.query.mock.calls.length - 1][0] as string;
+      expect(lastSoql).toContain('Id, Name, Custom__c');
+      expect(notifications()).toHaveLength(0);
+    });
+  });
 });

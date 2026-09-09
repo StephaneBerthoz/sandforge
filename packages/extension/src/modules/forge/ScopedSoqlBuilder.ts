@@ -115,7 +115,7 @@ export class ScopedSoqlBuilder {
 
     const ownIds = opts.cache.get(opts.node.objectApiName);
     if (ownIds && ownIds.size > 0) {
-      const idList = formatIdList(ownIds);
+      const idList = formatIdList(ownIds, opts.node.objectApiName);
       return {
         soql: `SELECT ${select} FROM ${objectName} WHERE Id IN (${idList})${extraSuffix}`,
         scoped: true,
@@ -140,7 +140,7 @@ export class ScopedSoqlBuilder {
       );
       if (fkFields.length === 0) continue;
 
-      const idList = formatIdList(parentIds);
+      const idList = formatIdList(parentIds, opts.node.objectApiName);
       for (const fk of fkFields) {
         fkClauses.push(`${assertSoqlIdentifier(fk.name)} IN (${idList})`);
       }
@@ -182,8 +182,43 @@ export class ScopedSoqlBuilder {
   }
 }
 
-/** Format a set of IDs as a SOQL `IN` list with single-quoted, sanitized values. */
-function formatIdList(ids: ReadonlySet<string>): string {
+/**
+ * Ids that still fit in a query request URI.
+ *
+ * Salesforce serves a scoped query over GET, and the request URI budget is
+ * about 16 000 characters. An 18-character Id costs 22 once quoted and
+ * separated, so the list stops fitting somewhere past 700 — and the whole
+ * statement, not just the list, has to fit. 600 keeps a wide margin for the
+ * SELECT clause, the object name and the suffix.
+ *
+ * This is a bound on what the transport can carry, not a product decision.
+ * Raising it means batching the query, which is a real change with real
+ * consumers (PERF-03) — not a bigger number here.
+ */
+const MAX_SCOPE_IDS = 600;
+
+/**
+ * Format a set of IDs as a SOQL `IN` list with single-quoted, sanitized values.
+ *
+ * Throws past {@link MAX_SCOPE_IDS} rather than building a statement the org
+ * will reject. The rejection it replaces was a bare URI-too-long from
+ * Salesforce, which is what the audit meant by "fails with no explanation": the
+ * user saw a transport error and had no way to connect it to the 1 000 contacts
+ * under the account they picked.
+ *
+ * Truncating instead was considered and rejected — a clone that silently
+ * copies the first 600 of 1 000 children is worse than one that stops and says
+ * why.
+ */
+function formatIdList(ids: ReadonlySet<string>, objectApiName?: string): string {
+  if (ids.size > MAX_SCOPE_IDS) {
+    const where = objectApiName ? ` for ${objectApiName}` : '';
+    throw new Error(
+      `Scoped clone${where} needs ${ids.size} record Ids in one query, and a Salesforce ` +
+        `query URI holds about ${MAX_SCOPE_IDS}. Narrow the selection — lower the depth, ` +
+        `cap records per object, or filter the root — and run it again.`,
+    );
+  }
   const parts: string[] = [];
   for (const id of ids) {
     parts.push(`'${sanitizeSoqlValue(id)}'`);

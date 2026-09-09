@@ -39,7 +39,7 @@
   "config.sync.defaultBatchSize.description": "Tamaño de lote predeterminado para operaciones de datos de Sync",
   "config.sync.maxConcurrentOps.description": "Número máximo de operaciones de sincronización simultáneas",
   "config.ai.enabled.description": "Habilitar el Asistente IA (requiere clave de API en los secretos)",
-  "config.ai.provider.description": "Proveedor de IA para el asistente (anthropic, openai, custom)",
+  "config.ai.provider.description": "Proveedor de IA. Solo `anthropic` está implementado; `openai` y `custom` están declarados pero cada llamada lanza «no implementado».",
   "config.ai.model.description": "Modelo de IA a usar para el asistente",
   "config.ai.tokenBudgetMaxPerSession.description": "Presupuesto máximo de tokens de IA por sesión del panel Asistente. El contador se reinicia al cerrar el panel. SandForge avisa al 80 % y rechaza nuevas solicitudes al 100 %.",
   "config.backup.maxCount.description": "Número máximo de copias de seguridad a conservar por org",

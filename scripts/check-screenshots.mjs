@@ -48,6 +48,20 @@ function lastCommit(path) {
   return commitsTouching(path)[0] ?? null;
 }
 
+/** Has `path` been written since its last commit, or is it untracked? */
+function isDirty(path) {
+  try {
+    const out = execFileSync('git', ['status', '--porcelain', '--', path], {
+      cwd: ROOT,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.trim() !== '';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * `path` at `rev`, normalised past the changes a formatter is allowed to make.
  *
@@ -160,6 +174,11 @@ for (const shot of shots) {
 
   const shotCommit = lastCommit(shot);
   if (shotCommit === null) continue; // never committed yet — this run is producing it
+  // Written since its last commit — including a file deleted long ago and
+  // recreated now, whose `git log` still points at the deletion. Either way
+  // this run is producing it, and judging it against history would call a
+  // fresh image stale.
+  if (isDirty(shot)) continue;
   if (generatorCommit !== null && !isAncestor(generatorCommit, shotCommit)) {
     failures.push(
       `${shot} was last written before ${relative('.', GENERATOR)} last changed behaviour ` +

@@ -28,6 +28,15 @@ export interface ObjectSetEditorProps {
 
 const OPERATIONS: SyncOperation[] = ['insert', 'update', 'upsert', 'delete'];
 
+/**
+ * Every row repeats the same four controls, so a bare field label ("Operation")
+ * would name a dozen controls identically. Qualifying it with the object API
+ * name — never translated — tells a screen reader which row it is reading.
+ */
+function rowLabel(field: string, objectApiName: string): string {
+  return `${field} \u2014 ${objectApiName}`;
+}
+
 /** Object set management editor. */
 export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
   entries,
@@ -68,12 +77,14 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
               value={entry.operation}
               onChange={(e) => onChange(i, 'operation', e.target.value)}
               className="w-24"
+              aria-label={rowLabel(t('sync.operation'), entry.objectApiName)}
             />
             <Input
               placeholder={t('sync.externalId')}
               value={entry.externalIdField}
               onChange={(e) => onChange(i, 'externalIdField', e.target.value)}
               className="w-28"
+              aria-label={rowLabel(t('sync.externalId'), entry.objectApiName)}
             />
             <Input
               type="number"
@@ -83,17 +94,20 @@ export const ObjectSetEditor: React.FC<ObjectSetEditorProps> = ({
               value={entry.batchSize}
               onChange={(e) => onChange(i, 'batchSize', parseInt(e.target.value, 10) || 200)}
               className="w-20"
+              aria-label={rowLabel(t('sync.batchSize'), entry.objectApiName)}
             />
             <Input
-              placeholder="WHERE clause"
+              placeholder={t('automation.stepConfigWhere')}
               value={entry.where}
               onChange={(e) => onChange(i, 'where', e.target.value)}
               className="flex-1"
+              aria-label={rowLabel(t('automation.stepConfigWhere'), entry.objectApiName)}
             />
             <button
               className="text-[var(--sf-error)] hover:opacity-70 px-1"
               onClick={() => onRemove(i)}
               data-testid={`remove-obj-${entry.objectApiName}`}
+              aria-label={rowLabel(t('sync.removeObject'), entry.objectApiName)}
             >
               x
             </button>

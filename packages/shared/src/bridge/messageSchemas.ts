@@ -428,6 +428,8 @@ const SettingsMessages = [
   msg('config:validate'),
   msg('config:validate:response'),
   // Bridge control messages (emitted by the MessageBroker itself)
+  msg('file:save'),
+  msg('file:save:response'),
   msg('bridge:error'),
   msg('bridge:protocol-mismatch'),
   msg('bridge:reload-banner'),

@@ -14,6 +14,7 @@ import type { HandlerDeps, DomainHandler, GrappeEventEnvelope } from './HandlerT
 import {
   buildResponse,
   sendHandlerError,
+  sendNotification,
   sendOperationStarted,
   sendOperationProgress,
   sendOperationCompleted,
@@ -26,6 +27,11 @@ import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { queryWithFieldsFallback, queryAll } from '../../core/common/soqlQueryHelper.js';
+import {
+  queryAllPages,
+  FORGE_QUERY_MAX_RECORDS,
+  FORGE_QUERY_MAX_PAGES,
+} from '../../modules/forge/queryAllPages.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
 import {
   validatePayload,
@@ -639,12 +645,23 @@ export class SyncOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
-      // Resolve dynamic query limits based on source org tier
-      const syncSourceOrg = this.deps.orgManager.getOrg(config.sourceOrgId);
-      const syncOrgTier = resolveOrgTier(
-        syncSourceOrg?.orgType === 'Sandbox' || syncSourceOrg?.orgType === 'Scratch',
-      );
-      const syncQueryLimits = getQueryLimits(syncOrgTier);
+      /**
+       * Query limits, resolved PER ORG.
+       *
+       * This used to resolve the tier from the source alone and hand the same
+       * closure to both reads. Harmless while every read carried a LIMIT; the
+       * moment the cap became conditional it inverted the protection it exists
+       * for — on a sandbox -> production sync the source is a sandbox, so the
+       * production TARGET was read with no cap at all, against the very org
+       * whose API budget the cap protects.
+       */
+      const limitsFor = (
+        orgId: string,
+      ): { tier: ReturnType<typeof resolveOrgTier>; limits: ReturnType<typeof getQueryLimits> } => {
+        const org = this.deps.orgManager.getOrg(orgId);
+        const tier = resolveOrgTier(org?.orgType === 'Sandbox' || org?.orgType === 'Scratch');
+        return { tier, limits: getQueryLimits(tier) };
+      };
 
       // Build robustness utilities
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
@@ -682,7 +699,7 @@ export class SyncOpsHandler implements DomainHandler {
       // Build query functions with retry wrapping and dynamic limits
       const queryRetryOp = new RetryableOperation({ retryConfig: robustnessConfig.retry });
       const buildQueryFn =
-        (conn: typeof sourceConn) =>
+        (conn: typeof sourceConn, orgId: string) =>
         async (
           _orgId: string,
           objectConfig: import('@sandforge/shared').SyncObjectConfig,
@@ -704,15 +721,93 @@ export class SyncOpsHandler implements DomainHandler {
             }
             soql += ` WHERE ${objectConfig.where}`;
           }
-          soql += ` LIMIT ${syncQueryLimits.defaultQueryLimit}`;
-          const retryResult = await queryRetryOp.execute(() =>
-            queryWithFieldsFallback<Record<string, unknown>>(conn, safeObj, soql),
-          );
+          // PERF-04: this query used to end in a bare
+          // `LIMIT ${syncQueryLimits.defaultQueryLimit}` and read the first
+          // page only — 2 000 rows from a sandbox source, 500 from a
+          // production one. On the 100 000-record orgs this product targets
+          // that copies 2 % of the object and reports a completed sync.
+          //
+          // Two changes, and only these two:
+          //  - the read follows the cursor to the end (`queryAllPages`, the
+          //    same bounded helper Forge uses since PERF-02);
+          //  - when a bound cuts the read short the user is told, on the
+          //    notification channel and in the log. A bounded sync is a
+          //    legitimate outcome; a silently partial one is the defect.
+          //
+          // The production cap stays. `queryLimits` keeps a production source
+          // conservative on purpose — a sandbox refresh must not spend a
+          // business org's daily API budget — so a production-tier run is
+          // still capped server-side at `defaultQueryLimit` and now announces
+          // the cut instead of hiding it. Sandbox and scratch sources, where
+          // the 100 000-row clone actually happens, read every page up to
+          // FORGE_QUERY_MAX_RECORDS / FORGE_QUERY_MAX_PAGES.
+          const { tier, limits } = limitsFor(orgId);
+          if (tier === 'production') {
+            soql += ` LIMIT ${limits.defaultQueryLimit}`;
+          }
+          let boundCutTheRead = false;
+          const retryResult = await queryRetryOp.execute(async () => {
+            try {
+              const paged = await queryAllPages<Record<string, unknown>>(
+                {
+                  // jsforce hands back a thenable `Query`, not a Promise.
+                  query: async (q) => conn.query<Record<string, unknown>>(q),
+                  queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+                },
+                soql,
+              );
+              boundCutTheRead = paged.truncated;
+              return paged.records;
+            } catch {
+              // The org rejects the `FIELDS()` syntax: fall back to the
+              // explicit field list built from `describe()`. That path
+              // paginates internally and rethrows anything that is not a
+              // FIELDS() problem, so a real failure still surfaces.
+              const records = await queryWithFieldsFallback<Record<string, unknown>>(
+                conn,
+                safeObj,
+                soql,
+              );
+              boundCutTheRead = records.length >= FORGE_QUERY_MAX_RECORDS;
+              return records;
+            }
+          });
           if (!retryResult.success) {
             throw retryResult.error ?? new Error('Query failed after retries');
           }
           checkApiLimits(conn.limitInfo, `sync:execute query ${safeObj}`);
-          return retryResult.result ?? [];
+          const records = retryResult.result ?? [];
+          const tierCapReached =
+            tier === 'production' && records.length >= limits.defaultQueryLimit;
+          if (boundCutTheRead || tierCapReached) {
+            const bound = tierCapReached
+              ? `${limits.defaultQueryLimit} records (production-tier query cap)`
+              : `${FORGE_QUERY_MAX_RECORDS} records / ${FORGE_QUERY_MAX_PAGES} pages`;
+            // The same closure reads both orgs, and a short read means
+            // different things on each: on the source it means part of the
+            // object is not copied, on the target it means delta detection and
+            // conflict resolution ran against part of the destination — which
+            // can make an update look like an insert. Saying "the sync copies
+            // this subset" on the target read would be the wrong warning.
+            const side = orgId === config.sourceOrgId ? 'source' : 'target';
+            const consequence =
+              side === 'source'
+                ? 'this sync copies a subset, not the whole object'
+                : 'delta detection ran against a subset of the destination';
+            this.deps.log(
+              `[WARN] sync:execute ${safeObj} (${side}): read stopped at ${records.length} ` +
+                `record(s) — bound: ${bound}. ${consequence}.`,
+            );
+            sendNotification(
+              this.deps,
+              'warning',
+              'Sync',
+              `${safeObj}: only ${records.length} record(s) were read from the ${side} ` +
+                `(bound: ${bound}) — ${consequence}. ` +
+                `Narrow it with a WHERE filter, or split the run.`,
+            );
+          }
+          return records;
         };
 
       // Lazy-import sync dependencies
@@ -778,8 +873,8 @@ export class SyncOpsHandler implements DomainHandler {
         transformPipeline,
         migrationScript,
         incrementalTracker,
-        querySource: buildQueryFn(sourceConn),
-        queryTarget: buildQueryFn(targetConn),
+        querySource: buildQueryFn(sourceConn, config.sourceOrgId),
+        queryTarget: buildQueryFn(targetConn, config.targetOrgId),
         services: this.deps.services,
         // Same contract as seed: without BOTH the config and the callback the
         // `grappe:*` channels never fire and the Grappe page stays blank.

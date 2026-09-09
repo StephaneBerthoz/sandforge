@@ -36,6 +36,54 @@ function polymorphic(name: string, targets: string[]): ScopableField {
 const ROOT_ID = '500XX00000000001AAA';
 
 describe('ScopedSoqlBuilder', () => {
+  describe('scope id bound (PERF-03)', () => {
+    it('refuses a scope too large for a query URI, and says what to do', () => {
+      // A scoped query travels over GET. Past roughly 600 quoted Ids the
+      // request URI stops fitting and the org rejects it with a transport
+      // error the user cannot connect to the record they picked — which is
+      // what the audit meant by "fails with no explanation".
+      const builder = new ScopedSoqlBuilder();
+      const cache = new RecordScopeCache();
+      cache.add(
+        'Contact',
+        Array.from({ length: 601 }, (_, i) => `003${String(i).padStart(15, '0')}`),
+      );
+
+      expect(() =>
+        builder.build({
+          node: makeNode('Contact', 1),
+          fields: [],
+          selectFields: ['Id'],
+          edges: [],
+          cache,
+          rootObjectApiName: 'Case',
+          rootRecordId: ROOT_ID,
+        }),
+      ).toThrow(/601 record Ids/);
+    });
+
+    it('builds the query when the scope still fits', () => {
+      const builder = new ScopedSoqlBuilder();
+      const cache = new RecordScopeCache();
+      cache.add(
+        'Contact',
+        Array.from({ length: 600 }, (_, i) => `003${String(i).padStart(15, '0')}`),
+      );
+
+      const result = builder.build({
+        node: makeNode('Contact', 1),
+        fields: [],
+        selectFields: ['Id'],
+        edges: [],
+        cache,
+        rootObjectApiName: 'Case',
+        rootRecordId: ROOT_ID,
+      });
+
+      expect(result.scopeIdCount).toBe(600);
+    });
+  });
+
   describe('root', () => {
     it('emits WHERE Id = ? for the root object', () => {
       const builder = new ScopedSoqlBuilder();

@@ -788,6 +788,22 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 **Scale & Complete**: Enterprise foundation, real-time sync, conflict resolution, AI personas, streaming execution, and three new seed modes.
 
+> **Correction (2026-09-09).** Two bullets in this entry — "Cache manager with
+> automatic org-switch invalidation" under _Added_, and "Org-switch cache
+> invalidation (no stale data between orgs)" under _Performance_ — described
+> something that never ran. `CacheManager` shipped with a `register()` method
+> that no production code has ever called, so its registry has been empty since
+> the first commit and `invalidateAll()` always iterated over nothing. The
+> `cache:invalidate-all` and `cache:get-stats` channels reached a live handler
+> that operated on that same empty registry.
+>
+> What was true, and still is: no stale data crosses an org switch. Every real
+> cache is already keyed by org — `DescribeCache` is a `Map<orgId, …>`, the
+> describe caches key on `${orgId}::${objectApiName}` and on `orgId` — and
+> `RecordScopeCache` is built per run and dies with it. The invalidation was
+> never needed, which is why nobody noticed it was absent. The claim was wrong;
+> the guarantee it advertised came from the per-org keys.
+
 ### Added
 
 **CSV Import (Seed)**
@@ -887,7 +903,8 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - Notification center with severity filters and mark-as-read
 - Bulk job progress tracker with per-object progress bars
 - Error recovery panel with retry, exponential backoff, and skip options
-- Cache manager with automatic org-switch invalidation
+- ~~Cache manager with automatic org-switch invalidation~~ — retracted, never
+  ran; see the correction note at the top of this entry
 
 ### Changed
 
@@ -900,7 +917,8 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 
 - Virtual scrolling for all large data tables (10,000+ rows)
 - Ring buffer for CDC events (constant memory, no array growth)
-- Org-switch cache invalidation (no stale data between orgs)
+- ~~Org-switch cache invalidation (no stale data between orgs)~~ — retracted,
+  never ran; the per-org cache keys provided this, not an invalidation pass
 - Streaming execution for datasets > 10K records (async generator, 2000/chunk)
 - Background operation detachment: UI stays responsive during long-running ops
 - VSIX size: 1.23 MB

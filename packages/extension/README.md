@@ -65,6 +65,10 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ![Home — orgs, health and the forge entry point](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/home.png)
 
+![Seed — the template gallery and object picker that fill an empty dev org](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/seed.png)
+
+![Sync — source and target orgs, direction, conflict strategy and a filtered object set](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/sync.png)
+
 ![Monitor — health score, governor limits and storage breakdown](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/monitor.png)
 
 ![DataOps — backup history with per-object results](https://raw.githubusercontent.com/StephaneBerthoz/sandforge/master/assets/screenshots/dataops.png)

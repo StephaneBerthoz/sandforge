@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import { useFileSave } from '../../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import type { CloneExecutionResult, CloneObjectResult } from '@sandforge/shared';
 import { Badge } from '../../../components/ui/Badge';
@@ -32,6 +33,7 @@ export interface CloneResultsPanelProps {
  * results with ID mapping tables, error lists, and an export button.
  */
 export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, onDone }) => {
+  const { save } = useFileSave();
   const { t } = useTranslation();
 
   /** Track current pagination page per object. */
@@ -74,15 +76,10 @@ export const CloneResultsPanel: React.FC<CloneResultsPanelProps> = ({ result, on
         lines.push(`${objResult.objectApiName},${mapping.sourceId},${mapping.targetId}`);
       }
     }
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'clone-id-mapping.csv';
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }, [result.objectResults]);
+    // Saved by the host: a webview is sandboxed without `allow-downloads`, so
+    // the detached-anchor click this replaces frequently wrote nothing.
+    save('clone-id-mapping.csv', lines.join('\n'), ['csv']);
+  }, [result.objectResults, save]);
 
   /** Build accordion content for a single object result. */
   const buildObjectContent = (objResult: CloneObjectResult): React.ReactNode => {

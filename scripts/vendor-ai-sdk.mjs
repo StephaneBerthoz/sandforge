@@ -1,10 +1,22 @@
 #!/usr/bin/env node
 /**
- * Vendor the Anthropic AI SDK — plus zod, its *optional peer* dependency,
- * because the SDK's `helpers/zod` entry points import `zod/v4` — into
- * `packages/extension/dist/node_modules/`. The SDK's only declared runtime
- * dependency is `json-schema-to-ts`, which nothing in its shipped runtime
- * files imports (see TYPE_ONLY_DEPS).
+ * Vendor the Anthropic AI SDK — and every package its shipped runtime files
+ * actually import, transitively — into `packages/extension/dist/node_modules/`.
+ *
+ * Nothing here is a hand-kept package list. The set is recomputed on every
+ * build from what the copied files import, intersected with what the copied
+ * package declares (`dependencies` + `peerDependencies`):
+ *   - `zod` ships because `helpers/zod.mjs` imports `zod/v4`, and the SDK
+ *     declares zod as an (optional) peer dependency;
+ *   - `json-schema-to-ts` does not, because it appears only in the SDK's type
+ *     definitions — no shipped `.js`/`.mjs`/`.cjs` imports it;
+ *   - `@modelcontextprotocol/sdk`, named in `helpers/beta/mcp` JSDoc, is not
+ *     declared by the SDK at all, so it is not ours to vendor.
+ * An SDK bump that grows a real runtime dependency therefore vendors it on the
+ * next build, and one whose dependency cannot be resolved fails the build —
+ * instead of shipping a VSIX where every AI call throws MODULE_NOT_FOUND.
+ * The residual blind spot is a dependency imported through a computed
+ * specifier; published SDK builds import statically.
  *
  * Context: esbuild bundles the extension with `--external:@anthropic-ai/sdk`
  * (see packages/extension/package.json) and AnthropicAdapter loads the SDK
@@ -18,19 +30,21 @@
  * The copy is pruned (type defs, source maps, TS sources, docs, nested
  * node_modules, zod's v3 tree) — only the runtime payload is kept.
  *
- * Invoked by the extension's `build` script, right after esbuild. Fails
- * loudly when a source package is missing: a VSIX without the vendored SDK
- * would break every AI call at runtime.
+ * Usage: `node scripts/vendor-ai-sdk.mjs [extensionDir]`. Invoked by the
+ * extension's `build` script, right after esbuild; the optional argument lets
+ * the tests drive the real script over a fixture tree.
  */
 import { cpSync, existsSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
-import { createRequire } from 'node:module';
+import { createRequire, isBuiltin } from 'node:module';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const extDir = join(repoRoot, 'packages', 'extension');
-const outDir = join(extDir, 'dist', 'node_modules');
+const defaultExtDir = join(repoRoot, 'packages', 'extension');
+
+/** The package the extension loads; the root of the vendored graph. */
+const SDK_PKG = '@anthropic-ai/sdk';
 
 /** Directory names dropped from the vendored copy (dead weight at runtime). */
 const PRUNE_DIRS = new Set([
@@ -45,14 +59,19 @@ const PRUNE_DIRS = new Set([
 ]);
 /** Files dropped from the vendored copy: type defs, source maps, markdown docs (LICENSE kept). */
 const PRUNE_FILE = /\.(d\.ts|d\.mts|d\.cts|map)$|\.md$/i;
-/**
- * Declared SDK dependencies that exist for their types only — no shipped
- * runtime file imports them, so they are deliberately left out of the copy.
- * Spelled out so the check below stays a check instead of a rubber stamp.
- */
-export const TYPE_ONLY_DEPS = new Set(['json-schema-to-ts']);
 /** Vendored files that Node can execute, hence can carry a module specifier. */
 const SCRIPT_FILE = /\.(js|mjs|cjs)$/;
+/**
+ * Every module specifier a source file can carry.
+ *
+ * `from '…'`, `require('…')`, `import('…')` — and `import '…';`, the
+ * side-effect form with no binding. That last one was missing, and it made the
+ * guard fail OPEN: a dependency reached only that way was never vendored, and
+ * the VSIX shipped with the exact MODULE_NOT_FOUND this script exists to
+ * prevent. A guard that misses a case is worse than no guard, because the
+ * build stays green while the artifact breaks.
+ */
+const IMPORT_SPECIFIER = /(?:\bfrom|\brequire\s*\(|\bimport\s*\(|\bimport)\s*(['"])([^'"]+)\1/g;
 /**
  * The zod entry points pruned below. A future SDK reaching for `zod/v3` — or
  * for the bare `zod` root, which resolves to the same v3 tree — has to break
@@ -90,13 +109,39 @@ export function findDeadZodImport(source) {
 }
 
 /**
- * Declared runtime dependencies of the SDK that never made it into the copy.
- * `isVendored` is injected so the rule can be exercised without a real tree.
+ * The package a module specifier points at — `zod/v4` → `zod`, `@a/b/c` → `@a/b`
+ * — or null for a relative path or a Node builtin, which need no vendoring.
  */
-export function unvendoredRuntimeDeps(sdkPkg, isVendored) {
-  return Object.keys(sdkPkg.dependencies ?? {}).filter(
-    (dep) => !TYPE_ONLY_DEPS.has(dep) && !isVendored(dep),
-  );
+export function packageOfSpecifier(specifier) {
+  if (specifier.startsWith('.') || specifier.startsWith('/') || isBuiltin(specifier)) return null;
+  const segments = specifier.split('/');
+  if (!specifier.startsWith('@')) return segments[0] || null;
+  return segments.length >= 2 ? `${segments[0]}/${segments[1]}` : null;
+}
+
+/** Every package `source` imports, requires or dynamically imports. */
+export function importedPackages(source) {
+  const names = new Set();
+  for (const match of source.matchAll(IMPORT_SPECIFIER)) {
+    const name = packageOfSpecifier(match[2]);
+    if (name) names.add(name);
+  }
+  return names;
+}
+
+/**
+ * The packages to vendor alongside `pkg`: the ones it declares (dependency or
+ * peer dependency alike) AND its shipped runtime files import. Declared without
+ * an import means type-only — the copy would be dead weight; imported without a
+ * declaration means the package is not `pkg`'s to bring, so vendoring it here
+ * would guess at a version nobody asked for.
+ */
+export function vendorableDeps(pkg, imported) {
+  const declared = new Set([
+    ...Object.keys(pkg.dependencies ?? {}),
+    ...Object.keys(pkg.peerDependencies ?? {}),
+  ]);
+  return [...declared].filter((name) => imported.has(name)).sort();
 }
 
 /** Total byte size of all files under dir (recursive). */
@@ -125,36 +170,62 @@ function fail(msg) {
   process.exit(1);
 }
 
-async function main() {
+/** Where `dependent` (installed at `fromDir`) resolves `name` — or a build failure. */
+function packageDirOf(fromDir, name, dependent) {
+  try {
+    const req = createRequire(join(fromDir, 'package.json'));
+    return realpathSync(dirname(req.resolve(`${name}/package.json`)));
+  } catch (err) {
+    fail(
+      `"${dependent}" imports "${name}", which does not resolve from ${fromDir} ` +
+        `(${err.code ?? 'resolution failed'}) — run pnpm install, or add "${name}" to the ` +
+        "extension's dependencies so the VSIX can carry it.",
+    );
+    return ''; // unreachable: fail() exits.
+  }
+}
+
+/** Copy `src` into the vendored tree, pruning what never runs. */
+function vendorPackage(name, src, outDir) {
+  const dest = join(outDir, ...name.split('/'));
+  cpSync(src, dest, {
+    recursive: true,
+    filter: name === 'zod' ? zodPruneFilter(src) : pruneFilter,
+  });
+  return dest;
+}
+
+async function main(extensionDir) {
   // ── Resolve sources (pnpm symlinks package dirs into .pnpm — dereference). ──
-  const sdkLink = join(extDir, 'node_modules', '@anthropic-ai', 'sdk');
-  if (!existsSync(sdkLink))
-    fail(`@anthropic-ai/sdk not found at ${sdkLink} — run pnpm install first.`);
-  const sdkSrc = realpathSync(sdkLink);
+  const outDir = join(extensionDir, 'dist', 'node_modules');
+  const sdkLink = join(extensionDir, 'node_modules', ...SDK_PKG.split('/'));
+  if (!existsSync(sdkLink)) fail(`${SDK_PKG} not found at ${sdkLink} — run pnpm install first.`);
 
-  // Resolve zod as the SDK sees it (peer dependency instance), not whatever
-  // version happens to be hoisted for the extension itself.
-  const sdkRequire = createRequire(join(sdkSrc, 'package.json'));
-  const zodSrc = realpathSync(dirname(sdkRequire.resolve('zod/package.json')));
-
-  // ── Copy ───────────────────────────────────────────────────────────────────
+  // ── Copy the SDK, then whatever it reaches for, transitively ───────────────
   rmSync(outDir, { recursive: true, force: true });
 
-  const sdkDest = join(outDir, '@anthropic-ai', 'sdk');
-  const zodDest = join(outDir, 'zod');
-  cpSync(sdkSrc, sdkDest, { recursive: true, filter: pruneFilter });
-  cpSync(zodSrc, zodDest, { recursive: true, filter: zodPruneFilter(zodSrc) });
+  const vendored = new Map();
+  const queue = [{ name: SDK_PKG, src: realpathSync(sdkLink) }];
+  while (queue.length > 0) {
+    const { name, src } = queue.shift();
+    if (vendored.has(name)) continue;
+    const dest = vendorPackage(name, src, outDir);
+    vendored.set(name, dest);
 
-  // The copy list above is hand-written; nothing keeps it in step with the SDK
-  // but this check, which turns a new dependency into a build failure.
-  const sdkPkg = JSON.parse(readFileSync(join(sdkSrc, 'package.json'), 'utf8'));
-  for (const dep of unvendoredRuntimeDeps(sdkPkg, (name) => existsSync(join(outDir, name))))
-    fail(
-      `SDK dependency "${dep}" is declared but not vendored — copy it above, or ` +
-        'add it to TYPE_ONLY_DEPS if no shipped runtime file imports it.',
-    );
+    const pkg = JSON.parse(readFileSync(join(src, 'package.json'), 'utf8'));
+    const imported = new Set();
+    for (const file of await filesMatching(dest, SCRIPT_FILE))
+      for (const spec of importedPackages(readFileSync(file, 'utf8'))) imported.add(spec);
+
+    for (const dep of vendorableDeps(pkg, imported)) {
+      if (vendored.has(dep) || queue.some((queued) => queued.name === dep)) continue;
+      queue.push({ name: dep, src: packageDirOf(src, dep, name) });
+    }
+  }
 
   // ── Sanity checks: the exact files Node will require() at runtime. ──────────
+  const sdkDest = join(outDir, ...SDK_PKG.split('/'));
+  const zodDest = join(outDir, 'zod');
   if (!existsSync(join(sdkDest, 'index.js'))) fail('vendored SDK is missing index.js');
   if (!existsSync(join(sdkDest, 'helpers', 'zod.js')))
     fail('vendored SDK is missing helpers/zod.js');
@@ -186,13 +257,12 @@ async function main() {
       );
   }
 
-  const sdkSize = await dirSize(sdkDest);
-  const zodSize = await dirSize(zodDest);
-  console.log(
-    `[vendor-ai-sdk] vendored @anthropic-ai/sdk (${(sdkSize / 1024).toFixed(0)} KB) ` +
-      `+ zod (${(zodSize / 1024).toFixed(0)} KB) → ${outDir}`,
-  );
+  const sizes = [];
+  for (const [name, dest] of vendored)
+    sizes.push(`${name} (${((await dirSize(dest)) / 1024).toFixed(0)} KB)`);
+  console.log(`[vendor-ai-sdk] vendored ${sizes.join(' + ')} → ${outDir}`);
 }
 
 // Importing this module (from its test) must not vendor anything.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  await main(resolve(process.argv[2] ?? defaultExtDir));

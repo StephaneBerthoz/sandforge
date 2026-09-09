@@ -193,5 +193,66 @@ describe('OrgRegistry', () => {
       const result = await registry.getCredentials('nonexistent');
       expect(result).toBeUndefined();
     });
+
+    // PERF-11: the startup sweep validates orgs one after the other and every
+    // org's check begins with this read. A keyring that never answers used to
+    // park the sweep on org 1 forever.
+    it('should reject on a secret-storage read that never settles instead of hanging', async () => {
+      // Captured before the fake clock is installed — the guard below has to
+      // fire in real time even while the mocked one is frozen.
+      const realSetTimeout = globalThis.setTimeout;
+      const neverSettles: SecretStorageAdapter = {
+        get: vi.fn(() => new Promise<string | undefined>(() => undefined)),
+        store: vi.fn(() => Promise.resolve()),
+        delete: vi.fn(() => Promise.resolve()),
+      };
+      const stalled = new OrgRegistry(configStore, new SecretVault(neverSettles), orgManager);
+
+      vi.useFakeTimers();
+      try {
+        const settled = stalled
+          .getCredentials('001')
+          .then(() => 'resolved' as const)
+          .catch((err: unknown) => err);
+        // Without the deadline `settled` never settles; racing a real-time
+        // guard turns that into a failed assertion rather than a hung suite.
+        const guard = new Promise<'hung'>((resolve) => {
+          realSetTimeout(() => resolve('hung'), 500);
+        });
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        const outcome = await Promise.race([settled, guard]);
+
+        expect(outcome).toBeInstanceOf(Error);
+        const message = (outcome as Error).message;
+        expect(message).toMatch(/Secret storage did not answer/);
+        // startupValidation classifies on this exact pattern: a stuck keyring
+        // must land on 'error', never on 'expired' ("re-authenticate" would be
+        // the wrong advice — the token was never even read).
+        expect(/Authentication expired|No credentials/.test(message)).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('should leave no armed timer once the vault answers', async () => {
+      const org = createTestOrg('050');
+      await registry.saveOrg(org, {
+        loginUrl: 'https://login.salesforce.com',
+        accessToken: 'tok',
+      });
+
+      vi.useFakeTimers();
+      try {
+        const creds = await registry.getCredentials('050');
+
+        expect(creds?.accessToken).toBe('tok');
+        // Guards the deadline's own failure mode: a missing clearTimeout would
+        // arm a 10 s timer on every credential read.
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import { Pause, Play, Square, Flame } from 'lucide-react';
@@ -39,6 +40,7 @@ const STATUS_KEYS: Record<ExecutionStatus, string> = {
  * and pause/abort controls during a forge operation.
  */
 export const ForgeExecution: React.FC = () => {
+  const { save } = useFileSave();
   const { t } = useTranslation();
 
   /** Ref-based log ID counter — resets naturally on component remount. */
@@ -311,7 +313,13 @@ export const ForgeExecution: React.FC = () => {
                   {t('forge.logFilterWarnings')}
                 </button>
               </div>
-              <LogStream entries={logs} filter={logFilter} hideFilterBar className="flex-1" />
+              <LogStream
+                onExport={save}
+                entries={logs}
+                filter={logFilter}
+                hideFilterBar
+                className="flex-1"
+              />
             </div>
           }
         />
