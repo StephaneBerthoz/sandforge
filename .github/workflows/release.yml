@@ -4,13 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version bump type'
+        description: 'Version bump type (ignored when publish_only is true)'
         required: true
         type: choice
         options:
           - patch
           - minor
           - major
+      # Marketplace versions are immutable and the publish is the one step that
+      # cannot be retried by re-running this workflow: the tag it pushed before
+      # publishing makes "Verify release tag is free" fail on the second run.
+      # v1.18.0 hit exactly that — the gallery answered `Request timeout` after
+      # the commit and tag were already on origin, leaving the release
+      # unrecoverable through the pipeline that produced it. This input
+      # republishes the version already committed, without touching git.
+      publish_only:
+        description: 'Publish the version already committed (no bump, no tag, no push)'
+        required: false
+        type: boolean
+        default: false
 
 # Serialize releases: two concurrent dispatches would race the version bump,
 # tag creation, and Marketplace publish. Never cancel a release mid-flight.
@@ -57,11 +69,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Configure git
+        if: ${{ !inputs.publish_only }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Bump version
+        if: ${{ !inputs.publish_only }}
         run: |
           bash scripts/bump-version.sh ${{ inputs.version }}
           NEW_VERSION=$(node -p "require('./package.json').version")
@@ -73,6 +87,7 @@ jobs:
       # completed release always leaves that tag on origin. Still runs before
       # Validate/Package/push, so a collision costs a minute, not a release.
       - name: Verify release tag is free
+        if: ${{ !inputs.publish_only }}
         run: |
           TAG="v${{ env.NEW_VERSION }}"
           if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
@@ -82,9 +97,11 @@ jobs:
           echo "Tag check OK: $TAG is free on origin"
 
       - name: Update lockfile
+        if: ${{ !inputs.publish_only }}
         run: pnpm install --no-frozen-lockfile
 
       - name: Commit version bump
+        if: ${{ !inputs.publish_only }}
         run: |
           git add -A
           git commit -m "chore: release v${{ env.NEW_VERSION }}"
@@ -107,6 +124,7 @@ jobs:
       # repo does not have. A failed publish after a successful push is
       # recoverable by re-running the publish manually.
       - name: Push commit and tag
+        if: ${{ !inputs.publish_only }}
         run: |
           git push origin HEAD
           git push origin "v${{ env.NEW_VERSION }}"
@@ -117,6 +135,12 @@ jobs:
         run: cd packages/extension && pnpm exec vsce publish --packagePath ../../sandforge.vsix
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      # In publish_only mode nothing set NEW_VERSION, so read it from the
+      # checkout — that is the version the VSIX was just built from.
+      - name: Resolve version to publish
+        if: ${{ inputs.publish_only }}
+        run: echo "NEW_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
