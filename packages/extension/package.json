@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -17,7 +17,7 @@
   "badges": [
     {
       "href": "https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge",
-      "url": "https://img.shields.io/badge/version-1.17.0-blue",
+      "url": "https://img.shields.io/badge/version-1.18.0-blue",
       "description": "Marketplace version"
     },
     {
