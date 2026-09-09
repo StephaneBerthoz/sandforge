@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   AnonymizationTemplate,
@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/Button';
 import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { DataTable } from '../../components/ui/DataTable';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 
 /** AnonymizePanel component props. */
 export interface AnonymizePanelProps {
@@ -18,7 +19,6 @@ export interface AnonymizePanelProps {
   selectedTemplateId?: string;
   onSelectTemplate?: (templateId: string) => void;
   onCreateTemplate?: () => void;
-  onPreview?: (templateId: string) => void;
   onApply?: (templateId: string) => void;
   isApplying?: boolean;
   previewData?: Record<string, unknown>[];
@@ -49,12 +49,12 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
   selectedTemplateId,
   onSelectTemplate,
   onCreateTemplate,
-  onPreview,
   onApply,
   isApplying = false,
   previewData,
 }) => {
   const { t } = useTranslation();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const selectedTemplate = templates.find((tpl) => tpl.id === selectedTemplateId);
 
@@ -119,28 +119,54 @@ export const AnonymizePanel: React.FC<AnonymizePanelProps> = ({
                     </Badge>
                   ))}
                 </div>
-                <div className="flex gap-2 mt-2">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => onPreview?.(selectedTemplate.id)}
-                    data-testid="preview-btn"
-                  >
-                    {t('dataops.previewAnonymization')}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => onApply?.(selectedTemplate.id)}
-                    loading={isApplying}
-                    data-testid="apply-btn"
-                  >
-                    {t('dataops.applyAnonymization')}
-                  </Button>
+                <div className="flex flex-col gap-1 mt-2">
+                  <div className="flex gap-2">
+                    {/* Preview ran the very same irreversible mutation as
+                        Apply: one handler was wired to both. `dataops:anonymize`
+                        carries no dry-run flag, so no simulation is possible
+                        today. The button stays visible and inert, the way the
+                        gdpr/cleanup/quality tabs stay visible — a missing
+                        control does not tell the reader the capability is
+                        planned, and a live one here masked real records. */}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled
+                      title={t('common.comingSoon')}
+                      data-testid="preview-btn"
+                    >
+                      {t('dataops.previewAnonymization')}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => setConfirmOpen(true)}
+                      loading={isApplying}
+                      data-testid="apply-btn"
+                    >
+                      {t('dataops.applyAnonymization')}
+                    </Button>
+                  </div>
+                  <span className="text-xs text-text-muted" data-testid="preview-unavailable">
+                    {t('common.comingSoon')}
+                  </span>
                 </div>
               </div>
             </CardBody>
           </Card>
+          {/* Apply masks records in the org for good; it used to fire straight
+              off the click, with nothing between the pointer and the write. */}
+          <DangerConfirm
+            open={confirmOpen}
+            onClose={() => setConfirmOpen(false)}
+            onConfirm={() => {
+              setConfirmOpen(false);
+              onApply?.(selectedTemplate.id);
+            }}
+            title={t('dataops.applyAnonymization')}
+            description={t('dataops.anonymizeDesc')}
+            confirmText={t('dataops.anonymize')}
+          />
         </div>
       )}
 

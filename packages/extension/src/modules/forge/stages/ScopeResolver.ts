@@ -170,6 +170,14 @@ export function seedScopeCache(
  * orphan-nullifies its FK silently, producing a disconnected clone.
  * The error surfaces to the UI so the user can either include the root
  * or drop scoped mode.
+ *
+ * ERRORS-07: `included === false` carries two unrelated facts. Discovery
+ * clears it for a node the user (or `skipEmpty`) deliberately left out, and
+ * also for one it could not measure at all — a describe or a `SELECT COUNT()`
+ * that failed, which discovery marks with `status: 'error'` and the reason in
+ * `errors`. "Re-include the root" is useless advice when the org never
+ * answered for that object, and an unmeasured object is not an empty one, so
+ * the two cases get two distinct messages.
  */
 function bringRootToFront(nodes: ForgeGraphNode[], rootObjectApiName: string): ForgeGraphNode[] {
   const rootIndex = nodes.findIndex((n) => n.objectApiName === rootObjectApiName);
@@ -181,6 +189,14 @@ function bringRootToFront(nodes: ForgeGraphNode[], rootObjectApiName: string): F
   }
   const rootNode = nodes[rootIndex];
   if (!rootNode.included) {
+    if (rootNode.status === 'error') {
+      throw new Error(
+        `Cannot run scoped clone: root "${rootObjectApiName}" could not be measured during ` +
+          `discovery (${rootNode.errors[0] ?? 'unknown discovery error'}). ` +
+          `Its record count is unknown, not zero — re-run discovery once the org answers for ` +
+          `this object instead of re-including the node.`,
+      );
+    }
     throw new Error(
       `Cannot run scoped clone with root "${rootObjectApiName}" excluded. ` +
         `Children referencing the root would orphan-nullify their FK silently. ` +

@@ -1,8 +1,8 @@
 # SandForge: Salesforce DevOps Toolkit
 
 <!-- badges:start -->
-![Version](https://img.shields.io/badge/version-1.17.0-blue)
-[![CI](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-1.18.0-blue)
+[![CI](https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
@@ -20,7 +20,7 @@
 4. Click **Discover Graph**, then tune **Depth**, **Records per object**, and **Anonymize PII**.
 5. Click **Review & Execute** toward your dev sandbox. Every ID is remapped automatically.
 
-![Forge flow: from a record to a populated sandbox](assets/screenshots/forge-flow.gif)
+![Forge — live record preview, dependency estimate and PII detection](assets/screenshots/forge.png)
 
 ---
 
@@ -39,7 +39,7 @@ SandForge ships 14 modules in a single extension:
 | **DataOps** | Org backup and PII anonymization templates *(restore, compliance workflows and quality rules coming soon)* |
 | **Automation** | Visual pipeline builder with 15 step types and dry-run mode (scheduling and triggers coming soon) |
 | **AI Assistant** | NL2SOQL and failed-job diagnosis over 10 read-only tools |
-| **Grappe** | Partitioned parallel execution engine for large datasets *(coming soon — the engine ships, no operation activates it yet)* |
+| **Grappe** | Per-partition progress reporting for large Seed, Sync and Autopilot runs, behind `sandforge.grappe.enabled` (off by default). Execution itself is sequential — this splits the *reporting*, not the work |
 | **Migration** | Import existing SFDMU `export.json` or CSV configurations into Sync configs |
 | **Autopilot** | Zero-config sandbox seeding through a guided wizard, with GDPR, CCPA, HIPAA and PCI-DSS anonymization rule sets |
 | **Organizations** | Org registry with SF CLI import and tier-based safety coloring |
@@ -62,7 +62,7 @@ Safety is on by default: Production Guard requires double confirmation before an
 | [Monitor](docs/modules/monitor.md) | Real-time org health, API limits, and job tracking |
 | [Compare](docs/modules/compare.md) | Metadata diff, permission matrix, and drift detection |
 | [DataOps](docs/modules/dataops.md) | Backup and anonymization (restore, compliance and quality coming soon) |
-| [Automation](docs/modules/automation.md) | Visual pipeline builder with scheduling |
+| [Automation](docs/modules/automation.md) | Visual pipeline builder (scheduling and triggers coming soon) |
 | [FAQ & Troubleshooting](docs/faq.md) | Common questions and solutions to frequent issues |
 
 ---
@@ -70,8 +70,6 @@ Safety is on by default: Production Guard requires double confirmation before an
 ## Screenshots
 
 ![Home — orgs, health and the forge entry point](assets/screenshots/home.png)
-
-![Forge — live record preview, dependency estimate and PII detection](assets/screenshots/forge.png)
 
 ![Monitor — health score, governor limits and storage breakdown](assets/screenshots/monitor.png)
 
@@ -102,12 +100,12 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ### From VSIX
 
-Download `sandforge.vsix` from the [Releases](https://github.com/StephaneBerthoz/sand-forge/releases) page, then run **Extensions: Install from VSIX...** from the Command Palette.
+Download `sandforge.vsix` from the [Releases](https://github.com/StephaneBerthoz/sandforge/releases) page, then run **Extensions: Install from VSIX...** from the Command Palette.
 
 ### From Source
 
 ```bash
-git clone https://github.com/StephaneBerthoz/sand-forge.git
+git clone https://github.com/StephaneBerthoz/sandforge.git
 cd sand-forge
 pnpm install
 pnpm build
@@ -170,7 +168,7 @@ Full UI in 6 languages: English, French, German, Spanish, Japanese, Brazilian Po
 
 ## What's New
 
-See the [CHANGELOG](changelog.md) for release notes. Report issues on the [GitHub Issues](https://github.com/StephaneBerthoz/sand-forge/issues) page.
+See the [CHANGELOG](changelog.md) for release notes. Report issues on the [GitHub Issues](https://github.com/StephaneBerthoz/sandforge/issues) page.
 
 ---
 

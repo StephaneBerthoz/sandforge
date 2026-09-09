@@ -821,8 +821,8 @@
         "description": "Sync the full opportunity pipeline with products and pricing"
       },
       "casesAttachments": {
-        "name": "Cases + Attachments",
-        "description": "Sync service cases with comments and file attachments"
+        "name": "Cases + Comments",
+        "description": "Sync service cases with their comments — files and attachments are not transferred"
       }
     },
     "realtime": {
@@ -1501,7 +1501,7 @@
     "defaultBatchSize": "Default Batch Size",
     "maxConcurrentOps": "Max Concurrent Operations",
     "enableGrappe": "Enable Grappe Mode",
-    "enableGrappeDesc": "Automatically partition large operations into parallel clusters for faster execution.",
+    "enableGrappeDesc": "Report large Seed, Sync and Autopilot runs partition by partition. Execution stays sequential.",
     "grappeThreshold": "Grappe Threshold (records)",
     "apiTimeout": "API Timeout (ms)",
     "retryAttempts": "Retry Attempts",
@@ -1661,7 +1661,7 @@
     "gettingStartedContent": "1. Connect your Salesforce org using the Organizations page.\n2. Open the Monitor to check your org health.\n3. Use Seed to generate test data in your sandbox.\n4. Set up Sync to keep environments in sync.\n5. Explore Compare, DataOps, and Automation for advanced workflows.",
     "monitorContent": "The Monitor dashboard shows real-time org health:\n- Health Score gauge with contributing factors\n- API limits with usage trends and predictions\n- Active and recent Apex jobs\n- Alert notifications for critical thresholds\n\nTip: Enable auto-refresh for continuous monitoring.",
     "seedContent": "The Seed wizard generates realistic test data:\n1. Select your target org\n2. Choose objects to seed\n3. Configure field rules (AI, Faker, static, sequence...)\n4. Set up relationships and volumes\n5. Review and execute\n\nTip: Use AI generation for the most realistic data.",
-    "syncContent": "Sync data between two Salesforce orgs:\n- 4 sync modes: Full, Incremental, Delta, CDC\n- Auto field mapping with confidence scores\n- 13 transform types for data manipulation\n- Conflict resolution strategies\n- Rollback support for safe operations",
+    "syncContent": "Sync data between two Salesforce orgs:\n- Full sync only: every run replays the whole object set (incremental, delta and CDC are not implemented)\n- Auto field mapping with confidence scores\n- 13 transform types for data manipulation\n- Conflict resolution strategies\n- Rollback support for safe operations",
     "compareContent": "Compare metadata between two orgs:\n- Diff viewer grouped by category and risk level\n- Permission matrix comparison\n- Drift detection dashboard\n- Impact analysis graph\n- Deploy directly from diff results",
     "dataopsContent": "Complete data operations suite:\n- Backup & Restore with scheduling\n- GDPR/CCPA/HIPAA anonymization\n- Data quality scanning with 7 rule types\n- Mass delete and storage optimization\n- Data Subject Request (DSR) management",
     "automationContent": "Visual pipeline builder for automation:\n- 15 step types across 4 categories\n- 6 trigger types including schedules and webhooks\n- Conditional routing with 11 operators\n- Execution history and success rate tracking\n- Pipeline templates for quick setup",
@@ -2229,7 +2229,7 @@
     "forge": "Forge",
     "forgeDesc": "Seed, sync & transform data",
     "grappe": "Grappe",
-    "grappeDesc": "Parallel execution engine",
+    "grappeDesc": "Per-partition progress for large runs",
     "favorites": "Favorites",
     "modules": "Modules",
     "tools": "Tools",

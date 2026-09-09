@@ -98,9 +98,7 @@ describe('FrozenDatasetAnonymizer', () => {
       datasetVersion: '1.0.0',
     });
     const account = frozen.objects[0].records[0];
-    expect(account.fields.Name).toBe(
-      pseudonymizer.pseudonymize('companyName', 'Acme Assistance'),
-    );
+    expect(account.fields.Name).toBe(pseudonymizer.pseudonymize('companyName', 'Acme Assistance'));
     expect(account.fields.Industry).toBe('Insurance'); // approved keep
     const contact = frozen.objects[1].records[0];
     expect(contact.fields.LastName).toBe(pseudonymizer.pseudonymize('lastName', 'Dupont'));

@@ -15,6 +15,16 @@ export interface FieldDescribe {
   calculated: boolean;
   autoNumber: boolean;
   unique: boolean;
+  /**
+   * Whether field-level security can be set on this field at all.
+   *
+   * The discriminator between "nobody may write this" and "this user may not":
+   * audit fields (CreatedDate, SystemModstamp) are not permissionable, while a
+   * business field hidden by a permission set is. Optional because fixtures
+   * predate it; absent is read as permissionable, which fails loudly rather
+   * than dropping a field silently.
+   */
+  permissionable?: boolean;
 }
 
 /** Picklist entry from a describe */

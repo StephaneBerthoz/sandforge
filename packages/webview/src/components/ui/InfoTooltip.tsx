@@ -1,7 +1,11 @@
 import React, { useState, useCallback } from 'react';
 import { Info } from 'lucide-react';
 import { Tooltip } from './Tooltip';
-import { getPersistedItem, setPersistedItem, removePersistedItem } from '../../utils/webviewStorage';
+import {
+  getPersistedItem,
+  setPersistedItem,
+  removePersistedItem,
+} from '../../utils/webviewStorage';
 
 const STORAGE_KEY = 'sf-dismissed-tooltips';
 

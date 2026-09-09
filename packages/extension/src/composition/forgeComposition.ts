@@ -8,6 +8,12 @@ import type { OrgRegistry } from '../core/connection/OrgRegistry';
 import type { OrgManager } from '../core/connection/OrgManager';
 import type { ConfigStore } from '../core/storage/ConfigStore';
 import type { PIIDetector } from '../core/precheck/PIIDetector';
+import {
+  FORGE_QUERY_MAX_PAGES,
+  FORGE_QUERY_MAX_RECORDS,
+  objectOfQuery,
+  queryAllPages,
+} from '../modules/forge/queryAllPages.js';
 
 /** Inputs required to wire the Forge orchestrator (Tier 5). */
 export interface ForgeCompositionDeps {
@@ -159,12 +165,40 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         const executor = new ForgeExecutor({
           queryRecords: async (orgId, soql) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            const result = await conn.query<Record<string, unknown>>(soql);
-            return result.records;
+            // PERF-02: `conn.query` returns only the FIRST page (2 000 records
+            // max), so a 50 000-row object silently cloned as 2 000 rows.
+            // `queryAllPages` follows the cursor, bounded, and says when a
+            // bound cut the read short. See queryAllPages.ts for the bounds.
+            const { records, pages, truncated } = await queryAllPages<Record<string, unknown>>(
+              {
+                // jsforce hands back a thenable `Query`, not a Promise.
+                query: async (q) => conn.query<Record<string, unknown>>(q),
+                queryMore: async (url) => conn.queryMore<Record<string, unknown>>(url),
+              },
+              soql,
+            );
+            if (truncated) {
+              log(
+                `[forge] ${objectOfQuery(soql)}: query stopped at ${records.length} record(s) ` +
+                  `after ${pages} page(s) (cap: ${FORGE_QUERY_MAX_RECORDS} records / ` +
+                  `${FORGE_QUERY_MAX_PAGES} pages) — the source has more rows than were ` +
+                  `cloned. Narrow the selection with a filter or a row limit to clone the rest.`,
+              );
+            }
+            return records;
           },
+          // `allowRecursive` is what makes jsforce split an oversized array
+          // itself: `if (records.length > MAX_DML_COUNT && options.allowRecursive)`
+          // (jsforce 3.10 connection.js:800,887,938). Without it the whole array
+          // goes out as one request and Salesforce rejects anything over 200.
+          // The callers batch explicitly too — they need per-batch progress —
+          // but this closes the class rather than the two call sites that were
+          // found: any future writer through these deps is bounded by default.
           insertRecords: async (orgId, objectName, records) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            const results = await conn.sobject(objectName).create(records);
+            const results = await conn
+              .sobject(objectName)
+              .create(records, { allowRecursive: true });
             const arr = Array.isArray(results) ? results : [results];
             return arr.map((r) => ({
               id: r.id ?? '',
@@ -176,7 +210,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             const results = await conn
               .sobject(objectName)
-              .update(records as unknown as { Id: string }[]);
+              .update(records as unknown as { Id: string }[], { allowRecursive: true });
             const arr = Array.isArray(results) ? results : [results];
             return arr.map((r, i) => ({
               id: r.id ?? (records[i]['Id'] as string) ?? '',
@@ -188,7 +222,9 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
             const results = await conn
               .sobject(objectName)
-              .upsert(records as unknown as Record<string, unknown>[], externalIdField);
+              .upsert(records as unknown as Record<string, unknown>[], externalIdField, {
+                allowRecursive: true,
+              });
             const arr = Array.isArray(results) ? results : [results];
             return arr.map((r) => ({
               id: r.id ?? '',

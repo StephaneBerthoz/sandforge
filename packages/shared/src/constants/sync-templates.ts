@@ -162,19 +162,28 @@ export const SYNC_OPPS_PRODUCTS: SyncTemplateConfig = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Cases + Attachments                                                 */
+/* Cases + Comments                                                    */
 /* ------------------------------------------------------------------ */
 
 /**
- * Pre-built sync template for service cases with attachments.
+ * Pre-built sync template for service cases and their comments.
  *
- * Insert order: Account -> Contact -> Case -> CaseComment -> Attachment.
+ * Insert order: Account -> Contact -> Case -> CaseComment.
+ *
+ * No 'Attachment' (nor ContentVersion / Document): Sync has no blob-transfer
+ * stage. The record would be queried like any other, then handed to a writer
+ * that routes anything over 200 records through Bulk API 2.0, which rejects
+ * base64 — so listing it promised a payload the engine cannot carry and broke
+ * the run past 200 attachments. Files travel again once a
+ * ContentVersion/ContentDocumentLink stage exists (its own change, never
+ * through Bulk). The exported name and templateId are kept so saved
+ * configurations keep resolving.
  */
 export const SYNC_CASES_ATTACHMENTS: SyncTemplateConfig = {
   templateId: 'prebuilt-sync-cases-attachments',
   nameKey: 'sync.templates.casesAttachments.name',
   descriptionKey: 'sync.templates.casesAttachments.description',
-  tags: ['prebuilt', 'service', 'attachments'],
+  tags: ['prebuilt', 'service', 'cases'],
   direction: 'source_to_target',
   mode: 'full',
   conflictStrategy: 'source_wins',
@@ -206,13 +215,6 @@ export const SYNC_CASES_ATTACHMENTS: SyncTemplateConfig = {
       externalIdField: 'Id',
       batchSize: 200,
       insertOrder: 3,
-    },
-    {
-      objectApiName: 'Attachment',
-      operation: 'insert',
-      externalIdField: 'Id',
-      batchSize: 100,
-      insertOrder: 4,
     },
   ],
 };

@@ -11,6 +11,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
+      # Sans ceci, un lint rouge sur ubuntu annule windows — le seul job qui
+      # execute la suite E2E — et l'artefact Playwright est publie vide.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
@@ -32,10 +35,21 @@ jobs:
       - name: Validate (typecheck + test + build)
         run: pnpm build:shared && pnpm typecheck && pnpm test && pnpm build
 
-      # Static analysis gates are deterministic; run once, not per-OS
-      - name: Static gates (lint + audits)
+      # Static analysis gates are deterministic; run once, not per-OS.
+      # Keep this list in sync with the `validate` script in package.json —
+      # it drifted once already: four gates (test:docs, test:gates,
+      # audit:orphans, audit:test-siblings) were added to `validate` and never
+      # reached CI, so they went on not running exactly as before.
+      - name: Static gates (lint + docs + audits)
         if: matrix.os == 'ubuntu-latest'
-        run: pnpm lint && pnpm audit:disposables && pnpm check:i18n
+        run: >
+          pnpm lint &&
+          pnpm test:docs &&
+          pnpm test:gates &&
+          pnpm audit:disposables &&
+          pnpm audit:orphans &&
+          pnpm audit:test-siblings &&
+          pnpm check:i18n
 
       # Coverage thresholds only gate here (once, not per-OS): vitest
       # configs define thresholds ~5pts under the measured baseline

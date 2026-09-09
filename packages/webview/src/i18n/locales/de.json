@@ -821,8 +821,8 @@
         "description": "Die gesamte Opportunity-Pipeline mit Produkten und Preisen synchronisieren"
       },
       "casesAttachments": {
-        "name": "Kundenvorgänge + Anhänge",
-        "description": "Service-Kundenvorgänge mit Kommentaren und Dateianhängen synchronisieren"
+        "name": "Kundenvorgänge + Kommentare",
+        "description": "Service-Kundenvorgänge mit ihren Kommentaren synchronisieren — Dateien und Anhänge werden nicht übertragen"
       }
     },
     "realtime": {
@@ -1501,7 +1501,7 @@
     "defaultBatchSize": "Standard-Stapelgroesse",
     "maxConcurrentOps": "Max. gleichzeitige Operationen",
     "enableGrappe": "Grappe-Modus aktivieren",
-    "enableGrappeDesc": "Große Operationen für schnellere Ausführung automatisch in parallele Cluster aufteilen.",
+    "enableGrappeDesc": "Große Seed-, Sync- und Autopilot-Läufe partitionsweise melden. Die Ausführung bleibt sequenziell.",
     "grappeThreshold": "Grappe-Schwellenwert (Datensaetze)",
     "apiTimeout": "API-Timeout (ms)",
     "retryAttempts": "Wiederholungsversuche",
@@ -1661,7 +1661,7 @@
     "gettingStartedContent": "1. Verbinden Sie Ihre Salesforce-Org ueber die Organisationsseite.\n2. Oeffnen Sie den Monitor, um die Gesundheit Ihrer Org zu pruefen.\n3. Verwenden Sie Seed, um Testdaten in Ihrer Sandbox zu generieren.\n4. Richten Sie Sync ein, um Umgebungen synchron zu halten.\n5. Entdecken Sie Compare, DataOps und Automation fuer erweiterte Workflows.",
     "monitorContent": "Das Monitor-Dashboard zeigt die Org-Gesundheit in Echtzeit:\n- Gesundheitswert-Anzeige mit Einflussfaktoren\n- API-Limits mit Nutzungstrends und Vorhersagen\n- Aktive und aktuelle Apex-Jobs\n- Warnmeldungen fuer kritische Schwellenwerte\n\nTipp: Aktivieren Sie die Auto-Aktualisierung fuer kontinuierliche Ueberwachung.",
     "seedContent": "Der Seed-Assistent generiert realistische Testdaten:\n1. Waehlen Sie Ihre Ziel-Org\n2. Waehlen Sie die zu befuellenden Objekte\n3. Konfigurieren Sie Feldregeln (KI, Faker, statisch, Sequenz...)\n4. Definieren Sie Beziehungen und Volumen\n5. Ueberpruefen und ausfuehren\n\nTipp: Verwenden Sie die KI-Generierung fuer die realistischsten Daten.",
-    "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- 4 Sync-Modi: Vollstaendig, Inkrementell, Delta, CDC\n- Auto-Feldzuordnung mit Konfidenzwerten\n- 13 Transformationstypen fuer Datenmanipulation\n- Konfliktloesungsstrategien\n- Rollback-Unterstuetzung fuer sichere Operationen",
+    "syncContent": "Synchronisieren Sie Daten zwischen zwei Salesforce-Orgs:\n- Nur Vollsynchronisierung: Jeder Lauf überträgt den gesamten Objektsatz erneut (Inkrementell, Delta und CDC sind nicht implementiert)\n- Auto-Feldzuordnung mit Konfidenzwerten\n- 13 Transformationstypen fuer Datenmanipulation\n- Konfliktloesungsstrategien\n- Rollback-Unterstuetzung fuer sichere Operationen",
     "compareContent": "Vergleichen Sie Metadaten zwischen zwei Orgs:\n- Diff-Ansicht gruppiert nach Kategorie und Risikostufe\n- Vergleich der Berechtigungsmatrix\n- Drift-Erkennungs-Dashboard\n- Auswirkungsanalyse-Diagramm\n- Direkte Bereitstellung aus Diff-Ergebnissen",
     "dataopsContent": "Komplette Datenoperations-Suite:\n- Sicherung & Wiederherstellung mit Zeitplanung\n- DSGVO/CCPA/HIPAA-Anonymisierung\n- Datenqualitaets-Scan mit 7 Regeltypen\n- Massenloeschung und Speicheroptimierung\n- Verwaltung von Betroffenenanfragen (DSR)",
     "automationContent": "Visueller Pipeline-Builder fuer Automatisierung:\n- 15 Schritttypen in 4 Kategorien\n- 6 Ausloesertypen einschliesslich Zeitplaene und Webhooks\n- Bedingtes Routing mit 11 Operatoren\n- Ausfuehrungsverlauf und Erfolgsraten-Tracking\n- Pipeline-Vorlagen fuer schnellen Einstieg",
@@ -2229,7 +2229,7 @@
     "forge": "Forge",
     "forgeDesc": "Daten seeden, synchronisieren & transformieren",
     "grappe": "Grappe",
-    "grappeDesc": "Engine für parallele Ausführung",
+    "grappeDesc": "Fortschritt pro Partition bei großen Läufen",
     "favorites": "Favoriten",
     "modules": "Module",
     "tools": "Werkzeuge",

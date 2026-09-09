@@ -1871,9 +1871,7 @@ describe('ExtensionHandlers', () => {
 
   describe('setLiveOperationTracker forwarding', () => {
     it('feeds the tracker from sync executions (register + fail)', async () => {
-      const { LiveOperationTracker } = await import(
-        '../modules/monitor/LiveOperationTracker.js'
-      );
+      const { LiveOperationTracker } = await import('../modules/monitor/LiveOperationTracker.js');
       const tracker = new LiveOperationTracker();
       handlers.setLiveOperationTracker(tracker);
 
@@ -1901,9 +1899,7 @@ describe('ExtensionHandlers', () => {
           },
         }),
       );
-      await vi.waitFor(() =>
-        expect(posted.some((p) => p.type === 'operation:failed')).toBe(true),
-      );
+      await vi.waitFor(() => expect(posted.some((p) => p.type === 'operation:failed')).toBe(true));
 
       const ops = tracker.getAll();
       expect(ops).toHaveLength(1);
@@ -1989,9 +1985,9 @@ describe('ExtensionHandlers', () => {
 
       const response = posted.find((p) => p.type === 'seed:execute:response');
       expect(response).toBeDefined();
-      expect(
-        (response as BaseMessage & { payload: { dryRun: boolean } }).payload.dryRun,
-      ).toBe(true);
+      expect((response as BaseMessage & { payload: { dryRun: boolean } }).payload.dryRun).toBe(
+        true,
+      );
     });
 
     it('rejects unsupported operation types', async () => {

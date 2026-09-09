@@ -89,6 +89,15 @@ export class AnthropicAdapter implements AIClient {
   public budget?: SessionBudget;
 
   private client: Anthropic | null = null;
+  /**
+   * In-flight client construction, shared by every concurrent caller.
+   *
+   * Without it two concurrent AI calls each ran the whole of `getClient()`:
+   * two `SecretStorage` round-trips, two SDK module loads, two `Anthropic`
+   * instances, and `this.client` left holding whichever finished last. The
+   * "construction is cached" invariant only held for sequential callers.
+   */
+  private clientPromise: Promise<Anthropic> | null = null;
   private readonly storage: StorageAdapter;
   private readonly telemetry?: TelemetryAdapter;
   private readonly logger?: Logger;
@@ -348,6 +357,7 @@ export class AnthropicAdapter implements AIClient {
     this.cancelAll();
     this.breakerEvents.removeAllListeners();
     this.client = null;
+    this.clientPromise = null;
   }
 
   // ── internals ────────────────────────────────────────────────────────────
@@ -402,8 +412,18 @@ export class AnthropicAdapter implements AIClient {
     }
   }
 
-  private async getClient(): Promise<Anthropic> {
-    if (this.client) return this.client;
+  private getClient(): Promise<Anthropic> {
+    if (this.client) return Promise.resolve(this.client);
+    // Concurrent callers share one construction. A failure clears the slot so
+    // the next call retries instead of replaying a rejected promise forever.
+    this.clientPromise ??= this.createClient().catch((err: unknown) => {
+      this.clientPromise = null;
+      throw err;
+    });
+    return this.clientPromise;
+  }
+
+  private async createClient(): Promise<Anthropic> {
     const apiKey = await this.storage.getSecret(SECRET_KEY);
     if (!apiKey) {
       throw new Error(
@@ -463,7 +483,11 @@ export class AnthropicAdapter implements AIClient {
       // `if (err instanceof APIUserAbortError)`. Duck-typed by name (same
       // rationale as errorClassifier): the SDK class is not statically
       // importable here now that the SDK loads lazily.
-      if (err && typeof err === 'object' && (err as { name?: string }).name === 'APIUserAbortError') {
+      if (
+        err &&
+        typeof err === 'object' &&
+        (err as { name?: string }).name === 'APIUserAbortError'
+      ) {
         return err as Error;
       }
       // External-signal-driven abort surfaces as DOMException 'AbortError' in

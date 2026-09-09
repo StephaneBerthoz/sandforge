@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { BatchWriter, summarizeRecordForError, type WriteNodeInput } from './BatchWriter.js';
+import {
+  BatchWriter,
+  resolveWriteBatching,
+  summarizeRecordForError,
+  type WriteNodeInput,
+} from './BatchWriter.js';
+import type { ForgeBatchStrategy, ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import { IdRemapper } from '../IdRemapper.js';
 import { logger } from '../../../logger.js';
 import type { CleanedRecord } from './RecordCleaner.js';
@@ -218,6 +224,76 @@ describe('BatchWriter', () => {
     expect(deps.insertRecords).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('falling back to insert'));
     warnSpy.mockRestore();
+  });
+
+  // PERF-01 — ForgeBatchStrategy.resolve() returns api:'bulk' + batchSize:10_000
+  // above 200 records, but insertRecords/upsertRecords are wired (in
+  // composition/forgeComposition.ts) to conn.sobject(x).create/upsert, i.e.
+  // REST sObject Collections, which rejects more than 200 records per call.
+  it('caps batches at the REST limit when the strategy resolves to bulk (PERF-01)', async () => {
+    const records = Array.from({ length: 450 }, (_, i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
+    const deps = makeDeps();
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const input = makeInput(records, {
+      node: { ...makeNode('Account', 450), batchStrategy: 'auto' },
+    });
+
+    const result = await new BatchWriter(deps).writeNode(input);
+
+    expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[2].length)).toEqual([
+      200, 200, 50,
+    ]);
+    expect(result.successCount).toBe(450);
+    expect(input.waitIfPaused).toHaveBeenCalledTimes(3);
+
+    const running = vi
+      .mocked(input.onProgress)
+      .mock.calls.map((c) => c[0])
+      .filter((e) => e.status === 'running');
+    expect(running[0].message).toContain('in 3 batch(es)');
+    expect(running[running.length - 1].progress).toBe(100);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('max 200'));
+    warnSpy.mockRestore();
+  });
+
+  it('clamps any strategy that asks for more than the write API accepts', async () => {
+    const records = Array.from({ length: 300 }, (_, i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
+    const deps = makeDeps();
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    const strategy: ForgeBatchStrategy = {
+      resolve: (): ResolvedBatchStrategy => ({ api: 'bulk', batchSize: 10_000, batchCount: 1 }),
+    };
+
+    await new BatchWriter(deps, strategy).writeNode(makeInput(records));
+
+    expect(vi.mocked(deps.insertRecords).mock.calls.map((c) => c[2].length)).toEqual([200, 100]);
+    warnSpy.mockRestore();
+  });
+});
+
+describe('resolveWriteBatching', () => {
+  it('clamps a bulk-sized batch down to the REST write limit', () => {
+    expect(resolveWriteBatching({ api: 'bulk', batchSize: 10_000, batchCount: 1 }, 5_000)).toEqual({
+      api: 'rest',
+      batchSize: 200,
+      batchCount: 25,
+      clamped: true,
+    });
+  });
+
+  it('honors a strategy asking for smaller batches than the write limit', () => {
+    expect(resolveWriteBatching({ api: 'rest', batchSize: 50, batchCount: 2 }, 90)).toEqual({
+      api: 'rest',
+      batchSize: 50,
+      batchCount: 2,
+      clamped: false,
+    });
+  });
+
+  it('keeps at least one batch for an empty node', () => {
+    expect(resolveWriteBatching({ api: 'rest', batchSize: 200, batchCount: 1 }, 0).batchCount).toBe(
+      1,
+    );
   });
 });
 

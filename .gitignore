@@ -39,3 +39,19 @@ stryker.log
 
 # Icon size proofs (regenerate with: node scripts/render-icon.mjs --proof)
 .icon-proof/
+
+# Working notes, kept on disk and out of the repository.
+#
+# These were tracked until v1.18.0, when the history was rewritten to remove
+# them. The trigger was the decision to make this repository public:
+# .planning/audits/ carries the open-findings backlog, including a security
+# finding with its file:line — publishing that is handing out a map to a
+# weakness that is still live in a shipped product. Working notes are also
+# simply not documentation; what users need lives in docs/ and is published.
+.planning/
+docs/archive/
+PROMPT_AUTO.md
+PROMPT_FROZEN_DATASET.md
+# Agent instructions: read from disk by the tool that needs them, not content
+# this repository owes a reader. Stays local.
+CLAUDE.md

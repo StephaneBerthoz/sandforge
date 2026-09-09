@@ -5,6 +5,172 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] - 2026-09-09
+
+The repository is public, and the audit that preceded it found the flagship
+broken above 200 records.
+
+A 114-agent review read the whole product against its own claims: 91 findings,
+68 surviving a pass whose only job was to refute them. Twenty-eight were rated
+high. What they have in common is not carelessness — the bridge, the CSP, the
+prompt-injection defence and the six locales all held under attack. It is that
+nothing ever ran the checks. `pnpm validate` could not complete on any machine,
+CI had been switched off at the repository level since May, and four gates
+added in v1.17.0 to fix "these gates never execute" were themselves never
+executed. Sixteen of the seventeen releases were cut by hand.
+
+### Fixed
+
+- **Forge clones objects with more than 200 records.** The batch strategy
+  returned `api: 'bulk'` and 10 000 records per batch for any object above 200,
+  and the writer dropped the `api` half and posted those 10 000 to
+  `conn.sobject().create()` — REST sObject Collections, capped at 200 by
+  Salesforce. jsforce only splits an oversized array when `allowRecursive` is
+  passed, which that call site did not pass. Every object above the threshold
+  failed, and its whole subtree was skipped as "parent failed". The batch size
+  is now derived from the API actually called, the second pass that patches
+  cyclic foreign keys is bounded the same way, and the three write paths ask
+  jsforce to split as well, so a future caller is bounded by default.
+- **A clone no longer stops at 2 000 records per object.** `conn.query()`
+  returns one page. Forge read that page and reported success, next to a wizard
+  showing the real `SELECT COUNT()` from discovery — a 50 000-row object cloned
+  as its first 2 000 rows, silently. The cursor is now followed to the end,
+  bounded by record count and page count, and a run that hits either bound says
+  so instead of hiding it.
+- **DataOps Restore works.** It never has. Backups are taken with
+  `SELECT FIELDS(ALL)`, so every one carries `CreatedDate`, `SystemModstamp`
+  and `IsDeleted`; the restore asked its CRUD/FLS guard whether it could write
+  *all* the fields in the payload, those are writable by nobody, and the answer
+  was no — for every object, on every restore, since the feature shipped in
+  1.15.0 under the heading "Restore works." The guard now answers field by
+  field, using `permissionable` from the describe to tell "nobody may write
+  this" apart from "you may not write this": the first is dropped from the
+  payload and reported, the second still refuses the restore.
+- **"Preview anonymization" no longer anonymizes.** The preview button and the
+  apply button were wired to the same handler, and the message contract has no
+  dry-run flag, so clicking the secondary button masked the org's PII
+  irreversibly with no confirmation. Preview now says a simulation does not
+  exist yet, and Apply asks you to type a confirmation.
+- **A failed org connection says so.** The form simply closed, which reads as
+  success. It now shows the error and keeps what you typed.
+- **A pipeline is no longer declared failed while it is still running.** The UI
+  gave up after 30 s against a backend that allows 300 s, so any pipeline over
+  half a minute reported a failure that had not happened.
+- **A failed Forge run can be re-run immediately.** The duplicate-submission
+  guard held any identical recipe for a full hour, including one killed by an
+  auth error — no reload, no wait, no configuration change would release it.
+- **An expired Salesforce session recovers on its own.** Pooled connections
+  were never revalidated or expired, so a token that lapsed mid-session left
+  the org unusable until the VS Code window was reloaded.
+- **Forge discovery stops losing objects in silence.** A failed describe or a
+  timed-out `COUNT()` was swallowed and the object left the graph with no
+  trace, indistinguishable from one excluded on purpose or genuinely empty. A
+  frozen reference dataset could ship missing an entire object because one
+  query timed out. The two cases are now distinct, and the message carries the
+  reason the org gave.
+- **Reports says it has no data instead of showing zeros.** Four KPI cards read
+  0 / 0 / 0.0% / 0 — with the success rate in amber, as though measured — for a
+  module that has no producer on the extension side at all.
+
+### Security
+
+- **Production Guard sees a delete.** The sync handler passed
+  `operation: 'upsert'` and `recordCount: 1` as literals, so a delete-mode sync
+  against a Production org was presented to the only guard that exists as a
+  single-row upsert. The rule that blocks DELETE on production could not fire,
+  and no volume threshold could either. The real operation and the real object
+  list are now what the guard is asked about.
+- **`dataops:rollback` is guarded.** It wrote to the target org with no
+  Production Guard check — the one unguarded write path in the product — and
+  nothing tied the backup to the org it came from, so a backup of org A could
+  be poured into org B. Both are closed.
+
+### Changed
+
+- **The repository is public**, at
+  [github.com/StephaneBerthoz/sandforge](https://github.com/StephaneBerthoz/sandforge).
+  The listing had been carrying twenty-four dead links: thirteen documentation
+  links, Releases, Issues, Discussions, LICENSE and SECURITY in the README,
+  plus `repository`, `homepage`, `bugs`, `qna` and the CI badge — image and
+  href — in the manifest. Every one returned 404 to anyone but the author,
+  because the repository was private and the Marketplace fetches anonymously.
+  Images had been moved to a public mirror in 1.16.0 for exactly this reason
+  and the reasoning was never carried across to the links. The mirror and the
+  machinery that kept it in sync are gone with it: the listing now reads its
+  images out of the same commit as the files on disk.
+- **The extension activates on startup**, so a scheduled sync survives a
+  restart. `activationEvents` was empty, which meant the tick loop that runs
+  cron schedules only started once you opened a SandForge panel — the
+  scheduling feature was inert in precisely the case it exists for.
+- **Marketplace categories and keywords.** "Data Science" is the Jupyter shelf;
+  no comparable Salesforce extension uses it. The keywords were hyphenated
+  compounds — `test-data`, `data-migration` — which do not match the spaced
+  queries people actually type, and the listing did not appear in the first 100
+  results for `salesforce test data`, `seed data` or `data masking`.
+- **The listing's opening image shows the product you get.** The hero GIF
+  pictured a navigation sidebar deleted in 1.10, showed 9 of the 14 modules,
+  and had "SandForge v0.0.0-e2e" in its status bar. The four screenshots below
+  it had been re-shot; it had not, so the page opened with two different
+  products in a row.
+
+### Documentation
+
+- **The in-app help panel no longer sells CDC.** It promised "4 sync modes:
+  Full, Incremental, Delta, CDC" in all six languages, for a mode the UI stopped
+  offering and the extension answers with a registered no-op.
+- **Grappe is described correctly, in all nine places it is written.** The
+  READMEs called it a "parallel execution engine" that "no operation activates
+  yet" — wrong in both directions at once: Seed, Sync and Autopilot do activate
+  it, and it partitions nothing. `grappeAdapter.partition()` has no caller;
+  `grappeActive` wraps an unchanged sequential loop in two progress events. It
+  splits the reporting, not the work, and now says so in the two READMEs, the
+  FAQ and the six locales.
+- **A sync template no longer promises attachments.** "Cases + Attachments"
+  named a file transfer that no stage of Sync performs.
+- **The Documentation table stopped re-promising what the Modules table
+  disclaims** forty-five lines above it.
+
+### Build
+
+- **`pnpm validate` runs.** It died at step 5 of 11 on every machine: the root
+  `test:docs` script invoked `vitest`, which was never a root dependency. The
+  eighteen documentation tests behind it had not run since they were written.
+- **CI runs the gates that `validate` runs.** It ran seven of eleven; the four
+  added in v1.17.0 — under the title "run the gates the sweep wrote — four of
+  them were never executed" — reached CI in none of them, because CI spells its
+  own list rather than calling `validate`. A new gate now fails when the two
+  lists drift, and a saboteur test proves it fails.
+- **`scripts/check-screenshots.mjs` exists.** The screenshot generator has told
+  readers since v1.16.0 that this file "fails the release if what ships no
+  longer matches what this file produces", and the v1.16.0 changelog repeated
+  the promise. It had never been written. It now fails when an image was last
+  committed before the generator that produces it changed — which is what would
+  have caught the stale hero GIF.
+- **A claims gate covers the READMEs and the six locales.** The one gate in
+  this repository that had caught prose drifting from code guarded a single
+  claim in two files of `docs/`. The same facts are written in up to nine
+  places, and Grappe was wrong in two opposite directions depending on which
+  one you read. Each assertion is anchored to the code that decides the truth
+  and fails in both directions.
+- **The link gate checks links.** It only ever checked images — the failure it
+  was written for was sitting one line below it the whole time. It now checks
+  every link in the Marketplace README and every URL field of the manifest, as
+  an anonymous visitor.
+- **The release workflow can cut a release.** Its fail-fast preflight compared
+  the tag of the version already published rather than the one it was about to
+  create, and had blocked every release since v1.0.1.
+- **A test can no longer reach the internet.** A concurrency race let one of two
+  parallel AI calls escape the SDK module mock and issue a live request to
+  api.anthropic.com; the suite failed with a real 401 body, which reads as an
+  assertion bug rather than as "this test just called the internet".
+
+### Removed
+
+- The public assets mirror and its drift-checking script, obsolete now that the
+  repository serving the images is the repository holding them.
+- A `fast-check` dev dependency nothing imported, and two exported store
+  selectors nothing read.
+
 ## [1.17.0] - 2026-08-13
 
 A new mark, and 56 of the 69 medium audit findings.

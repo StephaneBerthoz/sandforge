@@ -31,6 +31,7 @@ const mockBackupMutate = vi.fn();
 const mockBackupReset = vi.fn();
 const mockAnonymizeMutate = vi.fn();
 const mockAnonymizeReset = vi.fn();
+const mockRollbackMutate = vi.fn();
 
 /** Mutable query state for backup:list. */
 let mockBackupsQueryState = {
@@ -55,6 +56,15 @@ let mockBackupMutationState = {
   loading: false,
   error: null as string | null,
   reset: mockBackupReset,
+};
+
+/** Mutable mutation state for dataops:rollback. */
+let mockRollbackMutationState = {
+  mutate: mockRollbackMutate,
+  data: null as Record<string, unknown> | null,
+  loading: false,
+  error: null as string | null,
+  reset: vi.fn(),
 };
 
 /** Mutable mutation state for dataops:anonymize. */
@@ -86,6 +96,9 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
     if (type === 'dataops:anonymize') {
       return mockAnonymizeMutationState;
     }
+    if (type === 'dataops:rollback') {
+      return mockRollbackMutationState;
+    }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
 }));
@@ -104,6 +117,7 @@ describe('DataOpsPage', () => {
     mockBackupReset.mockClear();
     mockAnonymizeMutate.mockClear();
     mockAnonymizeReset.mockClear();
+    mockRollbackMutate.mockClear();
     // Reset to default idle state
     mockBackupsQueryState = {
       data: null,
@@ -130,6 +144,13 @@ describe('DataOpsPage', () => {
       loading: false,
       error: null,
       reset: mockAnonymizeReset,
+    };
+    mockRollbackMutationState = {
+      mutate: mockRollbackMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: vi.fn(),
     };
   });
 
@@ -370,6 +391,132 @@ describe('DataOpsPage', () => {
 
       expect(screen.queryByTestId('dataops-skeleton')).toBeNull();
       expect(screen.getByTestId('dataops-cleanup-soon')).toBeDefined();
+    });
+  });
+  describe('anonymize safety', () => {
+    const templateList = {
+      templates: [
+        {
+          id: 'tpl-1',
+          name: 'GDPR Template',
+          description: 'Anonymize PII',
+          rules: [
+            {
+              objectApiName: 'Contact',
+              fieldApiName: 'Email',
+              method: 'mask',
+              config: { maskChar: '*' },
+            },
+          ],
+          complianceFramework: 'gdpr',
+          tags: ['gdpr'],
+          createdAt: '2026-01-01T00:00:00Z',
+        },
+      ],
+    };
+
+    /** Open the anonymize tab with one template picked. */
+    const openTemplate = () => {
+      mockTemplatesQueryState = {
+        data: templateList,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Anonymize'));
+      fireEvent.change(screen.getByTestId('template-select'), { target: { value: 'tpl-1' } });
+    };
+
+    it('should not send dataops:anonymize when Preview is clicked', () => {
+      openTemplate();
+
+      // onPreview and onApply were the same handler, so the button labelled
+      // "Preview" masked the org's records irreversibly.
+      const preview = screen.getByTestId('preview-btn') as HTMLButtonElement;
+      expect(preview.disabled).toBe(true);
+      fireEvent.click(preview);
+
+      expect(mockAnonymizeMutate).not.toHaveBeenCalled();
+    });
+
+    it('should require a typed confirmation before sending dataops:anonymize', () => {
+      openTemplate();
+
+      fireEvent.click(screen.getByTestId('apply-btn'));
+      expect(mockAnonymizeMutate).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Anonymize' } });
+      fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+      expect(mockAnonymizeMutate).toHaveBeenCalledWith({ orgId: 'org-1', templateId: 'tpl-1' });
+    });
+  });
+
+  describe('restore feedback', () => {
+    const loadedBackups = {
+      backups: [
+        {
+          operationId: 'op-1',
+          orgId: 'org-1',
+          timestamp: '2024-01-01T00:00:00Z',
+          totalRecords: 42,
+          totalSize: 1024,
+          status: 'completed',
+          objectResults: [{ objectApiName: 'Account', recordCount: 42 }],
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      mockBackupsQueryState = {
+        data: loadedBackups,
+        loading: false,
+        error: null,
+        refetch: vi.fn(),
+      };
+      useOrgStore.setState({ orgs: mockOrgs, selectedOrgId: 'org-1' });
+    });
+
+    /** Open the restore tab with the single backup selected. */
+    const selectBackup = () => {
+      render(<DataOpsPage />);
+      fireEvent.click(screen.getByText('Restore'));
+      const wrapper = screen.getByTestId('restore-backup-op-1');
+      fireEvent.click(wrapper.querySelector('[role="button"]')!);
+    };
+
+    it('should surface a failed rollback instead of failing silently', () => {
+      mockRollbackMutationState = {
+        ...mockRollbackMutationState,
+        error: 'Rollback failed: INSUFFICIENT_ACCESS',
+      };
+      render(<DataOpsPage />);
+
+      // dataops:rollback was the one mutation left out of the error funnel:
+      // a restore that wrote nothing looked exactly like one that succeeded.
+      expect(screen.getByTestId('dataops-error')).toBeDefined();
+      expect(screen.getByText('Rollback failed: INSUFFICIENT_ACCESS')).toBeDefined();
+    });
+
+    it('should refuse a second restore while the first one is still writing', () => {
+      mockRollbackMutationState = { ...mockRollbackMutationState, loading: true };
+      selectBackup();
+
+      const restoreBtn = screen.getByTestId('restore-btn-op-1') as HTMLButtonElement;
+      expect(restoreBtn.disabled).toBe(true);
+
+      fireEvent.click(restoreBtn);
+      expect(mockRollbackMutate).not.toHaveBeenCalled();
+    });
+
+    it('should send the rollback once when the button is enabled', () => {
+      selectBackup();
+
+      fireEvent.click(screen.getByTestId('restore-btn-op-1'));
+
+      expect(mockRollbackMutate).toHaveBeenCalledWith({ orgId: 'org-1', operationId: 'op-1' });
     });
   });
 });

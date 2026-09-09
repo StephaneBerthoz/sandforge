@@ -213,6 +213,76 @@ describe('OrgManagerPage', () => {
     );
   });
 
+  it('should keep the inline form open, with what was typed, when the connect fails', () => {
+    const { rerender } = render(<OrgManagerPage />);
+    fireEvent.click(screen.getByTestId('org-auth-usernamePassword'));
+    fireEvent.change(screen.getByTestId('inline-alias-input'), {
+      target: { value: 'my-sandbox' },
+    });
+    fireEvent.change(screen.getByTestId('inline-username-input'), {
+      target: { value: 'dev@sandbox.com' },
+    });
+    fireEvent.change(screen.getByTestId('inline-password-input'), {
+      target: { value: 'hunter2' },
+    });
+    fireEvent.click(screen.getByTestId('org-inline-connect'));
+
+    // Mutation in flight
+    mockConnectState = { ...mockConnectState, loading: true };
+    rerender(<OrgManagerPage />);
+
+    // Host replies on org:error — loading drops and error is set in one batch
+    mockConnectState = {
+      ...mockConnectState,
+      loading: false,
+      error: 'INVALID_LOGIN: Invalid username, password, security token or expired password',
+    };
+    rerender(<OrgManagerPage />);
+
+    expect(screen.getByTestId('org-inline-form')).toBeDefined();
+    expect((screen.getByTestId('inline-alias-input') as HTMLInputElement).value).toBe('my-sandbox');
+    expect((screen.getByTestId('inline-username-input') as HTMLInputElement).value).toBe(
+      'dev@sandbox.com',
+    );
+    expect((screen.getByTestId('inline-password-input') as HTMLInputElement).value).toBe('hunter2');
+  });
+
+  it('should show the connect error message instead of failing silently', () => {
+    const { rerender } = render(<OrgManagerPage />);
+    fireEvent.click(screen.getByTestId('org-auth-sfdx_import'));
+
+    mockConnectState = { ...mockConnectState, loading: true };
+    rerender(<OrgManagerPage />);
+
+    mockConnectState = {
+      ...mockConnectState,
+      loading: false,
+      error: 'sf CLI not found on PATH',
+    };
+    rerender(<OrgManagerPage />);
+
+    const banner = screen.getByTestId('org-connect-error');
+    expect(banner.textContent).toContain('sf CLI not found on PATH');
+    expect(banner.textContent).toContain('Connection Error');
+  });
+
+  it('should collapse the inline form when the connect succeeds', () => {
+    const { rerender } = render(<OrgManagerPage />);
+    fireEvent.click(screen.getByTestId('org-auth-usernamePassword'));
+    fireEvent.change(screen.getByTestId('inline-alias-input'), {
+      target: { value: 'my-sandbox' },
+    });
+
+    mockConnectState = { ...mockConnectState, loading: true };
+    rerender(<OrgManagerPage />);
+
+    mockConnectState = { ...mockConnectState, loading: false, error: null };
+    rerender(<OrgManagerPage />);
+
+    expect(screen.queryByTestId('org-inline-form')).toBeNull();
+    expect(screen.queryByTestId('org-connect-error')).toBeNull();
+  });
+
   it('should populate store when query data arrives', () => {
     mockQueryState = {
       ...mockQueryState,

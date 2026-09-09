@@ -129,10 +129,6 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   },
 }));
 
-/** External selector for reactive unread count subscriptions */
-export const selectUnreadCount = (state: NotificationState): number =>
-  state.notifications.filter((n) => !n.read).length;
-
 /** Selector that applies level, category, and search filters */
 export const selectFilteredNotifications = (state: NotificationState): Notification[] => {
   let filtered = state.notifications;

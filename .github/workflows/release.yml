@@ -32,8 +32,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # Fail fast before doing any work: the Marketplace token must exist,
-      # and the current version's tag must not already be on origin (a
-      # re-run after a completed release would bump/tag/publish on top of it).
+      # otherwise the run would bump, tag and build for 10 minutes only to die
+      # at the publish step. The tag collision is checked further down, once
+      # the version to release is known — see "Verify release tag is free".
       - name: Fail-fast preflight
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
@@ -42,12 +43,7 @@ jobs:
             echo "::error::VSCE_PAT secret is not set — cannot publish to the Marketplace"
             exit 1
           fi
-          TAG="v$(node -p "require('./package.json').version")"
-          if git ls-remote --tags origin "$TAG" | grep -q .; then
-            echo "::error::$TAG already exists on origin — this version was already released"
-            exit 1
-          fi
-          echo "Preflight OK: VSCE_PAT present, $TAG not on origin"
+          echo "Preflight OK: VSCE_PAT present"
 
       # pnpm version comes from the packageManager field in package.json
       - uses: pnpm/action-setup@v4
@@ -70,6 +66,20 @@ jobs:
           bash scripts/bump-version.sh ${{ inputs.version }}
           NEW_VERSION=$(node -p "require('./package.json').version")
           echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+
+      # The tag guarded here is the one this run is about to create, not the
+      # one the previous run already created: checking the *current* version's
+      # tag before the bump blocked every release after the first, since a
+      # completed release always leaves that tag on origin. Still runs before
+      # Validate/Package/push, so a collision costs a minute, not a release.
+      - name: Verify release tag is free
+        run: |
+          TAG="v${{ env.NEW_VERSION }}"
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+            echo "::error::$TAG already exists on origin — this version was already released"
+            exit 1
+          fi
+          echo "Tag check OK: $TAG is free on origin"
 
       - name: Update lockfile
         run: pnpm install --no-frozen-lockfile

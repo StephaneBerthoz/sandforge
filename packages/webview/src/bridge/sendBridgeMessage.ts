@@ -20,10 +20,7 @@ import { buildMessage } from './messageHelpers';
  *   shared API from {@link getVscodeApi}. Pass explicitly from React contexts
  *   that already hold the API.
  */
-export function postEnvelopedMessage(
-  message: BaseMessage,
-  api: VSCodeApi = getVscodeApi(),
-): void {
+export function postEnvelopedMessage(message: BaseMessage, api: VSCodeApi = getVscodeApi()): void {
   api.postMessage({
     protocolVersion: PROTOCOL_VERSION,
     correlationId: message.correlationId,

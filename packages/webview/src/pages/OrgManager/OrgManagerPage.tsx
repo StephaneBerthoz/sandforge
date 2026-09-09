@@ -135,6 +135,7 @@ export const OrgManagerPage: React.FC = () => {
   });
 
   const isConnecting = connectMutation.loading;
+  const connectError = connectMutation.error;
 
   const connectMutate = connectMutation.mutate;
   const handleConnect = useCallback(
@@ -152,15 +153,18 @@ export const OrgManagerPage: React.FC = () => {
     [connectMutate],
   );
 
-  // Collapse inline form when connect mutation completes
+  // Collapse inline form when the connect mutation completes *successfully*.
+  // On failure the form used to close silently: the typed credentials were
+  // wiped and the user was left believing the org had been added. Keep the
+  // form and its input open so the error can be read and the attempt retried.
   const prevConnecting = useRef(isConnecting);
   useEffect(() => {
-    if (prevConnecting.current && !isConnecting) {
+    if (prevConnecting.current && !isConnecting && !connectError) {
       setActiveMethod(null);
       resetForm();
     }
     prevConnecting.current = isConnecting;
-  }, [isConnecting]);
+  }, [isConnecting, connectError]);
 
   const resetForm = (): void => {
     setAlias('');
@@ -303,6 +307,18 @@ export const OrgManagerPage: React.FC = () => {
             );
           })}
         </div>
+
+        {/* Connect failure — surfaced in the banner so it is visible for the
+            form-less methods (sfdx_import) too. `mutate` clears it on retry. */}
+        {connectError && (
+          <div
+            className="border-t border-[var(--sf-border)] bg-[var(--sf-bg-secondary)] px-4 py-2 text-xs text-[var(--sf-error)]"
+            role="alert"
+            data-testid="org-connect-error"
+          >
+            <span className="font-semibold">{t('org.status_error')}</span> — {connectError}
+          </div>
+        )}
 
         {/* Inline form — expands when a method with form is selected */}
         {activeMethod && (activeMethod === 'oauth_web' || activeMethod === 'usernamePassword') && (

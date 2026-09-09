@@ -113,6 +113,9 @@ export const DataOpsPage: React.FC = () => {
     const bridgeError =
       backupsQuery.error ??
       backupMutation.error ??
+      // A failed rollback used to be swallowed here: the restore silently did
+      // nothing and the page looked exactly as it does on success.
+      rollbackMutation.error ??
       exportMutation.error ??
       anonymizeMutation.error ??
       templatesQuery.error;
@@ -128,6 +131,7 @@ export const DataOpsPage: React.FC = () => {
   }, [
     backupsQuery.error,
     backupMutation.error,
+    rollbackMutation.error,
     anonymizeMutation.error,
     templatesQuery.error,
     addNotification,
@@ -320,6 +324,9 @@ export const DataOpsPage: React.FC = () => {
               selectedBackupId={selectedBackupId}
               onSelectBackup={setSelectedBackupId}
               onRestore={handleRestore}
+              // Nothing disabled the button while the upserts ran, so a second
+              // click started a second restore over the first one.
+              isRestoring={rollbackMutation.loading}
             />
           )}
 
@@ -328,7 +335,8 @@ export const DataOpsPage: React.FC = () => {
               templates={templatesQuery.data?.templates ?? []}
               selectedTemplateId={selectedTemplateId}
               onSelectTemplate={setSelectedTemplateId}
-              onPreview={handleApplyAnonymize}
+              // onPreview was this same handler: clicking "Preview" masked the
+              // org's data for real. AnonymizePanel now inerts that button.
               onApply={handleApplyAnonymize}
             />
           )}

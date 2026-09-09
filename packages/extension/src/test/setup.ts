@@ -1,4 +1,4 @@
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 
 /**
  * Global test-isolation guard.
@@ -17,4 +17,38 @@ import { afterEach, vi } from 'vitest';
  */
 afterEach(() => {
   vi.useRealTimers();
+});
+
+/**
+ * Network guard.
+ *
+ * The suite is meant to be hermetic, and nothing enforced it: a concurrency
+ * race in `AnthropicAdapter.getClient()` let one of two parallel calls escape
+ * the `@anthropic-ai/sdk` module mock and issue a real POST to
+ * api.anthropic.com — the test failed with a live 401 body, which reads as an
+ * assertion bug rather than as "this test just called the internet".
+ *
+ * Any test that needs fetch stubs it (`vi.stubGlobal`, `vi.spyOn`) and that
+ * still works: the stub simply replaces this guard. What no longer passes
+ * silently is an *unstubbed* call leaving the machine.
+ */
+const blockedFetch = (input: unknown): never => {
+  const url =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.href
+        : ((input as { url?: string } | null)?.url ?? String(input));
+  throw new Error(
+    `Network access from a test: fetch(${url}). Tests must be hermetic — ` +
+      `mock the module or stub globalThis.fetch.`,
+  );
+};
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', blockedFetch);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });

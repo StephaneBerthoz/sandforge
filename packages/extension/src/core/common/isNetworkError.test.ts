@@ -42,7 +42,9 @@ describe('isNetworkError', () => {
     expect(isNetworkError(new Error('FIELD_INTEGRITY_EXCEPTION: bad value'))).toBe(false);
     expect(
       isNetworkError(
-        Object.assign(new Error('REQUEST_LIMIT_EXCEEDED'), { statusCode: 'REQUEST_LIMIT_EXCEEDED' }),
+        Object.assign(new Error('REQUEST_LIMIT_EXCEEDED'), {
+          statusCode: 'REQUEST_LIMIT_EXCEEDED',
+        }),
       ),
     ).toBe(false);
   });

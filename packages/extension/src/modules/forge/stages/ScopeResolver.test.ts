@@ -44,6 +44,16 @@ function makeGraph(nodes: ForgeGraphNode[], edges: ForgeGraphEdge[] = []): Forge
   };
 }
 
+/** Run `fn`, returning the message of the Error it throws (fails loudly if it does not). */
+function throwMessage(fn: () => unknown): string {
+  try {
+    fn();
+  } catch (e) {
+    return (e as Error).message;
+  }
+  throw new Error('Expected the call to throw, but it returned normally.');
+}
+
 const LOOKUP_EDGE: ForgeGraphEdge = {
   sourceObject: 'Account',
   targetObject: 'Contact',
@@ -85,6 +95,56 @@ describe('sortNodesForExecution', () => {
   it('throws when the root node is excluded', () => {
     const graph = makeGraph([makeNode('Account', { included: false })]);
     expect(() => sortNodesForExecution(graph, 'Account')).toThrow(/excluded/);
+  });
+
+  // ERRORS-07: `included === false` means both "left out on purpose" and
+  // "discovery could not measure it". The two must not produce the same
+  // message — the second one is an org/access failure, not a user choice.
+  it('reports a count-failed root as unmeasured, not as excluded by choice', () => {
+    const graph = makeGraph([
+      makeNode('Account', {
+        included: false,
+        status: 'error',
+        recordCount: 0,
+        errors: ['Record count unavailable: QUERY_TIMEOUT'],
+      }),
+    ]);
+
+    const message = throwMessage(() => sortNodesForExecution(graph, 'Account'));
+    expect(message).toContain('could not be measured');
+    expect(message).toContain('Record count unavailable: QUERY_TIMEOUT');
+    expect(message).toContain('unknown, not zero');
+    expect(message).not.toContain('Either include the root node');
+  });
+
+  it('reports a describe-failed root as unmeasured', () => {
+    const graph = makeGraph([
+      makeNode('Account', {
+        included: false,
+        status: 'error',
+        recordCount: 0,
+        fieldCount: 0,
+        errors: ['Describe unavailable: INSUFFICIENT_ACCESS'],
+      }),
+    ]);
+
+    const message = throwMessage(() => sortNodesForExecution(graph, 'Account'));
+    expect(message).toContain('could not be measured');
+    expect(message).toContain('Describe unavailable: INSUFFICIENT_ACCESS');
+  });
+
+  it('falls back to a generic reason when the unmeasured root carries no error text', () => {
+    const graph = makeGraph([makeNode('Account', { included: false, status: 'error' })]);
+
+    expect(() => sortNodesForExecution(graph, 'Account')).toThrow(/unknown discovery error/);
+  });
+
+  it('keeps the deliberate-exclusion message for a root the user left out', () => {
+    const graph = makeGraph([makeNode('Account', { included: false, recordCount: 0 })]);
+
+    const message = throwMessage(() => sortNodesForExecution(graph, 'Account'));
+    expect(message).toContain('Either include the root node');
+    expect(message).not.toContain('could not be measured');
   });
 });
 

@@ -61,6 +61,7 @@ Before execution, the Review step shows:
 
 - Use "Auto Match" in the Field Mapper first, then manually adjust the few fields that do not match
 - Narrow the object set and batch sizes for recurring syncs -- every run reprocesses the full scope
+- Files do not travel: Sync has no blob-transfer stage, so `Attachment`, `ContentVersion` and `Document` are deliberately absent from the prebuilt templates -- Bulk API 2.0 rejects base64, and adding one back breaks the run past 200 records
 - Always review PII warnings in the Review step before executing
 - If sync fails on certain objects, check field-level security on the target org
 - Use the Sankey diagram to verify data flow before execution

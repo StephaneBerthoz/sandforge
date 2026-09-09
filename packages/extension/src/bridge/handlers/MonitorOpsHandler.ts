@@ -193,7 +193,16 @@ export class MonitorOpsHandler implements DomainHandler {
         this.executeRefresh(msg, payload),
       );
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:refresh',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -335,7 +344,16 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:refresh',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -392,7 +410,16 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:health-score', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:health-score',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -442,7 +469,16 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:storage', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:storage',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -498,7 +534,16 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:deployments', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:deployments',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -560,7 +605,16 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:api-usage', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:api-usage',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -627,7 +681,16 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:error-logs', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:error-logs',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -653,7 +716,16 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:sessions', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:sessions',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -679,7 +751,16 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:apex-insights', 'monitor:error', err, undefined, undefined, undefined, msg);
+      sendHandlerError(
+        this.deps,
+        'monitor:apex-insights',
+        'monitor:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
     }
   }
 
@@ -705,12 +786,7 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:sandbox-refresh',
-        'monitor:error',
-        err,
-      );
+      sendHandlerError(this.deps, 'monitor:sandbox-refresh', 'monitor:error', err);
     }
   }
 

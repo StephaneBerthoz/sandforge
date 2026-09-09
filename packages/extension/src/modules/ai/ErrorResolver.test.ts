@@ -40,9 +40,7 @@ describe('ErrorResolver', () => {
   let resolver: ErrorResolver;
 
   beforeEach(() => {
-    mockProvider = vi
-      .fn<AIProvider>()
-      .mockResolvedValue(createMockAIResolution());
+    mockProvider = vi.fn<AIProvider>().mockResolvedValue(createMockAIResolution());
     resolver = new ErrorResolver(mockProvider);
   });
 

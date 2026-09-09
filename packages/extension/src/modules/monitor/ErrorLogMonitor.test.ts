@@ -41,9 +41,7 @@ describe('ErrorLogMonitor', () => {
   let queryErrors: QueryErrorsFn;
 
   beforeEach(() => {
-    queryErrors = vi
-      .fn<QueryErrorsFn>()
-      .mockResolvedValue(createMockErrors());
+    queryErrors = vi.fn<QueryErrorsFn>().mockResolvedValue(createMockErrors());
     monitor = new ErrorLogMonitor(queryErrors);
   });
 

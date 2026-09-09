@@ -42,6 +42,7 @@ vi.mock('../../modules/sync/SyncOrchestrator.js', () => ({
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -133,6 +134,30 @@ function validSyncConfig(): Record<string, unknown> {
     dryRun: false,
     createdAt: '2026-03-01T00:00:00Z',
     updatedAt: '2026-03-01T00:00:00Z',
+  };
+}
+
+/**
+ * Same shape as {@link validSyncConfig} but with an explicit per-object
+ * operation list — used by the Production Guard tests, where the operation a
+ * sync really performs is the whole point.
+ */
+function syncConfigWithObjects(
+  objects: Array<{ objectApiName: string; operation: string }>,
+): Record<string, unknown> {
+  return {
+    ...validSyncConfig(),
+    objects: objects.map((o, index) => ({
+      objectApiName: o.objectApiName,
+      operation: o.operation,
+      externalIdField: 'Ext_Id__c',
+      batchSize: 200,
+      fieldMappings: [],
+      transformRules: [],
+      excludedFields: [],
+      addOnFields: [],
+      insertOrder: index,
+    })),
   };
 }
 
@@ -856,6 +881,162 @@ describe('SyncOpsHandler', () => {
       const types = postToWebview.mock.calls.map((c) => (c[0] as BaseMessage).type);
       expect(types).toContain('operation:failed');
       expect(types).toContain('sync:error');
+    });
+  });
+
+  describe('production guard request', () => {
+    /** Make the target org ('tgt-org') resolve to the given org type. */
+    function mockTargetOrgType(orgType: string): void {
+      (deps.orgManager.getOrg as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ orgType });
+    }
+
+    /** Wire the real ProductionGuard so its rules — not a stub — decide. */
+    function wireRealGuard(): ProductionGuard {
+      const guard = new ProductionGuard();
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: guard,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      return guard;
+    }
+
+    /** Wire a spying guard that always allows, to inspect the request built. */
+    function wireSpyGuard(): ReturnType<typeof vi.fn> {
+      const check = vi.fn().mockReturnValue({
+        allowed: true,
+        requiresConfirmation: false,
+        requiresApproval: false,
+        warnings: [],
+        impactSummary: 'summary',
+      });
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: {
+          check,
+          logOperation: vi.fn(),
+          confirmIfNeeded: vi.fn().mockResolvedValue(true),
+        },
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      return check;
+    }
+
+    /** A connection good enough for the run to succeed past the guard. */
+    function mockWorkingConnection(): void {
+      mockGetConn.mockResolvedValue({
+        query: vi.fn().mockResolvedValue({ records: [] }),
+        sobject: vi.fn().mockReturnValue({
+          create: vi.fn().mockResolvedValue([]),
+          upsert: vi.fn().mockResolvedValue([]),
+          update: vi.fn().mockResolvedValue([]),
+          destroy: vi.fn().mockResolvedValue([]),
+        }),
+        tooling: { executeAnonymous: vi.fn() },
+        limitInfo: undefined,
+      } as never);
+    }
+
+    it('blocks a delete-mode sync to a production org', async () => {
+      wireRealGuard();
+      mockTargetOrgType('Production');
+      mockWorkingConnection();
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'sync-guard-delete',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: {
+          config: syncConfigWithObjects([{ objectApiName: 'Account', operation: 'delete' }]),
+        },
+      };
+
+      await handler.handle(msg);
+
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const posted = postToWebview.mock.calls.map(
+        (c) => c[0] as BaseMessage & { payload: { message?: string } },
+      );
+      const syncErrors = posted.filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0].payload.message).toContain(
+        'delete is not allowed on production org tgt-org',
+      );
+      // The guard gates the run: no connection is even opened.
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    it('blocks a scheduled delete-mode sync to a production org', async () => {
+      wireRealGuard();
+      mockTargetOrgType('Production');
+      mockWorkingConnection();
+
+      await expect(
+        handler.executeScheduled(
+          syncConfigWithObjects([
+            { objectApiName: 'Account', operation: 'delete' },
+          ]) as unknown as import('@sandforge/shared').SyncConfig,
+        ),
+      ).rejects.toThrow(/delete is not allowed on production org tgt-org/);
+      expect(mockGetConn).not.toHaveBeenCalled();
+    });
+
+    it('reports the most destructive operation and every object to the guard', async () => {
+      const check = wireSpyGuard();
+      mockTargetOrgType('Sandbox');
+      mockWorkingConnection();
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'sync-guard-request',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: {
+          config: syncConfigWithObjects([
+            { objectApiName: 'Account', operation: 'upsert' },
+            { objectApiName: 'Contact', operation: 'delete' },
+          ]),
+        },
+      };
+
+      await handler.handle(msg);
+
+      expect(check).toHaveBeenCalledTimes(1);
+      expect(check.mock.calls[0][0]).toMatchObject({
+        orgId: 'tgt-org',
+        orgTier: 'development',
+        operation: 'delete',
+        objectName: 'Account, Contact',
+        // Row counts are unknown until the orchestrator queries the source.
+        recordCount: 0,
+        module: 'sync',
+      });
+    });
+
+    it('reports a non-destructive multi-object sync as its own operation', async () => {
+      const check = wireSpyGuard();
+      mockTargetOrgType('Sandbox');
+      mockWorkingConnection();
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'sync-guard-request-2',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: {
+          config: syncConfigWithObjects([
+            { objectApiName: 'Account', operation: 'insert' },
+            { objectApiName: 'Contact', operation: 'update' },
+          ]),
+        },
+      };
+
+      await handler.handle(msg);
+
+      expect(check.mock.calls[0][0]).toMatchObject({
+        operation: 'update',
+        objectName: 'Account, Contact',
+      });
     });
   });
 });

@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -17,60 +17,66 @@
   "badges": [
     {
       "href": "https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge",
-      "url": "https://img.shields.io/badge/version-1.17.0-blue",
+      "url": "https://img.shields.io/badge/version-1.18.0-blue",
       "description": "Marketplace version"
     },
     {
-      "href": "https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml",
-      "url": "https://github.com/StephaneBerthoz/sand-forge/actions/workflows/ci.yml/badge.svg",
+      "href": "https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml",
+      "url": "https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml/badge.svg",
       "description": "CI status"
     }
   ],
-  "qna": "https://github.com/StephaneBerthoz/sand-forge/discussions",
+  "qna": "https://github.com/StephaneBerthoz/sandforge/discussions",
   "repository": {
     "type": "git",
-    "url": "https://github.com/StephaneBerthoz/sand-forge"
+    "url": "https://github.com/StephaneBerthoz/sandforge"
   },
-  "homepage": "https://github.com/StephaneBerthoz/sand-forge#readme",
+  "homepage": "https://github.com/StephaneBerthoz/sandforge#readme",
   "bugs": {
-    "url": "https://github.com/StephaneBerthoz/sand-forge/issues"
+    "url": "https://github.com/StephaneBerthoz/sandforge/issues"
   },
   "engines": {
     "vscode": "^1.95.0"
   },
   "categories": [
     "Other",
-    "Data Science",
-    "Testing"
+    "Testing",
+    "Visualization"
   ],
   "keywords": [
     "salesforce",
+    "sandbox",
+    "test data",
+    "seed data",
+    "data masking",
+    "data migration",
+    "data import",
+    "data seeding",
+    "data sync",
+    "org cloning",
+    "sandbox seeding",
+    "anonymization",
+    "anonymize",
     "sfdc",
     "sfdx",
+    "sfdmu",
+    "data loader",
     "devops",
     "etl",
-    "sandbox",
-    "data-seeding",
-    "data-sync",
-    "metadata-comparison",
-    "monitoring",
-    "gdpr",
-    "automation",
+    "bulk api",
+    "soql",
     "apex",
     "flow",
-    "bulk-api",
-    "csv-import",
-    "data-import",
-    "org-cloning",
-    "sfdmu",
-    "data-loader",
-    "anonymization",
-    "test-data",
+    "metadata",
+    "gdpr",
     "backup",
-    "soql",
-    "data-migration"
+    "monitoring",
+    "csv",
+    "pii"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "capabilities": {
     "virtualWorkspaces": false,
     "untrustedWorkspaces": {

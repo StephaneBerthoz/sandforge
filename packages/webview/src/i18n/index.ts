@@ -91,8 +91,25 @@ void i18n.use(initReactI18next).init({
   },
 });
 
+/**
+ * Set while the boot restore applies a language DETECTED from the editor
+ * locale rather than chosen by the user. A detected language is a default,
+ * not a choice: persisting it would make {@link importLanguageFromSettings}
+ * believe the fresh webview state already holds a user pick and skip the
+ * recovery from the extension settings blob.
+ *
+ * Held as the language being auto-applied rather than as a boolean: the
+ * suppression window spans an await that can last as long as
+ * `LOCALE_REQUEST_TIMEOUT_MS`, and a boolean swallows *every* change made in
+ * it — including the one the first-run wizard is on screen to collect. Naming
+ * the language means only the auto-applied one is treated as a default.
+ */
+let autoAppliedLanguage: string | undefined;
+
 i18n.on('languageChanged', (lng: string) => {
-  persistLanguage(lng);
+  if (lng !== autoAppliedLanguage) {
+    persistLanguage(lng);
+  }
   // The shell HTML is stamped with the language the extension had at build
   // time; keeping `<html lang>` in step here covers both the boot restore and
   // a runtime switch, so assistive tech never announces French in an English
@@ -220,13 +237,91 @@ export async function changeLanguageLazy(
   }
 }
 
-/** Boot restore: adopt the persisted language once its bundle has loaded. */
+/**
+ * Match a BCP-47 tag against the six shipped locales: exact code first
+ * (case-insensitive, so `pt-br` finds `pt-BR`), then the primary subtag —
+ * `fr-CA` → `fr`, and `pt` / `pt-PT` → `pt-BR`, the only Portuguese bundle
+ * the product ships. Returns undefined when nothing is shipped for the tag.
+ */
+function matchSupportedLanguage(tag: string): SupportedLanguage | undefined {
+  const lower = tag.toLowerCase();
+  const exact = SUPPORTED_LANGUAGES.find((code) => code.toLowerCase() === lower);
+  if (exact !== undefined) {
+    return exact;
+  }
+  const base = lower.split('-')[0];
+  return SUPPORTED_LANGUAGES.find((code) => code.toLowerCase().split('-')[0] === base);
+}
+
+/**
+ * First shipped locale the editor itself asks for, or undefined when none of
+ * its preferred tags has a bundle.
+ *
+ * `navigator.languages` inside a VS Code webview is the Chromium/Electron
+ * locale of the editor window, i.e. the OS display language. It is NOT
+ * `vscode.env.language`: VS Code does not forward its "Configure Display
+ * Language" override to webviews (microsoft/vscode#207071 and #207178, both
+ * still open under #206547), and nothing the host injects into this document
+ * carries it either — the only injected values are
+ * `window.__SANDFORGE_MODULE__` and `<html lang>`, and the latter is stamped
+ * with the *configured* SandForge language, which is exactly `en` when the
+ * setting is left on `auto`. Covering the override needs the host to inject
+ * `vscode.env.language`; until then this is the best signal available from
+ * inside the webview, and it is right whenever the editor follows the OS.
+ */
+function detectEditorLanguage(): SupportedLanguage | undefined {
+  try {
+    if (typeof navigator === 'undefined') {
+      return undefined;
+    }
+    const preferred =
+      navigator.languages !== undefined && navigator.languages.length > 0
+        ? navigator.languages
+        : [navigator.language];
+    for (const tag of preferred) {
+      if (typeof tag !== 'string' || tag === '') {
+        continue;
+      }
+      const match = matchSupportedLanguage(tag);
+      if (match !== undefined) {
+        return match;
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Boot restore: adopt the persisted language once its bundle has loaded, or —
+ * when nothing was ever persisted (first launch) — the editor locale, so the
+ * `auto` language setting actually picks one of the six shipped languages
+ * instead of silently rendering English forever.
+ *
+ * The detected language is applied WITHOUT being persisted (see
+ * {@link suppressLanguagePersist}), so a later `settings:response` can still
+ * recover the language the user really picked in an earlier panel.
+ */
 async function restoreBootLanguage(): Promise<void> {
   const persisted = getPersistedLanguage();
-  if (persisted === undefined || persisted === 'en') {
+  if (persisted !== undefined) {
+    if (persisted === 'en') {
+      return;
+    }
+    await changeLanguageLazy(persisted);
     return;
   }
-  await changeLanguageLazy(persisted);
+  const detected = detectEditorLanguage();
+  if (detected === undefined || detected === 'en') {
+    return;
+  }
+  autoAppliedLanguage = detected;
+  try {
+    await changeLanguageLazy(detected);
+  } finally {
+    autoAppliedLanguage = undefined;
+  }
 }
 
 /**

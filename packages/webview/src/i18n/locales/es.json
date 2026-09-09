@@ -821,8 +821,8 @@
         "description": "Sincronizar todo el pipeline de oportunidades con productos y precios"
       },
       "casesAttachments": {
-        "name": "Casos + archivos adjuntos",
-        "description": "Sincronizar casos de servicio con comentarios y archivos adjuntos"
+        "name": "Casos + comentarios",
+        "description": "Sincronizar casos de servicio con sus comentarios: los archivos y adjuntos no se transfieren"
       }
     },
     "realtime": {
@@ -1501,7 +1501,7 @@
     "defaultBatchSize": "Tamano de lote predeterminado",
     "maxConcurrentOps": "Operaciones simultaneas maximas",
     "enableGrappe": "Habilitar modo Grappe",
-    "enableGrappeDesc": "Particionar automáticamente operaciones grandes en clústeres paralelos para una ejecución más rápida.",
+    "enableGrappeDesc": "Informa las ejecuciones grandes de Seed, Sync y Autopilot partición por partición. La ejecución sigue siendo secuencial.",
     "grappeThreshold": "Umbral de Grappe (registros)",
     "apiTimeout": "Timeout de API (ms)",
     "retryAttempts": "Intentos de reintento",
@@ -1661,7 +1661,7 @@
     "gettingStartedContent": "1. Conecte su org Salesforce desde la pagina de Organizaciones.\n2. Abra el Monitor para verificar la salud de su org.\n3. Use Seed para generar datos de prueba en su sandbox.\n4. Configure Sync para mantener los entornos sincronizados.\n5. Explore Compare, DataOps y Automatizacion para flujos de trabajo avanzados.",
     "monitorContent": "El panel de Monitor muestra la salud de la org en tiempo real:\n- Indicador de puntaje de salud con factores contribuyentes\n- Limites de API con tendencias de uso y predicciones\n- Jobs Apex activos y recientes\n- Alertas para umbrales criticos\n\nConsejo: Habilite la actualizacion automatica para monitoreo continuo.",
     "seedContent": "El asistente de Seed genera datos de prueba realistas:\n1. Seleccione su org destino\n2. Elija los objetos a poblar\n3. Configure las reglas de campos (IA, Faker, estatico, secuencia...)\n4. Defina relaciones y volumenes\n5. Revise y ejecute\n\nConsejo: Use la generacion IA para los datos mas realistas.",
-    "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- 4 modos de sync: Completo, Incremental, Delta, CDC\n- Mapeo automatico de campos con puntajes de confianza\n- 13 tipos de transformacion para manipulacion de datos\n- Estrategias de resolucion de conflictos\n- Soporte de rollback para operaciones seguras",
+    "syncContent": "Sincronice datos entre dos orgs Salesforce:\n- Solo sincronización completa: cada ejecución vuelve a procesar todo el conjunto de objetos (incremental, delta y CDC no están implementados)\n- Mapeo automatico de campos con puntajes de confianza\n- 13 tipos de transformacion para manipulacion de datos\n- Estrategias de resolucion de conflictos\n- Soporte de rollback para operaciones seguras",
     "compareContent": "Compare metadatos entre dos orgs:\n- Visor de diferencias agrupado por categoria y nivel de riesgo\n- Comparacion de matriz de permisos\n- Panel de deteccion de drift\n- Grafico de analisis de impacto\n- Despliegue directo desde resultados de diferencias",
     "dataopsContent": "Suite completa de operaciones de datos:\n- Respaldo y restauracion con programacion\n- Anonimizacion RGPD/CCPA/HIPAA\n- Escaneo de calidad de datos con 7 tipos de reglas\n- Eliminacion masiva y optimizacion de almacenamiento\n- Gestion de solicitudes de titulares de datos (DSR)",
     "automationContent": "Constructor visual de pipelines para automatizacion:\n- 15 tipos de pasos en 4 categorias\n- 6 tipos de disparadores incluyendo programacion y webhooks\n- Enrutamiento condicional con 11 operadores\n- Historial de ejecucion y seguimiento de tasa de exito\n- Plantillas de pipeline para configuracion rapida",
@@ -2229,7 +2229,7 @@
     "forge": "Forge",
     "forgeDesc": "Genere, sincronice y transforme datos",
     "grappe": "Grappe",
-    "grappeDesc": "Motor de ejecución paralela",
+    "grappeDesc": "Progreso por partición en ejecuciones grandes",
     "favorites": "Favoritos",
     "modules": "Módulos",
     "tools": "Herramientas",

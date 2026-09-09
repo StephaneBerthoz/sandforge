@@ -158,4 +158,3 @@ export interface MarketplaceInstallResponse extends BaseMessage {
   type: 'marketplace:install:response';
   payload: { success: boolean; pipeline?: Record<string, unknown>; error?: string };
 }
-

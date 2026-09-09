@@ -118,6 +118,86 @@ export class CrudFlsGuard {
     return { allowed: true, reason: '', deniedFields: [] };
   }
 
+  /**
+   * Split a payload's fields into the ones this org can write and the rest.
+   *
+   * `checkCrudAndFls` answers "may the user write ALL of these?", which is the
+   * right question for a payload the user composed. It is the wrong question
+   * for a restore: a backup is a verbatim `SELECT FIELDS(ALL)` snapshot, so it
+   * always carries CreatedDate, SystemModstamp, formulas, roll-ups and compound
+   * fields — none of them writable by anyone. Asking the all-or-nothing question
+   * about that payload made every single restore fail (EXT-02), and the first
+   * fix for it hard-coded ten field names, which misses every formula and
+   * compound field the same way.
+   *
+   * The describe already knows. Callers strip `skipped` from the payload and
+   * are expected to REPORT it: a restore that quietly drops fields is a
+   * different lie from the one this replaces.
+   *
+   * @param objectApiName - Salesforce object API name.
+   * @param operation - The DML operation to verify.
+   * @param fieldNames - Field API names present in the payload.
+   * @returns Writable field names, and the ones to strip. Unknown fields stay
+   *   in `writable`: Salesforce rejects them itself, and that is not a
+   *   permission decision to make locally.
+   */
+  async partitionWritableFields(
+    objectApiName: string,
+    operation: CrudOperation,
+    fieldNames: string[],
+  ): Promise<{ writable: string[]; skipped: string[]; denied: string[] }> {
+    const describe = await this.fetchDescribe(objectApiName);
+    if (!describe) {
+      return { writable: [...fieldNames], skipped: [], denied: [] };
+    }
+
+    const fieldMap = new Map<string, FieldDescribe>();
+    for (const field of describe.fields) {
+      fieldMap.set(field.name.toLowerCase(), field);
+    }
+
+    const writable: string[] = [];
+    const skipped: string[] = [];
+    const denied: string[] = [];
+    for (const fieldName of fieldNames) {
+      const field = fieldMap.get(fieldName.toLowerCase());
+      if (!field || this.isFieldAllowed(field, operation)) {
+        writable.push(fieldName);
+      } else if (this.isStructurallyReadOnly(field)) {
+        skipped.push(fieldName);
+      } else {
+        denied.push(fieldName);
+      }
+    }
+    return { writable, skipped, denied };
+  }
+
+  /**
+   * Is this field read-only for everyone, rather than for this user?
+   *
+   * `createable`/`updateable` collapse both cases into one false, which is why
+   * the first fix for EXT-02 reached for a list of field names. The describe
+   * does carry the distinction, in four independent shapes:
+   *
+   * - not `permissionable` — FLS cannot be set on it at all, which is what
+   *   audit fields (CreatedDate, SystemModstamp, IsDeleted) look like;
+   * - `calculated` — a formula or roll-up, computed on read;
+   * - `autoNumber` — assigned by Salesforce;
+   * - `address` / `location` — compound fields, written through their parts.
+   *
+   * Anything else that is unwritable is a business field this org may not
+   * write, and callers are expected to refuse rather than drop it.
+   */
+  private isStructurallyReadOnly(field: FieldDescribe): boolean {
+    return (
+      field.permissionable === false ||
+      field.calculated ||
+      field.autoNumber ||
+      field.type === 'address' ||
+      field.type === 'location'
+    );
+  }
+
   /** Check object-level CRUD permission from the describe metadata. */
   private isOperationAllowed(describe: ObjectDescribe, operation: CrudOperation): boolean {
     switch (operation) {

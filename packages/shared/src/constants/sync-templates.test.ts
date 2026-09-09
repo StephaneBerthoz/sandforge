@@ -25,6 +25,14 @@ function assertNoDuplicateObjects(template: SyncTemplateConfig): void {
   expect(new Set(names).size).toBe(names.length);
 }
 
+/**
+ * Objects whose payload is a base64 blob. Sync queries a record's fields and
+ * routes anything over 200 records through Bulk API 2.0, which rejects
+ * base64 — so a prebuilt template listing one of these promises a transfer
+ * the engine cannot carry, and breaks the run past 200 rows.
+ */
+const BLOB_OBJECTS = ['Attachment', 'ContentVersion', 'Document'];
+
 /** Assert all required fields are present on every template. */
 function assertRequiredFields(template: SyncTemplateConfig): void {
   expect(template.templateId).toBeTruthy();
@@ -60,6 +68,18 @@ describe('PREBUILT_SYNC_TEMPLATES', () => {
     const ids = PREBUILT_SYNC_TEMPLATES.map((t) => t.templateId);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it('never promises a blob object while Sync has no file-transfer stage', () => {
+    const offenders: string[] = [];
+    for (const template of PREBUILT_SYNC_TEMPLATES) {
+      for (const obj of template.objects) {
+        if (BLOB_OBJECTS.includes(obj.objectApiName)) {
+          offenders.push(`${template.templateId} -> ${obj.objectApiName}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -81,5 +101,20 @@ describe.each([
 
   it('should have all required fields', () => {
     assertRequiredFields(template);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Cases template: transferable objects only                           */
+/* ------------------------------------------------------------------ */
+
+describe('SYNC_CASES_ATTACHMENTS', () => {
+  it('keeps the case template on the objects Sync can actually carry', () => {
+    expect(SYNC_CASES_ATTACHMENTS.objects.map((o) => o.objectApiName)).toEqual([
+      'Account',
+      'Contact',
+      'Case',
+      'CaseComment',
+    ]);
   });
 });

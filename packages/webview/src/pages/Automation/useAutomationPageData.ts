@@ -138,9 +138,18 @@ export function useAutomationPageData(): AutomationPageData {
   // Bridge query: load saved pipelines
   const pipelinesQuery = useBridgeQuery<{ pipelines: PipelineDefinition[] }>('pipeline:list');
 
-  // Bridge mutation: execute a pipeline
+  // Bridge mutation: execute a pipeline.
+  // The UI deadline must not undercut the host budget: AutomationHandler wraps
+  // the run in `sandforge.pipeline.timeout`, whose manifest default is
+  // 300 000 ms (packages/extension/package.json → contributes.configuration →
+  // `sandforge.pipeline.timeout`.default). On the 30 s useBridgeMutation
+  // default a 45 s pipeline was reported as failed while it was still running
+  // and about to succeed. useAutomationPageData.test.ts reads that manifest
+  // default and asserts it against this value, so the two cannot re-diverge
+  // silently.
   const executeMutation = useBridgeMutation<Record<string, unknown>>('pipeline:execute', {
     responseType: 'pipeline:run:response',
+    timeoutMs: 300_000,
   });
 
   // Bridge mutation: save a pipeline

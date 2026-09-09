@@ -6,3 +6,9 @@
 *.md text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+*.mjs text eol=lf
+# Git hooks have no extension, so `text=auto` never gave them a rule: the
+# working copy kept the CRLF it was checked out with under Windows, and the
+# migration to WSL turned `#!/usr/bin/env bash` into `bash\r`, which Linux
+# cannot resolve. Every commit died before the hook ran.
+scripts/git-hooks/* text eol=lf

@@ -138,7 +138,10 @@ describe('SidePanel', () => {
     fireEvent(
       window,
       new MessageEvent('message', {
-        data: { type: 'settings:response', payload: { settings: { settings: { language: 'fr' } } } },
+        data: {
+          type: 'settings:response',
+          payload: { settings: { settings: { language: 'fr' } } },
+        },
       }),
     );
     expect(mockSyncLanguage).toHaveBeenCalledWith({ settings: { language: 'fr' } });

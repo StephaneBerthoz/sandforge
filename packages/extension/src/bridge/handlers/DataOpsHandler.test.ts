@@ -396,4 +396,246 @@ describe('DataOpsHandler', () => {
       vi.restoreAllMocks();
     });
   });
+
+  describe('rollback safety', () => {
+    /**
+     * Describe fixture where only `Name` is writable; system fields are not.
+     *
+     * `permissionable` is carried deliberately, and it is what a real describe
+     * returns: FLS cannot be set on Id or on the audit datetimes, so Salesforce
+     * reports them `permissionable: false`. Leaving it out is what made an
+     * earlier version of this fixture unable to distinguish "nobody may write
+     * this" from "this org may not write this" — the very distinction the
+     * restore depends on.
+     */
+    const accountDescribe = {
+      name: 'Account',
+      label: 'Account',
+      labelPlural: 'Accounts',
+      keyPrefix: '001',
+      custom: false,
+      createable: true,
+      updateable: true,
+      deletable: true,
+      queryable: true,
+      fields: [
+        {
+          name: 'Id',
+          label: 'Id',
+          type: 'id',
+          createable: false,
+          updateable: false,
+          permissionable: false,
+        },
+        {
+          name: 'Name',
+          label: 'Name',
+          type: 'string',
+          createable: true,
+          updateable: true,
+          permissionable: true,
+        },
+        {
+          name: 'CreatedDate',
+          label: 'Created Date',
+          type: 'datetime',
+          createable: false,
+          updateable: false,
+          permissionable: false,
+        },
+        {
+          name: 'LastModifiedDate',
+          label: 'Last Modified Date',
+          type: 'datetime',
+          createable: false,
+          updateable: false,
+          permissionable: false,
+        },
+        {
+          name: 'SystemModstamp',
+          label: 'System Modstamp',
+          type: 'datetime',
+          createable: false,
+          updateable: false,
+          permissionable: false,
+        },
+      ],
+      recordTypeInfos: [],
+      childRelationships: [],
+    };
+
+    /** A backup record as `SELECT FIELDS(ALL)` returns it — system fields included. */
+    const backedUpRecord = {
+      attributes: { type: 'Account', url: '/x' },
+      Id: '001000000000001',
+      Name: 'Acme',
+      CreatedDate: '2026-01-01T00:00:00.000Z',
+      LastModifiedDate: '2026-01-02T00:00:00.000Z',
+      SystemModstamp: '2026-01-02T00:00:00.000Z',
+    };
+
+    /** Wires a connection whose describe/upsert are observable. */
+    async function mockConnection(
+      describe: Record<string, unknown> = accountDescribe,
+    ): Promise<{ upsert: ReturnType<typeof vi.fn>; describe: ReturnType<typeof vi.fn> }> {
+      const upsert = vi.fn().mockResolvedValue([{ success: true, id: '001000000000001' }]);
+      const describeFn = vi.fn().mockResolvedValue(describe);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: describeFn,
+        sobject: vi.fn(() => ({ upsert })),
+      } as never);
+      return { upsert, describe: describeFn };
+    }
+
+    /** ConfigStore stub holding one backup (meta + records) for `metaOrgId`. */
+    function configStoreWithBackup(
+      metaOrgId: string,
+      records: Record<string, unknown>[] = [backedUpRecord],
+    ): HandlerDeps['configStore'] {
+      const entries: Record<string, unknown> = {
+        'backup:bk-1': {
+          operationId: 'bk-1',
+          orgId: metaOrgId,
+          objects: [{ objectApiName: 'Account', recordCount: records.length }],
+          totalRecords: records.length,
+        },
+        'backup:bk-1:Account': records,
+      };
+      return {
+        get: vi.fn((key: string) => entries[key]),
+        set: vi.fn(),
+        delete: vi.fn(),
+        has: vi.fn((key: string) => key in entries),
+        getKeysByPrefix: vi.fn((prefix: string) =>
+          Object.keys(entries).filter((k) => k.startsWith(prefix)),
+        ),
+      } as unknown as HandlerDeps['configStore'];
+    }
+
+    /** Rollback message targeting `orgId` with the stored backup. */
+    function rollbackMsg(orgId: string, id = 'msg-rb'): BaseMessage {
+      return {
+        id,
+        type: 'dataops:rollback',
+        timestamp: Date.now(),
+        payload: { orgId, operationId: 'bk-1' },
+      } as BaseMessage;
+    }
+
+    /** All messages posted to the webview. */
+    function posted(): Array<BaseMessage & { payload: { message?: string; error?: string } }> {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    }
+
+    it('refuses to restore a backup taken from another org', async () => {
+      const { upsert } = await mockConnection();
+      deps.configStore = configStoreWithBackup('org-B');
+
+      await handler.handle(rollbackMsg('org-A'));
+
+      expect(upsert).not.toHaveBeenCalled();
+      const errors = posted().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toContain('was taken from org org-B');
+      expect(errors[0].payload.message).toContain('cannot be restored into org org-A');
+    });
+
+    it('blocks a rollback the Production Guard refuses', async () => {
+      const { upsert } = await mockConnection();
+      deps.configStore = configStoreWithBackup('org-prod');
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Production',
+      });
+      const check = vi.fn().mockReturnValue({
+        allowed: false,
+        requiresConfirmation: false,
+        requiresApproval: false,
+        blockedReason: 'Production writes are blocked',
+        warnings: [],
+        impactSummary: '',
+      });
+      const logOperation = vi.fn();
+      deps.infraServices = {
+        productionGuard: { check, logOperation, confirmIfNeeded: vi.fn() },
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(rollbackMsg('org-prod'));
+
+      expect(upsert).not.toHaveBeenCalled();
+      expect(check).toHaveBeenCalledWith(
+        expect.objectContaining({ orgTier: 'production', operation: 'upsert', module: 'dataops' }),
+      );
+      expect(logOperation).toHaveBeenCalledTimes(1);
+      const errors = posted().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toContain('Production writes are blocked');
+    });
+
+    it('aborts a rollback when the production confirmation is declined', async () => {
+      const { upsert } = await mockConnection();
+      deps.configStore = configStoreWithBackup('org-prod');
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Production',
+      });
+      deps.infraServices = {
+        productionGuard: {
+          check: vi.fn().mockReturnValue({
+            allowed: true,
+            requiresConfirmation: true,
+            requiresApproval: false,
+            warnings: [],
+            impactSummary: 'upsert 1 record',
+          }),
+          logOperation: vi.fn(),
+          confirmIfNeeded: vi.fn().mockResolvedValue(false),
+        },
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+
+      await handler.handle(rollbackMsg('org-prod'));
+
+      expect(upsert).not.toHaveBeenCalled();
+      const errors = posted().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toBe(
+        'Operation cancelled by user (production confirmation declined).',
+      );
+      expect(posted().filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+
+    it('strips system fields from the payload instead of failing the FLS check', async () => {
+      const { upsert } = await mockConnection();
+      deps.configStore = configStoreWithBackup('org-1');
+
+      await handler.handle(rollbackMsg('org-1'));
+
+      // The restore runs: system fields never reach the write, `Id` stays as
+      // the upsert match key, and no FLS error is emitted.
+      expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
+      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(upsert.mock.calls[0][0]).toEqual([{ Id: '001000000000001', Name: 'Acme' }]);
+      expect(upsert.mock.calls[0][1]).toBe('Id');
+      const response = posted().find((m) => m.type === 'dataops:rollback:response');
+      expect(response).toBeDefined();
+    });
+
+    it('still refuses the rollback when a business field is not writable', async () => {
+      const readOnlyName = {
+        ...accountDescribe,
+        fields: accountDescribe.fields.map((f) =>
+          f.name === 'Name' ? { ...f, createable: false, updateable: false } : f,
+        ),
+      };
+      const { upsert } = await mockConnection(readOnlyName);
+      deps.configStore = configStoreWithBackup('org-1');
+
+      await handler.handle(rollbackMsg('org-1'));
+
+      expect(upsert).not.toHaveBeenCalled();
+      const errors = posted().filter((m) => m.type === 'dataops:error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0].payload.message).toContain('Name');
+      expect(errors[0].payload.message).toContain('FLS violation');
+    });
+  });
 });

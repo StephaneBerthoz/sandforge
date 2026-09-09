@@ -35,7 +35,7 @@ You should see at least one authenticated org in the output.
 
 ### From a VSIX file
 
-1. Download the latest `sandforge.vsix` from the [Releases page](https://github.com/StephaneBerthoz/sand-forge/releases)
+1. Download the latest `sandforge.vsix` from the [Releases page](https://github.com/StephaneBerthoz/sandforge/releases)
 2. In VSCode, open the Command Palette (`Ctrl+Shift+P`) and run **Extensions: Install from VSIX...**
 3. Select the downloaded file
 

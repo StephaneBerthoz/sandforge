@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type {
@@ -436,6 +436,92 @@ describe('ForgeHandler', () => {
         expect.any(Array),
         'forge',
       );
+    });
+  });
+
+  describe('forge:execute duplicate guard', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Count of forge:execute:error payloads carrying the DUPLICATE code. */
+    function duplicateErrors(): number {
+      return vi.mocked(deps.broker.postToWebview).mock.calls.filter((call) => {
+        const m = call[0] as BaseMessage & { payload?: { code?: string } };
+        return m.type === 'forge:execute:error' && m.payload?.code === 'DUPLICATE';
+      }).length;
+    }
+
+    it('refuses an identical payload while the first run is still in flight', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+      let release: (r: ForgeExecutionResult) => void = () => {};
+      vi.mocked(orchestrator.execute).mockReturnValue(
+        new Promise<ForgeExecutionResult>((resolve) => {
+          release = resolve;
+        }),
+      );
+
+      const first = handler.handle(buildMsg('forge:execute', { graph, config }));
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      expect(duplicateErrors()).toBe(1);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+
+      release(createMockResult());
+      await first;
+    });
+
+    it('lets the user re-run immediately after a failed run', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+
+      vi.mocked(orchestrator.execute).mockRejectedValueOnce(new Error('Bulk job failed'));
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      vi.mocked(orchestrator.execute).mockResolvedValueOnce(createMockResult());
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      // The retry actually ran: a failed clone must not lock the recipe out.
+      expect(orchestrator.execute).toHaveBeenCalledTimes(2);
+      expect(duplicateErrors()).toBe(0);
+    });
+
+    it('lets the user re-run a run that completed without writing anything', async () => {
+      const graph = createMockGraph();
+      const config = createMockConfig();
+
+      vi.mocked(orchestrator.execute).mockResolvedValueOnce(
+        createMockResult({ status: 'failure', idRemapCount: 0 }),
+      );
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      vi.mocked(orchestrator.execute).mockResolvedValueOnce(createMockResult());
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      expect(orchestrator.execute).toHaveBeenCalledTimes(2);
+      expect(duplicateErrors()).toBe(0);
+    });
+
+    it('holds an identical re-run for the cooldown after a run that wrote, then releases it', async () => {
+      vi.useFakeTimers();
+      const graph = createMockGraph();
+      const config = createMockConfig();
+      vi.mocked(orchestrator.execute).mockResolvedValue(createMockResult({ idRemapCount: 5 }));
+
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+
+      // Straight after a writing run: an accidental second submit is refused.
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+      expect(duplicateErrors()).toBe(1);
+      expect(orchestrator.execute).toHaveBeenCalledTimes(1);
+
+      // Past the cooldown (60s) the same recipe is runnable again — it used to
+      // stay blocked for the tracker's full 1h TTL.
+      vi.advanceTimersByTime(61_000);
+      await handler.handle(buildMsg('forge:execute', { graph, config }));
+      expect(orchestrator.execute).toHaveBeenCalledTimes(2);
+      expect(duplicateErrors()).toBe(1);
     });
   });
 

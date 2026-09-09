@@ -20,8 +20,66 @@ import type {
 import type { ForgeGraphNode } from '@sandforge/shared';
 import { logger } from '../../../logger.js';
 import { ForgeBatchStrategy as ForgeBatchStrategyService } from '../ForgeBatchStrategy.js';
+import type { ResolvedBatchStrategy } from '../ForgeBatchStrategy.js';
 import type { CleanedRecord } from './RecordCleaner.js';
 import type { IdRemapper } from '../IdRemapper.js';
+
+/**
+ * Maximum records each write API accepts in a single call.
+ *
+ * `rest` is the REST sObject Collections endpoint (`conn.sobject(x).create`
+ * / `.upsert`), hard-capped at 200 records per call by Salesforce; `bulk`
+ * is Bulk API 2.0 ingest.
+ */
+export const WRITE_API_MAX_BATCH: Readonly<Record<ResolvedBatchStrategy['api'], number>> = {
+  rest: 200,
+  bulk: 10_000,
+};
+
+/**
+ * The API this writer really dispatches on.
+ *
+ * `composition/forgeComposition.ts` wires both `insertRecords` and
+ * `upsertRecords` onto `conn.sobject(name).create/upsert` — REST sObject
+ * Collections. No Bulk 2.0 transport is reachable from this stage, so the
+ * effective batch size is derived from THIS constant and never from
+ * `ForgeBatchStrategy.batchSize` alone (PERF-01): the strategy returns
+ * `api: 'bulk'` + `batchSize: 10_000` as soon as a node holds more than 200
+ * records, and posting 10 000 records to a 200-record endpoint failed every
+ * object above the threshold. Moving Forge onto a real Bulk path means
+ * changing this constant *and* the injected deps together, which keeps the
+ * two in sync by construction.
+ */
+const WRITE_API: ResolvedBatchStrategy['api'] = 'rest';
+
+/**
+ * Batch size and count for the transport {@link BatchWriter} actually calls.
+ *
+ * Honors a strategy that asks for *smaller* batches, clamps one that asks for
+ * more than the write API accepts.
+ *
+ * @param planned - What {@link ForgeBatchStrategyService.resolve} proposed.
+ * @param recordCount - Records to write for this node.
+ * @returns The API really used, the clamped batch size/count, and whether the
+ *   planned size had to be reduced.
+ */
+export function resolveWriteBatching(
+  planned: ResolvedBatchStrategy,
+  recordCount: number,
+): {
+  api: ResolvedBatchStrategy['api'];
+  batchSize: number;
+  batchCount: number;
+  clamped: boolean;
+} {
+  const batchSize = Math.min(planned.batchSize, WRITE_API_MAX_BATCH[WRITE_API]);
+  return {
+    api: WRITE_API,
+    batchSize,
+    batchCount: Math.max(1, Math.ceil(recordCount / batchSize)),
+    clamped: batchSize < planned.batchSize,
+  };
+}
 
 /** Records inserted with nullified cycle FKs — patched in pass 2. */
 export interface PendingFkUpdate {
@@ -99,10 +157,19 @@ export class BatchWriter {
   async writeNode(input: WriteNodeInput): Promise<BatchWriteResult> {
     const { node, records, cleanedRecords, fieldInfos, creatableFields, targetOrgId, remapper } =
       input;
-    const { batchSize, batchCount } = this.batchStrategy.resolve(
-      node.batchStrategy,
-      records.length,
-    );
+    const planned = this.batchStrategy.resolve(node.batchStrategy, records.length);
+    // PERF-01: the resolved `api` used to be discarded, so a node resolved to
+    // 'bulk' was sliced into 10 000-record batches and handed to the REST
+    // write path, which rejects anything over 200.
+    const { batchSize, batchCount, clamped } = resolveWriteBatching(planned, records.length);
+    if (clamped) {
+      logger.warn(
+        `[forge] ${node.objectApiName}: batch strategy asked for ${planned.batchSize} records ` +
+          `per call (api="${planned.api}") but the write path is "${WRITE_API}" ` +
+          `(max ${WRITE_API_MAX_BATCH[WRITE_API]}) — using ${batchSize} per call ` +
+          `(${batchCount} batch(es)).`,
+      );
+    }
 
     input.onProgress({
       objectName: node.objectApiName,

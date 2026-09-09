@@ -65,9 +65,7 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
     const authProvider = new AuthProvider();
     const sfdxBridge = createMockSfdxBridge();
 
-    executeCommand = vi
-      .fn<CommandExecutor>()
-      .mockResolvedValue(undefined);
+    executeCommand = vi.fn<CommandExecutor>().mockResolvedValue(undefined);
 
     const deps: ExtensionHandlersDeps = {
       log: () => {},
