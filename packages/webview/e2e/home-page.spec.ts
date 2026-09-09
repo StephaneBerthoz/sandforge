@@ -13,9 +13,9 @@ async function resolveOrgListLoading(page: import('@playwright/test').Page): Pro
   // Retrieve the original request's correlationId from captured messages
   const correlationId = await page.evaluate(() => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find(
-      (m) => (m as Record<string, unknown>).type === 'org:list',
-    ) as Record<string, unknown> | undefined;
+    const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+      | Record<string, unknown>
+      | undefined;
     return orgListMsg?.id as string | undefined;
   });
 

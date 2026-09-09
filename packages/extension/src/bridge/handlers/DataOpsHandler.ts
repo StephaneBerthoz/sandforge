@@ -13,7 +13,7 @@ import {
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { ANONYMIZATION_TEMPLATES } from '../templates/anonymizationTemplates.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
-import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
+import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { CrudFlsGuard } from '../../core/metadata/CrudFlsGuard.js';
 import type { ObjectDescribe } from '../../core/metadata/MetadataReader.js';
 import { DmlOperationTracker } from '../../core/common/DmlOperationTracker.js';
@@ -189,6 +189,30 @@ export class DataOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Comma-separated list of every field of an object, ready to drop into a
+   * SELECT clause.
+   *
+   * Salesforce caps `SELECT FIELDS(ALL)` at `LIMIT 200`, and these snapshots
+   * ask for the org-tier limit (2000 on a sandbox): the org rejected the query
+   * every single time, and the records only arrived because
+   * `queryWithFieldsFallback` caught the rejection, described the object and
+   * re-queried — three round trips per object to do the work of two. Resolving
+   * the field list up front makes the query valid on the first attempt. It is
+   * the same list that fallback built, and the same `LIMIT`, so the rows and
+   * columns collected do not change.
+   *
+   * @param conn - Connection used for the describe call.
+   * @param objectApiName - Already-sanitized SObject API name.
+   */
+  private async selectAllFields(
+    conn: { describe: (objectApiName: string) => Promise<{ fields: Array<{ name: string }> }> },
+    objectApiName: string,
+  ): Promise<string> {
+    const desc = await conn.describe(objectApiName);
+    return desc.fields.map((f) => f.name).join(', ');
+  }
+
   private async handleBackup(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsBackupPayloadSchema, msg, 'dataops:error', this.deps);
@@ -204,7 +228,16 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[WARN] ${message}`);
       // Settle the in-flight useBridgeMutation listener on dataops:error
       // (same dual-channel contract as the catch below).
-      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', new Error(message));
+      sendHandlerError(
+        this.deps,
+        'dataops:backup',
+        'dataops:error',
+        new Error(message),
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
       sendOperationFailed(this.deps, operationId, message, false);
       return;
     }
@@ -218,6 +251,10 @@ export class DataOpsHandler implements DomainHandler {
           'dataops:backup',
           'dataops:error',
           new Error(`Duplicate operation: ${operationId}`),
+          undefined,
+          undefined,
+          undefined,
+          msg,
         );
         sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false);
         return;
@@ -251,10 +288,10 @@ export class DataOpsHandler implements DomainHandler {
       let processedObjects = 0;
       for (const objectApiName of payload.objects) {
         const safeObj = sanitizeSoqlObjectName(objectApiName);
-        const records = await queryWithFieldsFallback<Record<string, unknown>>(
+        const records = await queryAll<Record<string, unknown>>(
           conn,
-          safeObj,
-          `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${queryLimits.defaultQueryLimit}`,
+          `SELECT ${await this.selectAllFields(conn, safeObj)} FROM ${safeObj} ` +
+            `LIMIT ${queryLimits.defaultQueryLimit}`,
         );
         checkApiLimits(conn.limitInfo, `dataops:backup query ${safeObj}`);
 
@@ -326,7 +363,16 @@ export class DataOpsHandler implements DomainHandler {
       // the `<domain>:error` channel useBridgeMutation listens on — it settles
       // the in-flight mutation with the real message. The webview surfaces the
       // error from dataops:error only, so the user sees it exactly once.
-      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', err);
+      sendHandlerError(
+        this.deps,
+        'dataops:backup',
+        'dataops:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     } finally {
       this.activeOrgOperations.delete(lockKey);
@@ -422,6 +468,9 @@ export class DataOpsHandler implements DomainHandler {
         'dataops:error',
         new Error(`Backup not found: ${parsed.operationId}`),
         'BACKUP_NOT_FOUND',
+        undefined,
+        undefined,
+        msg,
       );
       return;
     }
@@ -491,7 +540,16 @@ export class DataOpsHandler implements DomainHandler {
     if (this.activeOrgOperations.has(lockKey)) {
       const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
       this.deps.log(`[WARN] ${message}`);
-      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', new Error(message));
+      sendHandlerError(
+        this.deps,
+        'dataops:rollback',
+        'dataops:error',
+        new Error(message),
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
       sendOperationFailed(this.deps, rollbackOpId, message, false);
       return;
     }
@@ -505,6 +563,10 @@ export class DataOpsHandler implements DomainHandler {
           'dataops:rollback',
           'dataops:error',
           new Error(`Duplicate operation: ${rollbackOpId}`),
+          undefined,
+          undefined,
+          undefined,
+          msg,
         );
         sendOperationFailed(this.deps, rollbackOpId, `Duplicate operation: ${rollbackOpId}`, false);
         return;
@@ -569,7 +631,16 @@ export class DataOpsHandler implements DomainHandler {
         const confirmed = await guard.confirmIfNeeded(check);
         if (!confirmed) {
           const message = 'Operation cancelled by user (production confirmation declined).';
-          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', new Error(message));
+          sendHandlerError(
+            this.deps,
+            'dataops:rollback',
+            'dataops:error',
+            new Error(message),
+            undefined,
+            undefined,
+            undefined,
+            msg,
+          );
           sendOperationFailed(this.deps, rollbackOpId, message, false);
           return;
         }
@@ -610,6 +681,10 @@ export class DataOpsHandler implements DomainHandler {
             'dataops:rollback',
             'dataops:error',
             new Error(crudCheck.reason),
+            undefined,
+            undefined,
+            undefined,
+            msg,
           );
           sendOperationFailed(this.deps, rollbackOpId, crudCheck.reason, false);
           return;
@@ -630,7 +705,16 @@ export class DataOpsHandler implements DomainHandler {
         if (denied.length > 0) {
           const reason = `FLS violation on '${safeObj}': fields [${denied.join(', ')}] are not updateable.`;
           this.deps.log(`[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${reason}`);
-          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', new Error(reason));
+          sendHandlerError(
+            this.deps,
+            'dataops:rollback',
+            'dataops:error',
+            new Error(reason),
+            undefined,
+            undefined,
+            undefined,
+            msg,
+          );
           sendOperationFailed(this.deps, rollbackOpId, reason, false);
           return;
         }
@@ -699,7 +783,16 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.dmlTracker.markFailed(rollbackOpId);
       // Dual channel, single display (see handleBackup).
-      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', err);
+      sendHandlerError(
+        this.deps,
+        'dataops:rollback',
+        'dataops:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
       sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true);
     } finally {
       this.activeOrgOperations.delete(lockKey);
@@ -737,7 +830,16 @@ export class DataOpsHandler implements DomainHandler {
         const confirmed = await guard.confirmIfNeeded(check);
         if (!confirmed) {
           const message = 'Operation cancelled by user (production confirmation declined).';
-          sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', new Error(message));
+          sendHandlerError(
+            this.deps,
+            'dataops:anonymize',
+            'dataops:error',
+            new Error(message),
+            undefined,
+            undefined,
+            undefined,
+            msg,
+          );
           sendOperationFailed(this.deps, operationId, message, false);
           return;
         }
@@ -793,10 +895,10 @@ export class DataOpsHandler implements DomainHandler {
 
         if (objectRules.length === 0) continue;
 
-        const records = await queryWithFieldsFallback<Record<string, unknown>>(
+        const records = await queryAll<Record<string, unknown>>(
           conn,
-          safeObj,
-          `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${anonQueryLimits.defaultQueryLimit}`,
+          `SELECT ${await this.selectAllFields(conn, safeObj)} FROM ${safeObj} ` +
+            `LIMIT ${anonQueryLimits.defaultQueryLimit}`,
         );
         checkApiLimits(conn.limitInfo, `dataops:anonymize query ${safeObj}`);
 
@@ -818,6 +920,10 @@ export class DataOpsHandler implements DomainHandler {
             'dataops:anonymize',
             'dataops:error',
             new Error(flsCheck.reason),
+            undefined,
+            undefined,
+            undefined,
+            msg,
           );
           sendOperationFailed(this.deps, operationId, flsCheck.reason, false);
           return;
@@ -881,7 +987,16 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
       // Dual channel, single display (see handleBackup).
-      sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', err);
+      sendHandlerError(
+        this.deps,
+        'dataops:anonymize',
+        'dataops:error',
+        err,
+        undefined,
+        undefined,
+        undefined,
+        msg,
+      );
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     }
   }

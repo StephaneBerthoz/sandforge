@@ -6,7 +6,19 @@ import type { BaseMessage } from './base.messages.js';
  * domain handler. See `packages/extension/src/bridge/MessageBroker.ts`.
  */
 
-/** Posted back when an inbound envelope fails Zod validation (message dropped). */
+/**
+ * Posted back when an inbound envelope fails Zod validation (message dropped).
+ *
+ * `correlationId` carries the id of the message that failed, when the envelope
+ * was intact enough to read it. Without it this was a bare broadcast, and the
+ * only way a waiting hook could claim it was to guess from timing — which
+ * meant every request younger than the guess window claimed an unrelated
+ * rejection as its own. The request that was actually dropped waited out its
+ * full 30 s timeout instead, and showed the user the raw timeout string.
+ *
+ * It stays optional: a payload malformed enough that no id can be read still
+ * produces a bridge:error, and that one is genuinely un-attributable.
+ */
 export interface BridgeErrorMessage extends BaseMessage {
   type: 'bridge:error';
   payload: { reason: string; details: string };

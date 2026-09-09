@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { OrgSafetyTier } from '@sandforge/shared';
@@ -192,6 +192,45 @@ describe('ComparePage', () => {
     expect(screen.getByText('Diff Viewer')).toBeDefined();
     expect(screen.getByText('Permission Matrix')).toBeDefined();
     expect(screen.getByText('Deploy from Diff')).toBeDefined();
+  });
+
+  it('should say the deploy tab is not wired instead of claiming there is no data', () => {
+    mockCompareMutationState = {
+      mutate: mockCompareMutate,
+      data: {
+        configId: 'cfg-1',
+        sourceOrgId: 'org-1',
+        targetOrgId: 'org-2',
+        mode: 'metadata',
+        summary: { totalItems: 100, added: 5, removed: 3, modified: 10, unchanged: 82, byType: {} },
+        diffs: [
+          {
+            componentType: 'ApexClass',
+            fullName: 'TestClass',
+            status: 'modified',
+            sourceValue: 'v1',
+            targetValue: 'v2',
+            severity: 'warning',
+            deployable: true,
+          },
+        ],
+        timestamp: '2024-01-01T12:00:00Z',
+        duration: 5000,
+      },
+      loading: false,
+      error: null,
+      reset: mockCompareReset,
+    };
+    render(<ComparePage />);
+
+    fireEvent.click(screen.getByTestId('page-tab-deploy'));
+
+    // No producer computes a DeploymentSuggestion, so the tab must not render
+    // an empty deployment list -- that reads as "nothing is deployable".
+    expect(screen.getByTestId('compare-deploy-soon')).toBeDefined();
+    expect(screen.getByText('Coming soon')).toBeDefined();
+    expect(screen.queryByTestId('deploy-builder')).toBeNull();
+    expect(screen.queryByText('No data available')).toBeNull();
   });
 
   it('should display error from bridge mutation', () => {

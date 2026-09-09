@@ -93,6 +93,34 @@ describe('useBridgeMutation', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('drops the previous result when a new mutation starts', () => {
+    // `mutate` used to clear `loading` and `error` but never `data`, and the
+    // error channel never touches `data` either. So a run that succeeded
+    // followed by one that failed left both set, and pages rendered their
+    // failure banner directly above the earlier run's success summary.
+    const { result } = renderHook(() =>
+      useBridgeMutation<{ orgId: string; status: string }>('org:connect', {
+        responseType: 'org:statusChanged',
+      }),
+    );
+
+    act(() => {
+      result.current.mutate({ orgId: '', authMethod: 'sfdx_import' });
+    });
+    act(() => {
+      simulateResponse('org:statusChanged', { orgId: 'org-1', status: 'connected' });
+    });
+    expect(result.current.data).not.toBeNull();
+
+    // Second attempt: the first result must not survive into it.
+    act(() => {
+      result.current.mutate({ orgId: '', authMethod: 'sfdx_import' });
+    });
+
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+  });
+
   it('should ignore non-matching response types', () => {
     const { result } = renderHook(() =>
       useBridgeMutation<{ orgId: string; status: string }>('org:connect'),

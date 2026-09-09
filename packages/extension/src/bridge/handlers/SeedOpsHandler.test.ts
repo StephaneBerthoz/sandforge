@@ -13,6 +13,7 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
+import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -1181,6 +1182,69 @@ describe('SeedOpsHandler', () => {
 
       await vi.waitFor(() => expect(registry.get(operationId!)?.status).toBe('completed'));
       registry.dispose();
+    });
+  });
+
+  describe('production guard record count', () => {
+    /** Two-object template: 120 000 + 80 000 = 200 000 records planned. */
+    function bigSeedTemplate(): Record<string, unknown> {
+      const template = validSeedTemplate();
+      template.objects = [
+        {
+          objectApiName: 'Account',
+          recordCount: 120_000,
+          batchSize: 200,
+          insertOrder: 0,
+          excludedFields: [],
+          fieldRules: [],
+        },
+        {
+          objectApiName: 'Contact',
+          recordCount: 80_000,
+          batchSize: 200,
+          insertOrder: 1,
+          excludedFields: [],
+          fieldRules: [],
+        },
+      ];
+      return template;
+    }
+
+    it('confirms the template total, not a hardcoded single record', async () => {
+      // Real guard: the modal text is the one the user actually reads.
+      const requestConfirmation = vi.fn<(impactSummary: string) => Promise<boolean>>();
+      requestConfirmation.mockResolvedValue(false);
+      const guard = new ProductionGuard({ requestConfirmation });
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        id: 'org-1',
+        orgType: 'Production',
+      });
+      deps.infraServices = {
+        performanceTracker: undefined,
+        productionGuard: guard,
+        offlineManager: undefined,
+        piiDetector: undefined,
+      } as unknown as NonNullable<HandlerDeps['infraServices']>;
+      mockGetConn.mockResolvedValue({} as never);
+
+      await handler.handle({
+        id: 'seed-guard-1',
+        type: 'seed:execute',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', template: bigSeedTemplate(), dryRun: false },
+      } as BaseMessage);
+
+      expect(requestConfirmation).toHaveBeenCalledTimes(1);
+      const summary = requestConfirmation.mock.calls[0][0];
+      expect(summary).toContain('INSERT 200000 SeedData record(s)');
+      expect(summary).not.toContain('INSERT 1 SeedData');
+
+      // 200 000 is above the 1 000-record production threshold: the audited
+      // decision must flag approval instead of reading as a one-row insert.
+      const entry = guard.getAuditLog()[0];
+      expect(entry.request.recordCount).toBe(200_000);
+      expect(entry.result.requiresApproval).toBe(true);
+      expect(entry.result.warnings.join(' ')).toContain('200000 records');
     });
   });
 });

@@ -5,6 +5,114 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-09-09
+
+Buttons that told you they had worked, and the two habits behind them.
+
+v1.18.0 closed the defects that broke the product. This one closes the tier
+below: features that ran, reported success, and had done nothing. Half of them
+shared one cause — `useBridgeMutation` returns `data` and `error`, and fifteen
+call sites read neither, which TypeScript strict cannot catch because not
+reading a value is legal. The other half shared a second — a success toast
+fired synchronously after `mutate()`, before any answer could arrive.
+
+### Fixed
+
+- **"Pipeline saved" waits for the save.** The toast fired one line after
+  `mutate()`, with no branch and no response, so a rejected save still read as
+  green — or read as green first and red a few seconds later.
+- **The AI-generated pipeline reaches the canvas.** The response arrived and
+  nothing consumed it: you described a pipeline, waited, and got nothing at all,
+  with no explanation. A refusal now says why.
+- **Installing a marketplace template installs it.** The button built an empty
+  pipeline locally, wearing the template's name, and announced "Template
+  installed as new pipeline" — the steps never crossed the bridge. The host has
+  handled `marketplace:install` since it shipped; what kept the channel unsent
+  was a line in an allowlist asserting the marketplace "cannot install", a note
+  about the UI that was read for years as a statement about the product.
+- **Migration's "Run" says what it did.** It moved real data and rendered
+  neither result nor error.
+- **A failed sync enters the history.** A sync that threw was never recorded, so
+  history and re-run were dead for exactly the runs that needed them.
+- **A production seed says how many records.** The confirmation was handed the
+  literal `1`, so you approved the creation of 200 000 rows believing you were
+  approving one — and no volume threshold could ever trigger.
+- **A DataOps error no longer closes someone else's operation.** Errors on a
+  dozen `dataops:*` paths were posted with no `correlationId`, so a failed
+  `backup:list` ended a 120-second restore that was still running, with the
+  wrong message.
+- **A rejected request fails instead of timing out.** When the broker drops a
+  message at envelope validation, no handler ever replies, so the request sat
+  out its full 30 seconds and showed a raw timeout string. `bridge:error` now
+  carries the id of the message that failed, and is matched on that id alone —
+  an earlier attempt matched on a two-second window and made every concurrent
+  request claim someone else's rejection.
+- **A new attempt drops the previous result.** `mutate()` cleared `loading` and
+  `error` but never `data`, and the error channel never touches `data` either:
+  a run that succeeded followed by one that failed rendered the failure banner
+  directly above the earlier run's "Complete — 118 succeeded".
+- **Disconnecting an org drops its token.** The pooled connection outlived an
+  explicit disconnect until the host shut down, so authentication material
+  survived a revocation the user had asked for.
+- **Compare's Deploy tab and Seed's relations editor say they are unbuilt.**
+  Deploy sat on "No data" — which reads as "the diff has nothing deployable" —
+  for a view with no producer anywhere in the codebase; the component that could
+  never receive data is deleted with it. "+ Add relation" added an empty row
+  that could not be filled and was never sent.
+
+### Performance
+
+- **Monitor stops asking the org the same question twice.** It ran the same
+  AsyncApexJob query on every refresh, in the one tool whose job is to warn you
+  about your API budget. A refresh that overruns its limit now stops there
+  instead of spending more calls on an answer the panel stopped waiting for.
+- **The Forge preview caches the org's object list.** Every corrected record id
+  re-downloaded one to two megabytes of describe JSON.
+- **A large clone's result table no longer freezes the tab.** The id-remapping
+  table rendered one row per cloned record; it now renders a scrolling window.
+- **Configuration stops rewriting itself for nothing.** Every `set` re-serialised
+  the whole blob, and Monitor's polling triggered one every thirty seconds —
+  thousands of full disk writes a day, almost none of them writing a new value.
+
+### Documentation
+
+- **The listing answers "why leave SFDMU or Data Loader".** It bought both
+  keywords and never made the case.
+- **The DataOps guide stops calling Restore inert.** It has worked since
+  v1.18.0.
+- **The Grappe settings and the restricted-mode warning are translated.** Three
+  setting descriptions sat in raw English inside an otherwise translated block,
+  and VS Code disabled the extension in an untrusted workspace without saying
+  why.
+- **The walkthrough has a button on every step**, and "Open Org in Browser"
+  leaves the palette, where it could only ever fail.
+- **The empty states are translated.** Automation, Autopilot, the scheduler and
+  real-time "coming soon" badges and Monitor's Auto button rendered in English
+  for German, Spanish, Japanese and Portuguese readers.
+
+### Build
+
+- **Untranslated prose fails the build.** Section 4 of the i18n gate was
+  report-only, which is how the count reached fourteen while the product
+  advertised six languages. A value legitimately identical across languages now
+  goes in an allowlist as a decision, not as a silent tolerance.
+- **The format gate covers the repository**, not the fifth of it under
+  `packages/*/src` — the scripts, workflows and configuration it left out are
+  where the gates themselves live.
+- **`scripts/render-icon.mjs` is reachable.** It rasterises the Marketplace
+  icon, it had no caller, and knip had been told to ignore the file — which hid
+  the orphan along with it. It is `pnpm icons:render` now, and only its
+  deliberate cross-workspace resolution of Playwright is declared.
+- **The mutation score is reported.** The nightly job computed it and wrote it
+  to an environment variable no later step ever read.
+- **A rate limit no longer fails a release.** The public-link check turned a 429
+  from raw.githubusercontent.com into "this image is broken" — a gate that fails
+  for a reason unrelated to what it checks is a gate people learn to ignore.
+
+### Removed
+
+- `DeployFromDiff`, a component no producer could ever feed.
+
 ## [1.18.0] - 2026-09-09
 
 The repository is public, and the audit that preceded it found the flagship
@@ -40,7 +148,7 @@ executed. Sixteen of the seventeen releases were cut by hand.
 - **DataOps Restore works.** It never has. Backups are taken with
   `SELECT FIELDS(ALL)`, so every one carries `CreatedDate`, `SystemModstamp`
   and `IsDeleted`; the restore asked its CRUD/FLS guard whether it could write
-  *all* the fields in the payload, those are writable by nobody, and the answer
+  _all_ the fields in the payload, those are writable by nobody, and the answer
   was no — for every object, on every restore, since the feature shipped in
   1.15.0 under the heading "Restore works." The guard now answers field by
   field, using `permissionable` from the describe to tell "nobody may write
@@ -1212,7 +1320,7 @@ Second Wave 3 run on a fresh Case (D00002635) revealed four more error
 classes; this commit fixes them all.
 
 - **`ReferenceDataMapper`** (new file): instead of cloning canonical
-  reference-data tables (BusinessHours, OperatingHours, ServiceOffer__c,
+  reference-data tables (BusinessHours, OperatingHours, ServiceOffer\_\_c,
   ServiceTerritory…) the executor now resolves source IDs to existing
   target IDs via `WHERE Name IN (…)` (or `DeveloperName` when more
   appropriate) and feeds the result into the `IdRemapper`. Avoids the
@@ -1276,11 +1384,11 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 
 - 1st attempt: 0/52 inserted; 3 systemic bugs found (above two + ref data).
 - 2nd attempt after fixes: **52/58 inserted on SBER**: Case (1/1),
-  Contact (50/50), GlobalContext2__c (1/1). 6 remaining failures fall into
+  Contact (50/50), GlobalContext**c (1/1). 6 remaining failures fall into
   3 known categories that map to upcoming Wave 2 hardening: Reference
   data (BusinessHours already exists → needs ReferenceDataMapper), FLS
-  schema drift on Person Account `__pc` fields, and read-only system
-  objects (`CaseHistory2`).
+  schema drift on Person Account `**pc` fields, and read-only system
+objects (`CaseHistory2`).
 
 ### Added (Forge module, record-scoped clone, Wave 1 POC)
 

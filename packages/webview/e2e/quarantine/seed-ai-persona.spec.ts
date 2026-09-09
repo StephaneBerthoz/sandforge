@@ -49,7 +49,10 @@ test.describe('Seed AI persona -> execute', () => {
 
     // Execute
     await page.getByTestId('forge-execute-btn').click();
-    await mockBridge.respond('forge:execute:response', { executionId: 'exec-1', status: 'started' });
+    await mockBridge.respond('forge:execute:response', {
+      executionId: 'exec-1',
+      status: 'started',
+    });
     await expect(page.getByTestId('forge-execution-indicator')).toBeVisible({ timeout: 5_000 });
   });
 

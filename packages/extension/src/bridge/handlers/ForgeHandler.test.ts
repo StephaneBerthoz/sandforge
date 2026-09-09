@@ -1301,5 +1301,104 @@ describe('ForgeHandler', () => {
       expect(response.payload.estimatedRecordCount).toBe(0);
       expect(response.payload.estimatedSize).toBe(0);
     });
+
+    // PERF-08 — describeGlobal returns 1-2 MB of JSON and the webview fires a
+    // preview on every corrected record id. The prefix table is org-wide, so
+    // it must be downloaded once per org, not once per keystroke.
+    describe('describeGlobal caching', () => {
+      /** Connection double whose describeGlobal/describe/query are countable. */
+      function createPreviewConn(): {
+        describeGlobal: ReturnType<typeof vi.fn>;
+        describe: ReturnType<typeof vi.fn>;
+        query: ReturnType<typeof vi.fn>;
+        limitInfo: Record<string, never>;
+      } {
+        return {
+          describeGlobal: vi.fn().mockResolvedValue({
+            sobjects: [
+              { name: 'Account', label: 'Account', keyPrefix: '001' },
+              { name: 'Contact', label: 'Contact', keyPrefix: '003' },
+            ],
+          }),
+          describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name' }] }),
+          query: vi.fn().mockResolvedValue({ totalSize: 42 }),
+          limitInfo: {},
+        };
+      }
+
+      it('describes the global prefix table once for two previews on the same org', async () => {
+        const mockConn = createPreviewConn();
+        mockGetConn.mockResolvedValue(mockConn as never);
+        mockQueryFallback.mockResolvedValue([{ Id: '001xx000003DGb1', Name: 'Acme' }]);
+
+        await handler.handle(
+          buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-1' }),
+        );
+        await handler.handle(
+          buildMsg('forge:preview', { recordId: '001xx000003DGb2', orgId: 'org-1' }),
+        );
+
+        expect(mockConn.describeGlobal).toHaveBeenCalledTimes(1);
+        const responseCalls = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.filter((call) => (call[0] as BaseMessage).type === 'forge:preview:response');
+        expect(responseCalls).toHaveLength(2);
+      });
+
+      it('serves the cached prefix table without losing the object label', async () => {
+        const mockConn = createPreviewConn();
+        mockGetConn.mockResolvedValue(mockConn as never);
+        mockQueryFallback.mockResolvedValue([{ Id: '003xx000004TMi9', Name: 'Ada' }]);
+
+        await handler.handle(
+          buildMsg('forge:preview', { recordId: '003xx000004TMi9', orgId: 'org-1' }),
+        );
+        await handler.handle(
+          buildMsg('forge:preview', { recordId: '003xx000004TMi8', orgId: 'org-1' }),
+        );
+
+        const responseCalls = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.filter((call) => (call[0] as BaseMessage).type === 'forge:preview:response');
+        expect(responseCalls).toHaveLength(2);
+        const second = responseCalls[1][0] as BaseMessage & {
+          payload: { objectApiName: string; objectLabel: string };
+        };
+        expect(second.payload.objectApiName).toBe('Contact');
+        expect(second.payload.objectLabel).toBe('Contact');
+      });
+
+      it('does not serve one org cached prefix table to another org', async () => {
+        const orgOneConn = createPreviewConn();
+        const orgTwoConn = {
+          ...createPreviewConn(),
+          describeGlobal: vi.fn().mockResolvedValue({
+            sobjects: [{ name: 'Case', label: 'Case', keyPrefix: '001' }],
+          }),
+        };
+        mockGetConn.mockImplementation(async (orgId: string) =>
+          orgId === 'org-1' ? (orgOneConn as never) : (orgTwoConn as never),
+        );
+        mockQueryFallback.mockResolvedValue([{ Id: '001xx000003DGb1', Name: 'Acme' }]);
+
+        await handler.handle(
+          buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-1' }),
+        );
+        await handler.handle(
+          buildMsg('forge:preview', { recordId: '001xx000003DGb1', orgId: 'org-2' }),
+        );
+
+        expect(orgOneConn.describeGlobal).toHaveBeenCalledTimes(1);
+        expect(orgTwoConn.describeGlobal).toHaveBeenCalledTimes(1);
+        const responseCalls = vi
+          .mocked(deps.broker.postToWebview)
+          .mock.calls.filter((call) => (call[0] as BaseMessage).type === 'forge:preview:response');
+        expect(responseCalls).toHaveLength(2);
+        expect(
+          (responseCalls[1][0] as BaseMessage & { payload: { objectApiName: string } }).payload
+            .objectApiName,
+        ).toBe('Case');
+      });
+    });
   });
 });

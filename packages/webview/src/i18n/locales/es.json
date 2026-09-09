@@ -190,8 +190,8 @@
     "limitStatus": "Estado",
     "selectOrgDesc": "Elija una org conectada para ver su salud, límites y jobs en directo.",
     "chooseOrg": "Elija una org...",
-    "autoRefreshOn": "Auto: ON",
-    "autoRefreshOff": "Auto: OFF",
+    "autoRefreshOn": "Auto: activado",
+    "autoRefreshOff": "Auto: desactivado",
     "pageTitle": "Monitor de Org",
     "pageSubtitle": "Salud y límites en tiempo real",
     "scanAnomalies": "Escanear anomalías",
@@ -353,8 +353,6 @@
     "unchanged": "Sin cambios",
     "breaking": "Critico",
     "deployable": "Desplegable",
-    "estimatedDuration": "Duracion estimada",
-    "risks": "Riesgos",
     "noDrift": "No se detecto drift",
     "driftScore": "Puntaje de drift",
     "createSnapshot": "Crear snapshot",
@@ -852,7 +850,7 @@
         "paused": "En pausa",
         "error": "Error"
       },
-      "comingSoon": "Requires CDC — Coming in v2.0",
+      "comingSoon": "Requiere CDC — disponible en la v2.0",
       "autoSync": "Sync automático",
       "autoSyncDesc": "Aplicar cambios al destino automáticamente",
       "conflictStrategy": "Estrategia de conflictos",
@@ -1298,15 +1296,16 @@
     "generatePipeline": "Generar con IA",
     "generatePipelinePrompt": "Describa el pipeline que desea crear...",
     "marketplace": "Marketplace",
+    "templateInstalled": "Plantilla instalada como nuevo pipeline",
+    "installFailed": "No se pudo instalar la plantilla",
     "marketplaceAuthor": "Autor",
     "noMarketplaceTemplates": "No hay plantillas disponibles",
     "noMarketplaceTemplatesDesc": "Las plantillas de la comunidad aparecerán aquí",
     "installTemplate": "Instalar",
-    "templateInstalled": "Plantilla instalada como nuevo pipeline",
     "emptyState": {
-      "title": "Build Your First Pipeline",
-      "description": "Create automated workflows to seed, sync, and transform your sandbox data with visual pipelines.",
-      "cta": "Select an Org"
+      "title": "Cree su primer pipeline",
+      "description": "Cree flujos de trabajo automatizados para poblar, sincronizar y transformar los datos de su sandbox con pipelines visuales.",
+      "cta": "Seleccionar una org"
     }
   },
   "ai": {
@@ -2215,9 +2214,9 @@
       "failed": "Fallido"
     },
     "emptyState": {
-      "title": "Auto-Provision Your Sandbox",
-      "description": "Let Autopilot scan your org schema, generate an execution plan, and populate your sandbox with realistic data.",
-      "cta": "Select an Org"
+      "title": "Aprovisione su sandbox automáticamente",
+      "description": "Deje que Autopilot analice el esquema de su org, genere un plan de ejecución y pueble su sandbox con datos realistas.",
+      "cta": "Seleccionar una org"
     }
   },
   "sidePanel": {
@@ -2281,7 +2280,7 @@
       "load": "Cargar"
     },
     "manifest": {
-      "version": "Dataset v{{version}}"
+      "version": "Conjunto de datos v{{version}}"
     },
     "config": {
       "title": "Configuración del proyecto",
@@ -2456,7 +2455,7 @@
       "weekly": "Semanal",
       "monthly": "Mensual"
     },
-    "comingSoon": "Coming in v1.2"
+    "comingSoon": "Disponible en la v1.2"
   },
   "governance": {
     "title": "Gobernanza de Org",

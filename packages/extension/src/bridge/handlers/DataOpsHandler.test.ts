@@ -109,11 +109,11 @@ describe('DataOpsHandler', () => {
     });
 
     it('allows backup operations on different orgs concurrently', async () => {
-      vi.mock('../../core/connection/ConnectionHelper.js', () => ({
-        getJsforceConnection: vi.fn().mockResolvedValue({
-          query: vi.fn().mockResolvedValue({ records: [] }),
-        }),
-      }));
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }] }),
+        query: vi.fn().mockResolvedValue({ records: [] }),
+      } as never);
 
       const makeMsg = (
         orgId: string,
@@ -330,6 +330,7 @@ describe('DataOpsHandler', () => {
       // implementation is set per-test rather than via a new factory.
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] }),
         query: vi.fn().mockResolvedValue({ records: [] }),
       } as never);
 
@@ -636,6 +637,172 @@ describe('DataOpsHandler', () => {
       expect(errors).toHaveLength(1);
       expect(errors[0].payload.message).toContain('Name');
       expect(errors[0].payload.message).toContain('FLS violation');
+    });
+  });
+
+  describe('backup query validity', () => {
+    /**
+     * `SELECT FIELDS(ALL) ... LIMIT 2000` is not a query Salesforce runs:
+     * FIELDS(ALL) is capped at LIMIT 200, so the org rejected the backup query
+     * for every object and the records only arrived through
+     * queryWithFieldsFallback's describe-and-retry — three round trips to do
+     * the work of two. The connection below answers exactly like the org.
+     */
+    function mockOrg(records: Record<string, unknown>[], fields: string[]) {
+      const query = vi.fn(async (soql: string) => {
+        if (soql.includes('FIELDS(')) {
+          throw new Error(
+            'MALFORMED_QUERY: The SOQL FIELDS function must have a LIMIT of at most 200',
+          );
+        }
+        return { records, done: true };
+      });
+      const describe = vi.fn().mockResolvedValue({ fields: fields.map((name) => ({ name })) });
+      return { query, describe, sobject: vi.fn(() => ({ update: vi.fn(), upsert: vi.fn() })) };
+    }
+
+    /** All messages posted to the webview. */
+    function posted(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    }
+
+    beforeEach(() => {
+      // Sandbox tier → defaultQueryLimit 2000, ten times the FIELDS(ALL) cap.
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Sandbox',
+      });
+    });
+
+    it('backs up each object with one query the org accepts, not a rejected FIELDS(ALL)', async () => {
+      const conn = mockOrg(
+        [{ Id: '001', Name: 'Acme', Custom__c: 'x' }],
+        ['Id', 'Name', 'Custom__c'],
+      );
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+      // The default stub has no getKeysByPrefix, which retention needs.
+      deps.configStore = {
+        get: vi.fn(() => undefined),
+        set: vi.fn(),
+        delete: vi.fn(),
+        getKeysByPrefix: vi.fn(() => []),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle({
+        id: 'bk-query',
+        type: 'dataops:backup',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', objects: ['Account'] },
+      } as BaseMessage);
+
+      // One describe + one query per object: no rejected first attempt.
+      expect(conn.query).toHaveBeenCalledTimes(1);
+      expect(conn.query.mock.calls[0][0]).toBe(
+        'SELECT Id, Name, Custom__c FROM Account LIMIT 2000',
+      );
+      expect(conn.describe).toHaveBeenCalledTimes(1);
+      // The LIMIT and the columns are unchanged, so the snapshot is the same.
+      expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
+      const response = posted().find((m) => m.type === 'dataops:backup:response');
+      expect(response?.payload.totalRecords).toBe(1);
+    });
+
+    it('anonymize reads its records with the same first-attempt query', async () => {
+      const conn = mockOrg([], ['Id', 'FirstName', 'Email']);
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
+
+      await handler.handle({
+        id: 'an-query',
+        type: 'dataops:anonymize',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+      } as BaseMessage);
+
+      expect(conn.query).toHaveBeenCalledTimes(1);
+      expect(conn.query.mock.calls[0][0]).toBe(
+        'SELECT Id, FirstName, Email FROM Contact LIMIT 2000',
+      );
+      expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
+    });
+  });
+
+  describe('dataops:error correlation', () => {
+    /**
+     * `sendHandlerError` stamps `correlationId` only when it is handed the
+     * request. `useMessageResponse` drops a response whose correlationId does
+     * not match its own request — but accepts one carrying none, so an
+     * uncorrelated `dataops:error` settled whichever dataops mutation was in
+     * flight: a failed `backup:export` closed a running restore with the wrong
+     * message.
+     */
+    function errors(): Array<BaseMessage & { correlationId?: string }> {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0] as BaseMessage)
+        .filter((m) => m.type === 'dataops:error');
+    }
+
+    it('correlates a backup failure to the backup request', async () => {
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockRejectedValue(new Error('connection failed'));
+
+      await handler.handle({
+        id: 'backup-req',
+        type: 'dataops:backup',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', objects: ['Account'] },
+      } as BaseMessage);
+
+      expect(errors()).toHaveLength(1);
+      expect(errors()[0].correlationId).toBe('backup-req');
+    });
+
+    it('correlates a backup:export miss to the export request, not to a restore in flight', async () => {
+      deps.configStore = {
+        get: vi.fn(() => undefined),
+        set: vi.fn(),
+        getKeysByPrefix: vi.fn(() => []),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle({
+        id: 'export-req',
+        type: 'backup:export',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', operationId: 'missing-op' },
+      } as BaseMessage);
+
+      expect(errors()).toHaveLength(1);
+      // The restore started under `restore-req` keeps running: this error is
+      // addressed to the export, and the webview matches on correlationId.
+      expect(errors()[0].correlationId).toBe('export-req');
+      expect(errors()[0].correlationId).not.toBe('restore-req');
+    });
+
+    it('correlates a refused rollback to the rollback request', async () => {
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        describe: vi.fn().mockResolvedValue({ fields: [] }),
+        sobject: vi.fn(() => ({ upsert: vi.fn() })),
+      } as never);
+      deps.configStore = {
+        get: vi.fn((key: string) =>
+          key === 'backup:bk-1'
+            ? { operationId: 'bk-1', orgId: 'org-OTHER', objects: [], totalRecords: 0 }
+            : undefined,
+        ),
+        set: vi.fn(),
+        getKeysByPrefix: vi.fn(() => []),
+      } as unknown as HandlerDeps['configStore'];
+
+      await handler.handle({
+        id: 'restore-req',
+        type: 'dataops:rollback',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', operationId: 'bk-1' },
+      } as BaseMessage);
+
+      expect(errors()).toHaveLength(1);
+      expect(errors()[0].correlationId).toBe('restore-req');
     });
   });
 });

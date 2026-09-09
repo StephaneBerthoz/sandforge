@@ -17,6 +17,7 @@ import { Card, CardHeader, CardBody } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Skeleton } from '../../components/ui/Skeleton';
+import { ComingSoon } from '../../components/ui/ComingSoon';
 import { OrgSelector } from './OrgSelector';
 import { CategorySelector } from './CategorySelector';
 import { RiskScoreCard } from './RiskScoreCard';
@@ -27,7 +28,6 @@ import type { PermissionMatrixRow } from './PermissionMatrix';
 import { SnapshotTimeline } from './SnapshotTimeline';
 import { DriftDashboard } from './DriftDashboard';
 import type { DriftResult } from './DriftDashboard';
-import { DeployFromDiff } from './DeployFromDiff';
 import { enrichDiffs } from './enrichDiffs';
 import type { OrgSnapshot } from '@sandforge/shared';
 
@@ -359,7 +359,16 @@ export const ComparePage: React.FC = () => {
               <DriftDashboard drift={driftQuery.data ?? undefined} />
             ))}
 
-          {activeTab === 'deploy' && <DeployFromDiff />}
+          {/* No producer computes a DeploymentSuggestion anywhere in the
+              codebase, so DeployFromDiff was always mounted without one and
+              rendered "No data available" — which reads as "the diff holds
+              nothing deployable" when in fact nothing was ever computed. */}
+          {activeTab === 'deploy' && (
+            <ComingSoon
+              data-testid="compare-deploy-soon"
+              description={t('compare.buildDeployment')}
+            />
+          )}
 
           {/* Diff detail modal */}
           {selectedDiff && (

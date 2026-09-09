@@ -171,7 +171,9 @@ function parseArgs(argv: string[]): CliArgs {
     const src = raw.slice(0, eqIdx);
     const tgt = raw.slice(eqIdx + 1);
     if (!SF_ID_RE.test(src) || !SF_ID_RE.test(tgt)) {
-      process.stderr.write(`Invalid --owner-map IDs in "${raw}" (must be 15 or 18 char Salesforce IDs)\n`);
+      process.stderr.write(
+        `Invalid --owner-map IDs in "${raw}" (must be 15 or 18 char Salesforce IDs)\n`,
+      );
       process.exit(2);
     }
     ownerMappings[src] = tgt;
@@ -190,7 +192,9 @@ function parseArgs(argv: string[]): CliArgs {
       process.exit(2);
     }
     if (/--|\/\*|\*\/|;\s*$/.test(where)) {
-      process.stderr.write(`--filter where-clause for "${obj}" contains forbidden tokens (--, /*, */, trailing ;)\n`);
+      process.stderr.write(
+        `--filter where-clause for "${obj}" contains forbidden tokens (--, /*, */, trailing ;)\n`,
+      );
       process.exit(2);
     }
     objectSoqlFilters[obj] = where;
@@ -200,7 +204,9 @@ function parseArgs(argv: string[]): CliArgs {
     const dotIdx = raw.indexOf('.');
     const eqIdx = raw.indexOf('=');
     if (dotIdx <= 0 || eqIdx <= dotIdx + 1 || eqIdx === raw.length - 1) {
-      process.stderr.write(`Invalid --map value "${raw}" (expected Object.sourceField=targetField)\n`);
+      process.stderr.write(
+        `Invalid --map value "${raw}" (expected Object.sourceField=targetField)\n`,
+      );
       process.exit(2);
     }
     const obj = raw.slice(0, dotIdx);
@@ -208,7 +214,9 @@ function parseArgs(argv: string[]): CliArgs {
     const tgt = raw.slice(eqIdx + 1);
     const fieldRe = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
     if (!fieldRe.test(src) || !fieldRe.test(tgt)) {
-      process.stderr.write(`Invalid --map field name in "${raw}" (must match SObject API name pattern)\n`);
+      process.stderr.write(
+        `Invalid --map field name in "${raw}" (must match SObject API name pattern)\n`,
+      );
       process.exit(2);
     }
     (fieldMappings[obj] ??= {})[src] = tgt;
@@ -242,7 +250,9 @@ function loadOrg(alias: string): SfOrg {
   // interpret metacharacters (`&`, `|`, `>`, `^`, `"`). Validate alias before
   // passing — block any shell-injection vector via crafted CLI args.
   if (!SF_ALIAS_RE.test(alias)) {
-    throw new Error(`Invalid SF org alias: "${alias}" (allowed: letters, digits, underscore, dash, dot)`);
+    throw new Error(
+      `Invalid SF org alias: "${alias}" (allowed: letters, digits, underscore, dash, dot)`,
+    );
   }
   const json = execFileSync('sf', ['org', 'display', '--target-org', alias, '--json'], {
     encoding: 'utf8',
@@ -361,7 +371,9 @@ async function main(): Promise<void> {
   console.log('discovery…');
   const graph = await new GraphDiscoveryService(discoveryDeps).discover(config);
   const plan = new ForgePlanGenerator().generate(graph);
-  console.log(`graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles${graph.truncated ? ' (TRUNCATED)' : ''}`);
+  console.log(
+    `graph: ${graph.nodes.length} nodes, ${graph.edges.length} edges, ${plan.waves.length} waves, ${plan.cycleResolutions.length} cycles${graph.truncated ? ' (TRUNCATED)' : ''}`,
+  );
 
   console.log('record-type mapping…');
   const recordTypeMappings = await loadRecordTypes(
@@ -386,9 +398,10 @@ async function main(): Promise<void> {
       return arr.map((x) => ({
         id: x.id ?? '',
         success: x.success,
-        errors: x.errors?.map((e: { statusCode?: string; message?: string }) =>
-          e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
-        ) ?? [],
+        errors:
+          x.errors?.map((e: { statusCode?: string; message?: string }) =>
+            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
+          ) ?? [],
       }));
     },
     updateRecords: async (orgId, name, records) => {
@@ -400,9 +413,10 @@ async function main(): Promise<void> {
       return arr.map((x, i) => ({
         id: x.id ?? (records[i]['Id'] as string) ?? '',
         success: x.success,
-        errors: x.errors?.map((e: { statusCode?: string; message?: string }) =>
-          e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
-        ) ?? [],
+        errors:
+          x.errors?.map((e: { statusCode?: string; message?: string }) =>
+            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
+          ) ?? [],
       }));
     },
     describeFields: async (orgId, name) => {
@@ -438,9 +452,10 @@ async function main(): Promise<void> {
       return arr.map((x) => ({
         id: x.id ?? '',
         success: x.success,
-        errors: x.errors?.map((e: { statusCode?: string; message?: string }) =>
-          e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
-        ) ?? [],
+        errors:
+          x.errors?.map((e: { statusCode?: string; message?: string }) =>
+            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
+          ) ?? [],
       }));
     },
   };
@@ -465,21 +480,25 @@ async function main(): Promise<void> {
     if (nonZero.length === 0) {
       console.log('  target is empty for all sampled objects.');
     } else {
-      const top = nonZero
-        .sort((a, b) => b.existing - a.existing)
-        .slice(0, 10);
-      console.log(`  ${nonZero.length}/${preflight.length} sampled objects have existing rows. Top 10:`);
+      const top = nonZero.sort((a, b) => b.existing - a.existing).slice(0, 10);
+      console.log(
+        `  ${nonZero.length}/${preflight.length} sampled objects have existing rows. Top 10:`,
+      );
       for (const p of top) {
         const flag = p.existing > 1000 ? '  ⚠' : '';
         console.log(`    ${p.name.padEnd(40)} ${String(p.existing).padStart(8)}${flag}`);
       }
       if (graph.nodes.length > sample.length) {
-        console.log(`  (sampled first ${sample.length}/${graph.nodes.length} nodes; --skip-preflight to bypass)`);
+        console.log(
+          `  (sampled first ${sample.length}/${graph.nodes.length} nodes; --skip-preflight to bypass)`,
+        );
       }
     }
   }
 
-  console.log(`\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''})`);
+  console.log(
+    `\nexecuting… (${args.dryRun ? 'DRY-RUN' : 'REAL'}${args.upsert ? ', UPSERT' : ''}${args.expandOrphans ? ', EXPAND-ORPHANS' : ''})`,
+  );
   const summary = await new ForgeExecutor(executorDeps).execute(
     graph,
     args.source,
@@ -498,9 +517,11 @@ async function main(): Promise<void> {
       referenceFallback: 'nullify',
       upsertMode: args.upsert ? 'auto' : undefined,
       expandOrphanParents: args.expandOrphans,
-      fieldExclusions: Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
+      fieldExclusions:
+        Object.keys(args.fieldExclusions).length > 0 ? args.fieldExclusions : undefined,
       ownerMappings: Object.keys(args.ownerMappings).length > 0 ? args.ownerMappings : undefined,
-      objectSoqlFilters: Object.keys(args.objectSoqlFilters).length > 0 ? args.objectSoqlFilters : undefined,
+      objectSoqlFilters:
+        Object.keys(args.objectSoqlFilters).length > 0 ? args.objectSoqlFilters : undefined,
       fieldMappings: Object.keys(args.fieldMappings).length > 0 ? args.fieldMappings : undefined,
     },
   );
@@ -518,10 +539,11 @@ async function main(): Promise<void> {
     // files (e.g. authorized_keys, profile.ps1, scheduled-task XML).
     const resolved = path.resolve(process.cwd(), args.remapCsv);
     const cwdResolved = path.resolve(process.cwd());
-    const inside = resolved === cwdResolved
-      || resolved.startsWith(cwdResolved + path.sep);
+    const inside = resolved === cwdResolved || resolved.startsWith(cwdResolved + path.sep);
     if (!inside) {
-      throw new Error(`--remap-csv must stay inside cwd: "${args.remapCsv}" resolves outside ${cwdResolved}`);
+      throw new Error(
+        `--remap-csv must stay inside cwd: "${args.remapCsv}" resolves outside ${cwdResolved}`,
+      );
     }
     if (!resolved.toLowerCase().endsWith('.csv')) {
       throw new Error(`--remap-csv must use a .csv extension: "${args.remapCsv}"`);
@@ -542,40 +564,54 @@ async function main(): Promise<void> {
     }
     await fs.writeFile(resolved, lines.join('\n') + '\n', 'utf8');
     if (!args.json) {
-      console.log(`remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${resolved}`);
+      console.log(
+        `remap-csv: wrote ${Object.keys(summary.remapTable).length} mappings to ${resolved}`,
+      );
     }
   }
 
   if (args.json) {
     // Machine-readable summary for CI/automation. Stable schema.
-    process.stdout.write(JSON.stringify({
-      tool: 'sandforge-clone',
-      version: 1,
-      source: args.source,
-      target: args.target,
-      record: args.record,
-      dryRun: args.dryRun,
-      upsert: args.upsert,
-      expandOrphans: args.expandOrphans,
-      graph: { nodes: graph.nodes.length, edges: graph.edges.length, waves: plan.waves.length, cycles: plan.cycleResolutions.length, truncated: graph.truncated ?? false },
-      result: {
-        successCount: summary.successCount,
-        failedCount: summary.failedCount,
-        skippedCount: summary.skippedCount,
-        remapCount: summary.remapCount,
-        errors: summary.errors.map((e) => ({
-          objectApiName: e.objectApiName,
-          stage: e.stage,
-          failedCount: e.failedCount,
-          attemptedCount: e.attemptedCount,
-          samples: e.samples,
-        })),
-        // remapTable only included in JSON output for CI consumers; the
-        // text output stays terse (use --remap-csv for the file dump).
-        remapTable: summary.remapTable,
-      },
-      elapsedMs: elapsed,
-    }, null, 2) + '\n');
+    process.stdout.write(
+      JSON.stringify(
+        {
+          tool: 'sandforge-clone',
+          version: 1,
+          source: args.source,
+          target: args.target,
+          record: args.record,
+          dryRun: args.dryRun,
+          upsert: args.upsert,
+          expandOrphans: args.expandOrphans,
+          graph: {
+            nodes: graph.nodes.length,
+            edges: graph.edges.length,
+            waves: plan.waves.length,
+            cycles: plan.cycleResolutions.length,
+            truncated: graph.truncated ?? false,
+          },
+          result: {
+            successCount: summary.successCount,
+            failedCount: summary.failedCount,
+            skippedCount: summary.skippedCount,
+            remapCount: summary.remapCount,
+            errors: summary.errors.map((e) => ({
+              objectApiName: e.objectApiName,
+              stage: e.stage,
+              failedCount: e.failedCount,
+              attemptedCount: e.attemptedCount,
+              samples: e.samples,
+            })),
+            // remapTable only included in JSON output for CI consumers; the
+            // text output stays terse (use --remap-csv for the file dump).
+            remapTable: summary.remapTable,
+          },
+          elapsedMs: elapsed,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
   } else {
     console.log('');
     console.log(`success: ${summary.successCount}`);

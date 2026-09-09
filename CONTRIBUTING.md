@@ -40,7 +40,7 @@ scripts/           # repo-wide tooling (audit-disposables, soak-test, hooks)
 
 Conventional Commits: `<type>(<scope>): <subject>`. Types:
 `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`, `style`,
-`ci`, `build`. Keep subject under 70 chars. Body explains the *why*.
+`ci`, `build`. Keep subject under 70 chars. Body explains the _why_.
 
 Atomic commits preferred. Don't mix unrelated changes.
 

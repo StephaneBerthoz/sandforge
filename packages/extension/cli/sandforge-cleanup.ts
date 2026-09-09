@@ -30,7 +30,8 @@ const SF_ALIAS_RE = /^[A-Za-z0-9_.-]+$/;
 /** SF user/record ID. */
 const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
 /** Validated `--since` literal. */
-const SINCE_LITERAL_RE = /^(TODAY|YESTERDAY|LAST_WEEK|THIS_WEEK|LAST_N_DAYS:\d+|\d{4}-\d{2}-\d{2})$/i;
+const SINCE_LITERAL_RE =
+  /^(TODAY|YESTERDAY|LAST_WEEK|THIS_WEEK|LAST_N_DAYS:\d+|\d{4}-\d{2}-\d{2})$/i;
 
 const DEFAULT_OBJECTS = [
   'CaseContact__c',
@@ -96,7 +97,12 @@ function parseArgs(argv: string[]): CliArgs {
   }
 
   const objectsCsv = get('--objects');
-  const objects = objectsCsv ? objectsCsv.split(',').map((s) => s.trim()).filter(Boolean) : DEFAULT_OBJECTS;
+  const objects = objectsCsv
+    ? objectsCsv
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : DEFAULT_OBJECTS;
 
   return {
     target,
@@ -163,7 +169,9 @@ function sinceClause(since: string): string {
   }
   // ISO date fallback — strictly matched, no verbatim passthrough.
   if (!SINCE_LITERAL_RE.test(since)) {
-    throw new Error(`Invalid --since: ${since}. Allowed: today, yesterday, last_week, last_n_days:N, YYYY-MM-DD.`);
+    throw new Error(
+      `Invalid --since: ${since}. Allowed: today, yesterday, last_week, last_n_days:N, YYYY-MM-DD.`,
+    );
   }
   return since;
 }
@@ -171,7 +179,9 @@ function sinceClause(since: string): string {
 async function main(): Promise<void> {
   const t0 = Date.now();
   const args = parseArgs(process.argv);
-  console.log(`sandforge-cleanup  target=${args.target}  since=${args.since}  ${args.dryRun ? 'DRY-RUN' : 'REAL'}`);
+  console.log(
+    `sandforge-cleanup  target=${args.target}  since=${args.since}  ${args.dryRun ? 'DRY-RUN' : 'REAL'}`,
+  );
 
   // Validate ALL CLI inputs that flow into SOQL or shell execution.
   if (!SF_ALIAS_RE.test(args.target)) {

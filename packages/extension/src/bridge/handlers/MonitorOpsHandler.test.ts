@@ -956,4 +956,206 @@ describe('MonitorOpsHandler', () => {
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
   });
+
+  describe('PERF-07: one AsyncApexJob query per refresh tick', () => {
+    /** One recent job row, shaped as the AsyncApexJob SOQL reads it. */
+    const JOB_ROW = {
+      Id: '707x00000000001',
+      JobType: 'BatchApex',
+      Status: 'Failed',
+      NumberOfErrors: 3,
+      CreatedDate: '2026-03-20T10:00:00Z',
+      CreatedById: '005x00000000001',
+    };
+
+    /**
+     * The module-level `queryAll` mock swallows the connection, which is where
+     * the duplicate is visible. This implementation mirrors the real helper --
+     * one `conn.query`, then its records -- so every SOQL the refresh runs is
+     * counted on the connection.
+     */
+    function routeQueryAllThroughConnection(): void {
+      mockQueryAll.mockImplementation(
+        async (conn: { query: (soql: string) => Promise<unknown> }, soql: string) => {
+          const result = (await conn.query(soql)) as { records: unknown[] };
+          return result.records;
+        },
+      );
+    }
+
+    function createFakeConn(): { query: ReturnType<typeof vi.fn> } & Record<string, unknown> {
+      const query = vi.fn((soql: string) => {
+        if (soql.includes('FROM AsyncApexJob')) {
+          return Promise.resolve({ done: true, totalSize: 1, records: [JOB_ROW] });
+        }
+        if (soql.includes('FROM Organization')) {
+          return Promise.resolve({
+            done: true,
+            totalSize: 1,
+            records: [
+              {
+                Name: 'TestOrg',
+                Id: '00Dtest',
+                OrganizationType: 'Developer Edition',
+                NamespacePrefix: null,
+                CreatedDate: '2026-01-01',
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ done: true, totalSize: 0, records: [] });
+      });
+      return {
+        query,
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        identity: vi
+          .fn()
+          .mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+        version: '62.0',
+        limitInfo: { apiUsage: { used: 100, limit: 15000 } },
+      };
+    }
+
+    /**
+     * The refresh payload and the health check's jobs signal read the same
+     * AsyncApexJob window. Asking the org for it twice is a third of the tick's
+     * API calls spent on data already in hand -- on the very tool whose job is
+     * to warn about the API budget.
+     */
+    it('asks the org for the job list once, not once per consumer', async () => {
+      routeQueryAllThroughConnection();
+      const fakeConn = createFakeConn();
+      mockGetJsforceConnection.mockResolvedValue(fakeConn);
+
+      const localDeps = createMockDeps();
+      (localDeps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        alias: 'TestOrg',
+        orgType: 'Developer',
+        metadata: { edition: 'Developer Edition' },
+      });
+      const localHandler = new MonitorOpsHandler(localDeps);
+
+      await localHandler.handle({
+        id: 'perf-07',
+        type: 'monitor:refresh',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-perf-07' },
+      } as BaseMessage);
+
+      const jobQueries = fakeConn.query.mock.calls.filter((c: unknown[]) =>
+        String(c[0]).includes('FROM AsyncApexJob'),
+      );
+      expect(jobQueries).toHaveLength(1);
+    });
+
+    /** The saved call must not cost the health check its jobs signal. */
+    it('still scores the failed job in orgHealthStatus from the reused rows', async () => {
+      routeQueryAllThroughConnection();
+      mockGetJsforceConnection.mockResolvedValue(createFakeConn());
+
+      const localDeps = createMockDeps();
+      (localDeps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        alias: 'TestOrg',
+        orgType: 'Developer',
+        metadata: { edition: 'Developer Edition' },
+      });
+      const localHandler = new MonitorOpsHandler(localDeps);
+
+      await localHandler.handle({
+        id: 'perf-07-signal',
+        type: 'monitor:refresh',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-perf-07-signal' },
+      } as BaseMessage);
+
+      const postToWebview = localDeps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const data = postToWebview.mock.calls
+        .map(
+          (c: unknown[]) =>
+            c[0] as BaseMessage & { payload: { orgHealthStatus?: { activeJobs: number } } },
+        )
+        .find((m) => m.type === 'monitor:data');
+      expect(data).toBeDefined();
+      // jobsProvider: score 100 - failed * 10 = 90, surfaced as activeJobs 10.
+      // A cache miss would have re-queried and scored the same, so this only
+      // guards against the reuse handing the provider an empty result set.
+      expect(data?.payload.orgHealthStatus?.activeJobs).toBe(10);
+    });
+  });
+
+  describe('EXT-09: a refresh that outlives its bound', () => {
+    /** The handler's refresh bound, kept below the webview's 30 s bridge timeout. */
+    const MONITOR_REFRESH_BOUND_MS = 25_000;
+
+    /**
+     * Past the 25 s bound the request already carries a monitor:error and the
+     * webview has closed the correlation: a late monitor:data is dropped on
+     * arrival, leaving a permanent error banner on a refresh that worked.
+     * The handler must stop at the bound instead of finishing the tick and
+     * posting a reply nobody can receive.
+     */
+    it('posts no second reply and stops calling the org once the bound has fired', async () => {
+      vi.useFakeTimers();
+      try {
+        const fakeConn = {
+          request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+          identity: vi
+            .fn()
+            .mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+          query: vi.fn().mockResolvedValue({ done: true, totalSize: 0, records: [] }),
+          version: '62.0',
+          limitInfo: { apiUsage: { used: 100, limit: 15000 } },
+        };
+        mockGetJsforceConnection.mockResolvedValue(fakeConn);
+        // The refresh's own job query lands one second after the bound has
+        // fired; every later query (org info, then the health check's own job
+        // read) is instant, so the abandoned continuation runs to its end.
+        let jobQueryCount = 0;
+        mockQueryAll.mockImplementation((_conn: unknown, soql: string) => {
+          if (!String(soql).includes('FROM AsyncApexJob')) return Promise.resolve([]);
+          jobQueryCount += 1;
+          return jobQueryCount === 1
+            ? new Promise((resolve) => setTimeout(() => resolve([]), 26_000))
+            : Promise.resolve([]);
+        });
+
+        const localDeps = createMockDeps();
+        (localDeps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+          alias: 'TestOrg',
+          orgType: 'Developer',
+          metadata: { edition: 'Developer Edition' },
+        });
+        const localHandler = new MonitorOpsHandler(localDeps);
+
+        const handlePromise = localHandler.handle({
+          id: 'req-ext-09',
+          type: 'monitor:refresh',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-ext-09' },
+        } as BaseMessage);
+
+        await vi.advanceTimersByTimeAsync(MONITOR_REFRESH_BOUND_MS);
+        await handlePromise;
+
+        const postToWebview = localDeps.broker.postToWebview as ReturnType<typeof vi.fn>;
+        expect(postToWebview).toHaveBeenCalledTimes(1);
+        expect((postToWebview.mock.calls[0][0] as BaseMessage).type).toBe('monitor:error');
+        const orgCallsAtBound = mockQueryAll.mock.calls.length;
+
+        // The slow query now resolves. Everything after it is spent on a
+        // request that is already closed.
+        await vi.advanceTimersByTimeAsync(5_000);
+        // Drain the abandoned continuation: it is a long await chain (org info,
+        // then the four health providers) with no timers left in it.
+        for (let i = 0; i < 100; i += 1) {
+          await Promise.resolve();
+        }
+
+        expect(postToWebview).toHaveBeenCalledTimes(1);
+        expect(mockQueryAll.mock.calls.length).toBe(orgCallsAtBound);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

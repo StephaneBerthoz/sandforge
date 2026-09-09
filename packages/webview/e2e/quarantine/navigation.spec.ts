@@ -54,7 +54,9 @@ test.describe('Sidebar navigation', () => {
     await expect(homeButton).not.toHaveAttribute('aria-current', 'page');
 
     // Monitor should be active
-    const monitorButton = page.getByTestId('sidebar').getByRole('button', { name: 'Monitor', exact: true });
+    const monitorButton = page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Monitor', exact: true });
     await expect(monitorButton).toHaveAttribute('aria-current', 'page');
   });
 

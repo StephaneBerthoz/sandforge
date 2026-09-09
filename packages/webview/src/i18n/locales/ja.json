@@ -347,8 +347,6 @@
     "unchanged": "変更なし",
     "breaking": "破壊的",
     "deployable": "デプロイ可能",
-    "estimatedDuration": "推定所要時間",
-    "risks": "リスク",
     "noDrift": "ドリフトは検出されませんでした",
     "driftScore": "ドリフトスコア",
     "createSnapshot": "スナップショットを作成",
@@ -846,7 +844,7 @@
         "paused": "一時停止中",
         "error": "エラー"
       },
-      "comingSoon": "Requires CDC — Coming in v2.0",
+      "comingSoon": "CDCが必要（v2.0で提供予定）",
       "autoSync": "自動同期",
       "autoSyncDesc": "変更をターゲットへ自動的に適用",
       "conflictStrategy": "競合戦略",
@@ -1291,15 +1289,16 @@
     "generatePipeline": "AIで生成",
     "generatePipelinePrompt": "作成したいパイプラインを記述してください...",
     "marketplace": "マーケットプレイス",
+    "templateInstalled": "テンプレートが新しいパイプラインとしてインストールされました",
+    "installFailed": "テンプレートをインストールできませんでした",
     "marketplaceAuthor": "作成者",
     "noMarketplaceTemplates": "利用可能なテンプレートがありません",
     "noMarketplaceTemplatesDesc": "コミュニティテンプレートがここに表示されます",
     "installTemplate": "インストール",
-    "templateInstalled": "テンプレートが新しいパイプラインとしてインストールされました",
     "emptyState": {
-      "title": "Build Your First Pipeline",
-      "description": "Create automated workflows to seed, sync, and transform your sandbox data with visual pipelines.",
-      "cta": "Select an Org"
+      "title": "最初のパイプラインを作成",
+      "description": "ビジュアルパイプラインで、Sandboxデータの投入・同期・変換を自動化するワークフローを作成できます。",
+      "cta": "Orgを選択"
     }
   },
   "ai": {
@@ -1587,7 +1586,7 @@
     "learnMore": "詳細を見る",
     "openForge": "Forgeを開く",
     "openSync": "Syncを開く",
-    "sandboxBanner": "Sandboxは空です -- SeedまたはSyncでデータを投入しましょう",
+    "sandboxBanner": "Sandboxは空です。SeedまたはSyncでデータを投入しましょう",
     "populateSandbox": "Sandboxにデータを投入",
     "populateSandboxDesc": "ワンクリックでリアルなテストデータをSandboxに投入",
     "syncFirstStepTitle": "Syncを始める",
@@ -2208,9 +2207,9 @@
       "failed": "失敗"
     },
     "emptyState": {
-      "title": "Auto-Provision Your Sandbox",
-      "description": "Let Autopilot scan your org schema, generate an execution plan, and populate your sandbox with realistic data.",
-      "cta": "Select an Org"
+      "title": "Sandboxを自動プロビジョニング",
+      "description": "AutopilotがOrgのスキーマをスキャンし、実行プランを生成して、Sandboxにリアルなデータを投入します。",
+      "cta": "Orgを選択"
     }
   },
   "sidePanel": {
@@ -2449,7 +2448,7 @@
       "weekly": "毎週",
       "monthly": "毎月"
     },
-    "comingSoon": "Coming in v1.2"
+    "comingSoon": "v1.2で提供予定"
   },
   "governance": {
     "title": "Orgガバナンス",

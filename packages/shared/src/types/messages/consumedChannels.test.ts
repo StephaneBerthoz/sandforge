@@ -108,7 +108,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     reason: 'Per-object lookup never wired; the UI sends dataops:anonymization-templates.',
   },
   { channel: 'pipeline:run', reason: 'Legacy alias of pipeline:execute, which is what UI sends.' },
-  { channel: 'marketplace:install', reason: 'Marketplace browses (list) but cannot install.' },
   { channel: 'ai:approve-action', reason: 'Diagnose ships without its human-approval step.' },
   { channel: 'forge:templates:list', reason: 'The Forge recipe library UI was never built.' },
   { channel: 'forge:templates:save', reason: 'Same recipe library slice.' },

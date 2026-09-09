@@ -21,8 +21,8 @@ the genesis line. New decisions go here.)
 
 ## Index
 
-| # | Title | Status | Date |
-|---|-------|--------|------|
-| [0001](./0001-pnpm-11-settings-migration.md) | pnpm 11 settings migration | Accepted | 2026-08-03 |
+| #                                             | Title                       | Status   | Date       |
+| --------------------------------------------- | --------------------------- | -------- | ---------- |
+| [0001](./0001-pnpm-11-settings-migration.md)  | pnpm 11 settings migration  | Accepted | 2026-08-03 |
 | [0002](./0002-message-contract-zero-drift.md) | Message contract zero-drift | Accepted | 2026-08-03 |
-| [0003](./0003-frozen-dataset-salt-model.md) | Frozen dataset salt model | Accepted | 2026-08-03 |
+| [0003](./0003-frozen-dataset-salt-model.md)   | Frozen dataset salt model   | Accepted | 2026-08-03 |

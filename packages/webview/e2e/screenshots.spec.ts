@@ -94,10 +94,7 @@ async function respondToAll(
  * Recharts restarts its 1500 ms entry animation on resize, so the second
  * settle is not belt-and-braces — without it Monitor shoots mid-animation.
  */
-async function shoot(
-  page: import('@playwright/test').Page,
-  name: string,
-): Promise<void> {
+async function shoot(page: import('@playwright/test').Page, name: string): Promise<void> {
   const height = await page.evaluate(() => {
     const panel = document.querySelector('[data-testid="panel-app"]');
     const content = panel?.firstElementChild as HTMLElement | null | undefined;
@@ -321,6 +318,4 @@ test.describe('Marketplace Screenshots', () => {
     await settle(page);
     await shoot(page, 'dataops');
   });
-
-
 });

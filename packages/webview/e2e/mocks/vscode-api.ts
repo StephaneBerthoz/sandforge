@@ -19,8 +19,7 @@ export async function injectVSCodeApiMock(page: Page): Promise<void> {
     const messages: unknown[] = [];
 
     // Expose captured messages for test assertions
-    (window as unknown as Record<string, unknown>).__SANDFORGE_MESSAGES__ =
-      messages;
+    (window as unknown as Record<string, unknown>).__SANDFORGE_MESSAGES__ = messages;
 
     const api: VSCodeApiShape = {
       postMessage: (msg: unknown) => {
@@ -50,8 +49,6 @@ export async function sendExtensionMessage(
   await page.evaluate((msg) => {
     // Dispatch a MessageEvent with an empty origin so the security check in
     // useMessageBus allows it (empty origin is accepted for tests/dev).
-    window.dispatchEvent(
-      new MessageEvent('message', { data: msg, origin: '' }),
-    );
+    window.dispatchEvent(new MessageEvent('message', { data: msg, origin: '' }));
   }, message);
 }

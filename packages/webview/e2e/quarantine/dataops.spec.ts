@@ -34,7 +34,12 @@ const MOCK_BACKUPS = [
     status: 'partial',
     objectResults: [
       { objectApiName: 'Lead', recordCount: 750, status: 'success', errors: [] },
-      { objectApiName: 'Opportunity', recordCount: 50, status: 'failure', errors: ['INVALID_FIELD: BillingCountry'] },
+      {
+        objectApiName: 'Opportunity',
+        recordCount: 50,
+        status: 'failure',
+        errors: ['INVALID_FIELD: BillingCountry'],
+      },
     ],
   },
 ];
@@ -47,7 +52,12 @@ const MOCK_TEMPLATES = [
     description: 'Anonymize all PII fields for GDPR compliance',
     rules: [
       { objectApiName: 'Contact', fieldApiName: 'Email', strategy: 'faker', fakerType: 'email' },
-      { objectApiName: 'Contact', fieldApiName: 'Phone', strategy: 'mask', maskPattern: '***-***-####' },
+      {
+        objectApiName: 'Contact',
+        fieldApiName: 'Phone',
+        strategy: 'mask',
+        maskPattern: '***-***-####',
+      },
     ],
   },
   {
@@ -68,9 +78,9 @@ async function resolveOrgListLoading(page: import('@playwright/test').Page): Pro
 
   const correlationId = await page.evaluate(() => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find(
-      (m) => (m as Record<string, unknown>).type === 'org:list',
-    ) as Record<string, unknown> | undefined;
+    const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+      | Record<string, unknown>
+      | undefined;
     return orgListMsg?.id as string | undefined;
   });
 
@@ -88,8 +98,8 @@ async function resolveOrgListLoading(page: import('@playwright/test').Page): Pro
 async function resolveDataOpsQueries(page: import('@playwright/test').Page): Promise<void> {
   await page.waitForTimeout(300);
 
-  const messages = await page.evaluate(() =>
-    (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
+  const messages = await page.evaluate(
+    () => (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
   );
 
   // Find backup:list query
@@ -131,9 +141,9 @@ test.describe('DataOps page — empty state', () => {
     await page.waitForTimeout(200);
     const correlationId = await page.evaluate(() => {
       const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      const orgListMsg = msgs.find(
-        (m) => (m as Record<string, unknown>).type === 'org:list',
-      ) as Record<string, unknown> | undefined;
+      const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+        | Record<string, unknown>
+        | undefined;
       return orgListMsg?.id as string | undefined;
     });
 
@@ -231,8 +241,8 @@ test.describe('DataOps page — with org', () => {
     await expect(page.getByTestId('dataops-page')).toBeVisible({ timeout: 5000 });
 
     // Send an error response
-    const messages = await page.evaluate(() =>
-      (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
+    const messages = await page.evaluate(
+      () => (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
     );
     const backupListMsg = messages.find(
       (m) => (m as Record<string, unknown>).type === 'backup:list',

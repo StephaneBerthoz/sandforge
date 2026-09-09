@@ -18,6 +18,7 @@ import type { ForgeExecutionError } from '@sandforge/shared';
 import { translateForgeError } from './forgeErrorTranslator';
 import { KPICard } from '../../components/ui/KPICard';
 import { Button } from '../../components/ui/Button';
+import { VirtualList } from '../../components/ui/VirtualList';
 import { LogStream } from '../../components/ui/LogStream';
 import type { LogEntry } from '../../components/ui/LogStream';
 import { useForgeStore } from '../../stores/useForgeStore';
@@ -25,6 +26,17 @@ import { useNotificationStore } from '../../stores/useNotificationStore';
 import { staggerContainer, slideUp } from '../../motion/presets';
 import { cn } from '../../theme';
 import { formatElapsed } from '../../utils/formatters';
+
+/**
+ * Above this many source -> target pairs the Id map switches from a plain
+ * table to a virtualized list.
+ *
+ * The executor returns one pair per cloned record, so a 100 000-record clone
+ * used to mount 100 000 `<tr>` and 200 000 `<td>` at once and froze the tab.
+ * Below the threshold the plain table stays: it keeps the real table
+ * semantics, and a few hundred rows cost nothing.
+ */
+export const ID_REMAP_VIRTUALIZE_THRESHOLD = 200;
 
 /** Status badge colors. */
 const statusBadgeStyles: Record<string, string> = {
@@ -402,24 +414,49 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           <p className="text-xs text-text-secondary mb-2">
             {t('forge.idMapping.subtitle', { count: idRemapRows.length })}
           </p>
-          <div className="max-h-64 overflow-y-auto">
-            <table className="w-full text-xs" data-testid="forge-id-mapping-table">
-              <thead>
-                <tr className="text-left text-text-secondary">
-                  <th className="py-1 pr-3 font-medium">{t('forge.idMapping.sourceId')}</th>
-                  <th className="py-1 font-medium">{t('forge.idMapping.targetId')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {idRemapRows.map(([sourceId, targetId]) => (
-                  <tr key={sourceId} data-testid="forge-id-mapping-row">
-                    <td className="py-1 pr-3 font-mono text-text-secondary">{sourceId}</td>
-                    <td className="py-1 font-mono text-text-primary">{targetId}</td>
+          {idRemapRows.length > ID_REMAP_VIRTUALIZE_THRESHOLD ? (
+            <div data-testid="forge-id-mapping-virtual">
+              <div className="flex text-xs text-left text-text-secondary">
+                <span className="w-1/2 py-1 pr-3 font-medium">{t('forge.idMapping.sourceId')}</span>
+                <span className="w-1/2 py-1 font-medium">{t('forge.idMapping.targetId')}</span>
+              </div>
+              <VirtualList
+                items={idRemapRows}
+                keyExtractor={([sourceId]) => sourceId}
+                estimatedItemHeight={24}
+                maxHeight="16rem"
+                renderItem={([sourceId, targetId]) => (
+                  <div data-testid="forge-id-mapping-row" className="flex text-xs">
+                    <span className="w-1/2 py-1 pr-3 font-mono text-text-secondary truncate">
+                      {sourceId}
+                    </span>
+                    <span className="w-1/2 py-1 font-mono text-text-primary truncate">
+                      {targetId}
+                    </span>
+                  </div>
+                )}
+              />
+            </div>
+          ) : (
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-xs" data-testid="forge-id-mapping-table">
+                <thead>
+                  <tr className="text-left text-text-secondary">
+                    <th className="py-1 pr-3 font-medium">{t('forge.idMapping.sourceId')}</th>
+                    <th className="py-1 font-medium">{t('forge.idMapping.targetId')}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {idRemapRows.map(([sourceId, targetId]) => (
+                    <tr key={sourceId} data-testid="forge-id-mapping-row">
+                      <td className="py-1 pr-3 font-mono text-text-secondary">{sourceId}</td>
+                      <td className="py-1 font-mono text-text-primary">{targetId}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 

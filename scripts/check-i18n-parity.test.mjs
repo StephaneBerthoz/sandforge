@@ -147,16 +147,20 @@ test('section 4 stays silent on single-word and allowlisted identical values', (
   assert.equal(status, 0);
 });
 
-test('section 4 reports a multi-word value left in English, without failing', () => {
+test('section 4 FAILS on a multi-word value left in English', () => {
+  // Report-only until v1.19.0, which is how the count reached 14 while the
+  // product advertised six languages: nothing ever stopped a release over
+  // prose that had simply never been translated.
   const { status, output } = runGate({
     [`${LOCALES}/fr.json`]: JSON.stringify(fr('Welcome to the sandbox')),
   });
   assert.ok(
-    output.includes('! identical-to-English: 1 value(s) still carrying the English copy'),
+    output.includes('identical-to-English: 1 value(s) still carrying the English copy'),
     output,
   );
   assert.ok(output.includes('- prose.welcome [fr]'), output);
-  assert.equal(status, 0);
+  assert.ok(output.includes('i18n-identical-allowlist.json'), output);
+  assert.equal(status, 1);
 });
 
 test('section 4 surfaces an identical value once it leaves the allowlist', () => {

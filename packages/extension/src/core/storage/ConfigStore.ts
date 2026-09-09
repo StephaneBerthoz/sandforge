@@ -36,10 +36,33 @@ export class ConfigStore {
     }
   }
 
-  /** Set a config value (serialized to JSON) */
+  /**
+   * Set a config value (serialized to JSON).
+   *
+   * Dirty-check: a write that changes nothing is skipped, because persist()
+   * re-serializes the whole blob and callers such as the Monitor poller call
+   * set() on a timer (~2 880 times a day) with a value that is almost always
+   * identical.
+   *
+   * The comparison is made on the serialized form. Reference equality would be
+   * useless here — those callers rebuild an equal object on every tick, so it
+   * would never match. A deep structural compare would have to re-parse the
+   * stored JSON, costing more on large blobs than the write it saves. The
+   * serialization is needed for the write anyway, so comparing the two strings
+   * adds one O(n) compare and no extra allocation.
+   *
+   * A value that re-serializes with a different key order (or a changed
+   * category) is treated as different and written: the check can only ever miss
+   * a skip, never a real change, so no update is lost.
+   */
   set<T>(key: string, value: T, category: string = 'general'): void {
+    const serialized = JSON.stringify(value);
+    const existing = this.entries[key];
+    if (existing && existing.value === serialized && existing.category === category) {
+      return;
+    }
     this.entries[key] = {
-      value: JSON.stringify(value),
+      value: serialized,
       category,
     };
     this.persist();

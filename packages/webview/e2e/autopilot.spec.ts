@@ -6,7 +6,10 @@ import { MOCK_ORGS } from './fixtures';
  * Set window.__SANDFORGE_MODULE__ = 'autopilot' so PanelApp renders the
  * Autopilot page directly (standalone panel, not in sidebar router).
  */
-async function setupAutopilotPanel(bridge: MockBridge, page: import('@playwright/test').Page): Promise<void> {
+async function setupAutopilotPanel(
+  bridge: MockBridge,
+  page: import('@playwright/test').Page,
+): Promise<void> {
   await bridge.setup(page);
   await page.addInitScript(() => {
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'autopilot';
@@ -70,7 +73,8 @@ async function enterExecutionState(page: import('@playwright/test').Page): Promi
   const graph = buildMockGraph();
   await page.evaluate((g) => {
     const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
-      { setState: (state: Record<string, unknown>) => void } | undefined;
+      | { setState: (state: Record<string, unknown>) => void }
+      | undefined;
     if (store) {
       store.setState({
         step: 'executing',
@@ -95,7 +99,8 @@ async function enterCompletedState(page: import('@playwright/test').Page): Promi
   });
   await page.evaluate((g) => {
     const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
-      { setState: (state: Record<string, unknown>) => void } | undefined;
+      | { setState: (state: Record<string, unknown>) => void }
+      | undefined;
     if (store) {
       store.setState({
         step: 'completed',

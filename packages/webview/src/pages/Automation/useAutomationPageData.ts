@@ -13,6 +13,117 @@ import { usePipelineGenerator } from '../../hooks/useAIFeatures';
 import type { PipelineExecutionData } from './PipelineExecutionView';
 import type { ScheduledPipeline } from './SchedulerCalendar';
 
+/**
+ * The `PipelineStepType` union as data, for narrowing untyped host payloads.
+ *
+ * The AI generator derives step types from keywords and emits values that are
+ * not members of the union ('dataops', 'monitor'), so a generated step cannot
+ * be cast — it has to be checked.
+ */
+const PIPELINE_STEP_TYPES: readonly string[] = [
+  'seed',
+  'sync',
+  'backup',
+  'restore',
+  'anonymize',
+  'delete',
+  'compare',
+  'precheck',
+  'script',
+  'notification',
+  'approval',
+  'delay',
+  'condition',
+  'loop',
+  'parallel',
+];
+
+/** The `TriggerType` union as data. Same reason as {@link PIPELINE_STEP_TYPES}. */
+const TRIGGER_TYPES: readonly string[] = [
+  'manual',
+  'schedule',
+  'event',
+  'webhook',
+  'sandbox_refresh',
+  'deployment_complete',
+];
+
+/** Narrows an unknown value to a plain object without widening to `any`. */
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/**
+ * Turns the AI generator's loose pipeline into a `PipelineDefinition`.
+ *
+ * `ai:generate-pipeline:response` carries `pipeline` as `Record<string, unknown>`:
+ * the host's `GeneratedPipeline` (name, description, steps of
+ * `{ name, type, config }`, an optional cron `schedule`, optional `triggers`
+ * strings). Every field is narrowed rather than cast — an unknown step type
+ * becomes a `script` step so the user still sees the step and can retype it,
+ * and an unknown trigger string ('error_detected' is one the generator emits)
+ * is dropped instead of poisoning the trigger panel.
+ *
+ * @param raw - The `pipeline` payload of the AI response.
+ * @param fallbackName - Name to use when the generator returned none.
+ */
+function toPipelineDefinition(
+  raw: Record<string, unknown>,
+  fallbackName: string,
+): PipelineDefinition {
+  const now = new Date().toISOString();
+
+  const triggers: PipelineDefinition['triggers'] = [];
+  if (typeof raw.schedule === 'string' && raw.schedule.length > 0) {
+    triggers.push({
+      id: crypto.randomUUID(),
+      type: 'schedule',
+      enabled: true,
+      config: { cron: raw.schedule },
+    });
+  }
+  if (Array.isArray(raw.triggers)) {
+    for (const entry of raw.triggers) {
+      if (typeof entry === 'string' && TRIGGER_TYPES.includes(entry)) {
+        triggers.push({
+          id: crypto.randomUUID(),
+          type: entry as TriggerType,
+          enabled: true,
+          config: {},
+        });
+      }
+    }
+  }
+
+  const rawSteps = Array.isArray(raw.steps) ? raw.steps : [];
+
+  return {
+    id: crypto.randomUUID(),
+    name: typeof raw.name === 'string' && raw.name.length > 0 ? raw.name : fallbackName,
+    description: typeof raw.description === 'string' ? raw.description : '',
+    version: 1,
+    steps: rawSteps.map((rawStep) => {
+      const step = asRecord(rawStep);
+      const type =
+        typeof step.type === 'string' && PIPELINE_STEP_TYPES.includes(step.type)
+          ? (step.type as PipelineStepType)
+          : 'script';
+      return {
+        id: crypto.randomUUID(),
+        name: typeof step.name === 'string' && step.name.length > 0 ? step.name : type,
+        type,
+        config: asRecord(step.config),
+        continueOnError: false,
+      };
+    }),
+    triggers,
+    variables: [],
+    tags: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 /** Marketplace template entry. */
 export interface MarketplaceTemplate {
   id: string;
@@ -82,7 +193,12 @@ export interface AutomationPageData {
   handleSavePipeline: () => void;
   /** Load a saved pipeline and switch to canvas tab. */
   handleLoadPipeline: (p: PipelineDefinition) => void;
-  /** Install a marketplace template as a new pipeline. */
+  /**
+   * Install a marketplace template.
+   *
+   * Sends `marketplace:install` and loads the pipeline the host returns onto
+   * the canvas. Nothing is claimed before that answer arrives.
+   */
   handleInstallTemplate: (tpl: { id: string; name: string; description: string }) => void;
   /** Add a step of the given type to the pipeline. */
   handleAddStep: (type: PipelineStepType) => void;
@@ -124,6 +240,21 @@ export function useAutomationPageData(): AutomationPageData {
   const [selectedStepId, setSelectedStepId] = useState<string>('');
 
   const pipelineGen = usePipelineGenerator();
+  /**
+   * Marketplace install.
+   *
+   * The host has handled `marketplace:install` since it shipped
+   * (AutomationHandler.handleMarketplaceInstall exports the template and
+   * answers `marketplace:install:response`). What kept the button saying
+   * "coming soon" was an entry in the KNOWN_UNSENT allowlist asserting the
+   * marketplace "cannot install" — a note about the UI, read for years as a
+   * statement about the product.
+   */
+  const installMutation = useBridgeMutation<{
+    success: boolean;
+    pipeline?: Record<string, unknown>;
+    error?: string;
+  }>('marketplace:install');
   const marketplaceList = useBridgeQuery<{ success: boolean; templates?: MarketplaceTemplate[] }>(
     'marketplace:list',
   );
@@ -152,8 +283,10 @@ export function useAutomationPageData(): AutomationPageData {
     timeoutMs: 300_000,
   });
 
-  // Bridge mutation: save a pipeline
-  const saveMutation = useBridgeMutation<Record<string, unknown>>('pipeline:save');
+  // Bridge mutation: save a pipeline.
+  // Typed on the PipelineSaveResponse payload so the acknowledgement can be
+  // read: the success toast is raised from `data.success`, not from the click.
+  const saveMutation = useBridgeMutation<{ success: boolean; id: string }>('pipeline:save');
 
   // Bridge query: load pipeline templates
   const templatesQuery = useBridgeQuery<{ templates: Record<string, unknown>[] }>(
@@ -201,7 +334,10 @@ export function useAutomationPageData(): AutomationPageData {
       executeMutation.error ??
       saveMutation.error ??
       templatesQuery.error ??
-      historyQuery.error;
+      historyQuery.error ??
+      // `ai:error` and the generator timeout had no reader: a failed generation
+      // left the prompt closed and the page silent.
+      pipelineGen.error;
     if (bridgeError) {
       setError(bridgeError);
       addNotification({
@@ -217,9 +353,77 @@ export function useAutomationPageData(): AutomationPageData {
     saveMutation.error,
     templatesQuery.error,
     historyQuery.error,
+    pipelineGen.error,
     addNotification,
     t,
   ]);
+
+  // Announce the save only once the host has acknowledged it.
+  //
+  // The toast used to fire synchronously inside handleSavePipeline, one line
+  // after `mutate()` — before any reply existed. The user saw green, then red
+  // when `pipeline:error` arrived seconds later, or nothing but green when the
+  // write had silently failed. Failures still surface through the bridge-error
+  // effect above: handlePipelineSave replies on `pipeline:error`, which is the
+  // default error channel of this mutation, and a lost reply becomes a timeout.
+  useEffect(() => {
+    if (!saveMutation.data?.success) return;
+    addNotification({
+      level: 'success',
+      title: t('automation.title'),
+      message: t('automation.pipelineSaved'),
+      autoDismissMs: 3000,
+    });
+  }, [saveMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Consume the AI-generated pipeline.
+  //
+  // The response was dropped on the floor: the user described a pipeline,
+  // waited out the round trip and got nothing — no canvas, no explanation.
+  // `success: false` carries the reason (an unset API key is the common one),
+  // which is the only thing that tells the user what to do next.
+  useEffect(() => {
+    const generated = pipelineGen.data;
+    if (!generated) return;
+    if (!generated.success || !generated.pipeline) {
+      const message = generated.error ?? t('ai.error.unknown');
+      setError(message);
+      addNotification({
+        level: 'error',
+        title: t('automation.title'),
+        message,
+        autoDismissMs: 5000,
+      });
+      return;
+    }
+    setPipeline(toPipelineDefinition(generated.pipeline, t('automation.newPipeline')));
+    setActiveTab('canvas');
+  }, [pipelineGen.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Same shape as the generator effect above: the answer decides, not the click.
+  useEffect(() => {
+    const installed = installMutation.data;
+    if (!installed) return;
+    if (!installed.success || !installed.pipeline) {
+      const message = installed.error ?? t('automation.installFailed');
+      setError(message);
+      addNotification({
+        level: 'error',
+        title: t('automation.marketplace'),
+        message,
+        autoDismissMs: 5000,
+      });
+      return;
+    }
+    setPipeline(toPipelineDefinition(installed.pipeline, t('automation.newPipeline')));
+    setActiveTab('canvas');
+    addNotification({
+      level: 'success',
+      title: t('automation.marketplace'),
+      message: t('automation.templateInstalled'),
+      autoDismissMs: 3000,
+    });
+  }, [installMutation.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreatePipeline = () => {
     const newPipeline: PipelineDefinition = {
@@ -254,12 +458,6 @@ export function useAutomationPageData(): AutomationPageData {
       id: pipeline.id,
       config: pipeline as unknown as Record<string, unknown>,
     });
-    addNotification({
-      level: 'success',
-      title: t('automation.title'),
-      message: t('automation.pipelineSaved'),
-      autoDismissMs: 3000,
-    });
   };
 
   const handleLoadPipeline = (p: PipelineDefinition) => {
@@ -267,27 +465,26 @@ export function useAutomationPageData(): AutomationPageData {
     setActiveTab('canvas');
   };
 
+  /*
+   * Install is not wired, and now says so.
+   *
+   * It used to build an EMPTY pipeline carrying only the template's name and
+   * description, drop the user on the canvas and toast "Template installed as
+   * new pipeline". The template's steps live in the host's PipelineMarketplace
+   * and never crossed the bridge — `marketplace:list:response` carries only
+   * id/name/description/category/author — so what the user got was a blank
+   * pipeline wearing the template's name.
+   *
+   * The host half exists: AutomationHandler routes `marketplace:install` and
+   * answers `marketplace:install:response` with the exported pipeline. Sending
+   * it is a one-line change here, but `marketplace:install` is listed in
+   * KNOWN_UNSENT (packages/shared/src/types/messages/consumedChannels.test.ts),
+   * whose "keeps the known-unsent allowlist honest" case fails the moment a
+   * sender appears — and that file is part of the shared contract. Until that
+   * entry is removed, saying "coming soon" is the honest reading of the button.
+   */
   const handleInstallTemplate = (tpl: { id: string; name: string; description: string }) => {
-    const newPipeline: PipelineDefinition = {
-      id: crypto.randomUUID(),
-      name: tpl.name,
-      description: tpl.description,
-      version: 1,
-      steps: [],
-      triggers: [],
-      variables: [],
-      tags: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setPipeline(newPipeline);
-    setActiveTab('canvas');
-    addNotification({
-      level: 'success',
-      title: t('automation.marketplace'),
-      message: t('automation.templateInstalled'),
-      autoDismissMs: 3000,
-    });
+    installMutation.mutate({ templateId: tpl.id });
   };
 
   const handleAddStep = (type: PipelineStepType) => {

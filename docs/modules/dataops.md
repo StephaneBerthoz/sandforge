@@ -2,7 +2,7 @@
 
 Back up your org data and anonymize sensitive fields from a single tabbed page.
 
-> **Status.** Backup and Anonymize are wired end to end. Restore, Compliance,
+> **Status.** Backup, Restore and Anonymize are wired end to end. Compliance,
 > Cleanup and Data Quality ship as previews: the tabs render, but are not yet
 > connected to a backend. Each section below says which it is.
 
@@ -10,7 +10,7 @@ Back up your org data and anonymize sensitive fields from a single tabbed page.
 
 1. Navigate to **DataOps** from the sidebar
 2. The KPI row shows records processed, error rate, and anonymization template count
-3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality (only Backup and Anonymize are wired today)
+3. Use the tab bar to switch between Backup, Restore, Anonymize, Compliance, Cleanup, and Quality (Backup, Restore and Anonymize are wired today)
 4. Start with a backup to establish a restore point before other operations
 
 ## Features
@@ -20,18 +20,33 @@ Back up your org data and anonymize sensitive fields from a single tabbed page.
 Create full or incremental backups of your org data:
 
 - Select objects to include in the backup
-- Every backup is written to extension storage with per-object record counts *(the in-app backup history list is coming soon — the tab currently shows an empty list)*
+- Every backup is written to extension storage with per-object record counts, and listed newest-first in the Backup tab
 - One-click backup creation from the Backup Panel
 
 ### Restore
 
-> **Coming soon.** the rollback backend is implemented, but the Restore tab does not yet send the request — the button is inert and the backup list it reads is empty. The behaviour below describes the planned wiring.
+> **Wired since v1.18.0.** The tab sends `dataops:rollback`, the backup list it
+> reads is populated, and the CRUD/FLS gate that used to refuse every restore
+> now answers field by field. Before 1.18.0 the button reached the backend and
+> the backend said no, on every object, every time.
 
 Restore data from a previously saved backup:
 
-- Browse available backups with timestamps and record counts
+- Browse available backups with timestamps and record counts, newest first
 - Select a specific backup and restore it to the current org
 - Point-in-time recovery for precise rollback scenarios
+
+What a restore does, in order:
+
+- Refuses a backup taken from a different org than the one selected
+- Passes through Production Guard like every other write path: a blocked
+  operation stops, and `safety.requireProdConfirmation` asks first
+- Upserts on `Id` in batches of 200, per object, reporting progress per object
+- Drops the fields _nobody_ may write — a backup is a verbatim
+  `SELECT FIELDS(ALL)` snapshot, so it always carries `CreatedDate`,
+  `SystemModstamp` and friends — and logs which ones it dropped
+- Stops with an FLS error if a field _you_ may not write is in the payload,
+  rather than restoring the record with that column silently missing
 
 ### Anonymize
 
@@ -44,7 +59,7 @@ Mask sensitive data using pre-built or custom anonymization templates:
 
 ### Compliance (GDPR/CCPA)
 
-> **Coming soon.** the tab renders the DSR form and PII list but is not connected to a backend — submitting a request sends nothing and no data is loaded. PII *detection* is live and already runs in the Seed and Sync pre-flight checks.
+> **Coming soon.** the tab renders the DSR form and PII list but is not connected to a backend — submitting a request sends nothing and no data is loaded. PII _detection_ is live and already runs in the Seed and Sync pre-flight checks.
 
 The GDPR Panel provides compliance-focused data management:
 

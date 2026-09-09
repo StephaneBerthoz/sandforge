@@ -69,6 +69,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Symptoms:** SandForge icon does not appear in the Activity Bar, or the WebView panel is blank.
 
 **Solutions:**
+
 1. Verify VSCode version is 1.95 or later (`Help > About`)
 2. Run `Developer: Reload Window` from the Command Palette (`Ctrl+Shift+P`)
 3. Check the Output panel (`View > Output`) and select "SandForge" from the dropdown for error messages
@@ -79,6 +80,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Symptoms:** The Org Manager shows no orgs, or connection fails with an authentication error.
 
 **Solutions:**
+
 1. Verify your Salesforce CLI is authenticated: `sf org list` should show your org
 2. Re-authenticate if needed: `sf org login web --alias my-sandbox`
 3. For SFDX Import: make sure the CLI session is not expired. Run `sf org open --target-org my-sandbox` to refresh.
@@ -90,6 +92,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Symptoms:** Seed or Sync operations fail partway through, or show high failure counts in results.
 
 **Solutions:**
+
 1. Check API limits via Monitor -- you may be hitting the daily API call limit
 2. Reduce the batch size in the Configure step (default is 200; try 50 or 100)
 3. Check field-level security: the connected user may not have CREATE or UPDATE permission on certain fields
@@ -101,6 +104,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Symptoms:** Operations take much longer than expected, UI feels sluggish.
 
 **Solutions:**
+
 1. Check the Monitor dashboard for current API usage -- high consumption slows API responses
 2. Reduce concurrent operations if multiple are running simultaneously
 3. Split very large loads into several smaller runs — SandForge executes a run sequentially, so splitting is what actually shortens it. (Grappe, when enabled, reports progress per partition; it does not run the partitions concurrently.)
@@ -112,6 +116,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Symptoms:** NL2SOQL generates an invalid query, or manual SOQL queries fail.
 
 **Solutions:**
+
 1. Check field-level security -- the query may reference fields the connected user cannot access
 2. Verify object and field API names are correct (use the schema browser in Seed Step 1)
 3. Use the NL2SOQL helper for assistance -- it validates queries against the org schema
@@ -123,6 +128,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Symptoms:** The SandForge panel opens but shows a blank white screen.
 
 **Solutions:**
+
 1. Run `Developer: Reload Window` from the Command Palette
 2. Check the Developer Tools console (`Help > Toggle Developer Tools`) for JavaScript errors
 3. Clear the webview cache: close the panel, reload the window, then reopen SandForge
@@ -133,6 +139,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Symptoms:** CSV or JSON import fails, or exported files are malformed.
 
 **Solutions:**
+
 1. Verify file encoding is UTF-8 (not ANSI or other encodings)
 2. For CSV files, check that column headers match Salesforce API field names
 3. Ensure date fields use ISO 8601 format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ)
@@ -144,6 +151,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 **Symptoms:** Monitor shows amber or red warnings on governor limits, operations may be throttled.
 
 **Solutions:**
+
 1. Open Monitor and expand the Governor Limits section to see which limits are approaching capacity
 2. Reduce batch sizes for Seed and Sync operations to lower API consumption per operation
 3. Spread large operations across multiple days if hitting daily limits

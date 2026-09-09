@@ -5,6 +5,114 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] - 2026-09-09
+
+Buttons that told you they had worked, and the two habits behind them.
+
+v1.18.0 closed the defects that broke the product. This one closes the tier
+below: features that ran, reported success, and had done nothing. Half of them
+shared one cause — `useBridgeMutation` returns `data` and `error`, and fifteen
+call sites read neither, which TypeScript strict cannot catch because not
+reading a value is legal. The other half shared a second — a success toast
+fired synchronously after `mutate()`, before any answer could arrive.
+
+### Fixed
+
+- **"Pipeline saved" waits for the save.** The toast fired one line after
+  `mutate()`, with no branch and no response, so a rejected save still read as
+  green — or read as green first and red a few seconds later.
+- **The AI-generated pipeline reaches the canvas.** The response arrived and
+  nothing consumed it: you described a pipeline, waited, and got nothing at all,
+  with no explanation. A refusal now says why.
+- **Installing a marketplace template installs it.** The button built an empty
+  pipeline locally, wearing the template's name, and announced "Template
+  installed as new pipeline" — the steps never crossed the bridge. The host has
+  handled `marketplace:install` since it shipped; what kept the channel unsent
+  was a line in an allowlist asserting the marketplace "cannot install", a note
+  about the UI that was read for years as a statement about the product.
+- **Migration's "Run" says what it did.** It moved real data and rendered
+  neither result nor error.
+- **A failed sync enters the history.** A sync that threw was never recorded, so
+  history and re-run were dead for exactly the runs that needed them.
+- **A production seed says how many records.** The confirmation was handed the
+  literal `1`, so you approved the creation of 200 000 rows believing you were
+  approving one — and no volume threshold could ever trigger.
+- **A DataOps error no longer closes someone else's operation.** Errors on a
+  dozen `dataops:*` paths were posted with no `correlationId`, so a failed
+  `backup:list` ended a 120-second restore that was still running, with the
+  wrong message.
+- **A rejected request fails instead of timing out.** When the broker drops a
+  message at envelope validation, no handler ever replies, so the request sat
+  out its full 30 seconds and showed a raw timeout string. `bridge:error` now
+  carries the id of the message that failed, and is matched on that id alone —
+  an earlier attempt matched on a two-second window and made every concurrent
+  request claim someone else's rejection.
+- **A new attempt drops the previous result.** `mutate()` cleared `loading` and
+  `error` but never `data`, and the error channel never touches `data` either:
+  a run that succeeded followed by one that failed rendered the failure banner
+  directly above the earlier run's "Complete — 118 succeeded".
+- **Disconnecting an org drops its token.** The pooled connection outlived an
+  explicit disconnect until the host shut down, so authentication material
+  survived a revocation the user had asked for.
+- **Compare's Deploy tab and Seed's relations editor say they are unbuilt.**
+  Deploy sat on "No data" — which reads as "the diff has nothing deployable" —
+  for a view with no producer anywhere in the codebase; the component that could
+  never receive data is deleted with it. "+ Add relation" added an empty row
+  that could not be filled and was never sent.
+
+### Performance
+
+- **Monitor stops asking the org the same question twice.** It ran the same
+  AsyncApexJob query on every refresh, in the one tool whose job is to warn you
+  about your API budget. A refresh that overruns its limit now stops there
+  instead of spending more calls on an answer the panel stopped waiting for.
+- **The Forge preview caches the org's object list.** Every corrected record id
+  re-downloaded one to two megabytes of describe JSON.
+- **A large clone's result table no longer freezes the tab.** The id-remapping
+  table rendered one row per cloned record; it now renders a scrolling window.
+- **Configuration stops rewriting itself for nothing.** Every `set` re-serialised
+  the whole blob, and Monitor's polling triggered one every thirty seconds —
+  thousands of full disk writes a day, almost none of them writing a new value.
+
+### Documentation
+
+- **The listing answers "why leave SFDMU or Data Loader".** It bought both
+  keywords and never made the case.
+- **The DataOps guide stops calling Restore inert.** It has worked since
+  v1.18.0.
+- **The Grappe settings and the restricted-mode warning are translated.** Three
+  setting descriptions sat in raw English inside an otherwise translated block,
+  and VS Code disabled the extension in an untrusted workspace without saying
+  why.
+- **The walkthrough has a button on every step**, and "Open Org in Browser"
+  leaves the palette, where it could only ever fail.
+- **The empty states are translated.** Automation, Autopilot, the scheduler and
+  real-time "coming soon" badges and Monitor's Auto button rendered in English
+  for German, Spanish, Japanese and Portuguese readers.
+
+### Build
+
+- **Untranslated prose fails the build.** Section 4 of the i18n gate was
+  report-only, which is how the count reached fourteen while the product
+  advertised six languages. A value legitimately identical across languages now
+  goes in an allowlist as a decision, not as a silent tolerance.
+- **The format gate covers the repository**, not the fifth of it under
+  `packages/*/src` — the scripts, workflows and configuration it left out are
+  where the gates themselves live.
+- **`scripts/render-icon.mjs` is reachable.** It rasterises the Marketplace
+  icon, it had no caller, and knip had been told to ignore the file — which hid
+  the orphan along with it. It is `pnpm icons:render` now, and only its
+  deliberate cross-workspace resolution of Playwright is declared.
+- **The mutation score is reported.** The nightly job computed it and wrote it
+  to an environment variable no later step ever read.
+- **A rate limit no longer fails a release.** The public-link check turned a 429
+  from raw.githubusercontent.com into "this image is broken" — a gate that fails
+  for a reason unrelated to what it checks is a gate people learn to ignore.
+
+### Removed
+
+- `DeployFromDiff`, a component no producer could ever feed.
+
 ## [1.18.0] - 2026-09-09
 
 The repository is public, and the audit that preceded it found the flagship
@@ -40,7 +148,7 @@ executed. Sixteen of the seventeen releases were cut by hand.
 - **DataOps Restore works.** It never has. Backups are taken with
   `SELECT FIELDS(ALL)`, so every one carries `CreatedDate`, `SystemModstamp`
   and `IsDeleted`; the restore asked its CRUD/FLS guard whether it could write
-  *all* the fields in the payload, those are writable by nobody, and the answer
+  _all_ the fields in the payload, those are writable by nobody, and the answer
   was no — for every object, on every restore, since the feature shipped in
   1.15.0 under the heading "Restore works." The guard now answers field by
   field, using `permissionable` from the describe to tell "nobody may write
@@ -448,7 +556,7 @@ Removed: the CI badge from the marketplace listing. No functional change.
 
 ## [1.8.2] - 2026-08-11
 
-Added: SandForge now adopts the sf CLI's default org (`target-org`) at startup when nothing is selected yet. Fixed: the auth self-heal adopts the org's *current* instance URL reported by the CLI — after a sandbox refresh or My Domain change, even a fresh token was rejected at the stale URL (`INVALID_AUTH_HEADER` on every org). And the startup validation no longer flips orgs through a `refreshing` state, so connected-org counters no longer tick down one by one during the launch sweep.
+Added: SandForge now adopts the sf CLI's default org (`target-org`) at startup when nothing is selected yet. Fixed: the auth self-heal adopts the org's _current_ instance URL reported by the CLI — after a sandbox refresh or My Domain change, even a fresh token was rejected at the stale URL (`INVALID_AUTH_HEADER` on every org). And the startup validation no longer flips orgs through a `refreshing` state, so connected-org counters no longer tick down one by one during the launch sweep.
 
 ## [1.8.1] - 2026-08-11
 
@@ -521,6 +629,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 ### Added
 
 **Phase 03: Monitor v2 Core**
+
 - `MetricBus` typed Zod-validated pub/sub with 5 discriminated event subtypes
 - `TimeSeriesStore` per-(orgId, seriesId) ring buffer, 50 MB LRU cap, 7-day retention, opt-in disk persistence (`sandforge.monitor.persistTimeSeries` setting), 5-min flush + 15-min per-org rate limit, corruption recovery
 - `MonitorRegistry` single-tick scheduler with per-probe in-flight gate, drift accounting, hard timeout, visibility gating
@@ -533,6 +642,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 - `useVisibilityGate` posts `monitor:visibility` on `document.visibilitychange`
 
 **Phase 04: AI Integration**
+
 - `AIClient` interface + `AnthropicAdapter` (chat / complete / countTokens / runTools / dispose) using `messages.parse + zodOutputFormat` for Zod-validated structured output
 - `OpenAIAdapter` + `CustomAdapter` stubs that satisfy the interface (constructor never throws, methods throw `AINotImplementedError` with provider-switch hint)
 - `AIClientFactory` per-provider memoisation; switching `sandforge.ai.provider` in Settings does NOT crash the extension
@@ -554,9 +664,11 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 - 6 `ai.error.*` i18n keys (overloaded / rateLimit / auth / cancelled / transient / unknown) in EN + FR
 
 **Close-out wiring**
+
 - `sandforge.openAI` command + `Bot` icon + EN/FR NLS title + Ctrl+K palette entry: AI Assistant now reachable from the activity bar (SidePanel), the in-panel layout (Sidebar), the top bar route labels, and the command palette across all 11 surfaces
 
 **Tooling**
+
 - `scripts/git-hooks/pre-commit` runs `pnpm -r typecheck` + locale dup-key scan on every commit
 - `package.json` `prepare` lifecycle auto-installs the hook on `pnpm install` via `core.hooksPath = scripts/git-hooks`
 
@@ -583,6 +695,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 ### Added
 
 **Forge CLI (sandforge-clone)**
+
 - `--upsert` flag: use external Id upsert when available, skipping `DUPLICATE_VALUE` on re-runs of the same source records
 - `--expand-orphans` flag: single-hop expand orphan parent FKs (clones missing parents so child FKs resolve)
 - `--skip-preflight` flag: bypass the new pre-execute target row count
@@ -592,23 +705,28 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 - Pre-execute preflight showing existing rows in the target org for the first 30 nodes (with a warning flag for >1000 rows) so users know the blast radius before pulling the trigger
 
 **ForgeConfig (cross-sandbox dev/BA flow)**
+
 - `fieldExclusions: Record<string, string[]>`: per-object field skip list (Zod-validated, max 200 fields per object). Exposed via wizard config and CLI `--exclude`
 - `ownerMappings: Record<string, string>`: per-record OwnerId remap (Zod-validated, both sides must be 15/18-char Salesforce IDs, max 200 entries). Exposed via wizard config and CLI `--owner-map`
 - `objectSoqlFilters: Record<string, string>`: per-object SOQL WHERE filter appended via `AND (...)` to the scope clause. Lets BAs narrow a clone to a subset (e.g. `Status = 'Open' AND CreatedDate > LAST_N_DAYS:30`) without changing graph topology. Zod-validated: max 512 chars per filter, max 50 filters, comment markers (`--`, `/*`, `*/`) and trailing semicolons rejected to block statement chaining. Exposed via wizard config and CLI `--filter`
 - `fieldMappings: Record<string, Record<string, string>>`: per-object source→target field rename for schema drift (managed-package re-key, namespace change, `__c`/`__pc` variant). Source key is dropped, value written under target name. Zod-validated: SF field-name regex on both sides, max 200 fields per object, max 50 objects. Exposed via wizard config and CLI `--map`
 
 **ForgeOrchestrator**
+
 - `dispose()` method: clears the discovery cache and listeners on extension shutdown / org disconnect
 
 **ForgeHandler**
+
 - New `forge:target-preflight:request` message type: webview can request per-object existing-row counts on the target before execute. Backend uses sequential SELECT COUNT() (parallel bursts trip rate limits on big orgs), 30 s timeout, max 100 objects per request, sentinel `existing: -1` for per-object failures so the whole batch isn't aborted by FLS issues. Powers the same preflight surface as the CLI
 
 **ExecutionSummary.remapTable**
+
 - New `remapTable: Record<string, string>` field on every execute summary: the full source→target ID mapping table. BA reconciliation: post-clone audit, "where did source X go on the target sandbox?", CSV export, checkpoint persistence
 - CLI: new `--remap-csv <file>` flag writes `sourceId,targetId` CSV (double-quoted, one mapping per row, header included)
 - CLI: `--json` output now embeds `result.remapTable` for CI consumers
 
 **Tests**
+
 - 22 regression tests pinning the audit-fix invariants (`audit-fixes.regression.test.ts`)
 - 5 Playwright E2E specs (Plan 02-03) covering: AI persona seed → execute, sync conflict resolve, monitor refresh + CSV export, CDC subscribe + event stream, AI diagnose + apply fix
 - 9 fixture factories + `MockBridge.stream()` helper for multi-event flows
@@ -616,6 +734,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 ### Changed
 
 **Forge security (Zod hardening)**
+
 - `forgeConfigSchema.recordId` now regex-validated against the strict 15/18-char Salesforce ID pattern
 - `forgeConfigSchemaStrict` enforces the inputMode→required-field contract via cross-field refine
 - `forgeGraphNodeSchema.objectApiName` and `forgeGraphEdgeSchema.{sourceObject,targetObject}` regex-validated against the SObject API name pattern
@@ -624,6 +743,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 - `ForgeOrchestrator.cacheKeyFor` includes `targetOrgId`, `anonymizePII`, `expandOrphanParents`, `maxRecordsPerObject` so cache hits never silently swap configurations
 
 **Forge performance**
+
 - `ForgePlanGenerator` Tarjan SCC rewritten as iterative: no stack overflow on deep graphs (5000+ node chain verified)
 - `SchemaCache.estimateSize` now uses an O(1) structural heuristic (fields × 250 + childRel × 150) instead of `JSON.stringify`; `describeCache` byte cap restored to 200 MB, `describeGlobalCache` to 50 MB (eliminates the OOM risk introduced by the previous Infinity workaround while keeping the event loop unblocked)
 - `GraphDiscoveryService` adds `setImmediate`-based event-loop yield between BFS waves, with `setTimeout(0)` polyfill for non-Node test environments
@@ -632,6 +752,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 - `IdRemapper.remapRecord` uses a single Map.get instead of has+get (3M lookups hot path on 50K-record / 30-field clones)
 
 **Forge correctness**
+
 - `orphanExpansionsUsed` counter now increments only on successful expansions, so a string of misses doesn't silently exhaust the budget before the eligible list has had a chance to succeed
 - Pass-2 dedup uses an explicit current/updated pattern with collision detection on the same field
 - `bringRootToFront` throws a clear error if the scoped root is missing or excluded (was silently producing disconnected clones)
@@ -642,6 +763,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 - `sandforge-clone` CLI forces `referenceFallback='nullify'` (was 'keep' by default, which preserved invalid source IDs on cross-org clones)
 
 **Forge UX**
+
 - `handleDiscover` flushes throttled progress on the catch path so the wizard never freezes on stale counts after an abort
 - `handleExecute` reorders unsubscribe before flush so the terminal event delivers cleanly
 - `handleAbort` nulls the controller refs after `.abort()` to close a small race between sequential operations
@@ -669,6 +791,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 ### Added
 
 **CSV Import (Seed)**
+
 - Drag-and-drop CSV file upload with automatic BOM stripping and file size validation
 - Auto column mapping: case-insensitive, underscore-tolerant matching to Salesforce fields with manual override
 - Inline validation: type mismatches, missing required fields, length exceeded, invalid picklist values, duplicate external IDs
@@ -676,6 +799,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - Preview of first 10 rows before execution
 
 **Clone from Org (Seed)**
+
 - Clone records between Salesforce orgs with full relationship integrity
 - Source org picker with visual source → target direction indicator
 - Object selector with searchable list and per-object SOQL WHERE filters
@@ -686,9 +810,11 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - 4-step wizard: Source Org → Select Objects → Preview → Execute
 
 **Seed Mode Selector**
+
 - SeedPage now offers 3 modes via card-based selector: AI Generate, CSV Upload, Clone from Org
 
 **CDC Real-Time Sync**
+
 - Change Data Capture subscriptions with start/stop per object
 - Live event feed with virtual scrolling (ring buffer, 5000 events)
 - Event batching (150ms window) for high-throughput scenarios
@@ -697,6 +823,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - Metrics dashboard: throughput sparkline, event lag, counters, uptime
 
 **Conflict Resolution**
+
 - Side-by-side diff viewer with 2-way and 3-way comparison (using base value)
 - Per-field conflict resolution with source/target/manual choice
 - Bulk resolution actions (accept all source, accept all target)
@@ -704,6 +831,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - Sync Page "Conflicts" tab with live badge count
 
 **Sync History & Scheduling**
+
 - Full execution history with FIFO retention (500 entries)
 - History detail view with re-run capability
 - Cron-based scheduling with visual builder, raw expression, and timezone support
@@ -713,6 +841,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - Sync Page tabs: Active Syncs, History, Schedules
 
 **AI Personas (Seed)**
+
 - Persona gallery with 10 industry-specific cards featuring icons and locale badges
 - Preview popover showing 5 AI-generated sample records per persona
 - Customization panel with editable field patterns per persona
@@ -720,16 +849,19 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - AI mode fork: choose between persona-guided or free-form generation
 
 **Smart Actions**
+
 - SmartActionAnalyzer: automatic record count analysis on 5 standard objects (Account, Contact, Opportunity, Case, Lead)
 - SmartActionCard on Home Dashboard: contextual recommendations with "Just Do It" one-click CTA
 - Decision priority: clone > quick-seed > sync > none (based on source data presence)
 
 **Adaptive Seed Wizard**
+
 - Auto-advance: skip Configure step when selecting fewer than 5 objects
 - Category grouping: accordion layout when selecting more than 20 objects (Standard, Custom, Managed Package)
 - InfoTooltip: dismissible contextual help persisted via localStorage
 
 **Streaming Execution**
+
 - StreamingPipeline: async generator-based chunk processing with abort support
 - ChunkedBulkExecutor: multi-upload Bulk API 2.0 with 2000 records/chunk
 - Automatic streaming for operations exceeding 10,000 records per object
@@ -737,6 +869,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - Error cap at 100 entries to prevent memory growth during large operations
 
 **Background Operations**
+
 - BackgroundOperationRegistry: detached operation lifecycle with running/completed/failed/aborted states
 - Abort support via AbortController for any running background operation
 - Operation events: started, progress, completed, failed, aborted with subscriber pattern
@@ -746,6 +879,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - Sync and Seed handlers automatically detach to background for streaming operations
 
 **Enterprise Foundation**
+
 - Pagination component with page size selector and keyboard navigation
 - Virtual scrolling via @tanstack/react-virtual for large lists and tables
 - Skeleton loading states for tables, cards, and panels
@@ -780,6 +914,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 ### Added
 
 **Quick Sync**
+
 - 3-click flow: pick source/target orgs → multi-select objects → preview & execute
 - Auto-field mapping: same-name fields matched automatically (no manual mapping step)
 - Smart defaults: source-to-target direction, full mode, source-wins conflict, 200 batch size, upsert operation
@@ -788,27 +923,32 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - Relationship auto-detection: adding "Opportunity" auto-suggests "Account" as parent
 
 **Quick Seed**
+
 - 1-click seed from pre-built template gallery (no field configuration step)
 - Template gallery UI with card grid showing name, description, object count, total records, and tags
 - Customize record counts per object before execution
 
 **Pre-Built Templates**
+
 - 3 Seed templates: Sales Cloud Starter (7 objects, 7601 records), Service Cloud Starter (5 objects, 3800 records), Minimal Demo (3 objects, 350 records)
 - 3 Sync templates: Full Account Hierarchy, Opportunities + Products, Cases + Attachments
 
 **Seed Data Quality**
+
 - Locale-aware data generation in 6 locales (en, fr, de, es, ja, pt-BR) with geo-coherent addresses
 - Contextual ranges: object-specific amounts and dates (e.g., Opportunity.Amount: 5K-500K)
 - Validation Rule auto-adjuster: detects ISBLANK, ISPICKVAL, LEN, REGEX rules and adjusts field values
 - Picklist-aware generation: passes all active picklist values without truncation
 
 **Onboarding**
+
 - Sandbox detection with contextual guidance for new users
 - Guided first-step cards on Sync and Seed empty states
 - "Populate Sandbox" quick action on Home dashboard
 - Welcome wizard updated for sandbox orgs
 
 **Persistence**
+
 - Save, load, and manage named sync configurations
 - Save, load, and manage custom seed templates
 - Wizard draft auto-save on every step change (survives page refresh)
@@ -829,26 +969,31 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 ### Added
 
 **Service Wiring**
+
 - 5 previously dead backend services wired end-to-end with dedicated UI panels: Error Log Monitor, User Session Monitor, Apex Log Analyzer, Sandbox Refresh Tracker, Health Check
 
 **Alert System**
+
 - Default alert rules for API limits, storage, and error rates
 - Alert persistence with configurable thresholds and severity levels
 - VSCode native notifications (info/warning/error) on alert triggers
 - Alert history timeline in Monitor dashboard
 
 **Health Scoring**
+
 - Unified health score aggregating all metric calculators
 - Trend feedback with linear interpolation
 - Health score displayed in Monitor dashboard and Home KPI row
 
 **Limits & Trends**
+
 - Expanded limits coverage: email invocations, Platform Events, FileStorage, sandbox reset countdown
 - API response caching: /limits 30s TTL, OrgInfo 5min TTL
 - Real timestamps in trend data (replaces index-based)
 - CSV export for trend data
 
 **Governance**
+
 - Governance rule CRUD operations with custom rule definitions
 - Rule evaluation engine with AlertEngine pipeline integration
 
@@ -868,6 +1013,7 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 ### Added
 
 **UX Improvements**
+
 - Auto-org detection on extension activation
 - Swap source/target orgs button
 - Table view for object lists
@@ -878,12 +1024,14 @@ Tests: 8320 passing | VSIX: 1.24 MB | i18n: 6 languages
 - SidePanel redesign: compact mode, improved org switcher, collapsible metrics
 
 **Backend Hardening**
+
 - Structured error responses across all message handlers
 - Configurable timeouts for all API calls
 - Lifecycle events for operation tracking (started, progress, completed, failed)
 - Real Bulk API 2.0 job IDs in responses
 
 **Accessibility**
+
 - ARIA tablist on tabbed interfaces
 - aria-pressed on toggle buttons
 - role="log" on live output panels

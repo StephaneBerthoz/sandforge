@@ -32,11 +32,9 @@ test.describe('AI diagnose failed job -> apply fix', () => {
 
   test('diagnoses a failed job and applies the proposed fix', async ({ page }) => {
     // On-mount request for the failed-jobs list.
-    await mockBridge.respondToNext(
-      'monitor:failed-jobs:request',
-      'monitor:failed-jobs:response',
-      { jobs: [mockFailedJob()] },
-    );
+    await mockBridge.respondToNext('monitor:failed-jobs:request', 'monitor:failed-jobs:response', {
+      jobs: [mockFailedJob()],
+    });
 
     const jobCard = page.getByTestId('monitor-failed-job-card').first();
     await expect(jobCard).toBeVisible({ timeout: 5_000 });

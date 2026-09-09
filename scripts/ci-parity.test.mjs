@@ -82,7 +82,9 @@ test('every script CI invokes actually exists in package.json', () => {
   // anyway — but only for whoever can run CI, which is the whole problem.
   const declared = new Set(Object.keys(pkg.scripts));
   const unknown = [];
-  for (const m of ciYaml.matchAll(/pnpm\s+((?:test|audit|check|lint|build|sync)(?::[a-z0-9-]+)?)\b/g)) {
+  for (const m of ciYaml.matchAll(
+    /pnpm\s+((?:test|audit|check|lint|build|sync)(?::[a-z0-9-]+)?)\b/g,
+  )) {
     if (!declared.has(m[1])) unknown.push(m[1]);
   }
 

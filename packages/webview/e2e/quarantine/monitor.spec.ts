@@ -80,9 +80,9 @@ async function setupMonitorWithOrg(page: import('@playwright/test').Page): Promi
 
   const correlationId = await page.evaluate(() => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find(
-      (m) => (m as Record<string, unknown>).type === 'org:list',
-    ) as Record<string, unknown> | undefined;
+    const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+      | Record<string, unknown>
+      | undefined;
     return orgListMsg?.id as string | undefined;
   });
 
@@ -158,12 +158,10 @@ test.describe('Monitor page — dashboard', () => {
     // Find and respond to the monitor:health query
     const correlationId = await page.evaluate(() => {
       const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      const monitorMsg = msgs.find(
-        (m) => {
-          const msg = m as Record<string, unknown>;
-          return typeof msg.type === 'string' && (msg.type as string).startsWith('monitor:');
-        },
-      ) as Record<string, unknown> | undefined;
+      const monitorMsg = msgs.find((m) => {
+        const msg = m as Record<string, unknown>;
+        return typeof msg.type === 'string' && (msg.type as string).startsWith('monitor:');
+      }) as Record<string, unknown> | undefined;
       return monitorMsg?.id as string | undefined;
     });
 
@@ -190,8 +188,8 @@ test.describe('Monitor page — dashboard', () => {
     if (await refreshBtn.isVisible()) {
       await refreshBtn.click();
       // Should trigger a refresh message
-      const messages = await page.evaluate(() =>
-        (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
+      const messages = await page.evaluate(
+        () => (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
       );
       expect(messages.length).toBeGreaterThan(0);
     }
@@ -218,9 +216,9 @@ test.describe('Monitor page — no orgs connected', () => {
     await page.waitForTimeout(200);
     const correlationId = await page.evaluate(() => {
       const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      const orgListMsg = msgs.find(
-        (m) => (m as Record<string, unknown>).type === 'org:list',
-      ) as Record<string, unknown> | undefined;
+      const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+        | Record<string, unknown>
+        | undefined;
       return orgListMsg?.id as string | undefined;
     });
 

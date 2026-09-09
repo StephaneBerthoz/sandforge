@@ -15,6 +15,7 @@
     "home.smartAction.action.quick-seed",
     "migration.type.sfdmu.title",
     "org.tagsPlaceholder",
+    "seed.csv.mapper.incompatible",
     "seed.templates.salesCloudStarter.name",
     "seed.templates.serviceCloudStarter.name",
     "settings.importExport",

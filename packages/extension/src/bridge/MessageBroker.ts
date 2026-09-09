@@ -238,7 +238,12 @@ export class MessageBroker {
       const issues = formatIssues(result.error.issues);
       this.logFn?.(`[MessageBroker] Invalid enveloped payload: ${issues}`);
       this.warn('bridge invalid payload', { issues });
-      this.postBridgeError('invalid-payload', issues);
+      // The envelope shape check above guarantees `payload` is an object; its
+      // `id` is what the sender is waiting on. Read defensively — an id of the
+      // wrong type is exactly the kind of thing that just failed validation.
+      const inner = (raw as { payload?: unknown }).payload as { id?: unknown } | undefined;
+      const correlationId = typeof inner?.id === 'string' ? inner.id : undefined;
+      this.postBridgeError('invalid-payload', issues, correlationId);
       return;
     }
 
@@ -300,11 +305,19 @@ export class MessageBroker {
     return `bridge-${globalThis.crypto.randomUUID()}`;
   }
 
-  private postBridgeError(reason: string, details: string): void {
+  /**
+   * @param correlationId - Id of the message that failed, when it could be
+   *   read. A rejection nobody can attribute is worse than useless: the hook
+   *   that sent the dropped message waits out its whole timeout, while every
+   *   other in-flight hook has to decide whether the broadcast was meant for
+   *   it — and any rule based on timing gets that wrong.
+   */
+  private postBridgeError(reason: string, details: string, correlationId?: string): void {
     this.postToWebview({
       id: this.nextControlId(),
       type: 'bridge:error',
       timestamp: Date.now(),
+      ...(correlationId ? { correlationId } : {}),
       ...({ payload: { reason, details } } as Record<string, unknown>),
     } as BaseMessage);
   }

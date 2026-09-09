@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OrgHandler } from './OrgHandler';
 import type { HandlerDeps } from './HandlerTypes';
-import type { BaseMessage } from '@sandforge/shared';
+import type { BaseMessage, UUID } from '@sandforge/shared';
+import { getConnectionPool } from '../../core/connection/ConnectionHelper';
 
 function createMockDeps(): HandlerDeps {
   return {
@@ -99,6 +100,46 @@ describe('OrgHandler', () => {
     expect(deps.onOrgSelected).not.toHaveBeenCalled();
     const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.every((c) => (c[0] as { type: string }).type !== 'org:selected')).toBe(true);
+  });
+
+  describe('org:disconnect evicts the pooled access token', () => {
+    const ORG_ID = 'org-1' as UUID;
+
+    afterEach(() => {
+      getConnectionPool().remove(ORG_ID);
+    });
+
+    it('removes the org entry from the connection pool', async () => {
+      const pool = getConnectionPool();
+      pool.acquire(ORG_ID, 'https://dev.my.salesforce.com', 'token-to-revoke');
+      expect(pool.get(ORG_ID)?.accessToken).toBe('token-to-revoke');
+
+      await handler.handle(createMsg('org:disconnect', { orgId: ORG_ID }));
+
+      expect(pool.get(ORG_ID)).toBeUndefined();
+    });
+
+    it('leaves other orgs pooled', async () => {
+      const pool = getConnectionPool();
+      const other = 'org-2' as UUID;
+      pool.acquire(ORG_ID, 'https://dev.my.salesforce.com', 'token-to-revoke');
+      pool.acquire(other, 'https://qa.my.salesforce.com', 'token-kept');
+
+      await handler.handle(createMsg('org:disconnect', { orgId: ORG_ID }));
+
+      expect(pool.get(ORG_ID)).toBeUndefined();
+      expect(pool.get(other)?.accessToken).toBe('token-kept');
+      pool.remove(other);
+    });
+
+    it('does not touch the pool when the payload is rejected', async () => {
+      const pool = getConnectionPool();
+      pool.acquire(ORG_ID, 'https://dev.my.salesforce.com', 'token-to-revoke');
+
+      await handler.handle(createMsg('org:disconnect', {}));
+
+      expect(pool.get(ORG_ID)?.accessToken).toBe('token-to-revoke');
+    });
   });
 
   describe('payload validation', () => {

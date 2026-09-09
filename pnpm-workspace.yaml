@@ -1,19 +1,19 @@
 packages:
-  - "packages/*"
+  - 'packages/*'
 
 # Shared devDependency versions — referenced as "catalog:" from the package
 # manifests. Bump here, once. Only deps with a strictly identical range in
 # every consuming package belong here (e.g. @vitest/coverage-v8 stays out:
 # root uses ^1 while packages pin ^1.6.1).
 catalog:
-  "@eslint/js": "^9"
-  eslint: "^9"
-  eslint-config-prettier: "^10"
-  eslint-plugin-react-hooks: "^5"
-  fast-check: "^3"
-  typescript: "~5.5"
-  typescript-eslint: "^8"
-  vitest: "^3"
+  '@eslint/js': '^9'
+  eslint: '^9'
+  eslint-config-prettier: '^10'
+  eslint-plugin-react-hooks: '^5'
+  fast-check: '^3'
+  typescript: '~5.5'
+  typescript-eslint: '^8'
+  vitest: '^3'
 
 # pnpm 11 build-script approvals (replaces onlyBuiltDependencies).
 # esbuild: required for the extension bundle. @vscode/vsce-sign: required by
@@ -32,7 +32,7 @@ allowBuilds:
 
 onlyBuiltDependencies:
   - esbuild
-  - "@vscode/vsce-sign"
+  - '@vscode/vsce-sign'
 
 # Security overrides — all entries close high-severity CVEs surfaced by `pnpm audit`.
 # picomatch / lodash: see Round 1 commit 1b27ff9.
@@ -49,11 +49,11 @@ onlyBuiltDependencies:
 # security gain. Any lodash bump must be smoke-tested before publishing:
 # render one Monitor chart from the packaged VSIX.
 overrides:
-  "picomatch@<4.0.4": ">=4.0.4"
-  "lodash@<4.18.0": ">=4.18.0"
-  "minimatch@<3.0.5": ">=3.0.5 <4"
-  "minimatch@>=9.0.0 <9.0.7": ">=9.0.7"
-  "minimatch@>=10.0.0 <10.2.3": ">=10.2.3"
-  "@vscode/vsce>minimatch": "3.1.2"
-  "rollup@>=4.0.0 <4.59.0": ">=4.59.0"
-  "flatted@<3.4.2": ">=3.4.2"
+  'picomatch@<4.0.4': '>=4.0.4'
+  'lodash@<4.18.0': '>=4.18.0'
+  'minimatch@<3.0.5': '>=3.0.5 <4'
+  'minimatch@>=9.0.0 <9.0.7': '>=9.0.7'
+  'minimatch@>=10.0.0 <10.2.3': '>=10.2.3'
+  '@vscode/vsce>minimatch': '3.1.2'
+  'rollup@>=4.0.0 <4.59.0': '>=4.59.0'
+  'flatted@<3.4.2': '>=3.4.2'

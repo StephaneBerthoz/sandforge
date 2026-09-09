@@ -81,6 +81,13 @@ export function useBridgeMutation<T>(
       // Clean up any previous in-flight mutation
       cleanupRef.current?.();
 
+      // Clear the PREVIOUS result too, not just the previous error. `data`
+      // used to survive a new attempt, and the error channel never touches it,
+      // so a run that succeeded followed by one that failed left both set: the
+      // page rendered its failure banner directly above the earlier run's
+      // "Complete — 118 succeeded". The user read a success for a run that
+      // had just failed.
+      resetResponse();
       setLoading(true);
       setError(null);
 
@@ -94,7 +101,7 @@ export function useBridgeMutation<T>(
       const cleanup = listen(msg.id);
       cleanupRef.current = cleanup;
     },
-    [requestType, sendMessage, listen, setLoading, setError],
+    [requestType, sendMessage, listen, setLoading, setError, resetResponse],
   );
 
   const reset = useCallback(() => {

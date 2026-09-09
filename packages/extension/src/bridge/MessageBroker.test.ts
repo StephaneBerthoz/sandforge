@@ -527,6 +527,47 @@ describe('MessageBroker', () => {
       );
     });
 
+    it('correlates bridge:error to the message that failed validation', () => {
+      // Without this the rejection is a bare broadcast: the hook that sent the
+      // dropped message waits out its full timeout, and every other in-flight
+      // hook has to guess whether the broadcast was meant for it.
+      broker = new MessageBroker({});
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
+      messageCallback({
+        protocolVersion: PROTOCOL_VERSION,
+        payload: { id: 'req-abc', type: 'totally:unknown', timestamp: 1 },
+      });
+
+      const err = panel.webview.postMessage.mock.calls
+        .map((args) => args[0] as BaseMessage)
+        .find((m) => m.type === 'bridge:error');
+      expect(err?.correlationId).toBe('req-abc');
+    });
+
+    it('leaves bridge:error uncorrelated when no id can be read', () => {
+      // A payload too malformed to yield an id is genuinely un-attributable,
+      // and inventing an owner for it is what the correlation replaces.
+      broker = new MessageBroker({});
+      const panel = createMockPanel();
+      broker.registerPanel(panel as unknown as vscode.WebviewPanel);
+
+      const messageCallback = panel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        msg: unknown,
+      ) => void;
+      messageCallback({ protocolVersion: PROTOCOL_VERSION, payload: { id: 42 } });
+
+      const err = panel.webview.postMessage.mock.calls
+        .map((args) => args[0] as BaseMessage)
+        .find((m) => m.type === 'bridge:error');
+      expect(err).toBeDefined();
+      expect(err?.correlationId).toBeUndefined();
+    });
+
     it('truncates oversized validation details in bridge:error to ~500 chars', () => {
       const panel = createMockPanel();
       broker.registerPanel(panel as unknown as vscode.WebviewPanel);

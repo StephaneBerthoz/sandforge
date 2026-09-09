@@ -23,8 +23,14 @@ test.describe('Internationalization (i18n)', () => {
     await page.evaluate(() => {
       // Access the i18next instance that is globally available via react-i18next
       const i18nModule = (window as unknown as Record<string, unknown>).__i18n;
-      if (i18nModule && typeof (i18nModule as { changeLanguage: (lng: string) => Promise<void> }).changeLanguage === 'function') {
-        void (i18nModule as { changeLanguage: (lng: string) => Promise<void> }).changeLanguage('fr');
+      if (
+        i18nModule &&
+        typeof (i18nModule as { changeLanguage: (lng: string) => Promise<void> }).changeLanguage ===
+          'function'
+      ) {
+        void (i18nModule as { changeLanguage: (lng: string) => Promise<void> }).changeLanguage(
+          'fr',
+        );
       }
     });
 

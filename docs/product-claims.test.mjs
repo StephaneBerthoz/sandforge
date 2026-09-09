@@ -63,7 +63,12 @@ function userFacingText() {
 
 test('anchor: Grappe still does not partition or parallelise anything', () => {
   const orchestrator = read(
-    'packages', 'extension', 'src', 'modules', 'autopilot', 'AutopilotOrchestrator.ts',
+    'packages',
+    'extension',
+    'src',
+    'modules',
+    'autopilot',
+    'AutopilotOrchestrator.ts',
   );
   assert.doesNotMatch(
     orchestrator,
@@ -95,7 +100,12 @@ test('no user-facing surface claims nothing activates Grappe', () => {
   // The opposite error, shipped in the same table row: Seed, Sync and Autopilot
   // all set `grappeActive`, so "no operation activates it" is equally false.
   const activates = read(
-    'packages', 'extension', 'src', 'modules', 'autopilot', 'AutopilotOrchestrator.ts',
+    'packages',
+    'extension',
+    'src',
+    'modules',
+    'autopilot',
+    'AutopilotOrchestrator.ts',
   );
   assert.match(
     activates,
@@ -107,10 +117,15 @@ test('no user-facing surface claims nothing activates Grappe', () => {
   for (const [label, text] of Object.entries(userFacingText())) {
     for (const line of text.split('\n')) {
       if (!/grappe/i.test(line)) continue;
-      if (/no operation activates/i.test(line)) offenders.push(`${label}: ${line.trim().slice(0, 120)}`);
+      if (/no operation activates/i.test(line))
+        offenders.push(`${label}: ${line.trim().slice(0, 120)}`);
     }
   }
-  assert.deepEqual(offenders, [], 'these lines deny an activation that happens:\n  ' + offenders.join('\n  '));
+  assert.deepEqual(
+    offenders,
+    [],
+    'these lines deny an activation that happens:\n  ' + offenders.join('\n  '),
+  );
 });
 
 // ── CDC / real-time sync ──────────────────────────────────────────────────
@@ -146,7 +161,9 @@ test('the in-app help panel does not sell CDC as a working sync mode', () => {
     // the first cut matched only English and flagged four correct translations.
     const disclaims =
       /coming soon|not (?:yet )?(?:wired|available|implemented)|no-op/i.test(help) ||
-      /ne sont pas impl|pas encore|no est[áa]n implementad|n[ãa]o est[ãa]o implementad|nicht implementiert|未実装/i.test(help);
+      /ne sont pas impl|pas encore|no est[áa]n implementad|n[ãa]o est[ãa]o implementad|nicht implementiert|未実装/i.test(
+        help,
+      );
     if (promises && !disclaims) offenders.push(`locales/${file}: help.syncContent promises CDC`);
   }
   assert.deepEqual(

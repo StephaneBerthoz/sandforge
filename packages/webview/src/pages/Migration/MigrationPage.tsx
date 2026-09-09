@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileJson, FileUp } from 'lucide-react';
+import type { SyncExecutionResult } from '@sandforge/shared';
 import { cn } from '../../theme';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import { useOrgStore } from '../../stores/useOrgStore';
@@ -53,6 +54,22 @@ const OPERATION_VARIANTS: Record<string, BadgeVariant> = {
   update: 'warning',
   upsert: 'info',
   delete: 'error',
+};
+
+/**
+ * Map a sync execution status to a badge color and a label — same mapping and
+ * wording as SyncPage. Keyed by `string`: the status arrives off the bridge and
+ * is not narrowed at runtime, so an unknown value must still render.
+ */
+const RUN_STATUS_VARIANTS: Record<string, BadgeVariant> = {
+  success: 'success',
+  partial: 'warning',
+  failure: 'error',
+};
+const RUN_STATUS_KEYS: Record<string, string> = {
+  success: 'sync.complete',
+  partial: 'sync.partial',
+  failure: 'sync.failed',
 };
 
 /**
@@ -127,7 +144,9 @@ export const MigrationPage: React.FC = () => {
   const [runSourceOrgId, setRunSourceOrgId] = useState('');
   const [runTargetOrgId, setRunTargetOrgId] = useState('');
 
-  const runMutation = useBridgeMutation<{ status?: string }>('sync:execute', {
+  // The channel answers with the orchestrator's SyncExecutionResult (status +
+  // record totals); a failure never reaches it — it settles on `sync:error`.
+  const runMutation = useBridgeMutation<SyncExecutionResult>('sync:execute', {
     responseType: 'sync:execute:response',
     errorType: 'sync:error',
     // A real sync moves records in bulk; the 30 s default is far too short.
@@ -418,6 +437,45 @@ export const MigrationPage: React.FC = () => {
                   {!canRunImported && (
                     <div className="text-xs text-text-muted" data-testid="migration-run-hint">
                       {t('migration.run.orgsRequired')}
+                    </div>
+                  )}
+                  {/* The run used to be fire-and-forget: records moved for real
+                      and neither the outcome nor the failure was ever read back
+                      off the mutation. Both are rendered here now. */}
+                  {runMutation.error && (
+                    <ErrorBanner
+                      message={runMutation.error}
+                      onDismiss={() => runMutation.reset()}
+                      data-testid="migration-run-error"
+                    />
+                  )}
+                  {/* `data` survives a new mutate(), so a re-run would show the
+                      previous outcome as if it were the new one. */}
+                  {runMutation.data && !runMutation.loading && (
+                    <div
+                      className="flex flex-wrap items-center gap-3 text-xs"
+                      data-testid="migration-run-result"
+                    >
+                      <Badge variant={RUN_STATUS_VARIANTS[runMutation.data.status] ?? 'default'}>
+                        {t(RUN_STATUS_KEYS[runMutation.data.status] ?? 'sync.failed')}
+                      </Badge>
+                      <span>
+                        {t('sync.totalProcessed')}:{' '}
+                        <strong>{runMutation.data.totalProcessed}</strong>
+                      </span>
+                      <span>
+                        {t('sync.totalSuccess')}: <strong>{runMutation.data.totalSuccess}</strong>
+                      </span>
+                      {runMutation.data.totalFailed > 0 && (
+                        <span className="text-[var(--sf-error)]">
+                          {t('sync.totalFailed')}: <strong>{runMutation.data.totalFailed}</strong>
+                        </span>
+                      )}
+                      {runMutation.data.totalSkipped > 0 && (
+                        <span className="text-text-muted">
+                          {t('sync.totalSkipped')}: <strong>{runMutation.data.totalSkipped}</strong>
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

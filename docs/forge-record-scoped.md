@@ -4,9 +4,9 @@
 
 ## Pourquoi
 
-Avant : `Forge` avec `inputMode: 'record'` *découvrait* le graphe à partir d'un record racine puis exécutait `SELECT * FROM Object` (sans `WHERE`) pour chaque node. Sur SOURCE-UAT partant d'un Case, ça représentait **261 858 records** copiés (Case ×11k, Account ×12k, Contact ×15k, InsurancePolicyCoverage ×155k…). Pas viable comme "jeu de données dev".
+Avant : `Forge` avec `inputMode: 'record'` _découvrait_ le graphe à partir d'un record racine puis exécutait `SELECT * FROM Object` (sans `WHERE`) pour chaque node. Sur SOURCE-UAT partant d'un Case, ça représentait **261 858 records** copiés (Case ×11k, Account ×12k, Contact ×15k, InsurancePolicyCoverage ×155k…). Pas viable comme "jeu de données dev".
 
-Après : l'exécution est *scope-aware* : depuis le record racine, le moteur suit la transitive closure (parents via FK, enfants via reverse-lookup) et n'exécute que des SOQL avec `WHERE Id = …` ou `WHERE FK IN (cachedParentIds)`. Sur le même Case, **358 records** clonés au lieu de 261 858 (−99.86 %).
+Après : l'exécution est _scope-aware_ : depuis le record racine, le moteur suit la transitive closure (parents via FK, enfants via reverse-lookup) et n'exécute que des SOQL avec `WHERE Id = …` ou `WHERE FK IN (cachedParentIds)`. Sur le même Case, **358 records** clonés au lieu de 261 858 (−99.86 %).
 
 ## Pipeline
 
@@ -40,15 +40,15 @@ ForgeOrchestrator.execute(graph, config)
 
 ## ExecuteOptions
 
-| Option | Default | Effect |
-|---|---|---|
-| `rootRecordId` | — | enables scope-aware mode |
-| `rootObjectApiName` | — | resolved from `recordId` keyPrefix; required with `rootRecordId` |
-| `dryRun` | `false` | runs every step except `insertRecords`, used by the recipe |
-| `referenceFallback` | `'nullify'` (scoped) / `'keep'` (legacy) | what to do with FK fields whose value isn't in the IdRemapper |
-| `recordTypeMappings` | — | array of `{ sourceId, targetId, developerName }`; built via `RecordTypeMapper` |
-| `maxRecordsPerObject` | — (no cap) | append `LIMIT N` to every scoped query |
-| `referenceDataObjects` | `['BusinessHours', 'OperatingHours']` | objects to map by Name instead of cloning |
+| Option                 | Default                                  | Effect                                                                         |
+| ---------------------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
+| `rootRecordId`         | —                                        | enables scope-aware mode                                                       |
+| `rootObjectApiName`    | —                                        | resolved from `recordId` keyPrefix; required with `rootRecordId`               |
+| `dryRun`               | `false`                                  | runs every step except `insertRecords`, used by the recipe                     |
+| `referenceFallback`    | `'nullify'` (scoped) / `'keep'` (legacy) | what to do with FK fields whose value isn't in the IdRemapper                  |
+| `recordTypeMappings`   | —                                        | array of `{ sourceId, targetId, developerName }`; built via `RecordTypeMapper` |
+| `maxRecordsPerObject`  | — (no cap)                               | append `LIMIT N` to every scoped query                                         |
+| `referenceDataObjects` | `['BusinessHours', 'OperatingHours']`    | objects to map by Name instead of cloning                                      |
 
 ## Error structure
 
@@ -62,8 +62,8 @@ interface ForgeExecutionError {
   failedCount: number;
   attemptedCount: number;
   samples: Array<{
-    recordSummary: string;          // first ~4 fields key=value
-    messages: string[];             // STATUS_CODE: message
+    recordSummary: string; // first ~4 fields key=value
+    messages: string[]; // STATUS_CODE: message
   }>;
 }
 ```
@@ -86,7 +86,7 @@ const SCENARIO = {
   anonymizePII: true,
   skipEmpty: true,
   apiVersion: '66.0',
-  dryRun: true,        // flip to false to run Wave 3 against the target
+  dryRun: true, // flip to false to run Wave 3 against the target
   maxRecordsPerObject: 5,
 };
 ```

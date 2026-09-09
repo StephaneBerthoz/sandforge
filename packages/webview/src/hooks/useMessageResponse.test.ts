@@ -278,6 +278,73 @@ describe('useMessageResponse', () => {
     expect(result.current.error).toBeNull();
   });
 
+  describe('envelope rejection (bridge:error)', () => {
+    it('fails the request the broker actually dropped, instead of timing out', () => {
+      // bridge:error fires when the envelope loses Zod validation, before any
+      // handler sees the message — so no `<domain>:error` will ever arrive and
+      // the hook would sit out its whole timeout showing the raw timeout text.
+      const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-77');
+      });
+
+      act(() => {
+        simulateResponse(
+          'bridge:error',
+          { reason: 'invalid-payload', details: 'payload.limit: expected number' },
+          'req-77',
+        );
+      });
+
+      expect(result.current.loading).toBe(false);
+      expect(result.current.timedOut).toBe(false);
+      expect(result.current.error).toContain('org:list');
+    });
+
+    it('does NOT claim a rejection belonging to another request', () => {
+      // The regression this replaces: bridge:error carried no correlationId, so
+      // the only way to claim it was a time window, and every hook whose
+      // request was younger than that window reported someone else's failure.
+      const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-mine');
+      });
+
+      act(() => {
+        simulateResponse(
+          'bridge:error',
+          { reason: 'invalid-payload', details: 'someone else' },
+          'req-someone-else',
+        );
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.loading).toBe(true);
+    });
+
+    it('ignores an unattributable rejection rather than blaming the nearest request', () => {
+      // A payload too malformed to yield an id still produces a bridge:error.
+      // Nobody can own that one, and guessing is what caused the regression.
+      const { result } = renderHook(() => useMessageResponse<{ orgs: string[] }>(defaultOptions));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-mine');
+      });
+
+      act(() => {
+        simulateResponse('bridge:error', { reason: 'invalid-payload', details: 'no id' });
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.loading).toBe(true);
+    });
+  });
+
   describe('error channel (errorType)', () => {
     const optionsWithError: UseMessageResponseOptions = {
       ...defaultOptions,

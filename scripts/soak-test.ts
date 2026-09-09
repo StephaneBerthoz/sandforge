@@ -90,10 +90,7 @@ function createFakeContext(): unknown {
 
 async function main(): Promise<void> {
   const soakMinutes = Number(process.env.SOAK_MINUTES ?? '60');
-  const sampleIntervalMinutes = Math.max(
-    1,
-    Number(process.env.SAMPLE_INTERVAL_MINUTES ?? '10'),
-  );
+  const sampleIntervalMinutes = Math.max(1, Number(process.env.SAMPLE_INTERVAL_MINUTES ?? '10'));
 
   // eslint-disable-next-line no-console
   console.log(
@@ -113,10 +110,10 @@ async function main(): Promise<void> {
   try {
     // Dynamic import so the harness runs on machines without a built extension.
     // Import path is resolved relative to the repo root when tsx runs this file.
-    const servicesModule = (await import(
-      '../packages/extension/src/services.js'
-    )) as {
-      createServices: (ctx: unknown) => { telemetry: { addBreadcrumb: (...args: unknown[]) => void } };
+    const servicesModule = (await import('../packages/extension/src/services.js')) as {
+      createServices: (ctx: unknown) => {
+        telemetry: { addBreadcrumb: (...args: unknown[]) => void };
+      };
     };
     const fakeCtx = createFakeContext();
     const services = servicesModule.createServices(fakeCtx);

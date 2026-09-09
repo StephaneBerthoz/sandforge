@@ -105,7 +105,10 @@ function adaptDescribe(raw: jsforce.DescribeSObjectResult): ObjectDescribe {
   };
 }
 
-function buildDeps(connections: Map<string, jsforce.Connection>, fullDescribes: Map<string, ObjectDescribe>): GraphDiscoveryDeps {
+function buildDeps(
+  connections: Map<string, jsforce.Connection>,
+  fullDescribes: Map<string, ObjectDescribe>,
+): GraphDiscoveryDeps {
   const piiDetector = new PIIDetector();
   return {
     describeObject: async (orgId, objectApiName) => {
@@ -146,12 +149,20 @@ function bar(width: number, ratio: number): string {
 }
 
 function printGraph(graph: ForgeGraph): void {
-  const sorted = [...graph.nodes].sort((a, b) => a.level - b.level || b.recordCount - a.recordCount);
+  const sorted = [...graph.nodes].sort(
+    (a, b) => a.level - b.level || b.recordCount - a.recordCount,
+  );
   const maxRec = Math.max(1, ...sorted.map((n) => n.recordCount));
   console.log(`\n══════════ DISCOVERY GRAPH ══════════`);
-  console.log(`Nodes: ${graph.nodes.length}  |  Edges: ${graph.edges.length}  |  Total records: ${graph.totalRecords}`);
-  console.log(`Est size: ${graph.estimatedSizeMB.toFixed(2)} MB  |  Est duration: ${graph.estimatedDurationSeconds.toFixed(0)}s`);
-  console.log(`\n${'lvl'.padEnd(4)} ${'object'.padEnd(45)} ${'records'.padStart(8)} ${'fields'.padStart(7)} ${'pii'.padStart(4)}  bar`);
+  console.log(
+    `Nodes: ${graph.nodes.length}  |  Edges: ${graph.edges.length}  |  Total records: ${graph.totalRecords}`,
+  );
+  console.log(
+    `Est size: ${graph.estimatedSizeMB.toFixed(2)} MB  |  Est duration: ${graph.estimatedDurationSeconds.toFixed(0)}s`,
+  );
+  console.log(
+    `\n${'lvl'.padEnd(4)} ${'object'.padEnd(45)} ${'records'.padStart(8)} ${'fields'.padStart(7)} ${'pii'.padStart(4)}  bar`,
+  );
   console.log('-'.repeat(110));
   for (const n of sorted) {
     const pii = n.piiFields.length;
@@ -190,12 +201,20 @@ function printPIIDetail(graph: ForgeGraph): void {
   }
   console.log(`\n══════════ PII DETECTION (${withPii.length} objects) ══════════`);
   for (const n of withPii) {
-    console.log(`  ${n.objectApiName} (${n.piiFields.length}) → ${n.piiFields.slice(0, 8).join(', ')}${n.piiFields.length > 8 ? ', …' : ''}`);
+    console.log(
+      `  ${n.objectApiName} (${n.piiFields.length}) → ${n.piiFields.slice(0, 8).join(', ')}${n.piiFields.length > 8 ? ', …' : ''}`,
+    );
   }
 }
 
 interface PlanLite {
-  waves: Array<{ order: number; objectApiNames: string[]; totalRecords: number; estimatedDurationSeconds: number; estimatedApiCalls: number }>;
+  waves: Array<{
+    order: number;
+    objectApiNames: string[];
+    totalRecords: number;
+    estimatedDurationSeconds: number;
+    estimatedApiCalls: number;
+  }>;
   totalRecords: number;
   totalApiCalls: number;
   estimatedDurationSeconds: number;
@@ -204,9 +223,13 @@ interface PlanLite {
 
 function printPlan(plan: PlanLite): void {
   console.log(`\n══════════ EXECUTION PLAN ══════════`);
-  console.log(`Waves: ${plan.waves.length}  |  Total API calls: ${plan.totalApiCalls}  |  Est duration: ${plan.estimatedDurationSeconds.toFixed(1)}s`);
+  console.log(
+    `Waves: ${plan.waves.length}  |  Total API calls: ${plan.totalApiCalls}  |  Est duration: ${plan.estimatedDurationSeconds.toFixed(1)}s`,
+  );
   for (const w of plan.waves) {
-    console.log(`  wave ${w.order}: ${w.objectApiNames.length} obj | ${w.totalRecords} rec | ${w.estimatedApiCalls} api | ${w.estimatedDurationSeconds.toFixed(1)}s`);
+    console.log(
+      `  wave ${w.order}: ${w.objectApiNames.length} obj | ${w.totalRecords} rec | ${w.estimatedApiCalls} api | ${w.estimatedDurationSeconds.toFixed(1)}s`,
+    );
     console.log(`           ${w.objectApiNames.join(', ')}`);
   }
   if (plan.cycleResolutions.length > 0) {
@@ -221,14 +244,32 @@ function printPlan(plan: PlanLite): void {
 
 function printAnomalies(graph: ForgeGraph): void {
   const issues: string[] = [];
-  if (graph.truncated) issues.push(`⚠ Graph TRUNCATED — BFS hit DEFAULT_MAX_NODES cap (some objects skipped).`);
-  else if (graph.nodes.length >= 50) issues.push(`⚠ Reached MAX_NODES=50 cap exactly — verify nothing was skipped.`);
+  if (graph.truncated)
+    issues.push(`⚠ Graph TRUNCATED — BFS hit DEFAULT_MAX_NODES cap (some objects skipped).`);
+  else if (graph.nodes.length >= 50)
+    issues.push(`⚠ Reached MAX_NODES=50 cap exactly — verify nothing was skipped.`);
   const noFields = graph.nodes.filter((n) => n.fieldCount === 0);
-  if (noFields.length > 0) issues.push(`⚠ ${noFields.length} node(s) with 0 fields: ${noFields.map((n) => n.objectApiName).join(', ')}`);
-  const isolated = graph.nodes.filter((n) => !graph.edges.some((e) => e.sourceObject === n.objectApiName || e.targetObject === n.objectApiName));
-  if (isolated.length > 0) issues.push(`⚠ ${isolated.length} isolated node(s) (no edge): ${isolated.map((n) => n.objectApiName).join(', ')}`);
-  const emptyIncluded = graph.nodes.filter((n: ForgeGraphNode) => n.recordCount === 0 && n.included);
-  if (emptyIncluded.length > 0) issues.push(`ℹ skipEmpty was true but ${emptyIncluded.length} node(s) with 0 records still marked included — verify GraphDiscoveryService:190.`);
+  if (noFields.length > 0)
+    issues.push(
+      `⚠ ${noFields.length} node(s) with 0 fields: ${noFields.map((n) => n.objectApiName).join(', ')}`,
+    );
+  const isolated = graph.nodes.filter(
+    (n) =>
+      !graph.edges.some(
+        (e) => e.sourceObject === n.objectApiName || e.targetObject === n.objectApiName,
+      ),
+  );
+  if (isolated.length > 0)
+    issues.push(
+      `⚠ ${isolated.length} isolated node(s) (no edge): ${isolated.map((n) => n.objectApiName).join(', ')}`,
+    );
+  const emptyIncluded = graph.nodes.filter(
+    (n: ForgeGraphNode) => n.recordCount === 0 && n.included,
+  );
+  if (emptyIncluded.length > 0)
+    issues.push(
+      `ℹ skipEmpty was true but ${emptyIncluded.length} node(s) with 0 records still marked included — verify GraphDiscoveryService:190.`,
+    );
   if (issues.length === 0) {
     console.log(`\nAnomalies: none ✓`);
     return;
@@ -264,7 +305,9 @@ async function main(): Promise<void> {
     batchSize: 'auto',
   };
 
-  console.log(`\nConfig: depth=${config.depth} customDepth=${config.customDepth} skipEmpty=${config.skipEmpty} anonymizePII=${config.anonymizePII}`);
+  console.log(
+    `\nConfig: depth=${config.depth} customDepth=${config.customDepth} skipEmpty=${config.skipEmpty} anonymizePII=${config.anonymizePII}`,
+  );
   console.log(`Record: ${config.recordId} (probable Case — prefix 500)`);
 
   const fullDescribes = new Map<string, ObjectDescribe>();
@@ -277,7 +320,9 @@ async function main(): Promise<void> {
     onProgress: (e) => {
       const now = Date.now();
       if (now - lastProgressTime > 250 || e.queueRemaining === 0) {
-        process.stdout.write(`\r  discovered=${String(e.discoveredCount).padStart(3)} queue=${String(e.queueRemaining).padStart(3)} latest=${e.objectApiName.padEnd(40)}`);
+        process.stdout.write(
+          `\r  discovered=${String(e.discoveredCount).padStart(3)} queue=${String(e.queueRemaining).padStart(3)} latest=${e.objectApiName.padEnd(40)}`,
+        );
         lastProgressTime = now;
       }
     },
@@ -349,9 +394,10 @@ async function main(): Promise<void> {
         return arr.map((r) => ({
           id: r.id ?? '',
           success: r.success,
-          errors: r.errors?.map((e: { message?: string; statusCode?: string }) =>
-            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
-          ) ?? [],
+          errors:
+            r.errors?.map((e: { message?: string; statusCode?: string }) =>
+              e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
+            ) ?? [],
         }));
       },
       updateRecords: async (orgId, objectName, records) => {
@@ -365,9 +411,10 @@ async function main(): Promise<void> {
         return arr.map((r, i) => ({
           id: r.id ?? (records[i]['Id'] as string) ?? '',
           success: r.success,
-          errors: r.errors?.map((e: { message?: string; statusCode?: string }) =>
-            e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
-          ) ?? [],
+          errors:
+            r.errors?.map((e: { message?: string; statusCode?: string }) =>
+              e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
+            ) ?? [],
         }));
       },
       insertRecords: async (orgId, objectName, records) => {
@@ -385,7 +432,7 @@ async function main(): Promise<void> {
           const errorSamples: InsertErrorSample[] = [];
           const mapped = arr.map((r, idx) => {
             const messages = (r.errors ?? []).map((e: { message?: string; statusCode?: string }) =>
-              e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? '')
+              e.statusCode ? `${e.statusCode}: ${e.message ?? ''}` : (e.message ?? ''),
             );
             if (r.success) {
               succ++;
@@ -530,11 +577,18 @@ function printInsertLog(log: InsertLogEntry[]): void {
   const totalFailed = log.reduce((s, e) => s + e.failed, 0);
 
   console.log(`\n══════════ WAVE 3 — REAL EXECUTION ══════════`);
-  console.log(`Inserts attempted: ${totalAttempted}  |  Succeeded: ${totalSucceeded}  |  Failed: ${totalFailed}`);
-  console.log(`\n${'object'.padEnd(45)} ${'attempt'.padStart(7)} ${'ok'.padStart(5)} ${'fail'.padStart(5)} ${'ms'.padStart(6)}`);
+  console.log(
+    `Inserts attempted: ${totalAttempted}  |  Succeeded: ${totalSucceeded}  |  Failed: ${totalFailed}`,
+  );
+  console.log(
+    `\n${'object'.padEnd(45)} ${'attempt'.padStart(7)} ${'ok'.padStart(5)} ${'fail'.padStart(5)} ${'ms'.padStart(6)}`,
+  );
   console.log('-'.repeat(80));
   for (const entry of log) {
-    const failStr = entry.failed > 0 ? `\x1b[31m${String(entry.failed).padStart(4)}!\x1b[0m` : `${String(entry.failed).padStart(5)}`;
+    const failStr =
+      entry.failed > 0
+        ? `\x1b[31m${String(entry.failed).padStart(4)}!\x1b[0m`
+        : `${String(entry.failed).padStart(5)}`;
     console.log(
       `${entry.object.padEnd(45)} ${String(entry.attempted).padStart(7)} ${String(entry.succeeded).padStart(5)} ${failStr} ${String(entry.durationMs).padStart(6)}`,
     );
@@ -594,9 +648,15 @@ function printPhaseB(
   const errorCount = log.filter((e) => e.error).length;
 
   console.log(`\n══════════ PHASE B — SCOPED DRY-RUN (${totalMs}ms) ══════════`);
-  console.log(`Queries executed: ${log.length}  |  Records would be cloned: ${totalRecords}  |  Errors: ${errorCount}`);
-  console.log(`RecordType mappings ready: ${recordTypeMappings.length}  |  Skipped out-of-scope nodes: ${skipped.length}`);
-  console.log(`\n${'object'.padEnd(45)} ${'count'.padStart(7)} ${'ms'.padStart(6)}  soql (truncated)`);
+  console.log(
+    `Queries executed: ${log.length}  |  Records would be cloned: ${totalRecords}  |  Errors: ${errorCount}`,
+  );
+  console.log(
+    `RecordType mappings ready: ${recordTypeMappings.length}  |  Skipped out-of-scope nodes: ${skipped.length}`,
+  );
+  console.log(
+    `\n${'object'.padEnd(45)} ${'count'.padStart(7)} ${'ms'.padStart(6)}  soql (truncated)`,
+  );
   console.log('-'.repeat(140));
   const sorted = [...log].sort((a, b) => (b.count > 0 ? b.count : 0) - (a.count > 0 ? a.count : 0));
   for (const entry of sorted) {
@@ -606,7 +666,9 @@ function printPhaseB(
         ? '\x1b[2m  0\x1b[0m'.padStart(7)
         : String(entry.count).padStart(7);
     const soql = truncate(entry.soql.replace(/\s+/g, ' '), 80);
-    console.log(`${entry.object.padEnd(45)} ${countStr} ${String(entry.durationMs).padStart(6)}  ${soql}`);
+    console.log(
+      `${entry.object.padEnd(45)} ${countStr} ${String(entry.durationMs).padStart(6)}  ${soql}`,
+    );
     if (entry.error) {
       console.log(`  \x1b[31m└── ${truncate(entry.error, 130)}\x1b[0m`);
     }

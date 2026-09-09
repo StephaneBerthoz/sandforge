@@ -16,8 +16,19 @@ import { AuthProvider } from '../core/connection/AuthProvider';
 import type { SfdxBridge, SfdxImportResult } from '../core/connection/SfdxBridge';
 import { getJsforceConnection } from '../core/connection/ConnectionHelper';
 
+/**
+ * Spy on the pooled-connection removal so `org:disconnect` can be asserted, not
+ * merely survived: this mock replaced the WHOLE module, so when OrgHandler
+ * started calling `getConnectionPool()` the function was `undefined`, the
+ * handler threw before posting anything, and MessageBroker swallowed the
+ * rejection in its `.catch(logError)`. The test failed with "no message" and
+ * said nothing about the cause.
+ */
+const mockPoolRemove = vi.fn();
+
 vi.mock('../core/connection/ConnectionHelper', () => ({
   getJsforceConnection: vi.fn(),
+  getConnectionPool: vi.fn(() => ({ remove: mockPoolRemove })),
 }));
 
 function createMockSecretStorage(): SecretStorageAdapter {
@@ -395,6 +406,11 @@ describe('ExtensionHandlers', () => {
       const statusMsg = posted.find((p) => p.type === 'org:statusChanged');
       expect(statusMsg).toBeDefined();
       expect(orgManager.getOrg('rem-1')).toBeUndefined();
+      // The org leaving the registry is not the same as its token leaving the
+      // pool: the pooled connection outlived an explicit disconnect until the
+      // host shut down, so authentication material survived a revocation the
+      // user had asked for.
+      expect(mockPoolRemove).toHaveBeenCalledWith('rem-1');
     });
   });
 
@@ -678,6 +694,10 @@ describe('ExtensionHandlers', () => {
       }));
       const mockConnection = {
         query: vi.fn().mockResolvedValue({ records: mockRecords, totalSize: 42 }),
+        // The backup now names its fields from the describe instead of sending
+        // `FIELDS(ALL)`, which Salesforce rejects above LIMIT 200 and which
+        // cost three round trips per object through the silent fallback.
+        describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Id' }, { name: 'Name' }] }),
       };
       (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
 

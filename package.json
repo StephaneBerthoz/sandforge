@@ -1,6 +1,6 @@
 {
   "name": "sandforge",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "private": true,
   "description": "Salesforce Sandbox ETL Toolkit for VSCode",
   "scripts": {
@@ -12,8 +12,8 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
-    "format": "prettier --write \"packages/*/src/**/*.{ts,tsx,json,css}\"",
-    "format:check": "prettier --check \"packages/*/src/**/*.{ts,tsx,json,css}\"",
+    "format": "prettier --write \"**/*.{ts,tsx,mjs,cjs,js,json,css,md,yml,yaml,html}\" \"!**/node_modules/**\" \"!**/dist/**\" \"!**/build/**\" \"!**/__snapshots__/**\" \"!pnpm-lock.yaml\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,mjs,cjs,js,json,css,md,yml,yaml,html}\" \"!**/node_modules/**\" \"!**/dist/**\" \"!**/build/**\" \"!**/__snapshots__/**\" \"!pnpm-lock.yaml\"",
     "test": "pnpm -r test",
     "test:docs": "vitest run",
     "test:gates": "node --test README.test.mjs \"scripts/*.test.mjs\" \"docs/*.test.mjs\"",
@@ -33,7 +33,8 @@
     "clean": "pnpm -r run clean && node -e \"fs.rmSync('node_modules',{recursive:true,force:true})\"",
     "sync:badges": "node scripts/sync-readme-badges.mjs",
     "check:links": "node scripts/check-public-links.mjs",
-    "check:screenshots": "node scripts/check-screenshots.mjs"
+    "check:screenshots": "node scripts/check-screenshots.mjs",
+    "icons:render": "node scripts/render-icon.mjs"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

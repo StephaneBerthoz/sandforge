@@ -48,9 +48,9 @@ async function resolveOrgListLoading(page: import('@playwright/test').Page): Pro
 
   const correlationId = await page.evaluate(() => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find(
-      (m) => (m as Record<string, unknown>).type === 'org:list',
-    ) as Record<string, unknown> | undefined;
+    const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+      | Record<string, unknown>
+      | undefined;
     return orgListMsg?.id as string | undefined;
   });
 
@@ -187,8 +187,8 @@ test.describe('Forge / Seed page', () => {
     await page.getByTestId('forge-input-record').fill('001000000000001');
     await page.getByTestId('forge-preview-btn').click();
 
-    const messages = await page.evaluate(() =>
-      (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
+    const messages = await page.evaluate(
+      () => (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
     );
     const previewMsg = messages.find(
       (m) => (m as Record<string, unknown>).type === 'forge:preview',
@@ -222,7 +222,9 @@ test.describe('Forge / Seed page', () => {
     await expect(page.getByTestId('forge-record-preview')).toBeVisible({ timeout: 5000 });
   });
 
-  test('shows PII warning when preview contains PII fields and anonymize is off', async ({ page }) => {
+  test('shows PII warning when preview contains PII fields and anonymize is off', async ({
+    page,
+  }) => {
     await page.getByTestId('sidebar-forge-hero').click();
 
     await page.getByTestId('forge-source-org').selectOption('org-src-1');

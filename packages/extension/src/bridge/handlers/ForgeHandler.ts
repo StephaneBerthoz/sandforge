@@ -23,6 +23,7 @@ import { queryWithFieldsFallback } from '../../core/common/soqlQueryHelper.js';
 import { sanitizeSoqlValue } from '../../core/common/soqlValidator.js';
 import { checkApiLimits } from '../../core/common/sforceLimitParser.js';
 import { TimeoutManager, TimeoutError } from '../../core/engine/TimeoutManager.js';
+import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
 import type { ForgePlanGenerator } from '../../modules/forge/ForgePlanGenerator.js';
 import type { ForgeComplianceService } from '../../modules/forge/ForgeComplianceService.js';
@@ -231,6 +232,27 @@ export class ForgeHandler implements DomainHandler {
    */
   private templateStore?: ForgeTemplateStore;
 
+  /**
+   * PERF-08: per-org `describeGlobal` result, keyed by org id.
+   *
+   * The preview path only needs the key-prefix -> {name,label} table, but
+   * `conn.describeGlobal()` re-downloads 1-2 MB of JSON on every call. The
+   * webview fires a preview on each corrected record id the user pastes, so
+   * a handful of typos used to cost as many full downloads.
+   *
+   * Same mechanism, keys and TTL as the caches in
+   * `composition/forgeComposition.ts` and `FrozenDatasetHandler` — org id as
+   * the key means switching org can never read another org's schema, and the
+   * 5-minute TTL bounds how stale a freshly deployed SObject can be.
+   */
+  private readonly describeGlobalCache = new SchemaCache<
+    Array<{ name: string; label: string; keyPrefix: string | null }>
+  >({
+    defaultTtl: 5 * 60_000,
+    maxSize: 16,
+    maxSizeBytes: 50 * 1024 * 1024,
+  });
+
   /** Tracks DML operations to prevent duplicate forge executions. */
   private readonly dmlTracker = new DmlOperationTracker();
 
@@ -409,11 +431,23 @@ export class ForgeHandler implements DomainHandler {
     try {
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
 
-      // Resolve object type from record ID key prefix
+      // Resolve object type from record ID key prefix. The prefix table is
+      // org-wide and identical for every preview, so it is cached per org
+      // (PERF-08) — without it each pasted record id re-downloaded the whole
+      // describeGlobal payload.
       const keyPrefix = recordId.substring(0, 3);
-      const globalDesc = await conn.describeGlobal();
-      checkApiLimits(conn.limitInfo, 'forge:preview describeGlobal');
-      const sobjectInfo = globalDesc.sobjects.find((s) => s.keyPrefix === keyPrefix);
+      let sobjects = this.describeGlobalCache.get(orgId);
+      if (!sobjects) {
+        const globalDesc = await conn.describeGlobal();
+        checkApiLimits(conn.limitInfo, 'forge:preview describeGlobal');
+        sobjects = globalDesc.sobjects.map((s) => ({
+          name: s.name,
+          label: s.label,
+          keyPrefix: s.keyPrefix ?? null,
+        }));
+        this.describeGlobalCache.set(orgId, sobjects);
+      }
+      const sobjectInfo = sobjects.find((s) => s.keyPrefix === keyPrefix);
 
       if (!sobjectInfo) {
         const errResponse = buildResponse(this.deps, msg, 'forge:preview:error', {

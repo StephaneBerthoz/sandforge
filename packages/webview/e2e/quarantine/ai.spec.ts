@@ -6,7 +6,10 @@ import { MOCK_ORGS } from './fixtures';
  * Set window.__SANDFORGE_MODULE__ = 'ai' so PanelApp renders the AI page
  * directly (AI is a standalone panel, not in the sidebar router).
  */
-async function setupAIPanel(bridge: MockBridge, page: import('@playwright/test').Page): Promise<void> {
+async function setupAIPanel(
+  bridge: MockBridge,
+  page: import('@playwright/test').Page,
+): Promise<void> {
   await bridge.setup(page);
   await page.addInitScript(() => {
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'ai';
@@ -145,7 +148,9 @@ test.describe('AI Module — Conversation Management', () => {
       conversation: { id: 'conv-del-1', title: 'To Delete', createdAt: Date.now() },
     });
 
-    await page.getByTestId('conversation-item-conv-del-1').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-conv-del-1')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     // Delete it
     await page.getByTestId('delete-conversation-conv-del-1').click();
@@ -175,7 +180,9 @@ test.describe('AI Module — NL2SOQL', () => {
       conversation: { id: 'conv-soql', title: 'SOQL', createdAt: Date.now() },
     });
 
-    await page.getByTestId('conversation-item-conv-soql').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-conv-soql')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     await page.getByTestId('chat-input').fill('Find all contacts with email containing @acme.com');
     await page.getByTestId('send-btn').click();
@@ -191,7 +198,9 @@ test.describe('AI Module — NL2SOQL', () => {
       conversation: { id: 'conv-soql-2', title: 'SOQL2', createdAt: Date.now() },
     });
 
-    await page.getByTestId('conversation-item-conv-soql-2').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-conv-soql-2')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     await page.getByTestId('chat-input').fill('Show accounts');
     await page.getByTestId('send-btn').click();
@@ -201,7 +210,8 @@ test.describe('AI Module — NL2SOQL', () => {
       message: {
         id: 'msg-soql-resp',
         role: 'assistant',
-        content: "Here's the SOQL:\n```sql\nSELECT Id, Name FROM Account\n```\nThis query returns all Account records with their IDs and Names.",
+        content:
+          "Here's the SOQL:\n```sql\nSELECT Id, Name FROM Account\n```\nThis query returns all Account records with their IDs and Names.",
         timestamp: Date.now(),
       },
     });
@@ -224,9 +234,13 @@ test.describe('AI Module — Error Resolver', () => {
       conversation: { id: 'conv-err', title: 'Error Help', createdAt: Date.now() },
     });
 
-    await page.getByTestId('conversation-item-conv-err').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-conv-err')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
-    await page.getByTestId('chat-input').fill('I got this error: FIELD_CUSTOM_VALIDATION_EXCEPTION');
+    await page
+      .getByTestId('chat-input')
+      .fill('I got this error: FIELD_CUSTOM_VALIDATION_EXCEPTION');
     await page.getByTestId('send-btn').click();
 
     const messages = await bridge.getMessages('ai:chat');
@@ -239,7 +253,9 @@ test.describe('AI Module — Error Resolver', () => {
       conversation: { id: 'conv-err-2', title: 'Error Fix', createdAt: Date.now() },
     });
 
-    await page.getByTestId('conversation-item-conv-err-2').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-conv-err-2')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     await page.getByTestId('chat-input').fill('Fix: INSUFFICIENT_ACCESS');
     await page.getByTestId('send-btn').click();
@@ -249,7 +265,8 @@ test.describe('AI Module — Error Resolver', () => {
       message: {
         id: 'msg-err-resp',
         role: 'assistant',
-        content: 'This error means the user lacks CRUD permission. Solutions:\n1. Check profile permissions\n2. Verify sharing rules\n3. Check field-level security',
+        content:
+          'This error means the user lacks CRUD permission. Solutions:\n1. Check profile permissions\n2. Verify sharing rules\n3. Check field-level security',
         timestamp: Date.now(),
       },
     });
@@ -272,7 +289,9 @@ test.describe('AI Module — Suggestions & Anomaly', () => {
       conversation: { id: 'conv-sug', title: 'Suggestions', createdAt: Date.now() },
     });
 
-    await page.getByTestId('conversation-item-conv-sug').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-conv-sug')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     await page.getByTestId('chat-input').fill('Suggest optimizations for my Account object');
     await page.getByTestId('send-btn').click();
@@ -287,7 +306,9 @@ test.describe('AI Module — Suggestions & Anomaly', () => {
       conversation: { id: 'conv-anom', title: 'Anomaly', createdAt: Date.now() },
     });
 
-    await page.getByTestId('conversation-item-conv-anom').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-conv-anom')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     await page.getByTestId('chat-input').fill('Scan for data anomalies in Contact records');
     await page.getByTestId('send-btn').click();
@@ -302,7 +323,9 @@ test.describe('AI Module — Suggestions & Anomaly', () => {
       conversation: { id: 'conv-anom-2', title: 'Scan', createdAt: Date.now() },
     });
 
-    await page.getByTestId('conversation-item-conv-anom-2').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-conv-anom-2')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     await page.getByTestId('chat-input').fill('Check anomalies');
     await page.getByTestId('send-btn').click();
@@ -312,7 +335,8 @@ test.describe('AI Module — Suggestions & Anomaly', () => {
       message: {
         id: 'msg-anom-resp',
         role: 'assistant',
-        content: 'Anomaly scan results:\n- 3 contacts with duplicate emails\n- 12 accounts with missing industry\n- 1 contact with future birthdate',
+        content:
+          'Anomaly scan results:\n- 3 contacts with duplicate emails\n- 12 accounts with missing industry\n- 1 contact with future birthdate',
         timestamp: Date.now(),
       },
     });
