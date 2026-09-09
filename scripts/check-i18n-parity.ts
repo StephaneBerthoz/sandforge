@@ -29,7 +29,9 @@
  *
  * Section 6 — catalogue vs code (blocking on new entries only). Keys no source
  * file mentions. Runtime-built keys (`t(`a.b.${x}`)`) are exempted by prefix,
- * and the count that existed when the section landed is the baseline.
+ * and the count that existed when the section landed is the baseline. That
+ * baseline is a ratchet: it may only shrink, and an entry that stops being an
+ * unreferenced catalogue key fails the run until it is deleted from it.
  *
  * Plural handling (webview only): i18next (Intl.PluralRules) only has the
  * `other` category for Japanese, so `*_one` keys are not required in
@@ -326,6 +328,14 @@ function reportFrenchAccents(): void {
  * Baseline for section 6: keys already unreferenced when the section landed.
  * They belong to modules whose fate is decided elsewhere (DEADCODE-03), so the
  * gate only blocks keys added on top of this list.
+ *
+ * An entry earns its place by being unreferenced *and* defined in en.json. The
+ * moment either stops holding — a consumer comes back, the key leaves the
+ * catalogue — `auditBaseline` fails the run until the entry is deleted from
+ * here. Three entries left on the day the ratchet landed, `org.status_error`
+ * among them: `OrgManagerPage` had been rendering it all along, while the sweep
+ * that read the key was writing it down as dead in the same commit. A list
+ * nobody can leave is a list that stops describing anything.
  */
 const UNREFERENCED_BASELINE: readonly string[] = [
   'ai.avgLatency',
@@ -410,7 +420,6 @@ const UNREFERENCED_BASELINE: readonly string[] = [
   'common.changeCount_one',
   'common.changeCount_other',
   'common.createdBy',
-  'common.export',
   'common.filter',
   'common.refresh',
   'common.search',
@@ -686,7 +695,6 @@ const UNREFERENCED_BASELINE: readonly string[] = [
   'org.production',
   'org.scratch',
   'org.status_connected',
-  'org.status_error',
   'org.status_expired',
   'org.status_refreshing',
   'precheck.applyFix',
@@ -887,7 +895,6 @@ const UNREFERENCED_BASELINE: readonly string[] = [
   'sync.realtime.waitingForEvents',
   'sync.realtime.watchedObjects',
   'sync.removeMapping',
-  'sync.removeObject',
   'sync.removeTransform',
   'sync.resultsDesc',
   'sync.soqlQuery',
@@ -919,6 +926,16 @@ const UNREFERENCED_BASELINE: readonly string[] = [
   'team.shareDescription',
   'team.title',
 ];
+
+/**
+ * Where the number stood, and when. `count` is an upper bound the run enforces:
+ * the list may fall below it without anyone doing anything, but growing past it
+ * means editing this number and the date beside it, in a diff a reviewer reads.
+ * Lower both when you delete entries, so the next person can tell at a glance
+ * whether the figure is going down. It read 590 on 2026-08-13, the day the
+ * section landed and was neutralised in the same commit.
+ */
+const BASELINE_CENSUS = { recorded: '2026-09-09', count: 587 } as const;
 
 /**
  * Section 6 — catalogue entries no source file mentions.
@@ -957,6 +974,60 @@ function findUnreferencedKeys(reference: Map<string, string>): {
 
   const baseline = new Set(UNREFERENCED_BASELINE);
   return { unreferenced, fresh: unreferenced.filter((k) => !baseline.has(k)) };
+}
+
+/**
+ * The ratchet on that baseline. Three ways it stops telling the truth, all of
+ * them blocking:
+ *
+ *   - an entry referenced again — the DEADCODE-08 mechanism, where a key that
+ *     merely lost its consumer for the length of a purge was written down as
+ *     dead instead of being left to come back;
+ *   - an entry en.json no longer defines, which suppresses nothing and only
+ *     inflates the count;
+ *   - a list longer than the census it was last counted at, i.e. an append.
+ *
+ * Nothing here rewrites the list — a source file that edits itself is worse
+ * than the debt — so the run names the offenders and fails until they are gone.
+ * The suppression itself is computed live, so a stale entry stops excusing
+ * anything the moment it goes stale, whether or not anyone deletes the line.
+ */
+function auditBaseline(reference: Map<string, string>, unreferenced: string[]): boolean {
+  const stillUnreferenced = new Set(unreferenced);
+  const revived = UNREFERENCED_BASELINE.filter(
+    (k) => reference.has(k) && !stillUnreferenced.has(k),
+  ).sort();
+  const dropped = UNREFERENCED_BASELINE.filter((k) => !reference.has(k)).sort();
+  const removedSince = BASELINE_CENSUS.count - UNREFERENCED_BASELINE.length;
+
+  console.log(
+    `baseline census — ${BASELINE_CENSUS.count} entries recorded ${BASELINE_CENSUS.recorded}, ` +
+      `${UNREFERENCED_BASELINE.length} listed today (${removedSince} removed since)`,
+  );
+
+  if (revived.length > 0) {
+    console.log(
+      `✗ baseline: ${revived.length} entry(ies) referenced again — delete them from UNREFERENCED_BASELINE:`,
+    );
+    for (const k of revived) console.log(`    - ${k}`);
+  }
+  if (dropped.length > 0) {
+    console.log(
+      `✗ baseline: ${dropped.length} entry(ies) absent from ${WEBVIEW_REFERENCE} — delete them from UNREFERENCED_BASELINE:`,
+    );
+    for (const k of dropped) console.log(`    - ${k}`);
+  }
+  if (removedSince < 0) {
+    console.log(
+      `✗ baseline: ${UNREFERENCED_BASELINE.length} entries against ${BASELINE_CENSUS.count} recorded ` +
+        `${BASELINE_CENSUS.recorded} — the baseline may shrink, never grow.`,
+    );
+  }
+  if (revived.length === 0 && dropped.length === 0 && removedSince >= 0) {
+    console.log('✓ baseline: every entry is still an unreferenced key of the catalogue');
+  }
+
+  return revived.length > 0 || dropped.length > 0 || removedSince < 0;
 }
 
 const reportOnly = process.argv.includes('--report');
@@ -1000,8 +1071,16 @@ if (fresh.length === 0) {
   for (const k of fresh) console.log(`    - ${k}`);
 }
 
+console.log('');
+const baselineDrift = auditBaseline(englishCatalogue, unreferenced);
+
 const hasDrift =
-  webviewDrift || manifestDrift || sourceDrift || fresh.length > 0 || identicalCount > 0;
+  webviewDrift ||
+  manifestDrift ||
+  sourceDrift ||
+  fresh.length > 0 ||
+  identicalCount > 0 ||
+  baselineDrift;
 
 if (hasDrift && !reportOnly) {
   console.error('\ni18n parity check FAILED — run with --report for details without failing.');

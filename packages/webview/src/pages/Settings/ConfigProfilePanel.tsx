@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { Download, Upload, FileCheck, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Badge } from '../../components/ui/Badge';
@@ -28,6 +29,7 @@ type CategoryKey = (typeof CONFIG_CATEGORIES)[number]['key'];
 
 /** Panel for exporting and importing SandForge configuration profiles. */
 export const ConfigProfilePanel: React.FC = () => {
+  const { save } = useFileSave();
   const { t } = useTranslation();
   const [selectedCategories, setSelectedCategories] = useState<Set<CategoryKey>>(
     new Set(['syncMappings', 'forgePlans', 'pipelines', 'anonymizationTemplates', 'settings']),
@@ -104,14 +106,14 @@ export const ConfigProfilePanel: React.FC = () => {
   /** Download exported JSON as a file. */
   const handleDownloadExport = useCallback(() => {
     if (!exportMutation.data?.json) return;
-    const blob = new Blob([exportMutation.data.json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `sandforge-config-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [exportMutation.data]);
+    // Saved by the host: a webview is sandboxed without `allow-downloads`, so
+    // the detached-anchor click this replaces frequently wrote nothing.
+    save(
+      `sandforge-config-${new Date().toISOString().slice(0, 10)}.json`,
+      exportMutation.data.json,
+      ['json'],
+    );
+  }, [exportMutation.data, save]);
 
   /** Validate the import JSON. */
   const handleValidate = useCallback(() => {

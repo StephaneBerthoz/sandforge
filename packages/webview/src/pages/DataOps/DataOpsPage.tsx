@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import type { BackupSummary, AnonymizationTemplate } from '@sandforge/shared';
@@ -24,6 +25,7 @@ import { ComingSoon } from '../../components/ui/ComingSoon';
 
 /** Main DataOps page — wired to extension via bridge hooks. */
 export const DataOpsPage: React.FC = () => {
+  const { save } = useFileSave();
   const { t } = useTranslation();
 
   const DATAOPS_TABS: PageTab[] = [
@@ -173,15 +175,11 @@ export const DataOpsPage: React.FC = () => {
   useEffect(() => {
     const payload = exportMutation.data;
     if (!payload?.data) return;
-    const blob = new Blob([payload.data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = payload.filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    // Saved by the host: a webview is sandboxed without `allow-downloads`, so
+    // the detached-anchor click this replaces frequently wrote nothing.
+    save(payload.filename, payload.data);
     exportMutation.reset();
-  }, [exportMutation]);
+  }, [exportMutation, save]);
 
   const handleApplyAnonymize = (templateId: string) => {
     if (!currentOrg) return;

@@ -13,13 +13,18 @@ import { ForgeExecution } from './ForgeExecution';
  */
 const mockPostMessage = vi.fn();
 
-vi.mock('../../hooks/useVSCodeApi', () => ({
-  getVscodeApi: () => ({
-    postMessage: mockPostMessage,
+// Both exports: the page reaches the bridge through the hook as well as through
+// the module-cached accessor, and a partial mock fails only at render time.
+// `mockPostMessage` is referenced lazily — this factory is hoisted above its
+// declaration, so building the object here would read it before it exists.
+vi.mock('../../hooks/useVSCodeApi', () => {
+  const api = {
+    postMessage: (...args: unknown[]) => mockPostMessage(...args),
     getState: () => undefined,
     setState: () => undefined,
-  }),
-}));
+  };
+  return { getVscodeApi: () => api, useVSCodeApi: () => api };
+});
 
 /** Envelope shape posted to the extension host (see sendBridgeMessage). */
 interface PostedEnvelope {

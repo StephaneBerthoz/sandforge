@@ -30,19 +30,27 @@ export interface SyncHistoryState {
 }
 
 /**
- * Trigger a file download in the webview by creating a temporary anchor element.
+ * Ask the extension host to save an export.
+ *
+ * This used to build a Blob and click a detached anchor from module scope. A
+ * webview is sandboxed without `allow-downloads`, so that frequently wrote
+ * nothing, and a store cannot use the `useFileSave` hook the components use —
+ * but it can send the same message, through the sender it already uses.
+ *
+ * The outcome is announced by whichever `useFileSave` instance is mounted:
+ * `file:save:response` is correlated to this request, so a store-initiated
+ * save reports through the normal channel rather than silently.
+ *
  * @param data - The file content string.
  * @param filename - The suggested filename.
- * @param mimeType - The MIME type for the Blob.
+ * @param extension - Extension offered by the dialog filter, without the dot.
  */
-function triggerDownload(data: string, filename: string, mimeType: string): void {
-  const blob = new Blob([data], { type: mimeType });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
+function requestSave(data: string, filename: string, extension: string): void {
+  sendBridgeMessage('file:save', {
+    suggestedName: filename,
+    content: data,
+    extensions: [extension],
+  });
 }
 
 /** Type guard for messages with a type field. */
@@ -104,9 +112,8 @@ export const useSyncHistoryStore = create<SyncHistoryState>((set) => ({
         const data = payload?.data as string | undefined;
         const format = payload?.format as SyncExportFormat | undefined;
         if (data && format) {
-          const mimeType = format === 'csv' ? 'text/csv' : 'application/json';
           const ext = format === 'csv' ? 'csv' : 'json';
-          triggerDownload(data, `sync-history.${ext}`, mimeType);
+          requestSave(data, `sync-history.${ext}`, ext);
         }
         break;
       }

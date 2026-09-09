@@ -22,6 +22,7 @@
     "retry": "Réessayer",
     "copy": "Copier",
     "export": "Exporter",
+    "exportSaved": "Enregistré dans {{path}}",
     "dismiss": "Fermer",
     "toggleSidebar": "Basculer la barre latérale",
     "breadcrumb": "Fil d'Ariane",
@@ -255,8 +256,6 @@
     },
     "export": {
       "button": "Exporter CSV",
-      "success": "Limites exportées",
-      "successDetail": "Fichier CSV téléchargé avec succès",
       "noHistory": "Aucune donnée historique",
       "noHistoryDetail": "Aucun horodatage de tendance disponible pour l'export historique",
       "buttonHistorical": "Exporter l'historique",
@@ -2071,6 +2070,17 @@
       "planLoading": "Génération du plan d'exécution...",
       "wave": "Vague",
       "cycles": "Résolutions de cycles"
+    },
+    "history": {
+      "title": "Exécutions récentes",
+      "reuse": "Réutiliser la configuration",
+      "reuseHint": "Réinjecte les réglages de cette exécution dans le formulaire. Les orgs ne sont pas restaurées — choisissez-les, puis lancez la découverte.",
+      "noConfig": "Exécution enregistrée avant la conservation des configurations — rien à réinjecter.",
+      "loadError": "Impossible de charger l'historique des exécutions.",
+      "reused": "Formulaire réinjecté depuis l'exécution du {{date}}.",
+      "statusSuccess": "Réussie",
+      "statusPartial": "Partielle",
+      "statusFailure": "Échec"
     }
   },
   "autopilot": {

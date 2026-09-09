@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { LogStream } from './LogStream';
@@ -133,7 +133,9 @@ describe('LogStream', () => {
     const singleEntry = [
       { id: '1', timestamp: Date.now(), level: 'info' as const, message: 'Hello' },
     ];
-    render(<LogStream entries={singleEntry} />);
+    // The control is only rendered when someone can act on it: LogStream is a
+    // presentational primitive and cannot save anything itself.
+    render(<LogStream entries={singleEntry} onExport={vi.fn()} />);
     expect(screen.getByTestId('logstream-export')).toBeDefined();
   });
 

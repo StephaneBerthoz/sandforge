@@ -226,6 +226,105 @@ const MOCK_STORAGE = {
   ],
 };
 
+/**
+ * Saved templates, as `seed:template:list:response` returns them.
+ *
+ * The gallery merges these with the three pre-built templates the extension
+ * ships, so answering `{ templates: [] }` would still fill — but it would
+ * picture a product nobody has ever used, and the saved half of the gallery
+ * (the half a team actually builds) would never appear in the listing.
+ */
+const MOCK_SEED_TEMPLATES = {
+  templates: [
+    {
+      id: 'tpl-uat-refresh',
+      name: 'UAT refresh set',
+      description:
+        'Accounts, their contacts and a spread of open opportunities — what the UAT sandbox needs back after every refresh.',
+      tags: ['uat', 'shared'],
+      updatedAt: '2026-08-28T14:20:00Z',
+      objectCount: 4,
+      totalRecords: 1450,
+    },
+    {
+      id: 'tpl-support-bench',
+      name: 'Support console bench',
+      description:
+        'Cases across every status with the contacts behind them, so the Service Console has something to open.',
+      tags: ['service'],
+      updatedAt: '2026-09-02T08:05:00Z',
+      objectCount: 3,
+      totalRecords: 900,
+    },
+  ],
+};
+
+/**
+ * Objects a `seed:describe-global` answers with, dependencies included.
+ *
+ * A three-entry list would shoot a panel no real org produces: the describe
+ * returns every createable object, and the dependency badges — the thing that
+ * makes the picker worth looking at — only appear on objects that have one.
+ */
+const MOCK_SEED_OBJECTS = {
+  objects: [
+    { apiName: 'Account', label: 'Account', recordCount: 0, dependencies: [] },
+    { apiName: 'Contact', label: 'Contact', recordCount: 0, dependencies: ['Account'] },
+    { apiName: 'Lead', label: 'Lead', recordCount: 0, dependencies: [] },
+    {
+      apiName: 'Opportunity',
+      label: 'Opportunity',
+      recordCount: 0,
+      dependencies: ['Account', 'Pricebook2'],
+    },
+    { apiName: 'Case', label: 'Case', recordCount: 0, dependencies: ['Account', 'Contact'] },
+    { apiName: 'Campaign', label: 'Campaign', recordCount: 0, dependencies: [] },
+    {
+      apiName: 'CampaignMember',
+      label: 'Campaign Member',
+      recordCount: 0,
+      dependencies: ['Campaign', 'Contact', 'Lead'],
+    },
+    { apiName: 'Product2', label: 'Product', recordCount: 0, dependencies: [] },
+    { apiName: 'Pricebook2', label: 'Price Book', recordCount: 0, dependencies: [] },
+    {
+      apiName: 'PricebookEntry',
+      label: 'Price Book Entry',
+      recordCount: 0,
+      dependencies: ['Pricebook2', 'Product2'],
+    },
+    { apiName: 'Task', label: 'Task', recordCount: 0, dependencies: ['Account', 'Contact'] },
+    { apiName: 'Event', label: 'Event', recordCount: 0, dependencies: ['Account', 'Contact'] },
+  ],
+};
+
+/**
+ * Objects a `sync:describe-global` answers with — API names only, per the
+ * contract. Long enough that the "Add Object" picker reads like a real org's
+ * describe rather than a fixture with room for three.
+ */
+const MOCK_SYNC_OBJECTS = {
+  objects: [
+    'Account',
+    'Asset',
+    'Campaign',
+    'CampaignMember',
+    'Case',
+    'Contact',
+    'Contract',
+    'Event',
+    'Lead',
+    'Opportunity',
+    'OpportunityLineItem',
+    'Order',
+    'Pricebook2',
+    'PricebookEntry',
+    'Product2',
+    'Quote',
+    'Task',
+  ],
+};
+
 test.describe('Marketplace Screenshots', () => {
   test.skip(!process.env.SCREENSHOTS, 'Screenshots are generated on demand (set SCREENSHOTS=1)');
 
@@ -299,6 +398,85 @@ test.describe('Marketplace Screenshots', () => {
     await page.waitForSelector('[data-testid="storage-donut-chart"]');
     await settle(page);
     await shoot(page, 'monitor');
+  });
+
+  test('seed', async ({ page }) => {
+    const bridge = await openModule(page, 'seed');
+    await page.waitForSelector('[data-testid="seed-page"]');
+
+    // Seed lands on its three-card mode selector; the gallery that carries the
+    // product's promise ("fill an empty dev org") is two clicks in, down the
+    // AI branch, and nothing fetches until it mounts.
+    await page.getByTestId('mode-card-ai').click();
+    await page.getByTestId('fork-card-scratch').click();
+
+    // Unanswered, the gallery renders three grey 180px slabs instead of cards.
+    await bridge.waitForMessage('seed:template:list', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'seed:template:list',
+      'seed:template:list:response',
+      MOCK_SEED_TEMPLATES,
+    );
+
+    // The object picker is gated on a chosen org — leaving it unpicked shoots
+    // a wizard step holding one empty dropdown.
+    await page.getByTestId('org-selector').selectOption('org-tgt-1');
+    await bridge.waitForMessage('seed:describe-global', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'seed:describe-global',
+      'seed:describe-global:response',
+      MOCK_SEED_OBJECTS,
+    );
+
+    await page.waitForSelector('[data-testid="template-card-tpl-uat-refresh"]');
+    await page.waitForSelector('[data-testid="obj-Account"]');
+    await settle(page);
+    await shoot(page, 'seed');
+  });
+
+  test('sync', async ({ page }) => {
+    const bridge = await openModule(page, 'sync');
+    await page.waitForSelector('[data-testid="sync-page"]');
+
+    // Source and target both matter: the object editor is not rendered at all
+    // until a source is picked, and the header's org-to-org badge pair — the
+    // one image that says "between two orgs" — needs the target too.
+    await page.getByLabel('Source', { exact: true }).selectOption('org-src-1');
+    await page.getByLabel('Target', { exact: true }).selectOption('org-tgt-1');
+
+    // Without this the editor sits on `sync-objects-skeleton`.
+    await bridge.waitForMessage('sync:describe-global', { timeout: 10_000 });
+    await respondToAll(
+      page,
+      'sync:describe-global',
+      'sync:describe-global:response',
+      MOCK_SYNC_OBJECTS,
+    );
+
+    // An answered describe still leaves "No objects configured" on screen —
+    // the object set is the user's, not the org's. Configure three.
+    for (const objectApiName of ['Account', 'Contact', 'Opportunity']) {
+      await page.getByTestId('add-object-row').locator('select').selectOption(objectApiName);
+      await page.getByTestId('add-object-btn').click();
+    }
+
+    // One filtered row: three rows of untouched defaults photograph as a form
+    // nobody filled in, and the WHERE fragment is the field that says the sync
+    // moves a slice rather than the whole object. `WHERE` itself is not typed —
+    // SyncOpsHandler appends the keyword to the fragment, so a value starting
+    // with it would picture SOQL the product never builds. Keep the
+    // fragment short and blur it: a filled input that still holds focus shoots
+    // with a focus ring and scrolled left, so the first characters are cut and
+    // the clause reads as truncated rather than typed.
+    const accountWhere = page.getByLabel('WHERE clause — Account');
+    await accountWhere.fill("Type = 'Customer'");
+    await accountWhere.blur();
+
+    await page.waitForSelector('[data-testid="object-entry-Opportunity"]');
+    await settle(page);
+    await shoot(page, 'sync');
   });
 
   test('dataops', async ({ page }) => {

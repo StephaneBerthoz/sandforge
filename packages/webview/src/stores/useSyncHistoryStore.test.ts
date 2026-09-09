@@ -144,30 +144,27 @@ describe('useSyncHistoryStore', () => {
     expect(useSyncHistoryStore.getState().loading).toBe(true);
   });
 
-  it('handleMessage with export response triggers download', () => {
-    const createObjectURLSpy = vi.fn().mockReturnValue('blob:test');
-    const revokeObjectURLSpy = vi.fn();
-    const clickSpy = vi.fn();
-    const createElementSpy = vi.spyOn(document, 'createElement').mockReturnValue({
-      href: '',
-      download: '',
-      click: clickSpy,
-    } as unknown as HTMLAnchorElement);
-
-    Object.defineProperty(globalThis, 'URL', {
-      value: { createObjectURL: createObjectURLSpy, revokeObjectURL: revokeObjectURLSpy },
-      writable: true,
-    });
+  it('asks the host to save the export instead of clicking a detached anchor', () => {
+    // The previous version of this test spied on createElement('a') and its
+    // click — it asserted the mechanism that did not work rather than the
+    // outcome. A webview is sandboxed without `allow-downloads`, so that click
+    // frequently wrote nothing while the store considered the export done.
+    mockPostMessage.mockClear();
 
     useSyncHistoryStore.getState().handleMessage({
       type: 'sync:history:export:response',
       payload: { data: 'id,name\n1,test', format: 'csv' },
     });
 
-    expect(createElementSpy).toHaveBeenCalledWith('a');
-    expect(clickSpy).toHaveBeenCalled();
-
-    createElementSpy.mockRestore();
+    const sent = mockPostMessage.mock.calls
+      .map((c) => (c[0] as PostedEnvelope).payload)
+      .filter((m) => m.type === 'file:save');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].payload).toMatchObject({
+      suggestedName: 'sync-history.csv',
+      content: 'id,name\n1,test',
+      extensions: ['csv'],
+    });
   });
 
   it('handleMessage ignores unknown message types', () => {

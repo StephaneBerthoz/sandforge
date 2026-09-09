@@ -117,3 +117,78 @@ describe('ObjectSetEditor', () => {
     expect(screen.getByText('Contact')).toBeDefined();
   });
 });
+
+/**
+ * Every row repeats the same controls, so the editor announced a dozen
+ * anonymous comboboxes and text boxes: unreadable row by row. Names are
+ * qualified with the object API name and come from the locale bundles.
+ */
+describe('ObjectSetEditor accessible names', () => {
+  function renderEditor(): void {
+    render(
+      <ObjectSetEditor
+        entries={entries}
+        availableObjects={['Account', 'Contact', 'Lead']}
+        onAdd={vi.fn()}
+        onRemove={vi.fn()}
+        onChange={vi.fn()}
+      />,
+    );
+  }
+
+  function accessibleName(el: HTMLElement): string {
+    const ariaLabel = el.getAttribute('aria-label');
+    if (ariaLabel) return ariaLabel;
+    const labelled = el.getAttribute('aria-labelledby');
+    if (labelled) return document.getElementById(labelled)?.textContent ?? '';
+    return el.id ? (document.querySelector(`label[for="${el.id}"]`)?.textContent ?? '') : '';
+  }
+
+  it('names every combobox', () => {
+    renderEditor();
+    const comboboxes = screen.getAllByRole('combobox');
+    expect(comboboxes.length).toBe(3);
+    for (const el of comboboxes) {
+      expect(accessibleName(el)).not.toBe('');
+    }
+  });
+
+  it('names every text box', () => {
+    renderEditor();
+    for (const el of screen.getAllByRole('textbox')) {
+      expect(accessibleName(el)).not.toBe('');
+    }
+  });
+
+  it('tells the operation selects of two rows apart', () => {
+    renderEditor();
+    expect(screen.getByLabelText('Operation — Account').tagName).toBe('SELECT');
+    expect(screen.getByLabelText('Operation — Contact').tagName).toBe('SELECT');
+  });
+
+  it('names the row inputs after their object', () => {
+    renderEditor();
+    expect(screen.getByLabelText('External ID — Account')).toBeDefined();
+    expect(screen.getByLabelText('Batch Size — Account')).toBeDefined();
+    expect(screen.getByLabelText('WHERE clause — Contact')).toBeDefined();
+  });
+
+  it('names each remove button after its object', () => {
+    renderEditor();
+    expect(screen.getByRole('button', { name: 'Remove Object — Account' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Remove Object — Contact' })).toBeDefined();
+  });
+
+  it('names the add-object select from its placeholder', () => {
+    renderEditor();
+    expect(screen.getByLabelText('Add Object').tagName).toBe('SELECT');
+  });
+
+  it('translates the WHERE clause placeholder instead of hardcoding English', () => {
+    renderEditor();
+    const whereInput = screen.getByLabelText('WHERE clause — Account') as HTMLInputElement;
+    expect(whereInput.placeholder).toBe('WHERE clause');
+    expect(whereInput.placeholder).not.toBe('undefined');
+    expect(whereInput.placeholder).not.toBe('automation.stepConfigWhere');
+  });
+});

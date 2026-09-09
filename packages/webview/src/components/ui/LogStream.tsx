@@ -22,6 +22,15 @@ export interface LogStreamProps {
   autoScroll?: boolean;
   /** When true, hides the internal filter tab bar (parent provides its own). */
   hideFilterBar?: boolean;
+  /**
+   * Save the rendered log. Omitted hides the export control.
+   *
+   * Injected rather than done here: this is a `components/ui` primitive, and
+   * reaching the extension host from one made every consumer's test need the
+   * bridge mocked. The host is the only side that can actually save — see
+   * `useFileSave` — so the page that owns a bridge connection passes it down.
+   */
+  onExport?: (filename: string, text: string) => void;
   className?: string;
 }
 
@@ -70,6 +79,7 @@ export const LogStream: React.FC<LogStreamProps> = ({
   maxEntries = 500,
   autoScroll = true,
   hideFilterBar = false,
+  onExport,
   className,
 }) => {
   const { t } = useTranslation();
@@ -165,30 +175,30 @@ export const LogStream: React.FC<LogStreamProps> = ({
             <Copy size={10} />
             {t('forge.copyAllLogs')}
           </button>
-          <button
-            type="button"
-            data-testid="logstream-export"
-            onClick={() => {
-              const text = visibleEntries
-                .map(
-                  (e) =>
-                    `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] ${e.message}`,
-                )
-                .join('\n');
-              const blob = new Blob([text], { type: 'text/plain' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `forge-logs-${new Date().toISOString().slice(0, 10)}.log`;
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
-            className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
-            title={t('forge.exportLogs')}
-          >
-            <Download size={10} />
-            {t('forge.exportLogs')}
-          </button>
+          {/* Hidden when nobody can save: a control that cannot do its job is
+              the failure this whole change removes. */}
+          {onExport && (
+            <button
+              type="button"
+              data-testid="logstream-export"
+              onClick={() => {
+                const text = visibleEntries
+                  .map(
+                    (e) =>
+                      `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] ${e.message}`,
+                  )
+                  .join('\n');
+                // Saved by the host: a webview is sandboxed without
+                // `allow-downloads`, so this click frequently wrote nothing.
+                onExport?.(`forge-logs-${new Date().toISOString().slice(0, 10)}.log`, text);
+              }}
+              className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-text-muted hover:text-text-primary transition-colors rounded hover:bg-surface-2"
+              title={t('forge.exportLogs')}
+            >
+              <Download size={10} />
+              {t('forge.exportLogs')}
+            </button>
+          )}
         </div>
       )}
 

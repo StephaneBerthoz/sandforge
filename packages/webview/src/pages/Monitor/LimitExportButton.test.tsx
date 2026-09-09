@@ -5,6 +5,23 @@ import { useNotificationStore, resetNotificationCounter } from '../../stores/use
 import { LimitExportButton, generateLimitsCsv, generateHistoricalCsv } from './LimitExportButton';
 import type { ApiLimit, TrendData } from '@sandforge/shared';
 
+const mockPostMessage = vi.fn();
+vi.mock('../../hooks/useVSCodeApi', () => ({
+  useVSCodeApi: () => ({
+    postMessage: mockPostMessage,
+    getState: () => undefined,
+    setState: () => undefined,
+  }),
+}));
+
+/** The inner messages the webview sent, unwrapped from their envelope. */
+function postedMessages(): Array<{ type: string; payload: unknown }> {
+  return mockPostMessage.mock.calls.map((c) => {
+    const env = c[0] as { payload?: { type: string; payload: unknown } };
+    return env.payload ?? (c[0] as { type: string; payload: unknown });
+  });
+}
+
 describe('LimitExportButton', () => {
   const mockLimits: ApiLimit[] = [
     { name: 'DailyApiRequests', max: 15000, remaining: 2550, usedPercent: 83 },
@@ -14,6 +31,9 @@ describe('LimitExportButton', () => {
   beforeEach(() => {
     resetNotificationCounter();
     useNotificationStore.setState({ notifications: [] });
+    // Without this every assertion on what was sent also sees the previous
+    // test's message.
+    mockPostMessage.mockClear();
   });
 
   it('renders the export button', () => {
@@ -28,37 +48,23 @@ describe('LimitExportButton', () => {
     expect(btn.hasAttribute('disabled')).toBe(true);
   });
 
-  it('triggers download and shows notification on click', () => {
-    const mockClick = vi.fn();
-    const mockCreateObjectURL = vi.fn().mockReturnValue('blob:mock-url');
-    const mockRevokeObjectURL = vi.fn();
-
-    // Mock URL API
-    globalThis.URL.createObjectURL = mockCreateObjectURL;
-    globalThis.URL.revokeObjectURL = mockRevokeObjectURL;
-
-    // Mock createElement to capture the link click
-    const origCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreateElement(tag);
-      if (tag === 'a') {
-        el.click = mockClick;
-      }
-      return el;
-    });
-
+  it('asks the host to save the export, with the right name and contents', () => {
+    // This test used to spy on createObjectURL / <a>.click / revokeObjectURL and
+    // assert a success toast — it documented the defect rather than the
+    // behaviour. A webview is sandboxed without `allow-downloads`, so that
+    // click often wrote nothing while the toast claimed otherwise. Only the
+    // host can save, so what matters is that it is asked, and asked correctly.
     render(<LimitExportButton limits={mockLimits} />);
     fireEvent.click(screen.getByTestId('limit-export-btn'));
 
-    expect(mockCreateObjectURL).toHaveBeenCalledOnce();
-    expect(mockClick).toHaveBeenCalledOnce();
-    expect(mockRevokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
+    const sent = postedMessages().filter((m) => m.type === 'file:save');
+    expect(sent).toHaveLength(1);
+    const payload = sent[0].payload as { suggestedName: string; content: string };
+    expect(payload.suggestedName).toMatch(/^sandforge-limits-\d{4}-\d{2}-\d{2}\.csv$/);
+    expect(payload.content).toContain('DailyApiRequests');
 
-    const notifications = useNotificationStore.getState().notifications;
-    expect(notifications.length).toBe(1);
-    expect(notifications[0].level).toBe('success');
-
-    vi.restoreAllMocks();
+    // And nothing is announced until the host answers.
+    expect(useNotificationStore.getState().notifications).toHaveLength(0);
   });
 
   it('renders the export mode selector', () => {
@@ -80,60 +86,27 @@ describe('LimitExportButton', () => {
     expect(screen.getByText('Export History')).toBeDefined();
   });
 
-  it('triggers historical download with correct filename pattern when historical mode and trends with timestamps', () => {
-    const mockClick = vi.fn();
-    const mockCreateObjectURL = vi.fn().mockReturnValue('blob:mock-url');
-    const mockRevokeObjectURL = vi.fn();
-
-    globalThis.URL.createObjectURL = mockCreateObjectURL;
-    globalThis.URL.revokeObjectURL = mockRevokeObjectURL;
-
-    const origCreateElement = document.createElement.bind(document);
-    let capturedDownload = '';
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = origCreateElement(tag);
-      if (tag === 'a') {
-        el.click = mockClick;
-        const originalDescriptor = Object.getOwnPropertyDescriptor(
-          HTMLAnchorElement.prototype,
-          'download',
-        );
-        Object.defineProperty(el, 'download', {
-          set(val: string) {
-            capturedDownload = val;
-            if (originalDescriptor?.set) originalDescriptor.set.call(el, val);
-          },
-          get() {
-            return capturedDownload;
-          },
-        });
-      }
-      return el;
-    });
-
-    const trendsWithTimestamps: Record<string, TrendData> = {
+  it('names the historical export differently from the current one', () => {
+    const trends: Record<string, TrendData> = {
       DailyApiRequests: {
         limitName: 'DailyApiRequests',
         direction: 'up',
-        changePercent: 5,
-        sparklineData: [50, 60, 70],
-        timestamps: ['2026-03-20T10:00:00Z', '2026-03-20T10:15:00Z', '2026-03-20T10:30:00Z'],
+        changePercent: 4,
+        sparklineData: [40, 42],
+        timestamps: ['2026-09-01T00:00:00.000Z', '2026-09-02T00:00:00.000Z'],
       },
     };
-
-    render(<LimitExportButton limits={mockLimits} trends={trendsWithTimestamps} />);
-
-    // Switch to historical mode
-    const select = screen.getByTestId('export-mode-select');
-    fireEvent.change(select, { target: { value: 'historical' } });
-
-    // Click export
+    render(<LimitExportButton limits={mockLimits} trends={trends} />);
+    fireEvent.change(screen.getByTestId('export-mode-select'), {
+      target: { value: 'historical' },
+    });
     fireEvent.click(screen.getByTestId('limit-export-btn'));
 
-    expect(mockClick).toHaveBeenCalledOnce();
-    expect(capturedDownload).toMatch(/^sandforge-limits-history-\d{4}-\d{2}-\d{2}\.csv$/);
-
-    vi.restoreAllMocks();
+    const sent = postedMessages().filter((m) => m.type === 'file:save');
+    expect(sent).toHaveLength(1);
+    expect((sent[0].payload as { suggestedName: string }).suggestedName).toMatch(
+      /^sandforge-limits-history-\d{4}-\d{2}-\d{2}\.csv$/,
+    );
   });
 
   it('shows warning notification when historical export has no data rows', () => {

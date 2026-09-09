@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { m } from 'framer-motion';
 import {
@@ -59,6 +60,7 @@ export interface ForgeResultsProps {
  * saving templates, copying reports, or starting a new forge.
  */
 export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
+  const { save } = useFileSave();
   const { t } = useTranslation();
   const result = useForgeStore((s) => s.result);
   const graph = useForgeStore((s) => s.graph);
@@ -482,6 +484,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
           </button>
           {showLogs && (
             <LogStream
+              onExport={save}
               entries={logs as unknown as LogEntry[]}
               className="max-h-64"
               autoScroll={false}

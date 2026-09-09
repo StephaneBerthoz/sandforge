@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
+import { useFileSave } from '../../hooks/useFileSave';
 import { useTranslation } from 'react-i18next';
 import { Download } from 'lucide-react';
 import { cn } from '../../theme';
@@ -96,7 +97,15 @@ function filterJobs(jobs: JobDisplayInfo[], filter: JobFilter): JobDisplayInfo[]
  * re-renders the accordion.
  */
 /** Export jobs to CSV and trigger download via data URI. */
-function exportJobsCsv(jobs: JobDisplayInfo[], filename: string): void {
+/**
+ * The CSV for `jobs`.
+ *
+ * It used to save the file itself, from module scope, with a detached anchor —
+ * which a sandboxed webview frequently could not honour. Building the text and
+ * letting the caller hand it to the host keeps this a pure function and puts
+ * the save where the outcome can be reported.
+ */
+function buildJobsCsv(jobs: JobDisplayInfo[]): string {
   const headers = [
     'ID',
     'Status',
@@ -122,16 +131,11 @@ function exportJobsCsv(jobs: JobDisplayInfo[], filename: string): void {
   const csv = [headers, ...rows]
     .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(','))
     .join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+  return csv;
 }
 
 export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className }) => {
+  const { save } = useFileSave();
   const { t } = useTranslation();
   const [filter, setFilter] = useState<JobFilter>('all');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -143,7 +147,7 @@ export const JobsTable: React.FC<JobsTableProps> = React.memo(({ jobs, className
 
   const handleExportCsv = useCallback(() => {
     const date = new Date().toISOString().slice(0, 10);
-    exportJobsCsv(filteredJobs, `sandforge-jobs-${date}.csv`);
+    save(`sandforge-jobs-${date}.csv`, buildJobsCsv(filteredJobs), ['csv']);
   }, [filteredJobs]);
 
   const toggleGroup = (className: string): void => {

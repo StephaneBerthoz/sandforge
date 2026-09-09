@@ -57,3 +57,11 @@ overrides:
   '@vscode/vsce>minimatch': '3.1.2'
   'rollup@>=4.0.0 <4.59.0': '>=4.59.0'
   'flatted@<3.4.2': '>=3.4.2'
+  # Critical, and it SHIPS: jsforce -> faye -> faye-websocket pulls this in,
+  # and esbuild bundles the whole stack into dist/jsforceEntry.js (29 hits on
+  # `Sec-WebSocket`, 3 on `/meta/handshake`). Every other advisory in the tree
+  # is dev-only; this one reaches users.
+  'websocket-driver@<0.7.5': '>=0.7.5'
+  # Also shipped, via jsforce's HTTP layer. Patch bump, no API change.
+  'form-data@>=4.0.0 <4.0.6': '>=4.0.6'
+  'csv-parse@<7.0.2': '>=7.0.2'

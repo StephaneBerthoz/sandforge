@@ -39,7 +39,7 @@
   "config.sync.defaultBatchSize.description": "Sync データ操作の既定のバッチサイズ",
   "config.sync.maxConcurrentOps.description": "同時同期操作の最大数",
   "config.ai.enabled.description": "AI アシスタントを有効にする（シークレットに API キーが必要）",
-  "config.ai.provider.description": "アシスタントの AI プロバイダー（anthropic、openai、custom）",
+  "config.ai.provider.description": "AI プロバイダー。実装済みは `anthropic` のみです。`openai` と `custom` は宣言されていますが、呼び出すと「未実装」が発生します。",
   "config.ai.model.description": "アシスタントに使用する AI モデル",
   "config.ai.tokenBudgetMaxPerSession.description": "Assistant パネルのセッションごとの AI トークン予算の上限。パネルを閉じるとカウンターはリセットされます。SandForge は 80% で警告し、100% で以降のリクエストを拒否します。",
   "config.backup.maxCount.description": "Org ごとに保持するバックアップの最大数",

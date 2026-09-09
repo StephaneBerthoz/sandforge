@@ -22,6 +22,7 @@
     "retry": "Tentar novamente",
     "copy": "Copiar",
     "export": "Exportar",
+    "exportSaved": "Salvo em {{path}}",
     "dismiss": "Dispensar",
     "toggleSidebar": "Alternar barra lateral",
     "breadcrumb": "Trilha de navegacao",
@@ -255,8 +256,6 @@
     },
     "export": {
       "button": "Exportar CSV",
-      "success": "Limites exportados",
-      "successDetail": "Arquivo CSV baixado com sucesso",
       "noHistory": "Nenhum dado histórico",
       "noHistoryDetail": "Nenhum carimbo de data/hora de tendência disponível para a exportação histórica",
       "buttonHistorical": "Exportar histórico",
@@ -2071,6 +2070,17 @@
       "planLoading": "Gerando o plano de execução...",
       "wave": "Onda",
       "cycles": "Resoluções de ciclos"
+    },
+    "history": {
+      "title": "Execuções recentes",
+      "reuse": "Reutilizar a configuração",
+      "reuseHint": "Preenche o formulário com os ajustes desta execução. As orgs não são restauradas — escolha-as e inicie a descoberta.",
+      "noConfig": "Registrada antes de as configurações serem guardadas — não há nada a preencher.",
+      "loadError": "Não foi possível carregar o histórico de execuções.",
+      "reused": "Formulário preenchido a partir da execução de {{date}}.",
+      "statusSuccess": "Bem-sucedida",
+      "statusPartial": "Parcial",
+      "statusFailure": "Falhou"
     }
   },
   "autopilot": {

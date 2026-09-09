@@ -82,6 +82,10 @@ Safety is on by default: Production Guard requires double confirmation before an
 
 ![Home — orgs, health and the forge entry point](assets/screenshots/home.png)
 
+![Seed — the template gallery and object picker that fill an empty dev org](assets/screenshots/seed.png)
+
+![Sync — source and target orgs, direction, conflict strategy and a filtered object set](assets/screenshots/sync.png)
+
 ![Monitor — health score, governor limits and storage breakdown](assets/screenshots/monitor.png)
 
 ![DataOps — backup history with per-object results](assets/screenshots/dataops.png)

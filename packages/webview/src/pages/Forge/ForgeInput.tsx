@@ -18,6 +18,7 @@ import type { ForgeInputMode } from '../../stores/useForgeStore';
 import { useForgeForm } from './useForgeForm';
 import { useForgeTemplates } from './useForgeTemplates';
 import { ForgeTemplatePanel } from './ForgeTemplatePanel';
+import { ForgeHistoryPanel } from './ForgeHistoryPanel';
 import { ForgeLivePreviewPanel } from './ForgeLivePreviewPanel';
 import { ForgeOrgCard } from './ForgeOrgCard';
 import { ForgeDepthChips } from './ForgeDepthChips';
@@ -418,6 +419,13 @@ export const ForgeInput: React.FC = () => {
               )}
             </button>
           )}
+
+          {/* Past runs — refill the form from a run the extension kept */}
+          <ForgeHistoryPanel
+            entries={form.runHistory}
+            error={form.historyError}
+            onReuseConfig={form.applyHistoryConfig}
+          />
         </div>
 
         {/* ---- RIGHT: Live Preview panel ---- */}

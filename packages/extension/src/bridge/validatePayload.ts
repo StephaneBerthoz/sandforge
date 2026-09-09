@@ -104,6 +104,29 @@ export const syncConfigPayloadSchema = syncConfigSchema
   })
   .passthrough();
 
+/**
+ * `file:save` — an export the user asked for.
+ *
+ * `content` is bounded because it crosses the bridge as a string: a runaway
+ * export should be refused at the boundary rather than serialised twice and
+ * handed to a dialog. 32 MB is far above any CSV this product produces and far
+ * below anything that would trouble the host.
+ */
+export const fileSavePayloadSchema = z.object({
+  suggestedName: z
+    .string()
+    .min(1)
+    .max(255)
+    // The dialog pre-fills this; a path separator in it would silently move
+    // where the dialog opens.
+    .refine((n) => !n.includes('/') && !n.includes('\\'), 'suggestedName must not contain a path'),
+  content: z.string().max(32 * 1024 * 1024),
+  extensions: z
+    .array(z.string().regex(/^[A-Za-z0-9]+$/))
+    .max(8)
+    .optional(),
+});
+
 export const syncExecutePayloadSchema = z.object({ config: syncConfigPayloadSchema });
 export const syncConfigSavePayloadSchema = z.object({ config: syncConfigPayloadSchema });
 export const syncConfigIdPayloadSchema = z.object({ id: opaqueIdSchema });

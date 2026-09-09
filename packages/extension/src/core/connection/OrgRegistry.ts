@@ -12,6 +12,26 @@ const CRED_KEY_PREFIX = 'org-cred.';
 const ORG_CATEGORY = 'orgs';
 
 /**
+ * Deadline for a single SecretStorage read, in ms.
+ *
+ * Startup validation (`validateOrgsOnStartup`) walks every registered org
+ * SEQUENTIALLY, and each org's check begins with this read — it is the first
+ * `await` in `getJsforceConnection`. VS Code backs SecretStorage with the OS
+ * keyring (libsecret/gnome-keyring on Linux, and the same path over Remote-SSH
+ * or in a container), which does not always answer: with no keyring daemon
+ * running, or a keyring whose unlock dialog nothing can display, the promise
+ * simply never settles. Unbounded, that single read ends the sweep on org 1 —
+ * orgs 2..n are never validated for the rest of the session and their status
+ * stays whatever it was when the window opened.
+ *
+ * 10 s is deliberately generous: a locked keyring that DOES show an unlock
+ * prompt must have time to be answered, and a read that is merely slow must
+ * still return its token rather than be cut off. It bounds a hang, it does not
+ * try to be a latency budget.
+ */
+const VAULT_READ_TIMEOUT_MS = 10_000;
+
+/**
  * Persistence layer for orgs.
  * Metadata is stored in ConfigStore, credentials in SecretVault.
  * On startup, loadAll() populates OrgManager from ConfigStore.
@@ -90,9 +110,41 @@ export class OrgRegistry {
     this.orgManager.removeOrg(orgId);
   }
 
-  /** Retrieve stored credentials for an org. */
+  /**
+   * Retrieve stored credentials for an org.
+   *
+   * Bounded by {@link VAULT_READ_TIMEOUT_MS}: an unreachable keyring must fail
+   * the org, not the activation. It REJECTS on the deadline instead of
+   * resolving `undefined`, because `undefined` reads as "no credentials
+   * stored" — the caller would tell the user to reconnect an org whose token
+   * is perfectly fine, and the startup sweep would mark it `expired` instead
+   * of `error`.
+   */
   async getCredentials(orgId: string): Promise<ConnectionConfig | undefined> {
-    return this.secretVault.getObject<ConnectionConfig>(`${CRED_KEY_PREFIX}${orgId}`);
+    const pending = this.secretVault.getObject<ConnectionConfig>(`${CRED_KEY_PREFIX}${orgId}`);
+    // Once the deadline wins the race nothing is listening to `pending` any
+    // more; a late rejection would land as an unhandled rejection in the host.
+    void pending.catch(() => undefined);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        pending,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(
+              new Error(
+                `Secret storage did not answer within ${VAULT_READ_TIMEOUT_MS} ms for org "${orgId}" — the OS keyring may be locked or unavailable.`,
+              ),
+            );
+          }, VAULT_READ_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      // Always clear it: a 10 s timer left armed on every credential read
+      // would keep the host's event loop busy for nothing.
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   /** Update only the metadata (no credential change). */
