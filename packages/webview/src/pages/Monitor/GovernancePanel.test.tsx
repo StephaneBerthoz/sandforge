@@ -192,6 +192,33 @@ describe('GovernancePanel', () => {
     expect(screen.getByTestId('rule-result-r2')).toBeTruthy();
   });
 
+  it('lists failing rules before warnings and passes', () => {
+    const results = [
+      makeRuleResult({ ruleId: 'r-pass', status: 'pass' }),
+      makeRuleResult({ ruleId: 'r-warn', status: 'warning' }),
+      makeRuleResult({ ruleId: 'r-fail', status: 'fail' }),
+    ];
+    render(<GovernancePanel ruleResults={results} />);
+
+    const order = Array.from(screen.getByTestId('rule-results').children).map((el) =>
+      el.getAttribute('data-testid'),
+    );
+    expect(order).toEqual(['rule-result-r-fail', 'rule-result-r-warn', 'rule-result-r-pass']);
+  });
+
+  it('keeps policy order between rules of the same status', () => {
+    const results = [
+      makeRuleResult({ ruleId: 'r-fail-1', status: 'fail' }),
+      makeRuleResult({ ruleId: 'r-fail-2', status: 'fail' }),
+    ];
+    render(<GovernancePanel ruleResults={results} />);
+
+    const order = Array.from(screen.getByTestId('rule-results').children).map((el) =>
+      el.getAttribute('data-testid'),
+    );
+    expect(order).toEqual(['rule-result-r-fail-1', 'rule-result-r-fail-2']);
+  });
+
   it('renders remediations checklist', () => {
     const remediations = ['Enable MFA', 'Reduce API calls'];
     render(<GovernancePanel remediations={remediations} />);

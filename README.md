@@ -2,7 +2,7 @@
 
 <!-- badges:start -->
 
-![Version](https://img.shields.io/badge/version-1.19.0-blue)
+![Version](https://img.shields.io/badge/version-1.20.0-blue)
 [![CI](https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -54,7 +54,7 @@ SandForge ships 14 modules in a single extension:
 | **Migration**      | Import existing SFDMU `export.json` or CSV configurations into Sync configs                                                                                                                              |
 | **Autopilot**      | Zero-config sandbox seeding through a guided wizard, with GDPR, CCPA, HIPAA and PCI-DSS anonymization rule sets                                                                                          |
 | **Organizations**  | Org registry with SF CLI import and tier-based safety coloring                                                                                                                                           |
-| **Reports**        | Execution reports, operational analytics, audit trail, and data lineage _(coming soon — the views ship, the data feed does not)_                                                                         |
+| **Reports**        | Execution reports and success-rate analytics, built from your Forge and Sync run history _(audit trail and data lineage coming soon)_                                                                    |
 
 Safety is on by default: Production Guard requires double confirmation before any write on a Production org, blocks DELETE there, and keeps an audit trail of operations.
 

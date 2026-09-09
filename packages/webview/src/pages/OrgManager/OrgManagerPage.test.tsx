@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import '../../i18n';
 import { OrgSafetyTier } from '@sandforge/shared';
 import type { SalesforceOrg } from '@sandforge/shared';
@@ -75,6 +75,17 @@ const mockOrg: SalesforceOrg = {
   lastConnected: '2024-01-01T00:00:00Z',
   tags: [],
 };
+
+/** Build `count` distinct orgs — enough to cross the search threshold. */
+const makeOrgs = (count: number): SalesforceOrg[] =>
+  Array.from({ length: count }, (_, i) => ({
+    ...mockOrg,
+    id: `org-${String(i + 1)}`,
+    alias: `org-${String(i + 1)}`,
+    username: `user${String(i + 1)}@example.com`,
+    instanceUrl: `https://org${String(i + 1)}.my.salesforce.com`,
+    tags: [`team-${String(i + 1)}`],
+  }));
 
 // jsdom doesn't implement dialog.showModal/close natively
 beforeEach(() => {
@@ -281,6 +292,84 @@ describe('OrgManagerPage', () => {
 
     expect(screen.queryByTestId('org-inline-form')).toBeNull();
     expect(screen.queryByTestId('org-connect-error')).toBeNull();
+  });
+
+  it('should show a loading indicator instead of a blank panel while the org list is fetched', () => {
+    mockQueryState = { ...mockQueryState, loading: true };
+    render(<OrgManagerPage />);
+    expect(screen.getByTestId('org-list-loading')).toBeDefined();
+    expect(screen.queryByTestId('empty-state')).toBeNull();
+  });
+
+  it('should show a loading indicator while the CLI import runs on an empty list', () => {
+    const { rerender } = render(<OrgManagerPage />);
+    expect(screen.getByTestId('empty-state')).toBeDefined();
+
+    mockConnectState = { ...mockConnectState, loading: true };
+    rerender(<OrgManagerPage />);
+
+    expect(screen.getByTestId('org-list-loading')).toBeDefined();
+    expect(screen.queryByTestId('empty-state')).toBeNull();
+  });
+
+  it('should import from the CLI straight from the empty state', () => {
+    render(<OrgManagerPage />);
+    fireEvent.click(screen.getByTestId('empty-action-button'));
+    expect(mockConnectMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ authMethod: 'sfdx_import' }),
+    );
+  });
+
+  it('should not offer a search box for a list that already fits', () => {
+    useOrgStore.setState({ orgs: makeOrgs(5) });
+    render(<OrgManagerPage />);
+    expect(screen.queryByTestId('org-search-input')).toBeNull();
+  });
+
+  it('should filter a long org list on alias, username, instance and tags', () => {
+    useOrgStore.setState({ orgs: makeOrgs(8) });
+    render(<OrgManagerPage />);
+
+    const box = screen.getByTestId('org-search-input');
+    fireEvent.change(box, { target: { value: 'org-3' } });
+    expect(screen.getByTestId('org-card-org-3')).toBeDefined();
+    expect(screen.queryByTestId('org-card-org-4')).toBeNull();
+
+    // Username match
+    fireEvent.change(box, { target: { value: 'user5@' } });
+    expect(screen.getByTestId('org-card-org-5')).toBeDefined();
+    expect(screen.queryByTestId('org-card-org-1')).toBeNull();
+
+    // Tag match, case-insensitive
+    fireEvent.change(box, { target: { value: 'TEAM-6' } });
+    expect(screen.getByTestId('org-card-org-6')).toBeDefined();
+    expect(screen.queryByTestId('org-card-org-2')).toBeNull();
+  });
+
+  it('should say so when the filter matches no org, rather than showing a bare gap', () => {
+    useOrgStore.setState({ orgs: makeOrgs(8) });
+    render(<OrgManagerPage />);
+    fireEvent.change(screen.getByTestId('org-search-input'), { target: { value: 'zzzz' } });
+    expect(screen.getByTestId('org-search-empty')).toBeDefined();
+    expect(screen.queryByTestId('org-card-org-1')).toBeNull();
+    // The box stays available so the query can be corrected.
+    expect(screen.getByTestId('org-search-input')).toBeDefined();
+  });
+
+  it('should stop filtering when the list shrinks below the search threshold', () => {
+    useOrgStore.setState({ orgs: makeOrgs(8) });
+    const { rerender } = render(<OrgManagerPage />);
+    fireEvent.change(screen.getByTestId('org-search-input'), { target: { value: 'org-7' } });
+    expect(screen.queryByTestId('org-card-org-1')).toBeNull();
+
+    // The user disconnects orgs until the search box disappears — the stale
+    // query must not keep hiding the cards it can no longer be edited against.
+    act(() => {
+      useOrgStore.setState({ orgs: makeOrgs(3) });
+    });
+    rerender(<OrgManagerPage />);
+    expect(screen.queryByTestId('org-search-input')).toBeNull();
+    expect(screen.getByTestId('org-card-org-1')).toBeDefined();
   });
 
   it('should populate store when query data arrives', () => {

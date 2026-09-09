@@ -295,6 +295,44 @@ describe('ForgeDiscovery', () => {
     expect(mockSendMessage).toHaveBeenCalled();
   });
 
+  // A failed re-discovery must not hide behind the graph it failed to replace
+  it('should surface a discovery error while an earlier graph is still on screen', async () => {
+    mockConfig = {
+      inputMode: 'record',
+      depth: 'direct',
+      sourceOrgId: 'src',
+      targetOrgId: 'tgt',
+      anonymizePII: false,
+      skipEmpty: false,
+      batchSize: 'auto',
+    };
+    // mockGraph stays set: this is the second discovery of the session.
+    render(<ForgeDiscovery />);
+    expect(screen.queryByTestId('forge-discovery-error')).toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            id: 'test-stale',
+            type: 'forge:discover:error',
+            timestamp: Date.now(),
+            payload: { message: 'INVALID_SESSION_ID: session expired' },
+          },
+        }),
+      );
+    });
+
+    const banner = await screen.findByTestId('forge-discovery-error');
+    expect(banner.textContent).toContain('INVALID_SESSION_ID');
+    // The previous graph stays readable rather than being blanked out.
+    expect(screen.getByTestId('live-graph')).toBeDefined();
+
+    fireEvent.click(screen.getByTestId('forge-discovery-error-retry'));
+    expect(mockSendMessage).toHaveBeenCalledTimes(1);
+    expect(mockSendMessage.mock.calls[0][0].type).toBe('forge:discover');
+  });
+
   // UX-11: View mode toggle
   it('should toggle between graph and table view', () => {
     render(<ForgeDiscovery />);

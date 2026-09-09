@@ -83,8 +83,8 @@ export const ForgeInput: React.FC = () => {
     form.inputMode === 'record' &&
     form.recordId.trim().length > 0 &&
     extractRecordId(form.recordId) === null;
-  /** The CTA gate: everything `canDiscover` asks, plus a record id that parses. */
-  const canDiscoverNow = form.canDiscover && !recordIdInvalid;
+  /** The record tab's gate: everything `canDiscover` asks, plus a readable id. */
+  const canSubmitRecord = form.canDiscover && !recordIdInvalid;
 
   return (
     <div className="flex flex-col gap-4" data-testid="forge-input">
@@ -175,7 +175,7 @@ export const ForgeInput: React.FC = () => {
                          had no shortcut, so the flagship path forced a trip to
                          the mouse. Enter (bare or with Ctrl/Cmd) submits. */
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && canDiscoverNow) {
+                        if (e.key === 'Enter' && canSubmitRecord) {
                           e.preventDefault();
                           form.handleDiscover();
                         }
@@ -387,7 +387,7 @@ export const ForgeInput: React.FC = () => {
           <button
             type="button"
             data-testid="forge-discover-btn"
-            disabled={!canDiscoverNow}
+            disabled={!canSubmitRecord}
             onClick={form.handleDiscover}
             className={cn(
               'w-full py-3 rounded-lg text-white font-bold text-sm tracking-wide',

@@ -422,7 +422,6 @@ const UNREFERENCED_BASELINE: readonly string[] = [
   'common.createdBy',
   'common.filter',
   'common.refresh',
-  'common.search',
   'common.success',
   'common.toggleSidebar',
   'common.versionLabel',

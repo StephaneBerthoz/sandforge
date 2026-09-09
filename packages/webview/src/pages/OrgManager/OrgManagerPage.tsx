@@ -28,6 +28,12 @@ interface OrgStatusPayload {
   status: string;
 }
 
+/**
+ * Above this many orgs the list gets a filter box. Below it every card is
+ * on screen at once and a search field would only add noise.
+ */
+const SEARCH_THRESHOLD = 5;
+
 /** Auth method card definition. */
 interface AuthMethodCard {
   method: AuthMethod;
@@ -97,6 +103,7 @@ export const OrgManagerPage: React.FC = () => {
   const removeOrg = useOrgStore((s) => s.removeOrg);
 
   const [activeMethod, setActiveMethod] = useState<AuthMethod | null>(null);
+  const [search, setSearch] = useState('');
   const [editingOrg, setEditingOrg] = useState<SalesforceOrg | null>(null);
   const [orgPendingDisconnect, setOrgPendingDisconnect] = useState<SalesforceOrg | null>(null);
 
@@ -254,6 +261,25 @@ export const OrgManagerPage: React.FC = () => {
     removeOrg(orgPendingDisconnect.id);
     setOrgPendingDisconnect(null);
   }, [orgPendingDisconnect, disconnectMutate, removeOrg]);
+
+  // Filtering only appears once the list stops fitting on screen. The query is
+  // ignored while the field is hidden, so disconnecting down to a short list
+  // can never leave cards filtered out by a box the user can no longer see.
+  const showSearch = orgs.length > SEARCH_THRESHOLD;
+  const searchTerm = showSearch ? search.trim().toLowerCase() : '';
+  const visibleOrgs = searchTerm
+    ? orgs.filter((o) =>
+        [o.alias, o.username, o.instanceUrl, o.orgType, o.tags.join(' ')].some((field) =>
+          field.toLowerCase().includes(searchTerm),
+        ),
+      )
+    : orgs;
+
+  // Fetching the registry, or importing from the CLI, used to paint nothing at
+  // all: `orgs` is still empty, so the grid rendered zero cards and the empty
+  // state was suppressed. A first-time user saw a blank panel and no way to
+  // tell the import from a dead extension.
+  const isLoadingOrgs = (orgListQuery.loading || isConnecting) && orgs.length === 0;
 
   return (
     <div className="flex flex-col gap-4" data-testid="org-manager-page">
@@ -432,20 +458,59 @@ export const OrgManagerPage: React.FC = () => {
         </div>
       )}
 
-      {orgs.length === 0 && !orgListQuery.loading ? (
-        <EmptyState title={t('org.noOrgs')} description={t('org.bannerEmpty')} />
+      {isLoadingOrgs ? (
+        <div
+          className="flex items-center justify-center gap-2 py-12 text-xs text-text-secondary"
+          role="status"
+          aria-live="polite"
+          data-testid="org-list-loading"
+        >
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+          <span>{t('common.loading')}</span>
+        </div>
+      ) : orgs.length === 0 ? (
+        // The empty state repeated the instruction "import from Salesforce CLI"
+        // without offering it: the button lived in the banner, one of five.
+        <EmptyState
+          title={t('org.noOrgs')}
+          description={t('org.bannerEmpty')}
+          actionLabel={t('auth.sfdxImport')}
+          onAction={() => handleConnect({ alias: '', authMethod: 'sfdx_import', loginUrl: '' })}
+        />
       ) : (
-        <div className="grid gap-3">
-          {orgs.map((org) => (
-            <OrgCard
-              key={org.id}
-              org={org}
-              selected={org.id === selectedOrgId}
-              onSelect={selectOrg}
-              onEdit={handleEdit}
-              onDisconnect={handleDisconnect}
+        <div className="flex flex-col gap-3">
+          {showSearch && (
+            <Input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('common.search')}
+              aria-label={t('common.search')}
+              data-testid="org-search-input"
             />
-          ))}
+          )}
+
+          {visibleOrgs.length === 0 ? (
+            <p
+              className="py-8 text-center text-xs text-text-secondary"
+              data-testid="org-search-empty"
+            >
+              {t('common.noData')}
+            </p>
+          ) : (
+            <div className="grid gap-3">
+              {visibleOrgs.map((org) => (
+                <OrgCard
+                  key={org.id}
+                  org={org}
+                  selected={org.id === selectedOrgId}
+                  onSelect={selectOrg}
+                  onEdit={handleEdit}
+                  onDisconnect={handleDisconnect}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

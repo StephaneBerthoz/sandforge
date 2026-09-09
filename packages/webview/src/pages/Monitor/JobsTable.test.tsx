@@ -51,9 +51,9 @@ describe('JobsTable', () => {
       createJob({ jobType: 'BatchApex', status: 'Failed' }),
     ];
     render(<JobsTable jobs={jobs} />);
-    expect(screen.getByText(/2/)).toBeDefined(); // 2 runs
-    expect(screen.getByText(/50%/)).toBeDefined(); // 50% success
-    expect(screen.getByText(/1/)).toBeDefined(); // 1 failed
+    expect(screen.getByText('2 runs')).toBeDefined();
+    expect(screen.getByText('50% success')).toBeDefined();
+    expect(screen.getByText('1 failed')).toBeDefined();
   });
 
   it('should expand/collapse groups on click', () => {
@@ -144,6 +144,49 @@ describe('JobsTable', () => {
       createJob({ status: 'Completed' }),
     ];
     render(<JobsTable jobs={jobs} />);
-    expect(screen.getByText(/2/)).toBeDefined();
+    expect(screen.getByText('2 active')).toBeDefined();
+  });
+
+  it('should show how many jobs each filter keeps', () => {
+    const jobs = [
+      createJob({ status: 'Failed' }),
+      createJob({ status: 'Failed' }),
+      createJob({ status: 'Processing' }),
+      createJob({ status: 'Completed' }),
+      createJob({ status: 'Completed' }),
+      createJob({ status: 'Completed' }),
+    ];
+    render(<JobsTable jobs={jobs} />);
+
+    expect(screen.getByTestId('filter-count-all').textContent).toBe('6');
+    expect(screen.getByTestId('filter-count-running').textContent).toBe('1');
+    expect(screen.getByTestId('filter-count-failed').textContent).toBe('2');
+    expect(screen.getByTestId('filter-count-completed').textContent).toBe('3');
+  });
+
+  it('should keep the filter counts on the full job list, not on the filtered one', () => {
+    const jobs = [createJob({ status: 'Failed' }), createJob({ status: 'Completed' })];
+    render(<JobsTable jobs={jobs} />);
+
+    fireEvent.click(screen.getByTestId('filter-running'));
+
+    // The list is empty under this filter; the counters must still say why.
+    expect(screen.getByTestId('filter-count-running').textContent).toBe('0');
+    expect(screen.getByTestId('filter-count-failed').textContent).toBe('1');
+    expect(screen.getByTestId('filter-count-all').textContent).toBe('2');
+  });
+
+  it('should list groups carrying failures before healthy ones', () => {
+    const jobs = [
+      createJob({ id: 'a1', jobType: 'AlphaBatch', status: 'Completed' }),
+      createJob({ id: 'a2', jobType: 'AlphaBatch', status: 'Completed' }),
+      createJob({ id: 'z1', jobType: 'ZuluBatch', status: 'Failed' }),
+    ];
+    render(<JobsTable jobs={jobs} />);
+
+    const order = Array.from(screen.getByTestId('job-groups').children).map((el) =>
+      el.getAttribute('data-testid'),
+    );
+    expect(order).toEqual(['job-group-ZuluBatch', 'job-group-AlphaBatch']);
   });
 });

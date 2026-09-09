@@ -95,8 +95,15 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
   const hasAudit = auditEntries !== undefined;
   const hasLineage = lineageData !== undefined;
 
-  /** Every KPI tile needs its own source — a partial row is the same lie in miniature. */
-  const hasMetrics = hasReports && analyticsSummary !== undefined && hasAudit;
+  /**
+   * Every KPI tile needs its OWN source — a tile with no source behind it is
+   * the same lie in miniature as the row of four this module used to print.
+   *
+   * Gated per tile rather than all-or-nothing: the audit trail has no store
+   * behind it, and tying the three figures that do have one to the one that
+   * does not would hide real measurements to avoid an invented one.
+   */
+  const hasMetrics = hasReports || analyticsSummary !== undefined || hasAudit;
 
   return (
     <m.div
@@ -117,38 +124,46 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({
           data-testid="reports-kpi-row"
         >
           <BentoGrid columns={4} gap="md">
-            <m.div variants={slideUp}>
-              <KPICard
-                icon="file"
-                label={t('reports.totalReports')}
-                value={reportCount}
-                variant="default"
-              />
-            </m.div>
-            <m.div variants={slideUp}>
-              <KPICard
-                icon="pulse"
-                label={t('reports.totalOperations')}
-                value={totalOps.toLocaleString()}
-                variant="default"
-              />
-            </m.div>
-            <m.div variants={slideUp}>
-              <KPICard
-                icon="check"
-                label={t('reports.successRate')}
-                value={`${successRate.toFixed(1)}%`}
-                variant={successRate >= 90 ? 'success' : 'warning'}
-              />
-            </m.div>
-            <m.div variants={slideUp}>
-              <KPICard
-                icon="shield"
-                label={t('reports.auditEntries')}
-                value={auditCount}
-                variant="default"
-              />
-            </m.div>
+            {hasReports && (
+              <m.div variants={slideUp}>
+                <KPICard
+                  icon="file"
+                  label={t('reports.totalReports')}
+                  value={reportCount}
+                  variant="default"
+                />
+              </m.div>
+            )}
+            {analyticsSummary !== undefined && (
+              <m.div variants={slideUp}>
+                <KPICard
+                  icon="pulse"
+                  label={t('reports.totalOperations')}
+                  value={totalOps.toLocaleString()}
+                  variant="default"
+                />
+              </m.div>
+            )}
+            {analyticsSummary !== undefined && (
+              <m.div variants={slideUp}>
+                <KPICard
+                  icon="check"
+                  label={t('reports.successRate')}
+                  value={`${successRate.toFixed(1)}%`}
+                  variant={successRate >= 90 ? 'success' : 'warning'}
+                />
+              </m.div>
+            )}
+            {hasAudit && (
+              <m.div variants={slideUp}>
+                <KPICard
+                  icon="shield"
+                  label={t('reports.auditEntries')}
+                  value={auditCount}
+                  variant="default"
+                />
+              </m.div>
+            )}
           </BentoGrid>
         </m.div>
       )}
