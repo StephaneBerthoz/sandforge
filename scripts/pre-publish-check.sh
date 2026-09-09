@@ -257,7 +257,7 @@ rm -f /tmp/sf-badges.txt
 if node scripts/check-public-links.mjs > /tmp/sf-links.txt 2>&1; then
   echo "PASS: $(tail -1 /tmp/sf-links.txt)"
 else
-  echo "FAIL: README images are unreachable to a Marketplace visitor"
+  echo "FAIL: public URLs are unreachable to a Marketplace visitor"
   grep -E "✗|→" /tmp/sf-links.txt | sed 's/^/       /'
   ERRORS=$((ERRORS + 1))
 fi

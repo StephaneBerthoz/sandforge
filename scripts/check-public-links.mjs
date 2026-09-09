@@ -86,12 +86,34 @@ function manifestUrls() {
   return found;
 }
 
-/** Is this URL reachable without credentials? */
-async function isReachable(url) {
+/** Statuses that say "ask again later", not "this URL is wrong". */
+const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Is this URL reachable without credentials?
+ *
+ * Retries on rate limiting and transient server errors rather than failing the
+ * release on them. raw.githubusercontent.com answers 429 to a burst of
+ * requests, and a release gate that turns a rate limit into "this image is
+ * broken" is the kind of gate this repository has been removing: it fails for
+ * a reason that has nothing to do with what it is checking, and the next
+ * person learns to ignore it.
+ */
+async function isReachable(url, attempt = 0) {
   try {
     const response = await fetch(url, { method: 'GET', redirect: 'follow' });
+    if (RETRYABLE.has(response.status) && attempt < 3) {
+      await wait(1000 * 2 ** attempt);
+      return isReachable(url, attempt + 1);
+    }
     return { ok: response.ok, status: response.status };
   } catch (error) {
+    if (attempt < 3) {
+      await wait(1000 * 2 ** attempt);
+      return isReachable(url, attempt + 1);
+    }
     return { ok: false, status: error instanceof Error ? error.message : 'fetch failed' };
   }
 }
@@ -117,6 +139,7 @@ for (const { file, base } of TARGETS) {
 
       if (url.startsWith('http://') || url.startsWith('https://')) {
         if (LOCAL_ONLY) continue;
+        await wait(120); // 61 URLs at full speed is what earns the 429
         const { ok, status } = await isReachable(url);
         if (!ok) {
           failures.push(
@@ -137,6 +160,7 @@ for (const { file, base } of TARGETS) {
 if (!LOCAL_ONLY) {
   for (const [label, url] of manifestUrls()) {
     checked += 1;
+    await wait(120);
     const { ok, status } = await isReachable(url);
     if (!ok) {
       failures.push(`${MANIFEST} ${label}: ${url} → ${status} (dead link on the listing sidebar)`);
