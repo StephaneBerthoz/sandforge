@@ -79,6 +79,42 @@ async function respondToAll(
 }
 
 /**
+ * Shrink the viewport to the height the panel actually renders, then shoot.
+ *
+ * A fixed 1280x800 spent between 10% and 29% of every image on empty
+ * background, and the Marketplace scales the whole thing down to fit its
+ * carousel — so the padding is paid for twice: once in dead pixels, once in
+ * the legibility of what is left.
+ *
+ * The obvious measurement is wrong. `main.scrollHeight` is clamped to the
+ * element's own `clientHeight` when the element is the scroll container, so it
+ * answers 800 for content that ends at 570. The panel's first child is not a
+ * scroll container and reports its real height.
+ *
+ * Recharts restarts its 1500 ms entry animation on resize, so the second
+ * settle is not belt-and-braces — without it Monitor shoots mid-animation.
+ */
+async function shoot(
+  page: import('@playwright/test').Page,
+  name: string,
+): Promise<void> {
+  const height = await page.evaluate(() => {
+    const panel = document.querySelector('[data-testid="panel-app"]');
+    const content = panel?.firstElementChild as HTMLElement | null | undefined;
+    return content ? Math.ceil(content.getBoundingClientRect().height) : 0;
+  });
+
+  // Never grow past the design viewport, and keep a floor so a panel that
+  // measures oddly still produces a usable image rather than a sliver.
+  if (height > 0 && height < VIEWPORT.height) {
+    await page.setViewportSize({ width: VIEWPORT.width, height: Math.max(height, 360) });
+    await settle(page);
+  }
+
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png` });
+}
+
+/**
  * Let entry animations and layout settle before capturing.
  *
  * Long enough to outlast Recharts' 1500ms default entry animation — a shorter
@@ -210,7 +246,7 @@ test.describe('Marketplace Screenshots', () => {
     await page.waitForSelector('[data-testid="home-page"]');
     await page.waitForSelector('[data-testid="forge-hero-card"]');
     await settle(page);
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/home.png` });
+    await shoot(page, 'home');
   });
 
   test('forge', async ({ page }) => {
@@ -239,11 +275,20 @@ test.describe('Marketplace Screenshots', () => {
         { name: 'Website', value: 'https://acme.com' },
         { name: 'Phone', value: '+1 (555) 123-4567' },
       ],
+      // Without these three the Estimated Graph card renders two numbers and
+      // two dashes — half an empty card, on the flagship module's screenshot.
+      // They must agree with each other: the product derives size from the
+      // record count with `estimatedRecordCount * 0.001` (ForgeHandler.ts:465),
+      // so any pair that does not satisfy it shows the user an arithmetic the
+      // product would never produce.
+      estimatedRecordCount: 500,
+      totalFieldCount: 68,
+      estimatedSize: 0.5,
     });
 
     await page.waitForSelector('[data-testid="forge-record-preview"]');
     await settle(page);
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/forge.png` });
+    await shoot(page, 'forge');
   });
 
   test('monitor', async ({ page }) => {
@@ -256,7 +301,7 @@ test.describe('Marketplace Screenshots', () => {
     await page.waitForSelector('[data-testid="monitor-page"]');
     await page.waitForSelector('[data-testid="storage-donut-chart"]');
     await settle(page);
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/monitor.png` });
+    await shoot(page, 'monitor');
   });
 
   test('dataops', async ({ page }) => {
@@ -274,7 +319,7 @@ test.describe('Marketplace Screenshots', () => {
     );
     await page.waitForSelector('[data-testid="dataops-page"]');
     await settle(page);
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/dataops.png` });
+    await shoot(page, 'dataops');
   });
 
 
