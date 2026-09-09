@@ -29,18 +29,73 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GENERATOR = 'packages/webview/e2e/screenshots.spec.ts';
 const SHOTS_DIR = 'assets/screenshots';
 
-/** SHA of the last commit touching `path`, or null if untracked. */
-function lastCommit(path) {
+/** Every commit touching `path`, newest first. */
+function commitsTouching(path) {
   try {
-    const out = execFileSync('git', ['log', '-1', '--format=%H', '--', path], {
+    const out = execFileSync('git', ['log', '--format=%H', '--', path], {
       cwd: ROOT,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
-    return out === '' ? null : out;
+    return out === '' ? [] : out.split('\n');
   } catch {
-    return null;
+    return [];
   }
+}
+
+/** SHA of the last commit touching `path`, or null if untracked. */
+function lastCommit(path) {
+  return commitsTouching(path)[0] ?? null;
+}
+
+/**
+ * `path` at `rev`, normalised past the changes a formatter is allowed to make.
+ *
+ * Prettier's cosmetic transforms are whitespace, line breaks, trailing commas
+ * and quote style. None of them changes what the generator produces, and all
+ * of them used to make this gate call four correct screenshots stale — which
+ * is the exact failure this release spent its time removing: a gate that fires
+ * for a reason unrelated to what it checks is a gate people stop reading.
+ *
+ * Anything beyond those four is treated as a real change, deliberately: the
+ * cost of a false alarm here is one 12-second regeneration, and the cost of a
+ * miss is a Marketplace listing picturing a product that no longer exists.
+ */
+function contentAt(rev, path) {
+  try {
+    const raw = execFileSync('git', ['show', `${rev}:${path}`], {
+      cwd: ROOT,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return raw
+      .replace(/'/g, '"') // quote style
+      .replace(/,(\s*[)\]}])/g, '$1') // trailing commas
+      .replace(/\s+/g, ''); // whitespace and line breaks
+  } catch {
+    return null; // absent at that revision
+  }
+}
+
+/**
+ * The last commit that changed what the generator DOES, ignoring formatting.
+ *
+ * Whitespace is not a reason to call the screenshots stale, and the naive
+ * version said it was: widening the Prettier scope reflowed one signature onto
+ * a single line and dropped two blank lines, and the gate declared four
+ * correct images out of date. `git diff -w` does not help — a joined line is
+ * still a changed line — so this compares the content with all whitespace
+ * stripped, which is exactly the property that matters here.
+ */
+function lastBehaviouralCommit(path) {
+  const commits = commitsTouching(path);
+  for (const rev of commits) {
+    const now = contentAt(rev, path);
+    const before = contentAt(`${rev}^`, path);
+    // No parent (root commit) or the file appeared here: that is a real change.
+    if (before === null || now !== before) return rev;
+  }
+  return commits[commits.length - 1] ?? null;
 }
 
 /**
@@ -89,7 +144,7 @@ if (!existsSync(join(ROOT, GENERATOR))) {
   failures.push(`${GENERATOR} is gone; this gate is aimed at nothing`);
 }
 
-const generatorCommit = lastCommit(GENERATOR);
+const generatorCommit = lastBehaviouralCommit(GENERATOR);
 
 for (const shot of shots) {
   const abs = join(ROOT, shot);
@@ -107,7 +162,7 @@ for (const shot of shots) {
   if (shotCommit === null) continue; // never committed yet — this run is producing it
   if (generatorCommit !== null && !isAncestor(generatorCommit, shotCommit)) {
     failures.push(
-      `${shot} was last written before ${relative('.', GENERATOR)} last changed ` +
+      `${shot} was last written before ${relative('.', GENERATOR)} last changed behaviour ` +
         `(${generatorCommit.slice(0, 8)} is not reachable from ${shotCommit.slice(0, 8)}) — ` +
         `it was produced by a generator that no longer exists`,
     );
