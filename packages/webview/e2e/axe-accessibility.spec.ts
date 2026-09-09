@@ -216,7 +216,9 @@ test.describe('axe-core WCAG 2.1 AA — Interactive Flows', () => {
     await bridge.respond('ai:conversation:created', {
       conversation: { id: 'axe-conv', title: 'Axe Test', createdAt: Date.now() },
     });
-    await page.getByTestId('conversation-item-axe-conv').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-axe-conv')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     // Scan with conversation active
     const results = await checkAccessibility(page, { disableRules: COMMON_DISABLED_RULES });
@@ -230,7 +232,9 @@ test.describe('axe-core WCAG 2.1 AA — Interactive Flows', () => {
     await bridge.respond('ai:conversation:created', {
       conversation: { id: 'axe-conv-2', title: 'Chat', createdAt: Date.now() },
     });
-    await page.getByTestId('conversation-item-axe-conv-2').waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByTestId('conversation-item-axe-conv-2')
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     // Send message and receive response
     await page.getByTestId('chat-input').fill('Test query');

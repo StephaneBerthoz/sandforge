@@ -9,7 +9,7 @@ The Frozen Reference Dataset module (spec: `PROMPT_FROZEN_DATASET.md`)
 pseudonymizes a business dataset extracted from a UAT sandbox so it can be
 replayed identically into refreshed dev sandboxes. Determinism requires a
 stable key, but that key is also the re-identification vector, so where
-the salt lives *is* the security model.
+the salt lives _is_ the security model.
 
 ## Decision
 

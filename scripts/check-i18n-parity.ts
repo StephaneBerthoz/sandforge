@@ -258,8 +258,19 @@ function isProse(value: string): boolean {
   return value.trim().split(/\s+/).length > 1;
 }
 
-/** Section 4 — non-EN prose byte-identical to the English one. Report only. */
-function reportIdenticalValues(reference: Map<string, string>): void {
+/**
+ * Section 4 — non-EN prose byte-identical to the English one.
+ *
+ * Blocking since v1.19.0. It was report-only, which meant a release could ship
+ * with prose that had never been translated and nothing stopped it: the count
+ * sat at 14 while the product advertised six languages. Now that the list is
+ * empty, blocking costs nothing and keeps it that way — a value that is
+ * genuinely identical in another language ("Type incompatible" in French) goes
+ * in `i18n-identical-allowlist.json` as a decision, not as a silent tolerance.
+ *
+ * @returns The number of offending keys — non-zero fails the run.
+ */
+function reportIdenticalValues(reference: Map<string, string>): number {
   const allowlist = new Set<string>(
     (JSON.parse(readFileSync(IDENTICAL_ALLOWLIST, 'utf8')) as { keys: string[] }).keys,
   );
@@ -277,12 +288,17 @@ function reportIdenticalValues(reference: Map<string, string>): void {
 
   if (perKey.size === 0) {
     console.log('✓ identical-to-English: no untranslated prose outside the allowlist');
-    return;
+    return 0;
   }
-  console.log(`! identical-to-English: ${perKey.size} value(s) still carrying the English copy:`);
+  console.log(`✗ identical-to-English: ${perKey.size} value(s) still carrying the English copy:`);
   for (const key of [...perKey.keys()].sort()) {
     console.log(`    - ${key} [${perKey.get(key)?.join(', ')}]`);
   }
+  console.log(
+    '    Translate them, or add the ones that are legitimately identical to ' +
+      'scripts/i18n-identical-allowlist.json.',
+  );
+  return perKey.size;
 }
 
 /**
@@ -967,7 +983,7 @@ const englishCatalogue = loadLocale(WEBVIEW_LOCALES_DIR, WEBVIEW_REFERENCE);
 const sourceDrift = checkSources(englishCatalogue);
 
 console.log('');
-reportIdenticalValues(englishCatalogue);
+const identicalCount = reportIdenticalValues(englishCatalogue);
 
 console.log('');
 reportFrenchAccents();
@@ -984,7 +1000,8 @@ if (fresh.length === 0) {
   for (const k of fresh) console.log(`    - ${k}`);
 }
 
-const hasDrift = webviewDrift || manifestDrift || sourceDrift || fresh.length > 0;
+const hasDrift =
+  webviewDrift || manifestDrift || sourceDrift || fresh.length > 0 || identicalCount > 0;
 
 if (hasDrift && !reportOnly) {
   console.error('\ni18n parity check FAILED — run with --report for details without failing.');

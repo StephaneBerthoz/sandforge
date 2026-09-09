@@ -1,6 +1,7 @@
 {
   "displayName": "SandForge: Schmieden Sie Ihre Salesforce-Sandboxes",
   "description": "All-in-One-Toolkit für Salesforce-Sandboxes. Daten generieren mit KI-Personas, CSV-Import oder Org-Klonierung — inklusive SFDMU-export.json-Import. Orgs synchronisieren mit Konfliktauflösung. Metadaten vergleichen, Limits überwachen und Pipelines automatisieren, mit Streaming-Ausführung für große Datenmengen.",
+  "capabilities.untrustedWorkspaces.description": "SandForge liest Salesforce-Anmeldedaten und schreibt Datensätze in Ihre Orgs, gesteuert durch die Konfiguration des geöffneten Ordners. Vertrauen Sie dem Ordner, um die Erweiterung zu aktivieren.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",
   "command.openMonitor": "SandForge: Monitor öffnen",
@@ -24,13 +25,13 @@
   "walkthrough.gettingStarted.title": "Erste Schritte mit SandForge",
   "walkthrough.gettingStarted.description": "Verbinden Sie eine Salesforce-Org und füllen Sie Ihre erste Sandbox mit realistischen Daten.",
   "walkthrough.step.connectOrg.title": "Verbinden Sie Ihre erste Org",
-  "walkthrough.step.connectOrg.description": "Importieren Sie in der Salesforce CLI authentifizierte Orgs oder verbinden Sie sich per OAuth.",
+  "walkthrough.step.connectOrg.description": "Importieren Sie in der Salesforce CLI authentifizierte Orgs oder verbinden Sie sich per OAuth.\n[Organisationen öffnen](command:sandforge.openOrgs)",
   "walkthrough.step.forgeClone.title": "Klonen Sie Daten mit Forge",
-  "walkthrough.step.forgeClone.description": "Füllen Sie eine Sandbox ausgehend von einem echten Datensatz und seinem gesamten Beziehungsgraphen.",
+  "walkthrough.step.forgeClone.description": "Füllen Sie eine Sandbox ausgehend von einem echten Datensatz und seinem gesamten Beziehungsgraphen.\n[Forge öffnen](command:sandforge.openForge)",
   "walkthrough.step.monitorLimits.title": "Überwachen Sie Org-Limits",
-  "walkthrough.step.monitorLimits.description": "Verfolgen Sie API-Limits, Jobs, Speicher und Org-Zustand in Echtzeit.",
+  "walkthrough.step.monitorLimits.description": "Verfolgen Sie API-Limits, Jobs, Speicher und Org-Zustand in Echtzeit.\n[Monitor öffnen](command:sandforge.openMonitor)",
   "walkthrough.step.exploreSettings.title": "Optimieren Sie Ihre Einstellungen",
-  "walkthrough.step.exploreSettings.description": "Batchgrößen, Produktions-Schutzmaßnahmen, Audit-Protokollierung und der KI-Assistent.",
+  "walkthrough.step.exploreSettings.description": "Batchgrößen, Produktions-Schutzmaßnahmen, Audit-Protokollierung und der KI-Assistent.\n[Einstellungen öffnen](command:sandforge.openSettings)",
   "config.title": "SandForge",
   "config.telemetry.description": "Anonyme Nutzungstelemetrie aktivieren",
   "config.orgs.validateOnStartup.description": "Registrierte Organisationen beim Start validieren und abgelaufene Sitzungen automatisch über die sf CLI aktualisieren",
@@ -44,5 +45,8 @@
   "config.backup.maxCount.description": "Maximale Anzahl der pro Org aufzubewahrenden Backups",
   "config.pipeline.timeout.description": "Timeout für die Pipeline-Ausführung in Millisekunden",
   "config.safety.requireProdConfirmation.description": "Bestätigungsdialog für Vorgänge in Produktions-Orgs erforderlich",
-  "config.safety.auditLogging.description": "Audit-Protokollierung für alle Datenvorgänge aktivieren"
+  "config.safety.auditLogging.description": "Audit-Protokollierung für alle Datenvorgänge aktivieren",
+  "config.grappe.enabled.description": "Große Seed-, Sync- und Autopilot-Vorgänge im partitionierten Modus (Grappe) ausführen, mit Fortschritt pro Partition in der Grappe-Ansicht.",
+  "config.grappe.autoActivateThreshold.description": "Datensatzanzahl, ab der der Grappe-Modus aktiviert wird (Seed und Autopilot). Wird ignoriert, wenn sandforge.grappe.enabled deaktiviert ist.",
+  "config.grappe.grappeSize.description": "Datensätze pro Grappe-Partition."
 }

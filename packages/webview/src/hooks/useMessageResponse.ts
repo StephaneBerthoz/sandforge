@@ -187,6 +187,42 @@ export function useMessageResponse<T>(
         removeErrorListener = () => window.removeEventListener('message', errorListener);
       }
 
+      // Envelope-level rejection: the broker dropped the message before any
+      // handler saw it, so no `<domain>:error` will ever arrive and the request
+      // would otherwise sit out its full timeout and show the raw timeout
+      // string. Matched on correlationId ONLY — bridge:error is a broadcast,
+      // and any rule that claims it by timing gives every concurrent hook the
+      // wrong verdict.
+      const bridgeErrorListener = (event: MessageEvent): void => {
+        if (event.origin && !event.origin.startsWith('vscode-webview://')) {
+          return;
+        }
+        const eventData = event.data as
+          | (BaseMessage & { payload?: { reason?: unknown } })
+          | undefined;
+        if (!eventData || eventData.type !== 'bridge:error') {
+          return;
+        }
+        if (eventData.correlationId !== messageId) {
+          return;
+        }
+        if (!mountedRef.current || activeRequestId.current !== messageId) {
+          return;
+        }
+
+        clearTimeout(timer);
+        if (feedbackTimerRef.current !== null) {
+          clearTimeout(feedbackTimerRef.current);
+          feedbackTimerRef.current = null;
+        }
+        activeRequestId.current = null;
+
+        setError(`SandForge turned down this ${requestLabel}: '${requestType}' was rejected.`);
+        setLoading(false);
+        setTimedOut(false);
+      };
+      window.addEventListener('message', bridgeErrorListener);
+
       return () => {
         clearTimeout(timer);
         if (feedbackTimerRef.current !== null) {
@@ -194,6 +230,7 @@ export function useMessageResponse<T>(
           feedbackTimerRef.current = null;
         }
         window.removeEventListener('message', listener);
+        window.removeEventListener('message', bridgeErrorListener);
         removeErrorListener?.();
       };
     },

@@ -77,7 +77,16 @@ jobs:
           if [ -f reports/mutation/mutation.json ]; then
             SCORE=$(node -e "const r=require('./reports/mutation/mutation.json');const f=r.systemUnderTest||r;const t=Object.values(f.files||{}).flatMap(x=>x.mutants||[]);const killed=t.filter(m=>m.status==='Killed'||m.status==='Timeout').length;const total=t.filter(m=>m.status!=='NoCoverage').length;console.log(((killed/Math.max(total,1))*100).toFixed(2));")
             echo "Mutation score: ${SCORE}%"
-            echo "MUTATION_SCORE=${SCORE}" >> $GITHUB_ENV
+            # $GITHUB_ENV is write-only here: no later step ever read
+            # MUTATION_SCORE, so the number this job exists to produce was
+            # computed and dropped. The step summary is what a human actually
+            # sees on the run page.
+            {
+              echo "### Mutation score: ${SCORE}%"
+              echo ""
+              echo "Scope: \`packages/shared/src\` only — see the note on the Run Stryker step."
+              echo "Stryker fails the run below \`thresholds.break\` (54)."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Mutation report not found"
             exit 1

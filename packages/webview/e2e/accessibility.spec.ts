@@ -54,7 +54,9 @@ test.describe('Accessibility', () => {
     await page.keyboard.press('Tab');
 
     // Something else should now be focused
-    const newFocused = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+    const newFocused = await page.evaluate(() =>
+      document.activeElement?.getAttribute('aria-label'),
+    );
     expect(newFocused).toBeTruthy();
     expect(newFocused).not.toBe('Home');
   });

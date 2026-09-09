@@ -860,7 +860,7 @@ export class SyncOpsHandler implements DomainHandler {
       // Failure-status result (instead of a rejection) so scheduled executions
       // can persist lastResult='failure' without an unhandled rejection in the
       // BackgroundOperationRegistry's monitored promise.
-      return {
+      const failureResult: SyncExecutionResult = {
         configId: config.id,
         operationId,
         status: 'failure',
@@ -872,6 +872,19 @@ export class SyncOpsHandler implements DomainHandler {
         duration: 0,
         timestamp: new Date().toISOString(),
       };
+
+      // Persist the failed execution too (same contract as the success path
+      // above). A run that threw is precisely the one the user needs in the
+      // history panel — it is what `sync:history:rerun` replays — and logging
+      // only successes left history and re-run dead for every failed run.
+      // A logging failure must never mask the sync's own error.
+      try {
+        this.historyLogger?.logExecution(config, failureResult, triggeredBy);
+      } catch (historyErr: unknown) {
+        this.deps.log(`[WARN] sync history logging failed: ${extractErrorMessage(historyErr)}`);
+      }
+
+      return failureResult;
     } finally {
       progressTracker?.stopTracking(operationId);
       unsubProgress?.();

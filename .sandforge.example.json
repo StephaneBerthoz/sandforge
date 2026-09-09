@@ -196,8 +196,12 @@
       "respectFLS": true,
       "maskSensitiveFields": true,
       "sensitiveFieldPatterns": [
-        "*SSN*", "*Social_Security*", "*Tax_Id*",
-        "*Credit_Card*", "*Password*", "*Secret*"
+        "*SSN*",
+        "*Social_Security*",
+        "*Tax_Id*",
+        "*Credit_Card*",
+        "*Password*",
+        "*Secret*"
       ]
     },
     "dataRetention": {
@@ -266,9 +270,6 @@
     "_description": "Plugin configuration. Plugins are loaded from .sandforge/plugins/",
     "directory": ".sandforge/plugins",
     "autoLoad": true,
-    "enabled": [
-      "sandforge-anonymizer",
-      "sandforge-custom-export"
-    ]
+    "enabled": ["sandforge-anonymizer", "sandforge-custom-export"]
   }
 }

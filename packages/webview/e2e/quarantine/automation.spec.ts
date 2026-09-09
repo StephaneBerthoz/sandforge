@@ -24,17 +24,13 @@ const MOCK_PIPELINES = [
       { id: 'step-2', type: 'transform', label: 'Mask PII', config: {} },
       { id: 'step-3', type: 'upsert', label: 'Upsert to Sandbox', config: {} },
     ],
-    triggers: [
-      { id: 'trig-1', type: 'schedule', enabled: true, cron: '0 2 * * *' },
-    ],
+    triggers: [{ id: 'trig-1', type: 'schedule', enabled: true, cron: '0 2 * * *' }],
   },
   {
     id: 'pipe-2',
     name: 'Weekly Backup',
     version: 2,
-    steps: [
-      { id: 'step-a', type: 'backup', label: 'Full Backup', config: {} },
-    ],
+    steps: [{ id: 'step-a', type: 'backup', label: 'Full Backup', config: {} }],
     triggers: [],
   },
 ];
@@ -75,9 +71,9 @@ async function resolveOrgListLoading(page: import('@playwright/test').Page): Pro
 
   const correlationId = await page.evaluate(() => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find(
-      (m) => (m as Record<string, unknown>).type === 'org:list',
-    ) as Record<string, unknown> | undefined;
+    const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+      | Record<string, unknown>
+      | undefined;
     return orgListMsg?.id as string | undefined;
   });
 
@@ -95,16 +91,14 @@ async function resolveOrgListLoading(page: import('@playwright/test').Page): Pro
 async function resolvePipelinesQuery(page: import('@playwright/test').Page): Promise<void> {
   await page.waitForTimeout(300);
 
-  const messages = await page.evaluate(() =>
-    (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
+  const messages = await page.evaluate(
+    () => (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
   );
 
-  const pipelinesMsg = messages.find(
-    (m) => {
-      const msg = m as Record<string, unknown>;
-      return typeof msg.type === 'string' && (msg.type as string).includes('pipeline');
-    },
-  ) as Record<string, unknown> | undefined;
+  const pipelinesMsg = messages.find((m) => {
+    const msg = m as Record<string, unknown>;
+    return typeof msg.type === 'string' && (msg.type as string).includes('pipeline');
+  }) as Record<string, unknown> | undefined;
 
   if (pipelinesMsg) {
     await sendExtensionMessage(page, {
@@ -126,9 +120,9 @@ test.describe('Automation page — empty state', () => {
     await page.waitForTimeout(200);
     const correlationId = await page.evaluate(() => {
       const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      const orgListMsg = msgs.find(
-        (m) => (m as Record<string, unknown>).type === 'org:list',
-      ) as Record<string, unknown> | undefined;
+      const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+        | Record<string, unknown>
+        | undefined;
       return orgListMsg?.id as string | undefined;
     });
 
@@ -139,7 +133,10 @@ test.describe('Automation page — empty state', () => {
       payload: { orgs: [] },
     });
 
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Automation', exact: true }).click();
+    await page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Automation', exact: true })
+      .click();
 
     // With no orgs, Automation shows EmptyState — no automation-page testid
     await page.waitForTimeout(500);
@@ -156,7 +153,10 @@ test.describe('Automation page — with org', () => {
     await resolveOrgListLoading(page);
 
     // Navigate to Automation
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Automation', exact: true }).click();
+    await page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Automation', exact: true })
+      .click();
   });
 
   test('navigates to automation page via sidebar', async ({ page }) => {
@@ -232,7 +232,10 @@ test.describe('Automation page — canvas tab', () => {
     await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Automation', exact: true }).click();
+    await page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Automation', exact: true })
+      .click();
     await expect(page.getByTestId('automation-page')).toBeVisible({ timeout: 5000 });
   });
 
@@ -260,7 +263,10 @@ test.describe('Automation page — marketplace tab', () => {
     await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Automation', exact: true }).click();
+    await page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Automation', exact: true })
+      .click();
     await expect(page.getByTestId('automation-page')).toBeVisible({ timeout: 5000 });
   });
 
@@ -286,15 +292,13 @@ test.describe('Automation page — marketplace tab', () => {
 
       // Respond to the marketplace query
       await page.waitForTimeout(300);
-      const messages = await page.evaluate(() =>
-        (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
+      const messages = await page.evaluate(
+        () => (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
       );
-      const marketplaceMsg = messages.find(
-        (m) => {
-          const msg = m as Record<string, unknown>;
-          return typeof msg.type === 'string' && (msg.type as string).includes('marketplace');
-        },
-      ) as Record<string, unknown> | undefined;
+      const marketplaceMsg = messages.find((m) => {
+        const msg = m as Record<string, unknown>;
+        return typeof msg.type === 'string' && (msg.type as string).includes('marketplace');
+      }) as Record<string, unknown> | undefined;
 
       if (marketplaceMsg) {
         await sendExtensionMessage(page, {
@@ -326,7 +330,10 @@ test.describe('Automation page — tab switching', () => {
     await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Automation', exact: true }).click();
+    await page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Automation', exact: true })
+      .click();
     await expect(page.getByTestId('automation-page')).toBeVisible({ timeout: 5000 });
   });
 

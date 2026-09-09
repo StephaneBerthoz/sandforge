@@ -43,25 +43,25 @@ Lecture seule, chaînée au chargement (ou relancée via **Re-vérifier**) : com
 
 Configuration par projet persistée par l'extension (clés principales) :
 
-| Clé | Rôle |
-|---|---|
-| `rootObject` | Objet racine (« dossier ») |
-| `axes` | Axes de couverture (`name`, `label`, `filterField`, `valuesSoql` agrégat avec alias `axisValue`) |
-| `edgeCases` | Cas limites (`whereFragment`, marqueur en données) |
-| `budgetMaxRecords` | Plafond de volumétrie (défaut 2 500) |
-| `expectedObjects` | Objets exigés dans le graphe pour qu'un dossier soit sain |
-| `excludedFields` | Champs exclus du SELECT par objet |
-| `sasDir` / `datasetDir` / `rulesFilePath` | Chemins (défauts : `~/.sandforge-sas`, `<sas>/dataset`, `<sas>/rules.json`) |
-| `datasetVersion` | Semver du prochain jeu figé |
-| `protectedOrgIds` | Environnements protégés (refusés au chargement) |
-| `identityKeys` | Clés d'identité par objet (réutilisation au rechargement) |
-| `undeletableObjects` | Objet → champ de désactivation (résidus désactivés, pas supprimés) |
-| `requiredLookupPlaceholders` | Placeholders `Object.field` (lookup requis absent du jeu) |
-| `requiredFieldDefaults` | Valeurs par défaut déclarées `Object.field` |
-| `picklistRules` / `defaultPicklistRule` | Retrait ou remplacement déclaré des valeurs refusées |
-| `duplicateErrorPatterns` | Marqueurs d'erreurs anti-doublon natives |
-| `mockDetection` | Custom metadata + champ booléen `IsMocked` |
-| `mandatoryLookups` / `presenceKeys` | Lookups obligatoires et clés de présence pour la vérification |
+| Clé                                       | Rôle                                                                                             |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `rootObject`                              | Objet racine (« dossier »)                                                                       |
+| `axes`                                    | Axes de couverture (`name`, `label`, `filterField`, `valuesSoql` agrégat avec alias `axisValue`) |
+| `edgeCases`                               | Cas limites (`whereFragment`, marqueur en données)                                               |
+| `budgetMaxRecords`                        | Plafond de volumétrie (défaut 2 500)                                                             |
+| `expectedObjects`                         | Objets exigés dans le graphe pour qu'un dossier soit sain                                        |
+| `excludedFields`                          | Champs exclus du SELECT par objet                                                                |
+| `sasDir` / `datasetDir` / `rulesFilePath` | Chemins (défauts : `~/.sandforge-sas`, `<sas>/dataset`, `<sas>/rules.json`)                      |
+| `datasetVersion`                          | Semver du prochain jeu figé                                                                      |
+| `protectedOrgIds`                         | Environnements protégés (refusés au chargement)                                                  |
+| `identityKeys`                            | Clés d'identité par objet (réutilisation au rechargement)                                        |
+| `undeletableObjects`                      | Objet → champ de désactivation (résidus désactivés, pas supprimés)                               |
+| `requiredLookupPlaceholders`              | Placeholders `Object.field` (lookup requis absent du jeu)                                        |
+| `requiredFieldDefaults`                   | Valeurs par défaut déclarées `Object.field`                                                      |
+| `picklistRules` / `defaultPicklistRule`   | Retrait ou remplacement déclaré des valeurs refusées                                             |
+| `duplicateErrorPatterns`                  | Marqueurs d'erreurs anti-doublon natives                                                         |
+| `mockDetection`                           | Custom metadata + champ booléen `IsMocked`                                                       |
+| `mandatoryLookups` / `presenceKeys`       | Lookups obligatoires et clés de présence pour la vérification                                    |
 
 L'onglet **Extraire** édite `rootObject`, le budget, les axes et les cas limites en formulaire ; tout le reste passe par la zone **Configuration avancée** (JSON).
 

@@ -507,6 +507,11 @@ export class SeedOpsHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
+      // Planned record total, known upfront from the template. It feeds the
+      // Production Guard impact summary (the sentence the user reads in the
+      // production confirmation modal) and the Monitor "live operations" panel.
+      const plannedRecords = parsed.template.objects.reduce((sum, o) => sum + o.recordCount, 0);
+
       // Production guard check
       if (this.deps.infraServices?.productionGuard) {
         const guard = this.deps.infraServices.productionGuard;
@@ -516,7 +521,7 @@ export class SeedOpsHandler implements DomainHandler {
           orgTier: orgTypeToGuardTier(org?.orgType ?? ''),
           operation: 'insert' as const,
           objectName: 'SeedData',
-          recordCount: 1,
+          recordCount: plannedRecords,
           module: 'seed',
         };
         const check = guard.check(guardRequest);
@@ -571,9 +576,7 @@ export class SeedOpsHandler implements DomainHandler {
 
       const description = 'Seed data generation';
       sendOperationStarted(this.deps, operationId, 'seed', description);
-      // Feed the Monitor "live operations" panel — the planned record total is
-      // known upfront from the template.
-      const plannedRecords = parsed.template.objects.reduce((sum, o) => sum + o.recordCount, 0);
+      // Feed the Monitor "live operations" panel with the same planned total.
       this.liveTracker?.register(operationId, 'seed', description, plannedRecords);
 
       // Create AbortController for this operation

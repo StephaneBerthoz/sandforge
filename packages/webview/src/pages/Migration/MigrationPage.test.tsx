@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import type { SyncExecutionResult } from '@sandforge/shared';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { MigrationPage } from './MigrationPage';
@@ -44,6 +45,22 @@ let mockUniversalState: MockMutationState = {
 };
 
 const mockRunMutate = vi.fn();
+const mockRunReset = vi.fn();
+
+/** Mutable mutation state for sync:execute (the "run this import" button). */
+let mockRunState: {
+  mutate: ReturnType<typeof vi.fn>;
+  data: SyncExecutionResult | null;
+  loading: boolean;
+  error: string | null;
+  reset: ReturnType<typeof vi.fn>;
+} = {
+  mutate: mockRunMutate,
+  data: null,
+  loading: false,
+  error: null,
+  reset: mockRunReset,
+};
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
@@ -54,11 +71,25 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
       return mockUniversalState;
     }
     if (type === 'sync:execute') {
-      return { mutate: mockRunMutate, data: null, loading: false, error: null, reset: vi.fn() };
+      return mockRunState;
     }
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
   },
 }));
+
+/** A completed run as the orchestrator reports it on sync:execute:response. */
+const runResult: SyncExecutionResult = {
+  configId: 'cfg-1',
+  operationId: 'op-1',
+  status: 'success',
+  objectResults: [],
+  totalProcessed: 120,
+  totalSuccess: 118,
+  totalFailed: 2,
+  totalSkipped: 3,
+  duration: 4200,
+  timestamp: '2024-01-01T00:00:00Z',
+};
 
 /** Converted SyncConfig as returned by the SFDMU importer. */
 const sfdmuConfig: Record<string, unknown> = {
@@ -265,6 +296,14 @@ describe('MigrationPage', () => {
 describe('MigrationPage — running an imported config', () => {
   beforeEach(() => {
     mockRunMutate.mockClear();
+    mockRunReset.mockClear();
+    mockRunState = {
+      mutate: mockRunMutate,
+      data: null,
+      loading: false,
+      error: null,
+      reset: mockRunReset,
+    };
     useOrgStore.setState({
       orgs: [
         { id: 'org-a', alias: 'devA', username: 'a@e.com' },
@@ -307,5 +346,77 @@ describe('MigrationPage — running an imported config', () => {
 
     expect(mockRunMutate).not.toHaveBeenCalled();
     expect(screen.getByTestId('migration-run-hint')).toBeDefined();
+  });
+
+  it('renders nothing about the outcome before the run answers', () => {
+    render(<MigrationPage />);
+    expect(screen.queryByTestId('migration-run-result')).toBeNull();
+    expect(screen.queryByTestId('migration-run-error')).toBeNull();
+  });
+
+  it('reports what the run actually moved once the channel answers', () => {
+    // WV-12: the run moved records for real and rendered nothing back — the
+    // user could not tell whether it had happened, let alone what it did.
+    mockRunState = { ...mockRunState, data: runResult };
+    render(<MigrationPage />);
+
+    const summary = screen.getByTestId('migration-run-result');
+    expect(summary.textContent).toContain('Sync Complete');
+    expect(summary.textContent).toContain('Total Processed');
+    expect(summary.textContent).toContain('120');
+    expect(summary.textContent).toContain('118');
+    expect(summary.textContent).toContain('Total Failed');
+    expect(summary.textContent).toContain('2');
+    expect(summary.textContent).toContain('Total Skipped');
+    expect(summary.textContent).toContain('3');
+  });
+
+  it('labels a partial run as partial rather than complete', () => {
+    mockRunState = {
+      ...mockRunState,
+      data: { ...runResult, status: 'partial', totalSuccess: 60, totalFailed: 60 },
+    };
+    render(<MigrationPage />);
+
+    const summary = screen.getByTestId('migration-run-result');
+    expect(summary.textContent).toContain('Partially Complete');
+    expect(summary.textContent).not.toContain('Sync Complete');
+  });
+
+  it('omits the failure and skipped counters when the run reported none', () => {
+    mockRunState = {
+      ...mockRunState,
+      data: { ...runResult, totalFailed: 0, totalSkipped: 0 },
+    };
+    render(<MigrationPage />);
+
+    const summary = screen.getByTestId('migration-run-result');
+    expect(summary.textContent).not.toContain('Total Failed');
+    expect(summary.textContent).not.toContain('Total Skipped');
+  });
+
+  it('surfaces the failure the sync:error channel settles the run with', () => {
+    mockRunState = { ...mockRunState, error: 'Operation blocked by Production Guard' };
+    render(<MigrationPage />);
+
+    const banner = screen.getByTestId('migration-run-error');
+    expect(banner.textContent).toContain('Operation blocked by Production Guard');
+    expect(screen.queryByTestId('migration-run-result')).toBeNull();
+  });
+
+  it('dismissing the run failure resets the run mutation', () => {
+    mockRunState = { ...mockRunState, error: 'Sync failed: target org unreachable' };
+    render(<MigrationPage />);
+
+    fireEvent.click(screen.getByTestId('migration-run-error').querySelector('button')!);
+    expect(mockRunReset).toHaveBeenCalled();
+  });
+
+  it('does not present the previous outcome while a new run is in flight', () => {
+    mockRunState = { ...mockRunState, data: runResult, loading: true };
+    render(<MigrationPage />);
+
+    expect(screen.queryByTestId('migration-run-result')).toBeNull();
+    expect(screen.getByTestId('migration-run-btn').textContent).toBe('Running…');
   });
 });

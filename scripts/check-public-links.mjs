@@ -122,7 +122,8 @@ const failures = [];
 let checked = 0;
 
 /** Anchors and mailto: are not fetchable; data: URIs carry their own payload. */
-const unfetchable = (url) => url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('data:');
+const unfetchable = (url) =>
+  url.startsWith('#') || url.startsWith('mailto:') || url.startsWith('data:');
 
 for (const { file, base } of TARGETS) {
   const path = join(ROOT, file);

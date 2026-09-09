@@ -2,7 +2,7 @@
   "name": "sandforge",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "publisher": "StephaneBerthoz",
   "author": {
     "name": "Stephane Berthoz"
@@ -17,7 +17,7 @@
   "badges": [
     {
       "href": "https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge",
-      "url": "https://img.shields.io/badge/version-1.18.0-blue",
+      "url": "https://img.shields.io/badge/version-1.19.0-blue",
       "description": "Marketplace version"
     },
     {
@@ -80,7 +80,8 @@
   "capabilities": {
     "virtualWorkspaces": false,
     "untrustedWorkspaces": {
-      "supported": false
+      "supported": false,
+      "description": "%capabilities.untrustedWorkspaces.description%"
     }
   },
   "main": "./dist/extension.js",
@@ -196,6 +197,14 @@
         "icon": "$(globe)"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "sandforge.openOrgInBrowser",
+          "when": "false"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "sandforge.openGrappe",
@@ -351,25 +360,25 @@
         "sandforge.grappe.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Run large seed, sync and autopilot operations in partitioned (grappe) mode, with per-partition progress in the Grappe view."
+          "description": "%config.grappe.enabled.description%"
         },
         "sandforge.grappe.autoActivateThreshold": {
           "type": "number",
           "default": 10000,
           "minimum": 1,
-          "description": "Record count at or above which grappe mode activates (seed and autopilot). Ignored when sandforge.grappe.enabled is off."
+          "description": "%config.grappe.autoActivateThreshold.description%"
         },
         "sandforge.grappe.grappeSize": {
           "type": "number",
           "default": 5000,
           "minimum": 1,
-          "description": "Records per grappe partition."
+          "description": "%config.grappe.grappeSize.description%"
         }
       }
     }
   },
   "scripts": {
-    "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@anthropic-ai/sdk \"--external:@anthropic-ai/sdk/*\" --external:./jsforceEntry.js --format=cjs --platform=node --sourcemap --minify && esbuild ./src/core/connection/jsforceEntry.ts --bundle --outfile=dist/jsforceEntry.js --format=cjs --platform=node --minify && node ../../scripts/vendor-ai-sdk.mjs",
+    "build": "pnpm run clean && esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --external:@anthropic-ai/sdk \"--external:@anthropic-ai/sdk/*\" --external:./jsforceEntry.js --format=cjs --platform=node --sourcemap=external --minify && esbuild ./src/core/connection/jsforceEntry.ts --bundle --outfile=dist/jsforceEntry.js --format=cjs --platform=node --minify && node ../../scripts/vendor-ai-sdk.mjs",
     "typecheck": "tsc -p tsconfig.test.json",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

@@ -64,9 +64,9 @@ async function resolveOrgListLoading(page: import('@playwright/test').Page): Pro
 
   const correlationId = await page.evaluate(() => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find(
-      (m) => (m as Record<string, unknown>).type === 'org:list',
-    ) as Record<string, unknown> | undefined;
+    const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+      | Record<string, unknown>
+      | undefined;
     return orgListMsg?.id as string | undefined;
   });
 
@@ -88,9 +88,9 @@ test.describe('Compare page — empty state', () => {
     await page.waitForTimeout(200);
     const correlationId = await page.evaluate(() => {
       const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      const orgListMsg = msgs.find(
-        (m) => (m as Record<string, unknown>).type === 'org:list',
-      ) as Record<string, unknown> | undefined;
+      const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+        | Record<string, unknown>
+        | undefined;
       return orgListMsg?.id as string | undefined;
     });
 
@@ -101,7 +101,10 @@ test.describe('Compare page — empty state', () => {
       payload: { orgs: [MOCK_ORGS[0]] },
     });
 
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Compare Org', exact: true }).click();
+    await page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Compare Org', exact: true })
+      .click();
 
     // Should not render compare-page data-testid (EmptyState instead)
     await page.waitForTimeout(500);
@@ -118,7 +121,10 @@ test.describe('Compare page — with orgs', () => {
     await resolveOrgListLoading(page);
 
     // Navigate to Compare
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Compare Org', exact: true }).click();
+    await page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Compare Org', exact: true })
+      .click();
   });
 
   test('navigates to compare page via sidebar', async ({ page }) => {
@@ -193,7 +199,10 @@ test.describe('Compare page — results tabs', () => {
     await page.waitForSelector('[data-testid="panel-app"]');
     await resolveOrgListLoading(page);
 
-    await page.getByTestId('sidebar').getByRole('button', { name: 'Compare Org', exact: true }).click();
+    await page
+      .getByTestId('sidebar')
+      .getByRole('button', { name: 'Compare Org', exact: true })
+      .click();
     await expect(page.getByTestId('compare-page')).toBeVisible({ timeout: 5000 });
   });
 

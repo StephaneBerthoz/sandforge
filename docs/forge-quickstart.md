@@ -94,14 +94,14 @@ CLI exit code is `1` when the run produced **only** failures and `0` otherwise; 
 
 ## Common errors and what they mean
 
-| Error                                        | What it means                                                | What to do                                              |
-| -------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------- |
-| `DUPLICATE_VALUE`                            | A record with this External Id already exists on target.     | Enable upsert mode, or run `sandforge-cleanup`.         |
-| `INVALID_CROSS_REFERENCE_KEY: Owner ID`      | Source User doesn't exist on target.                         | Auto-handled: Salesforce assigns the running user.     |
-| `REQUIRED_FIELD_MISSING`                     | A required FK pointed outside the scope.                     | Enable "Auto-fetch parents" toggle in the wizard.       |
-| `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST`    | Source picklist value missing on target.                     | Auto-handled: value is silently stripped.              |
-| `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY`       | Object is read-only (audit/history table).                   | Auto-handled: node is now skipped pre-flight.          |
-| `FIELD_INTEGRITY_EXCEPTION` (Asset)          | Asset needs at least an Account or Contact.                  | Enable "Auto-fetch parents" toggle.                     |
+| Error                                     | What it means                                            | What to do                                         |
+| ----------------------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
+| `DUPLICATE_VALUE`                         | A record with this External Id already exists on target. | Enable upsert mode, or run `sandforge-cleanup`.    |
+| `INVALID_CROSS_REFERENCE_KEY: Owner ID`   | Source User doesn't exist on target.                     | Auto-handled: Salesforce assigns the running user. |
+| `REQUIRED_FIELD_MISSING`                  | A required FK pointed outside the scope.                 | Enable "Auto-fetch parents" toggle in the wizard.  |
+| `INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST` | Source picklist value missing on target.                 | Auto-handled: value is silently stripped.          |
+| `CANNOT_INSERT_UPDATE_ACTIVATE_ENTITY`    | Object is read-only (audit/history table).               | Auto-handled: node is now skipped pre-flight.      |
+| `FIELD_INTEGRITY_EXCEPTION` (Asset)       | Asset needs at least an Account or Contact.              | Enable "Auto-fetch parents" toggle.                |
 
 The wizard's Errors panel shows the explanation + action hint inline, in your VSCode locale (FR/EN).
 

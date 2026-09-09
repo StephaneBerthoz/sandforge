@@ -3,6 +3,12 @@ name: Format Check
 # Blocking Prettier check. The global format pass has merged (drift is
 # now zero), so `pnpm format:check` enforces the baseline on push and
 # PR-diff formatting on pull requests.
+#
+# Coverage is the whole repository, not just `packages/*/src`: the scripts,
+# the workflows, the docs and the root config drift too, and that is where
+# the gates themselves live. The changed-file filter below must therefore
+# stay in step with the `format`/`format:check` globs in the root
+# package.json — same extensions, same exclusions.
 
 on:
   push:
@@ -40,7 +46,9 @@ jobs:
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
             CHANGED=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" \
-              | grep -E '^packages/[^/]+/src/.+\.(ts|tsx|json|css)$' || true)
+              | grep -E '\.(ts|tsx|mjs|cjs|js|json|css|md|yml|yaml|html)$' \
+              | grep -vE '(^|/)(node_modules|dist|build|__snapshots__)/' \
+              | grep -vx 'pnpm-lock.yaml' || true)
             if [ -z "$CHANGED" ]; then
               echo "No matching changed files — skipping."
               exit 0

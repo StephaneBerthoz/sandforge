@@ -43,6 +43,8 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
+import { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -1037,6 +1039,89 @@ describe('SyncOpsHandler', () => {
         operation: 'update',
         objectName: 'Account, Contact',
       });
+    });
+  });
+
+  describe('execution history for failed runs', () => {
+    /** Wire the real logger + store over the in-memory ConfigStore mock. */
+    function wireRealHistory(): SyncHistoryStore {
+      const store = new SyncHistoryStore(deps.configStore);
+      handler.setHistoryLogger(new SyncExecutionLogger(store));
+      return store;
+    }
+
+    it('records a sync that threw, and its snapshot is re-runnable', async () => {
+      const store = wireRealHistory();
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+        id: 'sync-history-fail',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      };
+
+      await handler.handle(msg);
+
+      // The run that failed is exactly the one the history panel must show:
+      // without it, "re-run" is unreachable for the runs that need it.
+      const entries = store.list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].result.status).toBe('failure');
+      expect(entries[0].result.operationId).toBe('sync-history-fail');
+      expect(entries[0].result.configId).toBe('cfg-1');
+      expect(entries[0].triggeredBy).toBe('manual');
+
+      // And the persisted snapshot really drives `sync:history:rerun`.
+      mockGetConn.mockClear();
+      await handler.rerunFromSnapshot(
+        { id: 'sync-history-rerun', type: 'sync:history:rerun', timestamp: Date.now() },
+        entries[0].configSnapshot,
+      );
+      expect(mockGetConn).toHaveBeenCalled();
+      const afterRerun = store.list();
+      expect(afterRerun).toHaveLength(2);
+      expect(afterRerun.map((e) => e.triggeredBy)).toContain('rerun');
+    });
+
+    it('records a failed scheduled run', async () => {
+      const store = wireRealHistory();
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      const result = await handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+
+      expect(result.status).toBe('failure');
+      const entries = store.list();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].triggeredBy).toBe('schedule');
+      expect(entries[0].result.status).toBe('failure');
+    });
+
+    it('never lets a history-logging failure mask the sync error', async () => {
+      handler.setHistoryLogger({
+        logExecution: vi.fn(() => {
+          throw new Error('history store full');
+        }),
+      } as unknown as SyncExecutionLogger);
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      const result = await handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+
+      expect(result.status).toBe('failure');
+      expect(deps.log).toHaveBeenCalledWith(
+        expect.stringContaining('[WARN] sync history logging failed: history store full'),
+      );
+      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const posted = postToWebview.mock.calls.map(
+        (c) => c[0] as BaseMessage & { payload: { message?: string } },
+      );
+      const syncErrors = posted.filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0].payload.message).toBe('connection failed');
     });
   });
 });

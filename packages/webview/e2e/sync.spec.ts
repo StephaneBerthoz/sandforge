@@ -41,9 +41,9 @@ async function resolveOrgListLoading(page: import('@playwright/test').Page): Pro
 
   const correlationId = await page.evaluate(() => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find(
-      (m) => (m as Record<string, unknown>).type === 'org:list',
-    ) as Record<string, unknown> | undefined;
+    const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+      | Record<string, unknown>
+      | undefined;
     return orgListMsg?.id as string | undefined;
   });
 
@@ -77,8 +77,8 @@ test.describe('Sync page (via panel)', () => {
   });
 
   test('captures messages sent to extension', async ({ page }) => {
-    const messages = await page.evaluate(() =>
-      (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
+    const messages = await page.evaluate(
+      () => (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__,
     );
     expect(Array.isArray(messages)).toBe(true);
     expect(messages.length).toBeGreaterThan(0);
@@ -99,14 +99,16 @@ test.describe('Sync page — empty state', () => {
     await page.waitForSelector('[data-testid="panel-app"]');
   });
 
-  test('shows app shell even with no orgs when loading resolves to single org', async ({ page }) => {
+  test('shows app shell even with no orgs when loading resolves to single org', async ({
+    page,
+  }) => {
     await page.waitForTimeout(200);
 
     const correlationId = await page.evaluate(() => {
       const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-      const orgListMsg = msgs.find(
-        (m) => (m as Record<string, unknown>).type === 'org:list',
-      ) as Record<string, unknown> | undefined;
+      const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
+        | Record<string, unknown>
+        | undefined;
       return orgListMsg?.id as string | undefined;
     });
 

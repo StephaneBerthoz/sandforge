@@ -2,9 +2,32 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import type { ForgeGraph, ForgeGraphNode } from '@sandforge/shared';
-import { ForgeResults } from './ForgeResults';
+import { ForgeResults, ID_REMAP_VIRTUALIZE_THRESHOLD } from './ForgeResults';
 
 /* ---- Mocks ---- */
+
+/**
+ * Mock @tanstack/react-virtual: jsdom has no layout, so the real virtualizer
+ * measures a zero-height scroll container and yields no rows at all. This
+ * stand-in yields a fixed window (10 visible + overscan on both sides), which
+ * is what makes "renders a window, not the whole list" observable in a test.
+ */
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: (opts: { count: number; estimateSize: () => number; overscan?: number }) => {
+    const rowHeight = opts.estimateSize();
+    const overscan = opts.overscan ?? 5;
+    const visibleCount = Math.min(opts.count, 10 + overscan * 2);
+    const items = Array.from({ length: visibleCount }, (_, i) => ({
+      index: i,
+      start: i * rowHeight,
+      size: rowHeight,
+    }));
+    return {
+      getVirtualItems: () => items,
+      getTotalSize: () => opts.count * rowHeight,
+    };
+  },
+}));
 
 const mockReset = vi.fn();
 const mockForgeAgain = vi.fn();
@@ -89,6 +112,7 @@ const makeMockResult = () => ({
   status: 'partial' as const,
   graph: makeMockGraph(),
   idRemapCount: 42,
+  idRemapTable: {} as Record<string, string>,
   duration: 10000,
   timestamp: '2026-03-20T10:00:00.000Z',
 });
@@ -333,5 +357,47 @@ describe('ForgeResults', () => {
     // Click again to collapse
     fireEvent.click(toggleBtn);
     expect(screen.queryByTestId('logstream')).toBeNull();
+  });
+
+  /* ---- PERF-10: the Id remap table is virtualized ---- */
+
+  /** One source -> target pair per cloned record, as the executor returns them. */
+  const makeIdRemapTable = (count: number): Record<string, string> => {
+    const table: Record<string, string> = {};
+    for (let i = 0; i < count; i++) {
+      const suffix = String(i).padStart(9, '0');
+      table[`001SRC${suffix}`] = `001TGT${suffix}`;
+    }
+    return table;
+  };
+
+  it('should render a window, not 5000 rows, for a large id remap table', () => {
+    mockResult = { ...makeMockResult(), idRemapTable: makeIdRemapTable(5000) };
+    render(<ForgeResults />);
+
+    const rows = screen.getAllByTestId('forge-id-mapping-row');
+    expect(rows.length).toBeGreaterThan(0);
+    // A plain table would mount all 5000 rows (10 000 cells) at once.
+    expect(rows.length).toBeLessThan(100);
+    expect(screen.getByTestId('forge-id-mapping-virtual')).toBeDefined();
+  });
+
+  it('should still announce the full count while rendering only a window', () => {
+    mockResult = { ...makeMockResult(), idRemapTable: makeIdRemapTable(5000) };
+    render(<ForgeResults />);
+
+    const panel = screen.getByTestId('forge-id-mapping');
+    expect(panel.textContent).toContain('5000');
+    expect(screen.getAllByTestId('forge-id-mapping-row').length).toBeLessThan(100);
+  });
+
+  it('should keep the plain table below the virtualization threshold', () => {
+    const count = ID_REMAP_VIRTUALIZE_THRESHOLD;
+    mockResult = { ...makeMockResult(), idRemapTable: makeIdRemapTable(count) };
+    render(<ForgeResults />);
+
+    expect(screen.getByTestId('forge-id-mapping-table')).toBeDefined();
+    expect(screen.queryByTestId('forge-id-mapping-virtual')).toBeNull();
+    expect(screen.getAllByTestId('forge-id-mapping-row')).toHaveLength(count);
   });
 });

@@ -9,6 +9,7 @@ import {
   orgSelectPayloadSchema,
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
 
 /** Message types handled by OrgHandler. */
 const ORG_TYPES = new Set(['org:list', 'org:connect', 'org:disconnect', 'org:select']);
@@ -349,6 +350,14 @@ export class OrgHandler implements DomainHandler {
     const parsed = validatePayload(orgDisconnectPayloadSchema, msg, 'org:error', this.deps);
     if (!parsed) return;
     const payload = parsed;
+
+    // Drop the pooled entry FIRST: it caches the org's access token in memory
+    // and `removeOrg` only clears the config store, the vault and OrgManager.
+    // Without this the revoked org's token stayed live in the pool until the
+    // extension host restarted, and any code path holding its UUID could still
+    // build a working Connection from it. Done before the store removal so a
+    // failing `removeOrg` cannot leave the credential behind either.
+    getConnectionPool().remove(payload.orgId as UUID);
 
     await this.deps.orgRegistry.removeOrg(payload.orgId);
 

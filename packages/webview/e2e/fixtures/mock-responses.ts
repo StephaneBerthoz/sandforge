@@ -127,9 +127,7 @@ export function createSchemaResultResponse(
 }
 
 /** Mock autopilot plan ready payload. */
-export function createPlanReadyResponse(
-  objectCount: number,
-): {
+export function createPlanReadyResponse(objectCount: number): {
   plan: { objectCount: number; estimatedTime: string };
   graph: { objects: Array<{ apiName: string; status: string }> };
 } {
@@ -204,7 +202,8 @@ export function mockAIPersona(): {
   return {
     id: 'persona-mid-b2b-saas',
     name: 'Mid-market B2B SaaS customer',
-    description: 'Realistic mid-market B2B SaaS customer persona with 50 records across Account, Contact and Opportunity.',
+    description:
+      'Realistic mid-market B2B SaaS customer persona with 50 records across Account, Contact and Opportunity.',
     recordCount: 50,
     objects: ['Account', 'Contact', 'Opportunity'],
   };

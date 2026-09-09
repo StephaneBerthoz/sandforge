@@ -21,7 +21,13 @@
     "enumMembers": "off"
   },
   "ignoreExportsUsedInFile": true,
-  "ignore": ["scripts/render-icon.mjs", "packages/webview/e2e/quarantine/**"],
+  "ignore": ["packages/webview/e2e/quarantine/**"],
   "ignoreBinaries": ["vsce"],
-  "ignoreDependencies": ["@types/.*", "@vitest/coverage-v8", "@vscode/vsce", "@axe-core/playwright"]
+  "ignoreDependencies": [
+    "@types/.*",
+    "@vitest/coverage-v8",
+    "@vscode/vsce",
+    "@axe-core/playwright",
+    "@playwright/test"
+  ]
 }

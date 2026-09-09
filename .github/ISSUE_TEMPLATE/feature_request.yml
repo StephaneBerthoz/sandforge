@@ -1,6 +1,6 @@
 name: Feature Request
 description: Suggest an improvement or a new capability
-title: "[Feat]: "
+title: '[Feat]: '
 labels: [enhancement]
 body:
   - type: textarea
@@ -8,7 +8,7 @@ body:
     attributes:
       label: Problem / use case
       description: What are you trying to do? What hurts today?
-      placeholder: "When I refresh my sandbox, I have to …"
+      placeholder: 'When I refresh my sandbox, I have to …'
     validations:
       required: true
   - type: textarea

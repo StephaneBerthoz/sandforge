@@ -44,11 +44,11 @@ The visual builder for composing automation workflows:
 Configure how and when pipelines start:
 
 - **Manual** -- Run on demand from the UI
-- **Scheduled (Cron)** *(coming soon)* -- Set a cron expression with timezone support
-- **Webhook** *(coming soon)* -- Trigger from external systems
-- **File Watch** *(coming soon)* -- Start when a file appears in a watched directory
-- **Record Change** *(coming soon)* -- React to Salesforce data changes
-- **Pipeline Completion** *(coming soon)* -- Chain pipelines by triggering on another pipeline's completion
+- **Scheduled (Cron)** _(coming soon)_ -- Set a cron expression with timezone support
+- **Webhook** _(coming soon)_ -- Trigger from external systems
+- **File Watch** _(coming soon)_ -- Start when a file appears in a watched directory
+- **Record Change** _(coming soon)_ -- React to Salesforce data changes
+- **Pipeline Completion** _(coming soon)_ -- Chain pipelines by triggering on another pipeline's completion
 
 The Trigger Config Panel lets you add, remove, enable/disable triggers, and edit cron expressions.
 

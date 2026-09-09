@@ -339,6 +339,58 @@ describe('ConfigStore', () => {
       expect(backend.getData()).toEqual({});
     });
 
+    it('should not persist when set is called with an unchanged primitive', () => {
+      const backend = new InMemoryConfigStoreBackend();
+      const store = new ConfigStore(backend);
+      store.initialize();
+      store.set('key', 'value', 'cat');
+      const spy = vi.spyOn(backend, 'setData');
+
+      store.set('key', 'value', 'cat');
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('should not persist when set is called with an equal but distinct object', () => {
+      const backend = new InMemoryConfigStoreBackend();
+      const store = new ConfigStore(backend);
+      store.initialize();
+      store.set('status', { org: 'dev', jobs: [1, 2], healthy: true }, 'monitor');
+      const spy = vi.spyOn(backend, 'setData');
+
+      // Rebuilt object: same content, different reference — what a poller produces
+      store.set('status', { org: 'dev', jobs: [1, 2], healthy: true }, 'monitor');
+
+      expect(spy).not.toHaveBeenCalled();
+      expect(store.get('status')).toEqual({ org: 'dev', jobs: [1, 2], healthy: true });
+    });
+
+    it('should persist when the value actually changes', () => {
+      const backend = new InMemoryConfigStoreBackend();
+      const store = new ConfigStore(backend);
+      store.initialize();
+      store.set('status', { jobs: [1, 2] }, 'monitor');
+      const spy = vi.spyOn(backend, 'setData');
+
+      store.set('status', { jobs: [1, 2, 3] }, 'monitor');
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(store.get('status')).toEqual({ jobs: [1, 2, 3] });
+    });
+
+    it('should persist when only the category changes', () => {
+      const backend = new InMemoryConfigStoreBackend();
+      const store = new ConfigStore(backend);
+      store.initialize();
+      store.set('key', 'value', 'cat');
+      const spy = vi.spyOn(backend, 'setData');
+
+      store.set('key', 'value', 'other');
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(backend.getData()['key']).toEqual({ value: '"value"', category: 'other' });
+    });
+
     it('should survive re-initialization from same backend', () => {
       const backend = new InMemoryConfigStoreBackend();
       const store1 = new ConfigStore(backend);

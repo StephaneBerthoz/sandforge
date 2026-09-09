@@ -1,6 +1,7 @@
 {
   "displayName": "SandForge : Forgez vos Sandboxes Salesforce",
   "description": "Toolkit Salesforce tout-en-un. Génération de données par IA avec personas, import CSV ou clonage entre orgs — import SFDMU export.json inclus. Sync entre orgs avec résolution de conflits. Comparaison de métadonnées, monitoring des limites et automatisation, avec exécution streaming pour les gros volumes.",
+  "capabilities.untrustedWorkspaces.description": "SandForge lit des identifiants Salesforce et écrit des enregistrements dans vos orgs, à partir de la configuration du dossier ouvert. Approuvez le dossier pour l'activer.",
   "viewContainer.title": "SandForge",
   "view.launcher": "SandForge",
   "command.openMonitor": "SandForge : Ouvrir le moniteur",
@@ -24,13 +25,13 @@
   "walkthrough.gettingStarted.title": "Bien démarrer avec SandForge",
   "walkthrough.gettingStarted.description": "Connectez une org Salesforce et peuplez votre première sandbox avec des données réalistes.",
   "walkthrough.step.connectOrg.title": "Connectez votre première org",
-  "walkthrough.step.connectOrg.description": "Importez les orgs authentifiées dans la Salesforce CLI, ou connectez-vous via OAuth.",
+  "walkthrough.step.connectOrg.description": "Importez les orgs authentifiées dans la Salesforce CLI, ou connectez-vous via OAuth.\n[Ouvrir les organisations](command:sandforge.openOrgs)",
   "walkthrough.step.forgeClone.title": "Clonez des données avec Forge",
-  "walkthrough.step.forgeClone.description": "Peuplez une sandbox à partir d'un enregistrement réel et de tout son graphe de relations.",
+  "walkthrough.step.forgeClone.description": "Peuplez une sandbox à partir d'un enregistrement réel et de tout son graphe de relations.\n[Ouvrir Forge](command:sandforge.openForge)",
   "walkthrough.step.monitorLimits.title": "Surveillez les limites de l'org",
-  "walkthrough.step.monitorLimits.description": "Suivez les limites API, les jobs, le stockage et la santé de l'org en temps réel.",
+  "walkthrough.step.monitorLimits.description": "Suivez les limites API, les jobs, le stockage et la santé de l'org en temps réel.\n[Ouvrir le moniteur](command:sandforge.openMonitor)",
   "walkthrough.step.exploreSettings.title": "Ajustez vos paramètres",
-  "walkthrough.step.exploreSettings.description": "Tailles de lots, garde-fous production, journal d'audit et assistant IA.",
+  "walkthrough.step.exploreSettings.description": "Tailles de lots, garde-fous production, journal d'audit et assistant IA.\n[Ouvrir les paramètres](command:sandforge.openSettings)",
   "config.title": "SandForge",
   "config.telemetry.description": "Activer la télémétrie d'utilisation anonyme",
   "config.orgs.validateOnStartup.description": "Valider les organisations enregistrées au démarrage et rafraîchir automatiquement les sessions expirées via la CLI sf",
@@ -44,5 +45,8 @@
   "config.backup.maxCount.description": "Nombre maximum de sauvegardes à conserver par org",
   "config.pipeline.timeout.description": "Délai d'expiration des pipelines en millisecondes",
   "config.safety.requireProdConfirmation.description": "Exiger une confirmation pour les opérations sur les orgs de production",
-  "config.safety.auditLogging.description": "Activer la journalisation d'audit pour toutes les opérations de données"
+  "config.safety.auditLogging.description": "Activer la journalisation d'audit pour toutes les opérations de données",
+  "config.grappe.enabled.description": "Exécuter les opérations Seed, Sync et Autopilot volumineuses en mode partitionné (grappe), avec une progression par partition dans la vue Grappe.",
+  "config.grappe.autoActivateThreshold.description": "Nombre d'enregistrements à partir duquel le mode grappe s'active (seed et autopilot). Ignoré lorsque sandforge.grappe.enabled est désactivé.",
+  "config.grappe.grappeSize.description": "Nombre d'enregistrements par partition de grappe."
 }

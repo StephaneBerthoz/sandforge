@@ -40,6 +40,25 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 /** Bound for monitor:refresh org calls, kept below the 30 s bridge timeout. */
 const MONITOR_REFRESH_TIMEOUT_MS = 25_000;
 
+/**
+ * The recent AsyncApexJob window read by a monitor tick.
+ *
+ * Byte-identical to the SOQL the health check's jobs provider builds in
+ * `MonitorOpsFactory`, because {@link MonitorOpsHandler.withSharedJobQuery}
+ * keys the per-refresh reuse on the query string.
+ */
+const ASYNC_APEX_JOB_SOQL = `SELECT Id, JobType, Status, NumberOfErrors, CreatedDate, CreatedById FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT ${DEFAULT_SOQL_LIMITS.monitorJobs}`;
+
+/** One AsyncApexJob row as read by {@link ASYNC_APEX_JOB_SOQL}. */
+interface AsyncApexJobRecord extends Record<string, unknown> {
+  Id: string;
+  JobType: string;
+  Status: string;
+  NumberOfErrors: number;
+  CreatedDate: string;
+  CreatedById: string;
+}
+
 /** Message types handled by MonitorOpsHandler. */
 const MONITOR_TYPES = new Set([
   'monitor:refresh',
@@ -84,6 +103,11 @@ export class MonitorOpsHandler implements DomainHandler {
   private readonly healthCheck: HealthCheck;
   private readonly alertEngine: AlertEngine;
   private readonly alertStateStore: AlertStateStore;
+  /**
+   * AsyncApexJob rows already fetched by the refresh currently running for an
+   * org, held only for the span of that refresh (see {@link withSharedJobQuery}).
+   */
+  private readonly inFlightJobRecords = new Map<string, AsyncApexJobRecord[]>();
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
@@ -91,7 +115,11 @@ export class MonitorOpsHandler implements DomainHandler {
       configStore: deps.configStore,
       log: (message) => deps.log(message),
       notify: (level, message) => sendNotification(deps, level, 'Alert', message),
-      getConnection: (orgId) => getJsforceConnection(orgId, deps.orgRegistry, deps.orgManager),
+      getConnection: async (orgId) =>
+        this.withSharedJobQuery(
+          orgId,
+          await getJsforceConnection(orgId, deps.orgRegistry, deps.orgManager),
+        ),
     });
     this.trendStorage = ops.trendStorage;
     this.alertStateStore = ops.alertStateStore;
@@ -180,6 +208,62 @@ export class MonitorOpsHandler implements DomainHandler {
     }
   }
 
+  /**
+   * Hand the monitor services a connection that reuses the AsyncApexJob window
+   * the in-flight refresh already fetched.
+   *
+   * The health check's jobs provider issues the exact same SOQL that
+   * {@link executeRefresh} has just run, so every monitor tick asked the org
+   * for its job list twice. Serving the second read from the rows already in
+   * hand keeps the tick at one AsyncApexJob call; any other query, and any
+   * call made outside a refresh, still goes straight to the org.
+   *
+   * @param orgId - Org whose in-flight refresh rows may be reused.
+   * @param conn - The real jsforce connection to delegate to.
+   * @returns The connection, with `query` short-circuited for that one SOQL.
+   */
+  private withSharedJobQuery(orgId: string, conn: Connection): Connection {
+    return new Proxy(conn, {
+      get: (target, prop): unknown => {
+        if (prop === 'query') {
+          return (soql: string): unknown => {
+            const shared = this.inFlightJobRecords.get(orgId);
+            if (shared !== undefined && soql === ASYNC_APEX_JOB_SOQL) {
+              return Promise.resolve({ done: true, totalSize: shared.length, records: shared });
+            }
+            return target.query(soql);
+          };
+        }
+        const value: unknown = Reflect.get(target, prop, target);
+        // Bind so jsforce methods keep operating on (and writing to) the real
+        // connection — `limitInfo` updates must not land on the wrapper.
+        return typeof value === 'function'
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    });
+  }
+
+  /**
+   * Whether the refresh has outlived its bound.
+   *
+   * Once it has, `handleRefresh` has already replied `monitor:error` for this
+   * request and the webview has closed the correlation: every further org call
+   * is budget spent on a reply nobody can receive, and a late `monitor:data`
+   * would only be discarded.
+   *
+   * @param deadline - The refresh bound's abort signal.
+   * @param step - What is being skipped, for the log line.
+   * @returns `true` when the caller must stop.
+   */
+  private pastDeadline(deadline: AbortSignal, step: string): boolean {
+    if (!deadline.aborted) return false;
+    this.deps.log(
+      `[WARN] monitor:refresh outlived its ${MONITOR_REFRESH_TIMEOUT_MS}ms bound; skipping ${step}`,
+    );
+    return true;
+  }
+
   private async handleRefresh(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
@@ -188,9 +272,12 @@ export class MonitorOpsHandler implements DomainHandler {
 
     try {
       // Bounded below the 30 s bridge timeout: a hanging org call must produce
-      // a real monitor:error, not a generic webview timeout.
-      await new TimeoutManager(MONITOR_REFRESH_TIMEOUT_MS).withTimeout('monitor:refresh', () =>
-        this.executeRefresh(msg, payload),
+      // a real monitor:error, not a generic webview timeout. The signal is
+      // passed down so the abandoned work stops instead of racing to post a
+      // second, contradictory reply.
+      await new TimeoutManager(MONITOR_REFRESH_TIMEOUT_MS).withTimeout(
+        'monitor:refresh',
+        (signal) => this.executeRefresh(msg, payload, signal),
       );
     } catch (err: unknown) {
       sendHandlerError(
@@ -206,7 +293,11 @@ export class MonitorOpsHandler implements DomainHandler {
     }
   }
 
-  private async executeRefresh(msg: BaseMessage, payload: { orgId: string }): Promise<void> {
+  private async executeRefresh(
+    msg: BaseMessage,
+    payload: { orgId: string },
+    deadline: AbortSignal,
+  ): Promise<void> {
     try {
       const conn = await getJsforceConnection(
         payload.orgId,
@@ -232,19 +323,12 @@ export class MonitorOpsHandler implements DomainHandler {
         this.alertStateStore.saveHistory(triggeredAlerts);
       }
 
-      // 2. Get async jobs
-      const jobRecords = await queryAll<{
-        Id: string;
-        JobType: string;
-        Status: string;
-        NumberOfErrors: number;
-        CreatedDate: string;
-        CreatedById: string;
-      }>(
-        conn,
-        `SELECT Id, JobType, Status, NumberOfErrors, CreatedDate, CreatedById FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT ${DEFAULT_SOQL_LIMITS.monitorJobs}`,
-      );
+      // 2. Get async jobs — published for the rest of this refresh so the
+      // health check's jobs signal reads them instead of re-querying the org.
+      const jobRecords = await queryAll<AsyncApexJobRecord>(conn, ASYNC_APEX_JOB_SOQL);
       checkApiLimits(conn.limitInfo, 'monitor:refresh asyncJobs');
+      this.inFlightJobRecords.set(payload.orgId, jobRecords);
+      if (this.pastDeadline(deadline, 'org info and health check')) return;
       const jobs = jobRecords.map((r) => ({
         id: r.Id,
         jobType: r.JobType ?? 'Unknown',
@@ -331,6 +415,7 @@ export class MonitorOpsHandler implements DomainHandler {
       }
 
       // 6. Send response
+      if (this.pastDeadline(deadline, 'the monitor:data reply')) return;
       const response = buildResponse(this.deps, msg, 'monitor:data', {
         limits,
         jobs,
@@ -344,6 +429,9 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
+      // Past the bound the request already carries its monitor:error; a second
+      // one would only be a duplicate on a closed correlation.
+      if (this.pastDeadline(deadline, `the failure "${extractErrorMessage(err)}"`)) return;
       sendHandlerError(
         this.deps,
         'monitor:refresh',
@@ -354,6 +442,8 @@ export class MonitorOpsHandler implements DomainHandler {
         undefined,
         msg,
       );
+    } finally {
+      this.inFlightJobRecords.delete(payload.orgId);
     }
   }
 

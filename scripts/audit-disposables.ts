@@ -38,12 +38,7 @@ interface Orphan {
 
 /** Identifier names we care about as potential leak sources. */
 const TIMER_CALLS = new Set(['setInterval', 'setTimeout']);
-const LISTENER_METHODS = new Set([
-  'on',
-  'addListener',
-  'addEventListener',
-  'onDidReceiveMessage',
-]);
+const LISTENER_METHODS = new Set(['on', 'addListener', 'addEventListener', 'onDidReceiveMessage']);
 // onDidChange* is matched via prefix below.
 
 function isTimerCall(call: CallExpression): boolean {
@@ -86,10 +81,10 @@ function hasDisposableSink(call: CallExpression, source: SourceFile, category: s
   // `subscriptions.push(<that identifier>)` in the file.
   const parent = call.getParentWhile(
     (_node: Node, child: Node) =>
-      child.getKind() !== SyntaxKind.VariableDeclaration
-      && child.getKind() !== SyntaxKind.BinaryExpression
-      && child.getKind() !== SyntaxKind.ExpressionStatement
-      && child.getKind() !== SyntaxKind.PropertyAssignment,
+      child.getKind() !== SyntaxKind.VariableDeclaration &&
+      child.getKind() !== SyntaxKind.BinaryExpression &&
+      child.getKind() !== SyntaxKind.ExpressionStatement &&
+      child.getKind() !== SyntaxKind.PropertyAssignment,
   );
 
   let varName: string | null = null;
@@ -118,9 +113,7 @@ function hasDisposableSink(call: CallExpression, source: SourceFile, category: s
   if (memberAccess) {
     // Covers: this.foo.dispose(), this.foo?.dispose(), foo.dispose(),
     // this.foo.unsubscribe(), foo?.()
-    const memberDispose = new RegExp(
-      `\\b${memberAccess}(\\?\\.|\\.)(dispose|unsubscribe)\\s*\\(`,
-    );
+    const memberDispose = new RegExp(`\\b${memberAccess}(\\?\\.|\\.)(dispose|unsubscribe)\\s*\\(`);
     if (memberDispose.test(sourceText)) return true;
     // Callable-unsubscribe member pattern: `this.foo?.()` or `this.foo()`
     const memberInvoke = new RegExp(`\\b${memberAccess}(\\?\\.)?\\s*\\(\\s*\\)`);
@@ -227,17 +220,17 @@ function hasDisposableSink(call: CallExpression, source: SourceFile, category: s
   let fn: Node | undefined = call.getParent();
   while (fn) {
     if (
-      fn.getKind() === SyntaxKind.FunctionDeclaration
-      || fn.getKind() === SyntaxKind.MethodDeclaration
-      || fn.getKind() === SyntaxKind.ArrowFunction
-      || fn.getKind() === SyntaxKind.FunctionExpression
+      fn.getKind() === SyntaxKind.FunctionDeclaration ||
+      fn.getKind() === SyntaxKind.MethodDeclaration ||
+      fn.getKind() === SyntaxKind.ArrowFunction ||
+      fn.getKind() === SyntaxKind.FunctionExpression
     ) {
       const fnText = fn.getText();
       // If the enclosing function has a `return` statement and its name looks
       // like a register helper, treat as disposed by the caller.
-      const name = (fn.asKind(SyntaxKind.FunctionDeclaration)?.getName?.()
-        ?? fn.asKind(SyntaxKind.MethodDeclaration)?.getName?.()
-        ?? '') as string;
+      const name = (fn.asKind(SyntaxKind.FunctionDeclaration)?.getName?.() ??
+        fn.asKind(SyntaxKind.MethodDeclaration)?.getName?.() ??
+        '') as string;
       if (/return\b/.test(fnText) && /^(register|subscribe|watch|listen|track)/i.test(name)) {
         return true;
       }
@@ -335,11 +328,11 @@ function main(): void {
     orphans.length === 0
       ? '_No orphans detected. Nice hygiene!_'
       : orphans
-        .map(
-          (o) =>
-            `- **${o.file}:${o.line}** [\`${o.category}\`]\n  \`\`\`ts\n  ${o.snippet}\n  \`\`\``,
-        )
-        .join('\n'),
+          .map(
+            (o) =>
+              `- **${o.file}:${o.line}** [\`${o.category}\`]\n  \`\`\`ts\n  ${o.snippet}\n  \`\`\``,
+          )
+          .join('\n'),
     '',
   ];
 
