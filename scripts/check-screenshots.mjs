@@ -21,6 +21,7 @@
  *   node scripts/check-screenshots.mjs
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,107 +30,21 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const GENERATOR = 'packages/webview/e2e/screenshots.spec.ts';
 const SHOTS_DIR = 'assets/screenshots';
 
-/** Every commit touching `path`, newest first. */
-function commitsTouching(path) {
-  try {
-    const out = execFileSync('git', ['log', '--format=%H', '--', path], {
-      cwd: ROOT,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return out === '' ? [] : out.split('\n');
-  } catch {
-    return [];
-  }
-}
-
-/** SHA of the last commit touching `path`, or null if untracked. */
-function lastCommit(path) {
-  return commitsTouching(path)[0] ?? null;
-}
-
-/** Has `path` been written since its last commit, or is it untracked? */
-function isDirty(path) {
-  try {
-    const out = execFileSync('git', ['status', '--porcelain', '--', path], {
-      cwd: ROOT,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return out.trim() !== '';
-  } catch {
-    return false;
-  }
-}
+/** Where the generator records which version of itself produced the images. */
+const STAMP = join(SHOTS_DIR, '.generated-from');
 
 /**
- * `path` at `rev`, normalised past the changes a formatter is allowed to make.
+ * Hash of the generator's source, ignoring what a formatter may change.
  *
- * Prettier's cosmetic transforms are whitespace, line breaks, trailing commas
- * and quote style. None of them changes what the generator produces, and all
- * of them used to make this gate call four correct screenshots stale — which
- * is the exact failure this release spent its time removing: a gate that fires
- * for a reason unrelated to what it checks is a gate people stop reading.
- *
- * Anything beyond those four is treated as a real change, deliberately: the
- * cost of a false alarm here is one 12-second regeneration, and the cost of a
- * miss is a Marketplace listing picturing a product that no longer exists.
+ * Must stay byte-compatible with `generatorFingerprint()` in the spec — the
+ * two halves of one contract.
  */
-function contentAt(rev, path) {
-  try {
-    const raw = execFileSync('git', ['show', `${rev}:${path}`], {
-      cwd: ROOT,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return raw
-      .replace(/'/g, '"') // quote style
-      .replace(/,(\s*[)\]}])/g, '$1') // trailing commas
-      .replace(/\s+/g, ''); // whitespace and line breaks
-  } catch {
-    return null; // absent at that revision
-  }
-}
-
-/**
- * The last commit that changed what the generator DOES, ignoring formatting.
- *
- * Whitespace is not a reason to call the screenshots stale, and the naive
- * version said it was: widening the Prettier scope reflowed one signature onto
- * a single line and dropped two blank lines, and the gate declared four
- * correct images out of date. `git diff -w` does not help — a joined line is
- * still a changed line — so this compares the content with all whitespace
- * stripped, which is exactly the property that matters here.
- */
-function lastBehaviouralCommit(path) {
-  const commits = commitsTouching(path);
-  for (const rev of commits) {
-    const now = contentAt(rev, path);
-    const before = contentAt(`${rev}^`, path);
-    // No parent (root commit) or the file appeared here: that is a real change.
-    if (before === null || now !== before) return rev;
-  }
-  return commits[commits.length - 1] ?? null;
-}
-
-/**
- * Is `ancestor` the same commit as `descendant`, or earlier in its history?
- *
- * Wall-clock comparison was the obvious first cut and it is wrong: images and
- * the generator that produces them are normally committed together, seconds
- * apart in either order, which made every release look stale. What actually
- * says "this image predates the current generator" is commit reachability.
- */
-function isAncestor(ancestor, descendant) {
-  try {
-    execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
-      cwd: ROOT,
-      stdio: 'ignore',
-    });
-    return true;
-  } catch {
-    return false;
-  }
+function generatorFingerprint() {
+  const source = readFileSync(join(ROOT, GENERATOR), 'utf-8')
+    .replace(/'/g, '"')
+    .replace(/,(\s*[)\]}])/g, '$1')
+    .replace(/\s+/g, '');
+  return createHash('sha256').update(source).digest('hex').slice(0, 16);
 }
 
 /** Screenshots the two READMEs actually render, as repo-relative paths. */
@@ -158,34 +73,27 @@ if (!existsSync(join(ROOT, GENERATOR))) {
   failures.push(`${GENERATOR} is gone; this gate is aimed at nothing`);
 }
 
-const generatorCommit = lastBehaviouralCommit(GENERATOR);
+const expected = generatorFingerprint();
+const recorded = existsSync(join(ROOT, STAMP))
+  ? readFileSync(join(ROOT, STAMP), 'utf-8').trim()
+  : null;
 
 for (const shot of shots) {
   const abs = join(ROOT, shot);
-
   if (!existsSync(abs)) {
     failures.push(`${shot} is referenced by a README and is not on disk`);
     continue;
   }
-  if (statSync(abs).size === 0) {
-    failures.push(`${shot} is a zero-byte file`);
-    continue;
-  }
+  if (statSync(abs).size === 0) failures.push(`${shot} is a zero-byte file`);
+}
 
-  const shotCommit = lastCommit(shot);
-  if (shotCommit === null) continue; // never committed yet — this run is producing it
-  // Written since its last commit — including a file deleted long ago and
-  // recreated now, whose `git log` still points at the deletion. Either way
-  // this run is producing it, and judging it against history would call a
-  // fresh image stale.
-  if (isDirty(shot)) continue;
-  if (generatorCommit !== null && !isAncestor(generatorCommit, shotCommit)) {
-    failures.push(
-      `${shot} was last written before ${relative('.', GENERATOR)} last changed behaviour ` +
-        `(${generatorCommit.slice(0, 8)} is not reachable from ${shotCommit.slice(0, 8)}) — ` +
-        `it was produced by a generator that no longer exists`,
-    );
-  }
+if (recorded === null) {
+  failures.push(`${STAMP} is missing — no run has recorded which generator produced these images`);
+} else if (recorded !== expected) {
+  failures.push(
+    `${relative('.', GENERATOR)} has changed since the images were produced ` +
+      `(recorded ${recorded}, current ${expected})`,
+  );
 }
 
 if (failures.length > 0) {
