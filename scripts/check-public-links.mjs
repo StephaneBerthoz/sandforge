@@ -89,33 +89,60 @@ function manifestUrls() {
 /** Statuses that say "ask again later", not "this URL is wrong". */
 const RETRYABLE = new Set([408, 425, 429, 500, 502, 503, 504]);
 
+/**
+ * Ceiling on the whole network pass.
+ *
+ * The first version of the backoff had no budget and made the problem it was
+ * written for worse: three retries per URL turn a rate-limited host into four
+ * times the requests, and the run went from seconds to over twenty minutes
+ * without ever finishing. A release gate that cannot say when it will answer
+ * is a gate people cancel.
+ */
+const NETWORK_BUDGET_MS = 90_000;
+const startedAt = Date.now();
+const budgetLeft = () => NETWORK_BUDGET_MS - (Date.now() - startedAt);
+
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** One verdict per distinct URL: the same image appears in both READMEs. */
+const verdicts = new Map();
 
 /**
  * Is this URL reachable without credentials?
  *
- * Retries on rate limiting and transient server errors rather than failing the
- * release on them. raw.githubusercontent.com answers 429 to a burst of
- * requests, and a release gate that turns a rate limit into "this image is
- * broken" is the kind of gate this repository has been removing: it fails for
- * a reason that has nothing to do with what it is checking, and the next
- * person learns to ignore it.
+ * Backs off on rate limiting and transient server errors rather than failing
+ * the release on them — a gate that turns a 429 into "this image is broken"
+ * fails for a reason unrelated to what it checks, and the next person learns
+ * to ignore it. Bounded twice: two retries, and the shared budget above.
  */
-async function isReachable(url, attempt = 0) {
+async function fetchVerdict(url, attempt = 0) {
   try {
     const response = await fetch(url, { method: 'GET', redirect: 'follow' });
-    if (RETRYABLE.has(response.status) && attempt < 3) {
-      await wait(1000 * 2 ** attempt);
-      return isReachable(url, attempt + 1);
+    if (RETRYABLE.has(response.status) && attempt < 2) {
+      const backoff = 1000 * 2 ** attempt;
+      if (backoff < budgetLeft()) {
+        await wait(backoff);
+        return fetchVerdict(url, attempt + 1);
+      }
     }
     return { ok: response.ok, status: response.status };
   } catch (error) {
-    if (attempt < 3) {
-      await wait(1000 * 2 ** attempt);
-      return isReachable(url, attempt + 1);
+    const backoff = 1000 * 2 ** attempt;
+    if (attempt < 2 && backoff < budgetLeft()) {
+      await wait(backoff);
+      return fetchVerdict(url, attempt + 1);
     }
     return { ok: false, status: error instanceof Error ? error.message : 'fetch failed' };
   }
+}
+
+/** Cached, so a URL written in two places costs one request. */
+async function isReachable(url) {
+  const cached = verdicts.get(url);
+  if (cached) return cached;
+  const verdict = await fetchVerdict(url);
+  verdicts.set(url, verdict);
+  return verdict;
 }
 
 const failures = [];
@@ -140,7 +167,7 @@ for (const { file, base } of TARGETS) {
 
       if (url.startsWith('http://') || url.startsWith('https://')) {
         if (LOCAL_ONLY) continue;
-        await wait(120); // 61 URLs at full speed is what earns the 429
+        if (!verdicts.has(url)) await wait(120); // spacing is what avoids the 429
         const { ok, status } = await isReachable(url);
         if (!ok) {
           failures.push(
@@ -161,7 +188,7 @@ for (const { file, base } of TARGETS) {
 if (!LOCAL_ONLY) {
   for (const [label, url] of manifestUrls()) {
     checked += 1;
-    await wait(120);
+    if (!verdicts.has(url)) await wait(120);
     const { ok, status } = await isReachable(url);
     if (!ok) {
       failures.push(`${MANIFEST} ${label}: ${url} → ${status} (dead link on the listing sidebar)`);
