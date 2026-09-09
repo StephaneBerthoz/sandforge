@@ -1,5 +1,7 @@
 import { test } from '@playwright/test';
 import path from 'path';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'url';
 
 import { MockBridge } from './helpers';
@@ -28,6 +30,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCREENSHOT_DIR = path.resolve(__dirname, '../../../assets/screenshots');
 const VIEWPORT = { width: 1280, height: 800 };
+
+/**
+ * Where the run records which generator produced these images.
+ *
+ * The staleness check used to read git history, and git cannot answer the
+ * question: a regeneration that produces byte-identical images — the best case,
+ * meaning the UI did not move — commits nothing, so the images keep their old
+ * commit and the gate calls the freshest possible output stale. It said so
+ * twice, and a gate that cries wolf is one people stop reading.
+ *
+ * So the generator states it instead. This file holds a hash of the generator's
+ * own source, normalised past the changes a formatter may make, written on
+ * every run whether the images changed or not.
+ */
+const STAMP_FILE = path.resolve(SCREENSHOT_DIR, '.generated-from');
+
+/** Hash of this file's source, ignoring formatting. */
+function generatorFingerprint(): string {
+  const source = readFileSync(__filename, 'utf8')
+    .replace(/'/g, '"')
+    .replace(/,(\s*[)\]}])/g, '$1')
+    .replace(/\s+/g, '');
+  return createHash('sha256').update(source).digest('hex').slice(0, 16);
+}
 
 /** Boot the app straight into one module panel, orgs already connected. */
 async function openModule(
@@ -109,6 +135,7 @@ async function shoot(page: import('@playwright/test').Page, name: string): Promi
   }
 
   await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png` });
+  writeFileSync(STAMP_FILE, `${generatorFingerprint()}\n`);
 }
 
 /**
