@@ -33,13 +33,15 @@ const SF_ID_RE = /^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/;
 const SINCE_LITERAL_RE =
   /^(TODAY|YESTERDAY|LAST_WEEK|THIS_WEEK|LAST_N_DAYS:\d+|\d{4}-\d{2}-\d{2})$/i;
 
+/**
+ * Standard objects only, deepest child first.
+ *
+ * This list used to carry six custom objects from one org's data model. A
+ * default is a suggestion to every user, and a `__c` from someone else's org
+ * is a suggestion nobody can act on — besides publishing that org's schema.
+ * Pass `--objects` to clean custom objects.
+ */
 const DEFAULT_OBJECTS = [
-  'CaseContact__c',
-  'GlobalContext2__c',
-  'CoverageContext2__c',
-  'CaseHistory2',
-  'CaseInvoice2__c',
-  'Recipient__c',
   'CaseComment',
   'EmailMessage',
   'Asset',

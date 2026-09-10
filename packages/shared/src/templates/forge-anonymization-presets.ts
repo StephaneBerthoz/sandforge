@@ -169,15 +169,11 @@ export const FORGE_ANONYMIZATION_PRESETS: readonly ForgeAnonymizationPreset[] = 
       },
       {
         objectApiName: 'Asset',
-        fieldNames: ['PolicyNumber__c', 'AssistanceRef__c', 'Address'],
+        fieldNames: ['SerialNumber', 'Address'],
       },
       {
         objectApiName: 'InsurancePolicy',
-        fieldNames: ['PolicyNumber__c', 'AssistanceRef__c'],
-      },
-      {
-        objectApiName: 'CaseContact__c',
-        fieldNames: ['Email__c', 'Phone__c', 'Birthdate__c', 'Address__c', 'LicenseDate__c'],
+        fieldNames: ['Name', 'PolicyName'],
       },
     ],
   },

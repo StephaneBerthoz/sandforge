@@ -41,11 +41,18 @@ describe('FORGE_ANONYMIZATION_PRESETS', () => {
     }
   });
 
-  it('healthcare preset includes insurance-style PHI fields', () => {
+  it('healthcare preset masks the insurance objects, using standard fields only', () => {
+    // It used to assert two `__c` fields from one org's data model, which is
+    // how that schema came to be published here. A preset offered to every
+    // user can only name fields every user has.
     const healthcare = FORGE_ANONYMIZATION_PRESETS.find((p) => p.id === 'preset:healthcare')!;
-    const asset = healthcare.rules.find((r) => r.objectApiName === 'Asset');
-    expect(asset?.fieldNames).toContain('PolicyNumber__c');
-    expect(asset?.fieldNames).toContain('AssistanceRef__c');
+
+    expect(healthcare.rules.map((r) => r.objectApiName)).toEqual(
+      expect.arrayContaining(['Asset', 'InsurancePolicy']),
+    );
+    const everyField = healthcare.rules.flatMap((r) => r.fieldNames);
+    expect(everyField.length).toBeGreaterThan(0);
+    expect(everyField.filter((f) => f.endsWith('__c'))).toEqual([]);
   });
 
   it('internal-test stays minimal (≤ 2 fields per object)', () => {

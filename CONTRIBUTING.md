@@ -31,8 +31,7 @@ packages/
   shared/          # @sandforge/shared — protocol types, zod schemas, utils
   extension/       # VS Code extension host (esbuild → dist/extension.js)
   webview/         # React 18 + Vite + Tailwind + Zustand UI
-.planning/         # current milestone phases (active development docs)
-docs/              # module guides, ADR/, archive/ (historical genesis docs)
+docs/              # module guides and ADR/ (standing decisions)
 scripts/           # repo-wide tooling (audit-disposables, soak-test, hooks)
 ```
 
@@ -143,7 +142,6 @@ Maintainers handle versioning (SemVer).
 
 ## Where to start
 
-- Browse `.planning/phases/<latest>/` for the current focus area.
 - Look at `changelog.md` `## [Unreleased]` for in-flight work.
 - `docs/ADR/` records the standing architectural decisions.
 - `pnpm audit:disposables` and `pnpm knip` surface low-hanging quality

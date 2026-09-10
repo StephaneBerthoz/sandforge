@@ -4,9 +4,6 @@ ADRs record the decisions that shape SandForge and that future contributors
 must not silently undo. One decision per file, immutable once Accepted.
 Change course by adding a new ADR that supersedes the old one.
 
-(`DECISIONS.md` at the repo root is the older, free-form decision log from
-the genesis line. New decisions go here.)
-
 ## Format
 
 - File name: `NNNN-<kebab-case-slug>.md`, zero-padded, monotonically
