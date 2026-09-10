@@ -9,7 +9,7 @@
  * not exist. That is the sharpest instance of the pattern this repo keeps
  * hitting: the gate is written down, described as blocking, and never built —
  * so nothing was watching when `forge-flow.gif`, the first image on the
- * Marketplace listing, went on showing a navigation sidebar deleted in 1.10 and
+ * Marketplace listing, went on showing a navigation sidebar deleted in 1.8.0 and
  * a status bar reading "SandForge v0.0.0-e2e".
  *
  * Byte-comparing against a fresh Playwright run would need browsers and a

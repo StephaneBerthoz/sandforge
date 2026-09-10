@@ -297,7 +297,7 @@ executed. Sixteen of the seventeen releases were cut by hand.
   queries people actually type, and the listing did not appear in the first 100
   results for `salesforce test data`, `seed data` or `data masking`.
 - **The listing's opening image shows the product you get.** The hero GIF
-  pictured a navigation sidebar deleted in 1.10, showed 9 of the 14 modules,
+  pictured a navigation sidebar deleted in 1.8.0, showed 9 of the 14 modules,
   and had "SandForge v0.0.0-e2e" in its status bar. The four screenshots below
   it had been re-shot; it had not, so the page opened with two different
   products in a row.
@@ -418,8 +418,8 @@ Marketplace listing had been showing six broken images.
 ### Documentation
 
 - **The screenshots show the product you actually get.** Every one of them
-  pictured a UI deleted three minor versions ago — a navigation sidebar removed
-  in 1.10, a "v3.0.0" watermark from the pre-1.0 internal numbering, an
+  pictured a UI deleted ten minor versions earlier — a navigation sidebar
+  removed in 1.8.0, a "v3.0.0" watermark from the pre-1.0 internal numbering, an
   untranslated label. The generator that made them drove that same deleted
   sidebar, so it could not have been re-run: it broke when the screenshots
   became wrong, and nothing failed. Four modules are now shown with real
