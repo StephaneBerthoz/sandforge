@@ -8,7 +8,7 @@ Hand-crafting test data for a dev sandbox takes time. Pick a real record on a pa
 
 What it handles for you:
 
-- **Record-scoped clone**: only the transitive closure of the root record (1 Case → ~50 records, not 261 858)
+- **Record-scoped clone**: only the transitive closure of the root record (1 Case → ~50 records, instead of every row of every related table)
 - **RecordType cross-org**: re-mapped automatically by `DeveloperName`
 - **Reference data**: `BusinessHours`, `OperatingHours`, `ServiceTerritory` mapped by `Name` instead of cloned
 - **Person Account quirks**: `__pc` and auto-`Name` fields stripped per-record

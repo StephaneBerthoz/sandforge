@@ -1096,7 +1096,7 @@ instruction-shaped content"`.
     colour states, 4-field tooltip, `aria-live='polite'`.
   - `ActionCard`: confidence badge, scrollable rootCause, ≤5 actions
     (defence-in-depth slice), Approve/Modify/Reject trio for gated
-    actions OR Exécuter button for read-only ones. Modify opens an
+    actions OR an Execute button for read-only ones. Modify opens an
     inline textarea modal pre-filled with the action's payload.
 - **6 `ai.error.*` i18n keys** in EN + FR (overloaded / rateLimit /
   auth / cancelled / transient / unknown).
