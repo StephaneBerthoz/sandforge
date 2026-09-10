@@ -36,9 +36,9 @@ Contact       1/1 ✓
 Account       2/2 ✓ (Person Account stripped __pc + auto-Name)
 Asset         2/2 ✓ (parents auto-fetched)
 InsurancePolicy 1/1 ✓
-Example_Object_2__c 1/1 ✓
-Example_Object_3__c 1/1 ✓
-Example_Object_1__c 1/5 ⚠ (4 hit a custom required field — see error panel)
+InsurancePolicyCoverage 1/1 ✓
+Contract      1/1 ✓
+CustomChild__c 1/5 ⚠ (4 hit a custom required field — see error panel)
 BusinessHours mapped via reference-data lookup
 ```
 
