@@ -1,12 +1,20 @@
 # Forge: Record-Scoped Clone
 
-> Cloner un graphe de records cohérents depuis une sandbox source (partial-copy / full-copy) vers une sandbox dev sans cloner toutes les rangées de toutes les tables.
+> Clone a coherent graph of records from a source sandbox (partial-copy or
+> full-copy) into a dev sandbox, without copying every row of every table.
 
-## Pourquoi
+## Why
 
-Avant : `Forge` avec `inputMode: 'record'` _découvrait_ le graphe à partir d'un record racine puis exécutait `SELECT * FROM Object` (sans `WHERE`) pour chaque node. Sur SOURCE-UAT partant d'un Case, ça représentait **261 858 records** copiés (Case ×11k, Account ×12k, Contact ×15k, InsurancePolicyCoverage ×155k…). Pas viable comme "jeu de données dev".
+Before: `Forge` with `inputMode: 'record'` _discovered_ the graph from a root
+record, then ran `SELECT * FROM Object` — no `WHERE` — for every node. Starting
+from a single Case on a mid-sized org, that copied hundreds of thousands of
+records. Not a dev dataset.
 
-Après : l'exécution est _scope-aware_ : depuis le record racine, le moteur suit la transitive closure (parents via FK, enfants via reverse-lookup) et n'exécute que des SOQL avec `WHERE Id = …` ou `WHERE FK IN (cachedParentIds)`. Sur le même Case, **358 records** clonés au lieu de 261 858 (−99.86 %).
+After: execution is _scope-aware_. From the root record the engine follows the
+transitive closure (parents through foreign keys, children through
+reverse-lookup) and issues only SOQL carrying `WHERE Id = …` or
+`WHERE FK IN (cachedParentIds)`. On the same Case, that is a **99.86 %**
+reduction in records cloned.
 
 ## Pipeline
 
@@ -86,7 +94,7 @@ const SCENARIO = {
   anonymizePII: true,
   skipEmpty: true,
   apiVersion: '66.0',
-  dryRun: true, // flip to false to run Wave 3 against the target
+  dryRun: true, // flip to false to actually write to the target
   maxRecordsPerObject: 5,
 };
 ```
