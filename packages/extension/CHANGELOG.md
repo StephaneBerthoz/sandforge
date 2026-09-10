@@ -5,6 +5,78 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.0] - 2026-09-10
+
+The end-to-end suite came back, and immediately started finding real bugs.
+
+SandForge shipped 83 end-to-end tests, 35 of them failing, and nobody knew:
+the CI leg that ran them was cancelled at thirty minutes on every run, so the
+suite had never once finished. Another 91 tests sat in a quarantine directory,
+excluded from the run entirely. This release turns 75 running tests into 209 —
+and every user-facing fix below was found by a test that could finally reach
+the product.
+
+### Fixed
+
+- **The compliance report no longer crashes on open.** After an Autopilot run,
+  clicking "Compliance Report" showed "Something went wrong": the extension
+  sends the report inside an envelope and the panel read the envelope as the
+  report, so `entries` was `undefined`. A _bridge flow_ test had been green
+  over it the whole time, because it answered with a message shape the
+  extension has never emitted.
+- **Compare's Permission Matrix, Snapshots and Drift Dashboard no longer kill
+  the panel.** Each read data in a shape the extension does not send —
+  `filteredRows.map is not a function` — and the ErrorBoundary took down the
+  whole page, not just the tab. All three now render what the extension
+  actually produces: presence of each permission set and profile per org,
+  object counts and one-sided objects per snapshot, and settings drift row by
+  row. A degenerate answer surfaces as an error naming the channel, never as
+  an empty view that would read as "these orgs agree".
+- **Conflict resolution no longer carries choices onto the next record.**
+  Resolving two fields on one conflict and then selecting another left those
+  choices armed: Apply was already enabled for a record nobody had decided on,
+  and the message sent carried a field the second record was not even in
+  conflict over. Applying it wrote one record's values onto another.
+- **The conflict strategy you pick is the one that travels.** Real-time sync
+  offered five strategies per object and sent `source_wins` regardless — a
+  control with no effect, on the setting that decides which data survives a
+  collision. Where objects disagree the session now degrades to manual
+  resolution rather than applying one object's rule to another.
+- **Stopping a real-time stream names the stream.** `realtime:stop` sent an
+  empty session id, so a host running two streams could not tell which to
+  close. A single pushed `realtime:event` was also dropped on the floor — the
+  channel was declared and schema-registered, and the store had no case for it.
+- **The record-per-object cap in Forge has an accessible name.** Its label was
+  a styled `<div>`, so a screen reader announced "combo box" and nothing else.
+  axe rates this critical; it is now a real label carrying the visible text,
+  with the hint as a description.
+
+### Changed
+
+- **The end-to-end suite runs, and runs everything.** 209 tests across 18
+  files, up from 75 across 9. The quarantine directory is gone: seven specs
+  were rewritten against the panels the extension actually opens, two were
+  deleted for driving channels that exist nowhere in the product, and two were
+  rebuilt from scratch against real surfaces — real-time CDC and conflict
+  resolution, both shipped and both previously untested. Nothing was silenced
+  to get there: no skipped test, no widened timeout, no emptied assertion.
+
+### Build
+
+- **`pnpm validate` now means what it claims.** It ran neither `format:check`
+  nor `knip` — each blocking every push from its own workflow — nor
+  `test:coverage`. Three blocking gates it never ran, so a green `validate`
+  never implied a green CI. The parity gate meant to prevent exactly this had
+  the same blind spot: it read only `ci.yml`, so "runs in CI" excluded the two
+  workflows that are also CI.
+- **The Marketplace screenshots are byte-stable.** The Monitor page draws a
+  live countdown, so every regeneration produced a different `monitor.png` and
+  the release gate flagged it forever. The clock is frozen for the capture.
+- **The E2E message helper stopped lying.** `getMessages(type)` filtered on the
+  transport envelope rather than the message inside it, so it returned an empty
+  list for every type anyone asked for — and three tests were red for that
+  reason alone, with nothing to do with the product they pointed at.
+
 ## [1.20.0] - 2026-09-09
 
 Reports stops apologising and starts reporting, and fifteen smaller things.

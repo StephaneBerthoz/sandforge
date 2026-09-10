@@ -2,7 +2,7 @@
 
 <!-- badges:start -->
 
-![Version](https://img.shields.io/badge/version-1.20.0-blue)
+![Version](https://img.shields.io/badge/version-1.21.0-blue)
 [![CI](https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml/badge.svg)](https://github.com/StephaneBerthoz/sandforge/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)

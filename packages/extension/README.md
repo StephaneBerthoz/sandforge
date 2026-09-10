@@ -2,7 +2,7 @@
 
 <!-- badges:start -->
 
-[![Version](https://img.shields.io/badge/version-1.20.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
+[![Version](https://img.shields.io/badge/version-1.21.0-blue)](https://marketplace.visualstudio.com/items?itemName=StephaneBerthoz.sandforge)
 ![TypeScript](https://img.shields.io/badge/typescript-strict-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Languages](https://img.shields.io/badge/i18n-6%20languages-orange)
