@@ -18,7 +18,7 @@
     "test:docs": "vitest run",
     "test:gates": "node --test README.test.mjs \"scripts/*.test.mjs\" \"docs/*.test.mjs\"",
     "test:coverage": "pnpm -r test:coverage",
-    "validate": "pnpm build:shared && pnpm typecheck && pnpm lint && pnpm test && pnpm test:docs && pnpm test:gates && pnpm audit:disposables && pnpm audit:orphans && pnpm audit:test-siblings && pnpm check:i18n && pnpm build",
+    "validate": "pnpm format:check && pnpm build:shared && pnpm typecheck && pnpm lint && pnpm knip && pnpm test:coverage && pnpm test:docs && pnpm test:gates && pnpm audit:disposables && pnpm audit:orphans && pnpm audit:test-siblings && pnpm check:i18n && pnpm build",
     "knip": "knip",
     "stryker": "stryker run",
     "stryker:incremental": "stryker run --incremental",

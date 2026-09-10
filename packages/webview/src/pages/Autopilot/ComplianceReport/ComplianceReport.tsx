@@ -34,16 +34,15 @@ export const ComplianceReport: React.FC = () => {
   // was `undefined`, and the whole thing landed in the ErrorBoundary as
   // "Something went wrong". The component test never saw it because it mocks
   // `useBridgeQuery` and hands it an already-unwrapped report.
-  const {
-    data,
-    loading,
-    error,
-    refetch,
-  } = useBridgeQuery<{ report: ComplianceReportData }>('autopilot:compliance-report', undefined, {
-    responseType: 'autopilot:compliance-report',
-    errorType: 'autopilot:error',
-    timeoutMs: 60_000,
-  });
+  const { data, loading, error, refetch } = useBridgeQuery<{ report: ComplianceReportData }>(
+    'autopilot:compliance-report',
+    undefined,
+    {
+      responseType: 'autopilot:compliance-report',
+      errorType: 'autopilot:error',
+      timeoutMs: 60_000,
+    },
+  );
   const report = data?.report;
 
   /** Export the fetched report as JSON. */
