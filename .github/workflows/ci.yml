@@ -72,7 +72,7 @@ jobs:
       # Raising the timeout let it run, and 35 of its 83 tests failed. Not for
       # a reason the platform explains: the same 35 fail on Linux, on Windows
       # and locally, because seven spec files drive a navigation sidebar
-      # deleted in 1.10. `data-testid="sidebar"` is asserted by six specs and
+      # deleted in 1.8.0. `data-testid="sidebar"` is asserted by six specs and
       # rendered by no source file. Nothing caught it because nothing ever
       # ran it — which is the whole argument for keeping this leg alive.
       #
