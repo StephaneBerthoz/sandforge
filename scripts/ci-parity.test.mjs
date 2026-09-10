@@ -22,12 +22,47 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const WORKFLOW_DIR = join(root, '.github', 'workflows');
-const ciYaml = readFileSync(join(WORKFLOW_DIR, 'ci.yml'), 'utf8');
+/**
+ * A workflow's text with its comments removed.
+ *
+ * Without this, commenting a step out still counted as running it: `#  pnpm
+ * check:screenshots` satisfied both directions of the parity check while the
+ * gate ran nowhere. The gate that guards every other gate is the last place
+ * that can afford to accept a mention as proof of execution.
+ *
+ * `#` opens a comment in YAML and in the shell of a `run:` block alike, so
+ * cutting from the first unquoted `#` to end of line covers both. Erring
+ * toward cutting is safe here: a dropped invocation is reported as missing,
+ * which fails loudly, while a kept comment fails silently.
+ */
+const withoutComments = (yaml) =>
+  yaml
+    .split('\n')
+    .map((line) => {
+      let quote = null;
+      for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i];
+        if (quote) {
+          if (ch === quote) quote = null;
+        } else if (ch === '"' || ch === "'") {
+          quote = ch;
+        } else if (ch === '#') {
+          return line.slice(0, i);
+        }
+      }
+      return line;
+    })
+    .join('\n');
+
+const ciYaml = withoutComments(readFileSync(join(WORKFLOW_DIR, 'ci.yml'), 'utf8'));
 
 /** Workflow files that run on push or pull_request, with their contents. */
 const blockingWorkflows = readdirSync(WORKFLOW_DIR)
   .filter((f) => f.endsWith('.yml'))
-  .map((file) => ({ file, yaml: readFileSync(join(WORKFLOW_DIR, file), 'utf8') }))
+  .map((file) => ({
+    file,
+    yaml: withoutComments(readFileSync(join(WORKFLOW_DIR, file), 'utf8')),
+  }))
   .filter(({ yaml }) => /^\s+(push|pull_request):/m.test(yaml.slice(0, yaml.indexOf('jobs:'))));
 
 /**
@@ -162,5 +197,70 @@ test('every gate a blocking workflow runs is reachable from `pnpm validate`', ()
       `${[...new Set(missing)].join(', ')}. Add them to \`validate\`, or stop ` +
       `blocking on them — a gate you cannot run before pushing is a gate that ` +
       `fails after pushing.`,
+  );
+});
+
+/**
+ * Every workflow file's text, blocking or not.
+ *
+ * `release.yml` is dispatch-only, so it is deliberately absent from
+ * `blockingWorkflows` above — but a gate it runs is still a gate that runs.
+ * The sweep below needs "invoked by anything", not "invoked on push".
+ */
+const allWorkflowYaml = readdirSync(WORKFLOW_DIR)
+  .filter((f) => f.endsWith('.yml'))
+  .map((file) => readFileSync(join(WORKFLOW_DIR, file), 'utf8'))
+  .join('\n');
+
+/**
+ * Root scripts reachable from an entry point, following `pnpm <name>` edges.
+ *
+ * Entry points are the script names a workflow spells out. Everything else is
+ * reachable only by being called: `audit:orphans` runs because `validate` runs
+ * it and `release.yml` runs `validate`. A script no chain reaches is a script
+ * nothing executes.
+ */
+const reachableScripts = () => {
+  const declared = new Set(Object.keys(pkg.scripts));
+  const queue = [...pnpmTargets(allWorkflowYaml)].filter((name) => declared.has(name));
+  const reached = new Set();
+  while (queue.length > 0) {
+    const name = queue.pop();
+    if (reached.has(name)) continue;
+    reached.add(name);
+    for (const next of pnpmTargets(pkg.scripts[name])) {
+      if (declared.has(next) && !reached.has(next)) queue.push(next);
+    }
+  }
+  return reached;
+};
+
+test('every `check:*` / `audit:*` gate is reachable from something that runs', () => {
+  // The hole the two tests above leave open, and it was occupied. Those tests
+  // compare `validate` against the workflows — both directions — so they only
+  // ever see a gate that at least one of the two sides names. `check:links`
+  // and `check:screenshots` were named by neither: declared in package.json,
+  // called by no script and no workflow. Written, green, never executed, and
+  // invisible to the gate whose whole job is catching that.
+  //
+  // Reachability, not mere mention: a gate wired into a script that itself
+  // runs nowhere is still a gate that never runs.
+  const gates = Object.keys(pkg.scripts).filter((name) => /^(?:check|audit):/.test(name));
+  assert.ok(
+    gates.length >= 4,
+    `expected the repo's check:*/audit:* gates, found ${gates.length} — ` +
+      `the naming convention moved and this sweep is now aimed at nothing`,
+  );
+
+  const reached = reachableScripts();
+  const unreachable = gates.filter((gate) => !reached.has(gate));
+
+  assert.deepEqual(
+    unreachable,
+    [],
+    `these gates are declared in package.json and invoked by nothing: ` +
+      `${unreachable.join(', ')}. Wire each into \`validate\`, into another ` +
+      `script a workflow runs, or into a workflow — or delete it. A gate no ` +
+      `chain reaches is documentation, not a check.`,
   );
 });

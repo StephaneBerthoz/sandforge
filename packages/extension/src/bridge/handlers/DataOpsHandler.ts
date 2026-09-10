@@ -103,6 +103,30 @@ const DATAOPS_TYPES = new Set([
   'precheck:pii-scan',
 ]);
 
+/** How many rejected rows are echoed back: an org repeats a handful of reasons. */
+const DML_ERROR_SAMPLE_LIMIT = 10;
+
+/**
+ * The three words Seed, Sync and Clone already use for a write that did not
+ * fully land. Reused here rather than invented: a restore or a masking run
+ * that only partly succeeded is the same event those modules name `partial`.
+ */
+function dmlStatus(succeeded: number, failed: number): 'success' | 'partial' | 'failure' {
+  if (failed === 0) return 'success';
+  if (succeeded === 0) return 'failure';
+  return 'partial';
+}
+
+/** Append a bounded sample of what the org said about a rejected row. */
+function collectDmlError(
+  sink: Array<{ objectApiName: string; message: string }>,
+  objectApiName: string,
+  errors: Array<{ message: string }> | undefined,
+): void {
+  if (sink.length >= DML_ERROR_SAMPLE_LIMIT) return;
+  sink.push({ objectApiName, message: errors?.[0]?.message ?? 'Unknown DML error' });
+}
+
 /**
  * Domain handler for DataOps-related webview-to-extension messages.
  *
@@ -654,6 +678,8 @@ export class DataOpsHandler implements DomainHandler {
       );
 
       let totalRestored = 0;
+      let totalFailed = 0;
+      const restoreErrors: Array<{ objectApiName: string; message: string }> = [];
       for (let i = 0; i < backupMeta.objects.length; i++) {
         const obj = backupMeta.objects[i];
         const safeObj = sanitizeSoqlObjectName(obj.objectApiName);
@@ -734,6 +760,7 @@ export class DataOpsHandler implements DomainHandler {
         type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
         const batchSize = 200;
         let successCount = 0;
+        let failureCount = 0;
         for (let j = 0; j < records.length; j += batchSize) {
           const batch = records.slice(j, j + batchSize);
           const cleaned = batch.map((r) => {
@@ -754,10 +781,22 @@ export class DataOpsHandler implements DomainHandler {
               'Id',
             )) as unknown as JsforceResult[];
           const arr = Array.isArray(results) ? results : [results];
-          successCount += arr.filter((r) => r.success).length;
+          // Only the successes used to be counted, so a row the org refused
+          // (validation rule, required field, trigger) vanished between the
+          // upsert and the report. `errors` was declared above and read by
+          // no one.
+          for (const r of arr) {
+            if (r.success) {
+              successCount++;
+              continue;
+            }
+            failureCount++;
+            collectDmlError(restoreErrors, safeObj, r.errors);
+          }
         }
         checkApiLimits(conn.limitInfo, `dataops:rollback upsert ${safeObj}`);
         totalRestored += successCount;
+        totalFailed += failureCount;
 
         sendOperationProgress(
           this.deps,
@@ -769,17 +808,35 @@ export class DataOpsHandler implements DomainHandler {
         );
       }
 
-      sendOperationCompleted(this.deps, rollbackOpId, { totalRestored });
+      const status = dmlStatus(totalRestored, totalFailed);
+      sendOperationCompleted(this.deps, rollbackOpId, { status, totalRestored, totalFailed });
       this.dmlTracker.markCompleted(rollbackOpId);
 
+      const message =
+        totalFailed === 0
+          ? `Rollback completed: ${totalRestored} records restored`
+          : `Rollback ${status}: ${totalRestored} restored, ${totalFailed} rejected by the org`;
       const response = buildResponse(this.deps, msg, 'dataops:rollback:response', {
         operationId: payload.operationId,
-        status: 'success',
-        message: `Rollback completed: ${totalRestored} records restored`,
+        status,
+        message,
         totalRestored,
+        totalFailed,
+        errors: restoreErrors,
       });
       this.deps.broker.postToWebview(response);
-      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
+      // The DataOps page reads only the error and notification channels: a
+      // `partial` left in the response alone is as invisible as the count that
+      // was dropped.
+      if (totalFailed > 0) {
+        sendNotification(
+          this.deps,
+          status === 'failure' ? 'error' : 'warning',
+          'Restore',
+          `${message}${restoreErrors[0] ? ` — e.g. ${restoreErrors[0].message}` : ''}`,
+        );
+      }
     } catch (err: unknown) {
       this.dmlTracker.markFailed(rollbackOpId);
       // Dual channel, single display (see handleBackup).
@@ -885,6 +942,8 @@ export class DataOpsHandler implements DomainHandler {
           .map((r) => r.fieldPattern.split('.')[0])
           .filter((v, i, a) => a.indexOf(v) === i);
       let totalProcessed = 0;
+      let totalFailed = 0;
+      const maskErrors: Array<{ objectApiName: string; message: string }> = [];
 
       for (let oi = 0; oi < objects.length; oi++) {
         const objectName = objects[oi];
@@ -951,6 +1010,7 @@ export class DataOpsHandler implements DomainHandler {
         type JsforceResult = { success: boolean; id?: string; errors?: Array<{ message: string }> };
         const batchSize = 200;
         let successCount = 0;
+        let failureCount = 0;
         for (let bi = 0; bi < anonymized.length; bi += batchSize) {
           const batch = anonymized.slice(bi, bi + batchSize);
           const updateResults = (await conn
@@ -959,11 +1019,19 @@ export class DataOpsHandler implements DomainHandler {
               batch as Array<Record<string, unknown> & { Id: string }>,
             )) as unknown as JsforceResult[];
           checkApiLimits(conn.limitInfo, `dataops:anonymize update ${objectName}`);
-          successCount += (Array.isArray(updateResults) ? updateResults : [updateResults]).filter(
-            (r) => r.success,
-          ).length;
+          // Same dropped count as the restore: a record the org refuses keeps
+          // its real PII, and reporting only the successes hid exactly that.
+          for (const r of Array.isArray(updateResults) ? updateResults : [updateResults]) {
+            if (r.success) {
+              successCount++;
+              continue;
+            }
+            failureCount++;
+            collectDmlError(maskErrors, safeObj, r.errors);
+          }
         }
         totalProcessed += successCount;
+        totalFailed += failureCount;
 
         sendOperationProgress(
           this.deps,
@@ -975,16 +1043,32 @@ export class DataOpsHandler implements DomainHandler {
         );
       }
 
-      sendOperationCompleted(this.deps, operationId, { totalProcessed });
+      const status = dmlStatus(totalProcessed, totalFailed);
+      sendOperationCompleted(this.deps, operationId, { status, totalProcessed, totalFailed });
 
+      const message =
+        totalFailed === 0
+          ? `Anonymization completed: ${totalProcessed} records processed.`
+          : `Anonymization ${status}: ${totalProcessed} masked, ${totalFailed} rejected by the org` +
+            ' — those records still hold their original values.';
       const response = buildResponse(this.deps, msg, 'dataops:anonymize:response', {
         templateId: payload.templateId,
-        status: 'success',
+        status,
         recordsProcessed: totalProcessed,
-        message: `Anonymization completed: ${totalProcessed} records processed.`,
+        recordsFailed: totalFailed,
+        message,
+        errors: maskErrors,
       });
       this.deps.broker.postToWebview(response);
-      this.deps.log(`[TX] ${response.type} id=${response.id}`);
+      this.deps.log(`[TX] ${response.type} id=${response.id} status=${status}`);
+      if (totalFailed > 0) {
+        sendNotification(
+          this.deps,
+          status === 'failure' ? 'error' : 'warning',
+          'Anonymize',
+          `${message}${maskErrors[0] ? ` — e.g. ${maskErrors[0].message}` : ''}`,
+        );
+      }
     } catch (err: unknown) {
       // Dual channel, single display (see handleBackup).
       sendHandlerError(

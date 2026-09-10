@@ -6,6 +6,7 @@ import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { ComingSoon } from '../../components/ui/ComingSoon';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
 import { cn } from '../../theme';
 import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
@@ -364,33 +365,58 @@ export const MonitorPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── Job Insights (critical alerts at top) ── */}
-      {jobInsights.filter((i) => i.severity === 'critical').length > 0 && (
-        <div className="flex flex-col gap-2">
-          {jobInsights
-            .filter((i) => i.severity === 'critical')
-            .map((insight, idx) => (
-              <div
-                key={`${insight.type}-${idx}`}
-                className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2"
-              >
-                <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-text-primary">{insight.title}</span>
-                  <span className="text-xs text-text-secondary ml-2">{insight.detail}</span>
+      {/* ── Job Insights (critical alerts at top) ──
+
+          `jobInsights` has no producer. The sole emitter of `monitor:data`
+          (MonitorOpsHandler.ts) builds its payload without the field, and the
+          JobAnalyzer its type doc names exists in no package — so the array is
+          always empty and this band has never rendered once. An empty band is
+          not neutral: a dashboard that shows no critical alert is read as "no
+          critical problem", which is precisely the reassurance nothing here
+          earned. docs/modules/monitor.md still promises both the red banners
+          and the Abort button.
+
+          So the empty case says so, the way the four other unbuilt surfaces
+          do. The band itself stays: it is correct code for a payload the
+          shared contract declares, and the day the producer lands it renders
+          without a change here — which is also why the notice keys off "no
+          insight at all" rather than "no critical insight".
+
+          The copy reuses `monitor.abortJob`: the catalogue holds no key
+          describing stuck-job detection, and adding one is not on the table
+          (check:i18n's unreferenced-key ratchet is pinned at zero and parity
+          is enforced across six locales). "Abort Job" at least names the one
+          capability this band uniquely carries. ── */}
+      {jobInsights.length === 0 ? (
+        <ComingSoon data-testid="monitor-job-insights-soon" description={t('monitor.abortJob')} />
+      ) : (
+        jobInsights.filter((i) => i.severity === 'critical').length > 0 && (
+          <div className="flex flex-col gap-2">
+            {jobInsights
+              .filter((i) => i.severity === 'critical')
+              .map((insight, idx) => (
+                <div
+                  key={`${insight.type}-${idx}`}
+                  className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2"
+                >
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium text-text-primary">{insight.title}</span>
+                    <span className="text-xs text-text-secondary ml-2">{insight.detail}</span>
+                  </div>
+                  {insight.type === 'stuck' && insight.affectedJobs.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleAbortJob(insight.affectedJobs[0])}
+                    >
+                      {t('monitor.abortJob', 'Abort')}
+                    </Button>
+                  )}
                 </div>
-                {insight.type === 'stuck' && insight.affectedJobs.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleAbortJob(insight.affectedJobs[0])}
-                  >
-                    {t('monitor.abortJob', 'Abort')}
-                  </Button>
-                )}
-              </div>
-            ))}
-        </div>
+              ))}
+          </div>
+        )
       )}
 
       <AnimatePresence mode="wait">

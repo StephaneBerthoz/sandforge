@@ -424,4 +424,99 @@ describe('useMessageResponse', () => {
       expect(result.current.data).toEqual({ orgs: ['a'] });
     });
   });
+
+  describe('error attribution across concurrent requests of one domain', () => {
+    // useBridgeQuery and useBridgeMutation both default `errorType` to
+    // `<domain>:error`, so every hook of a domain is subscribed to the same
+    // error channel at once. Who owns a given error is decided here and
+    // nowhere else.
+    const syncOptions: UseMessageResponseOptions = {
+      requestType: 'sync:execute',
+      responseType: 'sync:execute:response',
+      timeoutMs: 5000,
+      requestLabel: 'mutation',
+      errorType: 'sync:error',
+    };
+
+    it('claims an error correlated to its own request, and closes the request', () => {
+      const { result } = renderHook(() => useMessageResponse<{ status: string }>(syncOptions));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-mine');
+      });
+
+      act(() => {
+        simulateResponse('sync:error', { message: 'sync failed' }, 'req-mine');
+      });
+
+      expect(result.current.error).toBe('sync failed');
+      expect(result.current.loading).toBe(false);
+
+      // Correlated means certain: the request is over and nothing revives it.
+      act(() => {
+        simulateResponse('sync:execute:response', { status: 'success' }, 'req-mine');
+      });
+
+      expect(result.current.data).toBeNull();
+      expect(result.current.error).toBe('sync failed');
+    });
+
+    it('never claims an error correlated to another request', () => {
+      const { result } = renderHook(() => useMessageResponse<{ status: string }>(syncOptions));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-mine');
+      });
+
+      act(() => {
+        simulateResponse('sync:error', { message: 'describe failed on Account' }, 'req-describe');
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.loading).toBe(true);
+
+      act(() => {
+        simulateResponse('sync:execute:response', { status: 'success' }, 'req-mine');
+      });
+
+      expect(result.current.data).toEqual({ status: 'success' });
+    });
+
+    it('shows an uncorrelated error provisionally, and lets its own response override it', () => {
+      // 85 of the 121 `sendHandlerError` call sites omit the optional
+      // `request` argument — including all 10 in SyncOpsHandler and the one
+      // in `validatePayload` that rejects a payload in every domain — so
+      // their error carries no correlationId and nothing in the webview can
+      // tell whose failure it is. Dropping those
+      // would trade a wrong message for no message at all (a 30 s timeout),
+      // so an uncorrelated error is still displayed — but provisionally: it
+      // must NOT release the request, or the answer this hook is actually
+      // waiting for is thrown away when it finally arrives.
+      const { result } = renderHook(() => useMessageResponse<{ status: string }>(syncOptions));
+
+      act(() => {
+        result.current.setLoading(true);
+        result.current.listen('req-execute');
+      });
+
+      // Another Sync request fails mid-run — a field describe, uncorrelated.
+      act(() => {
+        simulateResponse('sync:error', { message: 'describe failed on Account' });
+      });
+
+      expect(result.current.error).toBe('describe failed on Account');
+
+      // The multi-minute sync then finishes. Its own response must still be
+      // accepted, and must clear the verdict it never earned.
+      act(() => {
+        simulateResponse('sync:execute:response', { status: 'success' }, 'req-execute');
+      });
+
+      expect(result.current.data).toEqual({ status: 'success' });
+      expect(result.current.error).toBeNull();
+      expect(result.current.loading).toBe(false);
+    });
+  });
 });

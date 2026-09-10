@@ -1,7 +1,7 @@
 import type { BaseMessage } from '@sandforge/shared';
 
 import { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
-import { fileSavePayloadSchema, validatePayload } from '../validatePayload.js';
+import { fileSavePayloadSchema } from '../validatePayload.js';
 import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 
@@ -45,8 +45,28 @@ export class FileHandler implements DomainHandler {
 
   private async handleSave(msg: BaseMessage): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(fileSavePayloadSchema, msg, 'file:save:response', this.deps);
-    if (!parsed) return;
+    // NOT `validatePayload`: its 3rd argument is the ERROR channel, and this
+    // handler passed it `file:save:response` — the SUCCESS channel. A refused
+    // payload (an export over the 32 MB bound, say) therefore left as
+    // `{ message, code, retryable }`, uncorrelated, on the channel
+    // `useFileSave` reads as an outcome union. No `status` matches, so it fell
+    // through to the success branch: a green "Saved to undefined" for a file
+    // that was never written. This domain declares no `file:error` channel —
+    // a failed save is the response's own `status: 'error'` variant (see
+    // FileSaveResponse), which is what goes out here, correlated like any
+    // other answer.
+    const result = fileSavePayloadSchema.safeParse((msg as { payload?: unknown }).payload);
+    if (!result.success) {
+      const summary = result.error.issues
+        .slice(0, 3)
+        .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
+        .join('; ');
+      const refused = { status: 'error' as const, message: `Invalid payload — ${summary}` };
+      this.deps.log(`[FileHandler] save ${refused.status}: ${refused.message}`);
+      this.deps.broker.postToWebview(buildResponse(this.deps, msg, 'file:save:response', refused));
+      return;
+    }
+    const parsed = result.data;
 
     const outcome = await this.saveDialog.save(
       parsed.suggestedName,
