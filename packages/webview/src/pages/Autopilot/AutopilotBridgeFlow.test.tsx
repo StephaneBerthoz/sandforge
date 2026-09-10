@@ -321,7 +321,13 @@ describe('Autopilot bridge flow', () => {
     fireEvent.click(screen.getByTestId('view-compliance-report'));
     expect(lastRequestOfType('autopilot:compliance-report')).toBeDefined();
 
-    respondTo('autopilot:compliance-report', 'autopilot:compliance-report', REPORT);
+    // `{ report }`, because that is what AutopilotHandler posts and what
+    // `AutopilotComplianceReportReady` declares. Answering with a bare REPORT
+    // is how the panel shipped broken: this flow test was green against a
+    // message shape the extension has never once emitted.
+    respondTo('autopilot:compliance-report', 'autopilot:compliance-report', {
+      report: REPORT,
+    });
     expect(screen.getByTestId('compliance-report')).toBeDefined();
     expect(screen.getByTestId('report-framework').textContent).toContain('GDPR');
     expect(screen.getByText('gdpr-email')).toBeDefined();

@@ -28,16 +28,23 @@ const FRAMEWORK_LABELS: Record<ComplianceFrameworkType, string> = {
 export const ComplianceReport: React.FC = () => {
   const { save } = useFileSave();
   const { t } = useTranslation();
+  // The handler answers with the report inside an envelope — `{ report }` —
+  // which is what `AutopilotComplianceReportReady` declares. Reading the
+  // payload as the report itself crashed the panel on open: `report.entries`
+  // was `undefined`, and the whole thing landed in the ErrorBoundary as
+  // "Something went wrong". The component test never saw it because it mocks
+  // `useBridgeQuery` and hands it an already-unwrapped report.
   const {
-    data: report,
+    data,
     loading,
     error,
     refetch,
-  } = useBridgeQuery<ComplianceReportData>('autopilot:compliance-report', undefined, {
+  } = useBridgeQuery<{ report: ComplianceReportData }>('autopilot:compliance-report', undefined, {
     responseType: 'autopilot:compliance-report',
     errorType: 'autopilot:error',
     timeoutMs: 60_000,
   });
+  const report = data?.report;
 
   /** Export the fetched report as JSON. */
   const handleExportJson = useCallback((): void => {
