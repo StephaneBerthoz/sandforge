@@ -1,80 +1,82 @@
-# Frozen Reference Dataset (jeu de référence figé)
+# Frozen Dataset
 
-Extraire **une fois** un jeu de données métier depuis une sandbox de recette, le **pseudonymiser de façon déterministe**, le figer (manifest + empreinte de sel), puis le **recharger à l'identique** après chaque refresh de sandbox dev, avec contrôle de non-réidentification avant versionnement et vérification post-chargement.
+Extract a business dataset from a UAT sandbox **once**, pseudonymize it deterministically, freeze it (manifest + salt fingerprint), then **replay it identically** after every dev sandbox refresh -- with a non-reidentification gate before versioning and a verification pass after loading.
 
-Cas d'usage : après un refresh de sandbox Developer (métadonnées mais zéro record), obtenir en une commande un jeu de dossiers réalistes couvrant les parcours fonctionnels, sans jamais embarquer de donnée identifiante.
+Typical case: a Developer sandbox refresh leaves you with metadata and zero records. Frozen Dataset gives you back a realistic set of root records covering your functional paths in one run, without ever shipping identifying data.
 
-## Démarrage rapide
+## Quick Start
 
-1. Ouvrir **Frozen Dataset** depuis la sidebar (ou `SandForge: Open Frozen Dataset` dans la palette)
-2. Onglet **Extraire** : renseigner l'objet racine, les axes de couverture et le budget, puis **Enregistrer la configuration**
-3. Poser le sel : `export SANDFORGE_FROZEN_SALT="<secret-stable>"` (jamais dans le dépôt) et créer le fichier de règles de pseudonymisation
-4. **Lancer la sélection** (matrice de couverture) puis **Lancer l'extraction**. Le contrôle 4 points doit être PASS pour que le jeu soit écrit
-5. Onglet **Charger** : choisir la sandbox cible, option **Pilote** (1 dossier) pour un premier test, **Lancer le chargement**. La vérification post-chargement est chaînée automatiquement
+1. Open **Frozen Dataset** from the sidebar (or `SandForge: Open Frozen Dataset` from the command palette)
+2. **Extract** tab: fill in the root object, the coverage axes and the volume budget, then **Save configuration**
+3. Set the salt -- `export SANDFORGE_FROZEN_SALT="<stable-secret>"` (never in the repository) -- and create the pseudonymization rules file
+4. **Run selection** (coverage matrix), then **Run extraction**. The 4-point control must return PASS for the dataset to be written
+5. **Load** tab: pick the target sandbox, tick **Pilot** to try a single root graph first, then **Run load**. Post-load verification is chained automatically
 
-## Flux d'extraction
+## Features
 
-1. **Sélection par matrice de couverture** (pas d'échantillon aléatoire) : chaque axe est une requête SOQL d'agrégat configurable ; le module énumère les **combinaisons observées** dans l'org source et retient **un dossier racine sain par combinaison** (graphe complet via le discovery Forge, pas de dossier boiteux), plus un par cas limite déclaré. Le budget de volumétrie (défaut 2 500 records) est **vérifié mécaniquement** : refus au-delà.
-2. **Extraction scope-aware** : réutilise `RecordScopeCache` + `ScopedSoqlBuilder` (descendance complète + référentiel nécessaire, pas de `SELECT *`), avec une borne de date figée (`CreatedDate <= asOf`) et `rt-map.json` produit dans le sas.
-3. **Pseudonymisation déterministe** : `HMAC-SHA256(sel, "générateur|valeur")` : la même valeur produit la même sortie quel que soit l'objet porteur, donc les jointures inter-objets survivent. `RecordTypeId` est remplacé par le **Name** du RecordType (résolution côté cible par **DeveloperName**, jamais par label).
-4. **Contrôle de non-réidentification (gate)** : 4 points. Substitution effective (y compris fuite transversale dans un autre champ du même record), champs `clear` vides, formats conservés (SIV, E.164, email, CP généralisé), zéro Id source résiduel (checksum Salesforce 18 caractères). **Un FAIL = rien n'est écrit ni versionné.**
-5. **Manifest** : version semver, `status: frozen`, source (org + date de décision), empreinte du sel (SHA-256, 12 hex, jamais le sel), version des règles, volumétrie (plafond + mesuré), résultats des contrôles.
+### Extraction Flow
 
-## Flux de chargement (rejouable)
+1. **Coverage-matrix selection** (no random sampling): each axis is a configurable SOQL aggregate query; the module enumerates the **combinations actually observed** in the source org and keeps **one healthy root graph per combination** (complete graph via Forge discovery -- never a partial root), plus one per declared edge case. The volume budget (2,500 records by default) is **enforced mechanically**: anything above it is refused.
+2. **Scope-aware extraction**: reuses `RecordScopeCache` and `ScopedSoqlBuilder` (full descendants plus the reference data they need, never `SELECT *`), with a frozen date bound (`CreatedDate <= asOf`) and an `rt-map.json` written to the sas.
+3. **Deterministic pseudonymization**: `HMAC-SHA256(salt, "generator|value")`. The same input value produces the same output whatever object carries it, so cross-object joins survive. `RecordTypeId` is replaced by the RecordType **Name**, resolved on the target by **DeveloperName**, never by label.
+4. **Non-reidentification control (gate)**: 4 checks -- substitution actually applied (including a value leaking into another field of the same record), fields under the `clear` generator left empty, shapes preserved (`registrationSIV`, `phoneE164`, `email`, `postalCodeGeneralize`), and zero residual source ID (18-character Salesforce checksum). **One FAIL and nothing is written or versioned.**
+5. **Manifest**: semver version, `status: frozen`, source (org + decision date), salt fingerprint (SHA-256, 12 hex -- never the salt), rules version, volumetry (ceiling + measured), control results.
 
-Gardes d'entrée (refus actionnables, jamais de DML sur la source) :
+### Load Flow (Replayable)
 
-- **sandbox uniquement** (tier Production Guard) ;
-- **environnements protégés** configurés refusés, ainsi que l'org source du manifest ;
-- **callouts mockés** : détection par custom metadata (`mockDetection`) : quand elle n'est pas configurée, la garde est explicitement désactivée et signalée dans l'onglet ;
-- **jeu vide** refusé.
+Entry guards refuse with an actionable message, and never issue DML against the source:
 
-Puis : alignement de schéma (champs absents retirés **en les listant**, picklists restreintes y compris écarts d'affectation par RecordType via l'UI API), **placeholders techniques** pour les lookups devenus requis (jamais d'exclusion silencieuse), insert en 2 passes (FK de cycle), **post-load PersonContact** (sidecar `referenceId → referenceId` résolu en updates ciblés), et persistance du mapping `referenceId → Id` dans le sas.
+- **sandbox only** (Production Guard tier check);
+- configured **protected environments** are refused, as is the source org recorded in the manifest;
+- **mocked callouts**: detected through custom metadata (`mockDetection`); when it is not configured the guard is explicitly disabled and reported in the tab;
+- an **empty dataset** is refused.
 
-**Rechargement sans refresh** : clés d'identité par objet (ExternalId, nom, paires composites) pour réutiliser l'existant, purge des résidus **enfants avant parents**, objets indélétables **désactivés** (champ configuré). Les rejets anti-doublon natifs de la cible sont un mode dégradé explicite : records **ignorés et listés**.
+Then: schema alignment (missing fields dropped **and listed**, restricted picklists including per-RecordType assignment gaps via the UI API), **technical placeholders** for lookups that became required on the target (never a silent exclusion), a two-pass insert for cycle FKs, a **post-load PersonContact** pass (sidecar `referenceId -> referenceId` resolved into targeted updates), and persistence of the `referenceId -> Id` mapping in the sas.
 
-**Pilote** : un seul dossier racine (~2 min) avant le chargement complet.
+**Reload without refresh**: per-object identity keys (ExternalId, name, composite pairs) let the load reuse existing records; leftovers are purged **children before parents**, and undeletable objects are **deactivated** through a configured field. Native duplicate rejections on the target are an explicit degraded mode: those records are **skipped and listed**.
 
-## Vérification post-chargement
+**Pilot**: a single root graph (~2 min) before committing to the full load.
 
-Lecture seule, chaînée au chargement (ou relancée via **Re-vérifier**) : comptages par objet vs **contrat de comptage**, orphelins des lookups obligatoires, présence par clé (ExternalId), liens PersonContact restaurés. Robustesse : re-mesure jusqu'à **deux relevés identiques** avant verdict (`passed` / `failed` / `unstable`). Le verdict est consigné dans le manifest (`controls.dryRunLoad`).
+### Post-Load Verification
 
-## Configuration
+Read-only, chained to the load (or replayed with **Re-verify**): per-object counts against the **counting contract**, orphans on mandatory lookups, presence by key (ExternalId), restored PersonContact links. For robustness it re-measures until **two identical readings** before returning a verdict (`passed` / `failed` / `unstable`). The verdict is recorded in the manifest under `controls.dryRunLoad`.
 
-Configuration par projet persistée par l'extension (clés principales) :
+### Configuration
 
-| Clé                                       | Rôle                                                                                             |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `rootObject`                              | Objet racine (« dossier »)                                                                       |
-| `axes`                                    | Axes de couverture (`name`, `label`, `filterField`, `valuesSoql` agrégat avec alias `axisValue`) |
-| `edgeCases`                               | Cas limites (`whereFragment`, marqueur en données)                                               |
-| `budgetMaxRecords`                        | Plafond de volumétrie (défaut 2 500)                                                             |
-| `expectedObjects`                         | Objets exigés dans le graphe pour qu'un dossier soit sain                                        |
-| `excludedFields`                          | Champs exclus du SELECT par objet                                                                |
-| `sasDir` / `datasetDir` / `rulesFilePath` | Chemins (défauts : `~/.sandforge-sas`, `<sas>/dataset`, `<sas>/rules.json`)                      |
-| `datasetVersion`                          | Semver du prochain jeu figé                                                                      |
-| `protectedOrgIds`                         | Environnements protégés (refusés au chargement)                                                  |
-| `identityKeys`                            | Clés d'identité par objet (réutilisation au rechargement)                                        |
-| `undeletableObjects`                      | Objet → champ de désactivation (résidus désactivés, pas supprimés)                               |
-| `requiredLookupPlaceholders`              | Placeholders `Object.field` (lookup requis absent du jeu)                                        |
-| `requiredFieldDefaults`                   | Valeurs par défaut déclarées `Object.field`                                                      |
-| `picklistRules` / `defaultPicklistRule`   | Retrait ou remplacement déclaré des valeurs refusées                                             |
-| `duplicateErrorPatterns`                  | Marqueurs d'erreurs anti-doublon natives                                                         |
-| `mockDetection`                           | Custom metadata + champ booléen `IsMocked`                                                       |
-| `mandatoryLookups` / `presenceKeys`       | Lookups obligatoires et clés de présence pour la vérification                                    |
+Per-project configuration persisted by the extension (main keys):
 
-L'onglet **Extraire** édite `rootObject`, le budget, les axes et les cas limites en formulaire ; tout le reste passe par la zone **Configuration avancée** (JSON).
+| Key                                       | Role                                                                                              |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `rootObject`                              | Root object API name                                                                              |
+| `axes`                                    | Coverage axes (`name`, `label`, `filterField`, `valuesSoql` aggregate with the `axisValue` alias) |
+| `edgeCases`                               | Edge cases (`whereFragment`, marker in the data)                                                  |
+| `budgetMaxRecords`                        | Volumetry ceiling (default 2,500)                                                                 |
+| `expectedObjects`                         | Objects a root graph must contain to count as healthy                                             |
+| `excludedFields`                          | Per-object fields excluded from the SELECT clause                                                 |
+| `sasDir` / `datasetDir` / `rulesFilePath` | Paths (defaults: `~/.sandforge-sas`, `<sas>/dataset`, `<sas>/rules.json`)                         |
+| `datasetVersion`                          | Semver stamped on the next frozen dataset                                                         |
+| `protectedOrgIds`                         | Protected environments (refused at load time)                                                     |
+| `identityKeys`                            | Per-object identity keys (reuse on reload)                                                        |
+| `undeletableObjects`                      | Object -> deactivation field (leftovers deactivated, not deleted)                                 |
+| `requiredLookupPlaceholders`              | `Object.field` placeholders (required lookup missing from the dataset)                            |
+| `requiredFieldDefaults`                   | Declared default values, keyed `Object.field`                                                     |
+| `picklistRules` / `defaultPicklistRule`   | Declared removal or replacement of rejected values                                                |
+| `duplicateErrorPatterns`                  | Markers of the target's native duplicate-rejection errors                                         |
+| `mockDetection`                           | Custom metadata + `IsMocked` boolean field                                                        |
+| `mandatoryLookups` / `presenceKeys`       | Mandatory lookups and presence keys used by the verification                                      |
 
-## Sécurité et sas
+The **Extract** tab edits `rootObject`, the budget, the axes and the edge cases through a form; everything else goes through the **Advanced configuration** JSON area.
 
-- Le **sas** (`~/.sandforge-sas` par défaut) est **hors dépôt par construction** : `SasPathGuard` refuse tout chemin de sortie situé dans le repo. La sélection (IDs source), `rt-map.json`, les tokens `{{JETON}}` (`tokens.json`) et le mapping `referenceId → Id` n'y quittent jamais.
-- Le **sel** vient uniquement de `SANDFORGE_FROZEN_SALT` ; seule son **empreinte** (12 hex) est consignée. Ne jamais régénérer un second sel en silence : le déterminisme inter-versions serait perdu.
-- Le bridge **redacte** : la sélection remontée à l'UI ne contient aucun Id source, et les détails de violations `clear-empty` (qui peuvent embarquer une valeur résiduelle) sont rédigés côté extension.
-- Toute la DML passe par le **Production Guard** existant (tier check + audit trail).
+### Security and the Quarantine Directory (Sas)
 
-## Limites
+- The **sas** (`~/.sandforge-sas` by default) is **outside the repository by construction**: `SasPathGuard` refuses any output path located inside the repo. The selection (source IDs), `rt-map.json`, the `{{TOKEN}}` values (`tokens.json`) and the `referenceId -> Id` mapping never leave it.
+- The **salt** comes from `SANDFORGE_FROZEN_SALT` and nowhere else; only its **fingerprint** (12 hex) is recorded. Never regenerate a second salt silently -- determinism across dataset versions would be lost.
+- The bridge **redacts**: the selection sent to the UI carries no source ID, and the details of `clear-empty` violations (which may embed a residual value) are redacted on the extension side.
+- All DML goes through the existing **Production Guard** (tier check + audit trail).
 
-- La sélection mesure la volumétrie en exécutant une **passe d'extraction réelle** sur les racines retenues (bornée par le budget), opération interactive, pas batch.
-- Sans `mockDetection` configuré, la garde « callouts mockés » est désactivée (affiché comme avertissement). La déployer avant tout chargement sur une org avec des callouts.
-- Le rechargement sans refresh exige des clés d'identité exploitables sur la cible (ExternalId recommandé).
-- Les valeurs de picklist hors affectation RecordType nécessitent l'**UI API** sur la cible (disponible sur les orgs récentes).
+## Limits
+
+- Selection measures volumetry by running a **real extraction pass** on the retained roots (bounded by the budget). It is an interactive operation, not a batch job.
+- Without `mockDetection` configured, the "mocked callouts" guard is disabled (shown as a warning). Deploy it before loading into an org that makes callouts.
+- Reload without refresh needs identity keys that are usable on the target (ExternalId recommended).
+- Picklist values outside the RecordType assignment require the **UI API** on the target (available on recent orgs).

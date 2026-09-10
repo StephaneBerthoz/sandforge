@@ -1,11 +1,10 @@
 /**
- * 1-hour soak harness (HARD-07, Plan 01-04-10).
+ * 1-hour soak harness.
  *
  * Exercises the adapters + orchestrator composition root with a fake VSCode
  * context, then runs a synthetic monitor-like loop for N minutes measuring
  * `process.memoryUsage().rss` every 10 min (or every `SAMPLE_INTERVAL_MINUTES`).
- * Emits the timeline to
- * `.planning/phases/01-hardening-foundations/01-04-SOAK-BASELINE.md`.
+ * Emits the timeline to `reports/soak-baseline.md`.
  *
  * The harness does NOT load the real VSCode extension — that requires
  * running inside the VSCode extension host. Instead it imports `createServices`
@@ -167,7 +166,7 @@ async function main(): Promise<void> {
   const delta = Math.round((endRss - startRss) * 100) / 100;
   const maxRss = Math.max(...samples.map((s) => s.rssMb));
 
-  const outPath = '.planning/phases/01-hardening-foundations/01-04-SOAK-BASELINE.md';
+  const outPath = 'reports/soak-baseline.md';
   mkdirSync(dirname(outPath), { recursive: true });
 
   const rows = samples
@@ -204,7 +203,6 @@ async function main(): Promise<void> {
     '',
     '- Harness exercises `createServices` with a fake VSCode `ExtensionContext` — no extension host required.',
     '- A `soak cycle` breadcrumb is emitted per iteration; on machines without the composition root available, an allocation loop keeps GC busy.',
-    '- Re-run after Phase 03 (Monitor v2 + MetricBus) for regression check.',
     '- This harness is NOT wired into CI by default — run locally or in nightly.',
     '',
   ];

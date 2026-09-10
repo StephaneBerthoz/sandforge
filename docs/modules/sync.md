@@ -1,6 +1,6 @@
 # Sync
 
-Synchronize data between two Salesforce orgs with full control over direction, field mapping, transforms, and conflict resolution.
+Synchronize data between two Salesforce orgs with field mapping, transforms, and conflict resolution.
 
 ## Quick Start
 
@@ -15,7 +15,11 @@ Synchronize data between two Salesforce orgs with full control over direction, f
 ### Org Selection and Configuration
 
 - **Source and Target Orgs** -- Select from your connected orgs with OrgBadge indicators
-- **3 Directions** -- Source-to-target, target-to-source, or bidirectional
+- **One write direction** -- Records always flow source to target. _Bidirectional_
+  reverses nothing: it adds a pass that reads the matching target records first
+  and applies the conflict strategy before the write, which still goes to the
+  target. _Target to source_ is offered in the selector but is not wired --
+  picking it runs the same source-to-target sync.
 - **Full Sync Only** -- Every run syncs the complete object set; mode selection returns when incremental, delta, and CDC are implemented
 - **5 Conflict Strategies** -- Source wins, target wins, newest wins, manual merge, or auto-merge
 
@@ -53,7 +57,9 @@ Before execution, the Review step shows:
 ### Execution and Results
 
 - Real-time progress bar with elapsed time
-- Sequential per-object execution; Grappe parallel execution is coming soon
+- Sequential per-object execution. With Grappe enabled, the run reports progress
+  one partition per object over that same sequential loop -- nothing is split and
+  nothing runs concurrently.
 - Per-object result breakdown: processed, succeeded, and failed counts
 - Detailed error messages per object for troubleshooting
 

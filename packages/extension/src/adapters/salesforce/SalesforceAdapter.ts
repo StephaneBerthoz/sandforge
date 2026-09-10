@@ -13,25 +13,25 @@ export interface SalesforceAdapterOptions {
 
 /**
  * SalesforceAdapter — gateway for jsforce IO. Currently exposes the per-org
- * `DescribeCache` (audit Perf #1 mitigation) and the concurrency gate handle
- * used for diagnostics.
+ * `DescribeCache` (which removes the repeat describe round-trips) and the
+ * concurrency gate handle used for diagnostics.
  *
- * IMPORTANT: this class is purely additive in Plan 01-01 — no existing callers
- * are migrated here. Plan 01-03 (DI) performs the gradual per-module migration.
+ * IMPORTANT: this class is purely additive — callers are moved onto it module
+ * by module rather than in one sweep, so nothing is migrated here.
  */
 export class SalesforceAdapter {
-  // Fields kept for downstream plans (DI wiring).
-  // @ts-expect-error reserved for downstream plans.
+  // Fields kept for the in-progress DI wiring.
+  // @ts-expect-error reserved for the DI wiring.
   private readonly storage: StorageAdapter;
-  // @ts-expect-error reserved for downstream plans.
+  // @ts-expect-error reserved for the DI wiring.
   private readonly telemetry: TelemetryAdapter;
   private readonly limiter: LimitFunction;
   /**
-   * Per-org `Describe` cache (Phase 03 Plan 03-03 — audit Perf #1).
+   * Per-org `Describe` cache.
    *
    * Wraps `describeFields(orgId, object)` calls with a TTL+LRU cache so the
-   * Forge executor (which calls describes twice per object) and the upcoming
-   * Drift v2 permission diff path (Plan 03-04) share a single warm cache.
+   * Forge executor (which calls describes twice per object) and the
+   * metadata-drift permission diff path share a single warm cache.
    *
    * Exposed as a public field so callers that already hold a jsforce
    * connection can route their describe through the cache:

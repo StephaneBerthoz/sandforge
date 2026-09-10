@@ -1,5 +1,5 @@
 /**
- * Disposable-hygiene audit (HARD-07, Plan 01-04-08).
+ * Disposable-hygiene audit.
  *
  * Walks every `.ts` file under `packages/extension/src/` (excluding tests,
  * type definitions, and node_modules) and finds registrations that *could*
@@ -17,8 +17,7 @@
  * (d) is returned from a `register*` / `subscribe*` function. Anything else
  * is reported as an orphan.
  *
- * The report goes to
- * `.planning/phases/01-hardening-foundations/01-04-DISPOSABLE-AUDIT.md`.
+ * The report goes to `reports/disposable-audit.md`.
  * Output is deterministic (no timestamps) and the file is only rewritten
  * when the content actually changes, so repeated runs don't dirty git status.
  *
@@ -302,7 +301,7 @@ function main(): void {
     byCategory.set(o.category, (byCategory.get(o.category) ?? 0) + 1);
   }
 
-  const outPath = '.planning/phases/01-hardening-foundations/01-04-DISPOSABLE-AUDIT.md';
+  const outPath = 'reports/disposable-audit.md';
   mkdirSync(dirname(outPath), { recursive: true });
 
   const lines: string[] = [

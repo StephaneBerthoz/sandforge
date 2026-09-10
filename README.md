@@ -18,7 +18,7 @@
 
 - **No config file to author.** Paste a record ID: BFS discovery walks the relationship graph for you and every lookup is remapped on write. No `export.json` to hand-write, no field mapping to keep in step with the schema.
 - **No mandatory CSV round-trip.** Records move org to org over the API. CSV import is still there when you want it — one door in, not the only one.
-- **Production Guard on by default.** Double confirmation before any write to a Production org, DELETE blocked outright, operations logged. Nothing to switch on, nothing to remember.
+- **Production Guard on by default.** Double confirmation before any write to a Production org, DELETE blocked outright. Nothing to switch on, nothing to remember.
 - **Your existing SFDMU config keeps working.** The Migration module imports an `export.json` into a Sync config, so what you already built comes with you.
 
 ---
@@ -39,24 +39,24 @@
 
 SandForge ships 14 modules in a single extension:
 
-| Module             | What it does                                                                                                                                                                                             |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Forge**          | Clone a record and its relationship graph between orgs, with BFS dependency discovery and automatic ID remapping                                                                                         |
-| **Frozen Dataset** | Extract once, pseudonymize deterministically, replay identically after every sandbox refresh                                                                                                             |
-| **Seed**           | Synthetic data from AI personas, templates, CSV import, or LLM-backed field rules                                                                                                                        |
-| **Sync**           | Bidirectional sync between orgs with field mapping, transforms, and conflict resolution                                                                                                                  |
-| **Monitor**        | API limits, jobs, storage, and health score in real time, with threshold alerts                                                                                                                          |
-| **Compare**        | Metadata diff, permission matrix, and drift detection across orgs                                                                                                                                        |
-| **DataOps**        | Org backup, restore from any backup, and PII anonymization templates _(compliance workflows and quality rules coming soon)_                                                                              |
-| **Automation**     | Visual pipeline builder with 15 step types and dry-run mode (scheduling and triggers coming soon)                                                                                                        |
-| **AI Assistant**   | NL2SOQL and failed-job diagnosis over 10 read-only tools                                                                                                                                                 |
-| **Grappe**         | Per-partition progress reporting for large Seed, Sync and Autopilot runs, behind `sandforge.grappe.enabled` (off by default). Execution itself is sequential — this splits the _reporting_, not the work |
-| **Migration**      | Import existing SFDMU `export.json` or CSV configurations into Sync configs                                                                                                                              |
-| **Autopilot**      | Zero-config sandbox seeding through a guided wizard, with GDPR, CCPA, HIPAA and PCI-DSS anonymization rule sets                                                                                          |
-| **Organizations**  | Org registry with SF CLI import and tier-based safety coloring                                                                                                                                           |
-| **Reports**        | Execution reports and success-rate analytics, built from your Forge and Sync run history _(audit trail and data lineage coming soon)_                                                                    |
+| Module             | What it does                                                                                                                                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Forge**          | Clone a record and its relationship graph between orgs, with BFS dependency discovery and automatic ID remapping                                                                                                                 |
+| **Frozen Dataset** | Extract once, pseudonymize deterministically, replay identically after every sandbox refresh                                                                                                                                     |
+| **Seed**           | Synthetic data from AI personas, templates, CSV import, or LLM-backed field rules                                                                                                                                                |
+| **Sync**           | Source-to-target sync between orgs with field mapping, transforms, and conflict resolution against the target                                                                                                                    |
+| **Monitor**        | API limits, jobs, storage, and health score in real time, with threshold alerts                                                                                                                                                  |
+| **Compare**        | Metadata diff, permission matrix, and drift detection across orgs                                                                                                                                                                |
+| **DataOps**        | Org backup, restore from any backup, and PII anonymization templates _(compliance workflows and quality rules coming soon)_                                                                                                      |
+| **Automation**     | Visual pipeline builder with 15 step types, sequenced with live progress. Only `delay` and `condition` act today — the other 13 report success without touching your org _(step execution, scheduling and triggers coming soon)_ |
+| **AI Assistant**   | NL2SOQL and failed-job diagnosis over 10 read-only tools                                                                                                                                                                         |
+| **Grappe**         | Per-partition progress reporting for large Seed, Sync and Autopilot runs, behind `sandforge.grappe.enabled` (off by default). Execution itself is sequential — this splits the _reporting_, not the work                         |
+| **Migration**      | Import existing SFDMU `export.json` or CSV configurations into Sync configs                                                                                                                                                      |
+| **Autopilot**      | Zero-config sandbox seeding through a guided wizard, with GDPR, CCPA, HIPAA and PCI-DSS anonymization rule sets                                                                                                                  |
+| **Organizations**  | Org registry with SF CLI import and tier-based safety coloring                                                                                                                                                                   |
+| **Reports**        | Execution reports and success-rate analytics, built from your Forge and Sync run history _(audit trail and data lineage coming soon)_                                                                                            |
 
-Safety is on by default: Production Guard requires double confirmation before any write on a Production org, blocks DELETE there, and keeps an audit trail of operations.
+Safety is on by default: Production Guard requires double confirmation before any write on a Production org and blocks DELETE there. Its safety-check decisions are held in memory for the session only — a persisted, readable audit trail is still to come.
 
 ---
 
@@ -69,11 +69,11 @@ Safety is on by default: Production Guard requires double confirmation before an
 | [Forge: Record-Scoped Architecture](docs/forge-record-scoped.md) | Internals of the scoped clone pipeline (BFS discovery, RecordType mapping, cycle 2-pass, orphan parent expansion) |
 | [Frozen Dataset](docs/modules/frozen-dataset.md)                 | Replayable reference datasets                                                                                     |
 | [Seed](docs/modules/seed.md)                                     | AI generation, CSV import, org-to-org cloning                                                                     |
-| [Sync](docs/modules/sync.md)                                     | Bidirectional data synchronization between orgs                                                                   |
+| [Sync](docs/modules/sync.md)                                     | Org-to-org data synchronization with field mapping and conflict resolution                                        |
 | [Monitor](docs/modules/monitor.md)                               | Real-time org health, API limits, and job tracking                                                                |
 | [Compare](docs/modules/compare.md)                               | Metadata diff, permission matrix, and drift detection                                                             |
 | [DataOps](docs/modules/dataops.md)                               | Backup, restore and anonymization (compliance and quality coming soon)                                            |
-| [Automation](docs/modules/automation.md)                         | Visual pipeline builder (scheduling and triggers coming soon)                                                     |
+| [Automation](docs/modules/automation.md)                         | Visual pipeline builder (step execution, scheduling and triggers coming soon)                                     |
 | [FAQ & Troubleshooting](docs/faq.md)                             | Common questions and solutions to frequent issues                                                                 |
 
 ---
@@ -121,7 +121,7 @@ Download `sandforge.vsix` from the [Releases](https://github.com/StephaneBerthoz
 
 ```bash
 git clone https://github.com/StephaneBerthoz/sandforge.git
-cd sand-forge
+cd sandforge
 pnpm install
 pnpm build
 pnpm package

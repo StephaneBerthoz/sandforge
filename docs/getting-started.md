@@ -109,10 +109,10 @@ Now that you are up and running, explore the full capabilities of each module:
 
 - [Forge](forge-quickstart.md) -- Record-scoped clone: populate a sandbox from a real record and its relationship graph
 - [Seed](modules/seed.md) -- AI generation, CSV import, and org-to-org cloning with templates and dependency resolution
-- [Sync](modules/sync.md) -- Bidirectional data synchronization between orgs
+- [Sync](modules/sync.md) -- Org-to-org data synchronization with field mapping and conflict resolution
 - [Monitor](modules/monitor.md) -- Real-time org health, API limits, and job tracking
 - [Compare](modules/compare.md) -- Metadata diff, permission matrix, and drift detection
-- [DataOps](modules/dataops.md) -- Backup, restore, anonymization, and data quality
-- [Automation](modules/automation.md) -- Visual pipeline builder with scheduling
+- [DataOps](modules/dataops.md) -- Backup, restore and anonymization (compliance and quality coming soon)
+- [Automation](modules/automation.md) -- Visual pipeline builder (step execution, scheduling and triggers coming soon)
 
 Have questions? Check the [FAQ and Troubleshooting](faq.md) guide.

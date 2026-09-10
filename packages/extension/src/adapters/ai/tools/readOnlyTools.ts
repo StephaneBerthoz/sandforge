@@ -2,11 +2,11 @@
  * 10 read-only tool builders.
  *
  * Each builder takes a generic `ToolDeps` and returns a `WrappedTool`. The
- * deps interface is intentionally minimal — the consume site (Plan 04-04
- * AIDiagnoseHandler) wires it to real SalesforceAdapter / monitor-services
+ * deps interface is intentionally minimal — the consume site
+ * (AIDiagnoseHandler) wires it to real SalesforceAdapter / monitor-services
  * surfaces. Tests inject mock deps.
  *
- * Plan 04-03 explicitly: tool naming + Zod I/O contracts are the must-haves;
+ * By design: tool naming + Zod I/O contracts are the must-haves here;
  * actual SF/Monitor wiring lives at the consume site.
  */
 import type { z } from 'zod';

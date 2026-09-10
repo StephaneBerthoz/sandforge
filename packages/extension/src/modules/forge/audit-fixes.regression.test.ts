@@ -1,8 +1,8 @@
 /**
- * Regression suite for the audit-pass-2 fixes (2026-04-30).
+ * Regression suite for the Forge audit fixes (2026-04-30).
  *
- * Each test pins one finding from `.planning/audit-forge-2026-04-30-v2.md`
- * — if a future refactor reverts the fix, this file goes red. Keeps the
+ * Each test pins one fixed defect — if a future refactor reverts the fix,
+ * this file goes red. Keeps the
  * suite focused on *behavior* rather than implementation, so cosmetic
  * refactors don't break it.
  */

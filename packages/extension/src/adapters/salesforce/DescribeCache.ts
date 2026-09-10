@@ -1,10 +1,10 @@
 /**
- * Phase 03 Plan 03-03 — DescribeCache (audit Perf #1).
+ * DescribeCache — per-org describe results behind a TTL + LRU cache.
  *
  * `ForgeExecutor.deps.describeFields(targetOrgId, ...)` was being called twice
- * per object on the target org without caching, and Plan 03-04 (Drift v2)
- * will issue describes for permission deltas. The cache lives at the adapter
- * layer so both paths benefit transparently.
+ * per object on the target org without caching, and the metadata-drift
+ * permission comparison needs the same describes. The cache lives at the
+ * adapter layer so both paths benefit transparently.
  *
  * Strategy:
  *  - Per-org map of `objectApiName → { fields, cachedAt }`.
@@ -14,7 +14,7 @@
  *  - Pure-data — no jsforce coupling. Caller supplies the `loader`.
  */
 
-/** Minimal description of a Salesforce field — extend in Phase 06. */
+/** Minimal description of a Salesforce field — extend as callers need more. */
 export interface DescribedField {
   name: string;
   type: string;
@@ -97,7 +97,7 @@ export class DescribeCache {
 
   /**
    * Drop one object's entry, or every entry for an org when `objectApiName`
-   * is omitted. Useful for post-deploy cache busting (Phase 06).
+   * is omitted. Useful for post-deploy cache busting.
    */
   invalidate(orgId: string, objectApiName?: string): void {
     if (objectApiName === undefined) {
