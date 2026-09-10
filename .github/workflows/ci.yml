@@ -54,7 +54,8 @@ jobs:
           pnpm audit:disposables &&
           pnpm audit:orphans &&
           pnpm audit:test-siblings &&
-          pnpm check:i18n
+          pnpm check:i18n &&
+          pnpm check:screenshots
 
       # Coverage thresholds only gate here (once, not per-OS): vitest
       # configs define thresholds ~5pts under the measured baseline

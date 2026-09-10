@@ -1031,4 +1031,75 @@ describe('MonitorPage', () => {
     expect(screen.getByTestId('limit-export-btn')).toBeDefined();
     expect(screen.getByText('Export CSV')).toBeDefined();
   });
+
+  /* ---------------------------------------------------------------- */
+  /* Job insights — the band nothing feeds                             */
+  /* ---------------------------------------------------------------- */
+
+  // `standardMonitorPayload` carries no `jobInsights`, which is exactly what
+  // the extension sends: MonitorOpsHandler builds the `monitor:data` payload
+  // without the field, and no JobAnalyzer exists in any package to produce it.
+  // Rendering nothing in that case is indistinguishable from "we looked and
+  // found no critical problem" — the detection is not silent, it is absent.
+  it('says the critical-job detection is unbuilt when nothing feeds jobInsights', () => {
+    mockMonitorQueryState = {
+      data: standardMonitorPayload,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('monitor-job-insights-soon')).toBeDefined();
+    expect(screen.getByText('Coming soon')).toBeDefined();
+  });
+
+  // The other half of the contract: the day a producer fills the field, the
+  // notice must step aside and the real band — with its Abort action — must
+  // render. Without this the notice could be hardcoded and still pass above.
+  it('renders the critical band and its Abort action once insights arrive', () => {
+    mockMonitorQueryState = {
+      data: {
+        ...standardMonitorPayload,
+        jobInsights: [
+          {
+            type: 'stuck',
+            severity: 'critical',
+            title: 'Job stuck for 4h',
+            detail: 'AccountRollupBatch has not progressed',
+            affectedJobs: ['job-2'],
+            recommendation: 'Abort and re-run',
+          },
+          {
+            type: 'long_running',
+            severity: 'warning',
+            title: 'Slow batch',
+            detail: 'ContactDedupe took 45m',
+            affectedJobs: ['job-1'],
+            recommendation: 'Split the batch',
+          },
+        ],
+      },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({
+      selectedOrgId: 'org-1',
+      orgs: [createMockOrg()],
+    });
+    render(<MonitorPage />);
+
+    expect(screen.queryByTestId('monitor-job-insights-soon')).toBeNull();
+    expect(screen.getByText('Job stuck for 4h')).toBeDefined();
+    // Only the critical one is banded; the warning stays out of the red band.
+    expect(screen.queryByText('Slow batch')).toBeNull();
+
+    fireEvent.click(screen.getByText('Abort Job'));
+    expect(mockAbortMutate).toHaveBeenCalledWith({ orgId: 'org-1', jobId: 'job-2' });
+  });
 });

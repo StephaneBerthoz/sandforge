@@ -620,6 +620,100 @@ describe('DataOpsHandler', () => {
       expect(response).toBeDefined();
     });
 
+    /**
+     * A restore counted only `r.success`. The rejects — validation rules,
+     * required fields, triggers — were filtered out and never looked at again,
+     * although the local result type already declared their `errors`. So a
+     * restore where the org refused 900 records out of 1000 reported
+     * "Rollback completed: 100 records restored", `status: 'success'`, and no
+     * error anywhere: the user believed the sandbox was back.
+     */
+    describe('a partly rejected restore', () => {
+      /** Three backed-up rows, so a mixed upsert result has something to map to. */
+      const threeRecords = ['001000000000001', '001000000000002', '001000000000003'].map((id) => ({
+        ...backedUpRecord,
+        Id: id,
+      }));
+
+      /** The rollback response payload, whatever fields it carries. */
+      function rollbackPayload(): Record<string, unknown> | undefined {
+        const m = posted().find((x) => x.type === 'dataops:rollback:response');
+        return m?.payload as unknown as Record<string, unknown> | undefined;
+      }
+
+      /** One row lands, two are refused by the org. */
+      async function mixedRestore(): Promise<void> {
+        const { upsert } = await mockConnection();
+        upsert.mockResolvedValue([
+          { success: true, id: '001000000000001' },
+          { success: false, errors: [{ message: 'REQUIRED_FIELD_MISSING: [Industry]' }] },
+          { success: false, errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Rating' }] },
+        ]);
+        deps.configStore = configStoreWithBackup('org-1', threeRecords);
+        await handler.handle(rollbackMsg('org-1'));
+      }
+
+      it('counts the failures instead of dropping them', async () => {
+        await mixedRestore();
+
+        expect(rollbackPayload()?.totalRestored).toBe(1);
+        expect(rollbackPayload()?.totalFailed).toBe(2);
+      });
+
+      it('calls a partly rejected restore partial, not a success', async () => {
+        await mixedRestore();
+
+        // Same three words Seed and Sync use for a run that did not fully land.
+        expect(rollbackPayload()?.status).toBe('partial');
+        expect(rollbackPayload()?.message).toContain('2');
+        expect(rollbackPayload()?.message).not.toBe('Rollback completed: 1 records restored');
+      });
+
+      it('carries a sample of what the org said', async () => {
+        await mixedRestore();
+
+        expect(rollbackPayload()?.errors).toEqual([
+          { objectApiName: 'Account', message: 'REQUIRED_FIELD_MISSING: [Industry]' },
+          { objectApiName: 'Account', message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Rating' },
+        ]);
+      });
+
+      it('tells the user, who only ever sees the error and notification channels', async () => {
+        await mixedRestore();
+
+        const notes = posted().filter((m) => m.type === 'notification');
+        expect(notes).toHaveLength(1);
+        expect(notes[0].payload.message).toContain('REQUIRED_FIELD_MISSING');
+      });
+
+      it('calls a restore the org refused outright a failure', async () => {
+        const { upsert } = await mockConnection();
+        upsert.mockResolvedValue([
+          { success: false, errors: [{ message: 'ENTITY_IS_DELETED' }] },
+          { success: false, errors: [{ message: 'ENTITY_IS_DELETED' }] },
+          { success: false, errors: [{ message: 'ENTITY_IS_DELETED' }] },
+        ]);
+        deps.configStore = configStoreWithBackup('org-1', threeRecords);
+
+        await handler.handle(rollbackMsg('org-1'));
+
+        expect(rollbackPayload()?.status).toBe('failure');
+        expect(rollbackPayload()?.totalRestored).toBe(0);
+        expect(rollbackPayload()?.totalFailed).toBe(3);
+      });
+
+      it('leaves a clean restore saying success', async () => {
+        await mockConnection();
+        deps.configStore = configStoreWithBackup('org-1');
+
+        await handler.handle(rollbackMsg('org-1'));
+
+        expect(rollbackPayload()?.status).toBe('success');
+        expect(rollbackPayload()?.totalFailed).toBe(0);
+        expect(posted().filter((m) => m.type === 'notification')).toHaveLength(0);
+      });
+    });
+
     it('still refuses the rollback when a business field is not writable', async () => {
       const readOnlyName = {
         ...accountDescribe,
@@ -724,6 +818,98 @@ describe('DataOpsHandler', () => {
         'SELECT Id, FirstName, Email FROM Contact LIMIT 2000',
       );
       expect(posted().filter((m) => m.type === 'dataops:error')).toHaveLength(0);
+    });
+  });
+
+  /**
+   * Anonymization counted its writes exactly the way the restore did — only
+   * `r.success` — and always answered `status: 'success'`. A masking run the
+   * org rejected therefore reported fewer records processed and called itself
+   * done, leaving unmasked PII in a sandbox the user believed was scrubbed.
+   */
+  describe('a partly rejected anonymization', () => {
+    /** A Contact describe the FLS guard accepts, and `selectAllFields` reads. */
+    const contactDescribe = {
+      name: 'Contact',
+      label: 'Contact',
+      createable: true,
+      updateable: true,
+      deletable: true,
+      queryable: true,
+      fields: [
+        { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
+        {
+          name: 'FirstName',
+          label: 'First Name',
+          type: 'string',
+          createable: true,
+          updateable: true,
+          permissionable: true,
+        },
+      ],
+      recordTypeInfos: [],
+      childRelationships: [],
+    };
+
+    /** All messages posted to the webview. */
+    function posted(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    }
+
+    /** The anonymize response payload, whatever fields it carries. */
+    function anonymizePayload(): Record<string, unknown> | undefined {
+      return posted().find((m) => m.type === 'dataops:anonymize:response')?.payload;
+    }
+
+    /** Two contacts read, one masked, one refused by the org. */
+    async function mixedAnonymize(): Promise<void> {
+      const update = vi.fn().mockResolvedValue([
+        { success: true, id: '003000000000001' },
+        { success: false, errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Locked' }] },
+      ]);
+      const query = vi.fn(async () => ({
+        records: [
+          { Id: '003000000000001', FirstName: 'Ada' },
+          { Id: '003000000000002', FirstName: 'Grace' },
+        ],
+        done: true,
+      }));
+      const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
+      vi.mocked(getJsforceConnection).mockResolvedValue({
+        query,
+        describe: vi.fn().mockResolvedValue(contactDescribe),
+        sobject: vi.fn(() => ({ update })),
+      } as never);
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+
+      await handler.handle({
+        id: 'an-partial',
+        type: 'dataops:anonymize',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
+      } as BaseMessage);
+    }
+
+    it('counts the records the org refused to mask', async () => {
+      await mixedAnonymize();
+
+      expect(anonymizePayload()?.recordsProcessed).toBe(1);
+      expect(anonymizePayload()?.recordsFailed).toBe(1);
+    });
+
+    it('calls it partial, not a completed anonymization', async () => {
+      await mixedAnonymize();
+
+      expect(anonymizePayload()?.status).toBe('partial');
+      expect(anonymizePayload()?.message).not.toBe('Anonymization completed: 1 records processed.');
+    });
+
+    it('tells the user what the org said', async () => {
+      await mixedAnonymize();
+
+      const notes = posted().filter((m) => m.type === 'notification');
+      expect(notes).toHaveLength(1);
+      expect(notes[0].payload.message).toContain('FIELD_CUSTOM_VALIDATION_EXCEPTION');
     });
   });
 

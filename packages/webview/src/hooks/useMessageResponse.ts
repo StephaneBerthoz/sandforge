@@ -140,6 +140,9 @@ export function useMessageResponse<T>(
         const responsePayload = (eventData as BaseMessage & { payload: T }).payload;
         setData(responsePayload);
         setLoading(false);
+        // Clears any provisional error claimed off the uncorrelated error
+        // channel (see below): this request's own answer is the last word.
+        setError(null);
         setTimedOut(false);
       }
 
@@ -172,7 +175,17 @@ export function useMessageResponse<T>(
             clearTimeout(feedbackTimerRef.current);
             feedbackTimerRef.current = null;
           }
-          activeRequestId.current = null;
+          // Only a correlated error closes the request. An UNCORRELATED error
+          // is a guess: `sendHandlerError` makes `request` optional and most
+          // call sites omit it, so the channel carries failures that may
+          // belong to any concurrent request of this domain. It is still shown
+          // — dropping it would turn those handler messages into 30 s timeouts
+          // — but provisionally: keeping `activeRequestId` means this request's
+          // own response (or its own correlated error) still arrives and
+          // overrides the guess, instead of being discarded as stale.
+          if (eventData.correlationId === messageId) {
+            activeRequestId.current = null;
+          }
 
           const payloadMessage = eventData.payload?.message;
           setError(
