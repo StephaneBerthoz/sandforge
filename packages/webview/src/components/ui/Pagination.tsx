@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '../../theme';
 
 /** Props for the Pagination component. */
-export interface PaginationProps {
+export interface PaginationProps extends React.HTMLAttributes<HTMLElement> {
   /** Current page (1-based). */
   page: number;
   /** Current page size. */
@@ -46,6 +46,7 @@ export const Pagination: React.FC<PaginationProps> = ({
   onPageSizeChange,
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   className,
+  ...rest
 }) => {
   const { t } = useTranslation();
 
@@ -53,7 +54,11 @@ export const Pagination: React.FC<PaginationProps> = ({
   const end = Math.min(page * pageSize, totalItems);
 
   return (
+    // `...rest` first, so `data-*` / `aria-*` from the caller reach the DOM.
+    // TypeScript never checked hyphenated JSX attributes against these props,
+    // so `data-testid="conflict-pagination"` compiled and then vanished.
     <nav
+      {...rest}
       role="navigation"
       aria-label={t('pagination.navigation', 'Pagination')}
       className={cn(

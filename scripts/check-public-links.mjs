@@ -209,3 +209,10 @@ if (failures.length > 0) {
 }
 
 console.log(`Public URLs: ${checked} reachable`);
+
+// Exit explicitly. The failure path above already did, so only a PASSING run
+// hung — the worst possible shape: the gate printed its verdict and then held
+// the release forever. Node's global fetch keeps its sockets alive after the
+// last response, and nothing here closes them, so the event loop never drains
+// and the process outlives its own work.
+process.exit(0);
