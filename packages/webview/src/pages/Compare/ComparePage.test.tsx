@@ -21,9 +21,47 @@ let mockCompareMutationState = {
   reset: mockCompareReset,
 };
 
+/**
+ * Per-request-type query payloads, keyed exactly as the tab asks for them.
+ *
+ * This used to be a blanket `{ data: null }` for every type, which is why the
+ * Permissions, Snapshots and Drift tabs could ship reading a shape the
+ * extension has never sent: no test ever put a real response through them.
+ * Anything left unset here still resolves to `null`, so the tabs' "nothing
+ * came back" branches stay covered too.
+ */
+const mockQueryData: Record<string, unknown> = {};
+
 vi.mock('../../hooks/useBridgeQuery', () => ({
-  useBridgeQuery: () => ({ data: null, loading: false, error: null, refetch: vi.fn() }),
+  useBridgeQuery: (type: string) => ({
+    data: mockQueryData[type] ?? null,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  }),
 }));
+
+/** A `CompareResult` complete enough to unlock the results tabs. */
+const RESULT_WITH_TABS = {
+  configId: 'cfg-1',
+  sourceOrgId: 'org-1',
+  targetOrgId: 'org-2',
+  mode: 'metadata',
+  summary: { totalItems: 100, added: 5, removed: 3, modified: 10, unchanged: 82, byType: {} },
+  diffs: [
+    {
+      componentType: 'ApexClass',
+      fullName: 'TestClass',
+      status: 'modified',
+      sourceValue: 'v1',
+      targetValue: 'v2',
+      severity: 'warning',
+      deployable: true,
+    },
+  ],
+  timestamp: '2024-01-01T12:00:00Z',
+  duration: 5000,
+};
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
@@ -80,6 +118,7 @@ describe('ComparePage', () => {
       error: null,
       reset: mockCompareReset,
     };
+    for (const key of Object.keys(mockQueryData)) delete mockQueryData[key];
   });
 
   it('should show empty state with fewer than 2 orgs', () => {
@@ -231,6 +270,150 @@ describe('ComparePage', () => {
     expect(screen.getByText('Coming soon')).toBeDefined();
     expect(screen.queryByTestId('deploy-builder')).toBeNull();
     expect(screen.queryByText('No data available')).toBeNull();
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* Results tabs, fed the envelope CompareHandler really posts          */
+  /* ---------------------------------------------------------------- */
+
+  it('should render the permission presence matrix from the compare:permissions envelope', () => {
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    // Exactly what CompareHandler.handlePermissions posts: an object under
+    // `permissions` holding name buckets -- never PermissionMatrixRow[].
+    mockQueryData['compare:permissions'] = {
+      permissions: {
+        permissionSets: {
+          sourceOnly: [{ name: 'Sales_Admin', label: 'Sales Admin' }],
+          targetOnly: [],
+          shared: [{ name: 'Support_Agent', label: 'Support Agent' }],
+        },
+        profiles: {
+          sourceOnly: [],
+          targetOnly: [{ name: 'Read Only' }],
+          shared: [{ name: 'System Administrator' }],
+        },
+      },
+    };
+    render(<ComparePage />);
+
+    fireEvent.click(screen.getByTestId('page-tab-permissions'));
+
+    expect(screen.getByTestId('perm-presence-matrix')).toBeDefined();
+    // Source-only permission set: present on the left, absent on the right.
+    expect(screen.getByTestId('perm-source-PermissionSet-Sales_Admin').textContent).toBe('\u2713');
+    expect(screen.getByTestId('perm-target-PermissionSet-Sales_Admin').textContent).toBe('\u2717');
+    expect(screen.getByTestId('perm-status-PermissionSet-Sales_Admin').textContent).toBe('Removed');
+    // Target-only profile is the mirror case.
+    expect(screen.getByTestId('perm-status-Profile-Read Only').textContent).toBe('Added');
+    expect(screen.getByTestId('perm-status-Profile-System Administrator').textContent).toBe(
+      'Unchanged',
+    );
+    // The page is still standing: the old code threw inside PermissionMatrix.
+    expect(screen.getByTestId('compare-page')).toBeDefined();
+  });
+
+  it('should render the schema snapshot from the compare:snapshots envelope', () => {
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    mockQueryData['compare:snapshots'] = {
+      snapshot: {
+        source: {
+          orgId: 'org-1',
+          totalObjects: 812,
+          customObjects: 44,
+          standardObjects: 768,
+          queryableObjects: 790,
+        },
+        target: {
+          orgId: 'org-2',
+          totalObjects: 806,
+          customObjects: 41,
+          standardObjects: 765,
+          queryableObjects: 784,
+        },
+        diff: { sourceOnly: ['Legacy__c'], targetOnly: [], sharedCount: 805 },
+        capturedAt: '2026-09-10T09:05:00.000Z',
+      },
+    };
+    render(<ComparePage />);
+
+    fireEvent.click(screen.getByTestId('page-tab-snapshots'));
+
+    expect(screen.getByTestId('snapshot-comparison')).toBeDefined();
+    expect(screen.getByTestId('snapshot-source-total').textContent).toBe('812 objects');
+    expect(screen.getByTestId('snapshot-target-total').textContent).toBe('806 objects');
+    // The object the target lacks is named, and named as a removal.
+    expect(screen.getByTestId('snapshot-object-Legacy__c')).toBeDefined();
+    expect(screen.getByTestId('snapshot-object-status-Legacy__c').textContent).toBe('Removed');
+    // Sample size behind the two lists.
+    expect(screen.getByTestId('snapshot-shared-count').textContent).toBe('805 objects');
+    expect(screen.getByTestId('compare-page')).toBeDefined();
+  });
+
+  it('should render settings drift from the compare:drift envelope', () => {
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    mockQueryData['compare:drift'] = {
+      drift: {
+        items: [
+          {
+            setting: 'Organization.DefaultLocaleSidKey',
+            sourceValue: 'fr_FR',
+            targetValue: 'en_US',
+            status: 'drift',
+          },
+          {
+            setting: 'Organization.TimeZoneSidKey',
+            sourceValue: 'Europe/Paris',
+            targetValue: 'Europe/Paris',
+            status: 'match',
+          },
+        ],
+        totalChecked: 2,
+        driftCount: 1,
+        matchCount: 1,
+        missingCount: 0,
+        detectedAt: '2026-09-10T09:06:00.000Z',
+      },
+    };
+    render(<ComparePage />);
+
+    fireEvent.click(screen.getByTestId('page-tab-drift'));
+
+    expect(screen.getByTestId('settings-drift')).toBeDefined();
+    expect(screen.getByTestId('drift-source-Organization.DefaultLocaleSidKey').textContent).toBe(
+      'fr_FR',
+    );
+    expect(screen.getByTestId('drift-target-Organization.DefaultLocaleSidKey').textContent).toBe(
+      'en_US',
+    );
+    expect(screen.getByTestId('drift-status-Organization.DefaultLocaleSidKey').textContent).toBe(
+      'Modified',
+    );
+    expect(screen.getByTestId('drift-status-Organization.TimeZoneSidKey').textContent).toBe(
+      'Unchanged',
+    );
+    // 1 of the 2 settings differs: the score is that fraction, and the counts
+    // that make up the denominator sit beside it.
+    expect(screen.getByText('50%')).toBeDefined();
+    expect(screen.getByTestId('drift-modified').textContent).toContain('~1');
+    expect(screen.getByTestId('drift-unchanged').textContent).toContain('=1');
+    expect(screen.getByTestId('compare-page')).toBeDefined();
+  });
+
+  it('should report a tab whose channel answered with nothing usable', () => {
+    mockCompareMutationState = { ...mockCompareMutationState, data: RESULT_WITH_TABS };
+    // The envelope arrives, but carries no comparable setting.
+    mockQueryData['compare:drift'] = {
+      drift: { items: [], totalChecked: 0, driftCount: 0, matchCount: 0, missingCount: 0 },
+    };
+    render(<ComparePage />);
+
+    fireEvent.click(screen.getByTestId('page-tab-drift'));
+
+    // "No drift detected" would be a claim about two orgs nothing compared.
+    expect(screen.getByTestId('compare-drift-error')).toBeDefined();
+    expect(screen.getByText('compare:drift returned no settings to compare')).toBeDefined();
+    expect(screen.queryByTestId('settings-drift')).toBeNull();
+    expect(screen.queryByText('No drift detected')).toBeNull();
   });
 
   it('should display error from bridge mutation', () => {

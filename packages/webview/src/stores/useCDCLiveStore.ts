@@ -15,10 +15,17 @@ export interface CDCFeedEvent {
   recordIds: string[];
   /** ISO timestamp of the commit */
   commitTimestamp: string;
-  /** Changed field values */
-  changedFields: Record<string, unknown>;
-  /** User who committed the change */
-  commitUser: string;
+  /**
+   * Changed field values.
+   *
+   * Optional because the feed is fed by two channels: `realtime:events-batch`
+   * declares this field, the singular `realtime:event` does not
+   * (realtime.messages.ts:65-96). Absent means the channel never sent it —
+   * filling it with `{}` would claim the commit changed nothing.
+   */
+  changedFields?: Record<string, unknown>;
+  /** User who committed the change — batch channel only, same reason. */
+  commitUser?: string;
   /** Whether the event was applied to the target */
   applied: boolean;
   /** Error message if application failed */
@@ -55,6 +62,13 @@ export interface CDCLiveState {
   sourceOrgId: string | null;
   /** Target org ID */
   targetOrgId: string | null;
+  /**
+   * Id of the stream the host opened, as named on `realtime:started` (or on a
+   * `realtime:status:response` for a session that outlived a webview reload).
+   * `null` while no channel has named one; `realtime:stop` needs it to say
+   * which stream to close.
+   */
+  sessionId: string | null;
 
   /** Update connection status. */
   setStatus: (status: CDCConnectionStatus) => void;
@@ -105,6 +119,40 @@ function resetRingBuffer(): void {
   bufferCount = 0;
 }
 
+/**
+ * The single conflict strategy `realtime:start` can carry for a whole session.
+ *
+ * The panel collects one strategy per auto-synced object; `RealTimeStartRequest`
+ * has room for exactly one (realtime.messages.ts:4-14). This reads the session
+ * value back out of what the user actually picked:
+ *
+ * - every auto-synced watched object agreeing on a strategy — the case the
+ *   panel is normally driven into — makes that strategy the session strategy;
+ * - objects disagreeing means no single value is what the user asked for, so
+ *   the session degrades to 'manual': the only option that resolves nothing by
+ *   itself and hands the collision back, rather than applying to one object a
+ *   rule that was chosen for another;
+ * - nothing auto-synced means no automatic replication was asked for, hence no
+ *   automatic resolution either — 'manual' again.
+ *
+ * Only objects still in `watchedObjects` count: unticking an object leaves its
+ * `autoSyncObjects` entry behind, and that stale choice is not part of the
+ * subscription being opened.
+ */
+function sessionConflictStrategy(
+  watchedObjects: string[],
+  autoSyncObjects: Record<string, AutoSyncConfig>,
+): ConflictStrategy {
+  const picked = watchedObjects
+    .map((objectName) => autoSyncObjects[objectName])
+    .filter((config): config is AutoSyncConfig => config?.enabled === true)
+    .map((config) => config.conflictStrategy);
+
+  const first = picked[0];
+  if (first === undefined) return 'manual';
+  return picked.every((strategy) => strategy === first) ? first : 'manual';
+}
+
 const initialState = {
   status: 'disconnected' as CDCConnectionStatus,
   watchedObjects: [] as string[],
@@ -113,6 +161,7 @@ const initialState = {
   eventCount: 0,
   sourceOrgId: null as string | null,
   targetOrgId: null as string | null,
+  sessionId: null as string | null,
 };
 
 /** Zustand store for managing CDC live event feed and subscription state. */
@@ -190,20 +239,48 @@ export const useCDCLiveStore = create<CDCLiveState>((set, get) => ({
       sourceOrgId: state.sourceOrgId ?? '',
       targetOrgId: state.targetOrgId ?? '',
       watchedObjects: state.watchedObjects,
-      conflictStrategy: 'source_wins',
+      // The strategy the user picked in the panel, not a constant: this field
+      // decides which org's data survives a collision, so a hardcoded
+      // 'source_wins' made every selector in the panel a decoration.
+      conflictStrategy: sessionConflictStrategy(state.watchedObjects, state.autoSyncObjects),
       flushIntervalMs: 150,
       maxBatchSize: 100,
     });
   },
 
   stopStream(): void {
-    sendBridgeMessage('realtime:stop', { sessionId: '' });
+    // Name the stream `realtime:started` opened. Posting '' unconditionally
+    // asked the host to close "whichever" — with two panels open, or a session
+    // that outlived a webview reload, that identifies nothing. The empty string
+    // survives only for the case where no channel ever handed an id over: the
+    // contract's `sessionId` is a required string with no way to say "unknown".
+    sendBridgeMessage('realtime:stop', { sessionId: get().sessionId ?? '' });
   },
 }));
 
 /**
+ * The events a CDC push message carries.
+ *
+ * `realtime:events-batch` carries the host flush timer's array; `realtime:event`
+ * is the same event at arity one (realtime.messages.ts:65-96). Both are read
+ * here, and both leave through the single `pushEvents` call below, so the
+ * singular channel cannot drift from the batch one on feed order, the ring
+ * buffer's retention cap or `eventCount`.
+ */
+function readPushedEvents(msg: {
+  type: string;
+  payload?: Record<string, unknown>;
+}): CDCFeedEvent[] {
+  if (msg.type === 'realtime:event') {
+    return msg.payload ? [msg.payload as unknown as CDCFeedEvent] : [];
+  }
+  return (msg.payload?.events ?? []) as CDCFeedEvent[];
+}
+
+/**
  * Message listener for CDC events from the extension.
- * Listens for realtime:events-batch, realtime:started, realtime:stopped, realtime:status:response.
+ * Listens for realtime:event, realtime:events-batch, realtime:started,
+ * realtime:stopped, realtime:conflict and realtime:status:response.
  */
 function handleExtensionMessage(event: MessageEvent): void {
   // SECURITY: Validate origin — only accept messages from the VSCode webview
@@ -217,8 +294,9 @@ function handleExtensionMessage(event: MessageEvent): void {
   const msg = message as { type: string; payload?: Record<string, unknown> };
 
   switch (msg.type) {
+    case 'realtime:event':
     case 'realtime:events-batch': {
-      const events = (msg.payload?.events ?? []) as CDCFeedEvent[];
+      const events = readPushedEvents(msg);
       if (events.length > 0) {
         useCDCLiveStore.getState().pushEvents(events);
       }
@@ -230,12 +308,19 @@ function handleExtensionMessage(event: MessageEvent): void {
       // 'syncing' regardless flipped the badge to a success-green "Syncing"
       // that never changed and never received an event — the UI claimed a
       // live stream that does not exist.
-      const started = msg.payload as { success?: boolean } | undefined;
-      useCDCLiveStore.getState().setStatus(started?.success === false ? 'error' : 'syncing');
+      const started = msg.payload as { success?: boolean; sessionId?: string } | undefined;
+      const opened = started?.success !== false;
+      useCDCLiveStore.setState({
+        status: opened ? 'syncing' : 'error',
+        // `realtime:stop` has to name the stream this opened. A refused start
+        // opened none, so it leaves no id behind to stop.
+        sessionId: opened && typeof started?.sessionId === 'string' ? started.sessionId : null,
+      });
       break;
     }
     case 'realtime:stopped': {
-      useCDCLiveStore.getState().setStatus('disconnected');
+      // The stream is closed; its id no longer names anything stoppable.
+      useCDCLiveStore.setState({ status: 'disconnected', sessionId: null });
       break;
     }
     case 'realtime:conflict': {
@@ -276,7 +361,14 @@ function handleExtensionMessage(event: MessageEvent): void {
       break;
     }
     case 'realtime:status:response': {
-      const status = msg.payload?.status as CDCConnectionStatus | undefined;
+      const response = msg.payload as { status?: string; sessionId?: string } | undefined;
+      // This is also how a reloaded webview learns the session the host still
+      // has open — the id it needs to be able to stop it. A response without
+      // one says nothing about the id, so it does not clear what is known.
+      if (typeof response?.sessionId === 'string' && response.sessionId.length > 0) {
+        useCDCLiveStore.setState({ sessionId: response.sessionId });
+      }
+      const status = response?.status as CDCConnectionStatus | undefined;
       if (status) {
         useCDCLiveStore.getState().setStatus(status);
       }

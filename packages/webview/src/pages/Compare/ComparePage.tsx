@@ -23,13 +23,13 @@ import { CategorySelector } from './CategorySelector';
 import { RiskScoreCard } from './RiskScoreCard';
 import { DiffGroupAccordion } from './DiffGroupAccordion';
 import { DiffDetailModal } from './DiffDetailModal';
-import { PermissionMatrix } from './PermissionMatrix';
-import type { PermissionMatrixRow } from './PermissionMatrix';
-import { SnapshotTimeline } from './SnapshotTimeline';
-import { DriftDashboard } from './DriftDashboard';
-import type { DriftResult } from './DriftDashboard';
+import { PermissionPresence, readPermissionComparison } from './PermissionPresence';
+import type { PermissionComparison } from './PermissionPresence';
+import { SnapshotComparison, readSnapshotComparison } from './SnapshotComparison';
+import type { OrgSnapshotComparison } from './SnapshotComparison';
+import { SettingsDrift, readSettingsDrift } from './SettingsDrift';
+import type { SettingsDriftReport } from './SettingsDrift';
 import { enrichDiffs } from './enrichDiffs';
-import type { OrgSnapshot } from '@sandforge/shared';
 
 /** Main compare page -- wired to extension via bridge hooks. */
 export const ComparePage: React.FC = () => {
@@ -58,24 +58,46 @@ export const ComparePage: React.FC = () => {
 
   const schemaAdvice = useSchemaAdvice();
 
-  /** Bridge queries for each tab -- lazy loaded via skip option. */
-  const permissionsQuery = useBridgeQuery<PermissionMatrixRow[]>(
+  /**
+   * Bridge queries for each tab -- lazy loaded via skip option.
+   *
+   * Each generic is the *envelope* the matching CompareHandler method posts,
+   * not the value inside it. Typing these as the bare payload (`Row[]`,
+   * `OrgSnapshot[]`, `DriftResult`) is what let three tabs hand an object to a
+   * component expecting an array: the key was never unwrapped, TypeScript
+   * believed the lie, and the ErrorBoundary took the whole panel down at
+   * runtime. Unwrapping happens here, once, where the contract is visible.
+   */
+  const permissionsQuery = useBridgeQuery<{ permissions?: PermissionComparison }>(
     'compare:permissions',
     { sourceOrgId, targetOrgId },
     { skip: activeTab !== 'permissions' || !sourceOrgId || !targetOrgId },
   );
 
-  const snapshotsQuery = useBridgeQuery<OrgSnapshot[]>(
+  const snapshotsQuery = useBridgeQuery<{ snapshot?: OrgSnapshotComparison }>(
     'compare:snapshots',
     { sourceOrgId, targetOrgId },
     { skip: activeTab !== 'snapshots' || !sourceOrgId || !targetOrgId },
   );
 
-  const driftQuery = useBridgeQuery<DriftResult>(
+  const driftQuery = useBridgeQuery<{ drift?: SettingsDriftReport }>(
     'compare:drift',
     { sourceOrgId, targetOrgId },
     { skip: activeTab !== 'drift' || !sourceOrgId || !targetOrgId },
   );
+
+  /*
+   * Validate each envelope once, here.
+   *
+   * A response that does not carry what the tab needs is reported as the
+   * failed exchange it is -- never rendered as an empty comparison, which a
+   * reader would take for a measurement ("the two orgs match"). The message is
+   * a channel diagnostic, in the same register as the bridge's own timeout
+   * text, because it names a wire contract rather than a user-facing fact.
+   */
+  const permissions = readPermissionComparison(permissionsQuery.data?.permissions);
+  const snapshot = readSnapshotComparison(snapshotsQuery.data?.snapshot);
+  const drift = readSettingsDrift(driftQuery.data?.drift);
 
   /** Derive state from the bridge mutation. */
   const result = compareMutation.data;
@@ -337,26 +359,51 @@ export const ComparePage: React.FC = () => {
           {activeTab === 'permissions' &&
             (permissionsQuery.loading ? (
               <Skeleton variant="rect" height="200px" />
-            ) : (
-              <PermissionMatrix
-                rows={permissionsQuery.data ?? []}
+            ) : permissions ? (
+              <PermissionPresence
+                comparison={permissions}
                 sourceLabel={t('compare.source')}
                 targetLabel={t('compare.target')}
+              />
+            ) : (
+              <ErrorBanner
+                message={
+                  permissionsQuery.error ?? 'compare:permissions returned no permission data'
+                }
+                data-testid="compare-permissions-error"
               />
             ))}
 
           {activeTab === 'snapshots' &&
             (snapshotsQuery.loading ? (
               <Skeleton variant="rect" height="200px" />
+            ) : snapshot ? (
+              <SnapshotComparison
+                snapshot={snapshot}
+                sourceLabel={t('compare.source')}
+                targetLabel={t('compare.target')}
+              />
             ) : (
-              <SnapshotTimeline snapshots={snapshotsQuery.data ?? []} />
+              <ErrorBanner
+                message={snapshotsQuery.error ?? 'compare:snapshots returned no org snapshot'}
+                data-testid="compare-snapshots-error"
+              />
             ))}
 
           {activeTab === 'drift' &&
             (driftQuery.loading ? (
               <Skeleton variant="rect" height="200px" />
+            ) : drift ? (
+              <SettingsDrift
+                drift={drift}
+                sourceLabel={t('compare.source')}
+                targetLabel={t('compare.target')}
+              />
             ) : (
-              <DriftDashboard drift={driftQuery.data ?? undefined} />
+              <ErrorBanner
+                message={driftQuery.error ?? 'compare:drift returned no settings to compare'}
+                data-testid="compare-drift-error"
+              />
             ))}
 
           {/* No producer computes a DeploymentSuggestion anywhere in the

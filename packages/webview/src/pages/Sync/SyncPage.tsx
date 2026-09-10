@@ -134,7 +134,10 @@ const ConflictsTabContent: React.FC = () => {
       left={<ConflictListPanel />}
       right={
         selectedConflict ? (
-          <ConflictResolutionPanel conflict={selectedConflict} />
+          // Keyed on the conflict id so selecting another conflict remounts the
+          // panel instead of swapping the prop underneath its local state: the
+          // per-field choices of one record can never stay armed on the next.
+          <ConflictResolutionPanel key={selectedConflict.id} conflict={selectedConflict} />
         ) : (
           <div
             className="flex items-center justify-center h-full text-xs text-text-secondary"
