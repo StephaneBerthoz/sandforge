@@ -289,9 +289,32 @@ rm -f /tmp/sf-shots.txt
 # 12. Client-confidentiality gate — no client identity may reach a public
 # artifact. Both the GitHub repo and the VSIX (which ships changelog.md as the
 # Marketplace "Changelog" tab) are public, so this scans the whole tracked tree.
-# Real Salesforce record Ids are blocked too: synthetic Ids use the 500XX prefix.
-CONFIDENTIAL_PATTERN='[Mm]utuaide|ORG-UAT|ORG-DEV|500AP00000'
-if git grep -inE "${CONFIDENTIAL_PATTERN}" -- . ':!scripts/pre-publish-check.sh' > /tmp/sf-confidential-hits.txt 2>/dev/null; then
+#
+# The names live OUTSIDE the repository, in an untracked `.confidential-names`
+# (one extended-regex alternative per line, `#` for comments). They used to be
+# hardcoded right here — so the gate meant to keep client identity out of a
+# public repo was itself publishing a client name and two of their org
+# aliases, and it excluded its own file from the scan, which is exactly why it
+# reported "PASS: No client identity in tracked files" on every run. A scanner
+# blind to itself cannot fail on the one file it is guaranteed to be wrong in.
+#
+# Nothing is excluded from the scan any more, this file included.
+NAMES_FILE=".confidential-names"
+if [[ -f "$NAMES_FILE" ]]; then
+  CONFIDENTIAL_PATTERN=$(grep -vE '^\s*(#|$)' "$NAMES_FILE" | paste -sd'|' -)
+else
+  CONFIDENTIAL_PATTERN=''
+fi
+# Structural patterns are safe to keep in the open: they name no one. Real
+# Salesforce record Ids are blocked because synthetic fixtures use 00XX/001XX.
+STRUCTURAL_PATTERN='500AP0000|00D[A-Za-z0-9]{12,15}'
+if [[ -n "$CONFIDENTIAL_PATTERN" ]]; then
+  SCAN_PATTERN="${CONFIDENTIAL_PATTERN}|${STRUCTURAL_PATTERN}"
+else
+  echo "WARN: $NAMES_FILE absent — scanning structural patterns only."
+  SCAN_PATTERN="$STRUCTURAL_PATTERN"
+fi
+if git grep -inE "${SCAN_PATTERN}" -- . > /tmp/sf-confidential-hits.txt 2>/dev/null; then
   echo "FAIL: client identity or real record Ids found in tracked files:"
   head -20 /tmp/sf-confidential-hits.txt | sed 's/^/       /'
   HIT_COUNT=$(wc -l < /tmp/sf-confidential-hits.txt)

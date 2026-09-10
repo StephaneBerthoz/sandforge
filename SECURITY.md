@@ -53,6 +53,4 @@ You can expect:
 
 ## Hardening references
 
-- `.planning/audit-2026-05-02-cross-cutting.md` — most recent third-party
-  audit (50 findings, 11 closed in sprint 1)
-- `CHANGELOG.md` `### Security` entries — historical security fixes
+- `changelog.md` `### Security` entries — historical security fixes

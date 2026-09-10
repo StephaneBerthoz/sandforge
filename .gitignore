@@ -30,28 +30,23 @@ test-results/
 reports/mutation/
 stryker.log
 
-# Local backup files (e.g. CLAUDE.md.bak.<unix-ts> from save-memory ops)
+# Local backup files
 *.bak
 *.bak.*
 
-# Playwright MCP scratch output
+# Playwright scratch output
 .playwright-mcp/
 
 # Icon size proofs (regenerate with: node scripts/render-icon.mjs --proof)
 .icon-proof/
 
-# Working notes, kept on disk and out of the repository.
-#
-# These were tracked until v1.18.0, when the history was rewritten to remove
-# them. The trigger was the decision to make this repository public:
-# .planning/audits/ carries the open-findings backlog, including a security
-# finding with its file:line — publishing that is handing out a map to a
-# weakness that is still live in a shipped product. Working notes are also
-# simply not documentation; what users need lives in docs/ and is published.
+# Working notes and local tooling state. Documentation for users lives in
+# docs/ and is published; these are not that.
 .planning/
 docs/archive/
 PROMPT_AUTO.md
 PROMPT_FROZEN_DATASET.md
-# Agent instructions: read from disk by the tool that needs them, not content
-# this repository owes a reader. Stays local.
 CLAUDE.md
+
+# Client names for the pre-publish confidentiality gate. Never tracked.
+.confidential-names

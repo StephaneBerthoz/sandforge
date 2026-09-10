@@ -465,11 +465,11 @@ describe('SfdxBridge', () => {
   describe('getDefaultOrgUsername', () => {
     it('returns the target-org value reported by the CLI', async () => {
       const json = JSON.stringify({
-        result: [{ key: 'target-org', value: 'ORG-DEV', success: true }],
+        result: [{ key: 'target-org', value: 'ACME-DEV', success: true }],
       });
       mockCliInvoker.mockResolvedValueOnce({ stdout: json, stderr: '' } as never);
 
-      await expect(bridge.getDefaultOrgUsername()).resolves.toBe('ORG-DEV');
+      await expect(bridge.getDefaultOrgUsername()).resolves.toBe('ACME-DEV');
     });
 
     it('accepts the legacy targetusername key', async () => {

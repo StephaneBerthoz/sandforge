@@ -759,7 +759,7 @@ not. Nine tests were found asserting the broken behaviour and were rewritten.
 ### Fixed
 
 - **Token self-heal no longer writes unvalidated tokens**: the CLI-provided token is now validated with a real API call _before_ being persisted to the vault — a stale token handed out by the CLI can no longer overwrite the stored one.
-- **Stale CLI store detected**: when the sf CLI hands back the exact token that just failed (no usable refresh token — the ORG-PROD loop), the error now says the CLI store itself needs re-authentication instead of silently retrying with a known-bad token.
+- **Stale CLI store detected**: when the sf CLI hands back the exact token that just failed (no usable refresh token — the stale-store loop), the error now says the CLI store itself needs re-authentication instead of silently retrying with a known-bad token.
 
 ### Changed
 
