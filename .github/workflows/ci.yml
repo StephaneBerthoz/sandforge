@@ -62,31 +62,41 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: pnpm test:coverage
 
-      # E2E tests only on Windows (matches dev environment)
-      # Browsers are cached across runs; the lockfile-keyed cache
-      # invalidates automatically when the Playwright version changes
+      # E2E runs on ubuntu.
+      #
+      # It used to run on Windows only, "matches dev environment" — and that
+      # stopped being true when development moved to WSL Ubuntu. The leg also
+      # never finished: the job was cancelled at 30 minutes on every run for
+      # months, so the suite had never once executed in CI. Raising the timeout
+      # let it run, and 35 of its tests failed on Windows while all of them pass
+      # on the platform the code is written on.
+      #
+      # Windows-only failures are worth knowing about, but not at the price of
+      # a suite nobody can read: this runs where it is green and where the
+      # product is developed. Browsers are cached across runs; the
+      # lockfile-keyed cache invalidates when the Playwright version changes.
       - name: Cache Playwright browsers
         uses: actions/cache@v4
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'ubuntu-latest'
         with:
-          path: C:\Users\runneradmin\AppData\Local\ms-playwright
+          path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       # --with-deps only installs system libraries on Linux; no-op on Windows
       - name: Install Playwright Chromium
-        if: matrix.os == 'windows-latest'
-        run: npx playwright install chromium
+        if: matrix.os == 'ubuntu-latest'
+        run: npx playwright install --with-deps chromium
         working-directory: packages/webview
 
       - name: Run E2E tests
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'ubuntu-latest'
         run: pnpm --filter webview e2e
         env:
           CI: true
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
-        if: matrix.os == 'windows-latest' && always()
+        if: matrix.os == 'ubuntu-latest' && always()
         with:
           name: playwright-report
           path: packages/webview/playwright-report/
