@@ -1,7 +1,6 @@
 name: Knip
 
-# Blocking dead-code gate. Phase 01 HARD-04 deferred the block until the
-# baseline stabilised; knip.json now silences only the false positives (the
+# Blocking dead-code gate. knip.json silences only the false positives (the
 # sidepanel build entry, the specs playwright itself ignores, workspace-root
 # tooling deps), so every remaining line in the report is real dead weight and
 # a red job is the correct answer.

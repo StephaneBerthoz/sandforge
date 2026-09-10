@@ -31,10 +31,14 @@ A visual grid comparing CRUD and FLS permissions across profiles and permission 
 
 ### Snapshots
 
-A timeline view of org snapshots over time:
+A live capture of both orgs, taken with `describeGlobal` at the moment you open
+the tab. Nothing is stored between runs, so there is no history to browse and no
+earlier capture to compare against -- the tab compares the two orgs as they are
+right now:
 
-- Track how your org configuration has evolved
-- Compare any two snapshots to see what changed
+- Object counts per org: total, custom, standard, and queryable
+- The objects that exist on only one side, listed per org, plus the shared count
+- The capture timestamp, which is the time of the run that produced it
 
 ### Drift Detection
 

@@ -18,8 +18,8 @@ review stays fast.
 ## Setup
 
 ```bash
-git clone https://github.com/StephaneBerthoz/SANDFORGE.git
-cd SANDFORGE
+git clone https://github.com/StephaneBerthoz/sandforge.git
+cd sandforge
 pnpm install          # also installs the git pre-commit hook (prepare script)
 pnpm validate         # build:shared + typecheck + lint + test + audit:disposables + build
 ```
@@ -58,7 +58,7 @@ Bypass with `--no-verify` only if you really have to (don't).
 
 - Fork or branch off `master`.
 - Branch name should describe the work: `fix/sync-conflict-merge`,
-  `feat/forge-cycle-cap`. Auto-runs use `auto/<purpose>-YYYYMMDD-HHmm`.
+  `feat/forge-cycle-cap`.
 - PRs require green CI (`.github/workflows/ci.yml` runs on
   ubuntu/macos/windows for typecheck + lint + test + build, plus
   Playwright E2E on Windows).

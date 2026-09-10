@@ -14,7 +14,7 @@ No. A free Developer Edition org works for all SandForge features. Scratch orgs 
 
 ### Does SandForge modify production data?
 
-SandForge includes a **Production Guard** with three safety tiers. Operations targeting a Production org require double confirmation, DELETE operations are blocked by default, and all actions are logged to an immutable audit trail. You can configure these protections in `sandforge.safety.requireProdConfirmation`.
+SandForge includes a **Production Guard** with three safety tiers. Operations targeting a Production org require double confirmation, and DELETE operations are blocked by default. Each safety-check decision is recorded in an in-memory log capped at 1000 entries with FIFO eviction (`sandforge.safety.auditLogging`): it lives for the session only, is never written to disk, and no screen reads it back yet. You can configure these protections in `sandforge.safety.requireProdConfirmation`.
 
 That said, SandForge is designed primarily for sandbox and scratch org workflows. We recommend always targeting sandboxes for data seeding and sync operations.
 
@@ -54,7 +54,7 @@ Yes. SandForge detects self-referential relationships and uses a two-pass insert
 
 ### Can I automate recurring operations?
 
-Partly. The **Automation** module provides a visual pipeline builder where you can compose multi-step workflows (query, transform, load, validate, notify) and run them manually. Scheduled and event-driven triggers (cron, webhook, file watch, record change) are not wired yet — see the [Automation guide](modules/automation.md). The recurrence is still yours to start; the steps in between are automated.
+Partly. The **Automation** module provides a visual pipeline builder where you compose and save pipelines from 15 step types (seed, sync, backup, restore, anonymize, delete, compare, precheck, script, notification, approval, delay, condition, loop, parallel) and start them by hand. Of those, only `delay` and `condition` act on anything today: the other thirteen report success without touching your org, so a run sequences and reports its steps rather than executing them. Scheduled and event-driven triggers (cron, webhook, file watch, record change) are not wired yet — see the [Automation guide](modules/automation.md).
 
 ### Does SandForge support Salesforce DX and scratch orgs?
 

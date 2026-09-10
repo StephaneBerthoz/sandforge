@@ -268,17 +268,16 @@ fired synchronously after `mutate()`, before any answer could arrive.
 
 ## [1.18.0] - 2026-09-09
 
-The repository is public, and the audit that preceded it found the flagship
-broken above 200 records.
+The repository is public, and the release that opens it repairs the flagship.
 
-A 114-agent review read the whole product against its own claims: 91 findings,
-68 surviving a pass whose only job was to refute them. Twenty-eight were rated
-high. What they have in common is not carelessness — the bridge, the CSP, the
-prompt-injection defence and the six locales all held under attack. It is that
-nothing ever ran the checks. `pnpm validate` could not complete on any machine,
-CI had been switched off at the repository level since May, and four gates
-added in v1.17.0 to fix "these gates never execute" were themselves never
-executed. Sixteen of the seventeen releases were cut by hand.
+Forge could not clone an object holding more than 200 records: every object
+above the threshold failed, and its whole subtree was skipped behind it. Below
+that threshold, a clone stopped at the first 2 000 rows of each object and
+still reported success. Both are fixed. Around them this release closes the one
+write path that reached a target org with no Production Guard check, gives the
+guard the real operation to judge instead of a hardcoded single-row upsert, and
+repairs a Marketplace listing whose links all answered 404 to anyone but the
+author.
 
 ### Fixed
 
@@ -893,7 +892,7 @@ not. Nine tests were found asserting the broken behaviour and were rewritten.
 
 - **Monitor v2 dead subsystem** (~4,700 lines + tests): orchestrator, registry, metric bus, anomaly engine, time-series store, 8 probes — never reachable from production code. Orphaned shared types (`MetricEvent`, `DriftDelta`) and messages (`monitor:metric*`, `monitor:live-operations:updated`) removed with the Zod↔TS bijection test still green.
 - Dead `sandforge.monitor.persistTimeSeries` setting and zombie Settings fields that nothing consumed.
-- VSIX no longer ships internal agent-tooling state (`.omc/`) nor source folders already bundled into `dist/extension.js` (`cli/`, `tools/`, `examples/`).
+- VSIX no longer ships local tooling state nor source folders already bundled into `dist/extension.js` (`cli/`, `tools/`, `examples/`).
 
 ## [1.2.12] - 2026-08-06
 
@@ -1004,9 +1003,9 @@ not. Nine tests were found asserting the broken behaviour and were rewritten.
 
 ## [1.2.6] - 2026-05-05
 
-**Phase 03 Monitor v2 Core + Phase 04 AI Integration + close-out hardening.** Two milestone-track phases under v1.3.0, plus a six-bug close-out pass surfaced when the user actually installed the fresh VSIX.
+**Monitor v2 Core + AI Integration + close-out hardening.** Two feature tracks under v1.3.0, plus a six-bug close-out pass that surfaced when the extension was installed from a freshly built VSIX.
 
-### Added: Phase 04 AI Integration (2026-05-05)
+### Added: AI Integration (2026-05-05)
 
 **Architecture**: Provider-agnostic `AIClient` interface + `AnthropicAdapter` functional + `OpenAIAdapter` / `CustomAdapter` stubs that satisfy the interface. Per-provider isolation via `AIClientFactory` (memoised) + per-provider `CircuitBreaker` (3 consecutive 529 → 5 min open). Per-AI-request `AbortController` (sibling-safe). Per-panel-session token budget with preflight refusal BEFORE the SDK call. Read-only tool surface (10 fine-grained tools, registry CI fence, DML refusal at 2 layers). `AIDiagnoseHandler` with two-call `runTools` + `complete(schema)` pattern. Webview surfaces: `AIChatPanel` + `AIProviderStatusBanner` + `TokenBudgetIndicator` + `ActionCard` (Approve / Modify / Reject trio). Prompt-injection defence verified adversarially across 7 jailbreak fixtures.
 
@@ -1015,7 +1014,7 @@ not. Nine tests were found asserting the broken behaviour and were rewritten.
   `runTools()`, `dispose()`. `AIUsage` 4-field breakdown
   (`input + output + cacheRead + cacheCreate + total`).
 - **AnthropicAdapter** uses `messages.parse + zodOutputFormat` for typed
-  payloads (RT-#11 closure for new flows). `messages.countTokens` for
+  payloads. `messages.countTokens` for
   preflight. Lazy SecretStorage read. API-key redaction in re-thrown
   errors. Dual-signal overloaded check (`status === 529` AND
   `body.error.type === 'overloaded_error'`). `APIUserAbortError` preserved
@@ -1077,7 +1076,7 @@ instruction-shaped content"`.
   system-prompt impersonation, plain-text instruction, base64,
   unicode-lookalike, polyglot CDATA) × 2 defence layers (escape
   neutralisation + single-outer-close-tag) + 2 spotlight assertions.
-  RT-#10 closure verified at CI level.
+  Verified at CI level.
 - **SessionBudget** class (`adapters/ai/tokenBudget/SessionBudget.ts`)
   tracks all 4 token fields per panel session. Soft cap at 80% fires
   ONCE per session (debounced). Hard cap at 100% blocks the next
@@ -1112,29 +1111,24 @@ contributes.commands`, `package.nls.json` + `.fr.json`.
 **Test impact**: 8745 → 8918 (+149 extension + +19 webview),
 0 regressions across the 4994-test extension suite.
 
-**Audit findings closed**: RT-#10 (prompt-injection: escape +
-spotlight + adversarial test), RT-#11 (regex-extract JSON for new
-diagnose flow: `messages.parse + zodOutputFormat`).
-
 **Deferred to v1.4**: legacy module migration to
 `aiClient.complete(schema)` (`AIAssistant`, `ErrorResolver`, `NL2SOQL`).
-Each carries its pre-Phase-04 regex-extract path until v1.4. New flows
+Each keeps its earlier regex-extract path until v1.4. New flows
 already use the schema-validated path. Sweep tests (file-existence
 only today) become enforceable when migration ships.
 
-### Fixed: Phase 04 close-out (2026-05-05)
+### Fixed: AI close-out (2026-05-05)
 
-Six chained regressions surfaced when the user installed the fresh
-VSIX after night autopilot claimed Phase 04 complete. Root cause: night
-autopilot never ran `pnpm package` end-to-end, so webview tsc / VSIX
-production / vsce interop / nav wiring all stayed silently broken
+Six chained regressions surfaced on the first install of a freshly built
+VSIX. Root cause: `pnpm package` had never been run end to end, so webview
+tsc / VSIX production / vsce interop / nav wiring all stayed silently broken
 behind a green vitest suite.
 
 - **AIChatPanel.tsx ad-hoc message types**: replaced inline
   `BaseMessage & { payload: { ... } }` types for `ai:provider:status`
   / `ai:budget:state` (which were missing `id` + `timestamp`) with
   canonical `AIProviderStatusMessage` / `AIBudgetStateMessage` imports
-  from `@sandforge/shared`. Webview tsc was failing on Phase 04 close;
+  from `@sandforge/shared`. Webview tsc was failing on the close-out;
   extension vitest never caught it because the inline type compiled
   fine in isolation.
 - **`pnpm.overrides` minimatch flipped vsce to incompatible major**:
@@ -1152,7 +1146,7 @@ minimatch_1.default) is not a function` during VSIX packaging.
   `sandforge.openAI` command + `Bot` icon across all surfaces (see
   Added section above for full list). Two sidebars (`SidePanel.tsx` in
   the activity bar + `Sidebar.tsx` in the panel layout) both needed the
-  entry: Phase 04 missed both.
+  entry: the first wiring pass missed both.
 - **`BridgeProvider.tsx` contract drift on `ai:status:response`**:
   the listener read `msg.payload.available` but the canonical
   `AIStatusResponse` payload field is `enabled`. Silent typecheck-clean
@@ -1170,7 +1164,7 @@ minimatch_1.default) is not a function` during VSIX packaging.
   both occurrences in all three keys; verified all 4 other locales
   (de, es, ja, pt-BR) clean.
 
-### Tooling: Phase 04 close-out
+### Tooling: AI close-out
 
 - **`scripts/git-hooks/pre-commit`** runs `pnpm -r typecheck` (catches
   webview tsc) AND a locale dup-key scan (catches the JSON.parse silent
@@ -1180,13 +1174,7 @@ minimatch_1.default) is not a function` during VSIX packaging.
 - **`pnpm setup:hooks`** script: `git config core.hooksPath
 scripts/git-hooks`. Manual setup if `prepare` lifecycle is bypassed.
 
-### Solution doc
-
-- `.planning/solutions/integration-issues/phase-04-ai-panel-orphan-and-contract-drift-2026-05-05.md`:
-  full write-up of the six chained regressions + the systemic
-  guardrail that closes them. Future phase close-outs should consult.
-
-### Added: Phase 03 Monitor v2 Core (2026-05-04)
+### Added: Monitor v2 Core (2026-05-04)
 
 **Architecture**: Probe → MonitorRegistry (single-tick) → MetricBus
 (typed Zod-validated pub/sub) → TimeSeriesStore + AnomalyEngine +
@@ -1201,13 +1189,13 @@ DriftDetector + ReportExporter + FleetSummaryService.
   per-(orgId, seriesId) ring-buffered MetricSample store with 50 MB LRU
   cap, 7-day retention, opt-in disk persistence
   (`sandforge.monitor.persistTimeSeries` setting), 5-min flush + 15-min
-  per-org rate limit, corruption recovery (P-03.10) that drops + breadcrumbs
+  per-org rate limit, corruption recovery that drops + breadcrumbs
   without throwing. 50K-sample × 5-org × 20-series vertical slice in 115 ms.
 - **MonitorRegistry + 8 Probes**: single-tick scheduler with per-probe
   in-flight gate, drift-safe scheduling, hard timeout, visibility
   gating. All 8 trackers (Limits, Job, ApexLog, SandboxRefresh,
   ErrorLog, UserSession, Health, Governance) wrapped as thin probes.
-  `DescribeCache` (per-org TTL + LRU) closes audit Perf #1.
+  `DescribeCache` (per-org TTL + LRU) removes the double-describe cost.
 - **DriftDetector v2**: field-level + permission-level deltas, canonical
   sort, debounced emission. New `DriftFeed` virtualized React component
   with filter chips. 60 tests + 1 Playwright spec (3 E2E scenarios,
@@ -1225,24 +1213,20 @@ DriftDetector + ReportExporter + FleetSummaryService.
   default landing: backend uses `ConnectionPool` reuse + `p-limit(3)` +
   60-s per-org cache + exponential backoff (60→120→240→600 s).
   Webview Zustand `useFleetStore` keyed as `Record<orgId, summary>`
-  (audit M5 fix: Map ban). `useVisibilityGate` posts `monitor:visibility`
+  (Map ban). `useVisibilityGate` posts `monitor:visibility`
   on `document.visibilitychange` so the extension pauses polling when
-  the panel is hidden (audit M1).
+  the panel is hidden.
 
 **Test impact**: 8412 → 8745, +333 tests, 0 regressions.
 
-**Audit findings closed**: Perf #1, M1, M5, H7, P-03.1, P-03.2, P-03.4,
-P-03.5, P-03.6, P-03.7, P-03.10.
-
-**Deferred to Phase 06 BP-01**:
+**Deferred**:
 
 - ReportExporter bridge wire: needs `MonitorOrchestrator` singleton in
   `services.ts` so handlers see the same `timeSeriesStore` instance
   across calls.
 - FleetSummaryService bridge wire: same dependency.
 - Stryker mutation testing: `stryker.conf.json` pins `vitest.dir =
-packages/shared/`, extension-side mutants are never exercised
-  (Phase 06 BP-04).
+packages/shared/`, extension-side mutants are never exercised.
 
 **Deferred to v1.4 polish**:
 
@@ -1250,7 +1234,7 @@ packages/shared/`, extension-side mutants are never exercised
   already cover the paths; the data-testid contract matches the future
   spec's expectations).
 
-### Fixed (post-Phase-03 hygiene)
+### Fixed (monitor hygiene)
 
 - **`ReportExporter.writePdfPart` stream listeners**: replaced
   `stream.on('finish', …)` + `stream.on('error', …)` with `stream.once(…)`
@@ -1258,9 +1242,9 @@ packages/shared/`, extension-side mutants are never exercised
   (was 2 orphans, now 0). pdfkit's stream is one-shot per part anyway,
   so the semantic is unchanged; this is the right primitive.
 
-### Security (autonomous-improvement Round 1, 2026-05-02)
+### Security (UUID hardening, 2026-05-02)
 
-- **UUID hardening sweep across 11 modules**: extends the audit C3/L1 fix
+- **UUID hardening sweep across 11 modules**: extends the earlier UUID fix
   beyond the 3 originally-touched files. Replaces the hand-rolled
   `'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, …Math.random…)`
   pattern (and the segments-loop variant) with `globalThis.crypto.randomUUID()`
@@ -1282,14 +1266,13 @@ packages/shared/`, extension-side mutants are never exercised
 ### Fixed (test regressions surfaced post-audit)
 
 - **`extension.test.ts`** mock context now exposes
-  `extension.packageJSON = { version: '1.2.5' }`. The audit Sprint 1 C4
+  `extension.packageJSON = { version: '1.2.5' }`. An earlier hardening
   fix added a `context.extension.packageJSON.version` read in `activate()`
   but did not update the test mock, leaving 6 `extension.test.ts` cases
   failing with `TypeError: Cannot read properties of undefined`.
 - **`providers/WebviewPanelManager.test.ts`** nonce regex broadened from
-  `[A-Za-z0-9]{32}` to `[A-Za-z0-9_-]{32}`. The audit C3 fix moved nonces
-  to base64url which uses `-` and `_`, but the test assertion was not
-  updated.
+  `[A-Za-z0-9]{32}` to `[A-Za-z0-9_-]{32}`. Nonces had moved to base64url,
+  which uses `-` and `_`, but the test assertion was not updated.
 - **`pages/Monitor/MonitorPage.test.tsx`**: 2 NARROW NO-BREAK SPACE
   (U+202F) characters at lines 342, 343 inside a regex character class
   were tripping eslint `no-irregular-whitespace`. Replaced with U+0020.
@@ -1330,9 +1313,6 @@ packages/shared/`, extension-side mutants are never exercised
   orphans > 0 and is wired into `pnpm validate`. CI (`.github/workflows/ci.yml`
   runs `pnpm validate`) will now fail PRs that introduce a listener /
   timer leak without a disposable sink.
-- **`test/FIXTURES-README.md`** removed (Phase 2 planning artifact:
-  described `test/helpers/sf-mock.ts` and other paths that never got
-  created; actual mocks live colocated with their consumers).
 
 ### Chore
 
@@ -1343,14 +1323,9 @@ packages/shared/`, extension-side mutants are never exercised
 - **`packages/webview` drops unused `zod` dependency** (knip + grep
   confirm zero `from 'zod'` imports webview-side; schema validation
   happens extension-side via the bridge).
-- **`.gitignore`** now excludes `.omc/` (transient session state from the
-  oh-my-claudecode tooling, was generating untracked-file noise at every
-  status check) and `*.bak` / `*.bak.*` (prevents recurrence of the
-  stale `CLAUDE.md.bak.<unix-ts>` files the cross-cutting audit had to
-  remove manually).
-- **`AUDIT.md`** prepended a deprecation banner: the v2.0.0 / 4 600-test
-  numbers in the body are from 2026-02-26 and predate the public v1.2.5
-  baseline. New audits live in `.planning/audit-YYYY-MM-DD-*.md`.
+- **`.gitignore`** now excludes transient local tooling state (it was
+  generating untracked-file noise at every status check) and `*.bak` /
+  `*.bak.*` backup files.
 - **`SECURITY.md`** (new): responsible disclosure flow for the
   marketplace extension, in-scope/out-of-scope surfaces, SLA expectations.
 - **`scripts/audit-disposables.ts`**: `stored` heuristic regex now
@@ -1399,17 +1374,13 @@ packages/shared/`, extension-side mutants are never exercised
 
 ### Chore (post-audit cleanup)
 
-- Removed two stale `CLAUDE.md.bak.*` files at the repo root (untracked
-  noise from a prior `/save-memory` operation).
-- Removed `phases/phase-00-bootstrap.md` at repo root (duplicate of the
-  canonical `docs/phases/phase-00-bootstrap.md`).
 - Lint sweep: `TelemetryAdapter` Sentry require eslint-disable widened to
   cover both `no-require-imports` and `no-var-requires`; `ForgeExecutor`
   `let remapped` → `const remapped`; intentional diagnostic `console.*`
   calls in `ForgeExecutor` + `GraphDiscoveryService` carry inline
   `eslint-disable-next-line no-console` (matches existing rationale comments).
 
-### Added (Forge module, Wave 2 mini: orphan FK handling + RecordType mapping)
+### Added (Forge module: orphan FK handling + RecordType mapping)
 
 - **`ExecuteOptions.referenceFallback: 'nullify' | 'keep'`**: controls what
   happens when a reference field on a cloned record points to a record that
@@ -1422,20 +1393,20 @@ packages/shared/`, extension-side mutants are never exercised
   `RecordTypeId` before insert. Records whose RecordTypeId has no mapping
   keep the source value (Salesforce will reject if not shared). The recipe
   pre-loads RecordTypes from both orgs and surfaces the mapping count in
-  Phase B (e.g. `268 RecordType mapping(s) resolved` for SOURCE-UAT ↔ TARGET-DEV).
+  Phase B (e.g. `268 RecordType mapping(s) resolved` on a sandbox pair).
 - **`ExecuteOptions.maxRecordsPerObject`**: optional per-object hard cap
   appended as `LIMIT N` to every scoped query. Keeps dev-sized clones
   bounded even when a node's natural scope pulls thousands of rows
   (typically `InsurancePolicyCoverage` / activity history on large insurance orgs).
   Default: no cap.
 
-### Added (Forge module, Wave 2 v3: 2-pass cycle FK update)
+### Added (Forge module: 2-pass cycle FK update)
 
 The previous waves nullified orphan FKs at insert time so cycle members
 (`Account ↔ Contact`, `Asset → Account` when Account hasn't been cloned
 yet, …) wouldn't trip `INVALID_CROSS_REFERENCE_KEY`. That left the
-records correctly inserted but disconnected. Wave 2 v3 closes the
-loop with a second pass.
+records correctly inserted but disconnected. A second pass now closes
+the loop.
 
 - **`ExecutorDeps.updateRecords`**: optional dep mirroring `insertRecords`
   but for bulk UPDATE. Production wiring uses `conn.sobject(name).update(...)`.
@@ -1467,10 +1438,10 @@ loop with a second pass.
   silent strip. Empty / missing whitelist = no validation, so non-restricted
   picklists are unaffected.
 
-### Added (Forge module, Wave 2.6 hardening from second real-org run)
+### Added (Forge module: hardening from a second sandbox run)
 
-Second Wave 3 run on a fresh Case (D00002635) revealed four more error
-classes; this commit fixes them all.
+A second scoped run on a fresh Case revealed four more error classes; this
+commit fixes them all.
 
 - **`ReferenceDataMapper`** (new file): instead of cloning canonical
   reference-data tables (BusinessHours, OperatingHours, ServiceOffer\_\_c,
@@ -1484,7 +1455,7 @@ classes; this commit fixes them all.
 - **`ExecutorDeps.isObjectCreatable`**: optional pre-flight check the
   executor consults before describing/querying a node. When the target
   org refuses inserts on the entity (read-only system tables like
-  `CaseHistory`/`CaseHistory2`, audit logs, etc.), the node is skipped
+  `CaseHistory`, audit logs, etc.), the node is skipped
   with a clean `stage: 'scope'` error report. Default in production wiring
   treats `meta.createable !== false` as creatable to avoid false-skips
   when jsforce omits the flag.
@@ -1498,28 +1469,28 @@ classes; this commit fixes them all.
   read-only entity skips and for `ReferenceDataMapper` "unmatched" rows
   (target row not found by Name).
 
-#### Validation runs on SOURCE-UAT → TARGET-DEV
+#### Validation runs on a sandbox pair
 
-Two consecutive Wave-3 runs proved the fixes work end-to-end:
+Two consecutive scoped runs proved the fixes work end-to-end:
 
-| Object          | Wave 3 v2                        | Wave 3 post-fixes                                                                                                                                         |
+| Object          | First run                        | After fixes                                                                                                                                               |
 | --------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Case            | OK inserted                      | DUPLICATE_VALUE on existing v2 record (expected)                                                                                                          |
 | Contact         | OK 50/50                         | OK 1/1 (Person Account `Name` strip works)                                                                                                                |
 | Account         | FAIL 0/3 (`__pc`/`Name` errors)  | OK 1/3 (Business Account succeeds; Person Account `Name` errors gone; remaining 2 fail on locale-restricted picklists, an org-specific schema constraint) |
 | BusinessHours   | FAIL FIELD_INTEGRITY (duplicate) | OK Mapped via reference-data lookup (1 resolved)                                                                                                          |
-| CaseHistory2    | FAIL entity not insertable       | Skipped via `isObjectCreatable`                                                                                                                           |
-| InsurancePolicy | n/a                              | REQUIRED_FIELD_MISSING surfaced as structured error (NameInsuredId required). Wave 2 sampling-cap+orphan-record-skip will harden this next                |
+| CaseHistory     | FAIL entity not insertable       | Skipped via `isObjectCreatable`                                                                                                                           |
+| InsurancePolicy | n/a                              | REQUIRED_FIELD_MISSING surfaced as structured error (NameInsuredId required)                                                                              |
 
 Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 3 new `RecordType-mapping` tests + 4 new orphan-FK tests). No regressions.
 
-### Added (Forge module, Wave 3 fixes from real-org learnings)
+### Added (Forge module: fixes from real-sandbox runs)
 
 - **Schema-drift defence**: the executor now also `describeFields` on the
   _target_ org and intersects with the source createable set before
-  building the insert payload. Previously a custom field present on UAT2
-  but missing on SBER (e.g. `TriggeringEvent2__c`) would surface as
+  building the insert payload. Previously a custom field present on the
+  source org but missing on the target would surface as
   `INVALID_FIELD: No such column …` and fail the entire object's batch.
 - **Omit nullified FKs**: orphaned reference fields (no remap entry,
   e.g. `OwnerId` pointing at a User that was never cloned) are now
@@ -1533,24 +1504,22 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
   the `forge:execute:response` payload so the wizard can render an error
   panel grouped by object/stage.
 
-#### Wave 3 first real-org run on SOURCE-UAT → TARGET-DEV (Case 500XX00000000001AAA)
+#### First scoped run on a sandbox pair
 
-- 1st attempt: 0/52 inserted; 3 systemic bugs found (above two + ref data).
-- 2nd attempt after fixes: **52/58 inserted on SBER**: Case (1/1),
-  Contact (50/50), GlobalContext**c (1/1). 6 remaining failures fall into
-  3 known categories that map to upcoming Wave 2 hardening: Reference
-  data (BusinessHours already exists → needs ReferenceDataMapper), FLS
-  schema drift on Person Account `**pc` fields, and read-only system
-objects (`CaseHistory2`).
+- 1st attempt: 0/52 inserted; 3 systemic bugs found (the two above plus
+  reference data).
+- 2nd attempt after fixes: **52/58 inserted**. The 6 remaining failures fall
+  into 3 known categories: reference data that already exists on the target
+  (BusinessHours → needs ReferenceDataMapper), FLS schema drift on Person
+  Account `__pc` fields, and read-only system objects.
 
-### Added (Forge module, record-scoped clone, Wave 1 POC)
+### Added (Forge module: record-scoped clone, first cut)
 
 - **`RecordScopeCache`**: per-execution cache (`Map<objectApiName, Set<recordId>>`) that records IDs collected from each wave so downstream nodes can scope their queries to the transitive closure of the root record.
 - **`ScopedSoqlBuilder`**: emits SOQL with `WHERE Id = '<rootId>'` for the root, `WHERE Id IN (...)` for objects already cached (including parent FK values seeded from earlier records), `WHERE FK IN (...)` for children of cached parents, or a zero-result query when no scoping path exists. Excluded targets (User, RecordType, ChangeEvent…) are filtered out so they never participate in scope SOQL.
 - **`ForgeExecutor` scoped + dry-run modes**: new `ExecuteOptions { rootRecordId, rootObjectApiName, dryRun }` parameter. When `rootRecordId` is set the executor switches to scoped mode: seeds the cache with the root, brings the root to the front of the topo order (so cycle waves don't starve the cache), uses `ScopedSoqlBuilder` per node, and propagates FK values from each query into the cache for multi-hop downstream scoping. `dryRun: true` runs every query but skips inserts, used by the recipe to preview cloning before any write.
 - **`FieldInfo.referenceTo`**: optional field on the executor describe contract so scope reasoning knows which parent each lookup points at (polymorphic-aware).
-- **`tools/recipe-forge-grappe.ts` Phase B**: read-only scoped dry-run report. Replaying the production executor against SOURCE-UAT → TARGET-DEV for Case `500XX00000000001AAA`: **261 858 records → 358** (−99.86%), 19 scoped queries, 0 write, 2 out-of-scope nodes correctly skipped.
-- **`.planning/improvements/forge-record-scoped/PLAN.md`**: roadmap for Wave 2 hardening (IN chunking, reverse-lookup propagation, cycle handling, orphan strategies, sampling cap) and Wave 3 real execution.
+- **`tools/recipe-forge-grappe.ts` Phase B**: read-only scoped dry-run report. Replaying the production executor against a sandbox pair for a single Case: **~260 000 records → 358** (−99.86%), 19 scoped queries, 0 write, 2 out-of-scope nodes correctly skipped.
 
 ### Fixed (Forge module)
 
@@ -1565,7 +1534,7 @@ objects (`CaseHistory2`).
 
 ## [1.2.5] - 2026-05-02
 
-**Forge Hardening Pass**: 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows. (Entry restored; it was only recorded in `packages/extension/CHANGELOG.md`.)
+**Forge Hardening Pass**: 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard, plus 5 Playwright E2E specs covering critical user flows. (Entry restored; it was only recorded in `packages/extension/CHANGELOG.md`.)
 
 ### Added
 
@@ -1603,7 +1572,7 @@ objects (`CaseHistory2`).
 **Tests**
 
 - 22 regression tests pinning the audit-fix invariants (`audit-fixes.regression.test.ts`)
-- 5 Playwright E2E specs (Plan 02-03) covering: AI persona seed → execute, sync conflict resolve, monitor refresh + CSV export, CDC subscribe + event stream, AI diagnose + apply fix
+- 5 Playwright E2E specs covering: AI persona seed → execute, sync conflict resolve, monitor refresh + CSV export, CDC subscribe + event stream, AI diagnose + apply fix
 - 9 fixture factories + `MockBridge.stream()` helper for multi-event flows
 
 ### Changed
@@ -1649,7 +1618,7 @@ objects (`CaseHistory2`).
 
 ## [1.2.4] - 2026-04-23
 
-**Milestone v1.2.3 « Scale & Complete », shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone (7 phases, 18 plans, 50 requirements), tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry restored from the `v1.2.4` tag message.)
+**Milestone v1.2.3 « Scale & Complete », shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone, tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry restored from the `v1.2.4` tag message.)
 
 - Three seed modes: AI Personas (10 industry personas), CSV Import (drag-and-drop + validation), Clone from Org (topological insert + ID mapping)
 - Real-time sync lifecycle: CDC subscriptions, conflict resolution UI, execution history, cron scheduling

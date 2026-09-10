@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
-# Pre-commit guard — closes two silent-regression gaps that night-mode
-# autopilots have already shipped past test suites in this repo:
+# Pre-commit guard — closes two silent-regression gaps that the extension
+# test suite cannot see on its own:
 #
-# (1) Webview typecheck. Phase 04 shipped a webview typecheck regression
-# in AIChatPanel.tsx (ai:provider:status / ai:budget:state envelopes were
-# inlined as ad-hoc types missing BaseMessage's id + timestamp fields).
-# The extension vitest suite was green, so night-mode autopilot did not
-# notice. `pnpm package` is the only path that runs the webview tsc,
-# and it was never invoked. `pnpm -r typecheck` runs tsc per package.
+# (1) Webview typecheck. `pnpm test` runs the extension vitest suite only, so
+# a webview-only type error stays green there — e.g. an `ai:provider:status` /
+# `ai:budget:state` envelope inlined as an ad-hoc type missing BaseMessage's
+# id + timestamp fields. `pnpm package` is the only other path that runs the
+# webview tsc, and it is not run on every commit. `pnpm -r typecheck` runs
+# tsc per package.
 #
-# (2) Duplicate top-level keys in i18n locale JSONs. en.json + fr.json
-# shipped with three duplicate top-level keys (monitor / dataops /
-# execution) — JSON.parse silently took the second value, wiping out
-# entire module translations. The user saw raw i18n keys (e.g.
-# `monitor.emptyState.title`) instead of the actual French / English
-# label. The pnpm typecheck step does NOT catch this — the JSON imports
-# pass typecheck even with dupes. This hook adds an explicit dupe scan
-# across all locale files.
+# (2) Duplicate top-level keys in i18n locale JSONs. A locale file carrying
+# the same top-level key twice (monitor / dataops / execution have all done
+# it) parses without complaint — JSON.parse keeps the second value and wipes
+# out an entire module's translations, so the UI renders raw keys such as
+# `monitor.emptyState.title` instead of the label. Typecheck does NOT catch
+# this: the JSON imports pass even with dupes. This hook adds an explicit
+# dupe scan across all locale files.
 #
 # Bypass with --no-verify if you really need to (don't).
 

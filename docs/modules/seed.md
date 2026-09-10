@@ -59,7 +59,10 @@ The Forge page provides a richer workflow with four input modes:
 - **Record** -- Paste a Record ID or Salesforce URL, preview the record live, then discover its full dependency graph
 - **SOQL** -- Write a SOQL query to define the seed scope
 - **Template** -- Select a saved template for repeatable operations
-- **AI** -- Describe what you need in natural language and let the AI build the seed plan
+- **AI** _(not available)_ -- The tab accepts a prompt, but nothing turns it into
+  a seed plan. Discovery resolves a root object from a record ID or a SOQL query
+  only; any other mode stops with `Cannot resolve root object`. Use **Record** or
+  **SOQL** instead.
 
 After input, the Discovery phase renders an interactive dependency graph in a split view. Click any node to inspect fields, toggle inclusion, and configure anonymization per field.
 

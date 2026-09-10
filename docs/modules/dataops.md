@@ -50,12 +50,16 @@ What a restore does, in order:
 
 ### Anonymize
 
-Mask sensitive data using pre-built or custom anonymization templates:
+Mask sensitive data using the built-in anonymization templates:
 
 - Browse anonymization templates from the template library
-- Preview anonymization effects before applying
-- Apply templates to replace PII with realistic but fake data
-- Masking Template Panel for creating and managing custom templates
+- Apply a template to replace PII with realistic but fake data
+- **No preview.** The Preview button is disabled: the preview it used to run
+  applied the mask to the org for real, so it was inerted rather than left in
+  place. Apply is the only path, and it is irreversible -- back up first.
+- **The library is read-only.** It exposes lookups only,
+  and no channel creates, edits, imports or exports a template. The templates
+  that ship with the extension are the whole set.
 
 ### Compliance (GDPR/CCPA)
 
@@ -90,8 +94,8 @@ A dashboard for monitoring data quality across your org:
 
 ## Tips
 
-- Always create a backup before running anonymization or cleanup operations
-- Use the Compliance tab to prepare for audits -- it generates reports aligned with regulatory frameworks
-- Anonymization templates can be shared across teams by exporting and importing them
-- The Quality dashboard is useful for identifying data issues before syncing between orgs
+- Always create a backup before running anonymization: the mask is applied in
+  place and cannot be undone
+- A backup can only be restored into the org it was taken from, so keep one
+  backup per org rather than one per project
 - Check the KPI row for a quick overview of your DataOps activity and error rates

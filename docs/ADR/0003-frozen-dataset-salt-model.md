@@ -5,7 +5,7 @@
 
 ## Context
 
-The Frozen Reference Dataset module (spec: `PROMPT_FROZEN_DATASET.md`)
+The Frozen Reference Dataset module (`docs/modules/frozen-dataset.md`)
 pseudonymizes a business dataset extracted from a UAT sandbox so it can be
 replayed identically into refreshed dev sandboxes. Determinism requires a
 stable key, but that key is also the re-identification vector, so where

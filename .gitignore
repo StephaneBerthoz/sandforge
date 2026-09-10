@@ -50,3 +50,6 @@ CLAUDE.md
 
 # Client names for the pre-publish confidentiality gate. Never tracked.
 .confidential-names
+
+# Generated reports (audit-disposables, soak-test, stryker). Regenerate, do not commit.
+reports/

@@ -268,17 +268,16 @@ fired synchronously after `mutate()`, before any answer could arrive.
 
 ## [1.18.0] - 2026-09-09
 
-The repository is public, and the audit that preceded it found the flagship
-broken above 200 records.
+The repository is public, and the release that opens it repairs the flagship.
 
-A 114-agent review read the whole product against its own claims: 91 findings,
-68 surviving a pass whose only job was to refute them. Twenty-eight were rated
-high. What they have in common is not carelessness — the bridge, the CSP, the
-prompt-injection defence and the six locales all held under attack. It is that
-nothing ever ran the checks. `pnpm validate` could not complete on any machine,
-CI had been switched off at the repository level since May, and four gates
-added in v1.17.0 to fix "these gates never execute" were themselves never
-executed. Sixteen of the seventeen releases were cut by hand.
+Forge could not clone an object holding more than 200 records: every object
+above the threshold failed, and its whole subtree was skipped behind it. Below
+that threshold, a clone stopped at the first 2 000 rows of each object and
+still reported success. Both are fixed. Around them this release closes the one
+write path that reached a target org with no Production Guard check, gives the
+guard the real operation to judge instead of a hardcoded single-row upsert, and
+repairs a Marketplace listing whose links all answered 404 to anyone but the
+author.
 
 ### Fixed
 
@@ -777,11 +776,11 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 
 ## [1.2.6] - 2026-05-05
 
-**Phase 03 Monitor v2 Core + Phase 04 AI Integration + close-out hardening.** Two milestone-track phases shipped under the v1.3.0 umbrella, plus a six-bug close-out pass surfaced when the user actually installed the fresh VSIX. Phase 03 ships the time-series monitor substrate (MetricBus, TimeSeriesStore, MonitorRegistry + 8 probes, DriftDetector v2, AnomalyEngine, ReportExporter, FleetSummaryService). Phase 04 ships the read-only AI assistant (per-provider CircuitBreaker, AbortController, 10 read-only tools with CI fence, per-panel-session token budget, prompt-injection defence with adversarial vitest, AIDiagnoseHandler with approve gate, Anthropic adapter functional + OpenAI/Custom stubs).
+**Monitor v2 Core + AI Integration + close-out hardening.** Two feature tracks shipped under the v1.3.0 umbrella, plus a six-bug close-out pass that surfaced when the extension was installed from a freshly built VSIX. The monitor track ships the time-series substrate (MetricBus, TimeSeriesStore, MonitorRegistry + 8 probes, DriftDetector v2, AnomalyEngine, ReportExporter, FleetSummaryService). The AI track ships the read-only assistant (per-provider CircuitBreaker, AbortController, 10 read-only tools with CI fence, per-panel-session token budget, prompt-injection defence with adversarial vitest, AIDiagnoseHandler with approve gate, Anthropic adapter functional + OpenAI/Custom stubs).
 
 ### Added
 
-**Phase 03: Monitor v2 Core**
+**Monitor v2 Core**
 
 - `MetricBus` typed Zod-validated pub/sub with 5 discriminated event subtypes
 - `TimeSeriesStore` per-(orgId, seriesId) ring buffer, 50 MB LRU cap, 7-day retention, opt-in disk persistence (`sandforge.monitor.persistTimeSeries` setting), 5-min flush + 15-min per-org rate limit, corruption recovery
@@ -794,7 +793,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 - `FleetSummaryService` + `MonitorOverviewPage` multi-org fleet landing with `ConnectionPool` reuse, `p-limit(3)`, 60-s per-org cache, exponential backoff
 - `useVisibilityGate` posts `monitor:visibility` on `document.visibilitychange`
 
-**Phase 04: AI Integration**
+**AI Integration**
 
 - `AIClient` interface + `AnthropicAdapter` (chat / complete / countTokens / runTools / dispose) using `messages.parse + zodOutputFormat` for Zod-validated structured output
 - `OpenAIAdapter` + `CustomAdapter` stubs that satisfy the interface (constructor never throws, methods throw `AINotImplementedError` with provider-switch hint)
@@ -811,7 +810,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 - `SessionBudget` class: per-panel-session token counter, sums all 4 token fields, debounced 80% warn, 100% hard refuse with preflight BEFORE the SDK call
 - `sandforge.ai.tokenBudgetMaxPerSession` setting (default 50000) with EN+FR NLS
 - `escapeUserData` / `wrapAsUserData` HTML-entity escape helpers + `DIAGNOSE_SYSTEM_PROMPT` / `SOQL_REVIEW_SYSTEM_PROMPT` / `ERROR_RESOLVE_SYSTEM_PROMPT` carrying the spotlight clause
-- Adversarial vitest spec: 7 jailbreak fixtures × 2 defence layers + 2 spotlight assertions (RT-#10 closure)
+- Adversarial vitest spec: 7 jailbreak fixtures × 2 defence layers + 2 spotlight assertions
 - `AIDiagnoseHandler` self-defence canary asserts the literal `</user-data>` substring NEVER appears in the body between the wrapper's open + close tags
 - 4 bridge envelopes (`ai:diagnose`, `ai:diagnose:response`, `ai:approve-action`, `ai:approve-action:response`) + 3 budget envelopes (`ai:budget:state`, `ai:budget:warn`, `ai:budget:exceeded`) + `ai:provider:status` + `ai:tool-trace`
 - 6 `ai.error.*` i18n keys (overloaded / rateLimit / auth / cancelled / transient / unknown) in EN + FR
@@ -827,7 +826,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 
 ### Fixed
 
-- **AIChatPanel.tsx ad-hoc message types**: replaced inline `BaseMessage & { payload: { ... } }` types for `ai:provider:status` / `ai:budget:state` (which were missing `id` + `timestamp`) with canonical `AIProviderStatusMessage` / `AIBudgetStateMessage` imports from `@sandforge/shared`. Webview tsc was failing on Phase 04 close; extension vitest never caught it because the inline type compiled fine in isolation.
+- **AIChatPanel.tsx ad-hoc message types**: replaced inline `BaseMessage & { payload: { ... } }` types for `ai:provider:status` / `ai:budget:state` (which were missing `id` + `timestamp`) with canonical `AIProviderStatusMessage` / `AIBudgetStateMessage` imports from `@sandforge/shared`. Webview tsc was failing on the close-out; extension vitest never caught it because the inline type compiled fine in isolation.
 - **`pnpm.overrides` minimatch flipped vsce to incompatible major**: previous `<3.1.4: >=3.1.4` was a non-existent version (last 3.x is 3.1.2) that resolved vsce's `^3.0.3` to 9.x or 10.x, breaking vsce's CJS-default `__importDefault(require('minimatch'))` with `(0 , minimatch_1.default) is not a function`. Tightened lower bound to `<3.0.5` (the actual ReDoS-fix threshold per GHSA), constrained replacement to `>=3.0.5 <4` so CJS-default consumers stay on 3.x, plus `@vscode/vsce>minimatch: 3.1.2` path-scoped override belt-and-braces.
 - **AI panel was an orphan route**: `AIPage` was registered in `PanelRouter.tsx` but `'ai'` was missing from `ModuleRoute` type, `ALL_ROUTES`, `router.tsx routeComponents`, both sidebars (`SidePanel.tsx` + `Sidebar.tsx`), `TopBar ROUTE_LABELS`, `CommandPalette ROUTE_ICONS+LABEL_KEYS`, `extension.ts moduleCommands`, `SidebarViewProvider commandMap`, the package.json command contribution, and EN/FR NLS. The whole AI backend was unreachable from the user-facing UI.
 - **`BridgeProvider.tsx` contract drift on `ai:status:response`**: the listener read `msg.payload.available` but the canonical `AIStatusResponse` payload field is `enabled`. Silent typecheck-clean / runtime-broken. `setAiAvailable(undefined)` always made `aiAvailable === false` even when the API key was configured. Replaced ad-hoc inline type with `AIStatusResponse` import from shared so future renames break both sides at compile time.
@@ -835,7 +834,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 
 ### Changed
 
-- `pnpm validate` now ALWAYS runs through the pre-commit hook on every commit. The earlier flow let night autopilot ship phase summaries without ever invoking `pnpm package` (the only path that exercises webview tsc + VSIX production + vsce interop). The new hook closes that gap.
+- `pnpm validate` now ALWAYS runs through the pre-commit hook on every commit. The earlier flow let work land without ever invoking `pnpm package` (the only path that exercises webview tsc + VSIX production + vsce interop). The new hook closes that gap.
 
 ### Security
 
@@ -843,7 +842,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 
 ## [1.2.5] - 2026-05-02
 
-**Forge Hardening Pass**: 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard. Phase 02 (Test Hardening) closed with 5 Playwright E2E specs covering critical user flows.
+**Forge Hardening Pass**: 23 audit findings resolved (security, performance, correctness) + CLI feature parity with the wizard, plus 5 Playwright E2E specs covering critical user flows.
 
 ### Added
 
@@ -881,7 +880,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 **Tests**
 
 - 22 regression tests pinning the audit-fix invariants (`audit-fixes.regression.test.ts`)
-- 5 Playwright E2E specs (Plan 02-03) covering: AI persona seed → execute, sync conflict resolve, monitor refresh + CSV export, CDC subscribe + event stream, AI diagnose + apply fix
+- 5 Playwright E2E specs covering: AI persona seed → execute, sync conflict resolve, monitor refresh + CSV export, CDC subscribe + event stream, AI diagnose + apply fix
 - 9 fixture factories + `MockBridge.stream()` helper for multi-event flows
 
 ### Changed
@@ -927,7 +926,7 @@ Fixed: duplicate org entries — ghost entries persisted by early builds (same S
 
 ## [1.2.4] - 2026-04-23
 
-**Milestone v1.2.3 « Scale & Complete », shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone (7 phases, 18 plans, 50 requirements), tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry backfilled 2026-08; it was only recorded in the root `CHANGELOG.md` and the `v1.2.4` tag message.)
+**Milestone v1.2.3 « Scale & Complete », shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone, tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry backfilled 2026-08; it was only recorded in the root `CHANGELOG.md` and the `v1.2.4` tag message.)
 
 - Three seed modes: AI Personas (10 industry personas), CSV Import (drag-and-drop + validation), Clone from Org (topological insert + ID mapping)
 - Real-time sync lifecycle: CDC subscriptions, conflict resolution UI, execution history, cron scheduling
