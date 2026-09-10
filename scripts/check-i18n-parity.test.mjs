@@ -6,9 +6,10 @@
  * is copied into its `scripts/` (every path it reads is `__dirname`-relative),
  * and the exit code plus stdout are the assertions.
  *
- * Section 6's baseline is the one thing the copy cannot keep: it names 587 real
- * keys, none of which a throwaway catalogue defines. Each case stages the list
- * and the census it is about, and asserts the substitution actually landed.
+ * Section 6's baseline is the one thing the copy cannot keep: the shipped list
+ * is empty, and a case that needs entries needs ones a throwaway catalogue
+ * defines. Each case stages the list and the census it is about, and asserts
+ * the substitution actually landed.
  *
  * Run: node --test scripts/check-i18n-parity.test.mjs
  */
@@ -74,7 +75,7 @@ const baseFixture = () => ({
 });
 
 const gateSource = readFileSync(gateScript, 'utf8');
-const BASELINE_DECL = /const UNREFERENCED_BASELINE: readonly string\[\] = \[[\s\S]*?\n\];/;
+const BASELINE_DECL = /const UNREFERENCED_BASELINE: readonly string\[\] = \[[\s\S]*?\];/;
 const CENSUS_DECL = /const BASELINE_CENSUS = \{[^}]*\} as const;/;
 
 /** The real gate, with section 6's baseline and census swapped for the case's. */
@@ -85,9 +86,17 @@ function stagedGate(baseline, census) {
       `const UNREFERENCED_BASELINE: readonly string[] = ${JSON.stringify(baseline)};`,
     )
     .replace(CENSUS_DECL, `const BASELINE_CENSUS = ${JSON.stringify(census)} as const;`);
-  // A rename that silently reverted these to the shipped 587 would turn every
-  // section 6 assertion below into noise, so prove both edits landed.
-  assert.ok(!staged.includes("'ai.avgLatency'"), 'baseline substitution missed the real list');
+  // A rename that silently left the shipped declaration in place would turn
+  // every section 6 assertion below into noise, so prove both edits landed.
+  // Asserting the *result* is what keeps this able to fail: the old canary
+  // named a member of the shipped list, and went vacuous the day that list was
+  // emptied — it would have passed on a substitution that never ran.
+  assert.ok(
+    staged.includes(
+      `const UNREFERENCED_BASELINE: readonly string[] = ${JSON.stringify(baseline)};`,
+    ),
+    'baseline substitution missed the real list',
+  );
   assert.ok(
     staged.includes(JSON.stringify(census)),
     'census substitution missed the real constant',

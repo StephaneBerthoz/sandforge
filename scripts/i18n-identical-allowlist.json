@@ -5,9 +5,6 @@
     "auth.jwt",
     "auth.oauthWeb",
     "automation.timeout",
-    "common.typeCount_one",
-    "common.typeCount_other",
-    "common.versionLabel",
     "dataops.frameworks.pci_dss",
     "forge.soqlPlaceholder",
     "help.sfStackExchange",
@@ -18,8 +15,6 @@
     "seed.csv.mapper.incompatible",
     "seed.templates.salesCloudStarter.name",
     "seed.templates.serviceCloudStarter.name",
-    "settings.importExport",
-    "settings.themes.auto",
     "sidePanel.orgType.devPro",
     "sync.conflictResolution.conflictTypes.editEdit"
   ]

@@ -27,11 +27,14 @@
  * Section 5 — French accents (report only). French written without accents
  * passes every structural check while reading as broken to a French user.
  *
- * Section 6 — catalogue vs code (blocking on new entries only). Keys no source
- * file mentions. Runtime-built keys (`t(`a.b.${x}`)`) are exempted by prefix,
- * and the count that existed when the section landed is the baseline. That
- * baseline is a ratchet: it may only shrink, and an entry that stops being an
- * unreferenced catalogue key fails the run until it is deleted from it.
+ * Section 6 — catalogue vs code (blocking). Keys no source file mentions. It
+ * reads the whole monorepo, tests included (`KEY_REFERENCE_ROOTS`), because a
+ * key's only literal often lives in `packages/extension` or `packages/shared`
+ * and reaches `t()` through a variable. Runtime-built keys are exempted from
+ * both ends: by prefix for `t(`a.b.${x}`)`, by tail for `t(`${p}.justNow`)`.
+ * The baseline of tolerated entries is empty and is a ratchet: it may only
+ * shrink, and an entry that stops being an unreferenced catalogue key fails the
+ * run until it is deleted from it.
  *
  * Plural handling (webview only): i18next (Intl.PluralRules) only has the
  * `other` category for Japanese, so `*_one` keys are not required in
@@ -43,7 +46,7 @@
  *
  * Run with:  pnpm check:i18n
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const WEBVIEW_LOCALES_DIR = join(__dirname, '..', 'packages', 'webview', 'src', 'i18n', 'locales');
@@ -156,6 +159,49 @@ function webviewSources(dir: string, acc: string[] = []): string[] {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) webviewSources(full, acc);
     else if (/\.tsx?$/.test(entry.name) && !/\.(test|spec)\./.test(entry.name)) acc.push(full);
+  }
+  return acc;
+}
+
+/**
+ * Every file in the monorepo that can name a catalogue key — section 6 only.
+ *
+ * That section used to read `webviewSources`, i.e. `packages/webview/src`
+ * minus its tests. Three reference paths fell outside that window, and each
+ * one of them put a live key in the baseline:
+ *
+ *   - `packages/extension/src` builds keys the webview renders through
+ *     `t(variable)`. `SmartActionAnalyzer` assigns `home.smartAction.reason*`
+ *     and `SmartActionCard` renders `t(recommendation.reasonKey)`;
+ *     `errorClassifier` assigns `ai.error.cancelled` and
+ *     `AIProviderStatusBanner` renders it. Neither key exists as a literal in
+ *     any webview source.
+ *   - `packages/shared/src` carries the prebuilt catalogues. `seed-templates`
+ *     and `sync-templates` store `seed.templates.*` / `sync.templates.*` in
+ *     `name`/`nameKey` fields that `TemplateCard` hands straight to `t()`.
+ *   - a key whose only mention is a test is still a key a source file
+ *     mentions; deleting it reds the suite rather than the UI, which is the
+ *     same signal arriving one layer earlier.
+ *
+ * Locale JSON is deliberately not in the walk: a catalogue that counts as its
+ * own consumer makes every key referenced and the section vacuous.
+ */
+const KEY_REFERENCE_ROOTS = [
+  join(__dirname, '..', 'packages', 'shared', 'src'),
+  join(__dirname, '..', 'packages', 'extension', 'src'),
+  join(__dirname, '..', 'packages', 'webview', 'src'),
+  join(__dirname, '..', 'packages', 'webview', 'e2e'),
+];
+
+function referenceSources(dir: string, acc: string[] = []): string[] {
+  // A root a checkout does not have contributes no references, it does not
+  // crash the run: the gate's own fixture repos carry the webview alone.
+  if (!existsSync(dir)) return acc;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) referenceSources(full, acc);
+    else if (/\.tsx?$/.test(entry.name)) acc.push(full);
   }
   return acc;
 }
@@ -325,606 +371,32 @@ function reportFrenchAccents(): void {
 }
 
 /**
- * Baseline for section 6: keys already unreferenced when the section landed.
- * They belong to modules whose fate is decided elsewhere (DEADCODE-03), so the
- * gate only blocks keys added on top of this list.
+ * Baseline for section 6: keys section 6 tolerates as unreferenced. Empty since
+ * 2026-09-10, and meant to stay that way — an unreferenced key is now deleted,
+ * not written down.
  *
- * An entry earns its place by being unreferenced *and* defined in en.json. The
- * moment either stops holding — a consumer comes back, the key leaves the
- * catalogue — `auditBaseline` fails the run until the entry is deleted from
- * here. Three entries left on the day the ratchet landed, `org.status_error`
- * among them: `OrgManagerPage` had been rendering it all along, while the sweep
- * that read the key was writing it down as dead in the same commit. A list
- * nobody can leave is a list that stops describing anything.
+ * It held 586 entries, and 555 of them were genuinely dead copy: deleted from
+ * all six locales, ~3 300 strings out of every VSIX. The other 31 were never
+ * dead. They were invisible to the sweep, which read `packages/webview/src`
+ * minus its tests and matched whole literals:
+ *
+ *   - 16 keys whose literal lives in `packages/extension/src` or
+ *     `packages/shared/src` and reaches `t()` through a variable
+ *     (`t(recommendation.reasonKey)`, `t(item.name)`);
+ *   - 6 built tail-first by `t(`${keyPrefix}.justNow`)` in `formatters.ts`,
+ *     spelled out by no file at all;
+ *   - 9 named only by a spec, which is still a source file naming them.
+ *
+ * `KEY_REFERENCE_ROOTS` and `dynamicSuffixes` in `findUnreferencedKeys` close
+ * all three holes, so those 31 now resolve as referenced and need no entry.
+ *
+ * An entry, should one ever be added, earns its place by being unreferenced
+ * *and* defined in en.json. The moment either stops holding — a consumer comes
+ * back, the key leaves the catalogue — `auditBaseline` fails the run until the
+ * entry is deleted from here. A list nobody can leave is a list that stops
+ * describing anything.
  */
-const UNREFERENCED_BASELINE: readonly string[] = [
-  'ai.avgLatency',
-  'ai.error.cancelled',
-  'ai.thinking',
-  'ai.tokenUsage',
-  'ai.totalCalls',
-  'audit.allStatuses',
-  'audit.allTypes',
-  'audit.duration',
-  'audit.entries',
-  'audit.error',
-  'audit.exportCsv',
-  'audit.exportJson',
-  'audit.failure',
-  'audit.filter',
-  'audit.noEntries',
-  'audit.operationType',
-  'audit.org',
-  'audit.partial',
-  'audit.records',
-  'audit.searchPlaceholder',
-  'audit.success',
-  'audit.title',
-  'audit.user',
-  'automation.addStep',
-  'automation.addVariable',
-  'automation.avgDuration',
-  'automation.condition',
-  'automation.deletePipeline',
-  'automation.editPipeline',
-  'automation.execution',
-  'automation.lastRun',
-  'automation.loadPipeline',
-  'automation.moveDown',
-  'automation.moveUp',
-  'automation.noCondition',
-  'automation.onFailure',
-  'automation.onSuccess',
-  'automation.pipelineDesc',
-  'automation.pipelineName',
-  'automation.pipelines',
-  'automation.removeStep',
-  'automation.removeTrigger',
-  'automation.removeVariable',
-  'automation.status',
-  'automation.stepResults',
-  'automation.successRate',
-  'automation.tags',
-  'automation.totalRuns',
-  'automation.variables',
-  'automation.version',
-  'autopilot.control.retry',
-  'autopilot.status.completed',
-  'autopilot.status.executing',
-  'autopilot.status.failed',
-  'autopilot.status.idle',
-  'autopilot.status.paused',
-  'autopilot.step1.sameOrgWarning',
-  'autopilot.step1.selectSource',
-  'autopilot.step1.selectTarget',
-  'autopilot.step2.deselectAll',
-  'autopilot.step2.noObjects',
-  'autopilot.step2.searchObjects',
-  'autopilot.step4.cycles',
-  'autopilot.subtitle',
-  'autopilot.wizard.step1',
-  'autopilot.wizard.step2',
-  'autopilot.wizard.step3',
-  'autopilot.wizard.step4',
-  'bridge.connected',
-  'bridge.connecting',
-  'bridge.disconnected',
-  'bridge.notYetConnected',
-  'bridge.orgConnected',
-  'bridge.orgDisconnected',
-  'bridge.settingsSaved',
-  'bridge.syncReceived',
-  'combobox.noResults',
-  'combobox.search',
-  'combobox.selected',
-  'common.changeCount_one',
-  'common.changeCount_other',
-  'common.createdBy',
-  'common.filter',
-  'common.refresh',
-  'common.success',
-  'common.toggleSidebar',
-  'common.versionLabel',
-  'common.warning',
-  'compare.breaking',
-  'compare.componentType',
-  'compare.deployable',
-  'compare.impact',
-  'compare.lastModifiedBy',
-  'compare.lastModifiedDate',
-  'compare.results',
-  'compare.selectCategories',
-  'compare.selectOrgs',
-  'dataops.archive',
-  'dataops.avgResolution',
-  'dataops.backupSize',
-  'dataops.backupStatus',
-  'dataops.cleanupDesc',
-  'dataops.complianceSummary',
-  'dataops.compression',
-  'dataops.createDSR',
-  'dataops.days',
-  'dataops.dryRun',
-  'dataops.dsrAccess',
-  'dataops.dsrErasure',
-  'dataops.dsrList',
-  'dataops.dsrPortability',
-  'dataops.dsrRectification',
-  'dataops.dsrRestriction',
-  'dataops.encryption',
-  'dataops.includeFiles',
-  'dataops.lastBackup',
-  'dataops.masking.apply',
-  'dataops.masking.clearAll',
-  'dataops.masking.description',
-  'dataops.masking.fields',
-  'dataops.masking.noTemplates',
-  'dataops.masking.search',
-  'dataops.masking.selectAll',
-  'dataops.masking.selectRecommended',
-  'dataops.masking.title',
-  'dataops.massDelete',
-  'dataops.newDSR',
-  'dataops.noDSR',
-  'dataops.noPII',
-  'dataops.noResults',
-  'dataops.normalizeEmails',
-  'dataops.normalizePhones',
-  'dataops.objects',
-  'dataops.overdueDSR',
-  'dataops.overdueDSRWarning',
-  'dataops.passRate',
-  'dataops.pendingDSR',
-  'dataops.piiScan',
-  'dataops.processDSR',
-  'dataops.qualityDesc',
-  'dataops.qualityRules.completeness',
-  'dataops.qualityRules.consistency',
-  'dataops.qualityRules.format',
-  'dataops.qualityRules.freshness',
-  'dataops.qualityRules.range',
-  'dataops.qualityRules.referential',
-  'dataops.qualityRules.uniqueness',
-  'dataops.qualityScore',
-  'dataops.recommendation',
-  'dataops.recordsArchived',
-  'dataops.recordsDeleted',
-  'dataops.recordsRestored',
-  'dataops.recycleBin',
-  'dataops.removeDuplicates',
-  'dataops.removeEmpty',
-  'dataops.restoreComplete',
-  'dataops.restoreFailed',
-  'dataops.restoreTarget',
-  'dataops.retentionDays',
-  'dataops.runPIIScan',
-  'dataops.runScan',
-  'dataops.sampleFailures',
-  'dataops.scanResults',
-  'dataops.schedule',
-  'dataops.storageOptimizer',
-  'dataops.storageSaved',
-  'dataops.subjectEmail',
-  'dataops.subjectName',
-  'dataops.template',
-  'dataops.totalDSR',
-  'dataops.trimWhitespace',
-  'emptyState.automationAction',
-  'emptyState.automationEncouragement',
-  'emptyState.compareAction',
-  'emptyState.compareEncouragement',
-  'emptyState.dataopsAction',
-  'emptyState.dataopsEncouragement',
-  'emptyState.encouragement',
-  'emptyState.monitorAction',
-  'emptyState.monitorEncouragement',
-  'emptyState.seedAction',
-  'emptyState.seedEncouragement',
-  'emptyState.startTour',
-  'emptyState.syncAction',
-  'emptyState.syncEncouragement',
-  'emptyState.viewDocs',
-  'execution.aborted',
-  'execution.background.operationAborted',
-  'execution.background.operationRunning',
-  'execution.background.seedCompleted',
-  'execution.background.seedFailed',
-  'execution.background.showDetails',
-  'execution.background.syncCompleted',
-  'execution.background.syncFailed',
-  'execution.complete',
-  'execution.failed',
-  'execution.failedRecords',
-  'execution.overallProgress',
-  'execution.processing',
-  'execution.queued',
-  'execution.recordsOf',
-  'forge.etaUnknown',
-  'forge.executionLogs',
-  'forge.lastUsed',
-  'forge.logsCopied',
-  'forge.logsExported',
-  'forge.metadataMismatch',
-  'forge.previewRecord',
-  'forge.scrollPaused',
-  'forge.skipMetadata',
-  'forge.smartLimitOverride',
-  'forge.sortBy',
-  'forge.syncMetadata',
-  'forge.templates',
-  'forge.useTemplate',
-  'governance.categories.compliance',
-  'governance.categories.custom',
-  'governance.categories.performance',
-  'governance.categories.security',
-  'governance.fail',
-  'governance.pass',
-  'governance.warning',
-  'guidedTour.automationTour',
-  'guidedTour.automationTourDesc',
-  'guidedTour.compareTour',
-  'guidedTour.compareTourDesc',
-  'guidedTour.dataopsTour',
-  'guidedTour.dataopsTourDesc',
-  'guidedTour.finish',
-  'guidedTour.forgeTour',
-  'guidedTour.forgeTourDesc',
-  'guidedTour.general',
-  'guidedTour.generalDesc',
-  'guidedTour.monitorTour',
-  'guidedTour.monitorTourDesc',
-  'guidedTour.next',
-  'guidedTour.previous',
-  'guidedTour.seedTour',
-  'guidedTour.seedTourDesc',
-  'guidedTour.skip',
-  'guidedTour.stepOf',
-  'guidedTour.syncTour',
-  'guidedTour.syncTourDesc',
-  'help.clone.sourcePicker',
-  'help.documentation',
-  'help.documentationDesc',
-  'help.faqDesc',
-  'help.home.quickActions',
-  'help.shortcutsDesc',
-  'help.support',
-  'help.supportDesc',
-  'help.sync.direction',
-  'help.version',
-  'help.viewDocs',
-  'hints.checkMonitor',
-  'hints.compareOrgs',
-  'hints.configureSettings',
-  'hints.connectFirstOrg',
-  'hints.dontShowHint',
-  'hints.exploreSyncModule',
-  'hints.gotIt',
-  'hints.setupAutomation',
-  'hints.trySeedModule',
-  'hints.useDataOps',
-  'home.ago',
-  'home.hoursAgo',
-  'home.justNow',
-  'home.minutesAgo',
-  'home.operationError',
-  'home.operationSuccess',
-  'home.operationWarning',
-  'home.quickSync',
-  'home.smartAction.reasonClone',
-  'home.smartAction.reasonEmpty',
-  'home.smartAction.reasonSync',
-  'home.subtitle',
-  'home.title',
-  'monitor.anomaliesCount',
-  'monitor.asyncExecs',
-  'monitor.autoRefreshOff',
-  'monitor.autoRefreshOn',
-  'monitor.chooseOrg',
-  'monitor.critical',
-  'monitor.deployments.deployer',
-  'monitor.deployments.status',
-  'monitor.lastUpdated',
-  'monitor.licenses',
-  'monitor.limitMax',
-  'monitor.limitName',
-  'monitor.limitStatus',
-  'monitor.limitUsage',
-  'monitor.limitUsed',
-  'monitor.limits',
-  'monitor.limitsSubtitle',
-  'monitor.liveOps.elapsed',
-  'monitor.liveOps.throughput',
-  'monitor.orgApexClasses',
-  'monitor.orgFlows',
-  'monitor.orgHealth.critical',
-  'monitor.orgHealth.emptyDescription',
-  'monitor.orgHealth.healthy',
-  'monitor.orgHealth.needsAttention',
-  'monitor.orgHealth.overallScore',
-  'monitor.orgHealth.recommendations',
-  'monitor.orgHealth.scan',
-  'monitor.orgHealth.title',
-  'monitor.orgInstance',
-  'monitor.orgObjects',
-  'monitor.orgUsers',
-  'monitor.pageSubtitle',
-  'monitor.pageTitle',
-  'monitor.refreshing',
-  'monitor.sectionError',
-  'monitor.storage.objects',
-  'monitor.storage.percentage',
-  'monitor.storage.records',
-  'monitor.title',
-  'monitor.trendDown',
-  'monitor.trendStable',
-  'monitor.trendUp',
-  'monitor.warnings',
-  'notifications.categoryMonitor',
-  'notifications.categorySchedule',
-  'notifications.categorySeed',
-  'notifications.categorySync',
-  'notifications.categorySystem',
-  'notifications.clearAll',
-  'notifications.earlier',
-  'notifications.filterAll',
-  'notifications.filterError',
-  'notifications.filterInfo',
-  'notifications.filterSuccess',
-  'notifications.filterWarning',
-  'notifications.markAllRead',
-  'notifications.noMatching',
-  'notifications.noNotifications',
-  'notifications.searchPlaceholder',
-  'notifications.title',
-  'notifications.today',
-  'onboarding.finishDesc',
-  'onboarding.finishTitle',
-  'onboarding.getStarted',
-  'onboarding.learnMore',
-  'onboarding.modules.automation',
-  'onboarding.modules.compare',
-  'onboarding.modules.dataops',
-  'onboarding.modules.monitor',
-  'onboarding.modules.seed',
-  'onboarding.modules.sync',
-  'onboarding.populateSandboxDesc',
-  'onboarding.previousVersions',
-  'onboarding.whatsNewSubtitle',
-  'org.developer',
-  'org.production',
-  'org.scratch',
-  'org.status_connected',
-  'org.status_expired',
-  'org.status_refreshing',
-  'precheck.applyFix',
-  'precheck.autoFix',
-  'precheck.blocked',
-  'precheck.canProceed',
-  'precheck.confirmation',
-  'precheck.failed',
-  'precheck.passed',
-  'precheck.running',
-  'precheck.score',
-  'precheck.title',
-  'precheck.warnings',
-  'retry.abort',
-  'retry.attemptOf',
-  'retry.errorDetails',
-  'retry.exhausted',
-  'retry.manualRetryTriggered',
-  'retry.noFailures',
-  'retry.retryNow',
-  'retry.retryingIn',
-  'retry.title',
-  'scheduler.addSchedule',
-  'scheduler.dayLabel',
-  'scheduler.dayOfMonth',
-  'scheduler.dayOfWeek',
-  'scheduler.duration',
-  'scheduler.emptyDescription',
-  'scheduler.frequencies.daily',
-  'scheduler.frequencies.hourly',
-  'scheduler.frequencies.monthly',
-  'scheduler.frequencies.weekly',
-  'scheduler.frequency',
-  'scheduler.history',
-  'scheduler.nextRun',
-  'scheduler.opTypes.backup',
-  'scheduler.opTypes.cleanup',
-  'scheduler.opTypes.sync',
-  'scheduler.operationType',
-  'scheduler.records',
-  'scheduler.startedAt',
-  'scheduler.time',
-  'scheduler.title',
-  'seed.csv.mapper.noMatch',
-  'seed.csv.mapper.selectField',
-  'seed.estimatedApiCalls',
-  'seed.estimatedDuration',
-  'seed.excludedFields',
-  'seed.grappeRecommended',
-  'seed.insertOrder',
-  'seed.modeSelect.comingSoon',
-  'seed.noTemplates',
-  'seed.persona.backToPersonas',
-  'seed.persona.card.locale',
-  'seed.persona.customize.fieldPattern',
-  'seed.persona.customize.generator',
-  'seed.piiScanning',
-  'seed.removeObject',
-  'seed.results',
-  'seed.resultsDesc',
-  'seed.reviewPlan',
-  'seed.reviewPlanDesc',
-  'seed.ruleType',
-  'seed.selectOrgDesc',
-  'seed.selectTemplate',
-  'seed.setVolumes',
-  'seed.setVolumesDesc',
-  'seed.strategies.ai',
-  'seed.strategies.clone',
-  'seed.strategies.csv_import',
-  'seed.strategies.faker',
-  'seed.strategies.template',
-  'seed.strategy',
-  'seed.suggestDependencies',
-  'seed.template',
-  'seed.templates.minimalDemo.description',
-  'seed.templates.minimalDemo.name',
-  'seed.templates.salesCloudStarter.description',
-  'seed.templates.salesCloudStarter.name',
-  'seed.templates.serviceCloudStarter.description',
-  'seed.templates.serviceCloudStarter.name',
-  'settings.advancedDesc',
-  'settings.apiTimeout',
-  'settings.auditLogging',
-  'settings.autoRefreshInterval',
-  'settings.connections',
-  'settings.connectionsDesc',
-  'settings.defaultBatchSize',
-  'settings.enableGrappe',
-  'settings.enableGrappeDesc',
-  'settings.enableNotifications',
-  'settings.exportSettings',
-  'settings.generalDesc',
-  'settings.grappeThreshold',
-  'settings.importError',
-  'settings.importExport',
-  'settings.importPlaceholder',
-  'settings.importSettings',
-  'settings.importSuccess',
-  'settings.languages.de',
-  'settings.languages.en',
-  'settings.languages.es',
-  'settings.languages.fr',
-  'settings.languages.ja',
-  'settings.languages.pt-BR',
-  'settings.logLevel',
-  'settings.logLevels.debug',
-  'settings.logLevels.error',
-  'settings.logLevels.info',
-  'settings.logLevels.warn',
-  'settings.maxConcurrentOps',
-  'settings.notifications',
-  'settings.notificationsDesc',
-  'settings.requireProdConfirmation',
-  'settings.resetConfirm',
-  'settings.retryAttempts',
-  'settings.saved',
-  'settings.security',
-  'settings.securityDesc',
-  'settings.soundAlerts',
-  'settings.telemetryDesc',
-  'settings.theme',
-  'settings.themes.auto',
-  'settings.themes.dark',
-  'settings.themes.light',
-  'shortcuts.actions',
-  'shortcuts.cancel',
-  'shortcuts.closeOverlay',
-  'shortcuts.commandPalette',
-  'shortcuts.ctrlModule1',
-  'shortcuts.ctrlModule2',
-  'shortcuts.ctrlModule3',
-  'shortcuts.ctrlModule4',
-  'shortcuts.ctrlModule5',
-  'shortcuts.ctrlModule6',
-  'shortcuts.execute',
-  'shortcuts.executeAction',
-  'shortcuts.goAutomation',
-  'shortcuts.goCompare',
-  'shortcuts.goDataOps',
-  'shortcuts.goHome',
-  'shortcuts.goMonitor',
-  'shortcuts.goSeed',
-  'shortcuts.goSync',
-  'shortcuts.modules',
-  'shortcuts.navigation',
-  'shortcuts.openSettings',
-  'shortcuts.or',
-  'shortcuts.pressToClose',
-  'shortcuts.quickNav',
-  'shortcuts.saveSettings',
-  'shortcuts.showShortcuts',
-  'shortcuts.title',
-  'shortcuts.toClose',
-  'shortcuts.toggleSidebar',
-  'sidePanel.grappe',
-  'sidePanel.grappeDesc',
-  'sidePanel.manageOrgs',
-  'sidePanel.noRecentOps',
-  'sidePanel.relativeTime.hoursAgo',
-  'sidePanel.relativeTime.justNow',
-  'sidePanel.relativeTime.minutesAgo',
-  'sidebar.quickActions',
-  'sidebar.recentOps',
-  'status.connectedOrgs',
-  'sync.buildQuery',
-  'sync.configureObjects',
-  'sync.configureObjectsDesc',
-  'sync.conflictResolution.pickSource',
-  'sync.conflictResolution.pickTarget',
-  'sync.conflictResolution.unresolvedCount',
-  'sync.dryRun',
-  'sync.enableRollback',
-  'sync.fieldMappingDesc',
-  'sync.impactAnalysis',
-  'sync.previewApiCalls',
-  'sync.previewConflicts',
-  'sync.previewDeleted',
-  'sync.previewDuration',
-  'sync.previewModified',
-  'sync.previewNew',
-  'sync.realtime.agoSeconds',
-  'sync.realtime.applied',
-  'sync.realtime.autoSyncDesc',
-  'sync.realtime.avgLag',
-  'sync.realtime.comingSoon',
-  'sync.realtime.conflictStrategy',
-  'sync.realtime.conflicts',
-  'sync.realtime.errorRate',
-  'sync.realtime.eventFeed',
-  'sync.realtime.eventsPerMin',
-  'sync.realtime.pendingConflicts',
-  'sync.realtime.replicationProgress',
-  'sync.realtime.tab',
-  'sync.realtime.totalEvents',
-  'sync.realtime.useSource',
-  'sync.realtime.useTarget',
-  'sync.realtime.waitingForEvents',
-  'sync.realtime.watchedObjects',
-  'sync.removeMapping',
-  'sync.removeTransform',
-  'sync.resultsDesc',
-  'sync.soqlQuery',
-  'sync.templates.accountHierarchy.description',
-  'sync.templates.accountHierarchy.name',
-  'sync.templates.casesAttachments.description',
-  'sync.templates.casesAttachments.name',
-  'sync.templates.oppsProducts.description',
-  'sync.templates.oppsProducts.name',
-  'sync.transformsDesc',
-  'team.authorName',
-  'team.authorPlaceholder',
-  'team.conflictsDetected',
-  'team.copied',
-  'team.copyBundle',
-  'team.generateBundle',
-  'team.import',
-  'team.importBundle',
-  'team.importDescription',
-  'team.importFailed',
-  'team.importPlaceholder',
-  'team.importSuccess',
-  'team.keepLocal',
-  'team.keepRemote',
-  'team.merge',
-  'team.mergeStrategy',
-  'team.preview',
-  'team.share',
-  'team.shareDescription',
-  'team.title',
-];
+const UNREFERENCED_BASELINE: readonly string[] = [];
 
 /**
  * Where the number stood, and when. `count` is an upper bound the run enforces:
@@ -932,9 +404,10 @@ const UNREFERENCED_BASELINE: readonly string[] = [
  * means editing this number and the date beside it, in a diff a reviewer reads.
  * Lower both when you delete entries, so the next person can tell at a glance
  * whether the figure is going down. It read 590 on 2026-08-13, the day the
- * section landed and was neutralised in the same commit.
+ * section landed and was neutralised in the same commit; 587 on 2026-09-09; 0
+ * on 2026-09-10, which pins the ratchet shut — any new entry now trips it.
  */
-const BASELINE_CENSUS = { recorded: '2026-09-09', count: 587 } as const;
+const BASELINE_CENSUS = { recorded: '2026-09-10', count: 0 } as const;
 
 /**
  * Section 6 — catalogue entries no source file mentions.
@@ -944,7 +417,9 @@ function findUnreferencedKeys(reference: Map<string, string>): {
   unreferenced: string[];
   fresh: string[];
 } {
-  const sources = webviewSources(WEBVIEW_SRC).map((f) => readFileSync(f, 'utf8'));
+  const sources = KEY_REFERENCE_ROOTS.flatMap((root) => referenceSources(root)).map((f) =>
+    readFileSync(f, 'utf8'),
+  );
 
   /*
    * Keys built at runtime — `t(`forge.anonCategory.${cat}`)`, `t('nav.' + id)` —
@@ -962,10 +437,29 @@ function findUnreferencedKeys(reference: Map<string, string>): {
     }
   }
 
+  /*
+   * The mirror image: `t(`${keyPrefix}.justNow`)`, where the variable comes
+   * FIRST and only the tail is literal. `formatRelativeTimeI18n` is called with
+   * `'home'` and with `'sidePanel.relativeTime'`, so six live keys exist that
+   * no source file spells out — and the prefix sweep above, which needs a
+   * literal before the `${`, sees none of them. They sat in the baseline as
+   * dead until this pass; deleting them would have printed `home.justNow` on
+   * the Home page and in the side panel. Matching is restricted to the tail of
+   * a `t()` template so that `${x}.json` and `${x}.png` exempt nothing.
+   */
+  const dynamicSuffixes = new Set<string>();
+  const templateSuffix = /\bt\(\s*`\$\{[^`]*?\}((?:\.[a-zA-Z0-9_]+)+)`/g;
+  for (const source of sources) {
+    templateSuffix.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = templateSuffix.exec(source)) !== null) dynamicSuffixes.add(match[1]);
+  }
+
   const unreferenced: string[] = [];
   for (const key of reference.keys()) {
     const base = key.replace(/_(zero|one|two|few|many|other)$/, '');
     if ([...dynamicPrefixes].some((p) => base.startsWith(p))) continue;
+    if ([...dynamicSuffixes].some((t) => base.endsWith(t))) continue;
     if (sources.some((s) => s.includes(base))) continue;
     unreferenced.push(key);
   }
