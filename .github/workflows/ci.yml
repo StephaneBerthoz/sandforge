@@ -67,14 +67,17 @@ jobs:
       # It used to run on Windows only, "matches dev environment" — and that
       # stopped being true when development moved to WSL Ubuntu. The leg also
       # never finished: the job was cancelled at 30 minutes on every run for
-      # months, so the suite had never once executed in CI. Raising the timeout
-      # let it run, and 35 of its tests failed on Windows while all of them pass
-      # on the platform the code is written on.
+      # months, so the suite had never once executed in CI.
       #
-      # Windows-only failures are worth knowing about, but not at the price of
-      # a suite nobody can read: this runs where it is green and where the
-      # product is developed. Browsers are cached across runs; the
-      # lockfile-keyed cache invalidates when the Playwright version changes.
+      # Raising the timeout let it run, and 35 of its 83 tests failed. Not for
+      # a reason the platform explains: the same 35 fail on Linux, on Windows
+      # and locally, because seven spec files drive a navigation sidebar
+      # deleted in 1.10. `data-testid="sidebar"` is asserted by six specs and
+      # rendered by no source file. Nothing caught it because nothing ever
+      # ran it — which is the whole argument for keeping this leg alive.
+      #
+      # Browsers are cached across runs; the lockfile-keyed cache invalidates
+      # when the Playwright version changes.
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         if: matrix.os == 'ubuntu-latest'
