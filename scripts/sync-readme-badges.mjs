@@ -72,7 +72,11 @@ function buildBlock({ languages, linkVersion }) {
     `![License](https://img.shields.io/badge/license-MIT-green)`,
     `![Languages](https://img.shields.io/badge/i18n-${languages}%20languages-orange)`,
   ];
-  return `${START}\n${lines.join('\n')}\n${END}`;
+  // Blank lines inside the markers: Prettier requires them around an HTML
+  // comment in markdown, and without them every badge sync left the two READMEs
+  // failing `format:check` — a generated file that cannot satisfy the repo's own
+  // formatter re-breaks the gate on each release.
+  return `${START}\n\n${lines.join('\n')}\n\n${END}`;
 }
 
 /**
