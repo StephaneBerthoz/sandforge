@@ -24,12 +24,74 @@ import { sendExtensionMessage } from './mocks/vscode-api';
  * sidebar since 1.8.0. The previous version of this file clicked through that
  * sidebar, which is why the shipped screenshots showed a UI that no longer
  * exists.
+ *
+ * One caveat for whoever runs the command above: `seed.png` does not reproduce
+ * byte for byte. Sixteen consecutive runs of the unmodified generator produced
+ * seven distinct files, all differing only in a few pixels of corner
+ * antialiasing on the template gallery's container — the block lands on a
+ * fractional offset when the machine is loaded. It is a real gap in this
+ * generator, unrelated to the Monitor work below and not yet chased down; until
+ * it is, a `seed.png` that comes back changed after a regeneration that touched
+ * nothing is noise, and `git checkout` on it is the right answer.
  */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SCREENSHOT_DIR = path.resolve(__dirname, '../../../assets/screenshots');
 const VIEWPORT = { width: 1280, height: 800 };
+
+/**
+ * The instant every shot is taken at.
+ *
+ * Monitor's header carries `ResetCountdown`, which reads the wall clock once a
+ * second, so every regeneration caught a different "Reset in HH:MM:SS" and
+ * monitor.png came back byte-different from an unchanged UI — a permanent line
+ * in every diff carrying no information, on the one gate meant to notice when
+ * the pictures stop matching the product.
+ *
+ * The instant is the afternoon of the day MOCK_HEALTH's jobs were created, so
+ * the dashboard reads as one moment: jobs started earlier today, still running.
+ * It sits five days after the 2026 Pacific DST switch — far enough from the
+ * boundary that the countdown does not depend on which tzdata a machine ships.
+ */
+const FIXED_NOW = new Date('2026-03-13T18:31:23Z');
+
+/**
+ * Answer "what time is it now" from FIXED_NOW, and change nothing else.
+ *
+ * `page.clock.setFixedTime` is the documented tool and it does pin the clock.
+ * It is not, however, the narrow instrument its one-line description suggests:
+ * the first `page.clock` call of any kind installs the whole fake-timer
+ * machinery, which also replaces `setTimeout`, `setInterval`, `performance.now`
+ * and `requestAnimationFrame` (playwright-core's `clockSource`, `addTimer`,
+ * type `AnimationFrame`). Frame callbacks then arrive from a sync timer rather
+ * than from the compositor. Everything a screenshot generator is still fighting
+ * at this point is animation-frame timing, so widening the intervention to the
+ * frame loop in order to answer a question about `Date` is the wrong trade.
+ *
+ * Subclassing `Date` touches exactly the surface `ResetCountdown` reads.
+ * `Date.parse`, `Date.UTC` and every instance method are inherited untouched,
+ * and `new Date(iso)` — the jobs table, the backup list — still parses what it
+ * is given. Only the no-argument forms are answered from the fixture.
+ */
+async function freezeClock(page: import('@playwright/test').Page): Promise<void> {
+  await page.addInitScript((millis: number) => {
+    const RealDate = Date;
+    class FixedDate extends RealDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) {
+          super(millis);
+        } else {
+          super(...(args as [number]));
+        }
+      }
+      static now(): number {
+        return millis;
+      }
+    }
+    (globalThis as unknown as Record<string, unknown>).Date = FixedDate;
+  }, FIXED_NOW.getTime());
+}
 
 /**
  * Where the run records which generator produced these images.
@@ -62,6 +124,9 @@ async function openModule(
 ): Promise<MockBridge> {
   const bridge = new MockBridge();
   await bridge.setup(page);
+  // Before goto: the clock has to be in place for the first render, not just
+  // for the ticks after it.
+  await freezeClock(page);
   await page.addInitScript((id) => {
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = id;
   }, moduleId);
@@ -134,7 +199,14 @@ async function shoot(page: import('@playwright/test').Page, name: string): Promi
     await settle(page);
   }
 
-  await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png` });
+  // `animations: 'disabled'` cancels infinite CSS animations back to their
+  // first frame instead of catching whichever frame the capture landed on.
+  // Monitor's "connected" dot carries `animate-pulse`, and a frozen clock does
+  // not cover it — the pulse is CSS, driven by the compositor rather than by
+  // `Date.now()`. With the clock pinned and this option removed, four
+  // consecutive monitor runs produced four different files, differing in
+  // exactly the ten-by-ten pixels of that dot and nowhere else.
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png`, animations: 'disabled' });
   writeFileSync(STAMP_FILE, `${generatorFingerprint()}\n`);
 }
 

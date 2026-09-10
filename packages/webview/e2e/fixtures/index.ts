@@ -21,11 +21,4 @@ export {
   ACCOUNT_DESCRIBE_FIELDS,
   CONTACT_DESCRIBE_FIELDS,
   // Plan 02-03 — 5 critical flow fixtures
-  mockAIPersona,
-  mockSyncConflict,
-  mockCdcSubscription,
-  mockCdcEvent,
-  mockFailedJob,
-  mockAIDiagnosis,
-  mockFixApplied,
 } from './mock-responses';

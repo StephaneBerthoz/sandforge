@@ -134,10 +134,24 @@ export class MockBridge {
 
   /**
    * Get all captured outgoing messages, optionally filtered by type.
+   *
+   * The webview posts an envelope — `{ protocolVersion, payload: message }` —
+   * so the application message is one level down. This used to filter on the
+   * envelope's own `type`, which no application message has, and so returned
+   * `[]` for every type anyone passed. Three specs asserted
+   * `getMessages('...').length > 0` and were red for that reason alone, with
+   * nothing to do with the product they were pointed at.
+   *
+   * Returns the inner messages, so callers get what the webview actually sent.
    */
   async getMessages(type?: string): Promise<Record<string, unknown>[]> {
     return this.page.evaluate((msgType) => {
-      const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+      const raw = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+      const msgs = raw.map((m) => {
+        const envelope = m as Record<string, unknown>;
+        const inner = envelope['payload'] as Record<string, unknown> | undefined;
+        return inner && typeof inner['type'] === 'string' ? inner : envelope;
+      });
       if (!msgType) return msgs as Record<string, unknown>[];
       return msgs.filter((m) => (m as Record<string, unknown>).type === msgType) as Record<
         string,
