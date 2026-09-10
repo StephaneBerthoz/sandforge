@@ -332,12 +332,22 @@ export const ForgeInput: React.FC = () => {
           {/* Records-per-object cap — keeps big-org clones bounded */}
           <div>
             <div className="text-[10px] text-text-muted uppercase tracking-widest mb-2 flex items-center gap-2">
-              {t('forge.recordLimit')}
-              <span className="text-text-muted/60 normal-case tracking-normal text-[10px]">
+              {/* A real <label for>, not a styled <div>: the select had no
+                  accessible name at all, so a screen reader announced only
+                  "combo box". The name comes from the visible text so voice
+                  control matches what the user reads on screen, and the hint
+                  is a description rather than part of the name. */}
+              <label htmlFor="forge-record-limit">{t('forge.recordLimit')}</label>
+              <span
+                id="forge-record-limit-hint"
+                className="text-text-muted/60 normal-case tracking-normal text-[10px]"
+              >
                 — {t('forge.recordLimitHint')}
               </span>
             </div>
             <select
+              id="forge-record-limit"
+              aria-describedby="forge-record-limit-hint"
               data-testid="forge-record-limit"
               value={form.recordLimit}
               onChange={(e) => form.setRecordLimit(e.target.value)}

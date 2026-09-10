@@ -32,7 +32,14 @@ const REPORT: ComplianceReportData = {
 
 /** Mock bridge query — state driven per test. */
 interface QueryState {
-  data: ComplianceReportData | null;
+  /**
+   * The envelope the handler actually posts, `{ report }`, not a bare report.
+   * This mock used to hand the component an already-unwrapped report, so the
+   * component could read `payload` as the report and still pass here while
+   * crashing in production. Mocking the shape the product emits is the only
+   * version of this test worth having.
+   */
+  data: { report: ComplianceReportData } | null;
   loading: boolean;
   error: string | null;
   refetch: ReturnType<typeof vi.fn>;
@@ -61,7 +68,7 @@ vi.mock('../../../stores/useAutopilotStore', () => {
 
 describe('ComplianceReport', () => {
   beforeEach(() => {
-    queryState = { data: REPORT, loading: false, error: null, refetch: vi.fn() };
+    queryState = { data: { report: REPORT }, loading: false, error: null, refetch: vi.fn() };
   });
 
   it('should render without crashing', () => {
