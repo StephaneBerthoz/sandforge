@@ -8,10 +8,6 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
-  // Specs driving surfaces that no longer exist. Kept, not deleted — see
-  // e2e/quarantine/README.md for why each one is there and what unblocks it.
-  // Everything still in e2e/ must be able to fail for a real reason.
-  testIgnore: ['**/quarantine/**'],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
