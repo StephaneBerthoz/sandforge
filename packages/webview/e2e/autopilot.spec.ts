@@ -1,39 +1,91 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { MockBridge } from './helpers';
 import { MOCK_ORGS } from './fixtures';
+import { sendExtensionMessage } from './mocks/vscode-api';
 
 /**
- * Set window.__SANDFORGE_MODULE__ = 'autopilot' so PanelApp renders the
- * Autopilot page directly (standalone panel, not in sidebar router).
+ * Autopilot E2E.
+ *
+ * The panel is booted directly (`__SANDFORGE_MODULE__ = 'autopilot'`) because
+ * that is how the extension opens it — there has been no in-app navigation
+ * sidebar since 1.8.0.
+ *
+ * The wizard is wired to the real bridge: every step transition is a request
+ * the extension has to answer (`autopilot:scan-schema` → `autopilot:schema-result`,
+ * `autopilot:generate-plan` → `autopilot:plan-ready`), correlated by message id.
+ * Posting a bare response with no correlation — what this file used to do —
+ * leaves the mutation in flight forever, which is why every step past the first
+ * timed out.
  */
-async function setupAutopilotPanel(
-  bridge: MockBridge,
-  page: import('@playwright/test').Page,
-): Promise<void> {
+
+/** Boot the app straight into the Autopilot panel, orgs already connected. */
+async function openAutopilot(
+  page: Page,
+  orgs: readonly unknown[] = MOCK_ORGS,
+): Promise<MockBridge> {
+  const bridge = new MockBridge();
   await bridge.setup(page);
   await page.addInitScript(() => {
     (window as unknown as Record<string, unknown>).__SANDFORGE_MODULE__ = 'autopilot';
   });
   await page.goto('/');
-  await bridge.seedOrgs();
-  await page.waitForSelector('[data-testid="autopilot-page"]', { timeout: 10000 });
+  await bridge.seedOrgs(orgs);
+  return bridge;
 }
 
-/** Inject mock orgs into the org store via message. */
-async function injectOrgs(bridge: MockBridge): Promise<void> {
-  await bridge.respond('org:list:response', { orgs: MOCK_ORGS });
+/** Every outgoing message of a type, unwrapped from the post envelope. */
+async function outgoing(page: Page, type: string): Promise<Record<string, unknown>[]> {
+  return page.evaluate((msgType) => {
+    const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+    return msgs
+      .map((m) => {
+        const e = m as Record<string, unknown>;
+        return (e.payload as Record<string, unknown> | undefined) ?? e;
+      })
+      .filter((m) => m.type === msgType) as Record<string, unknown>[];
+  }, type);
 }
 
-/** Mock schema result with sample objects. */
+/**
+ * Answer *every* pending request of a type, not just the first.
+ *
+ * React StrictMode mounts effects twice in dev, so a panel can have two
+ * in-flight queries of the same type with different ids; answering only the
+ * first leaves the live one hanging. The same applies after a retry, where the
+ * failed attempt and the new one are both on record.
+ */
+async function respondToAll(
+  page: Page,
+  requestType: string,
+  responseType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const requests = await outgoing(page, requestType);
+
+  for (const request of requests) {
+    const correlationId = request.id as string;
+    await sendExtensionMessage(page, {
+      type: responseType,
+      id: `resp-${correlationId}`,
+      correlationId,
+      payload,
+    });
+  }
+}
+
+/** Objects the mocked schema scan discovers. */
 const MOCK_SCHEMA_OBJECTS = [
-  { apiName: 'Account', label: 'Account', recordCount: 500 },
-  { apiName: 'Contact', label: 'Contact', recordCount: 1200 },
-  { apiName: 'Opportunity', label: 'Opportunity', recordCount: 300 },
+  { apiName: 'Account', recordCount: 500 },
+  { apiName: 'Contact', recordCount: 1200 },
+  { apiName: 'Opportunity', recordCount: 300 },
 ];
 
 /**
- * Build a mock AutopilotGraph compatible with the store's graph shape.
- * The execution UI reads graph.nodes for rendering.
+ * Build an AutopilotGraph as `autopilot:schema-result` carries one.
+ *
+ * The wizard reads `graph.nodes[].objectApiName` to build both the object list
+ * and the initial selection, so a `{ objects: [...] }` stand-in renders an
+ * empty step and throws on the selection.
  */
 function buildMockGraph(): Record<string, unknown> {
   return {
@@ -49,6 +101,7 @@ function buildMockGraph(): Record<string, unknown> {
       level: 0,
       successCount: 0,
       failureCount: 0,
+      errors: [],
       elapsedMs: 0,
       apiCallsUsed: 0,
     })),
@@ -65,34 +118,105 @@ function buildMockGraph(): Record<string, unknown> {
   };
 }
 
-/**
- * Set the Zustand autopilot store to execution state directly.
- * The store is exposed on window.__AUTOPILOT_STORE__ in dev mode.
- */
-async function enterExecutionState(page: import('@playwright/test').Page): Promise<void> {
-  const graph = buildMockGraph();
-  await page.evaluate((g) => {
-    const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
-      | { setState: (state: Record<string, unknown>) => void }
-      | undefined;
-    if (store) {
-      store.setState({
-        step: 'executing',
-        executionStatus: 'executing',
-        graph: g,
-      });
-    }
-  }, graph);
-  await page.waitForSelector('[data-testid="autopilot-graph-area"]', { timeout: 5000 });
+/** Execution plan as `autopilot:plan-ready` carries one. */
+const MOCK_PLAN = {
+  waves: [
+    { order: 0, objects: ['Account'], dependsOn: [] },
+    { order: 1, objects: ['Contact', 'Opportunity'], dependsOn: [0] },
+  ],
+  totalRecords: 2000,
+  estimatedDurationSec: 180,
+  estimatedApiCalls: 20,
+  complianceFramework: 'gdpr',
+  anonymizationSummary: {
+    totalPiiFields: 4,
+    totalFieldsToAnonymize: 3,
+    methodBreakdown: {},
+    objectsWithPii: ['Contact'],
+  },
+  cycleResolutions: [],
+};
+
+/** Compliance report as the handler's `autopilot:compliance-report` carries one. */
+const MOCK_COMPLIANCE_REPORT = {
+  id: 'report-1',
+  framework: 'gdpr',
+  generatedAt: '2026-09-01T10:00:00.000Z',
+  sourceOrgId: 'org-src-1',
+  targetOrgId: 'org-tgt-1',
+  totalFieldsScanned: 120,
+  piiFieldsDetected: 4,
+  piiFieldsAnonymized: 3,
+  entries: [
+    {
+      objectApiName: 'Contact',
+      fieldApiName: 'Email',
+      piiCategory: 'PII',
+      anonymizationMethod: 'hash',
+      recordsAnonymized: 1200,
+      ruleApplied: 'gdpr-email',
+      userOverridden: false,
+    },
+  ],
+  objectSummaries: [],
+  overallStatus: 'pass',
+  checksumSha256: 'abc123',
+};
+
+/** Step 1 → Step 2: pick both orgs, advance, answer the schema scan. */
+async function advanceToObjects(page: Page, bridge: MockBridge): Promise<void> {
+  await page.getByTestId('source-org-org-src-1').click();
+  await page.getByTestId('target-org-org-tgt-1').click();
+  await page.getByTestId('seed-wizard-next').click();
+  await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
+  await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
+    graph: buildMockGraph(),
+  });
+  await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 10_000 });
 }
 
 /**
- * Set the Zustand autopilot store to completed state.
+ * Step 2 → Step 3.
+ *
+ * No second scan is needed here: the initial scan already selected every
+ * discovered object, and the wizard only re-scans for a narrowed subset.
  */
-async function enterCompletedState(page: import('@playwright/test').Page): Promise<void> {
+async function advanceToCompliance(page: Page): Promise<void> {
+  await page.getByTestId('seed-wizard-next').click();
+  await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+/** Step 3 → Step 4: answer the plan the wizard asks the extension to build. */
+async function advanceToReview(page: Page, bridge: MockBridge): Promise<void> {
+  await page.getByTestId('seed-wizard-next').click();
+  await bridge.waitForMessage('autopilot:generate-plan', { timeout: 10_000 });
+  await respondToAll(page, 'autopilot:generate-plan', 'autopilot:plan-ready', {
+    plan: MOCK_PLAN,
+    graph: buildMockGraph(),
+  });
+  await page.getByTestId('step4-review').waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+/**
+ * Drive the store straight to the execution view.
+ *
+ * The wizard path to it is covered above; these tests are about what the
+ * execution view renders, so they set the state the run would have produced.
+ */
+async function enterExecutionState(page: Page): Promise<void> {
+  await page.evaluate((graph) => {
+    const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
+      | { setState: (state: Record<string, unknown>) => void }
+      | undefined;
+    store?.setState({ step: 'executing', executionStatus: 'executing', graph });
+  }, buildMockGraph());
+  await page.waitForSelector('[data-testid="autopilot-graph-area"]', { timeout: 10_000 });
+}
+
+/** Drive the store to the completed state, every node done. */
+async function enterCompletedState(page: Page): Promise<void> {
   const graph = buildMockGraph();
-  // Mark all nodes as completed
-  (graph.nodes as Array<Record<string, unknown>>).forEach((n) => {
+  (graph.nodes as Record<string, unknown>[]).forEach((n) => {
     n.status = 'completed';
     n.progress = 100;
     n.successCount = n.recordCount;
@@ -101,24 +225,17 @@ async function enterCompletedState(page: import('@playwright/test').Page): Promi
     const store = (window as unknown as Record<string, unknown>).__AUTOPILOT_STORE__ as
       | { setState: (state: Record<string, unknown>) => void }
       | undefined;
-    if (store) {
-      store.setState({
-        step: 'completed',
-        executionStatus: 'completed',
-        graph: g,
-      });
-    }
+    store?.setState({ step: 'completed', executionStatus: 'completed', graph: g });
   }, graph);
-  await page.waitForSelector('[data-testid="view-compliance-report"]', { timeout: 5000 });
+  await page.waitForSelector('[data-testid="view-compliance-report"]', { timeout: 10_000 });
 }
 
 test.describe('Autopilot — Wizard Flow', () => {
   let bridge: MockBridge;
 
   test.beforeEach(async ({ page }) => {
-    bridge = new MockBridge();
-    await setupAutopilotPanel(bridge, page);
-    await injectOrgs(bridge);
+    bridge = await openAutopilot(page);
+    await page.waitForSelector('[data-testid="autopilot-page"]', { timeout: 10_000 });
   });
 
   test('displays the autopilot page with wizard', async ({ page }) => {
@@ -150,115 +267,88 @@ test.describe('Autopilot — Wizard Flow', () => {
   });
 
   test('Step 2: displays object list after schema scan', async ({ page }) => {
-    // Select orgs and advance
-    await page.getByTestId('source-org-org-src-1').click();
-    await page.getByTestId('target-org-org-tgt-1').click();
-    await page.getByTestId('seed-wizard-next').click();
+    await advanceToObjects(page, bridge);
 
-    // Mock schema scan result
-    await bridge.respond('autopilot:schema-result', {
-      graph: { objects: MOCK_SCHEMA_OBJECTS },
-    });
-
-    await expect(page.getByTestId('step2-objects')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('step2-objects')).toBeVisible();
     await expect(page.getByTestId('object-list')).toBeVisible();
+    for (const obj of MOCK_SCHEMA_OBJECTS) {
+      await expect(page.getByTestId(`object-${obj.apiName}`)).toBeVisible();
+    }
   });
 
   test('Step 2: can select objects and advance', async ({ page }) => {
-    await page.getByTestId('source-org-org-src-1').click();
-    await page.getByTestId('target-org-org-tgt-1').click();
-    await page.getByTestId('seed-wizard-next').click();
+    await advanceToObjects(page, bridge);
 
-    await bridge.respond('autopilot:schema-result', {
-      graph: { objects: MOCK_SCHEMA_OBJECTS },
-    });
+    // The scan pre-selects every object it discovered.
+    await expect(page.getByTestId('select-all-checkbox')).toBeChecked();
 
-    await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-
-    // Select all objects
-    await page.getByTestId('select-all-checkbox').click();
+    // Narrowing the selection re-scans on the subset, so the plan is built
+    // from the filtered graph rather than the whole org.
+    await page.getByTestId('object-Contact').click();
+    await expect(page.getByTestId('select-all-checkbox')).not.toBeChecked();
     await expect(page.getByTestId('seed-wizard-next')).toBeEnabled();
+
+    const scansBefore = (await outgoing(page, 'autopilot:scan-schema')).length;
+    await page.getByTestId('seed-wizard-next').click();
+    await expect
+      .poll(async () => (await outgoing(page, 'autopilot:scan-schema')).length, {
+        timeout: 10_000,
+      })
+      .toBeGreaterThan(scansBefore);
+
+    const rescan = (await outgoing(page, 'autopilot:scan-schema')).at(-1);
+    const rescanPayload = rescan?.payload as Record<string, unknown>;
+    expect(rescanPayload.selectedObjects).toEqual(['Account', 'Opportunity']);
+
+    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
+      graph: buildMockGraph(),
+    });
+    await expect(page.getByTestId('step3-compliance')).toBeVisible({ timeout: 10_000 });
   });
 
   test('Step 3: displays compliance framework options', async ({ page }) => {
-    // Navigate to step 3
-    await page.getByTestId('source-org-org-src-1').click();
-    await page.getByTestId('target-org-org-tgt-1').click();
-    await page.getByTestId('seed-wizard-next').click();
+    await advanceToObjects(page, bridge);
+    await advanceToCompliance(page);
 
-    await bridge.respond('autopilot:schema-result', {
-      graph: { objects: MOCK_SCHEMA_OBJECTS },
-    });
-
-    await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-    await page.getByTestId('select-all-checkbox').click();
-    await page.getByTestId('seed-wizard-next').click();
-
-    await expect(page.getByTestId('step3-compliance')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('step3-compliance')).toBeVisible();
     await expect(page.getByTestId('framework-options')).toBeVisible();
+    await expect(page.getByTestId('framework-gdpr')).toBeVisible();
   });
 
   test('Step 4: displays review summary', async ({ page }) => {
-    // Navigate through all wizard steps to review
-    await page.getByTestId('source-org-org-src-1').click();
-    await page.getByTestId('target-org-org-tgt-1').click();
-    await page.getByTestId('seed-wizard-next').click();
+    await advanceToObjects(page, bridge);
+    await advanceToCompliance(page);
+    await advanceToReview(page, bridge);
 
-    await bridge.respond('autopilot:schema-result', {
-      graph: { objects: MOCK_SCHEMA_OBJECTS },
-    });
-
-    await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-    await page.getByTestId('select-all-checkbox').click();
-    await page.getByTestId('seed-wizard-next').click();
-
-    await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
-    await page.getByTestId('seed-wizard-next').click();
-
-    await expect(page.getByTestId('step4-review')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('step4-review')).toBeVisible();
     await expect(page.getByTestId('execute-button')).toBeVisible();
+
+    // The summary shows the generated plan's numbers, not scan fallbacks.
+    await expect(page.getByTestId('stat-objects')).toContainText('3');
+    await expect(page.getByTestId('stat-records')).toContainText('2,000');
+    await expect(page.getByTestId('stat-waves')).toContainText('2');
   });
 
   test('back button navigates to previous step', async ({ page }) => {
-    await page.getByTestId('source-org-org-src-1').click();
-    await page.getByTestId('target-org-org-tgt-1').click();
-    await page.getByTestId('seed-wizard-next').click();
+    await advanceToObjects(page, bridge);
 
-    await bridge.respond('autopilot:schema-result', {
-      graph: { objects: MOCK_SCHEMA_OBJECTS },
-    });
-
-    await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-
-    // Go back
     await page.getByTestId('seed-wizard-back').click();
-    await expect(page.getByTestId('step1-connect')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('step1-connect')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('execute button disables after click', async ({ page }) => {
-    // Navigate to review step
-    await page.getByTestId('source-org-org-src-1').click();
-    await page.getByTestId('target-org-org-tgt-1').click();
-    await page.getByTestId('seed-wizard-next').click();
+  test('execute starts the run and leaves the wizard for the execution view', async ({ page }) => {
+    await advanceToObjects(page, bridge);
+    await advanceToCompliance(page);
+    await advanceToReview(page, bridge);
 
-    await bridge.respond('autopilot:schema-result', {
-      graph: { objects: MOCK_SCHEMA_OBJECTS },
-    });
-
-    await page.getByTestId('step2-objects').waitFor({ state: 'visible', timeout: 5000 });
-    await page.getByTestId('select-all-checkbox').click();
-    await page.getByTestId('seed-wizard-next').click();
-
-    await page.getByTestId('step3-compliance').waitFor({ state: 'visible', timeout: 5000 });
-    await page.getByTestId('seed-wizard-next').click();
-
-    await page.getByTestId('step4-review').waitFor({ state: 'visible', timeout: 5000 });
-
-    // Click execute
     await page.getByTestId('execute-button').click();
 
-    // Button should be disabled/loading after click
-    await expect(page.getByTestId('execute-button')).toBeDisabled();
+    // One execution request goes out, and the button cannot be pressed a
+    // second time because the page flips to the execution view.
+    await bridge.waitForMessage('autopilot:execute', { timeout: 10_000 });
+    await expect(page.getByTestId('autopilot-graph-area')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('execute-button')).toHaveCount(0);
+    expect(await outgoing(page, 'autopilot:execute')).toHaveLength(1);
   });
 });
 
@@ -266,8 +356,8 @@ test.describe('Autopilot — Execution UI', () => {
   let bridge: MockBridge;
 
   test.beforeEach(async ({ page }) => {
-    bridge = new MockBridge();
-    await setupAutopilotPanel(bridge, page);
+    bridge = await openAutopilot(page);
+    await page.waitForSelector('[data-testid="autopilot-page"]', { timeout: 10_000 });
   });
 
   test('displays graph area and control panel during execution', async ({ page }) => {
@@ -291,16 +381,19 @@ test.describe('Autopilot — Execution UI', () => {
     await expect(page.getByTestId('control-actions')).toBeVisible();
     await expect(page.getByTestId('control-pause-resume')).toBeVisible();
     await expect(page.getByTestId('control-skip')).toBeVisible();
-    await expect(page.getByTestId('control-retry')).toBeVisible();
+
+    // Skip acts on the selected node, so it stays dead until one is picked.
+    await expect(page.getByTestId('control-skip')).toBeDisabled();
   });
 
   test('pause toggles execution status', async ({ page }) => {
     await enterExecutionState(page);
 
-    // Click pause
     await page.getByTestId('control-pause-resume').click();
 
-    // Action buttons should still be visible (paused is still "executing")
+    // The pause command reaches the extension and the panel stays usable —
+    // paused is still an execution, so the actions remain on screen.
+    await bridge.waitForMessage('autopilot:pause', { timeout: 10_000 });
     await expect(page.getByTestId('control-actions')).toBeVisible();
   });
 
@@ -310,68 +403,114 @@ test.describe('Autopilot — Execution UI', () => {
     await expect(page.getByTestId('view-compliance-report')).toBeVisible();
   });
 
+  /*
+   * KNOWN RED — product defect, not a test defect. Do not "fix" by flattening
+   * the payload below.
+   *
+   * `AutopilotHandler.ts:525` answers this query with
+   * `buildResponse(..., 'autopilot:compliance-report', { report })`, but
+   * `ComplianceReport.tsx:35` reads it through
+   * `useBridgeQuery<ComplianceReport>(...)`, which hands the component
+   * `msg.payload` verbatim — the envelope, not the report. So `report.entries`
+   * is undefined and the render throws
+   * `TypeError: Cannot read properties of undefined (reading 'length')`,
+   * caught by the panel's ErrorBoundary: the user clicks "Compliance Report"
+   * and gets "Something went wrong".
+   *
+   * The two tests below send what the extension actually sends, and stay red
+   * until one side of that contract is corrected.
+   */
   test('view compliance report navigates to report view', async ({ page }) => {
     await enterCompletedState(page);
 
     await page.getByTestId('view-compliance-report').click();
 
-    await expect(page.getByTestId('compliance-report')).toBeVisible({ timeout: 5000 });
+    // The report body is fetched, not derived from the store.
+    await bridge.waitForMessage('autopilot:compliance-report', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:compliance-report', 'autopilot:compliance-report', {
+      report: MOCK_COMPLIANCE_REPORT,
+    });
+
+    await expect(page.getByTestId('compliance-report')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('report-framework')).toContainText('GDPR');
   });
 
+  /* KNOWN RED — blocked by the same payload-shape defect as the test above. */
   test('back from compliance report returns to execution view', async ({ page }) => {
     await enterCompletedState(page);
 
     await page.getByTestId('view-compliance-report').click();
-    await page.getByTestId('compliance-report').waitFor({ state: 'visible', timeout: 5000 });
+    await bridge.waitForMessage('autopilot:compliance-report', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:compliance-report', 'autopilot:compliance-report', {
+      report: MOCK_COMPLIANCE_REPORT,
+    });
+    await page.getByTestId('compliance-report').waitFor({ state: 'visible', timeout: 10_000 });
 
     await page.getByTestId('back-from-report').click();
-    await expect(page.getByTestId('autopilot-page')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('autopilot-graph-area')).toBeVisible({ timeout: 10_000 });
   });
 });
 
 test.describe('Autopilot — Error Scenarios', () => {
-  let bridge: MockBridge;
-
-  test.beforeEach(async ({ page }) => {
-    bridge = new MockBridge();
-    await setupAutopilotPanel(bridge, page);
-    await injectOrgs(bridge);
-  });
-
   test('handles schema scan failure gracefully', async ({ page }) => {
+    const bridge = await openAutopilot(page);
+    await page.waitForSelector('[data-testid="autopilot-page"]', { timeout: 10_000 });
+
     await page.getByTestId('source-org-org-src-1').click();
     await page.getByTestId('target-org-org-tgt-1').click();
     await page.getByTestId('seed-wizard-next').click();
 
-    // Mock schema scan error
-    await bridge.respond('autopilot:schema-result', {
-      error: 'Failed to scan schema: INSUFFICIENT_ACCESS',
+    await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:error', {
+      message: 'Failed to scan schema: INSUFFICIENT_ACCESS',
+      code: 'INSUFFICIENT_ACCESS',
+      retryable: true,
     });
 
-    // Wizard should still be visible (not crash)
-    await expect(page.getByTestId('autopilot-wizard')).toBeVisible({ timeout: 5000 });
+    // The wizard holds its step and says why, instead of crashing or hanging
+    // on the scan.
+    await expect(page.getByTestId('autopilot-wizard')).toBeVisible();
+    await expect(page.getByTestId('autopilot-scan-error')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('autopilot-scan-error')).toContainText('INSUFFICIENT_ACCESS');
+    await expect(page.getByTestId('step1-connect')).toBeVisible();
   });
 
   test('wizard remains functional after error', async ({ page }) => {
+    const bridge = await openAutopilot(page);
+    await page.waitForSelector('[data-testid="autopilot-page"]', { timeout: 10_000 });
+
     await page.getByTestId('source-org-org-src-1').click();
     await page.getByTestId('target-org-org-tgt-1').click();
     await page.getByTestId('seed-wizard-next').click();
 
-    // Mock schema scan error
-    await bridge.respond('autopilot:schema-result', {
-      error: 'Failed to scan schema',
+    await bridge.waitForMessage('autopilot:scan-schema', { timeout: 10_000 });
+    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:error', {
+      message: 'Failed to scan schema',
+      code: 'UNKNOWN',
+      retryable: true,
+    });
+    await expect(page.getByTestId('autopilot-scan-error')).toBeVisible({ timeout: 10_000 });
+
+    // A failed scan releases the wizard: Next comes back and a second attempt
+    // gets through. (Back stays disabled because step 1 is the first step —
+    // the failure never moved the user off it.)
+    await expect(page.getByTestId('seed-wizard-next')).toBeEnabled();
+    await page.getByTestId('seed-wizard-next').click();
+    await respondToAll(page, 'autopilot:scan-schema', 'autopilot:schema-result', {
+      graph: buildMockGraph(),
     });
 
-    // Can still go back
-    await page.getByTestId('seed-wizard-back').click();
-    await expect(page.getByTestId('step1-connect')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('step2-objects')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('autopilot page remains visible with empty org list', async ({ page }) => {
-    // Send empty orgs
-    await bridge.respond('org:list:response', { orgs: [] });
+  test('empty org list shows the autopilot empty state instead of the wizard', async ({ page }) => {
+    await openAutopilot(page, []);
 
-    await expect(page.getByTestId('autopilot-page')).toBeVisible();
-    await expect(page.getByTestId('autopilot-wizard')).toBeVisible();
+    // With nothing connected there is no page to render: Autopilot short-circuits
+    // to its empty state and points the user at org setup.
+    await expect(page.getByTestId('empty-state')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('empty-illustration-autopilot')).toBeVisible();
+    await expect(page.getByTestId('empty-action-button')).toBeVisible();
+    await expect(page.getByTestId('autopilot-wizard')).toHaveCount(0);
   });
 });

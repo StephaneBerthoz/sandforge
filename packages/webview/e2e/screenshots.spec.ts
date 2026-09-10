@@ -21,7 +21,7 @@ import { sendExtensionMessage } from './mocks/vscode-api';
  *
  * Each shot boots one module panel directly (`__SANDFORGE_MODULE__`) because
  * that is how the extension opens them — there has been no in-app navigation
- * sidebar since 1.10. The previous version of this file clicked through that
+ * sidebar since 1.8.0. The previous version of this file clicked through that
  * sidebar, which is why the shipped screenshots showed a UI that no longer
  * exists.
  */

@@ -1,31 +1,54 @@
 import { test, expect } from '@playwright/test';
 import { injectVSCodeApiMock, sendExtensionMessage } from './mocks/vscode-api';
+import { MOCK_ORGS } from './fixtures';
 
 /**
- * Helper: send a mock org:list:response so the HomePage exits loading state.
- * The BridgeProvider fires org:list on mount; without a response, loading
- * stays true for 30s, blocking the getting-started card from appearing.
+ * Answer *every* in-flight `org:list`, not just the first one captured.
+ *
+ * The Home panel leaves several of them in flight: BridgeProvider fires one on
+ * mount, HomePage's own `useBridgeQuery('org:list')` fires another, and React
+ * StrictMode re-runs both effects, so each request carries a different id. The
+ * previous helper answered `msgs.find(...)` — the first id — which is never the
+ * one the live listener is waiting on. `orgsLoading` then stayed true for the
+ * hook's full 30s timeout and the getting-started card, gated on
+ * `!hasOrgs && !orgsLoading`, never rendered. Same idiom as `respondToAll` in
+ * screenshots.spec.ts, for the same reason.
  */
-async function resolveOrgListLoading(page: import('@playwright/test').Page): Promise<void> {
-  // Wait a tick for the bridge query to register its listener
-  await page.waitForTimeout(200);
-
-  // Retrieve the original request's correlationId from captured messages
-  const correlationId = await page.evaluate(() => {
+async function answerOrgList(
+  page: import('@playwright/test').Page,
+  orgs: readonly unknown[],
+): Promise<void> {
+  // Wait until at least one request is out; the StrictMode twin is posted in
+  // the same effect flush, so it is already in the array by the time this
+  // resolves.
+  await page.waitForFunction(() => {
     const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
-    const orgListMsg = msgs.find((m) => (m as Record<string, unknown>).type === 'org:list') as
-      | Record<string, unknown>
-      | undefined;
-    return orgListMsg?.id as string | undefined;
+    return msgs.some((m) => {
+      const e = m as Record<string, unknown>;
+      const inner = (e.payload as Record<string, unknown> | undefined) ?? e;
+      return inner.type === 'org:list';
+    });
   });
 
-  // Send the response with the matching correlationId
-  await sendExtensionMessage(page, {
-    type: 'org:list:response',
-    id: `resp-${Date.now()}`,
-    correlationId: correlationId ?? 'unknown',
-    payload: { orgs: [] },
+  const ids = await page.evaluate(() => {
+    const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+    return msgs
+      .map((m) => {
+        const e = m as Record<string, unknown>;
+        return (e.payload as Record<string, unknown> | undefined) ?? e;
+      })
+      .filter((m) => m.type === 'org:list')
+      .map((m) => m.id as string);
   });
+
+  for (const correlationId of ids) {
+    await sendExtensionMessage(page, {
+      type: 'org:list:response',
+      id: `resp-${correlationId}`,
+      correlationId,
+      payload: { orgs: orgs as unknown[] },
+    });
+  }
 }
 
 test.describe('Home page', () => {
@@ -66,25 +89,57 @@ test.describe('Home page', () => {
     await expect(page.getByTestId('recent-ops-tile')).toBeVisible();
   });
 
+  /**
+   * The card is gated on `!hasOrgs && !orgsLoading`, so both halves are worth
+   * asserting: it appears once an empty org list has answered, and it goes away
+   * once orgs exist. Asserting only the first half would keep passing if the
+   * card were rendered unconditionally.
+   */
   test('shows getting started card when no orgs are connected', async ({ page }) => {
-    await resolveOrgListLoading(page);
-    await expect(page.getByTestId('getting-started-card')).toBeVisible({ timeout: 5000 });
+    await answerOrgList(page, []);
+
+    const card = page.getByTestId('getting-started-card');
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId('connect-org-btn')).toBeVisible();
+
+    // BridgeProvider fills the org store from any `org:list:response`, so a
+    // second answer carrying connected orgs is the real path out of the
+    // no-orgs state — the card must retract.
+    await answerOrgList(page, MOCK_ORGS);
+    await expect(card).toHaveCount(0);
   });
 
-  test('connect org button navigates to orgs page', async ({ page }) => {
-    await resolveOrgListLoading(page);
-    await page.getByTestId('getting-started-card').waitFor({ state: 'visible', timeout: 5000 });
+  /**
+   * Navigation, post-1.8.0: there is no sidebar to leave a `Home` item
+   * unhighlighted. Each module is its own panel, and an in-panel `navigate()`
+   * swaps what PanelRouter renders inside `panel-app` — so "went to the orgs
+   * page" is observable as the org manager replacing Home in the same panel.
+   */
+  test('connect org button swaps the panel to the org manager', async ({ page }) => {
+    await answerOrgList(page, []);
+    await page.getByTestId('getting-started-card').waitFor({ state: 'visible' });
+
+    // Precondition, so the assertion below cannot pass on a panel that was
+    // already showing the org manager.
+    await expect(page.getByTestId('org-manager-page')).toHaveCount(0);
     await page.getByTestId('connect-org-btn').click();
 
-    // Should navigate away from home
-    const homeButton = page.getByTestId('sidebar').getByRole('button', { name: 'Home' });
-    await expect(homeButton).not.toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('org-manager-page')).toBeVisible();
+    await expect(page.getByTestId('home-page')).toHaveCount(0);
   });
 
-  test('quick forge button navigates to forge page', async ({ page }) => {
+  /**
+   * Forge short-circuits to an EmptyState (which carries no `forge-page`
+   * testid) until an org is selected, so the org list has to be answered with
+   * connected orgs before the click — BridgeProvider auto-selects the first.
+   */
+  test('quick forge button swaps the panel to the forge module', async ({ page }) => {
+    await answerOrgList(page, MOCK_ORGS);
+
+    await expect(page.getByTestId('forge-page')).toHaveCount(0);
     await page.getByTestId('quick-forge-btn').click();
 
-    const forgeHero = page.getByTestId('sidebar-forge-hero');
-    await expect(forgeHero).toBeVisible();
+    await expect(page.getByTestId('forge-page')).toBeVisible();
+    await expect(page.getByTestId('home-page')).toHaveCount(0);
   });
 });
