@@ -1,4 +1,4 @@
-import { join, relative, sep } from 'node:path';
+import { join, relative, sep, win32 } from 'node:path';
 
 import ts from 'typescript';
 import { describe, it, expect } from 'vitest';
@@ -25,10 +25,27 @@ import { describe, it, expect } from 'vitest';
  * trusted green on the real tree.
  */
 
+// Runs in `pnpm test` (CI, every OS) and in `test:correlation` (`validate`),
+// but not in the extension's coverage run. It executes no production code —
+// the imports further down are probe text — so it adds nothing there, while
+// V8 coverage slows its synchronous type-checking pass (about 2.5x locally)
+// enough to starve vitest's worker RPC on a two-core runner: "Timeout
+// calling onTaskUpdate" failed the ubuntu coverage step.
 const EXT_ROOT = join(__dirname, '..', '..');
 const SRC_ROOT = join(EXT_ROOT, 'src');
-const HANDLER_TYPES = join(SRC_ROOT, 'bridge', 'handlers', 'HandlerTypes.ts');
-const PROBE = join(SRC_ROOT, 'bridge', 'handlers', '__correlationProbe.ts');
+
+/**
+ * A path as TypeScript writes it: forward slashes, on every platform.
+ *
+ * `ts.SourceFile.fileName` and every path TypeScript hands the compiler host
+ * use `/`, Windows included, while `path.join` builds `\` there. Comparing the
+ * two raw left the probe unread and `HandlerTypes.ts` unrecognised on the
+ * windows-latest runner — no finding on a probe built to produce 21, and two
+ * false ones on the real tree. Every path this gate compares goes through here.
+ */
+const toTsPath = (p: string): string => p.replace(/\\/g, '/');
+const HANDLER_TYPES = toTsPath(join(SRC_ROOT, 'bridge', 'handlers', 'HandlerTypes.ts'));
+const PROBE = toTsPath(join(SRC_ROOT, 'bridge', 'handlers', '__correlationProbe.ts'));
 
 /** Declarations whose `unique symbol` type is a correlation brand. */
 const BRAND_DECLARATIONS = ['requestIdBrand', 'UNCORRELATED'];
@@ -120,10 +137,10 @@ function loadProgram(overrides: Readonly<Record<string, string>> = {}): ts.Progr
   const readFile = host.readFile.bind(host);
   const fileExists = host.fileExists.bind(host);
   const getSourceFile = host.getSourceFile.bind(host);
-  host.readFile = (f) => overrides[f] ?? readFile(f);
-  host.fileExists = (f) => f in overrides || fileExists(f);
+  host.readFile = (f) => overrides[toTsPath(f)] ?? readFile(f);
+  host.fileExists = (f) => toTsPath(f) in overrides || fileExists(f);
   host.getSourceFile = (f, language, onError, create) => {
-    const text = overrides[f];
+    const text = overrides[toTsPath(f)];
     if (text !== undefined) return ts.createSourceFile(f, text, language, true);
     let sf = sourceCache.get(f);
     if (!sf) {
@@ -402,8 +419,8 @@ function analyze(program: ts.Program, overrides: Readonly<Record<string, string>
   const suppressed: ts.SourceFile[] = [];
 
   for (const sf of program.getSourceFiles()) {
-    if (!isProductionFile(sf.fileName) || (only && !only.has(sf.fileName))) continue;
-    const isTypesFile = sf.fileName === HANDLER_TYPES;
+    if (!isProductionFile(sf.fileName) || (only && !only.has(toTsPath(sf.fileName)))) continue;
+    const isTypesFile = toTsPath(sf.fileName) === HANDLER_TYPES;
     if (/@ts-(ignore|expect-error|nocheck)/.test(sf.text)) suppressed.push(sf);
 
     const visit = (n: ts.Node): void => {
@@ -814,6 +831,17 @@ describe('correlation gate', () => {
       const { findings } = run({ [PROBE]: BYPASSES });
       expect(located(findings)).toEqual(unique(expectedRules(BYPASSES)));
     }, 60_000);
+
+    it('compares paths the way TypeScript writes them, on every platform', () => {
+      // Checked on any runner: a real win32 path goes in, TypeScript's form
+      // comes out. Without the normalisation this is exactly the comparison
+      // that failed on windows-latest.
+      expect(toTsPath(win32.join('D:\\a', 'src', 'bridge', 'handlers', 'HandlerTypes.ts'))).toBe(
+        'D:/a/src/bridge/handlers/HandlerTypes.ts',
+      );
+      expect(HANDLER_TYPES).not.toContain('\\');
+      expect(PROBE).not.toContain('\\');
+    });
 
     it('stays green on legitimate handler code, comments and log strings included', () => {
       const { findings } = run({ [PROBE]: LEGITIMATE });
