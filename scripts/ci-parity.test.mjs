@@ -85,7 +85,9 @@ const NOT_LOCALLY_RUNNABLE = new Set(['version']);
  * Blocking gates satisfied by a strictly stronger gate in `validate`.
  *
  * Not exemptions — substitutions. `test:coverage` runs every test `test`
- * runs and then enforces thresholds on top; `format:check` is the read-only
+ * runs — bar the files a package excludes from its coverage run, which the
+ * last test below holds `validate` to running another way — and enforces
+ * thresholds on top; `format:check` is the read-only
  * half of `format`, which the workflow runs to annotate a PR rather than to
  * decide it. If the right-hand gate ever leaves `validate`, the left-hand one
  * is reported missing again.
@@ -118,6 +120,9 @@ const COVERED_ELSEWHERE = new Map([
   ['build:shared', 'Validate (typecheck + test + build)'],
   ['typecheck', 'Validate (typecheck + test + build)'],
   ['test', 'Validate (typecheck + test + build)'],
+  // Left out of the extension's coverage run (see the last test below); CI
+  // runs it through `pnpm test` on all three operating systems.
+  ['test:correlation', 'Validate (typecheck + test + build)'],
 ]);
 
 test('every gate in `validate` is executed by CI', () => {
@@ -262,5 +267,31 @@ test('every `check:*` / `audit:*` gate is reachable from something that runs', (
       `${unreachable.join(', ')}. Wire each into \`validate\`, into another ` +
       `script a workflow runs, or into a workflow — or delete it. A gate no ` +
       `chain reaches is documentation, not a check.`,
+  );
+});
+
+test('a test left out of a coverage run still runs in `validate`', () => {
+  // `validate` runs `test:coverage`, not `test`. A file a package excludes from
+  // its coverage run therefore stops running locally at all — unless a script
+  // `validate` invokes runs it by name. The correlation gate is excluded
+  // because V8 coverage slows its synchronous type-checking pass enough to
+  // starve vitest's worker RPC on a two-core runner.
+  const validateGates = pnpmTargets(pkg.scripts.validate);
+  const dropped = [];
+  for (const dir of ['shared', 'extension', 'webview']) {
+    const scripts =
+      JSON.parse(readFileSync(join(root, 'packages', dir, 'package.json'), 'utf8')).scripts ?? {};
+    for (const [, glob] of (scripts['test:coverage'] ?? '').matchAll(/--exclude\s+(\S+)/g)) {
+      const rerun = Object.entries(scripts).some(
+        ([name, body]) =>
+          name !== 'test:coverage' && validateGates.has(name) && body.includes(glob),
+      );
+      if (!rerun) dropped.push(`${dir}: ${glob}`);
+    }
+  }
+  assert.deepEqual(
+    dropped,
+    [],
+    `excluded from a coverage run and run by nothing \`validate\` invokes: ${dropped.join(', ')}`,
   );
 });

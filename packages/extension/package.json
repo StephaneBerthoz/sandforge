@@ -383,9 +383,10 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --exclude src/bridge/handlerErrorChannels.test.ts",
     "test:watch": "vitest",
-    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\""
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "test:correlation": "vitest run src/bridge/handlerErrorChannels.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.93.0",
