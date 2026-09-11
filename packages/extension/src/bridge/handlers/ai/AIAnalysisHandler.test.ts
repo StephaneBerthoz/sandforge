@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AIAnalysisHandler } from './AIAnalysisHandler.js';
-import type { HandlerDeps } from '../HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
 import type { AIModules } from '../AIHandler.js';
-import type { BaseMessage } from '@sandforge/shared';
+import { inboundRequest } from '../../../test/mockFactories.js';
 
 vi.mock('../../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn().mockResolvedValue({
@@ -34,8 +34,8 @@ function createMockDeps(): HandlerDeps {
 function createMsg(
   type: string,
   payload: Record<string, unknown> = {},
-): BaseMessage & { payload: Record<string, unknown> } {
-  return { id: 'msg-1', type, timestamp: Date.now(), payload };
+): InboundRequest & { payload: Record<string, unknown> } {
+  return inboundRequest({ id: 'msg-1', type, timestamp: Date.now(), payload });
 }
 
 describe('AIAnalysisHandler', () => {
@@ -68,7 +68,12 @@ describe('AIAnalysisHandler', () => {
       anomalyDetector: {
         detectAnomalies: vi.fn().mockReturnValue({
           anomalies: [
-            { field: 'Name', type: 'null', description: 'Many nulls', severity: 'medium' },
+            {
+              field: 'Name',
+              type: 'null',
+              description: 'Many nulls',
+              severity: 'medium',
+            },
           ],
         }),
       } as unknown as AIModules['anomalyDetector'],
@@ -76,7 +81,11 @@ describe('AIAnalysisHandler', () => {
     handler.setAIModules(mockModules as AIModules);
 
     const result = await handler.handle(
-      createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account', sampleSize: 100 }),
+      createMsg('ai:anomaly-scan', {
+        orgId: 'org1',
+        objectName: 'Account',
+        sampleSize: 100,
+      }),
     );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -97,11 +106,13 @@ describe('AIAnalysisHandler', () => {
   it('handles ai:suggestions with modules', async () => {
     const mockModules: Partial<AIModules> = {
       smartSuggestions: {
-        suggest: vi
-          .fn()
-          .mockResolvedValue([
-            { title: 'Use Bulk API', description: 'Faster', action: 'enable-bulk' },
-          ]),
+        suggest: vi.fn().mockResolvedValue([
+          {
+            title: 'Use Bulk API',
+            description: 'Faster',
+            action: 'enable-bulk',
+          },
+        ]),
       } as unknown as AIModules['smartSuggestions'],
     };
     handler.setAIModules(mockModules as AIModules);
@@ -129,7 +140,13 @@ describe('AIAnalysisHandler', () => {
     const mockModules: Partial<AIModules> = {
       schemaAdvisor: {
         analyzeSchema: vi.fn().mockReturnValue({
-          issues: [{ objectName: 'Account', severity: 'low', description: 'Consider indexing' }],
+          issues: [
+            {
+              objectName: 'Account',
+              severity: 'low',
+              description: 'Consider indexing',
+            },
+          ],
           suggestions: [{ title: 'Add index', description: 'On Name field' }],
         }),
       } as unknown as AIModules['schemaAdvisor'],
@@ -137,7 +154,10 @@ describe('AIAnalysisHandler', () => {
     handler.setAIModules(mockModules as AIModules);
 
     const result = await handler.handle(
-      createMsg('ai:schema-advice', { orgId: 'org1', objectNames: ['Account'] }),
+      createMsg('ai:schema-advice', {
+        orgId: 'org1',
+        objectNames: ['Account'],
+      }),
     );
     expect(result).toBe(true);
     const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
@@ -149,7 +169,10 @@ describe('AIAnalysisHandler', () => {
   describe('payload validation', () => {
     it('rejects ai:anomaly-scan with a non-API-name objectName (INVALID_PAYLOAD)', async () => {
       const result = await handler.handle(
-        createMsg('ai:anomaly-scan', { orgId: 'org1', objectName: 'Account WHERE Id != null' }),
+        createMsg('ai:anomaly-scan', {
+          orgId: 'org1',
+          objectName: 'Account WHERE Id != null',
+        }),
       );
       expect(result).toBe(true);
 

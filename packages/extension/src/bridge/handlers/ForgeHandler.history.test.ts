@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, ForgeConfig, ForgeGraph, ForgeExecutionResult } from '@sandforge/shared';
 import type { ForgeOrchestrator } from '../../modules/forge/ForgeOrchestrator.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -10,11 +11,15 @@ vi.mock('../../logger.js', () => ({
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
-vi.mock('../../core/common/soqlQueryHelper.js', () => ({ queryWithFieldsFallback: vi.fn() }));
+vi.mock('../../core/common/soqlQueryHelper.js', () => ({
+  queryWithFieldsFallback: vi.fn(),
+}));
 vi.mock('../../core/common/soqlValidator.js', () => ({
   sanitizeSoqlValue: vi.fn((v: string) => v),
 }));
-vi.mock('../../core/common/sforceLimitParser.js', () => ({ checkApiLimits: vi.fn() }));
+vi.mock('../../core/common/sforceLimitParser.js', () => ({
+  checkApiLimits: vi.fn(),
+}));
 
 function createGraph(): ForgeGraph {
   return {
@@ -72,7 +77,10 @@ function createResult(): ForgeExecutionResult {
 }
 
 /** ConfigStore double that actually remembers what the handler persisted. */
-function createConfigStore(): { store: HandlerDeps['configStore']; data: Map<string, unknown> } {
+function createConfigStore(): {
+  store: HandlerDeps['configStore'];
+  data: Map<string, unknown>;
+} {
   const data = new Map<string, unknown>();
   const store = {
     get: vi.fn((key: string) => data.get(key)),
@@ -99,13 +107,13 @@ function createDeps(configStore: HandlerDeps['configStore']): HandlerDeps {
   };
 }
 
-function buildMsg(type: string, payload?: unknown): BaseMessage {
-  return {
+function buildMsg(type: string, payload?: unknown): InboundRequest {
+  return inboundRequest({
     id: `test-${type}`,
     type,
     timestamp: Date.now(),
     ...(payload !== undefined ? { payload } : {}),
-  } as BaseMessage;
+  } as BaseMessage);
 }
 
 describe('forge history entries are replayable', () => {
@@ -132,7 +140,10 @@ describe('forge history entries are replayable', () => {
 
   it('persists the config that produced the run', async () => {
     await handler.handle(
-      buildMsg('forge:execute', { graph: createGraph(), config: createConfig() }),
+      buildMsg('forge:execute', {
+        graph: createGraph(),
+        config: createConfig(),
+      }),
     );
 
     const history = data.get('forge:history') as ForgeExecutionResult[];
@@ -153,7 +164,10 @@ describe('forge history entries are replayable', () => {
 
   it('strips the org pair so a re-run cannot silently replay yesterday orgs', async () => {
     await handler.handle(
-      buildMsg('forge:execute', { graph: createGraph(), config: createConfig() }),
+      buildMsg('forge:execute', {
+        graph: createGraph(),
+        config: createConfig(),
+      }),
     );
 
     const history = data.get('forge:history') as ForgeExecutionResult[];
@@ -165,7 +179,10 @@ describe('forge history entries are replayable', () => {
 
   it('serves stored entries back on forge:history:list', async () => {
     await handler.handle(
-      buildMsg('forge:execute', { graph: createGraph(), config: createConfig() }),
+      buildMsg('forge:execute', {
+        graph: createGraph(),
+        config: createConfig(),
+      }),
     );
     vi.mocked(deps.broker.postToWebview).mockClear();
 
@@ -173,7 +190,12 @@ describe('forge history entries are replayable', () => {
 
     const listed = vi
       .mocked(deps.broker.postToWebview)
-      .mock.calls.map((c) => c[0] as BaseMessage & { payload: { history: ForgeExecutionResult[] } })
+      .mock.calls.map(
+        (c) =>
+          c[0] as BaseMessage & {
+            payload: { history: ForgeExecutionResult[] };
+          },
+      )
       .find((m) => m.type === 'forge:history:list:response');
     expect(listed?.payload.history[0].config?.recordId).toBe('001AP00000j2CEg');
   });

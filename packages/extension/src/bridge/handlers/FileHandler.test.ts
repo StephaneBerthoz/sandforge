@@ -4,6 +4,7 @@ import { FileHandler } from './FileHandler.js';
 import type { HandlerDeps } from './HandlerTypes.js';
 import type { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /** The three deps FileHandler actually uses, with an observable broker. */
 function createMockDeps(): Pick<HandlerDeps, 'nextId' | 'broker' | 'log'> {
@@ -34,24 +35,33 @@ describe('FileHandler', () => {
   });
 
   it('returns false for a message it does not own', async () => {
-    expect(await handler.handle({ id: '1', type: 'other:thing', timestamp: Date.now() })).toBe(
-      false,
-    );
+    expect(
+      await handler.handle(inboundRequest({ id: '1', type: 'other:thing', timestamp: Date.now() })),
+    ).toBe(false);
   });
 
   it('answers a saved file with its path', async () => {
-    await handler.handle({
-      id: 'req-ok',
-      type: 'file:save',
-      timestamp: Date.now(),
-      payload: { suggestedName: 'export.csv', content: 'a,b', extensions: ['csv'] },
-    } as BaseMessage);
+    await handler.handle(
+      inboundRequest({
+        id: 'req-ok',
+        type: 'file:save',
+        timestamp: Date.now(),
+        payload: {
+          suggestedName: 'export.csv',
+          content: 'a,b',
+          extensions: ['csv'],
+        },
+      } as BaseMessage),
+    );
 
     expect(save).toHaveBeenCalledWith('export.csv', 'a,b', ['csv']);
     const [response] = posted();
     expect(response.type).toBe('file:save:response');
     expect(response.correlationId).toBe('req-ok');
-    expect(response.payload).toEqual({ status: 'saved', path: '/home/u/export.csv' });
+    expect(response.payload).toEqual({
+      status: 'saved',
+      path: '/home/u/export.csv',
+    });
   });
 
   /**
@@ -71,23 +81,27 @@ describe('FileHandler', () => {
     };
 
     it('never opens the Save dialog', async () => {
-      await handler.handle({
-        id: 'req-big',
-        type: 'file:save',
-        timestamp: Date.now(),
-        payload: oversized,
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'req-big',
+          type: 'file:save',
+          timestamp: Date.now(),
+          payload: oversized,
+        } as BaseMessage),
+      );
 
       expect(save).not.toHaveBeenCalled();
     });
 
     it('answers with the error variant of the outcome, correlated to the request', async () => {
-      await handler.handle({
-        id: 'req-big',
-        type: 'file:save',
-        timestamp: Date.now(),
-        payload: oversized,
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'req-big',
+          type: 'file:save',
+          timestamp: Date.now(),
+          payload: oversized,
+        } as BaseMessage),
+      );
 
       expect(posted()).toHaveLength(1);
       const [response] = posted();
@@ -100,12 +114,14 @@ describe('FileHandler', () => {
     });
 
     it('reports a missing content field the same way', async () => {
-      await handler.handle({
-        id: 'req-empty',
-        type: 'file:save',
-        timestamp: Date.now(),
-        payload: { suggestedName: 'export.csv' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'req-empty',
+          type: 'file:save',
+          timestamp: Date.now(),
+          payload: { suggestedName: 'export.csv' },
+        } as BaseMessage),
+      );
 
       expect(save).not.toHaveBeenCalled();
       expect(posted()[0].payload.status).toBe('error');

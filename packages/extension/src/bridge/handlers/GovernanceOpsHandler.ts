@@ -1,6 +1,5 @@
-import type { BaseMessage } from '@sandforge/shared';
 import { SF_API_VERSION } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -75,7 +74,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!GOVERNANCE_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -112,7 +111,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    * List all governance policies as summaries.
    * @param msg - The incoming request message.
    */
-  private handlePoliciesList(msg: BaseMessage): void {
+  private handlePoliciesList(msg: InboundRequest): void {
     try {
       const policies = this.store.getAll();
       const summaries: GovernancePolicySummary[] = policies.map((p) => ({
@@ -129,16 +128,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:result');
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'governance:policies:list',
-        'governance:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'governance:policies:list', 'governance:error', msg, err);
     }
   }
 
@@ -146,7 +136,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    * Get a single governance policy by ID.
    * @param msg - The incoming request message with policyId payload.
    */
-  private handlePolicyGet(msg: BaseMessage): void {
+  private handlePolicyGet(msg: InboundRequest): void {
     const parsed = validatePayload(
       governancePolicyIdPayloadSchema,
       msg,
@@ -160,16 +150,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:result');
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'governance:policy:get',
-        'governance:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'governance:policy:get', 'governance:error', msg, err);
     }
   }
 
@@ -177,7 +158,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    * Save (create or update) a governance policy with Zod validation.
    * @param msg - The incoming request message with policy payload.
    */
-  private handlePolicySave(msg: BaseMessage): void {
+  private handlePolicySave(msg: InboundRequest): void {
     const parsed = validatePayload(
       governancePolicySavePayloadSchema,
       msg,
@@ -192,8 +173,9 @@ export class GovernanceOpsHandler implements DomainHandler {
           this.deps,
           'governance:policy:save',
           'governance:error',
+          msg,
           new Error(`Validation failed: ${policyParsed.error.message}`),
-          'VALIDATION_ERROR',
+          { code: 'VALIDATION_ERROR' },
         );
         return;
       }
@@ -204,16 +186,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:save:response');
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'governance:policy:save',
-        'governance:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'governance:policy:save', 'governance:error', msg, err);
     }
   }
 
@@ -221,7 +194,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    * Delete a governance policy by ID.
    * @param msg - The incoming request message with policyId payload.
    */
-  private handlePolicyDelete(msg: BaseMessage): void {
+  private handlePolicyDelete(msg: InboundRequest): void {
     const parsed = validatePayload(
       governancePolicyIdPayloadSchema,
       msg,
@@ -237,16 +210,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policy:delete:response');
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'governance:policy:delete',
-        'governance:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'governance:policy:delete', 'governance:error', msg, err);
     }
   }
 
@@ -254,7 +218,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    * Export all policies as a JSON string.
    * @param msg - The incoming request message.
    */
-  private handlePoliciesExport(msg: BaseMessage): void {
+  private handlePoliciesExport(msg: InboundRequest): void {
     try {
       const json = this.store.exportPolicies();
       const response = buildResponse(this.deps, msg, 'governance:policies:export:response', {
@@ -263,16 +227,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:export:response');
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'governance:policies:export',
-        'governance:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'governance:policies:export', 'governance:error', msg, err);
     }
   }
 
@@ -280,7 +235,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    * Import policies from a JSON string.
    * @param msg - The incoming request message with json payload.
    */
-  private handlePoliciesImport(msg: BaseMessage): void {
+  private handlePoliciesImport(msg: InboundRequest): void {
     const parsed = validatePayload(
       governancePoliciesImportPayloadSchema,
       msg,
@@ -297,7 +252,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:policies:import:response');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'governance:policies:import', 'governance:error', err);
+      sendHandlerError(this.deps, 'governance:policies:import', 'governance:error', msg, err);
     }
   }
 
@@ -310,7 +265,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    *
    * @param msg - The incoming request message with policyId and orgId payload.
    */
-  private async handleEvaluate(msg: BaseMessage): Promise<void> {
+  private async handleEvaluate(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
       governanceEvaluatePayloadSchema,
       msg,
@@ -326,8 +281,9 @@ export class GovernanceOpsHandler implements DomainHandler {
           this.deps,
           'governance:evaluate',
           'governance:error',
+          msg,
           new Error(`Policy not found: ${payload.policyId}`),
-          'NOT_FOUND',
+          { code: 'NOT_FOUND' },
         );
         return;
       }
@@ -367,16 +323,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:evaluate:response');
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'governance:evaluate',
-        'governance:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'governance:evaluate', 'governance:error', msg, err);
     }
   }
 
@@ -384,7 +331,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    * Return default governance policy templates.
    * @param msg - The incoming request message.
    */
-  private handleTemplates(msg: BaseMessage): void {
+  private handleTemplates(msg: InboundRequest): void {
     try {
       const templates = GovernancePolicyStore.getDefaultTemplates();
       const response = buildResponse(this.deps, msg, 'governance:templates:response', {
@@ -393,16 +340,7 @@ export class GovernanceOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] governance:templates:response');
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'governance:templates',
-        'governance:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'governance:templates', 'governance:error', msg, err);
     }
   }
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AutopilotHandler } from './AutopilotHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -8,6 +8,7 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -31,7 +32,10 @@ function createMockDeps(): HandlerDeps {
     stateSync: {} as HandlerDeps['stateSync'],
     orgManager: { getOrg: vi.fn() } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
-    configStore: { get: vi.fn(), set: vi.fn() } as unknown as HandlerDeps['configStore'],
+    configStore: {
+      get: vi.fn(),
+      set: vi.fn(),
+    } as unknown as HandlerDeps['configStore'],
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
@@ -78,34 +82,38 @@ describe('AutopilotHandler — execution failures', () => {
   ): Promise<void> {
     handler.setOrchestrator(orchestrator);
     mockGetConn.mockResolvedValue({} as never);
-    await handler.handle({
-      id: 'scan-1',
-      type: 'autopilot:scan-schema',
-      timestamp: Date.now(),
-      payload: {
-        sourceOrgId: 'src',
-        targetOrgId: 'tgt',
-        selectedObjects: [],
-        includeStandardObjects: false,
-      },
-    } as BaseMessage);
-    await handler.handle({
-      id: 'plan-1',
-      type: 'autopilot:generate-plan',
-      timestamp: Date.now(),
-      payload: { complianceFramework: 'gdpr' },
-    } as BaseMessage);
+    await handler.handle(
+      inboundRequest({
+        id: 'scan-1',
+        type: 'autopilot:scan-schema',
+        timestamp: Date.now(),
+        payload: {
+          sourceOrgId: 'src',
+          targetOrgId: 'tgt',
+          selectedObjects: [],
+          includeStandardObjects: false,
+        },
+      } as BaseMessage),
+    );
+    await handler.handle(
+      inboundRequest({
+        id: 'plan-1',
+        type: 'autopilot:generate-plan',
+        timestamp: Date.now(),
+        payload: { complianceFramework: 'gdpr' },
+      } as BaseMessage),
+    );
     (deps.broker.postToWebview as Mock).mockClear();
   }
 
   /** Builds the autopilot:execute request. */
-  function executeMsg(): BaseMessage {
-    return {
+  function executeMsg(): InboundRequest {
+    return inboundRequest({
       id: 'exec-1',
       type: 'autopilot:execute',
       timestamp: Date.now(),
       payload: { grappeThreshold: 0 },
-    } as BaseMessage;
+    } as BaseMessage);
   }
 
   it('reports a crashed run as autopilot:error, never as autopilot:completed', async () => {
@@ -142,7 +150,9 @@ describe('AutopilotHandler — execution failures', () => {
         completedObjects: [],
         failedObjects: ['Account'],
         skippedObjects: [],
-        nodeErrors: { Account: 'REQUIRED_FIELD_MISSING: Required fields are missing: [Name]' },
+        nodeErrors: {
+          Account: 'REQUIRED_FIELD_MISSING: Required fields are missing: [Name]',
+        },
       }),
     );
     await scanAndPlan(orchestrator);

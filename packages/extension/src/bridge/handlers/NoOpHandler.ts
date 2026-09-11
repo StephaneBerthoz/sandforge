@@ -1,6 +1,5 @@
-import type { BaseMessage } from '@sandforge/shared';
 import { buildResponse } from './HandlerTypes.js';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 
 /**
  * Message types for features that are planned but not yet implemented.
@@ -53,7 +52,7 @@ export class NoOpHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled (no-op response sent), `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!NOOP_TYPES.has(msg.type)) return false;
 
     const responseType = RESPONSE_TYPE_OVERRIDES[msg.type] ?? `${msg.type}:response`;

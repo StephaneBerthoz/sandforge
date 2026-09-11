@@ -20,7 +20,13 @@ import type { Services } from '../services.js';
 import type { LiveOperationTracker } from '../modules/monitor/LiveOperationTracker.js';
 import type { MaskingTemplateService } from '../modules/dataops/templates/MaskingTemplateService.js';
 import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js';
-import type { HandlerDeps, DomainHandler, InfraServices } from './handlers/HandlerTypes.js';
+import type {
+  HandlerDeps,
+  DomainHandler,
+  InboundRequest,
+  InfraServices,
+} from './handlers/HandlerTypes.js';
+import { syntheticRequest } from './handlers/HandlerTypes.js';
 import { OrgHandler } from './handlers/OrgHandler.js';
 import { SettingsHandler } from './handlers/SettingsHandler.js';
 import { MonitorOpsHandler } from './handlers/MonitorOpsHandler.js';
@@ -292,11 +298,9 @@ export class ExtensionHandlers {
    * @param operation - The queued operation to replay.
    */
   async replayQueuedOperation(operation: QueuedOperation): Promise<void> {
-    const msg: BaseMessage = {
-      id: `offline-replay-${operation.id}`,
-      type: `${operation.type}:execute`,
-      timestamp: Date.now(),
-    };
+    // The request that queued this operation is long gone: the replay's
+    // origin is a listed synthetic request, never a hand-built message.
+    const msg = syntheticRequest('offline-replay', operation.id, `${operation.type}:execute`);
     switch (operation.type) {
       case 'sync':
         await this.syncHandler.rerunFromSnapshot(msg, operation.payload.config);
@@ -304,7 +308,7 @@ export class ExtensionHandlers {
       case 'seed': {
         // Bridge messages carry their payload structurally (BaseMessage has no
         // payload field) — same shape the webview sends for seed:execute.
-        const seedMsg: BaseMessage & { payload: Record<string, unknown> } = {
+        const seedMsg: InboundRequest & { payload: Record<string, unknown> } = {
           ...msg,
           payload: operation.payload,
         };
@@ -685,7 +689,7 @@ export class ExtensionHandlers {
 
     // Webview crash reports (React ErrorBoundary). Fire-and-forget: logged
     // to the output channel so render crashes are diagnosable in the wild.
-    router.route('error:boundary', (msg) => {
+    router.route('error:boundary', (msg: BaseMessage) => {
       const { payload } = msg as ErrorBoundaryReport;
       this.handlerDeps.log(
         `[ERR] Webview crash (error:boundary): ${payload?.message ?? 'unknown error'}` +

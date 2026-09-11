@@ -1,5 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import type { AIAssistant } from '../../modules/ai/AIAssistant.js';
 import type { NL2SOQL } from '../../modules/ai/NL2SOQL.js';
 import type { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
@@ -99,7 +98,7 @@ export class AIHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!AI_TYPES.has(msg.type)) return false;
 
     for (const handler of this.subHandlers) {

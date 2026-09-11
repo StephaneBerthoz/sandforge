@@ -1,4 +1,3 @@
-import type { BaseMessage } from '@sandforge/shared';
 import {
   syncConfigSchema,
   syncObjectConfigSchema,
@@ -9,7 +8,7 @@ import {
   QuickSyncConfigSchema,
 } from '@sandforge/shared';
 import { z } from 'zod';
-import type { HandlerDeps } from './handlers/HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import { sendHandlerError } from './handlers/HandlerTypes.js';
 
 /**
@@ -756,30 +755,25 @@ export const marketplaceInstallPayloadSchema = z.object({ templateId: opaqueIdSc
  * the caller can early-return. Defense-in-depth against compromised webview.
  *
  * @param schema - Zod schema describing the expected payload.
- * @param msg - The incoming bridge message (envelope already validated).
+ * @param msg - The request whose payload is validated (its origin, if it fails).
  * @param responseType - Error message type to post back on failure.
  * @param deps - Handler dependencies (log, broker, nextId).
  */
 export function validatePayload<T>(
   schema: z.ZodSchema<T>,
-  msg: BaseMessage,
+  msg: InboundRequest & { readonly payload?: unknown },
   responseType: string,
   deps: Pick<HandlerDeps, 'log' | 'broker' | 'nextId'>,
 ): T | null {
-  const payload = (msg as { payload?: unknown }).payload;
-  const result = schema.safeParse(payload);
+  const result = schema.safeParse(msg.payload);
   if (!result.success) {
     const summary = result.error.issues
       .slice(0, 3)
       .map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`)
       .join('; ');
-    sendHandlerError(
-      deps,
-      msg.type,
-      responseType,
-      new Error(`Invalid payload — ${summary}`),
-      'INVALID_PAYLOAD',
-    );
+    sendHandlerError(deps, msg.type, responseType, msg, new Error(`Invalid payload — ${summary}`), {
+      code: 'INVALID_PAYLOAD',
+    });
     return null;
   }
   return result.data;

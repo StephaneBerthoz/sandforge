@@ -4,6 +4,8 @@ import * as path from 'node:path';
 import { MigrationHandler } from './MigrationHandler';
 import type { HandlerDeps } from './HandlerTypes';
 import type { BaseMessage } from '@sandforge/shared';
+import type { InboundRequest } from './HandlerTypes.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 function createMockDeps(): HandlerDeps {
   return {
@@ -23,8 +25,8 @@ function createMockDeps(): HandlerDeps {
 function createMsg(
   type: string,
   payload: Record<string, unknown> = {},
-): BaseMessage & { payload: Record<string, unknown> } {
-  return { id: 'req-77', type, timestamp: Date.now(), payload };
+): InboundRequest & { payload: Record<string, unknown> } {
+  return inboundRequest({ id: 'req-77', type, timestamp: Date.now(), payload });
 }
 
 describe('MigrationHandler', () => {
@@ -82,7 +84,10 @@ describe('MigrationHandler', () => {
       } as unknown as NonNullable<HandlerDeps['services']>;
     });
 
-    function lastResponse(): { type: string; payload: { success: boolean; error?: string } } {
+    function lastResponse(): {
+      type: string;
+      payload: { success: boolean; error?: string };
+    } {
       const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
       return calls[calls.length - 1][0] as {
         type: string;
@@ -230,7 +235,10 @@ describe('MigrationHandler', () => {
       } as unknown as NonNullable<HandlerDeps['services']>;
     });
 
-    function lastResponse(): { type: string; payload: { success: boolean; error?: string } } {
+    function lastResponse(): {
+      type: string;
+      payload: { success: boolean; error?: string };
+    } {
       const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
       return calls[calls.length - 1][0] as {
         type: string;
@@ -280,7 +288,10 @@ describe('MigrationHandler', () => {
       } as unknown as NonNullable<HandlerDeps['services']>;
       const content = JSON.stringify([{ Name: 'Acme', Industry: 'Tech' }]);
       const readFile = vi.fn().mockResolvedValue(content);
-      handler.setFileReader({ readFile, statSize: vi.fn().mockResolvedValue(content.length) });
+      handler.setFileReader({
+        readFile,
+        statSize: vi.fn().mockResolvedValue(content.length),
+      });
       const filePath = path.join(os.homedir(), 'accounts.json');
 
       await handler.handle(createMsg('migration:import', { filePath }));

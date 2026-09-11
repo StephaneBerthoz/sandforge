@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { AutopilotHandler } from './AutopilotHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -8,6 +8,7 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -44,9 +45,12 @@ function createMockOrchestrator(
     buildGraph: vi.fn().mockReturnValue({ nodes: [], edges: [] }),
     buildCompliance: vi.fn().mockReturnValue({ profile: {}, rules: [] }),
     generatePlan: vi.fn().mockReturnValue({ steps: [] }),
-    executePlan: vi
-      .fn()
-      .mockResolvedValue({ totalSuccess: 10, totalFailure: 0, totalSkipped: 0, elapsedMs: 100 }),
+    executePlan: vi.fn().mockResolvedValue({
+      totalSuccess: 10,
+      totalFailure: 0,
+      totalSkipped: 0,
+      elapsedMs: 100,
+    }),
     generateReport: vi.fn().mockReturnValue({ score: 100, issues: [] }),
     pause: vi.fn(),
     resume: vi.fn(),
@@ -71,8 +75,8 @@ function deferred<T>(): {
 }
 
 /** Builds a valid autopilot:scan-schema request message. */
-function scanMsg(id: string): BaseMessage {
-  return {
+function scanMsg(id: string): InboundRequest {
+  return inboundRequest({
     id,
     type: 'autopilot:scan-schema',
     timestamp: Date.now(),
@@ -82,7 +86,7 @@ function scanMsg(id: string): BaseMessage {
       selectedObjects: [],
       includeStandardObjects: false,
     },
-  } as BaseMessage;
+  } as BaseMessage);
 }
 
 /** Extracts all messages posted to the webview. */
@@ -102,7 +106,11 @@ describe('AutopilotHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
@@ -113,14 +121,14 @@ describe('AutopilotHandler', () => {
 
     mockGetConn.mockResolvedValue({} as never);
 
-    const msg: BaseMessage & {
+    const msg: InboundRequest & {
       payload: {
         sourceOrgId: string;
         targetOrgId: string;
         selectedObjects: string[];
         includeStandardObjects: boolean;
       };
-    } = {
+    } = inboundRequest({
       id: 'req-ap-1',
       type: 'autopilot:scan-schema',
       timestamp: Date.now(),
@@ -130,7 +138,7 @@ describe('AutopilotHandler', () => {
         selectedObjects: [],
         includeStandardObjects: false,
       },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -138,7 +146,9 @@ describe('AutopilotHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+    };
     expect(response.type).toBe('autopilot:schema-result');
     expect(response.correlationId).toBe('req-ap-1');
   });
@@ -152,18 +162,20 @@ describe('AutopilotHandler', () => {
     await handler.handle(scanMsg('scan-1'));
 
     // Now generate plan
-    const msg: BaseMessage & { payload: { complianceFramework: string } } = {
+    const msg: InboundRequest & { payload: { complianceFramework: string } } = inboundRequest({
       id: 'req-ap-2',
       type: 'autopilot:generate-plan',
       timestamp: Date.now(),
       payload: { complianceFramework: 'gdpr' },
-    };
+    });
 
     await handler.handle(msg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     // First call was schema-result, second is plan-ready
-    const planResponse = postToWebview.mock.calls[1][0] as BaseMessage & { correlationId?: string };
+    const planResponse = postToWebview.mock.calls[1][0] as BaseMessage & {
+      correlationId?: string;
+    };
     expect(planResponse.type).toBe('autopilot:plan-ready');
     expect(planResponse.correlationId).toBe('req-ap-2');
   });
@@ -176,14 +188,14 @@ describe('AutopilotHandler', () => {
 
     mockGetConn.mockResolvedValue({} as never);
 
-    const msg: BaseMessage & {
+    const msg: InboundRequest & {
       payload: {
         sourceOrgId: string;
         targetOrgId: string;
         selectedObjects: string[];
         includeStandardObjects: boolean;
       };
-    } = {
+    } = inboundRequest({
       id: 'req-ap-err',
       type: 'autopilot:scan-schema',
       timestamp: Date.now(),
@@ -193,7 +205,7 @@ describe('AutopilotHandler', () => {
         selectedObjects: [],
         includeStandardObjects: false,
       },
-    };
+    });
 
     await handler.handle(msg);
 
@@ -217,14 +229,14 @@ describe('AutopilotHandler', () => {
 
   it('not-initialized error sends notification for scan-schema', async () => {
     // No orchestrator injected
-    const msg: BaseMessage & {
+    const msg: InboundRequest & {
       payload: {
         sourceOrgId: string;
         targetOrgId: string;
         selectedObjects: string[];
         includeStandardObjects: boolean;
       };
-    } = {
+    } = inboundRequest({
       id: 'req-ap-noinit',
       type: 'autopilot:scan-schema',
       timestamp: Date.now(),
@@ -234,7 +246,7 @@ describe('AutopilotHandler', () => {
         selectedObjects: [],
         includeStandardObjects: false,
       },
-    };
+    });
 
     await handler.handle(msg);
 
@@ -277,23 +289,27 @@ describe('AutopilotHandler', () => {
     mockGetConn.mockResolvedValue({} as never);
     await handler.handle(scanMsg('scan-exec'));
 
-    await handler.handle({
-      id: 'plan-exec',
-      type: 'autopilot:generate-plan',
-      timestamp: Date.now(),
-      payload: { complianceFramework: 'gdpr' },
-    } as BaseMessage);
+    await handler.handle(
+      inboundRequest({
+        id: 'plan-exec',
+        type: 'autopilot:generate-plan',
+        timestamp: Date.now(),
+        payload: { complianceFramework: 'gdpr' },
+      } as BaseMessage),
+    );
 
     const postToWebview = deps.broker.postToWebview as Mock<(message: BaseMessage) => void>;
     postToWebview.mockClear();
 
     // Execute
-    const executeMsg: BaseMessage & { payload: { grappeThreshold: number } } = {
+    const executeMsg: InboundRequest & {
+      payload: { grappeThreshold: number };
+    } = inboundRequest({
       id: 'req-ap-exec',
       type: 'autopilot:execute',
       timestamp: Date.now(),
       payload: { grappeThreshold: 0 },
-    };
+    });
 
     await handler.handle(executeMsg);
 
@@ -339,7 +355,7 @@ describe('AutopilotHandler', () => {
       const orchestrator = createMockOrchestrator();
       handler.setOrchestrator(orchestrator);
 
-      const msg = {
+      const msg = inboundRequest({
         id: 'req-bad-scan',
         type: 'autopilot:scan-schema',
         timestamp: Date.now(),
@@ -349,7 +365,7 @@ describe('AutopilotHandler', () => {
           selectedObjects: 'Account',
           includeStandardObjects: false,
         },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -374,12 +390,14 @@ describe('AutopilotHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       postToWebview.mockClear();
 
-      await handler.handle({
-        id: 'req-bad-plan',
-        type: 'autopilot:generate-plan',
-        timestamp: Date.now(),
-        payload: { complianceFramework: 'sox' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'req-bad-plan',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'sox' },
+        } as BaseMessage),
+      );
 
       expect(postToWebview).toHaveBeenCalledTimes(1);
       const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
@@ -395,22 +413,26 @@ describe('AutopilotHandler', () => {
       handler.setOrchestrator(orchestrator);
       mockGetConn.mockResolvedValue({} as never);
       await handler.handle(scanMsg('scan-val-exec'));
-      await handler.handle({
-        id: 'plan-val-exec',
-        type: 'autopilot:generate-plan',
-        timestamp: Date.now(),
-        payload: { complianceFramework: 'gdpr' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'plan-val-exec',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'gdpr' },
+        } as BaseMessage),
+      );
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       postToWebview.mockClear();
 
-      await handler.handle({
-        id: 'req-bad-exec',
-        type: 'autopilot:execute',
-        timestamp: Date.now(),
-        payload: { grappeThreshold: -1 },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'req-bad-exec',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: -1 },
+        } as BaseMessage),
+      );
 
       expect(postToWebview).toHaveBeenCalledTimes(1);
       const errMsg = postToWebview.mock.calls[0][0] as BaseMessage & {
@@ -425,12 +447,14 @@ describe('AutopilotHandler', () => {
       const orchestrator = createMockOrchestrator();
       handler.setOrchestrator(orchestrator);
 
-      await handler.handle({
-        id: 'req-bad-skip',
-        type: 'autopilot:skip-node',
-        timestamp: Date.now(),
-        payload: {},
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'req-bad-skip',
+          type: 'autopilot:skip-node',
+          timestamp: Date.now(),
+          payload: {},
+        } as BaseMessage),
+      );
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       expect(postToWebview).toHaveBeenCalledTimes(1);
@@ -445,8 +469,14 @@ describe('AutopilotHandler', () => {
 
   describe('concurrency', () => {
     it('keeps concurrent scans isolated: each response carries its own graph', async () => {
-      const scanA = { recordCounts: new Map([['Account', 5]]), totalObjectsScanned: 1 };
-      const scanB = { recordCounts: new Map([['Contact', 99]]), totalObjectsScanned: 1 };
+      const scanA = {
+        recordCounts: new Map([['Account', 5]]),
+        totalObjectsScanned: 1,
+      };
+      const scanB = {
+        recordCounts: new Map([['Contact', 99]]),
+        totalObjectsScanned: 1,
+      };
       const graphA = { nodes: ['graph-A'], edges: [] };
       const graphB = { nodes: ['graph-B'], edges: [] };
       const dA = deferred<typeof scanA>();
@@ -484,8 +514,14 @@ describe('AutopilotHandler', () => {
     });
 
     it('does not let a concurrent scan clobber an in-flight execution', async () => {
-      const scan1 = { recordCounts: new Map([['Account', 5]]), totalObjectsScanned: 1 };
-      const scan2 = { recordCounts: new Map([['Contact', 99]]), totalObjectsScanned: 1 };
+      const scan1 = {
+        recordCounts: new Map([['Account', 5]]),
+        totalObjectsScanned: 1,
+      };
+      const scan2 = {
+        recordCounts: new Map([['Contact', 99]]),
+        totalObjectsScanned: 1,
+      };
       const plan = {
         waves: [{ order: 0, objects: ['Account'], dependsOn: [] }],
         totalRecords: 5,
@@ -517,19 +553,23 @@ describe('AutopilotHandler', () => {
       mockGetConn.mockResolvedValue({} as never);
 
       await handler.handle(scanMsg('scan-1'));
-      await handler.handle({
-        id: 'plan-1',
-        type: 'autopilot:generate-plan',
-        timestamp: Date.now(),
-        payload: { complianceFramework: 'gdpr' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'plan-1',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'gdpr' },
+        } as BaseMessage),
+      );
 
-      const execPromise = handler.handle({
-        id: 'exec-1',
-        type: 'autopilot:execute',
-        timestamp: Date.now(),
-        payload: { grappeThreshold: 0 },
-      } as BaseMessage);
+      const execPromise = handler.handle(
+        inboundRequest({
+          id: 'exec-1',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: 0 },
+        } as BaseMessage),
+      );
 
       // While the execution is in flight, a new scan arrives and completes.
       await handler.handle(scanMsg('scan-2'));
@@ -550,7 +590,11 @@ describe('AutopilotHandler', () => {
         (m) =>
           m.type === 'autopilot:node-progress' &&
           (m as BaseMessage & { payload: { status?: string } }).payload.status === 'completed',
-      ) as (BaseMessage & { payload: { objectName: string; recordCount?: number } }) | undefined;
+      ) as
+        | (BaseMessage & {
+            payload: { objectName: string; recordCount?: number };
+          })
+        | undefined;
       expect(completedNode).toBeDefined();
       expect(completedNode?.payload.objectName).toBe('Account');
       // Record count must come from the execution's own scan (5), not scan-2 (99).
@@ -562,7 +606,10 @@ describe('AutopilotHandler', () => {
       const orchestrator = createMockOrchestrator({
         scanSchemas: vi
           .fn()
-          .mockResolvedValueOnce({ recordCounts: new Map(), totalObjectsScanned: 1 })
+          .mockResolvedValueOnce({
+            recordCounts: new Map(),
+            totalObjectsScanned: 1,
+          })
           .mockRejectedValueOnce(new Error('boom')),
         buildGraph: vi.fn().mockReturnValue(graph1),
       });
@@ -575,12 +622,14 @@ describe('AutopilotHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       postToWebview.mockClear();
 
-      await handler.handle({
-        id: 'plan-after-failed-scan',
-        type: 'autopilot:generate-plan',
-        timestamp: Date.now(),
-        payload: { complianceFramework: 'gdpr' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'plan-after-failed-scan',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'gdpr' },
+        } as BaseMessage),
+      );
 
       const planReady = (postToWebview.mock.calls[0][0] ?? {}) as BaseMessage & {
         payload: { graph: unknown };
@@ -593,14 +642,28 @@ describe('AutopilotHandler', () => {
       const orchestrator = createMockOrchestrator();
       handler.setOrchestrator(orchestrator);
 
-      await handler.handle({ id: 'p1', type: 'autopilot:pause', timestamp: Date.now() });
-      await handler.handle({ id: 'r1', type: 'autopilot:resume', timestamp: Date.now() });
-      await handler.handle({
-        id: 's1',
-        type: 'autopilot:skip-node',
-        timestamp: Date.now(),
-        payload: { objectApiName: 'Account' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'p1',
+          type: 'autopilot:pause',
+          timestamp: Date.now(),
+        }),
+      );
+      await handler.handle(
+        inboundRequest({
+          id: 'r1',
+          type: 'autopilot:resume',
+          timestamp: Date.now(),
+        }),
+      );
+      await handler.handle(
+        inboundRequest({
+          id: 's1',
+          type: 'autopilot:skip-node',
+          timestamp: Date.now(),
+          payload: { objectApiName: 'Account' },
+        } as BaseMessage),
+      );
 
       expect(orchestrator.pause).not.toHaveBeenCalled();
       expect(orchestrator.resume).not.toHaveBeenCalled();
@@ -639,28 +702,46 @@ describe('AutopilotHandler', () => {
       mockGetConn.mockResolvedValue({} as never);
 
       await handler.handle(scanMsg('scan-ctl'));
-      await handler.handle({
-        id: 'plan-ctl',
-        type: 'autopilot:generate-plan',
-        timestamp: Date.now(),
-        payload: { complianceFramework: 'gdpr' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'plan-ctl',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'gdpr' },
+        } as BaseMessage),
+      );
 
-      const execPromise = handler.handle({
-        id: 'exec-ctl',
-        type: 'autopilot:execute',
-        timestamp: Date.now(),
-        payload: { grappeThreshold: 0 },
-      } as BaseMessage);
+      const execPromise = handler.handle(
+        inboundRequest({
+          id: 'exec-ctl',
+          type: 'autopilot:execute',
+          timestamp: Date.now(),
+          payload: { grappeThreshold: 0 },
+        } as BaseMessage),
+      );
 
-      await handler.handle({ id: 'p2', type: 'autopilot:pause', timestamp: Date.now() });
-      await handler.handle({ id: 'r2', type: 'autopilot:resume', timestamp: Date.now() });
-      await handler.handle({
-        id: 's2',
-        type: 'autopilot:skip-node',
-        timestamp: Date.now(),
-        payload: { objectApiName: 'Contact' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'p2',
+          type: 'autopilot:pause',
+          timestamp: Date.now(),
+        }),
+      );
+      await handler.handle(
+        inboundRequest({
+          id: 'r2',
+          type: 'autopilot:resume',
+          timestamp: Date.now(),
+        }),
+      );
+      await handler.handle(
+        inboundRequest({
+          id: 's2',
+          type: 'autopilot:skip-node',
+          timestamp: Date.now(),
+          payload: { objectApiName: 'Contact' },
+        } as BaseMessage),
+      );
 
       expect(orchestrator.pause).toHaveBeenCalledTimes(1);
       expect(orchestrator.resume).toHaveBeenCalledTimes(1);
@@ -678,7 +759,13 @@ describe('AutopilotHandler', () => {
       await execPromise;
 
       // Once the execution is over, control messages no longer target it.
-      await handler.handle({ id: 'p3', type: 'autopilot:pause', timestamp: Date.now() });
+      await handler.handle(
+        inboundRequest({
+          id: 'p3',
+          type: 'autopilot:pause',
+          timestamp: Date.now(),
+        }),
+      );
       expect(orchestrator.pause).toHaveBeenCalledTimes(1);
     });
   });
@@ -725,23 +812,25 @@ describe('AutopilotHandler', () => {
       handler.setOrchestrator(orchestrator);
       mockGetConn.mockResolvedValue({} as never);
       await handler.handle(scanMsg('scan-guard'));
-      await handler.handle({
-        id: 'plan-guard',
-        type: 'autopilot:generate-plan',
-        timestamp: Date.now(),
-        payload: { complianceFramework: 'gdpr' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'plan-guard',
+          type: 'autopilot:generate-plan',
+          timestamp: Date.now(),
+          payload: { complianceFramework: 'gdpr' },
+        } as BaseMessage),
+      );
       const postToWebview = deps.broker.postToWebview as Mock<(message: BaseMessage) => void>;
       postToWebview.mockClear();
     }
 
-    function executeMsg(): BaseMessage {
-      return {
+    function executeMsg(): InboundRequest {
+      return inboundRequest({
         id: 'exec-guard',
         type: 'autopilot:execute',
         timestamp: Date.now(),
         payload: { grappeThreshold: 0 },
-      } as BaseMessage;
+      } as BaseMessage);
     }
 
     function mockTargetOrgType(orgType: string): void {
@@ -749,7 +838,11 @@ describe('AutopilotHandler', () => {
     }
 
     it('asks for production confirmation before executing on a production target', async () => {
-      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: true });
+      const guard = wireGuard({
+        allowed: true,
+        requiresConfirmation: true,
+        confirmed: true,
+      });
       mockTargetOrgType('Production');
       const orchestrator = createMockOrchestrator({
         generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),
@@ -797,7 +890,11 @@ describe('AutopilotHandler', () => {
     });
 
     it('cancels the execution when the user declines the production confirmation', async () => {
-      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: false });
+      const guard = wireGuard({
+        allowed: true,
+        requiresConfirmation: true,
+        confirmed: false,
+      });
       mockTargetOrgType('Production');
       const orchestrator = createMockOrchestrator({
         generatePlan: vi.fn().mockReturnValue(GUARD_PLAN),

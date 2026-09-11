@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MonitorOpsHandler } from './MonitorOpsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /**
  * Hoisted mocks -- available before module evaluation.
@@ -77,17 +78,21 @@ describe('MonitorOpsHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
 
   it('handles monitor:live-operations and response includes correlationId', async () => {
-    const msg: BaseMessage = {
+    const msg: InboundRequest = inboundRequest({
       id: 'req-mon-2',
       type: 'monitor:live-operations',
       timestamp: Date.now(),
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -110,12 +115,12 @@ describe('MonitorOpsHandler', () => {
     // error channel, correlated to the request — not on the :response channel,
     // where the webview reads the success shape and silently renders an empty
     // state instead of the failure.
-    const msg: BaseMessage & { payload: { orgId: string } } = {
+    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
       id: 'req-health-1',
       type: 'monitor:health-score',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -128,12 +133,12 @@ describe('MonitorOpsHandler', () => {
   });
 
   it('reports monitor:storage failure on monitor:error, correlated', async () => {
-    const msg: BaseMessage & { payload: { orgId: string } } = {
+    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
       id: 'req-storage-1',
       type: 'monitor:storage',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -146,12 +151,12 @@ describe('MonitorOpsHandler', () => {
   });
 
   it('reports monitor:deployments failure on monitor:error, correlated', async () => {
-    const msg: BaseMessage & { payload: { orgId: string } } = {
+    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
       id: 'req-deploy-1',
       type: 'monitor:deployments',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -164,12 +169,12 @@ describe('MonitorOpsHandler', () => {
   });
 
   it('reports monitor:api-usage failure on monitor:error, correlated', async () => {
-    const msg: BaseMessage & { payload: { orgId: string } } = {
+    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
       id: 'req-api-1',
       type: 'monitor:api-usage',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -184,12 +189,12 @@ describe('MonitorOpsHandler', () => {
   it('handles monitor:refresh error path with typed error response', async () => {
     mockGetJsforceConnection.mockRejectedValue(new Error('connection failed'));
 
-    const msg: BaseMessage & { payload: { orgId: string } } = {
+    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
       id: 'req-mon-3',
       type: 'monitor:refresh',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
-    };
+    });
 
     await handler.handle(msg);
 
@@ -212,12 +217,12 @@ describe('MonitorOpsHandler', () => {
       // 30 s bridge timeout so the user gets a real error message.
       mockGetJsforceConnection.mockReturnValue(new Promise(() => {}));
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-mon-timeout',
         type: 'monitor:refresh',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      };
+      });
 
       const handlePromise = handler.handle(msg);
       await vi.advanceTimersByTimeAsync(25_000);
@@ -259,19 +264,19 @@ describe('MonitorOpsHandler', () => {
       const localDeps = createMockDeps();
       const localHandler = new MonitorOpsHandler(localDeps);
 
-      const healthMsg: BaseMessage & { payload: { orgId: string } } = {
+      const healthMsg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'cache-1',
         type: 'monitor:health-score',
         timestamp: Date.now(),
         payload: { orgId: 'org-cache' },
-      };
+      });
 
-      const apiMsg: BaseMessage & { payload: { orgId: string } } = {
+      const apiMsg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'cache-2',
         type: 'monitor:api-usage',
         timestamp: Date.now(),
         payload: { orgId: 'org-cache' },
-      };
+      });
 
       await localHandler.handle(healthMsg);
       await localHandler.handle(apiMsg);
@@ -301,12 +306,12 @@ describe('MonitorOpsHandler', () => {
     });
 
     it('api-usage response includes DailyWorkflowEmails, SingleEmail, and HourlyPublishedPlatformEvents', async () => {
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-limits-new',
         type: 'monitor:api-usage',
         timestamp: Date.now(),
         payload: { orgId: 'org-limits' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -326,12 +331,12 @@ describe('MonitorOpsHandler', () => {
     });
 
     it('api-usage response has 16 categories total', async () => {
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-limits-count',
         type: 'monitor:api-usage',
         timestamp: Date.now(),
         payload: { orgId: 'org-limits' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -372,12 +377,12 @@ describe('MonitorOpsHandler', () => {
         },
       ]);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-err-1',
         type: 'monitor:error-logs',
         timestamp: Date.now(),
         payload: { orgId: 'org-err' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -405,12 +410,12 @@ describe('MonitorOpsHandler', () => {
     it('handles monitor:error-logs error and sends handler error', async () => {
       mockGetJsforceConnection.mockRejectedValue(new Error('auth failed'));
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-err-2',
         type: 'monitor:error-logs',
         timestamp: Date.now(),
         payload: { orgId: 'org-err' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -465,12 +470,12 @@ describe('MonitorOpsHandler', () => {
         },
       ]);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-sess-1',
         type: 'monitor:sessions',
         timestamp: Date.now(),
         payload: { orgId: 'org-sess' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -478,7 +483,11 @@ describe('MonitorOpsHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
         correlationId?: string;
-        payload: { success: boolean; sessions: unknown[]; activeUserCount: number };
+        payload: {
+          success: boolean;
+          sessions: unknown[];
+          activeUserCount: number;
+        };
       };
       expect(response.type).toBe('monitor:sessions:response');
       expect(response.correlationId).toBe('req-sess-1');
@@ -517,12 +526,12 @@ describe('MonitorOpsHandler', () => {
         },
       ]);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-apex-1',
         type: 'monitor:apex-insights',
         timestamp: Date.now(),
         payload: { orgId: 'org-apex' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -530,7 +539,11 @@ describe('MonitorOpsHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
         correlationId?: string;
-        payload: { success: boolean; analyses: unknown[]; topIssues: unknown[] };
+        payload: {
+          success: boolean;
+          analyses: unknown[];
+          topIssues: unknown[];
+        };
       };
       expect(response.type).toBe('monitor:apex-insights:response');
       expect(response.correlationId).toBe('req-apex-1');
@@ -565,12 +578,12 @@ describe('MonitorOpsHandler', () => {
         },
       ]);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-sbx-1',
         type: 'monitor:sandbox-refresh',
         timestamp: Date.now(),
         payload: { orgId: 'org-sbx' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -578,7 +591,11 @@ describe('MonitorOpsHandler', () => {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
         correlationId?: string;
-        payload: { success: boolean; refreshes: unknown[]; inProgress: boolean };
+        payload: {
+          success: boolean;
+          refreshes: unknown[];
+          inProgress: boolean;
+        };
       };
       expect(response.type).toBe('monitor:sandbox-refresh:response');
       expect(response.correlationId).toBe('req-sbx-1');
@@ -605,12 +622,12 @@ describe('MonitorOpsHandler', () => {
         'monitor:sandbox-refresh',
       ];
       for (const type of newTypes) {
-        const msg: BaseMessage & { payload: { orgId: string } } = {
+        const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
           id: `check-${type}`,
           type,
           timestamp: Date.now(),
           payload: { orgId: 'org-check' },
-        };
+        });
         const result = await handler.handle(msg);
         expect(result).toBe(true);
       }
@@ -621,9 +638,10 @@ describe('MonitorOpsHandler', () => {
     it('handleRefresh includes orgHealthStatus in response', async () => {
       const fakeConn = {
         request: vi.fn().mockResolvedValue(FAKE_LIMITS),
-        identity: vi
-          .fn()
-          .mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+        identity: vi.fn().mockResolvedValue({
+          instance_name: 'NA99',
+          last_login_date: '2026-03-20T00:00:00Z',
+        }),
         query: vi.fn().mockResolvedValue({
           totalSize: 10,
           done: true,
@@ -658,12 +676,12 @@ describe('MonitorOpsHandler', () => {
         metadata: { edition: 'Developer Edition' },
       });
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-refresh-health',
         type: 'monitor:refresh',
         timestamp: Date.now(),
         payload: { orgId: 'org-health' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -737,19 +755,19 @@ describe('MonitorOpsHandler', () => {
 
       const localHandler = new MonitorOpsHandler(localDeps);
 
-      const refreshMsg1: BaseMessage & { payload: { orgId: string } } = {
+      const refreshMsg1: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'refresh-1',
         type: 'monitor:refresh',
         timestamp: Date.now(),
         payload: { orgId: 'org-info-test' },
-      };
+      });
 
-      const refreshMsg2: BaseMessage & { payload: { orgId: string } } = {
+      const refreshMsg2: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'refresh-2',
         type: 'monitor:refresh',
         timestamp: Date.now(),
         payload: { orgId: 'org-info-test' },
-      };
+      });
 
       await localHandler.handle(refreshMsg1);
       await localHandler.handle(refreshMsg2);
@@ -784,9 +802,10 @@ describe('MonitorOpsHandler', () => {
       };
       const fakeConn = {
         request: vi.fn().mockResolvedValue(highUsageLimits),
-        identity: vi
-          .fn()
-          .mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+        identity: vi.fn().mockResolvedValue({
+          instance_name: 'NA99',
+          last_login_date: '2026-03-20T00:00:00Z',
+        }),
         query: vi.fn().mockResolvedValue({
           totalSize: 10,
           done: true,
@@ -812,12 +831,12 @@ describe('MonitorOpsHandler', () => {
         metadata: { edition: 'Developer Edition' },
       });
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-alert-refresh',
         type: 'monitor:refresh',
         timestamp: Date.now(),
         payload: { orgId: 'org-alert' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -832,11 +851,11 @@ describe('MonitorOpsHandler', () => {
 
   describe('ALERT-02: monitor:alerts handler', () => {
     it('handles monitor:alerts and returns alerts:result with alerts and history', async () => {
-      const msg: BaseMessage = {
+      const msg: InboundRequest = inboundRequest({
         id: 'req-alerts-1',
         type: 'monitor:alerts',
         timestamp: Date.now(),
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -859,12 +878,12 @@ describe('MonitorOpsHandler', () => {
 
   describe('ALERT-03: monitor:alert:acknowledge handler', () => {
     it('handles monitor:alert:acknowledge and responds with success', async () => {
-      const msg: BaseMessage & { payload: { alertId: string } } = {
+      const msg: InboundRequest & { payload: { alertId: string } } = inboundRequest({
         id: 'req-ack-1',
         type: 'monitor:alert:acknowledge',
         timestamp: Date.now(),
         payload: { alertId: 'alert-1' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -875,19 +894,21 @@ describe('MonitorOpsHandler', () => {
       );
       expect(calls).toHaveLength(1);
 
-      const response = calls[0][0] as BaseMessage & { payload: { success: boolean } };
+      const response = calls[0][0] as BaseMessage & {
+        payload: { success: boolean };
+      };
       expect(response.payload.success).toBe(true);
     });
   });
 
   describe('ALERT-04: monitor:alert:dismiss handler', () => {
     it('handles monitor:alert:dismiss and responds with success', async () => {
-      const msg: BaseMessage & { payload: { alertId: string } } = {
+      const msg: InboundRequest & { payload: { alertId: string } } = inboundRequest({
         id: 'req-dismiss-1',
         type: 'monitor:alert:dismiss',
         timestamp: Date.now(),
         payload: { alertId: 'alert-1' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -898,7 +919,9 @@ describe('MonitorOpsHandler', () => {
       );
       expect(calls).toHaveLength(1);
 
-      const response = calls[0][0] as BaseMessage & { payload: { success: boolean } };
+      const response = calls[0][0] as BaseMessage & {
+        payload: { success: boolean };
+      };
       expect(response.payload.success).toBe(true);
     });
   });
@@ -907,12 +930,12 @@ describe('MonitorOpsHandler', () => {
     it('handles all three alert message types', async () => {
       const alertTypes = ['monitor:alerts', 'monitor:alert:acknowledge', 'monitor:alert:dismiss'];
       for (const type of alertTypes) {
-        const msg: BaseMessage & { payload: { alertId?: string } } = {
+        const msg: InboundRequest & { payload: { alertId?: string } } = inboundRequest({
           id: `check-${type}`,
           type,
           timestamp: Date.now(),
           payload: { alertId: 'alert-1' },
-        };
+        });
         const result = await handler.handle(msg);
         expect(result).toBe(true);
       }
@@ -921,12 +944,12 @@ describe('MonitorOpsHandler', () => {
 
   describe('payload validation', () => {
     it('rejects monitor:abort-job with a malformed jobId', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-job',
         type: 'monitor:abort-job',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', jobId: 'not a job id' },
-      } as unknown as import('@sandforge/shared').BaseMessage;
+      } as unknown as import('@sandforge/shared').BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -941,18 +964,20 @@ describe('MonitorOpsHandler', () => {
     });
 
     it('rejects monitor:refresh without orgId', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-refresh',
         type: 'monitor:refresh',
         timestamp: Date.now(),
         payload: {},
-      } as unknown as import('@sandforge/shared').BaseMessage;
+      } as unknown as import('@sandforge/shared').BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        payload: { code: string };
+      };
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
   });
@@ -986,7 +1011,11 @@ describe('MonitorOpsHandler', () => {
     function createFakeConn(): { query: ReturnType<typeof vi.fn> } & Record<string, unknown> {
       const query = vi.fn((soql: string) => {
         if (soql.includes('FROM AsyncApexJob')) {
-          return Promise.resolve({ done: true, totalSize: 1, records: [JOB_ROW] });
+          return Promise.resolve({
+            done: true,
+            totalSize: 1,
+            records: [JOB_ROW],
+          });
         }
         if (soql.includes('FROM Organization')) {
           return Promise.resolve({
@@ -1008,9 +1037,10 @@ describe('MonitorOpsHandler', () => {
       return {
         query,
         request: vi.fn().mockResolvedValue(FAKE_LIMITS),
-        identity: vi
-          .fn()
-          .mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+        identity: vi.fn().mockResolvedValue({
+          instance_name: 'NA99',
+          last_login_date: '2026-03-20T00:00:00Z',
+        }),
         version: '62.0',
         limitInfo: { apiUsage: { used: 100, limit: 15000 } },
       };
@@ -1035,12 +1065,14 @@ describe('MonitorOpsHandler', () => {
       });
       const localHandler = new MonitorOpsHandler(localDeps);
 
-      await localHandler.handle({
-        id: 'perf-07',
-        type: 'monitor:refresh',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-perf-07' },
-      } as BaseMessage);
+      await localHandler.handle(
+        inboundRequest({
+          id: 'perf-07',
+          type: 'monitor:refresh',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-perf-07' },
+        } as BaseMessage),
+      );
 
       const jobQueries = fakeConn.query.mock.calls.filter((c: unknown[]) =>
         String(c[0]).includes('FROM AsyncApexJob'),
@@ -1061,18 +1093,22 @@ describe('MonitorOpsHandler', () => {
       });
       const localHandler = new MonitorOpsHandler(localDeps);
 
-      await localHandler.handle({
-        id: 'perf-07-signal',
-        type: 'monitor:refresh',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-perf-07-signal' },
-      } as BaseMessage);
+      await localHandler.handle(
+        inboundRequest({
+          id: 'perf-07-signal',
+          type: 'monitor:refresh',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-perf-07-signal' },
+        } as BaseMessage),
+      );
 
       const postToWebview = localDeps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const data = postToWebview.mock.calls
         .map(
           (c: unknown[]) =>
-            c[0] as BaseMessage & { payload: { orgHealthStatus?: { activeJobs: number } } },
+            c[0] as BaseMessage & {
+              payload: { orgHealthStatus?: { activeJobs: number } };
+            },
         )
         .find((m) => m.type === 'monitor:data');
       expect(data).toBeDefined();
@@ -1099,9 +1135,10 @@ describe('MonitorOpsHandler', () => {
       try {
         const fakeConn = {
           request: vi.fn().mockResolvedValue(FAKE_LIMITS),
-          identity: vi
-            .fn()
-            .mockResolvedValue({ instance_name: 'NA99', last_login_date: '2026-03-20T00:00:00Z' }),
+          identity: vi.fn().mockResolvedValue({
+            instance_name: 'NA99',
+            last_login_date: '2026-03-20T00:00:00Z',
+          }),
           query: vi.fn().mockResolvedValue({ done: true, totalSize: 0, records: [] }),
           version: '62.0',
           limitInfo: { apiUsage: { used: 100, limit: 15000 } },
@@ -1127,12 +1164,14 @@ describe('MonitorOpsHandler', () => {
         });
         const localHandler = new MonitorOpsHandler(localDeps);
 
-        const handlePromise = localHandler.handle({
-          id: 'req-ext-09',
-          type: 'monitor:refresh',
-          timestamp: Date.now(),
-          payload: { orgId: 'org-ext-09' },
-        } as BaseMessage);
+        const handlePromise = localHandler.handle(
+          inboundRequest({
+            id: 'req-ext-09',
+            type: 'monitor:refresh',
+            timestamp: Date.now(),
+            payload: { orgId: 'org-ext-09' },
+          } as BaseMessage),
+        );
 
         await vi.advanceTimersByTimeAsync(MONITOR_REFRESH_BOUND_MS);
         await handlePromise;
@@ -1156,6 +1195,546 @@ describe('MonitorOpsHandler', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  /* ------------------------------------------------------------------ */
+  /* Job insights — the producer behind the critical-alert band          */
+  /* ------------------------------------------------------------------ */
+
+  describe('monitor:data job insights', () => {
+    /** One AsyncApexJob row, as the monitor refresh's SOQL reads it. */
+    interface JobRow {
+      Id: string;
+      JobType: string;
+      Status: string;
+      NumberOfErrors: number;
+      JobItemsProcessed: number;
+      TotalJobItems: number | null;
+      CreatedDate: string;
+      CreatedById: string;
+    }
+
+    interface Insight {
+      type: string;
+      severity: string;
+      title: string;
+      detail: string;
+      affectedJobs: string[];
+      recommendation: string;
+    }
+
+    interface RefreshPayload {
+      jobInsights?: Insight[];
+      jobs: Array<Record<string, unknown>>;
+    }
+
+    /** Fixed origin for every scenario, so each minute offset is exact. */
+    const T0 = Date.parse('2026-09-01T08:00:00Z');
+
+    /** ISO timestamp `minutes` after {@link T0} (negative: before it). */
+    function at(minutes: number): string {
+      return new Date(T0 + minutes * 60_000).toISOString();
+    }
+
+    function jobRow(over: Partial<JobRow> = {}): JobRow {
+      return {
+        Id: '707x00000000000',
+        JobType: 'BatchApex',
+        Status: 'Completed',
+        NumberOfErrors: 0,
+        JobItemsProcessed: 0,
+        TotalJobItems: 0,
+        CreatedDate: at(0),
+        CreatedById: '005x00000000001',
+        ...over,
+      };
+    }
+
+    const stuckIds = (payload: RefreshPayload): string[] =>
+      (payload.jobInsights ?? []).filter((i) => i.type === 'stuck').map((i) => i.affectedJobs[0]);
+
+    const critical = (payload: RefreshPayload): Insight[] =>
+      (payload.jobInsights ?? []).filter((i) => i.severity === 'critical');
+
+    const unfinished = (payload: RefreshPayload): Insight | undefined =>
+      (payload.jobInsights ?? []).find((i) => i.type === 'long_running');
+
+    /**
+     * One handler watching one org across several refreshes, the way the
+     * Monitor page's refresh button and auto-refresh drive it. Only `Date` is
+     * faked, so each refresh happens at the minute the scenario names while
+     * the refresh bound's real timer is left alone. Every SOQL goes through
+     * the connection, the level the shared job-query reuse acts on.
+     */
+    function watchOrg(): {
+      refreshAt: (minute: number, rows: JobRow[]) => Promise<RefreshPayload>;
+      jobSoql: () => string[];
+    } {
+      let rows: JobRow[] = [];
+      const query = vi.fn((soql: string) => {
+        if (soql.includes('FROM AsyncApexJob')) {
+          return Promise.resolve({ done: true, totalSize: rows.length, records: rows });
+        }
+        if (soql.includes('FROM Organization')) {
+          return Promise.resolve({
+            done: true,
+            totalSize: 1,
+            records: [
+              {
+                Name: 'TestOrg',
+                Id: '00Dtest',
+                OrganizationType: 'Developer Edition',
+                NamespacePrefix: null,
+                CreatedDate: '2026-01-01',
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ done: true, totalSize: 0, records: [] });
+      });
+      mockGetJsforceConnection.mockResolvedValue({
+        query,
+        request: vi.fn().mockResolvedValue(FAKE_LIMITS),
+        identity: vi.fn().mockResolvedValue({
+          instance_name: 'NA99',
+          last_login_date: '2026-03-20T00:00:00Z',
+        }),
+        version: '62.0',
+        limitInfo: { apiUsage: { used: 100, limit: 15000 } },
+      });
+      mockQueryAll.mockImplementation(
+        async (conn: { query: (soql: string) => Promise<unknown> }, soql: string) => {
+          const result = (await conn.query(soql)) as { records: unknown[] };
+          return result.records;
+        },
+      );
+
+      const localDeps = createMockDeps();
+      (localDeps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        alias: 'TestOrg',
+        orgType: 'Developer',
+        metadata: { edition: 'Developer Edition' },
+      });
+      const localHandler = new MonitorOpsHandler(localDeps);
+      const postToWebview = localDeps.broker.postToWebview as ReturnType<typeof vi.fn>;
+      const dataReplies = (): RefreshPayload[] =>
+        postToWebview.mock.calls
+          .map((c: unknown[]) => c[0] as BaseMessage & { payload: RefreshPayload })
+          .filter((m) => m.type === 'monitor:data')
+          .map((m) => m.payload);
+      let tick = 0;
+
+      return {
+        async refreshAt(minute, nextRows) {
+          rows = nextRows;
+          vi.setSystemTime(T0 + minute * 60_000);
+          const before = dataReplies().length;
+          tick += 1;
+          await localHandler.handle(
+            inboundRequest({
+              id: `req-insights-${tick}`,
+              type: 'monitor:refresh',
+              timestamp: Date.now(),
+              payload: { orgId: 'org-insights' },
+            } as BaseMessage),
+          );
+          const replies = dataReplies();
+          expect(replies).toHaveLength(before + 1);
+          return replies[replies.length - 1];
+        },
+        jobSoql: () =>
+          query.mock.calls
+            .map((c: unknown[]) => String(c[0]))
+            .filter((soql) => soql.includes('FROM AsyncApexJob')),
+      };
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(T0);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /**
+     * An absent field and an empty array read the same in the webview only if
+     * the producer never emits one of them. It always emits the array: `[]` is
+     * the scan's verdict, `undefined` would mean nobody scanned.
+     */
+    it('emits an insights array even when the org ran no jobs at all', async () => {
+      const payload = await watchOrg().refreshAt(0, []);
+
+      expect(payload.jobs).toHaveLength(0);
+      expect(payload.jobInsights).toBeInstanceOf(Array);
+      expect(payload.jobInsights).toHaveLength(0);
+    });
+
+    /** Healthy jobs earn silence — but a silence that was computed. */
+    it('says nothing about a window of healthy jobs', async () => {
+      const payload = await watchOrg().refreshAt(0, [
+        jobRow({ Id: '707x1', Status: 'Completed', CreatedDate: at(-90) }),
+        jobRow({ Id: '707x2', Status: 'Completed', CreatedDate: at(-40) }),
+        // In flight for 5 minutes, first sighting: nothing to say yet.
+        jobRow({
+          Id: '707x3',
+          Status: 'Processing',
+          JobItemsProcessed: 2,
+          TotalJobItems: 10,
+          CreatedDate: at(-5),
+        }),
+        // One isolated failure is an incident, not a pattern.
+        jobRow({ Id: '707x4', Status: 'Failed', NumberOfErrors: 1, CreatedDate: at(-20) }),
+      ]);
+
+      expect(payload.jobs).toHaveLength(4);
+      expect(payload.jobInsights).toEqual([]);
+      // The batch counters feed the insights only: the jobs contract the page
+      // reads keeps its shape.
+      expect(Object.keys(payload.jobs[0]).sort()).toEqual([
+        'createdBy',
+        'createdDate',
+        'failedRecords',
+        'id',
+        'jobType',
+        'status',
+      ]);
+    });
+
+    /**
+     * Under the repeat threshold nothing fires. Paired with the test below,
+     * this is what makes the threshold load-bearing: neutralise it (drop it to
+     * 1, or count any failure) and this test goes red.
+     */
+    it('stays silent at two failures of the same job type', async () => {
+      const payload = await watchOrg().refreshAt(0, [
+        jobRow({ Id: '707x1', JobType: 'BatchApex', Status: 'Failed', NumberOfErrors: 2 }),
+        jobRow({ Id: '707x2', JobType: 'BatchApex', Status: 'Failed', NumberOfErrors: 1 }),
+        jobRow({ Id: '707x3', JobType: 'Queueable', Status: 'Failed', NumberOfErrors: 1 }),
+      ]);
+
+      expect(payload.jobInsights).toEqual([]);
+    });
+
+    /** Three failures of one job type is a pattern, not bad luck. */
+    it('flags three failures of the same job type as a repeated failure', async () => {
+      const payload = await watchOrg().refreshAt(0, [
+        jobRow({ Id: '707x1', JobType: 'BatchApex', Status: 'Failed', NumberOfErrors: 4 }),
+        jobRow({ Id: '707x2', JobType: 'BatchApex', Status: 'Failed', NumberOfErrors: 2 }),
+        // Completed, but with failed batch executions inside: still a failure.
+        jobRow({ Id: '707x3', JobType: 'BatchApex', Status: 'Completed', NumberOfErrors: 7 }),
+        jobRow({ Id: '707x4', JobType: 'Queueable', Status: 'Completed', NumberOfErrors: 0 }),
+      ]);
+
+      const repeated = payload.jobInsights?.find((i) => i.type === 'frequent_failures');
+      expect(repeated).toBeDefined();
+      expect(repeated!.severity).toBe('critical');
+      expect(repeated!.affectedJobs).toEqual(['707x1', '707x2', '707x3']);
+      expect(repeated!.title).toContain('BatchApex');
+      expect(repeated!.detail).toContain('4');
+    });
+
+    /**
+     * A user-aborted job is a decision, not a failure to report back. The rows
+     * carry a non-zero NumberOfErrors on purpose: with zero, the error-count
+     * check would drop them on its own and the Aborted guard would be
+     * untested.
+     */
+    it('does not count aborted jobs as failures, even aborted jobs that logged errors', async () => {
+      const payload = await watchOrg().refreshAt(0, [
+        jobRow({ Id: '707x1', JobType: 'BatchApex', Status: 'Aborted', NumberOfErrors: 2 }),
+        jobRow({ Id: '707x2', JobType: 'BatchApex', Status: 'Aborted', NumberOfErrors: 5 }),
+        jobRow({ Id: '707x3', JobType: 'BatchApex', Status: 'Aborted', NumberOfErrors: 1 }),
+      ]);
+
+      expect(payload.jobInsights).toEqual([]);
+    });
+
+    /**
+     * Three hours since submission, seen once. Nothing here says the job
+     * stopped moving: CreatedDate counts every minute spent queued, and a big
+     * batch legitimately runs for hours. Unfinished is all it is.
+     */
+    it('does not call a job stuck on its age alone', async () => {
+      const payload = await watchOrg().refreshAt(0, [
+        jobRow({
+          Id: '707xOLD',
+          Status: 'Processing',
+          JobItemsProcessed: 3,
+          TotalJobItems: 10,
+          CreatedDate: at(-190),
+        }),
+      ]);
+
+      expect(critical(payload)).toEqual([]);
+      expect(unfinished(payload)?.severity).toBe('warning');
+      expect(unfinished(payload)?.affectedJobs).toEqual(['707xOLD']);
+    });
+
+    /**
+     * The one proof of a stall a snapshot window can give: the batch counter
+     * only ever goes up, so the same value at two sightings an hour apart
+     * means no batch completed in between.
+     */
+    it('calls a batch stuck once its batch counter has not moved across an hour of watching', async () => {
+      const org = watchOrg();
+      const row = jobRow({
+        Id: '707xSTALL',
+        Status: 'Processing',
+        JobItemsProcessed: 3,
+        TotalJobItems: 10,
+        CreatedDate: at(-20),
+      });
+
+      await org.refreshAt(0, [row]);
+      const justUnder = await org.refreshAt(59, [row]);
+      expect(stuckIds(justUnder)).toEqual([]);
+
+      const past = await org.refreshAt(61, [row]);
+      const stuck = (past.jobInsights ?? []).filter((i) => i.type === 'stuck');
+      expect(stuck).toHaveLength(1);
+      expect(stuck[0].severity).toBe('critical');
+      expect(stuck[0].affectedJobs).toEqual(['707xSTALL']);
+      expect(stuck[0].detail).toContain('3 of 10');
+      expect(stuck[0].detail).toContain('1h01m');
+    });
+
+    /** Five hours in Processing, and it moved while watched: healthy volume. */
+    it('never calls a batch that is still moving stuck, however old', async () => {
+      const org = watchOrg();
+      const row = (done: number): JobRow =>
+        jobRow({
+          Id: '707xBIG',
+          Status: 'Processing',
+          JobItemsProcessed: done,
+          TotalJobItems: 400,
+          CreatedDate: at(-300),
+        });
+
+      await org.refreshAt(0, [row(3)]);
+      const later = await org.refreshAt(61, [row(9)]);
+
+      expect(later.jobInsights).toEqual([]);
+    });
+
+    it('restarts the stall clock every time the counter moves', async () => {
+      const org = watchOrg();
+      const row = (done: number): JobRow =>
+        jobRow({
+          Id: '707xSLOW',
+          Status: 'Processing',
+          JobItemsProcessed: done,
+          TotalJobItems: 10,
+          CreatedDate: at(-5),
+        });
+
+      await org.refreshAt(0, [row(3)]);
+      await org.refreshAt(40, [row(4)]);
+      // Still at 4 for 59 minutes (since minute 40), 99 minutes since first seen.
+      const stillUnder = await org.refreshAt(99, [row(4)]);
+      expect(stuckIds(stillUnder)).toEqual([]);
+
+      const stillPast = await org.refreshAt(101, [row(4)]);
+      expect(stuckIds(stillPast)).toEqual(['707xSLOW']);
+    });
+
+    /**
+     * Rows arrive as the SOQL sorts them, newest submission first. The page's
+     * red band lists stalls in the order given, so the longest stall must come
+     * first whatever order the org returned the rows in.
+     */
+    it('lists stalled batches longest stall first, whatever order the query returns them in', async () => {
+      const org = watchOrg();
+      const window = (a: number, b: number, c: number): JobRow[] => [
+        jobRow({
+          Id: '707xA',
+          Status: 'Processing',
+          JobItemsProcessed: a,
+          TotalJobItems: 50,
+          CreatedDate: at(-10),
+        }),
+        jobRow({
+          Id: '707xB',
+          Status: 'Processing',
+          JobItemsProcessed: b,
+          TotalJobItems: 50,
+          CreatedDate: at(-30),
+        }),
+        jobRow({
+          Id: '707xC',
+          Status: 'Processing',
+          JobItemsProcessed: c,
+          TotalJobItems: 50,
+          CreatedDate: at(-50),
+        }),
+      ];
+
+      await org.refreshAt(0, window(1, 1, 1));
+      await org.refreshAt(10, window(2, 1, 1)); // A moves
+      await org.refreshAt(20, window(2, 1, 2)); // C moves
+      const payload = await org.refreshAt(85, window(2, 1, 2));
+
+      // Unchanged for: B 85m, A 75m, C 65m. Neither the row order (A, B, C)
+      // nor the submission order (C, B, A) produces this sequence.
+      expect(stuckIds(payload)).toEqual(['707xB', '707xA', '707xC']);
+    });
+
+    /** Preparing runs the start method: no batch counter exists yet to watch. */
+    it('gives a batch still in Preparing a warning past the age bound, never an abort', async () => {
+      const org = watchOrg();
+      const row = jobRow({
+        Id: '707xPREP',
+        Status: 'Preparing',
+        JobItemsProcessed: 0,
+        TotalJobItems: null,
+        CreatedDate: at(-120),
+      });
+
+      await org.refreshAt(0, [row]);
+      const payload = await org.refreshAt(90, [row]);
+
+      expect(critical(payload)).toEqual([]);
+      expect(unfinished(payload)?.affectedJobs).toEqual(['707xPREP']);
+    });
+
+    /** Queued is a wait for the platform to start the job: a counter that never started is no stall. */
+    it('does not call a batch stuck before it is processing', async () => {
+      const org = watchOrg();
+      const row = jobRow({
+        Id: '707xWAIT',
+        Status: 'Queued',
+        JobItemsProcessed: 0,
+        TotalJobItems: 10,
+        CreatedDate: at(-5),
+      });
+
+      await org.refreshAt(0, [row]);
+      const payload = await org.refreshAt(61, [row]);
+
+      expect(stuckIds(payload)).toEqual([]);
+    });
+
+    /** A Queueable reports no batches: its stillness is not evidence of anything. */
+    it('never calls a job without batch counters stuck, only unfinished', async () => {
+      const org = watchOrg();
+      const row = jobRow({
+        Id: '707xQ',
+        JobType: 'Queueable',
+        Status: 'Processing',
+        CreatedDate: at(-30),
+      });
+
+      await org.refreshAt(0, [row]);
+      const payload = await org.refreshAt(180, [row]);
+
+      expect(critical(payload)).toEqual([]);
+      expect(unfinished(payload)?.affectedJobs).toEqual(['707xQ']);
+    });
+
+    /** Every batch processed: the counter cannot move again, so its stillness proves nothing. */
+    it('does not call a batch stuck once every batch is processed', async () => {
+      const org = watchOrg();
+      const row = (done: number): JobRow =>
+        jobRow({
+          Id: '707xFIN',
+          Status: 'Processing',
+          JobItemsProcessed: done,
+          TotalJobItems: 10,
+          CreatedDate: at(-5),
+        });
+
+      await org.refreshAt(0, [row(9)]);
+      await org.refreshAt(5, [row(10)]); // the last batch completes
+      const payload = await org.refreshAt(70, [row(10)]);
+
+      expect(stuckIds(payload)).toEqual([]);
+      // It moved, but 65 minutes ago, and it has not finished 75 minutes after
+      // submission: an old movement no longer counts as progress, so the job is
+      // reported as unfinished.
+      expect(unfinished(payload)?.affectedJobs).toEqual(['707xFIN']);
+    });
+
+    /**
+     * A scheduled job sits in Queued until its cron fires — days, for a weekly
+     * schedule. Flagging it would put an Abort button on a healthy schedule.
+     */
+    it('never flags a scheduled job waiting for its fire time', async () => {
+      const org = watchOrg();
+      const row = jobRow({
+        Id: '707xSCHED',
+        JobType: 'ScheduledApex',
+        Status: 'Queued',
+        CreatedDate: at(-3 * 24 * 60),
+      });
+
+      await org.refreshAt(0, [row]);
+      const payload = await org.refreshAt(120, [row]);
+
+      expect(payload.jobInsights).toEqual([]);
+    });
+
+    it('makes no claim about job types whose lifecycle it does not model', async () => {
+      const org = watchOrg();
+      const rows = [
+        jobRow({
+          Id: '707xWORKER',
+          JobType: 'BatchApexWorker',
+          Status: 'Processing',
+          JobItemsProcessed: 1,
+          TotalJobItems: 5,
+          CreatedDate: at(-300),
+        }),
+        jobRow({
+          Id: '707xTEST',
+          JobType: 'TestRequest',
+          Status: 'Processing',
+          CreatedDate: at(-300),
+        }),
+        jobRow({
+          Id: '707xSHARE',
+          JobType: 'SharingRecalculation',
+          Status: 'Processing',
+          CreatedDate: at(-300),
+        }),
+      ];
+
+      await org.refreshAt(0, rows);
+      const payload = await org.refreshAt(120, rows);
+
+      expect(payload.jobInsights).toEqual([]);
+    });
+
+    /** Holding is a wait for a flex-queue slot, not work that stopped. */
+    it('does not flag a job parked in the flex queue', async () => {
+      const org = watchOrg();
+      const row = jobRow({ Id: '707xHOLD', Status: 'Holding', CreatedDate: at(-240) });
+
+      await org.refreshAt(0, [row]);
+      const payload = await org.refreshAt(120, [row]);
+
+      expect(payload.jobInsights).toEqual([]);
+    });
+
+    /**
+     * The counters cost no call: they are two more columns of the query the
+     * tick already makes, and the health check's own job read is still served
+     * from those rows. The field list is parsed, not substring-matched.
+     */
+    it('reads the batch counters in the one AsyncApexJob query the tick already makes', async () => {
+      const org = watchOrg();
+      await org.refreshAt(0, [
+        jobRow({ Id: '707xONE', Status: 'Processing', JobItemsProcessed: 1, TotalJobItems: 4 }),
+      ]);
+
+      const soql = org.jobSoql();
+      expect(soql).toHaveLength(1);
+      const selected = /^\s*SELECT\s+(.+?)\s+FROM\s+AsyncApexJob\b/i
+        .exec(soql[0])?.[1]
+        .split(',')
+        .map((field) => field.trim());
+      expect(selected).toEqual(expect.arrayContaining(['JobItemsProcessed', 'TotalJobItems']));
     });
   });
 });

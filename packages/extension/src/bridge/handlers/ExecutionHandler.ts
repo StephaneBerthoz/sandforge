@@ -1,5 +1,5 @@
-import type { BaseMessage, SyncHistoryEntry } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { SyncHistoryEntry } from '@sandforge/shared';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -43,7 +43,7 @@ export class ExecutionHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!EXECUTION_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -78,7 +78,7 @@ export class ExecutionHandler implements DomainHandler {
    * Both outcomes answer on the exact channel the webview consumes —
    * `execution:retry-status` — so the panel leaves its pending state.
    */
-  private async handleManualRetry(msg: BaseMessage): Promise<void> {
+  private async handleManualRetry(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       executionManualRetryPayloadSchema,
@@ -179,7 +179,7 @@ export class ExecutionHandler implements DomainHandler {
    * Triggers the AbortController for the specified operation and sends
    * a response indicating success or failure.
    */
-  private async handleAbort(msg: BaseMessage): Promise<void> {
+  private async handleAbort(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const parsed = validatePayload(
@@ -211,7 +211,7 @@ export class ExecutionHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'execution:abort', 'execution:error', err);
+      sendHandlerError(this.deps, 'execution:abort', 'execution:error', msg, err);
     }
   }
 
@@ -221,7 +221,7 @@ export class ExecutionHandler implements DomainHandler {
    * Returns the ActiveOperation shape for the specified operation,
    * or an error if the operation is not found.
    */
-  private async handleStatus(msg: BaseMessage): Promise<void> {
+  private async handleStatus(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const parsed = validatePayload(
@@ -260,7 +260,7 @@ export class ExecutionHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'execution:status', 'execution:error', err);
+      sendHandlerError(this.deps, 'execution:status', 'execution:error', msg, err);
     }
   }
 
@@ -269,7 +269,7 @@ export class ExecutionHandler implements DomainHandler {
    *
    * Returns an array of ActiveOperation objects sorted by start time (newest first).
    */
-  private async handleList(msg: BaseMessage): Promise<void> {
+  private async handleList(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const operations = this.registry.getActiveOperations();
@@ -279,7 +279,7 @@ export class ExecutionHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'execution:list', 'execution:error', err);
+      sendHandlerError(this.deps, 'execution:list', 'execution:error', msg, err);
     }
   }
 }

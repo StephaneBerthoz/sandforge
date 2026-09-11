@@ -4,7 +4,7 @@ import type {
   BaseMessage,
 } from '@sandforge/shared';
 import { z } from 'zod';
-import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
 import { aiDiagnosePayloadSchema, aiApproveActionPayloadSchema } from '../../validatePayload.js';
 import type { AIDiagnoseHandler } from './AIDiagnoseHandler.js';
@@ -74,7 +74,7 @@ export class AIDiagnoseAdapter implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!AI_DIAGNOSE_TYPES.has(msg.type)) return false;
 
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -96,7 +96,7 @@ export class AIDiagnoseAdapter implements DomainHandler {
    * error envelope and returns null.
    */
   private parseMessage(
-    msg: BaseMessage,
+    msg: InboundRequest,
   ): AIDiagnoseRequestMessage | AIApproveActionRequestMessage | null {
     const rawPayload = (msg as { payload?: unknown }).payload;
     if (msg.type === 'ai:diagnose') {
@@ -116,7 +116,7 @@ export class AIDiagnoseAdapter implements DomainHandler {
   }
 
   /** Reply with an explicit not-configured error on the matching response channel. */
-  private sendNotConfigured(msg: BaseMessage): void {
+  private sendNotConfigured(msg: InboundRequest): void {
     if (msg.type === 'ai:diagnose') {
       this.sendDiagnoseError(msg, NOT_CONFIGURED_CODE, NOT_CONFIGURED_MESSAGE);
       return;
@@ -125,7 +125,7 @@ export class AIDiagnoseAdapter implements DomainHandler {
   }
 
   /** Reply with an error envelope on the ai:diagnose:response channel. */
-  private sendDiagnoseError(msg: BaseMessage, code: string, message: string): void {
+  private sendDiagnoseError(msg: InboundRequest, code: string, message: string): void {
     const response = buildResponse(this.deps, msg, 'ai:diagnose:response', {
       runId: this.extractEcho(msg).runId,
       error: { code, message },
@@ -136,7 +136,7 @@ export class AIDiagnoseAdapter implements DomainHandler {
 
   /** Reply with a failed-status envelope on the ai:approve-action:response channel. */
   private sendApproveError(
-    msg: BaseMessage,
+    msg: InboundRequest,
     resultMessage: string,
     logCode: string = INVALID_PAYLOAD_CODE,
   ): void {

@@ -1,16 +1,16 @@
-import type {
-  BaseMessage,
-  SyncConfig,
-  SyncExecutionResult,
-  SyncOperation,
-} from '@sandforge/shared';
+import type { SyncConfig, SyncExecutionResult, SyncOperation } from '@sandforge/shared';
 import {
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
   RobustnessConfigSchema,
 } from '@sandforge/shared';
 import type { RobustnessConfig } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler, GrappeEventEnvelope } from './HandlerTypes.js';
+import type {
+  HandlerDeps,
+  DomainHandler,
+  GrappeEventEnvelope,
+  InboundRequest,
+} from './HandlerTypes.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -21,6 +21,7 @@ import {
   sendOperationFailed,
   postGrappeEvent,
   readGrappeConfig,
+  syntheticRequest,
 } from './HandlerTypes.js';
 import { SyncConfigStore } from '../../modules/sync/SyncConfigStore.js';
 import type { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
@@ -48,7 +49,6 @@ import { RetryableOperation } from '../../core/engine/RetryableOperation.js';
 import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
-import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { OperationRequest } from '../../core/precheck/ProductionGuard.js';
 import { BulkDataWriter } from '../../modules/sync/BulkDataWriter.js';
@@ -151,7 +151,7 @@ export class SyncOpsHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!SYNC_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -182,7 +182,7 @@ export class SyncOpsHandler implements DomainHandler {
   }
 
   /** Save a sync configuration. */
-  private async handleConfigSave(msg: BaseMessage): Promise<void> {
+  private async handleConfigSave(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncConfigSavePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
@@ -196,12 +196,12 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:config:save', 'sync:error', err);
+      sendHandlerError(this.deps, 'sync:config:save', 'sync:error', msg, err);
     }
   }
 
   /** Load a sync configuration by ID. */
-  private async handleConfigLoad(msg: BaseMessage): Promise<void> {
+  private async handleConfigLoad(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncConfigIdPayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
@@ -213,12 +213,12 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:config:load', 'sync:error', err);
+      sendHandlerError(this.deps, 'sync:config:load', 'sync:error', msg, err);
     }
   }
 
   /** List all sync configurations (summary view). */
-  private async handleConfigList(msg: BaseMessage): Promise<void> {
+  private async handleConfigList(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const configs = this.syncConfigStore.list();
@@ -234,12 +234,12 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:config:list', 'sync:error', err);
+      sendHandlerError(this.deps, 'sync:config:list', 'sync:error', msg, err);
     }
   }
 
   /** Delete a sync configuration by ID. */
-  private async handleConfigDelete(msg: BaseMessage): Promise<void> {
+  private async handleConfigDelete(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncConfigIdPayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
@@ -249,7 +249,7 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:config:delete', 'sync:error', err);
+      sendHandlerError(this.deps, 'sync:config:delete', 'sync:error', msg, err);
     }
   }
 
@@ -301,7 +301,7 @@ export class SyncOpsHandler implements DomainHandler {
     };
   }
 
-  private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
+  private async handleDescribeGlobal(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncDescribeGlobalPayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
@@ -326,11 +326,11 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:describe-global', 'sync:error', err);
+      sendHandlerError(this.deps, 'sync:describe-global', 'sync:error', msg, err);
     }
   }
 
-  private async handleDescribeFields(msg: BaseMessage): Promise<void> {
+  private async handleDescribeFields(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncDescribeFieldsPayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
@@ -386,11 +386,11 @@ export class SyncOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:describe-fields', 'sync:error', err);
+      sendHandlerError(this.deps, 'sync:describe-fields', 'sync:error', msg, err);
     }
   }
 
-  private async handleExecute(msg: BaseMessage): Promise<void> {
+  private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(syncExecutePayloadSchema, msg, 'sync:error', this.deps);
     if (!parsed) return;
@@ -408,11 +408,11 @@ export class SyncOpsHandler implements DomainHandler {
    * @param msg - The triggering `sync:history:rerun` message (correlation id source).
    * @param snapshot - The raw config snapshot loaded from SyncHistoryStore.
    */
-  async rerunFromSnapshot(msg: BaseMessage, snapshot: unknown): Promise<void> {
+  async rerunFromSnapshot(msg: InboundRequest, snapshot: unknown): Promise<void> {
     this.deps.log(`[RX] sync:history:rerun id=${msg.id}`);
     const parsed = validatePayload(
       syncExecutePayloadSchema,
-      { ...msg, payload: { config: snapshot } } as BaseMessage,
+      { ...msg, payload: { config: snapshot } },
       'sync:history:error',
       this.deps,
     );
@@ -447,8 +447,10 @@ export class SyncOpsHandler implements DomainHandler {
           .join('; ')}`,
       );
     }
-    const operationId = `sync:schedule:${crypto.randomUUID()}`;
-    const msg: BaseMessage = { id: operationId, type: 'sync:execute', timestamp: Date.now() };
+    // No webview request waits on a scheduled run: its origin is a listed
+    // synthetic request, whose id doubles as the operationId on operation:*.
+    const msg = syntheticRequest('sync:schedule', crypto.randomUUID(), 'sync:execute');
+    const operationId = msg.id;
 
     // Fill per-object batch sizes from the `sandforge.sync.defaultBatchSize`
     // setting when the stored config omitted them (same rule as startExecution).
@@ -504,7 +506,7 @@ export class SyncOpsHandler implements DomainHandler {
    * @param triggeredBy - Origin marker persisted in the execution history entry.
    */
   private async startExecution(
-    msg: BaseMessage,
+    msg: InboundRequest,
     rawConfig: unknown,
     triggeredBy: 'manual' | 'rerun',
   ): Promise<void> {
@@ -545,13 +547,9 @@ export class SyncOpsHandler implements DomainHandler {
           // (same dual-channel contract as the catch paths below). Stable
           // code, same as seed's decline path — this prose is SandForge's own,
           // not a pass-through Salesforce error.
-          sendHandlerError(
-            this.deps,
-            'sync:execute',
-            'sync:error',
-            new Error(message),
-            'PROD_CONFIRMATION_DECLINED',
-          );
+          sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, new Error(message), {
+            code: 'PROD_CONFIRMATION_DECLINED',
+          });
           sendOperationFailed(this.deps, operationId, message, false);
           return;
         }
@@ -564,6 +562,7 @@ export class SyncOpsHandler implements DomainHandler {
           this.deps,
           'sync:execute',
           'sync:error',
+          msg,
           new Error(`Duplicate operation: ${operationId}`),
         );
         sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false);
@@ -608,7 +607,7 @@ export class SyncOpsHandler implements DomainHandler {
       // `<domain>:error` channel useBridgeMutation listens on — it settles the
       // in-flight mutation with the real message. The webview surfaces the
       // error from sync:error only, so the user sees it exactly once.
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
+      sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     }
   }
@@ -623,15 +622,13 @@ export class SyncOpsHandler implements DomainHandler {
    * rather than a rejection, keeping the registry's monitored promise clean.
    */
   private async executeSync(
-    msg: BaseMessage,
+    msg: InboundRequest,
     config: import('@sandforge/shared').SyncConfig,
     operationId: string,
     abortController: AbortController,
     triggeredBy: 'manual' | 'rerun' | 'schedule',
   ): Promise<SyncExecutionResult> {
     const robustnessConfig = this.getRobustnessConfig();
-    let progressTracker: BulkJobProgressTracker | undefined;
-    let unsubProgress: (() => void) | undefined;
 
     try {
       const sourceConn = await getJsforceConnection(
@@ -670,15 +667,6 @@ export class SyncOpsHandler implements DomainHandler {
       const maxConcurrentOps =
         this.deps.services?.getSandforgeSetting?.('sync.maxConcurrentOps', 3) ?? 3;
       const bulkManager = new BulkApiManager(maxConcurrentOps);
-      progressTracker = new BulkJobProgressTracker(bulkManager);
-      unsubProgress = progressTracker.onProgress((progress) => {
-        this.deps.broker.postToWebview({
-          id: crypto.randomUUID(),
-          type: 'execution:progress',
-          timestamp: Date.now(),
-          payload: progress,
-        } as unknown as import('@sandforge/shared').BaseMessage);
-      });
       // Build the record writer: mutualizes insert/upsert/update/delete across
       // the streaming, Bulk API, and REST batch paths (see BulkDataWriter).
       const writer = new BulkDataWriter({
@@ -950,7 +938,7 @@ export class SyncOpsHandler implements DomainHandler {
       // carries the lifecycle, sync:error settles the in-flight mutation with
       // the real message. Scheduled runs have no listener — the extra message
       // is simply ignored.
-      sendHandlerError(this.deps, 'sync:execute', 'sync:error', err);
+      sendHandlerError(this.deps, 'sync:execute', 'sync:error', msg, err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
       // Failure-status result (instead of a rejection) so scheduled executions
       // can persist lastResult='failure' without an unhandled rejection in the
@@ -981,9 +969,6 @@ export class SyncOpsHandler implements DomainHandler {
 
       return failureResult;
     } finally {
-      progressTracker?.stopTracking(operationId);
-      unsubProgress?.();
-      progressTracker?.dispose();
       if (this.activeOperationIds.has(operationId)) {
         this.deps.infraServices?.performanceTracker?.complete(operationId);
         this.activeOperationIds.delete(operationId);

@@ -68,8 +68,12 @@ export interface MonitorPageData {
   healthReport: HealthReport | undefined;
   /** Raw trends record keyed by limit name. */
   trends: Record<string, TrendData>;
-  /** Job insights array with severity and details. */
-  jobInsights: JobInsight[];
+  /**
+   * The extension's job insights verdict. `[]` means "scanned, nothing found";
+   * `null` means no verdict was received: no payload yet, or a payload without
+   * the field. The two must never be merged.
+   */
+  jobInsights: JobInsight[] | null;
   /** Org metadata (edition, instance, users, etc.). */
   orgInfo: OrgInfo | undefined;
   /** ISO timestamp of last data refresh. */
@@ -118,8 +122,20 @@ export interface MonitorPageData {
   setAutoRefresh: (value: boolean) => void;
   /** Manually trigger a data refresh. */
   handleRefresh: () => void;
-  /** Abort a running job by its ID. */
-  handleAbortJob: (jobId: string) => void;
+  /**
+   * The job an abort was requested for, while a critical `stuck` insight still
+   * names it; `null` otherwise. Drives the confirmation dialog.
+   */
+  pendingAbortJobId: string | null;
+  /**
+   * Arms the abort confirmation for a job a critical `stuck` insight names.
+   * Sends nothing; any other job id is ignored.
+   */
+  requestAbortJob: (jobId: string) => void;
+  /** Sends the armed abort, then disarms. The only path to `monitor:abort-job`. */
+  confirmAbortJob: () => void;
+  /** Disarms the abort confirmation without sending anything. */
+  cancelAbortJob: () => void;
   /** Org health status from the monitor:data response. */
   orgHealthStatus: OrgHealthStatus | undefined;
 }
@@ -130,7 +146,7 @@ export interface MonitorPageData {
  *
  * This hook manages:
  * - Bridge queries for monitor data and alerts
- * - Bridge mutation for job abort
+ * - Bridge mutation for job abort, reachable only through a confirmed request
  * - All useMemo derived state (limits, jobs, healthScore, trends, predictions, etc.)
  * - The timeAgo ticker effect
  * - The auto-refresh interval effect
@@ -178,7 +194,9 @@ export function useMonitorPageData(): MonitorPageData {
   const healthScore = data?.healthScore ?? 0;
   const healthReport = data?.healthReport;
   const trends = useMemo(() => data?.trends ?? {}, [data?.trends]);
-  const jobInsights = useMemo(() => data?.jobInsights ?? [], [data?.jobInsights]);
+  // `?? null`, not `?? []`: an absent field is no verdict, and `[]` would be
+  // read downstream as "scanned, nothing found".
+  const jobInsights = data?.jobInsights ?? null;
   const orgInfo = data?.orgInfo;
   const orgHealthStatus = data?.orgHealthStatus;
   const lastUpdated = data?.lastUpdated ?? null;
@@ -333,12 +351,41 @@ export function useMonitorPageData(): MonitorPageData {
   }, [autoRefresh, selectedOrgId, monitorRefetch]);
 
   const handleRefresh = useCallback(() => monitorQuery.refetch(), [monitorQuery]);
-  const handleAbortJob = useCallback(
-    (jobId: string) => {
-      if (selectedOrgId) abortJobMutation.mutate({ orgId: selectedOrgId, jobId });
-    },
-    [selectedOrgId, abortJobMutation],
+  // ── Job abort: never a single call ──
+  //
+  // Aborting an AsyncApexJob cannot be undone, and the band that offers it is
+  // only as right as its last refresh. So the hook exposes no one-shot abort:
+  // a request arms a confirmation, and the org call leaves only on confirm.
+  // A request is dropped whenever no critical `stuck` verdict names its job,
+  // including when a refresh withdraws the verdict (the job moved again, or
+  // finished) while the confirmation is open.
+  const stalledJobIds = useMemo(
+    () =>
+      new Set(
+        (jobInsights ?? [])
+          .filter((insight) => insight.type === 'stuck' && insight.severity === 'critical')
+          .flatMap((insight) => insight.affectedJobs),
+      ),
+    [jobInsights],
   );
+  const [requestedAbortJobId, setRequestedAbortJobId] = useState<string | null>(null);
+  // Adjusted during render rather than in an effect: React re-renders before
+  // committing, so no committed render, and no confirm callback, ever holds a
+  // request its verdict does not back. A dropped request stays dropped: the
+  // verdict coming back on a later refresh does not reopen the confirmation.
+  if (requestedAbortJobId !== null && !stalledJobIds.has(requestedAbortJobId)) {
+    setRequestedAbortJobId(null);
+  }
+  const pendingAbortJobId = requestedAbortJobId;
+
+  const requestAbortJob = useCallback((jobId: string) => setRequestedAbortJobId(jobId), []);
+  const cancelAbortJob = useCallback(() => setRequestedAbortJobId(null), []);
+  const confirmAbortJob = useCallback(() => {
+    setRequestedAbortJobId(null);
+    if (selectedOrgId && pendingAbortJobId !== null) {
+      abortJobMutation.mutate({ orgId: selectedOrgId, jobId: pendingAbortJobId });
+    }
+  }, [selectedOrgId, pendingAbortJobId, abortJobMutation]);
 
   return {
     loading,
@@ -373,7 +420,10 @@ export function useMonitorPageData(): MonitorPageData {
     autoRefresh,
     setAutoRefresh,
     handleRefresh,
-    handleAbortJob,
+    pendingAbortJobId,
+    requestAbortJob,
+    confirmAbortJob,
+    cancelAbortJob,
     orgHealthStatus,
   };
 }

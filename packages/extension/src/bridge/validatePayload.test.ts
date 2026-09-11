@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { z } from 'zod';
 import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps } from './handlers/HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import {
   validatePayload,
   orgIdSchema,
@@ -15,10 +15,13 @@ import {
   monitorAbortJobPayloadSchema,
   compareExecutePayloadSchema,
 } from './validatePayload.js';
+import { inboundRequest } from '../test/mockFactories.js';
 
 type MockDeps = Pick<HandlerDeps, 'log' | 'broker' | 'nextId'>;
 
-function createMockDeps(): MockDeps & { postToWebview: ReturnType<typeof vi.fn> } {
+function createMockDeps(): MockDeps & {
+  postToWebview: ReturnType<typeof vi.fn>;
+} {
   const postToWebview = vi.fn();
   let id = 0;
   return {
@@ -29,8 +32,13 @@ function createMockDeps(): MockDeps & { postToWebview: ReturnType<typeof vi.fn> 
   };
 }
 
-function makeMsg(type: string, payload: unknown): BaseMessage {
-  return { id: 'msg-1', type, timestamp: Date.now(), payload } as BaseMessage;
+function makeMsg(type: string, payload: unknown): InboundRequest {
+  return inboundRequest({
+    id: 'msg-1',
+    type,
+    timestamp: Date.now(),
+    payload,
+  } as BaseMessage);
 }
 
 /** Minimal valid sync config as sent by the webview (org ids are SF 18-char ids). */
@@ -126,15 +134,26 @@ describe('validatePayload', () => {
 
   it('returns null when payload is missing entirely', () => {
     const schema = z.object({ orgId: orgIdSchema });
-    const msg: BaseMessage = { id: 'msg-1', type: 'x:y', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: 'msg-1',
+      type: 'x:y',
+      timestamp: Date.now(),
+    });
     expect(validatePayload(schema, msg, 'x:error', deps)).toBeNull();
     expect(deps.postToWebview).toHaveBeenCalledTimes(1);
   });
 
   it('caps the error summary at 3 issues', () => {
-    const schema = z.object({ a: z.string(), b: z.string(), c: z.string(), d: z.string() });
+    const schema = z.object({
+      a: z.string(),
+      b: z.string(),
+      c: z.string(),
+      d: z.string(),
+    });
     validatePayload(schema, makeMsg('x:y', {}), 'x:error', deps);
-    const errMsg = deps.postToWebview.mock.calls[0][0] as { payload: { message: string } };
+    const errMsg = deps.postToWebview.mock.calls[0][0] as {
+      payload: { message: string };
+    };
     expect(errMsg.payload.message.split(';').length).toBeLessThanOrEqual(3);
   });
 });
@@ -170,12 +189,16 @@ describe('primitive schemas', () => {
 
 describe('syncExecutePayloadSchema', () => {
   it('accepts the exact payload shape the webview sends', () => {
-    const result = syncExecutePayloadSchema.safeParse({ config: validSyncConfig() });
+    const result = syncExecutePayloadSchema.safeParse({
+      config: validSyncConfig(),
+    });
     expect(result.success).toBe(true);
   });
 
   it('preserves extra keys (id/createdAt) via passthrough', () => {
-    const result = syncExecutePayloadSchema.parse({ config: validSyncConfig() });
+    const result = syncExecutePayloadSchema.parse({
+      config: validSyncConfig(),
+    });
     expect((result.config as Record<string, unknown>).id).toBe('cfg-1');
   });
 
@@ -235,8 +258,10 @@ describe('seedExecutePayloadSchema', () => {
 describe('dataops payload schemas', () => {
   it('dataOpsBackupPayloadSchema accepts webview payload', () => {
     expect(
-      dataOpsBackupPayloadSchema.safeParse({ orgId: 'org-1', objects: ['Account', 'Contact'] })
-        .success,
+      dataOpsBackupPayloadSchema.safeParse({
+        orgId: 'org-1',
+        objects: ['Account', 'Contact'],
+      }).success,
     ).toBe(true);
   });
 
@@ -245,20 +270,29 @@ describe('dataops payload schemas', () => {
       false,
     );
     expect(
-      dataOpsBackupPayloadSchema.safeParse({ orgId: 'org-1', objects: ['Account; DROP'] }).success,
+      dataOpsBackupPayloadSchema.safeParse({
+        orgId: 'org-1',
+        objects: ['Account; DROP'],
+      }).success,
     ).toBe(false);
   });
 
   it('dataOpsRollbackPayloadSchema requires orgId + operationId', () => {
     expect(
-      dataOpsRollbackPayloadSchema.safeParse({ orgId: 'org-1', operationId: 'op-1' }).success,
+      dataOpsRollbackPayloadSchema.safeParse({
+        orgId: 'org-1',
+        operationId: 'op-1',
+      }).success,
     ).toBe(true);
     expect(dataOpsRollbackPayloadSchema.safeParse({ orgId: 'org-1' }).success).toBe(false);
   });
 
   it('dataOpsAnonymizePayloadSchema accepts optional objects', () => {
     expect(
-      dataOpsAnonymizePayloadSchema.safeParse({ orgId: 'o', templateId: 'gdpr-basic' }).success,
+      dataOpsAnonymizePayloadSchema.safeParse({
+        orgId: 'o',
+        templateId: 'gdpr-basic',
+      }).success,
     ).toBe(true);
     expect(
       dataOpsAnonymizePayloadSchema.safeParse({
@@ -273,7 +307,10 @@ describe('dataops payload schemas', () => {
 describe('monitorAbortJobPayloadSchema', () => {
   it('accepts 18-char SF job ids', () => {
     expect(
-      monitorAbortJobPayloadSchema.safeParse({ orgId: 'o', jobId: '707XXXXXXXXXXXXXXX' }).success,
+      monitorAbortJobPayloadSchema.safeParse({
+        orgId: 'o',
+        jobId: '707XXXXXXXXXXXXXXX',
+      }).success,
     ).toBe(true);
   });
 
@@ -298,8 +335,11 @@ describe('compareExecutePayloadSchema', () => {
 
   it('rejects empty types array', () => {
     expect(
-      compareExecutePayloadSchema.safeParse({ sourceOrgId: 'a', targetOrgId: 'b', types: [] })
-        .success,
+      compareExecutePayloadSchema.safeParse({
+        sourceOrgId: 'a',
+        targetOrgId: 'b',
+        types: [],
+      }).success,
     ).toBe(false);
   });
 });

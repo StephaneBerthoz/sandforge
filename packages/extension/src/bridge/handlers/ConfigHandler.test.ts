@@ -4,6 +4,8 @@ import type { HandlerDeps } from './HandlerTypes';
 import type { BaseMessage } from '@sandforge/shared';
 import type { ConfigStoreBackend, ConfigEntry } from '../../core/storage/ConfigStoreBackend';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import type { InboundRequest } from './HandlerTypes.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 class InMemoryBackend implements ConfigStoreBackend {
   private data: Record<string, ConfigEntry> = {};
@@ -43,19 +45,23 @@ describe('ConfigHandler', () => {
   });
 
   it('returns false for unknown message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     expect(await handler.handle(msg)).toBe(false);
   });
 
   it('handles config:export', async () => {
     store.set('sync:mapping-1', { source: 'Account' }, 'syncMappings');
 
-    const msg: BaseMessage & { payload: { categories: string[] } } = {
+    const msg: InboundRequest & { payload: { categories: string[] } } = inboundRequest({
       id: '1',
       type: 'config:export',
       timestamp: Date.now(),
       payload: { categories: ['syncMappings'] },
-    };
+    });
 
     expect(await handler.handle(msg)).toBe(true);
     expect(deps.broker.postToWebview).toHaveBeenCalledWith(
@@ -78,12 +84,14 @@ describe('ConfigHandler', () => {
       },
     };
 
-    const msg: BaseMessage & { payload: { json: string; overwrite: boolean } } = {
+    const msg: InboundRequest & {
+      payload: { json: string; overwrite: boolean };
+    } = inboundRequest({
       id: '1',
       type: 'config:import',
       timestamp: Date.now(),
       payload: { json: JSON.stringify(profile), overwrite: true },
-    };
+    });
 
     expect(await handler.handle(msg)).toBe(true);
     expect(deps.broker.postToWebview).toHaveBeenCalledWith(
@@ -100,7 +108,11 @@ describe('ConfigHandler', () => {
     store.set('sync:m1', { a: 1 }, 'syncMappings');
     store.set('sync:m2', { b: 2 }, 'syncMappings');
 
-    const msg: BaseMessage = { id: '1', type: 'config:categories', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'config:categories',
+      timestamp: Date.now(),
+    });
 
     expect(await handler.handle(msg)).toBe(true);
     expect(deps.broker.postToWebview).toHaveBeenCalledWith(
@@ -119,12 +131,12 @@ describe('ConfigHandler', () => {
       data: {},
     };
 
-    const msg: BaseMessage & { payload: { json: string } } = {
+    const msg: InboundRequest & { payload: { json: string } } = inboundRequest({
       id: '1',
       type: 'config:validate',
       timestamp: Date.now(),
       payload: { json: JSON.stringify(profile) },
-    };
+    });
 
     expect(await handler.handle(msg)).toBe(true);
 
@@ -134,12 +146,12 @@ describe('ConfigHandler', () => {
   });
 
   it('handles config:validate with invalid JSON', async () => {
-    const msg: BaseMessage & { payload: { json: string } } = {
+    const msg: InboundRequest & { payload: { json: string } } = inboundRequest({
       id: '1',
       type: 'config:validate',
       timestamp: Date.now(),
       payload: { json: 'not-json' },
-    };
+    });
 
     expect(await handler.handle(msg)).toBe(true);
 
@@ -149,12 +161,12 @@ describe('ConfigHandler', () => {
 
   describe('payload validation', () => {
     it('rejects config:export with an unknown category (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-export',
         type: 'config:export',
         timestamp: Date.now(),
         payload: { categories: ['bogusCategory'] },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       expect(await handler.handle(msg)).toBe(true);
 
@@ -164,12 +176,12 @@ describe('ConfigHandler', () => {
     });
 
     it('rejects config:import without overwrite flag (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-import',
         type: 'config:import',
         timestamp: Date.now(),
         payload: { json: '{}' },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       expect(await handler.handle(msg)).toBe(true);
 

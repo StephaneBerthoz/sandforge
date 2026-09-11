@@ -1,5 +1,5 @@
 import type {
-  BaseMessage,
+  JobInsight,
   TrendData,
   StorageObjectEntry,
   DeploymentEntry,
@@ -7,7 +7,7 @@ import type {
   OrgHealthStatus,
 } from '@sandforge/shared';
 import { MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS, SF_LIMITS } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -41,13 +41,38 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 const MONITOR_REFRESH_TIMEOUT_MS = 25_000;
 
 /**
+ * Platform facts relied on below. Those marked (describe) were checked against
+ * a live org's AsyncApexJob describe on 2026-09-11. Those marked (docs) come
+ * from Salesforce documentation this session could not reach (HTTP 403), and
+ * are relied on only in the direction that avoids a false alarm.
+ */
+
+/**
  * The recent AsyncApexJob window read by a monitor tick.
  *
- * Byte-identical to the SOQL the health check's jobs provider builds in
- * `MonitorOpsFactory`, because {@link MonitorOpsHandler.withSharedJobQuery}
- * keys the per-refresh reuse on the query string.
+ * `JobItemsProcessed` and `TotalJobItems` are labelled "Batches Processed" and
+ * "Total Batches" (describe), and are what the stall detection reads. They are
+ * two more columns of the query the tick already makes, not another call.
  */
-const ASYNC_APEX_JOB_SOQL = `SELECT Id, JobType, Status, NumberOfErrors, CreatedDate, CreatedById FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT ${DEFAULT_SOQL_LIMITS.monitorJobs}`;
+const ASYNC_APEX_JOB_SOQL = `SELECT Id, JobType, Status, NumberOfErrors, JobItemsProcessed, TotalJobItems, CreatedDate, CreatedById FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT ${DEFAULT_SOQL_LIMITS.monitorJobs}`;
+
+/**
+ * The same window as the health check's jobs provider asks for it in
+ * `MonitorOpsFactory`: fewer columns, same rows. Byte-identical to that query,
+ * because {@link MonitorOpsHandler.withSharedJobQuery} matches on the string;
+ * the PERF-07 tests go red if the two drift apart.
+ */
+const HEALTH_CHECK_JOB_SOQL = `SELECT Id, JobType, Status, NumberOfErrors, CreatedDate, CreatedById FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT ${DEFAULT_SOQL_LIMITS.monitorJobs}`;
+
+/**
+ * The queries the in-flight refresh's rows can answer. Serving the narrower
+ * projection from the wider rows is sound: same object, same order, same
+ * limit, and the provider maps only the columns it asked for.
+ */
+const SHAREABLE_JOB_SOQL: ReadonlySet<string> = new Set([
+  ASYNC_APEX_JOB_SOQL,
+  HEALTH_CHECK_JOB_SOQL,
+]);
 
 /** One AsyncApexJob row as read by {@link ASYNC_APEX_JOB_SOQL}. */
 interface AsyncApexJobRecord extends Record<string, unknown> {
@@ -55,8 +80,320 @@ interface AsyncApexJobRecord extends Record<string, unknown> {
   JobType: string;
   Status: string;
   NumberOfErrors: number;
+  /**
+   * Read defensively: a row without the column must degrade to "no progress
+   * evidence", never to a stall.
+   */
+  JobItemsProcessed?: number | null;
+  /** Nillable (describe). */
+  TotalJobItems?: number | null;
   CreatedDate: string;
   CreatedById: string;
+}
+
+/**
+ * Statuses of a job still in flight and not parked.
+ *
+ * The Status picklist is Queued, Processing, Aborted, Completed, Failed,
+ * Preparing, Holding (describe). Completed, Failed and Aborted are terminal.
+ * Holding is left out: it is the wait for a flex-queue slot (docs), which no
+ * abort of the waiting job shortens.
+ */
+const IN_FLIGHT_STATUSES: ReadonlySet<string> = new Set(['Queued', 'Preparing', 'Processing']);
+
+/**
+ * The job types whose lifecycle this analysis models.
+ *
+ * BatchApex reports batch counters. Queueable and Future run as a single
+ * transaction and report none. Every other JobType value (describe) is left
+ * out on purpose, because a claim about a lifecycle SandForge has not modelled
+ * is a guess shown in red:
+ * - ScheduledApex: the row stays Queued until the schedule fires (docs), days
+ *   away for a weekly job. Excluding it is the side that cannot put an Abort
+ *   on a healthy schedule.
+ * - BatchApexWorker: rows under a BatchApex parent, which carries the
+ *   counters; an abort pointed at a worker would target the wrong row.
+ * - TestRequest, TestWorker: test runs, long by nature.
+ * - SharingRecalculation, ApexToken: platform-initiated work.
+ */
+const MODELLED_JOB_TYPES: ReadonlySet<string> = new Set(['BatchApex', 'Queueable', 'Future']);
+
+/**
+ * How long a batch counter must stay unchanged, under this dashboard's own
+ * observation, before the job is called stuck.
+ *
+ * The evidence: "Batches Processed" only counts up as batches complete, so the
+ * same value at two sightings this far apart means no batch completed in
+ * between. Age proves nothing of the kind: `CreatedDate` includes every minute
+ * spent queued, and a large batch legitimately runs for hours. That is why age
+ * alone never reaches this tier.
+ *
+ * The length: each batch is one `execute` transaction, which the Apex governor
+ * limits cap at 10 minutes of execution (docs). A healthy job whose every
+ * batch ran to that ceiling would still have moved several times in an hour.
+ * The platform documents no bound on the wait between two batches, so the
+ * window is set generously rather than tightly, and even past it the abort
+ * stays behind a typed confirmation that restates this evidence.
+ */
+const STALL_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * How long after submission an in-flight job is reported as unfinished.
+ *
+ * A warning, never a stall: without a counter that stood still under
+ * observation, the only fact is that the job has not finished yet. The bound
+ * is the stall window's: no job younger than an hour can have been watched
+ * still for an hour, so this is the earliest point at which the tier above
+ * could have spoken. Below it, a job in flight is ordinary work, and a warning
+ * there would teach the reader to ignore the band.
+ */
+const UNFINISHED_AGE_MS = STALL_WINDOW_MS;
+
+/**
+ * Failures of one job type, inside the recent-job window, that make a pattern.
+ *
+ * One failure is an incident. Two can still be one incident counted twice: the
+ * platform re-runs some async work after transient errors (row-lock contention
+ * above all), and a retried job lands as a second failed row for a single root
+ * cause. Three separate jobs of the same type failing inside the same window
+ * of {@link DEFAULT_SOQL_LIMITS.monitorJobs} rows no longer fits that
+ * explanation, and is worth a reader's attention.
+ */
+const REPEATED_FAILURE_THRESHOLD = 3;
+
+/** One job as the `monitor:data` payload carries it. */
+interface MonitorJobSummary {
+  id: string;
+  jobType: string;
+  status: string;
+  createdBy: string;
+  createdDate: string;
+  failedRecords: number;
+}
+
+/** A job as the insights read it: the payload summary plus its batch counters. */
+interface ObservedJob extends MonitorJobSummary {
+  /** `JobItemsProcessed`, or `null` when the org sent none. */
+  batchesProcessed: number | null;
+  /** `TotalJobItems`, or `null` when the org sent none. */
+  totalBatches: number | null;
+}
+
+/** What this dashboard last saw of one in-flight job, and since when. */
+interface JobSighting {
+  status: string;
+  batchesProcessed: number | null;
+  totalBatches: number | null;
+  /** Extension-host clock at the first sighting that showed these values. */
+  unchangedSinceMs: number;
+  /** Whether the values changed at least once while watched. */
+  movedWhileWatched: boolean;
+}
+
+/** In-flight job id to its latest sighting, for one org. */
+type JobProgressLog = ReadonlyMap<string, JobSighting>;
+
+/** Renders a minute count as `3h10m` / `45m`, for insight copy. */
+function formatJobAge(totalMinutes: number): string {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h${String(minutes).padStart(2, '0')}m` : `${minutes}m`;
+}
+
+/** Whether a sighting shows exactly the values the job shows now. */
+function looksTheSame(sighting: JobSighting, job: ObservedJob): boolean {
+  return (
+    sighting.status === job.status &&
+    sighting.batchesProcessed === job.batchesProcessed &&
+    sighting.totalBatches === job.totalBatches
+  );
+}
+
+/**
+ * Folds one refresh's window into the org's progress log.
+ *
+ * Only the jobs of this window are kept, so a job that left it is forgotten. Times come from the extension host's clock at each sighting,
+ * never from the org's `CreatedDate`: the stall measure rests on nothing but
+ * two of this dashboard's own observations.
+ *
+ * @param previous - The log after the org's previous refresh, if any.
+ * @param jobs - This refresh's window.
+ * @param nowMs - When the window was read.
+ * @returns A new log; `previous` is left untouched.
+ */
+function trackJobProgress(
+  previous: JobProgressLog | undefined,
+  jobs: ObservedJob[],
+  nowMs: number,
+): JobProgressLog {
+  const next = new Map<string, JobSighting>();
+  for (const job of jobs) {
+    const prior = previous?.get(job.id);
+    if (prior !== undefined && looksTheSame(prior, job)) {
+      next.set(job.id, prior);
+      continue;
+    }
+    next.set(job.id, {
+      status: job.status,
+      batchesProcessed: job.batchesProcessed,
+      totalBatches: job.totalBatches,
+      unchangedSinceMs: nowMs,
+      movedWhileWatched: prior !== undefined,
+    });
+  }
+  return next;
+}
+
+/**
+ * Derives the job insights the Monitor page bands, from the rows the refresh
+ * already holds and what earlier refreshes saw of the same jobs.
+ *
+ * Asks the org for nothing. Each tier claims no more than its evidence:
+ * - `stuck` (critical, one insight per job, the only tier the page offers an
+ *   abort on): a job in Processing, with batches left to run, whose batch
+ *   counter stayed unchanged across {@link STALL_WINDOW_MS} of watching. The
+ *   counter is the proof, whatever the type; BatchApex is the type that has one.
+ * - `frequent_failures` (critical, no action): see
+ *   {@link REPEATED_FAILURE_THRESHOLD}.
+ * - `long_running` (warning, no action): still in flight
+ *   {@link UNFINISHED_AGE_MS} after submission, neither seen moving inside the
+ *   stall window nor provably stalled.
+ *
+ * An empty result is a verdict, which is why the refresh emits the array even
+ * when it is empty: the page tells a scan that found nothing from a scan that
+ * never ran only if the producer always speaks.
+ *
+ * @param jobs - The recent AsyncApexJob window, newest first.
+ * @param progress - The org's progress log, already updated with `jobs`.
+ * @param nowMs - The instant `jobs` was read.
+ * @returns Insights, critical first; `[]` when nothing is wrong.
+ */
+function computeJobInsights(
+  jobs: ObservedJob[],
+  progress: JobProgressLog,
+  nowMs: number,
+): JobInsight[] {
+  const insights: JobInsight[] = [];
+  const stalled: Array<{ job: ObservedJob; stillMs: number; done: number; total: number }> = [];
+  const unfinished: Array<{ job: ObservedJob; ageMs: number; stillMs: number | null }> = [];
+
+  for (const job of jobs) {
+    if (!IN_FLIGHT_STATUSES.has(job.status) || !MODELLED_JOB_TYPES.has(job.jobType)) continue;
+
+    const sighting = progress.get(job.id);
+    const stillMs = sighting === undefined ? null : nowMs - sighting.unchangedSinceMs;
+    const done = job.batchesProcessed;
+    const total = job.totalBatches;
+
+    if (
+      job.status === 'Processing' &&
+      done !== null &&
+      total !== null &&
+      done < total &&
+      stillMs !== null &&
+      stillMs >= STALL_WINDOW_MS
+    ) {
+      stalled.push({ job, stillMs, done, total });
+      continue;
+    }
+
+    // Seen moving inside the stall window: progressing, whatever its age.
+    if (sighting?.movedWhileWatched === true && stillMs !== null && stillMs < STALL_WINDOW_MS) {
+      continue;
+    }
+
+    // A malformed CreatedDate parses to NaN, and every NaN comparison is
+    // false, so a row the org sent unusable is never reported.
+    const ageMs = nowMs - Date.parse(job.createdDate);
+    if (ageMs >= UNFINISHED_AGE_MS) unfinished.push({ job, ageMs, stillMs });
+  }
+
+  // ── Stuck: one insight per job, longest stall first ──
+  stalled.sort((a, b) => b.stillMs - a.stillMs);
+  for (const { job, stillMs, done, total } of stalled) {
+    const still = formatJobAge(Math.floor(stillMs / 60_000));
+    insights.push({
+      type: 'stuck',
+      severity: 'critical',
+      title: `${job.jobType} ${job.id}: no batch completed in ${still}`,
+      detail:
+        `${done} of ${total} batches processed, unchanged across ${still} of observation ` +
+        `by this dashboard while ${job.status} (stall bound ${STALL_WINDOW_MS / 60_000}m).`,
+      affectedJobs: [job.id],
+      recommendation:
+        'Check the job in Setup > Apex Jobs first. If it is still at the same batch, abort ' +
+        'it and re-run it once the cause is known.',
+    });
+  }
+
+  // ── Repeated failures: the same operation failing again and again ──
+  //
+  // "Same operation" is read as job type: the shared job query selects no
+  // ApexClass name, and widening it would cost the reuse the health check
+  // depends on. Type is the coarsest honest grouping, and the insight says so
+  // by naming the type rather than pretending to name a class.
+  const failuresByType = new Map<string, MonitorJobSummary[]>();
+  for (const job of jobs) {
+    // Aborted is a decision someone took, not a failure to report back.
+    if (job.status === 'Aborted') continue;
+    // A Completed batch with NumberOfErrors > 0 did fail, partially: the count
+    // is the number of batch executions that threw.
+    if (job.status !== 'Failed' && job.failedRecords <= 0) continue;
+    const bucket = failuresByType.get(job.jobType) ?? [];
+    bucket.push(job);
+    failuresByType.set(job.jobType, bucket);
+  }
+
+  for (const [jobType, failed] of failuresByType) {
+    if (failed.length < REPEATED_FAILURE_THRESHOLD) continue;
+    const errorTotal = failed.reduce((sum, job) => sum + (job.failedRecords || 0), 0);
+    insights.push({
+      type: 'frequent_failures',
+      severity: 'critical',
+      title: `${failed.length} ${jobType} jobs failed`,
+      detail:
+        `${failed.length} of the last ${jobs.length} jobs are ${jobType} failures ` +
+        `(${errorTotal} failed batch execution(s) reported) — at or above the ` +
+        `${REPEATED_FAILURE_THRESHOLD}-failure pattern threshold.`,
+      affectedJobs: failed.map((job) => job.id),
+      recommendation:
+        `Open the most recent ${jobType} failure and read its extended status: ` +
+        'a repeat at this rate is a defect or a data problem, not contention.',
+    });
+  }
+
+  // ── Unfinished: old, but nothing proves it stopped ──
+  if (unfinished.length > 0) {
+    unfinished.sort((a, b) => b.ageMs - a.ageMs);
+    const oldest = unfinished[0];
+    const age = formatJobAge(Math.floor(oldest.ageMs / 60_000));
+    const { batchesProcessed: done, totalBatches: total } = oldest.job;
+    const counter =
+      done === null || total === null || total <= 0
+        ? 'it reports no batch counter, so its progress cannot be observed'
+        : oldest.stillMs === null || oldest.stillMs < 60_000
+          ? `${done} of ${total} batches processed, first seen at these values on this refresh`
+          : `${done} of ${total} batches processed, unchanged over the ` +
+            `${formatJobAge(Math.floor(oldest.stillMs / 60_000))} watched so far`;
+    insights.push({
+      type: 'long_running',
+      severity: 'warning',
+      title:
+        unfinished.length === 1
+          ? `1 job unfinished ${age} after submission`
+          : `${unfinished.length} jobs unfinished ${UNFINISHED_AGE_MS / 60_000}m or more after submission`,
+      detail:
+        `${oldest.job.jobType} ${oldest.job.id} is ${oldest.job.status}, submitted ${age} ago; ` +
+        `${counter}. Time since submission includes time spent queued: it is not evidence of a stall.`,
+      affectedJobs: unfinished.map(({ job }) => job.id),
+      recommendation:
+        'Keep this dashboard refreshing to measure progress, or check the job in Setup > Apex ' +
+        `Jobs. A batch is called stuck only once its batch counter stays unchanged for ` +
+        `${STALL_WINDOW_MS / 60_000}m of watching; a job without batch counters never is.`,
+    });
+  }
+
+  return insights;
 }
 
 /** Message types handled by MonitorOpsHandler. */
@@ -108,6 +445,12 @@ export class MonitorOpsHandler implements DomainHandler {
    * org, held only for the span of that refresh (see {@link withSharedJobQuery}).
    */
   private readonly inFlightJobRecords = new Map<string, AsyncApexJobRecord[]>();
+  /**
+   * Per org, what earlier refreshes saw of each in-flight job (see
+   * {@link trackJobProgress}). Kept for the handler's lifetime: a stall is
+   * only provable across two refreshes.
+   */
+  private readonly jobProgress = new Map<string, JobProgressLog>();
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {
@@ -156,7 +499,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!MONITOR_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -212,9 +555,9 @@ export class MonitorOpsHandler implements DomainHandler {
    * Hand the monitor services a connection that reuses the AsyncApexJob window
    * the in-flight refresh already fetched.
    *
-   * The health check's jobs provider issues the exact same SOQL that
-   * {@link executeRefresh} has just run, so every monitor tick asked the org
-   * for its job list twice. Serving the second read from the rows already in
+   * The health check's jobs provider reads the window {@link executeRefresh}
+   * has just read, as a narrower projection (see {@link SHAREABLE_JOB_SOQL}),
+   * so every monitor tick asked the org for its job list twice. Serving the second read from the rows already in
    * hand keeps the tick at one AsyncApexJob call; any other query, and any
    * call made outside a refresh, still goes straight to the org.
    *
@@ -228,7 +571,7 @@ export class MonitorOpsHandler implements DomainHandler {
         if (prop === 'query') {
           return (soql: string): unknown => {
             const shared = this.inFlightJobRecords.get(orgId);
-            if (shared !== undefined && soql === ASYNC_APEX_JOB_SOQL) {
+            if (shared !== undefined && SHAREABLE_JOB_SOQL.has(soql)) {
               return Promise.resolve({ done: true, totalSize: shared.length, records: shared });
             }
             return target.query(soql);
@@ -264,7 +607,7 @@ export class MonitorOpsHandler implements DomainHandler {
     return true;
   }
 
-  private async handleRefresh(msg: BaseMessage): Promise<void> {
+  private async handleRefresh(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -280,21 +623,12 @@ export class MonitorOpsHandler implements DomainHandler {
         (signal) => this.executeRefresh(msg, payload, signal),
       );
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:refresh',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', msg, err);
     }
   }
 
   private async executeRefresh(
-    msg: BaseMessage,
+    msg: InboundRequest,
     payload: { orgId: string },
     deadline: AbortSignal,
   ): Promise<void> {
@@ -329,14 +663,38 @@ export class MonitorOpsHandler implements DomainHandler {
       checkApiLimits(conn.limitInfo, 'monitor:refresh asyncJobs');
       this.inFlightJobRecords.set(payload.orgId, jobRecords);
       if (this.pastDeadline(deadline, 'org info and health check')) return;
-      const jobs = jobRecords.map((r) => ({
+      const observedAtMs = Date.now();
+      const observed: ObservedJob[] = jobRecords.map((r) => ({
         id: r.Id,
         jobType: r.JobType ?? 'Unknown',
         status: r.Status,
         createdBy: r.CreatedById,
         createdDate: r.CreatedDate,
         failedRecords: r.NumberOfErrors,
+        batchesProcessed: r.JobItemsProcessed ?? null,
+        totalBatches: r.TotalJobItems ?? null,
       }));
+      // The payload keeps its contract: the batch counters feed the insights only.
+      const jobs: MonitorJobSummary[] = observed.map(
+        ({ id, jobType, status, createdBy, createdDate, failedRecords }) => ({
+          id,
+          jobType,
+          status,
+          createdBy,
+          createdDate,
+          failedRecords,
+        }),
+      );
+
+      // 2b. Read the insights out of those rows and out of what earlier
+      // refreshes saw of the same jobs. No extra org call.
+      const progress = trackJobProgress(
+        this.jobProgress.get(payload.orgId),
+        observed,
+        observedAtMs,
+      );
+      this.jobProgress.set(payload.orgId, progress);
+      const jobInsights = computeJobInsights(observed, progress, observedAtMs);
 
       // 3. Record snapshot and compute trends
       const snapshot = {
@@ -422,6 +780,7 @@ export class MonitorOpsHandler implements DomainHandler {
         healthScore,
         healthReport,
         trends,
+        jobInsights,
         orgInfo,
         orgHealthStatus,
         lastUpdated: new Date().toISOString(),
@@ -432,22 +791,13 @@ export class MonitorOpsHandler implements DomainHandler {
       // Past the bound the request already carries its monitor:error; a second
       // one would only be a duplicate on a closed correlation.
       if (this.pastDeadline(deadline, `the failure "${extractErrorMessage(err)}"`)) return;
-      sendHandlerError(
-        this.deps,
-        'monitor:refresh',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:refresh', 'monitor:error', msg, err);
     } finally {
       this.inFlightJobRecords.delete(payload.orgId);
     }
   }
 
-  private handleLiveOperations(msg: BaseMessage): void {
+  private handleLiveOperations(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const operations = this.liveOperationTracker?.getAll() ?? [];
     const response = buildResponse(this.deps, msg, 'monitor:live-operations:response', {
@@ -461,7 +811,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Handle monitor:health-score -- compute full org health score breakdown.
    * @param msg - The incoming health-score request message.
    */
-  private async handleHealthScore(msg: BaseMessage): Promise<void> {
+  private async handleHealthScore(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -500,16 +850,7 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:health-score',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:health-score', 'monitor:error', msg, err);
     }
   }
 
@@ -518,7 +859,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Queries EntityDefinition for top 20 objects by QualifiedApiName.
    * @param msg - The incoming storage request message.
    */
-  private async handleStorage(msg: BaseMessage): Promise<void> {
+  private async handleStorage(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -559,16 +900,7 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:storage',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:storage', 'monitor:error', msg, err);
     }
   }
 
@@ -577,7 +909,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Queries DeployRequest for the 20 most recent deployments.
    * @param msg - The incoming deployments request message.
    */
-  private async handleDeployments(msg: BaseMessage): Promise<void> {
+  private async handleDeployments(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -624,16 +956,7 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:deployments',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:deployments', 'monitor:error', msg, err);
     }
   }
 
@@ -642,7 +965,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Reads the /limits endpoint and groups key categories.
    * @param msg - The incoming API usage request message.
    */
-  private async handleApiUsage(msg: BaseMessage): Promise<void> {
+  private async handleApiUsage(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -695,20 +1018,11 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:api-usage',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:api-usage', 'monitor:error', msg, err);
     }
   }
 
-  private async handleAbortJob(msg: BaseMessage): Promise<void> {
+  private async handleAbortJob(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorAbortJobPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -751,7 +1065,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Handle monitor:error-logs -- fetch recent error log entries.
    * @param msg - The incoming error-logs request message.
    */
-  private async handleErrorLogs(msg: BaseMessage): Promise<void> {
+  private async handleErrorLogs(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -771,16 +1085,7 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:error-logs',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:error-logs', 'monitor:error', msg, err);
     }
   }
 
@@ -788,7 +1093,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Handle monitor:sessions -- fetch active user sessions.
    * @param msg - The incoming sessions request message.
    */
-  private async handleSessions(msg: BaseMessage): Promise<void> {
+  private async handleSessions(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -806,16 +1111,7 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:sessions',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:sessions', 'monitor:error', msg, err);
     }
   }
 
@@ -823,7 +1119,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Handle monitor:apex-insights -- fetch and analyze Apex logs.
    * @param msg - The incoming apex-insights request message.
    */
-  private async handleApexInsights(msg: BaseMessage): Promise<void> {
+  private async handleApexInsights(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -841,16 +1137,7 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'monitor:apex-insights',
-        'monitor:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'monitor:apex-insights', 'monitor:error', msg, err);
     }
   }
 
@@ -858,7 +1145,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Handle monitor:sandbox-refresh -- fetch sandbox refresh events.
    * @param msg - The incoming sandbox-refresh request message.
    */
-  private async handleSandboxRefresh(msg: BaseMessage): Promise<void> {
+  private async handleSandboxRefresh(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorOrgPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -876,7 +1163,7 @@ export class MonitorOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'monitor:sandbox-refresh', 'monitor:error', err);
+      sendHandlerError(this.deps, 'monitor:sandbox-refresh', 'monitor:error', msg, err);
     }
   }
 
@@ -884,7 +1171,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Handle monitor:alerts -- return active alerts and history.
    * @param msg - The incoming alerts request message.
    */
-  private handleAlerts(msg: BaseMessage): void {
+  private handleAlerts(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const alerts = this.alertEngine.getActiveAlerts();
     const history = this.alertStateStore.loadHistory();
@@ -897,7 +1184,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Handle monitor:alert:acknowledge -- acknowledge an active alert.
    * @param msg - The incoming acknowledge request message.
    */
-  private handleAlertAcknowledge(msg: BaseMessage): void {
+  private handleAlertAcknowledge(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorAlertIdPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;
@@ -915,7 +1202,7 @@ export class MonitorOpsHandler implements DomainHandler {
    * Handle monitor:alert:dismiss -- dismiss an active alert.
    * @param msg - The incoming dismiss request message.
    */
-  private handleAlertDismiss(msg: BaseMessage): void {
+  private handleAlertDismiss(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(monitorAlertIdPayloadSchema, msg, 'monitor:error', this.deps);
     if (!parsed) return;

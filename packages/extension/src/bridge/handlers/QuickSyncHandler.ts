@@ -1,6 +1,5 @@
-import type { BaseMessage } from '@sandforge/shared';
 import { QuickSyncConfigSchema } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError, sendNotification } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -56,7 +55,7 @@ export class QuickSyncHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!QUICKSYNC_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -81,7 +80,7 @@ export class QuickSyncHandler implements DomainHandler {
    * Suggest top 5 common objects filtered by org availability.
    * Payload: { orgId, alreadySelected }
    */
-  private async handleSuggestObjects(msg: BaseMessage): Promise<void> {
+  private async handleSuggestObjects(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       quickSyncSuggestObjectsPayloadSchema,
@@ -114,7 +113,7 @@ export class QuickSyncHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'quicksync:suggest-objects', 'quicksync:error', err);
+      sendHandlerError(this.deps, 'quicksync:suggest-objects', 'quicksync:error', msg, err);
     }
   }
 
@@ -126,7 +125,7 @@ export class QuickSyncHandler implements DomainHandler {
    * the org's full object catalogue, so when it is omitted the list is derived
    * from `describeGlobal` (same createable+queryable filter as suggestions).
    */
-  private async handleDetectRelationships(msg: BaseMessage): Promise<void> {
+  private async handleDetectRelationships(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       quickSyncDetectRelationshipsPayloadSchema,
@@ -185,7 +184,7 @@ export class QuickSyncHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'quicksync:detect-relationships', 'quicksync:error', err);
+      sendHandlerError(this.deps, 'quicksync:detect-relationships', 'quicksync:error', msg, err);
     }
   }
 
@@ -193,7 +192,7 @@ export class QuickSyncHandler implements DomainHandler {
    * Compute preview (record counts, API call estimates) for selected objects.
    * Payload: { sourceOrgId, selectedObjects, parentObjects }
    */
-  private async handlePreview(msg: BaseMessage): Promise<void> {
+  private async handlePreview(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       quickSyncPreviewPayloadSchema,
@@ -229,7 +228,7 @@ export class QuickSyncHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'quicksync:preview', 'quicksync:error', err);
+      sendHandlerError(this.deps, 'quicksync:preview', 'quicksync:error', msg, err);
     }
   }
 
@@ -241,7 +240,7 @@ export class QuickSyncHandler implements DomainHandler {
    * builds a full SyncConfig with smart defaults (QSYNC-04), and delegates to
    * the existing sync execution flow.
    */
-  private async handleExecute(msg: BaseMessage): Promise<void> {
+  private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       quickSyncExecutePayloadSchema,
@@ -358,7 +357,7 @@ export class QuickSyncHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'quicksync:execute', 'quicksync:error', err);
+      sendHandlerError(this.deps, 'quicksync:execute', 'quicksync:error', msg, err);
     }
   }
 }

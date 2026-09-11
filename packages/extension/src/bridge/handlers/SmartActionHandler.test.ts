@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
 import { SmartActionHandler } from './SmartActionHandler';
 import type { HandlerDeps } from './HandlerTypes';
+import type { InboundRequest } from './HandlerTypes.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../core/connection/ConnectionHelper', () => ({
   getJsforceConnection: vi.fn().mockImplementation(() => {
@@ -47,18 +49,22 @@ describe('SmartActionHandler', () => {
   });
 
   it('should return false for unrelated message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'org:list', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'org:list',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
 
   it('should handle smart-action:analyze and return recommendation for empty org', async () => {
-    const msg: BaseMessage & { payload: Record<string, unknown> } = {
+    const msg: InboundRequest & { payload: Record<string, unknown> } = inboundRequest({
       id: 'req-1',
       type: 'smart-action:analyze',
       timestamp: Date.now(),
       payload: { targetOrgId: 'org-target-1' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -75,15 +81,15 @@ describe('SmartActionHandler', () => {
   });
 
   it('should return cached result on second call within 5 minutes', async () => {
-    const msg: BaseMessage & { payload: Record<string, unknown> } = {
+    const msg: InboundRequest & { payload: Record<string, unknown> } = inboundRequest({
       id: 'req-2',
       type: 'smart-action:analyze',
       timestamp: Date.now(),
       payload: { targetOrgId: 'org-target-1' },
-    };
+    });
 
     await handler.handle(msg);
-    await handler.handle({ ...msg, id: 'req-3' });
+    await handler.handle(inboundRequest({ ...msg, id: 'req-3' }));
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(2);
@@ -96,24 +102,24 @@ describe('SmartActionHandler', () => {
   });
 
   it('should report smart-action:analyze in SMART_ACTION_TYPES', async () => {
-    const msg: BaseMessage & { payload: Record<string, unknown> } = {
+    const msg: InboundRequest & { payload: Record<string, unknown> } = inboundRequest({
       id: 'req-4',
       type: 'smart-action:analyze',
       timestamp: Date.now(),
       payload: { targetOrgId: 'org-1' },
-    };
+    });
     const handled = await handler.handle(msg);
     expect(handled).toBe(true);
   });
 
   describe('payload validation', () => {
     it('rejects smart-action:analyze without targetOrgId (INVALID_PAYLOAD)', async () => {
-      const msg: BaseMessage & { payload: Record<string, unknown> } = {
+      const msg: InboundRequest & { payload: Record<string, unknown> } = inboundRequest({
         id: 'req-bad',
         type: 'smart-action:analyze',
         timestamp: Date.now(),
         payload: {},
-      };
+      });
       const handled = await handler.handle(msg);
       expect(handled).toBe(true);
 

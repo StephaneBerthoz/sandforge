@@ -1,5 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -36,7 +35,7 @@ export class ConfigHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!CONFIG_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -57,7 +56,7 @@ export class ConfigHandler implements DomainHandler {
     }
   }
 
-  private handleExport(msg: BaseMessage): void {
+  private handleExport(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(configExportPayloadSchema, msg, 'config:error', this.deps);
     if (!parsed) return;
@@ -76,20 +75,11 @@ export class ConfigHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:export:response (${result.entriesExported} entries)`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'config:export',
-        'config:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'config:export', 'config:error', msg, err);
     }
   }
 
-  private handleImport(msg: BaseMessage): void {
+  private handleImport(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(configImportPayloadSchema, msg, 'config:error', this.deps);
     if (!parsed) return;
@@ -108,20 +98,11 @@ export class ConfigHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:import:response (${result.entriesImported} entries)`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'config:import',
-        'config:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'config:import', 'config:error', msg, err);
     }
   }
 
-  private handleCategories(msg: BaseMessage): void {
+  private handleCategories(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
 
     try {
@@ -133,20 +114,11 @@ export class ConfigHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:categories:response`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'config:categories',
-        'config:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'config:categories', 'config:error', msg, err);
     }
   }
 
-  private handleValidate(msg: BaseMessage): void {
+  private handleValidate(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(configValidatePayloadSchema, msg, 'config:error', this.deps);
     if (!parsed) return;
@@ -163,16 +135,7 @@ export class ConfigHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] config:validate:response`);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'config:validate',
-        'config:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'config:validate', 'config:error', msg, err);
     }
   }
 }

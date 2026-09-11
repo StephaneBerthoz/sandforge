@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OrgHandler } from './OrgHandler';
 import type { HandlerDeps } from './HandlerTypes';
-import type { BaseMessage, UUID } from '@sandforge/shared';
+import type { UUID } from '@sandforge/shared';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper';
+import type { InboundRequest } from './HandlerTypes.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 function createMockDeps(): HandlerDeps {
   return {
@@ -28,8 +30,8 @@ function createMockDeps(): HandlerDeps {
 function createMsg(
   type: string,
   payload: Record<string, unknown> = {},
-): BaseMessage & { payload: Record<string, unknown> } {
-  return { id: 'req-99', type, timestamp: Date.now(), payload };
+): InboundRequest & { payload: Record<string, unknown> } {
+  return inboundRequest({ id: 'req-99', type, timestamp: Date.now(), payload });
 }
 
 describe('OrgHandler', () => {
@@ -82,7 +84,9 @@ describe('OrgHandler', () => {
   });
 
   it('org:select without the callback still broadcasts (no crash on partial deps)', async () => {
-    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ id: 'org-1' });
+    (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+      id: 'org-1',
+    });
 
     const result = await handler.handle(createMsg('org:select', { orgId: 'org-1' }));
     expect(result).toBe(true);

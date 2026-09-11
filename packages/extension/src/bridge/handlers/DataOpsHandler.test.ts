@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DataOpsHandler } from './DataOpsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /**
  * Creates minimal mock deps for DataOpsHandler tests.
@@ -35,25 +36,31 @@ describe('DataOpsHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
 
   it('returns true for handled message types and response includes correlationId', async () => {
-    const msg: BaseMessage & { payload: Record<string, unknown> } = {
+    const msg: InboundRequest & { payload: Record<string, unknown> } = inboundRequest({
       id: 'req-dataops-1',
       type: 'dataops:anonymization-templates',
       timestamp: Date.now(),
       payload: {},
-    };
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(true);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+    };
     expect(response.type).toBe('dataops:anonymization-templates:response');
     expect(response.correlationId).toBe('req-dataops-1');
   });
@@ -83,12 +90,13 @@ describe('DataOpsHandler', () => {
 
       const makeMsg = (
         id: string,
-      ): BaseMessage & { payload: { orgId: string; objects: string[] } } => ({
-        id,
-        type: 'dataops:backup',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-123', objects: ['Account'] },
-      });
+      ): InboundRequest & { payload: { orgId: string; objects: string[] } } =>
+        inboundRequest({
+          id,
+          type: 'dataops:backup',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-123', objects: ['Account'] },
+        });
 
       // Start first backup (will hang on connection)
       const first = handler.handle(makeMsg('1'));
@@ -118,12 +126,13 @@ describe('DataOpsHandler', () => {
       const makeMsg = (
         orgId: string,
         id: string,
-      ): BaseMessage & { payload: { orgId: string; objects: string[] } } => ({
-        id,
-        type: 'dataops:backup',
-        timestamp: Date.now(),
-        payload: { orgId, objects: ['Account'] },
-      });
+      ): InboundRequest & { payload: { orgId: string; objects: string[] } } =>
+        inboundRequest({
+          id,
+          type: 'dataops:backup',
+          timestamp: Date.now(),
+          payload: { orgId, objects: ['Account'] },
+        });
 
       // Both should proceed without blocking (distinct message ids, like the real webview)
       await Promise.all([
@@ -147,12 +156,13 @@ describe('DataOpsHandler', () => {
 
       const makeMsg = (
         id: string,
-      ): BaseMessage & { payload: { orgId: string; objects: string[] } } => ({
-        id,
-        type: 'dataops:backup',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-123', objects: ['Account'] },
-      });
+      ): InboundRequest & { payload: { orgId: string; objects: string[] } } =>
+        inboundRequest({
+          id,
+          type: 'dataops:backup',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-123', objects: ['Account'] },
+        });
 
       // First backup fails
       await handler.handle(makeMsg('msg-1'));
@@ -190,12 +200,14 @@ describe('DataOpsHandler', () => {
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockRejectedValue(new Error('connection failed'));
 
-      const msg: BaseMessage & { payload: { orgId: string; objects: string[] } } = {
+      const msg: InboundRequest & {
+        payload: { orgId: string; objects: string[] };
+      } = inboundRequest({
         id: 'msg-b1',
         type: 'dataops:backup',
         timestamp: Date.now(),
         payload: { orgId: 'org-123', objects: ['Account'] },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -223,14 +235,18 @@ describe('DataOpsHandler', () => {
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
 
-      const msg: BaseMessage & {
+      const msg: InboundRequest & {
         payload: { orgId: string; templateId: string; objects: string[] };
-      } = {
+      } = inboundRequest({
         id: 'msg-a1',
         type: 'dataops:anonymize',
         timestamp: Date.now(),
-        payload: { orgId: 'org-123', templateId: 'tmpl-1', objects: ['Account'] },
-      };
+        payload: {
+          orgId: 'org-123',
+          templateId: 'tmpl-1',
+          objects: ['Account'],
+        },
+      });
 
       await handler.handle(msg);
 
@@ -246,12 +262,12 @@ describe('DataOpsHandler', () => {
 
   describe('payload validation', () => {
     it('rejects dataops:backup with injection-shaped object names', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-backup',
         type: 'dataops:backup',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', objects: ['Account; DROP TABLE'] },
-      } as BaseMessage;
+      } as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -266,32 +282,36 @@ describe('DataOpsHandler', () => {
     });
 
     it('rejects dataops:rollback without operationId', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-rollback',
         type: 'dataops:rollback',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      } as BaseMessage;
+      } as BaseMessage);
 
       await handler.handle(msg);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        payload: { code: string };
+      };
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
 
     it('rejects precheck:pii-scan with empty object list', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-pii',
         type: 'precheck:pii-scan',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', objectNames: [] },
-      } as BaseMessage;
+      } as BaseMessage);
 
       await handler.handle(msg);
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        payload: { code: string };
+      };
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
   });
@@ -378,12 +398,14 @@ describe('DataOpsHandler', () => {
           key === 'backup.maxCount' ? 2 : fallback,
       } as unknown as HandlerDeps['services'];
 
-      const msg: BaseMessage & { payload: { orgId: string; objects: string[] } } = {
+      const msg: InboundRequest & {
+        payload: { orgId: string; objects: string[] };
+      } = inboundRequest({
         id: 'new-backup',
         type: 'dataops:backup',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', objects: ['Account'] },
-      };
+      });
       await handler.handle(msg);
 
       // maxCount=2: oldest org-1 backup (old-1) pruned with its record payload;
@@ -476,9 +498,10 @@ describe('DataOpsHandler', () => {
     };
 
     /** Wires a connection whose describe/upsert are observable. */
-    async function mockConnection(
-      describe: Record<string, unknown> = accountDescribe,
-    ): Promise<{ upsert: ReturnType<typeof vi.fn>; describe: ReturnType<typeof vi.fn> }> {
+    async function mockConnection(describe: Record<string, unknown> = accountDescribe): Promise<{
+      upsert: ReturnType<typeof vi.fn>;
+      describe: ReturnType<typeof vi.fn>;
+    }> {
       const upsert = vi.fn().mockResolvedValue([{ success: true, id: '001000000000001' }]);
       const describeFn = vi.fn().mockResolvedValue(describe);
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
@@ -515,13 +538,13 @@ describe('DataOpsHandler', () => {
     }
 
     /** Rollback message targeting `orgId` with the stored backup. */
-    function rollbackMsg(orgId: string, id = 'msg-rb'): BaseMessage {
-      return {
+    function rollbackMsg(orgId: string, id = 'msg-rb'): InboundRequest {
+      return inboundRequest({
         id,
         type: 'dataops:rollback',
         timestamp: Date.now(),
         payload: { orgId, operationId: 'bk-1' },
-      } as BaseMessage;
+      } as BaseMessage);
     }
 
     /** All messages posted to the webview. */
@@ -565,7 +588,11 @@ describe('DataOpsHandler', () => {
 
       expect(upsert).not.toHaveBeenCalled();
       expect(check).toHaveBeenCalledWith(
-        expect.objectContaining({ orgTier: 'production', operation: 'upsert', module: 'dataops' }),
+        expect.objectContaining({
+          orgTier: 'production',
+          operation: 'upsert',
+          module: 'dataops',
+        }),
       );
       expect(logOperation).toHaveBeenCalledTimes(1);
       const errors = posted().filter((m) => m.type === 'dataops:error');
@@ -646,8 +673,14 @@ describe('DataOpsHandler', () => {
         const { upsert } = await mockConnection();
         upsert.mockResolvedValue([
           { success: true, id: '001000000000001' },
-          { success: false, errors: [{ message: 'REQUIRED_FIELD_MISSING: [Industry]' }] },
-          { success: false, errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Rating' }] },
+          {
+            success: false,
+            errors: [{ message: 'REQUIRED_FIELD_MISSING: [Industry]' }],
+          },
+          {
+            success: false,
+            errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Rating' }],
+          },
         ]);
         deps.configStore = configStoreWithBackup('org-1', threeRecords);
         await handler.handle(rollbackMsg('org-1'));
@@ -673,8 +706,14 @@ describe('DataOpsHandler', () => {
         await mixedRestore();
 
         expect(rollbackPayload()?.errors).toEqual([
-          { objectApiName: 'Account', message: 'REQUIRED_FIELD_MISSING: [Industry]' },
-          { objectApiName: 'Account', message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Rating' },
+          {
+            objectApiName: 'Account',
+            message: 'REQUIRED_FIELD_MISSING: [Industry]',
+          },
+          {
+            objectApiName: 'Account',
+            message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Rating',
+          },
         ]);
       });
 
@@ -752,7 +791,11 @@ describe('DataOpsHandler', () => {
         return { records, done: true };
       });
       const describe = vi.fn().mockResolvedValue({ fields: fields.map((name) => ({ name })) });
-      return { query, describe, sobject: vi.fn(() => ({ update: vi.fn(), upsert: vi.fn() })) };
+      return {
+        query,
+        describe,
+        sobject: vi.fn(() => ({ update: vi.fn(), upsert: vi.fn() })),
+      };
     }
 
     /** All messages posted to the webview. */
@@ -782,12 +825,14 @@ describe('DataOpsHandler', () => {
         getKeysByPrefix: vi.fn(() => []),
       } as unknown as HandlerDeps['configStore'];
 
-      await handler.handle({
-        id: 'bk-query',
-        type: 'dataops:backup',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1', objects: ['Account'] },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'bk-query',
+          type: 'dataops:backup',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
 
       // One describe + one query per object: no rejected first attempt.
       expect(conn.query).toHaveBeenCalledTimes(1);
@@ -806,12 +851,18 @@ describe('DataOpsHandler', () => {
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockResolvedValue(conn as never);
 
-      await handler.handle({
-        id: 'an-query',
-        type: 'dataops:anonymize',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'an-query',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: {
+            orgId: 'org-1',
+            templateId: 'tpl-gdpr-standard',
+            objects: ['Contact'],
+          },
+        } as BaseMessage),
+      );
 
       expect(conn.query).toHaveBeenCalledTimes(1);
       expect(conn.query.mock.calls[0][0]).toBe(
@@ -837,7 +888,13 @@ describe('DataOpsHandler', () => {
       deletable: true,
       queryable: true,
       fields: [
-        { name: 'Id', label: 'Id', type: 'id', createable: false, updateable: false },
+        {
+          name: 'Id',
+          label: 'Id',
+          type: 'id',
+          createable: false,
+          updateable: false,
+        },
         {
           name: 'FirstName',
           label: 'First Name',
@@ -865,7 +922,10 @@ describe('DataOpsHandler', () => {
     async function mixedAnonymize(): Promise<void> {
       const update = vi.fn().mockResolvedValue([
         { success: true, id: '003000000000001' },
-        { success: false, errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Locked' }] },
+        {
+          success: false,
+          errors: [{ message: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Locked' }],
+        },
       ]);
       const query = vi.fn(async () => ({
         records: [
@@ -880,14 +940,22 @@ describe('DataOpsHandler', () => {
         describe: vi.fn().mockResolvedValue(contactDescribe),
         sobject: vi.fn(() => ({ update })),
       } as never);
-      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType: 'Sandbox' });
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType: 'Sandbox',
+      });
 
-      await handler.handle({
-        id: 'an-partial',
-        type: 'dataops:anonymize',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1', templateId: 'tpl-gdpr-standard', objects: ['Contact'] },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'an-partial',
+          type: 'dataops:anonymize',
+          timestamp: Date.now(),
+          payload: {
+            orgId: 'org-1',
+            templateId: 'tpl-gdpr-standard',
+            objects: ['Contact'],
+          },
+        } as BaseMessage),
+      );
     }
 
     it('counts the records the org refused to mask', async () => {
@@ -915,8 +983,10 @@ describe('DataOpsHandler', () => {
 
   describe('dataops:error correlation', () => {
     /**
-     * `sendHandlerError` stamps `correlationId` only when it is handed the
-     * request. `useMessageResponse` drops a response whose correlationId does
+     * `sendHandlerError` used to stamp `correlationId` only when handed the
+     * request, as an optional 8th argument; its origin is now required, so
+     * these tests pin the behaviour rather than a call-site habit.
+     * `useMessageResponse` drops a response whose correlationId does
      * not match its own request — but accepts one carrying none, so an
      * uncorrelated `dataops:error` settled whichever dataops mutation was in
      * flight: a failed `backup:export` closed a running restore with the wrong
@@ -932,12 +1002,14 @@ describe('DataOpsHandler', () => {
       const { getJsforceConnection } = await import('../../core/connection/ConnectionHelper.js');
       vi.mocked(getJsforceConnection).mockRejectedValue(new Error('connection failed'));
 
-      await handler.handle({
-        id: 'backup-req',
-        type: 'dataops:backup',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1', objects: ['Account'] },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'backup-req',
+          type: 'dataops:backup',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', objects: ['Account'] },
+        } as BaseMessage),
+      );
 
       expect(errors()).toHaveLength(1);
       expect(errors()[0].correlationId).toBe('backup-req');
@@ -950,12 +1022,14 @@ describe('DataOpsHandler', () => {
         getKeysByPrefix: vi.fn(() => []),
       } as unknown as HandlerDeps['configStore'];
 
-      await handler.handle({
-        id: 'export-req',
-        type: 'backup:export',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1', operationId: 'missing-op' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'export-req',
+          type: 'backup:export',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', operationId: 'missing-op' },
+        } as BaseMessage),
+      );
 
       expect(errors()).toHaveLength(1);
       // The restore started under `restore-req` keeps running: this error is
@@ -973,19 +1047,26 @@ describe('DataOpsHandler', () => {
       deps.configStore = {
         get: vi.fn((key: string) =>
           key === 'backup:bk-1'
-            ? { operationId: 'bk-1', orgId: 'org-OTHER', objects: [], totalRecords: 0 }
+            ? {
+                operationId: 'bk-1',
+                orgId: 'org-OTHER',
+                objects: [],
+                totalRecords: 0,
+              }
             : undefined,
         ),
         set: vi.fn(),
         getKeysByPrefix: vi.fn(() => []),
       } as unknown as HandlerDeps['configStore'];
 
-      await handler.handle({
-        id: 'restore-req',
-        type: 'dataops:rollback',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1', operationId: 'bk-1' },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'restore-req',
+          type: 'dataops:rollback',
+          timestamp: Date.now(),
+          payload: { orgId: 'org-1', operationId: 'bk-1' },
+        } as BaseMessage),
+      );
 
       expect(errors()).toHaveLength(1);
       expect(errors()[0].correlationId).toBe('restore-req');

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyncScheduleHandler } from './SyncScheduleHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, SyncExecutionResult } from '@sandforge/shared';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /** Fixed reference instant for every test (a Friday). */
 const FIXED_NOW_ISO = '2026-03-27T12:00:00.000Z';
@@ -79,13 +80,13 @@ function seedSyncConfig(deps: { store: Map<string, string> }, id = 'cfg-1'): voi
   );
 }
 
-function upsertMessage(id = 'sched-1', overrides?: Record<string, unknown>): BaseMessage {
-  return {
+function upsertMessage(id = 'sched-1', overrides?: Record<string, unknown>): InboundRequest {
+  return inboundRequest({
     id: `req-upsert-${id}`,
     type: 'sync:schedule:upsert',
     timestamp: Date.now(),
     payload: { schedule: { ...validSchedule(id), ...overrides } },
-  } as BaseMessage;
+  } as BaseMessage);
 }
 
 function successResult(): SyncExecutionResult {
@@ -132,7 +133,11 @@ describe('SyncScheduleHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     expect(await handler.handle(msg)).toBe(false);
   });
 
@@ -145,7 +150,13 @@ describe('SyncScheduleHandler', () => {
     const schedule = (upsertResp!.payload as { schedule: { nextRunAt?: string } }).schedule;
     expect(schedule.nextRunAt).toBeTruthy();
 
-    await handler.handle({ id: 'req-list', type: 'sync:schedule:list', timestamp: Date.now() });
+    await handler.handle(
+      inboundRequest({
+        id: 'req-list',
+        type: 'sync:schedule:list',
+        timestamp: Date.now(),
+      }),
+    );
     const listResp = deps.posted.find((m) => m.type === 'sync:schedule:list:response');
     expect(
       (listResp!.payload as { schedules: Array<{ id: string }> }).schedules.map((s) => s.id),
@@ -153,12 +164,12 @@ describe('SyncScheduleHandler', () => {
   });
 
   it('rejects an invalid upsert payload on sync:schedule:error', async () => {
-    const msg = {
+    const msg = inboundRequest({
       id: 'req-bad',
       type: 'sync:schedule:upsert',
       timestamp: Date.now(),
       payload: { schedule: { id: 'x' } },
-    } as BaseMessage;
+    } as BaseMessage);
     await handler.handle(msg);
     expect(deps.posted.some((m) => m.type === 'sync:schedule:error')).toBe(true);
   });

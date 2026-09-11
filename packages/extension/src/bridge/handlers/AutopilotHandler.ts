@@ -1,12 +1,11 @@
 import type {
-  BaseMessage,
   AutopilotGraph,
   ExecutionPlan,
   ComplianceProfile,
   AutopilotAnonymizationRule,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -99,7 +98,7 @@ export class AutopilotHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!AUTOPILOT_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -148,7 +147,7 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
-  private async handleScanSchema(msg: BaseMessage): Promise<void> {
+  private async handleScanSchema(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
@@ -195,7 +194,7 @@ export class AutopilotHandler implements DomainHandler {
       if (this.currentOperationId === msg.id) {
         this.currentOperationId = previousCurrentId;
       }
-      sendHandlerError(this.deps, 'autopilot:scan-schema', 'autopilot:error', err);
+      sendHandlerError(this.deps, 'autopilot:scan-schema', 'autopilot:error', msg, err);
       sendNotification(
         this.deps,
         'error',
@@ -205,7 +204,7 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
-  private async handleGeneratePlan(msg: BaseMessage): Promise<void> {
+  private async handleGeneratePlan(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
@@ -246,7 +245,7 @@ export class AutopilotHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'autopilot:generate-plan', 'autopilot:error', err);
+      sendHandlerError(this.deps, 'autopilot:generate-plan', 'autopilot:error', msg, err);
       sendNotification(
         this.deps,
         'error',
@@ -256,7 +255,7 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
-  private async handleExecute(msg: BaseMessage): Promise<void> {
+  private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
@@ -306,7 +305,13 @@ export class AutopilotHandler implements DomainHandler {
       guard.logOperation(guardRequest, check);
       if (!check.allowed) {
         const message = `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`;
-        sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', new Error(message));
+        sendHandlerError(
+          this.deps,
+          'autopilot:execute',
+          'autopilot:error',
+          msg,
+          new Error(message),
+        );
         sendNotification(this.deps, 'error', 'Autopilot', message);
         return;
       }
@@ -315,7 +320,13 @@ export class AutopilotHandler implements DomainHandler {
       const confirmed = await guard.confirmIfNeeded(check);
       if (!confirmed) {
         const message = 'Operation cancelled by user (production confirmation declined).';
-        sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', new Error(message));
+        sendHandlerError(
+          this.deps,
+          'autopilot:execute',
+          'autopilot:error',
+          msg,
+          new Error(message),
+        );
         sendNotification(this.deps, 'error', 'Autopilot', message);
         return;
       }
@@ -379,7 +390,7 @@ export class AutopilotHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', err);
+      sendHandlerError(this.deps, 'autopilot:execute', 'autopilot:error', msg, err);
       sendNotification(
         this.deps,
         'error',
@@ -401,7 +412,7 @@ export class AutopilotHandler implements DomainHandler {
    * @param extra - Optional extra fields (recordCount, failureCount, error).
    */
   private sendNodeProgress(
-    requestMsg: BaseMessage,
+    requestMsg: InboundRequest,
     objectName: string,
     status: 'processing' | 'completed' | 'failed',
     wave: number,
@@ -422,7 +433,7 @@ export class AutopilotHandler implements DomainHandler {
     return this.executingOperations.size > 0;
   }
 
-  private handlePause(msg: BaseMessage): void {
+  private handlePause(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
@@ -436,7 +447,7 @@ export class AutopilotHandler implements DomainHandler {
       this.orchestrator.pause();
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution paused.');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'autopilot:pause', 'autopilot:error', err);
+      sendHandlerError(this.deps, 'autopilot:pause', 'autopilot:error', msg, err);
       sendNotification(
         this.deps,
         'error',
@@ -446,7 +457,7 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
-  private handleResume(msg: BaseMessage): void {
+  private handleResume(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
@@ -460,7 +471,7 @@ export class AutopilotHandler implements DomainHandler {
       this.orchestrator.resume();
       sendNotification(this.deps, 'info', 'Autopilot', 'Execution resumed.');
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'autopilot:resume', 'autopilot:error', err);
+      sendHandlerError(this.deps, 'autopilot:resume', 'autopilot:error', msg, err);
       sendNotification(
         this.deps,
         'error',
@@ -470,7 +481,7 @@ export class AutopilotHandler implements DomainHandler {
     }
   }
 
-  private handleSkipNode(msg: BaseMessage): void {
+  private handleSkipNode(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
@@ -492,12 +503,12 @@ export class AutopilotHandler implements DomainHandler {
       this.orchestrator.skip(payload.objectApiName);
       sendNotification(this.deps, 'info', 'Autopilot', `Skipped node: ${payload.objectApiName}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'autopilot:skip-node', 'autopilot:error', err);
+      sendHandlerError(this.deps, 'autopilot:skip-node', 'autopilot:error', msg, err);
       sendNotification(this.deps, 'error', 'Autopilot', `Skip failed: ${extractErrorMessage(err)}`);
     }
   }
 
-  private handleComplianceReport(msg: BaseMessage): void {
+  private handleComplianceReport(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (!this.orchestrator) {
       sendNotification(this.deps, 'error', 'Autopilot', 'Autopilot module is not initialized.');
@@ -525,7 +536,7 @@ export class AutopilotHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'autopilot:compliance-report', { report });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'autopilot:compliance-report', 'autopilot:error', err);
+      sendHandlerError(this.deps, 'autopilot:compliance-report', 'autopilot:error', msg, err);
       sendNotification(
         this.deps,
         'error',

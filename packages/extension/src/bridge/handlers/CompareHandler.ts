@@ -1,6 +1,5 @@
-import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, SF_API_VERSION } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -40,7 +39,7 @@ export class CompareHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!COMPARE_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -62,7 +61,7 @@ export class CompareHandler implements DomainHandler {
     }
   }
 
-  private async handleCompareStart(msg: BaseMessage): Promise<void> {
+  private async handleCompareStart(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(compareExecutePayloadSchema, msg, 'compare:error', this.deps);
     if (!parsed) return;
@@ -185,7 +184,7 @@ export class CompareHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'compare:execute', 'compare:error', err);
+      sendHandlerError(this.deps, 'compare:execute', 'compare:error', msg, err);
     }
   }
 
@@ -193,7 +192,7 @@ export class CompareHandler implements DomainHandler {
    * Handle compare:permissions -- query permission sets and profiles from both orgs,
    * compare field-level and object-level permissions, and return a diff.
    */
-  private async handlePermissions(msg: BaseMessage): Promise<void> {
+  private async handlePermissions(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(compareOrgsPayloadSchema, msg, 'compare:error', this.deps);
     if (!parsed) return;
@@ -282,7 +281,7 @@ export class CompareHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'compare:permissions', 'compare:error', err);
+      sendHandlerError(this.deps, 'compare:permissions', 'compare:error', msg, err);
     }
   }
 
@@ -290,7 +289,7 @@ export class CompareHandler implements DomainHandler {
    * Handle compare:snapshots -- capture org metadata snapshots via describeGlobal
    * and compare object counts, custom objects, and fields between orgs.
    */
-  private async handleSnapshots(msg: BaseMessage): Promise<void> {
+  private async handleSnapshots(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(compareOrgsPayloadSchema, msg, 'compare:error', this.deps);
     if (!parsed) return;
@@ -372,7 +371,7 @@ export class CompareHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'compare:snapshots', 'compare:error', err);
+      sendHandlerError(this.deps, 'compare:snapshots', 'compare:error', msg, err);
     }
   }
 
@@ -380,7 +379,7 @@ export class CompareHandler implements DomainHandler {
    * Handle compare:drift -- detect configuration drift between two orgs by comparing
    * key org settings (CompanyInfo, SecuritySettings, OrgPreference).
    */
-  private async handleDrift(msg: BaseMessage): Promise<void> {
+  private async handleDrift(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(compareOrgsPayloadSchema, msg, 'compare:error', this.deps);
     if (!parsed) return;
@@ -483,7 +482,7 @@ export class CompareHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'compare:drift', 'compare:error', err);
+      sendHandlerError(this.deps, 'compare:drift', 'compare:error', msg, err);
     }
   }
 }

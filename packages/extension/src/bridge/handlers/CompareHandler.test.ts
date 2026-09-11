@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CompareHandler } from './CompareHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -28,6 +28,7 @@ vi.mock('../../modules/compare/CompareOrchestrator.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -69,7 +70,11 @@ describe('CompareHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
@@ -82,14 +87,14 @@ describe('CompareHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & {
+    const msg: InboundRequest & {
       payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
-    } = {
+    } = inboundRequest({
       id: 'req-cmp-1',
       type: 'compare:execute',
       timestamp: Date.now(),
       payload: { sourceOrgId: 'src', targetOrgId: 'tgt', types: ['ApexClass'] },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -97,7 +102,9 @@ describe('CompareHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+    };
     expect(response.type).toBe('compare:execute:response');
     expect(response.correlationId).toBe('req-cmp-1');
   });
@@ -110,20 +117,22 @@ describe('CompareHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & {
+    const msg: InboundRequest & {
       payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
-    } = {
+    } = inboundRequest({
       id: 'req-cmp-legacy',
       type: 'compare:start',
       timestamp: Date.now(),
       payload: { sourceOrgId: 'src', targetOrgId: 'tgt', types: ['ApexClass'] },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+    };
     expect(response.type).toBe('compare:execute:response');
     expect(response.correlationId).toBe('req-cmp-legacy');
   });
@@ -131,14 +140,14 @@ describe('CompareHandler', () => {
   it('error path sends typed error response', async () => {
     mockGetConn.mockRejectedValue(new Error('connection failed'));
 
-    const msg: BaseMessage & {
+    const msg: InboundRequest & {
       payload: { sourceOrgId: string; targetOrgId: string; types: string[] };
-    } = {
+    } = inboundRequest({
       id: 'req-cmp-err',
       type: 'compare:execute',
       timestamp: Date.now(),
       payload: { sourceOrgId: 'src', targetOrgId: 'tgt', types: ['ApexClass'] },
-    };
+    });
 
     await handler.handle(msg);
 
@@ -158,12 +167,14 @@ describe('CompareHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } } = {
+    const msg: InboundRequest & {
+      payload: { sourceOrgId: string; targetOrgId: string };
+    } = inboundRequest({
       id: 'req-cmp-perm',
       type: 'compare:permissions',
       timestamp: Date.now(),
       payload: { sourceOrgId: 'src', targetOrgId: 'tgt' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -185,18 +196,25 @@ describe('CompareHandler', () => {
       describeGlobal: vi.fn().mockResolvedValue({
         sobjects: [
           { name: 'Account', custom: false, label: 'Account', queryable: true },
-          { name: 'My_Custom__c', custom: true, label: 'My Custom', queryable: true },
+          {
+            name: 'My_Custom__c',
+            custom: true,
+            label: 'My Custom',
+            queryable: true,
+          },
         ],
       }),
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } } = {
+    const msg: InboundRequest & {
+      payload: { sourceOrgId: string; targetOrgId: string };
+    } = inboundRequest({
       id: 'req-cmp-snap',
       type: 'compare:snapshots',
       timestamp: Date.now(),
       payload: { sourceOrgId: 'src', targetOrgId: 'tgt' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -239,12 +257,14 @@ describe('CompareHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } } = {
+    const msg: InboundRequest & {
+      payload: { sourceOrgId: string; targetOrgId: string };
+    } = inboundRequest({
       id: 'req-cmp-drift',
       type: 'compare:drift',
       timestamp: Date.now(),
       payload: { sourceOrgId: 'src', targetOrgId: 'tgt' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -254,7 +274,9 @@ describe('CompareHandler', () => {
 
     const response = postToWebview.mock.calls[0][0] as BaseMessage & {
       correlationId?: string;
-      payload: { drift: { items: unknown[]; driftCount: number; matchCount: number } };
+      payload: {
+        drift: { items: unknown[]; driftCount: number; matchCount: number };
+      };
     };
     expect(response.type).toBe('compare:drift:response');
     expect(response.correlationId).toBe('req-cmp-drift');
@@ -266,12 +288,14 @@ describe('CompareHandler', () => {
   it('compare:permissions error path sends typed error', async () => {
     mockGetConn.mockRejectedValue(new Error('perm connection failed'));
 
-    const msg: BaseMessage & { payload: { sourceOrgId: string; targetOrgId: string } } = {
+    const msg: InboundRequest & {
+      payload: { sourceOrgId: string; targetOrgId: string };
+    } = inboundRequest({
       id: 'req-cmp-perm-err',
       type: 'compare:permissions',
       timestamp: Date.now(),
       payload: { sourceOrgId: 'src', targetOrgId: 'tgt' },
-    };
+    });
 
     await handler.handle(msg);
 
@@ -287,12 +311,12 @@ describe('CompareHandler', () => {
 
   describe('payload validation', () => {
     it('rejects compare:execute with empty types array', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-cmp',
         type: 'compare:execute',
         timestamp: Date.now(),
         payload: { sourceOrgId: 'a', targetOrgId: 'b', types: [] },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -308,18 +332,20 @@ describe('CompareHandler', () => {
     });
 
     it('rejects compare:permissions without targetOrgId', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-perm',
         type: 'compare:permissions',
         timestamp: Date.now(),
         payload: { sourceOrgId: 'a' },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       await handler.handle(msg);
       expect(mockGetConn).not.toHaveBeenCalled();
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        payload: { code: string };
+      };
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
   });

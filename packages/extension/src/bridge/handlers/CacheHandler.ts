@@ -1,5 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 import { CacheManager } from '../../core/cache/CacheManager.js';
 
@@ -21,7 +20,7 @@ export class CacheHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!CACHE_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -37,7 +36,7 @@ export class CacheHandler implements DomainHandler {
   }
 
   /** Invalidate all registered caches. */
-  private handleInvalidateAll(msg: BaseMessage): void {
+  private handleInvalidateAll(msg: InboundRequest): void {
     const manager = CacheManager.getInstance();
     manager.invalidateAll();
     this.deps.log('[CacheHandler] Invalidated all caches');
@@ -49,7 +48,7 @@ export class CacheHandler implements DomainHandler {
   }
 
   /** Return cache statistics. */
-  private handleGetStats(msg: BaseMessage): void {
+  private handleGetStats(msg: InboundRequest): void {
     const manager = CacheManager.getInstance();
     const stats = manager.getStats();
     this.deps.broker.postToWebview(

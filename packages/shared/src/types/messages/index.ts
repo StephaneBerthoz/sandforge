@@ -359,7 +359,6 @@ import type {
   GrappeStarted,
   GrappePartitionProgress,
   GrappeCompleted,
-  ExecutionProgressMessage,
   ExecutionRetryStatusMessage,
   ExecutionManualRetryRequest,
   ExecutionAbortRequest,
@@ -812,7 +811,6 @@ export type ExtensionToWebViewMessage =
   | GrappeStarted
   | GrappePartitionProgress
   | GrappeCompleted
-  | ExecutionProgressMessage
   | ExecutionRetryStatusMessage
   | ExecutionAbortResponse
   | ExecutionStatusResponse

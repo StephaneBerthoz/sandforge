@@ -1,8 +1,6 @@
-import type { BaseMessage } from '@sandforge/shared';
-
 import { SaveDialogAdapter } from '../../adapters/fs/SaveDialogAdapter.js';
 import { fileSavePayloadSchema } from '../validatePayload.js';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 
 /** Message types handled by FileHandler. */
@@ -37,13 +35,13 @@ export class FileHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!FILE_TYPES.has(msg.type)) return false;
     await this.handleSave(msg);
     return true;
   }
 
-  private async handleSave(msg: BaseMessage): Promise<void> {
+  private async handleSave(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     // NOT `validatePayload`: its 3rd argument is the ERROR channel, and this
     // handler passed it `file:save:response` — the SUCCESS channel. A refused

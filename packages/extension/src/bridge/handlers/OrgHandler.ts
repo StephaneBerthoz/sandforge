@@ -1,6 +1,6 @@
-import type { BaseMessage, SalesforceOrg, OrgConnectRequest, UUID } from '@sandforge/shared';
+import type { SalesforceOrg, OrgConnectRequest, UUID } from '@sandforge/shared';
 import { OrgSafetyTier, SF_LIMITS } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendNotification, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -30,7 +30,7 @@ export class OrgHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!ORG_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -51,7 +51,7 @@ export class OrgHandler implements DomainHandler {
     }
   }
 
-  private handleOrgList(msg: BaseMessage): void {
+  private handleOrgList(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const orgs = this.deps.orgManager.getAllOrgs();
     const response = buildResponse(this.deps, msg, 'org:list:response', {
@@ -61,7 +61,7 @@ export class OrgHandler implements DomainHandler {
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
 
-  private async handleOrgConnect(msg: BaseMessage): Promise<void> {
+  private async handleOrgConnect(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(orgConnectPayloadSchema, msg, 'org:error', this.deps);
     if (!parsed) return;
@@ -100,21 +100,15 @@ export class OrgHandler implements DomainHandler {
    * is not an answer, because `useMessageResponse` correlates on the request
    * id and ignores anything else.
    */
-  private failConnect(request: BaseMessage, message: string, code: string): void {
-    sendHandlerError(
-      this.deps,
-      'org:connect',
-      'org:error',
-      new Error(message),
+  private failConnect(request: InboundRequest, message: string, code: string): void {
+    sendHandlerError(this.deps, 'org:connect', 'org:error', request, new Error(message), {
       code,
-      false,
-      undefined,
-      request,
-    );
+      retryable: false,
+    });
   }
 
   /** Terminate an `org:connect` round trip on the success channel. */
-  private ackConnect(request: BaseMessage, orgId: string): void {
+  private ackConnect(request: InboundRequest, orgId: string): void {
     const statusMsg = buildResponse(this.deps, request, 'org:statusChanged', {
       orgId,
       status: 'connected',
@@ -123,7 +117,7 @@ export class OrgHandler implements DomainHandler {
     this.deps.log(`[TX] ${statusMsg.type} id=${statusMsg.id}`);
   }
 
-  private async handleSfdxImport(msg: BaseMessage): Promise<void> {
+  private async handleSfdxImport(msg: InboundRequest): Promise<void> {
     try {
       const available = await this.deps.sfdxBridge.isCliAvailable();
       if (!available) {
@@ -178,7 +172,7 @@ export class OrgHandler implements DomainHandler {
   }
 
   private async handleUsernamePassword(
-    msg: BaseMessage,
+    msg: InboundRequest,
     payload: OrgConnectRequest['payload'],
   ): Promise<void> {
     if (!payload.username || !payload.password) {
@@ -294,7 +288,7 @@ export class OrgHandler implements DomainHandler {
   }
 
   private async handleOAuthWeb(
-    msg: BaseMessage,
+    msg: InboundRequest,
     payload: OrgConnectRequest['payload'],
   ): Promise<void> {
     try {
@@ -345,7 +339,7 @@ export class OrgHandler implements DomainHandler {
     }
   }
 
-  private async handleOrgDisconnect(msg: BaseMessage): Promise<void> {
+  private async handleOrgDisconnect(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(orgDisconnectPayloadSchema, msg, 'org:error', this.deps);
     if (!parsed) return;
@@ -377,7 +371,7 @@ export class OrgHandler implements DomainHandler {
    * updates the status bar, and `org:selected` is broadcast so every webview
    * (sidebar included) syncs its store.
    */
-  private handleOrgSelect(msg: BaseMessage): void {
+  private handleOrgSelect(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(orgSelectPayloadSchema, msg, 'org:error', this.deps);
     if (!parsed) return;

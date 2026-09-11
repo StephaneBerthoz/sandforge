@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
 import { AIDiagnoseAdapter } from './AIDiagnoseAdapter.js';
 import type { AIDiagnoseHandler } from './AIDiagnoseHandler.js';
-import type { HandlerDeps } from '../HandlerTypes.js';
-import { createMockBroker } from '../../../test/mockFactories.js';
+import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
+import { createMockBroker, inboundRequest } from '../../../test/mockFactories.js';
 
 /** Minimal deps: the adapter only uses log, broker and nextId. */
 function createDeps(): HandlerDeps {
@@ -20,26 +20,47 @@ function createDiagnoseHandler(): {
   handleMessage: ReturnType<typeof vi.fn>;
 } {
   const handleMessage = vi.fn().mockResolvedValue(undefined);
-  return { handler: { handleMessage } as unknown as AIDiagnoseHandler, handleMessage };
+  return {
+    handler: { handleMessage } as unknown as AIDiagnoseHandler,
+    handleMessage,
+  };
 }
 
 /** Builds a valid ai:diagnose request message. */
-function diagnoseMsg(payload: unknown): BaseMessage {
-  return { id: 'm1', type: 'ai:diagnose', timestamp: Date.now(), payload } as BaseMessage;
+function diagnoseMsg(payload: unknown): InboundRequest {
+  return inboundRequest({
+    id: 'm1',
+    type: 'ai:diagnose',
+    timestamp: Date.now(),
+    payload,
+  } as BaseMessage);
 }
 
 /** Builds a valid ai:approve-action request message. */
-function approveMsg(payload: unknown): BaseMessage {
-  return { id: 'm2', type: 'ai:approve-action', timestamp: Date.now(), payload } as BaseMessage;
+function approveMsg(payload: unknown): InboundRequest {
+  return inboundRequest({
+    id: 'm2',
+    type: 'ai:approve-action',
+    timestamp: Date.now(),
+    payload,
+  } as BaseMessage);
 }
 
 const VALID_DIAGNOSE_PAYLOAD = {
   runId: 'r1',
   orgId: 'org-1',
-  errorContext: { kind: 'bulk-job', jobId: 'job-42', errorMessage: 'REQUIRED_FIELD_MISSING' },
+  errorContext: {
+    kind: 'bulk-job',
+    jobId: 'job-42',
+    errorMessage: 'REQUIRED_FIELD_MISSING',
+  },
 };
 
-const VALID_APPROVE_PAYLOAD = { runId: 'r1', actionIndex: 2, modifiedPayload: 'script' };
+const VALID_APPROVE_PAYLOAD = {
+  runId: 'r1',
+  actionIndex: 2,
+  modifiedPayload: 'script',
+};
 
 /** Extracts all messages posted to the webview. */
 function postedMessages(deps: HandlerDeps): Array<BaseMessage & { payload?: unknown }> {
@@ -57,7 +78,9 @@ describe('AIDiagnoseAdapter', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const handled = await adapter.handle({ id: 'x', type: 'ai:chat', timestamp: Date.now() });
+    const handled = await adapter.handle(
+      inboundRequest({ id: 'x', type: 'ai:chat', timestamp: Date.now() }),
+    );
     expect(handled).toBe(false);
   });
 
@@ -135,7 +158,10 @@ describe('AIDiagnoseAdapter', () => {
       await adapter.handle(approveMsg(VALID_APPROVE_PAYLOAD));
 
       expect(handleMessage).toHaveBeenCalledTimes(1);
-      const forwarded = handleMessage.mock.calls[0][0] as { type: string; payload: unknown };
+      const forwarded = handleMessage.mock.calls[0][0] as {
+        type: string;
+        payload: unknown;
+      };
       expect(forwarded.type).toBe('ai:approve-action');
       expect(forwarded.payload).toEqual(VALID_APPROVE_PAYLOAD);
     });

@@ -1,5 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import type { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import type { SyncOpsHandler } from './SyncOpsHandler.js';
@@ -47,7 +46,7 @@ export class SyncHistoryHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!SYNC_HISTORY_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -69,7 +68,7 @@ export class SyncHistoryHandler implements DomainHandler {
   }
 
   /** List all history entries (newest first). */
-  private handleList(msg: BaseMessage): void {
+  private handleList(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const entries = this.historyStore.list();
@@ -79,12 +78,12 @@ export class SyncHistoryHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} count=${entries.length}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:history:list', 'sync:history:error', err);
+      sendHandlerError(this.deps, 'sync:history:list', 'sync:history:error', msg, err);
     }
   }
 
   /** Load a single history entry by ID (null when unknown). */
-  private handleDetail(msg: BaseMessage): void {
+  private handleDetail(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       syncHistoryEntryIdPayloadSchema,
@@ -101,12 +100,12 @@ export class SyncHistoryHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:history:detail', 'sync:history:error', err);
+      sendHandlerError(this.deps, 'sync:history:detail', 'sync:history:error', msg, err);
     }
   }
 
   /** Export history entries as CSV or JSON (the webview triggers the download). */
-  private handleExport(msg: BaseMessage): void {
+  private handleExport(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       syncHistoryExportPayloadSchema,
@@ -127,7 +126,7 @@ export class SyncHistoryHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} format=${parsed.format}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:history:export', 'sync:history:error', err);
+      sendHandlerError(this.deps, 'sync:history:export', 'sync:history:error', msg, err);
     }
   }
 
@@ -139,7 +138,7 @@ export class SyncHistoryHandler implements DomainHandler {
    * `triggeredBy: 'rerun'`. Unknown entry ids are answered on the
    * `sync:history:error` channel.
    */
-  private async handleRerun(msg: BaseMessage): Promise<void> {
+  private async handleRerun(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       syncHistoryEntryIdPayloadSchema,
@@ -154,8 +153,9 @@ export class SyncHistoryHandler implements DomainHandler {
         this.deps,
         'sync:history:rerun',
         'sync:history:error',
+        msg,
         new Error(`History entry not found: ${parsed.entryId}`),
-        'NOT_FOUND',
+        { code: 'NOT_FOUND' },
       );
       return;
     }

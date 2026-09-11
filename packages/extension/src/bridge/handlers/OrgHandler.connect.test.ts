@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OrgHandler } from './OrgHandler';
 import type { HandlerDeps } from './HandlerTypes';
-import type { BaseMessage } from '@sandforge/shared';
+import type { InboundRequest } from './HandlerTypes.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /**
  * Every branch of `org:connect` must answer the request the webview correlated
@@ -40,15 +41,15 @@ function createDeps(overrides: Partial<HandlerDeps> = {}): HandlerDeps {
   };
 }
 
-function connectMsg(payload: Record<string, unknown>): BaseMessage & { payload: unknown } {
+function connectMsg(payload: Record<string, unknown>): InboundRequest & { payload: unknown } {
   // orgId is required by orgConnectPayloadSchema; the webview sends '' for a
   // fresh connection, so the fixture must too or validation short-circuits.
-  return {
+  return inboundRequest({
     id: 'req-connect',
     type: 'org:connect',
     timestamp: Date.now(),
     payload: { orgId: '', ...payload },
-  };
+  });
 }
 
 /** The correlated terminal replies posted for one connect attempt. */
@@ -166,7 +167,11 @@ describe('org:connect answers on every branch', () => {
     } as unknown as HandlerDeps['authProvider'];
 
     await new OrgHandler(deps).handle(
-      connectMsg({ authMethod: 'usernamePassword', username: 'u@e.com', password: 'p' }),
+      connectMsg({
+        authMethod: 'usernamePassword',
+        username: 'u@e.com',
+        password: 'p',
+      }),
     );
 
     const replies = terminalReplies(deps);

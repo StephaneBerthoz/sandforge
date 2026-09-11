@@ -35,7 +35,7 @@ const TEST_SUPPORT_DIRS = ['/testing/', '/__mocks__/', '/test-utils/'];
 
 /**
  * Orphans this gate tolerates for now, each with the reason it survived the
- * DEADCODE-03 sweep. These three lost their only consumer in that sweep and
+ * DEADCODE-03 sweep. These two lost their only consumer in that sweep and
  * are dead too — they stayed because their removal was outside its scope.
  * Every entry must still exist on disk: the run fails on a stale one, so the
  * list cannot quietly outlive its subjects.
@@ -44,10 +44,6 @@ const ALLOWLIST: ReadonlyArray<{ path: string; reason: string }> = [
   {
     path: 'packages/webview/src/components/ui/Logo.tsx',
     reason: 'sole consumer LoadingScreen.tsx deleted by DEADCODE-03',
-  },
-  {
-    path: 'packages/webview/src/hooks/useExecutionProgress.ts',
-    reason: 'sole consumer ObjectProgressPanel.tsx deleted by DEADCODE-03',
   },
   {
     path: 'packages/webview/src/hooks/useRetryManager.ts',

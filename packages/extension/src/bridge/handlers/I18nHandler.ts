@@ -1,5 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 import { validatePayload, i18nLocalePayloadSchema } from '../validatePayload.js';
 import { readLocaleBundle } from '../../core/i18n/localeBundles.js';
@@ -36,13 +35,13 @@ export class I18nHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!I18N_TYPES.has(msg.type)) return false;
     await this.handleLocaleRequest(msg);
     return true;
   }
 
-  private async handleLocaleRequest(msg: BaseMessage): Promise<void> {
+  private async handleLocaleRequest(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(i18nLocalePayloadSchema, msg, 'i18n:locale:response', this.deps);
     if (!parsed) return;

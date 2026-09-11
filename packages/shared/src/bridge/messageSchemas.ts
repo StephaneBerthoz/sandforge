@@ -329,7 +329,6 @@ const ExecutionMessages = [
   msg('operation:progress'),
   msg('operation:completed'),
   msg('operation:failed'),
-  msg('execution:progress'),
   msg('execution:retry-status'),
   msg('execution:manual-retry'),
   msg('execution:abort'),

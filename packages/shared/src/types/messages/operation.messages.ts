@@ -1,5 +1,5 @@
 import type { BaseMessage } from './base.messages.js';
-import type { ActiveOperation, BulkExecutionProgress, RetryStatus } from '../execution.types.js';
+import type { ActiveOperation, RetryStatus } from '../execution.types.js';
 
 /** Operation control messages */
 /** Request to cancel a running operation */
@@ -77,12 +77,6 @@ export interface GrappeCompleted extends BaseMessage {
 }
 
 // ─── Execution Progress Messages ─────────────────────────────────────────────
-
-/** Execution progress update with per-object Bulk API 2.0 job status. */
-export interface ExecutionProgressMessage extends BaseMessage {
-  type: 'execution:progress';
-  payload: BulkExecutionProgress;
-}
 
 /** Retry status update for a failed object operation. */
 export interface ExecutionRetryStatusMessage extends BaseMessage {

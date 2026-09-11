@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
 import { SeedCloneHandler } from './SeedCloneHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -40,12 +40,18 @@ vi.mock('../../modules/seed/CloneReferenceLinker.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
 /** Message envelope shaped like what MessageBroker hands a handler. */
-function buildMsg(type: string, payload?: unknown): BaseMessage {
-  return { id: `msg-${type}`, type, timestamp: Date.now(), payload } as BaseMessage;
+function buildMsg(type: string, payload?: unknown): InboundRequest {
+  return inboundRequest({
+    id: `msg-${type}`,
+    type,
+    timestamp: Date.now(),
+    payload,
+  } as BaseMessage);
 }
 
 /** A valid `seed:clone:execute` payload (one object, insert mode). */
@@ -118,8 +124,18 @@ describe('SeedCloneHandler', () => {
       mockGetConn.mockResolvedValue({
         describeGlobal: vi.fn().mockResolvedValue({
           sobjects: [
-            { name: 'Account', label: 'Account', createable: true, queryable: true },
-            { name: 'AccountShare', label: 'Share', createable: true, queryable: false },
+            {
+              name: 'Account',
+              label: 'Account',
+              createable: true,
+              queryable: true,
+            },
+            {
+              name: 'AccountShare',
+              label: 'Share',
+              createable: true,
+              queryable: false,
+            },
           ],
         }),
         limitInfo: undefined,
@@ -212,7 +228,11 @@ describe('SeedCloneHandler', () => {
     }
 
     it('resolves the guard tier from the target org and clones once confirmed', async () => {
-      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: true });
+      const guard = wireGuard({
+        allowed: true,
+        requiresConfirmation: true,
+        confirmed: true,
+      });
       mockTargetOrgType('Production');
 
       await handler.handle(buildMsg('seed:clone:execute', clonePayload()));
@@ -290,7 +310,11 @@ describe('SeedCloneHandler', () => {
     });
 
     it('cancels the clone when the user declines confirmation — no write, not retryable', async () => {
-      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: false });
+      const guard = wireGuard({
+        allowed: true,
+        requiresConfirmation: true,
+        confirmed: false,
+      });
       mockTargetOrgType('Production');
 
       await handler.handle(buildMsg('seed:clone:execute', clonePayload()));

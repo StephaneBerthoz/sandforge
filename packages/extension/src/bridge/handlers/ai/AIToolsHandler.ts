@@ -1,5 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
@@ -53,7 +52,7 @@ export class AIToolsHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!AI_TOOLS_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -74,7 +73,7 @@ export class AIToolsHandler implements DomainHandler {
     }
   }
 
-  private async handleNL2SOQL(msg: BaseMessage): Promise<void> {
+  private async handleNL2SOQL(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiNl2SoqlPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -109,7 +108,7 @@ export class AIToolsHandler implements DomainHandler {
     }
   }
 
-  private async handleResolveError(msg: BaseMessage): Promise<void> {
+  private async handleResolveError(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiResolveErrorPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -144,7 +143,7 @@ export class AIToolsHandler implements DomainHandler {
     }
   }
 
-  private async handlePersonas(msg: BaseMessage): Promise<void> {
+  private async handlePersonas(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiPersonasPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -206,7 +205,7 @@ export class AIToolsHandler implements DomainHandler {
     }
   }
 
-  private async handleGeneratePipeline(msg: BaseMessage): Promise<void> {
+  private async handleGeneratePipeline(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiGeneratePipelinePayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;

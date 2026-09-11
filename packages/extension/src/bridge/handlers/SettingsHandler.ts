@@ -1,5 +1,5 @@
 import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -49,7 +49,7 @@ export class SettingsHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!SETTINGS_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -82,7 +82,7 @@ export class SettingsHandler implements DomainHandler {
     }
   }
 
-  private handleSettingsGet(msg: BaseMessage): void {
+  private handleSettingsGet(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const settings = this.deps.configStore.getByCategory('settings');
     const response = buildResponse(this.deps, msg, 'settings:response', { settings });
@@ -90,7 +90,7 @@ export class SettingsHandler implements DomainHandler {
     this.deps.log(`[TX] ${response.type} id=${response.id}`);
   }
 
-  private handleSettingsUpdate(msg: BaseMessage): void {
+  private handleSettingsUpdate(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(settingsUpdatePayloadSchema, msg, 'settings:error', this.deps);
     if (!parsed) return;
@@ -122,7 +122,7 @@ export class SettingsHandler implements DomainHandler {
     }
   }
 
-  private handleHintDismiss(msg: BaseMessage): void {
+  private handleHintDismiss(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     if (this.hintTracker) {
       const parsed = validatePayload(hintDismissPayloadSchema, msg, 'settings:error', this.deps);
@@ -133,7 +133,7 @@ export class SettingsHandler implements DomainHandler {
     }
   }
 
-  private handleTelemetryStatus(msg: BaseMessage): void {
+  private handleTelemetryStatus(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const enabled = this.deps.services?.getSandforgeSetting?.('telemetry', false) ?? false;
     const eventCount = this.deps.services?.telemetry.getTelemetryEventCount() ?? 0;
@@ -151,7 +151,7 @@ export class SettingsHandler implements DomainHandler {
    * settings backend is unavailable (partial Services in tests), answers
    * honestly with success: false instead of pretending the toggle worked.
    */
-  private async handleTelemetryToggle(msg: BaseMessage): Promise<void> {
+  private async handleTelemetryToggle(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(telemetryTogglePayloadSchema, msg, 'settings:error', this.deps);
     if (!parsed) return;
@@ -186,7 +186,7 @@ export class SettingsHandler implements DomainHandler {
     }
   }
 
-  private handleConnectivityStatus(msg: BaseMessage): void {
+  private handleConnectivityStatus(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const offlineManager = this.deps.infraServices?.offlineManager;
     const status = offlineManager ? offlineManager.getStatus() : 'online';
