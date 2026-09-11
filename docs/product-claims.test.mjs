@@ -1,8 +1,10 @@
 /**
  * Keeps the prose a user reads honest about features the code does not have:
- * both READMEs, `docs/faq.md`, the Grappe setting descriptions in the manifest
- * and the six webview locale files. The other setting descriptions,
- * `package.nls*.json` and the walkthrough pages are not read.
+ * both READMEs, every page under `docs/` they link to, the Grappe setting
+ * descriptions in the manifest, the six webview locale files, and — for the AI
+ * wordings — the English fallbacks the webview hands to `t()`. The other
+ * setting descriptions, `package.nls*.json` and the walkthrough pages are not
+ * read.
  *
  * The sibling gate, `automation-scheduler-claims.test.mjs`, guards one claim in
  * two files of `docs/`. That shape works: it is the one gate in this repo that
@@ -27,20 +29,43 @@
  * nothing, and the one call into the tool loop handed it an empty list.
  *
  * So each assertion here is anchored to the code that decides the truth, and
- * fails in BOTH directions: build the feature and the anchor test trips first,
- * telling you the prose is now understating the product and may be rewritten.
+ * fails in BOTH directions: build the feature — the partition, the CDC route,
+ * the tools — and the anchor test trips first, telling you the prose is now
+ * understating the product and may be rewritten. The wordings that named no
+ * tool are the exception, and the limits below say so.
+ *
+ * The code is read off the syntax tree. The prose is not read for meaning at
+ * all: it is matched against the wording this product actually published,
+ * mined from every revision of every public surface in the repository. An
+ * earlier cut guessed at what a promise looks like, and flagged the honest
+ * removal note, a competitor comparison and a true sentence about Monitor and
+ * Compare — a class of false alarm that only a negation parser in six
+ * languages would close. Refusing the wording that shipped needs none.
+ *
+ * Two rules keep that from becoming the same noise by another route. A wording
+ * is mined whole, as the bullet or the cell that sold it: `read-only tool
+ * surface` on its own is security vocabulary any module may use, and four
+ * translators borrow the English term for a sentence that promises nothing. And
+ * structure separates — a table cell, a link label, a list item, a sentence —
+ * so no wording is assembled out of two neighbours a reader never meets as one
+ * phrase.
  *
  * What the AI Assistant checks do not see, one limit per line:
- *  - Only `packages/extension/src` and `packages/shared/src` are read: the webview never calls the model, and the vendored SDK is not ours to scan.
+ *  - Code is read under `packages/extension/src` and `packages/shared/src`, plus the JSON under those and under `packages/extension/resources`; a fourth workspace package fails the control below instead of passing unread.
+ *  - Provider options handed through from outside the code — a webview payload, a user setting spread into the request — carry a `tools` key written nowhere in the repository.
+ *  - A tool catalogue written into the prompt text, whose reply is parsed by hand, gives the model tools under no key and no block type this scan knows.
  *  - A key computed at runtime (a variable, a template, `Reflect.set`, `Object.defineProperty`) hides `tools` from the scan.
  *  - A request that bypasses the SDK, such as a raw HTTP call to `/v1/messages` whose body is built from strings, is invisible.
  *  - A tool call read without the SDK's type name or a `'tool_use'` literal, say `'input' in block`, is invisible; it can only arrive after a request sent tools.
- *  - A tool helper a later SDK exports under a new name or path is caught only through the `tools` key it still needs.
- *  - A read-only-tools phrase is read as the promise only next to two of a count, an AI subject and a diagnosis or failed job, in the same sentence, so a bare "Read-only tools" label passes.
- *  - A diagnosis claim without tools passes: the automatic fix suggestion for a failed run is real, and what was removed was diagnosis over tools.
- *  - A question, or a negation in the four words before the tools, is read as a disclaimer.
- *  - Wording outside the grammar written below, such as a modifier or synonym it does not list, or a seventh language, passes.
- *  - Markdown is read by paragraph, table row, heading and list item, so a sentence split across two rows or two items passes.
+ *  - A tool helper a later SDK exports under a new name or path is caught only through the request key it still needs.
+ *  - An OpenAI-shaped request, `functions` with `function_call`, is not watched: Functions is a Salesforce product this extension talks about, so the key is ordinary vocabulary here. Reaching that shape means a second provider, which the code anchor's own controls would show.
+ *  - A tool factory whose name carries on past the word, `createToolRegistry`, is not caught by name — `Tools` is also a panel label in this product, so the name has to end on it. What the factory builds is still caught when it reaches a request or an SDK helper.
+ *  - A tool API reached through an alias, `const register = vscode.lm.registerTool.bind(vscode.lm)`, is not read as a call on `lm`.
+ *  - Prose refuses published wording, whole: a paraphrase, a new sentence, a translation, or the same sentence with a word inflected — `diagnostics` for `diagnosis`, `surfaces` for `surface` — passes. The count is the one word that may change.
+ *  - Any quotation of a published wording is refused like the promise: struck through, inside quotation marks, in a removal note or in an answer about an old version alike. A changelog is not a surface, so that is where the quote belongs.
+ *  - A wording that does not name the tools is released by rewriting it, not by the anchor: the anchor answers one question, whether shipped code gives the model tools.
+ *  - Markdown is read by paragraph, table row, heading and list item: a fenced code block is not prose, and a wording split across two rows or two items passes — as it does across two locale keys rendered side by side.
+ *  - The webview's English fallbacks are read for these wordings only. The Grappe and CDC rules above read the files listed at the top, and `grappe.subtitle` still calls Grappe a parallel execution engine in `GrappePage.tsx`, which those rules refuse in every file they do read.
  *
  *   node --test docs/product-claims.test.mjs
  */
@@ -59,13 +84,37 @@ const read = (...p) => readFileSync(join(repoRoot, ...p), 'utf8');
 const LOCALES_DIR = join(repoRoot, 'packages', 'webview', 'src', 'i18n', 'locales');
 const localeFiles = () => readdirSync(LOCALES_DIR).filter((f) => f.endsWith('.json'));
 
+const READMES = ['README.md', 'packages/extension/README.md'];
+
+/**
+ * The pages a README sends a reader to: every `docs/**.md` either one links to,
+ * written relatively in the repository README and as a GitHub URL in the
+ * marketplace one. A page reached from the listing in one click is read like
+ * the listing itself, and the list maintains itself — link a new page and it
+ * becomes a surface, drop the link and it stops being one.
+ */
+function linkedDocPages() {
+  const pages = new Set();
+  for (const readme of READMES) {
+    for (const [, target] of read(...readme.split('/')).matchAll(/\]\(([^)\s]+)/g)) {
+      const path = /(?:^|\/)(docs\/[^#?]+\.md)/.exec(target.split('#')[0])?.[1];
+      if (path && existsSync(join(repoRoot, path))) pages.add(path);
+    }
+  }
+  // A README whose links stopped resolving would quietly shrink the surface.
+  assert.ok(
+    pages.size >= 8,
+    `the READMEs link to ${pages.size} pages under docs/, fewer than the 11 they carry — the ` +
+      'link scan has stopped resolving, so an empty result below proves nothing',
+  );
+  return [...pages].sort();
+}
+
 /** Every surface a user reads, as `label → text`. Source comments are not here. */
 function userFacingText() {
-  const surfaces = {
-    'README.md': read('README.md'),
-    'packages/extension/README.md': read('packages', 'extension', 'README.md'),
-    'docs/faq.md': read('docs', 'faq.md'),
-  };
+  const surfaces = {};
+  for (const readme of READMES) surfaces[readme] = read(...readme.split('/'));
+  for (const page of linkedDocPages()) surfaces[page] = read(...page.split('/'));
   const manifest = JSON.parse(read('packages', 'extension', 'package.json'));
   const props = manifest.contributes?.configuration?.properties ?? {};
   for (const [key, value] of Object.entries(props)) {
@@ -73,7 +122,12 @@ function userFacingText() {
       surfaces[`package.json ${key}`] = value.description;
     }
   }
-  for (const file of localeFiles()) {
+  const locales = localeFiles();
+  assert.ok(
+    locales.length >= 6,
+    `only ${locales.length} locale files found, the extension ships 6`,
+  );
+  for (const file of locales) {
     surfaces[`locales/${file}`] = readFileSync(join(LOCALES_DIR, file), 'utf8');
   }
   return surfaces;
@@ -206,6 +260,19 @@ const SHIPPED_ROOTS = [
   { root: 'packages/shared/src', minFiles: 60 },
 ];
 
+/** The three packages that premise covers. A fourth would be inlined the same way, and read by nothing here. */
+const WORKSPACE_PACKAGES = ['@sandforge/shared', '@sandforge/webview', 'sandforge'];
+
+/**
+ * Where a tool definition can sit as data rather than as code: beside the
+ * sources, and in the folder the VSIX ships verbatim.
+ */
+const DATA_ROOTS = [
+  'packages/extension/src',
+  'packages/shared/src',
+  'packages/extension/resources',
+];
+
 /** Directory names that hold test support rather than shipped code. */
 const TEST_SUPPORT_DIRS = new Set(['test', '__tests__', '__mocks__', 'fixtures']);
 
@@ -218,14 +285,23 @@ const isSourceFile = (name) =>
   SCRIPT_FILE.test(name) && !isDeclarationFile(name) && !/\.(?:test|spec)\./.test(name);
 
 /**
- * Keys that hand the model tools. Nothing else in this extension has a use for
- * them, so one written as a value anywhere in shipped code counts — an object
- * member, a class field, a property assigned later — whatever finally receives
- * the object: a request built in a helper, spread from a variable or handed to
- * a constructor is still a request. A log field named `tools` counts too;
- * rename it. A type naming them sends nothing and does not count.
+ * Keys that hand the model tools: the Messages API's own `tools` and
+ * `tool_choice`, `mcp_servers` — the remote connector, which hands over a whole
+ * tool set without ever naming one — and the Agent SDK's `allowedTools`.
+ *
+ * The OpenAI-shaped pair `functions`/`function_call` is deliberately NOT here:
+ * Functions is a Salesforce product this extension talks about, so a key of
+ * that name is ordinary domain vocabulary and the rule would fire on honest
+ * code. An OpenAI-shaped tool request is a declared limit below.
+ *
+ * Nothing else in this extension has a use for the keys above, so one as a value
+ * anywhere in shipped code counts — an object member, a class field, a property
+ * assigned later — whatever finally receives the object: a request built in a
+ * helper, spread from a variable or handed to a constructor is still a request.
+ * A log field named `tools` counts too; rename it. A type naming them sends
+ * nothing and does not count.
  */
-const TOOL_REQUEST_PROPERTY = new Set(['tools', 'tool_choice']);
+const TOOL_REQUEST_PROPERTY = new Set(['tools', 'tool_choice', 'mcp_servers', 'allowedTools']);
 
 /**
  * The Anthropic SDK's tool machinery, as the installed package lays it out.
@@ -248,12 +324,49 @@ const SDK_TOOL_HELPER = new Set([
 ]);
 
 /**
- * Calls that build, wrap, register or run tools of our own: any verb from that
+ * Calls that build, hand over or run tools of our own: any verb from that
  * family joined to `Tool`/`Tools` — `runTools`, `wrapTool`, `buildReadOnlyTools`,
- * `createToolRegistry`. `Toolbar` and `Tooltip` are different words.
+ * `createToolRegistry`, and the ones a second turn is written with,
+ * `dispatchTools`, `executeTools`, `invokeTool`, `callTools`,
+ * `continueWithTools`. `Toolbar` and `Tooltip` are different words: the suffix
+ * has to start a new one.
+ *
+ * The name has to END on it. `Tools` is also a panel label in this product, so
+ * a name that carries on past the word — `buildToolsPanelItems` — is interface
+ * code, not a tool factory. The cost is that a factory named past the word
+ * (`createToolRegistry`) is not caught here; what it builds still is, the
+ * moment it reaches a request or an SDK helper.
  */
 const TOOL_VERB_CALL =
-  /^(?:[Rr]un|[Ww]rap|[Bb]uild|[Mm]ake|[Cc]reate|[Rr]egister|[Ww]ith)(?:[A-Z0-9_]\w*)?Tools?(?:[A-Z0-9_]\w*)?$/;
+  /^(?:[Rr]un|[Ww]rap|[Bb]uild|[Mm]ake|[Cc]reate|[Rr]egister|[Ww]ith|[Dd]ispatch|[Ee]xecute|[Ii]nvoke|[Cc]all|[Cc]ontinue[Ww]ith)(?:[A-Z0-9_]\w*)?Tools?$/;
+
+/**
+ * The editor's own model has a tool API, and an extension reaches it without
+ * touching the Anthropic SDK: `vscode.lm.registerTool`, `vscode.lm.invokeTool`,
+ * `vscode.lm.registerMcpServerDefinitionProvider`, or a class that implements
+ * `LanguageModelTool`. Any member of `lm` whose name carries `tool` or `mcp`
+ * counts, so a renamed import or a later sibling call is caught with them.
+ */
+const LANGUAGE_MODEL_NAMESPACE = 'lm';
+const LANGUAGE_MODEL_MEMBER = /tool|mcp/i;
+const LANGUAGE_MODEL_TOOL_TYPE = /^(?:vscode\.)?LanguageModelTool(?:[A-Z]\w*)?$/;
+
+/**
+ * Packages whose whole purpose is running tools: a second SDK from the same
+ * publisher, and the MCP SDK — with which this extension would be the *server*,
+ * handing an org tool set to whatever model the editor talks to. Any import of
+ * either counts.
+ */
+const TOOL_RUNTIME_PACKAGES = ['@anthropic-ai/claude-agent-sdk', '@modelcontextprotocol/sdk'];
+const isToolRuntimeSpecifier = (specifier) =>
+  TOOL_RUNTIME_PACKAGES.some((pkg) => specifier === pkg || specifier.startsWith(`${pkg}/`));
+
+/**
+ * The file an editor reads to attach an MCP server to its chat. Writing it
+ * hands over a tool set without a single request leaving this extension, so the
+ * name counts as a string wherever shipped code writes it.
+ */
+const MCP_CONFIG_FILE = /(?:^|[/\\])mcp\.json$/;
 
 /** Content blocks that only exist once the model has tools: their `type` values, and the SDK's type names for them. */
 const TOOL_BLOCK_TYPE = new Set([
@@ -281,6 +394,58 @@ function sourceFilesUnder(dir, acc = []) {
     }
   }
   return acc;
+}
+
+/**
+ * The JSON that ships beside the code, where a tool definition can sit without
+ * a single line of TypeScript. Unlike the script walk, this one enters the test
+ * support directories: a test file is not shipped, but a data file in
+ * `fixtures/` is read at runtime by whatever calls `readFileSync` on it.
+ */
+function jsonFilesUnder(dir, acc = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) jsonFilesUnder(full, acc);
+    else if (entry.name.endsWith('.json')) acc.push(full);
+  }
+  return acc;
+}
+
+/** The keys an API tool definition carries beside its name. */
+const TOOL_SCHEMA_KEY = new Set(['input_schema', 'inputSchema', 'parameters', 'schema']);
+
+/**
+ * A tool defined as data: an object carrying `input_schema`, or a `tools` array
+ * whose entries pair a `name` with a schema. Either shape is a tool list a
+ * single spread puts in a request, so the JSON counts wherever it sits under a
+ * data root.
+ */
+function jsonToolDefinitions(value, path = '') {
+  const found = [];
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => found.push(...jsonToolDefinitions(item, `${path}[${index}]`)));
+    return found;
+  }
+  if (!value || typeof value !== 'object') return found;
+  if ('input_schema' in value) found.push(path || '(root)');
+  for (const [key, child] of Object.entries(value)) {
+    if (
+      key === 'tools' &&
+      Array.isArray(child) &&
+      child.length > 0 &&
+      child.every(
+        (item) =>
+          item &&
+          typeof item === 'object' &&
+          typeof item.name === 'string' &&
+          Object.keys(item).some((k) => TOOL_SCHEMA_KEY.has(k)),
+      )
+    ) {
+      found.push(path ? `${path}.tools` : 'tools');
+    }
+    found.push(...jsonToolDefinitions(child, path ? `${path}.${key}` : key));
+  }
+  return [...new Set(found)];
 }
 
 /** The file a relative specifier lands on, as TypeScript and esbuild resolve it: `./a.js` may be `./a.ts`, `./dir` may be `./dir/index.ts`. */
@@ -426,6 +591,8 @@ function scanShippedCode() {
     chatUses: [],
     /** `{ at, from, specifier }` for every relative import that is not type-only. */
     relativeImports: [],
+    /** Repo paths of the JSON files that ship under the data roots; none today. */
+    jsonFiles: [],
   };
 
   for (const { root } of SHIPPED_ROOTS) {
@@ -434,6 +601,21 @@ function scanShippedCode() {
     for (const file of files) {
       scan.read.add(file);
       scanFile(scan, file);
+    }
+  }
+
+  for (const root of DATA_ROOTS) {
+    for (const file of jsonFilesUnder(join(repoRoot, root))) {
+      scan.jsonFiles.push(toRepoPath(file));
+      let data;
+      try {
+        data = JSON.parse(readFileSync(file, 'utf8'));
+      } catch {
+        continue;
+      }
+      for (const at of jsonToolDefinitions(data)) {
+        scan.findings.push(`${toRepoPath(file)} tool definition at ${at}`);
+      }
     }
   }
 
@@ -458,6 +640,8 @@ function scanFile(scan, file) {
     } else if (isSdkSpecifier(specifier)) {
       scan.sdkImports.push({ at: where(node), specifier, dynamic });
       if (SDK_TOOL_SUBPATH.test(specifier)) found(node, `import '${specifier}'`);
+    } else if (isToolRuntimeSpecifier(specifier)) {
+      found(node, `import '${specifier}'`);
     }
   };
   const sdkHelperNames = (node, specifier, elements) => {
@@ -503,6 +687,23 @@ function scanFile(scan, file) {
       const name = invokedName(node.expression);
       if (name && (SDK_TOOL_HELPER.has(name) || TOOL_VERB_CALL.test(name))) {
         found(node, `${ts.isNewExpression(node) ? 'new ' : ''}${name}()`);
+      } else if (name && LANGUAGE_MODEL_MEMBER.test(name)) {
+        // The editor's model API, reached through `lm` however it was imported.
+        const chain = accessChain(node.expression);
+        if (chain.includes(LANGUAGE_MODEL_NAMESPACE)) found(node, `${chain.join('.')}()`);
+      }
+    }
+
+    // A tool of our own, written to the editor's interface.
+    if (ts.isClassLike(node)) {
+      for (const clause of node.heritageClauses ?? []) {
+        if (clause.token !== ts.SyntaxKind.ImplementsKeyword) continue;
+        for (const type of clause.types) {
+          const name = ts.isIdentifier(type.expression)
+            ? type.expression.text
+            : accessChain(type.expression).join('.');
+          if (LANGUAGE_MODEL_TOOL_TYPE.test(name)) found(type, `implements ${name}`);
+        }
       }
     }
 
@@ -529,6 +730,16 @@ function scanFile(scan, file) {
     } else if (isAssignment(node) && TOOL_REQUEST_PROPERTY.has(assignedProperty(node.left))) {
       found(node, `.${assignedProperty(node.left)} = …`);
     }
+
+    // The editor's tool configuration, named as a path — whole or as the tail of a template.
+    const literal =
+      ts.isStringLiteralLike(node) ||
+      node.kind === ts.SyntaxKind.TemplateHead ||
+      node.kind === ts.SyntaxKind.TemplateMiddle ||
+      node.kind === ts.SyntaxKind.TemplateTail
+        ? node.text
+        : null;
+    if (literal !== null && MCP_CONFIG_FILE.test(literal)) found(node, `'${literal}'`);
 
     // Tool calls in a response: the block types, as values or as the SDK's type names.
     if (
@@ -588,6 +799,25 @@ function assertScanReadsShippedCode(scan) {
         'stopped reading shipped code, so an empty result below proves nothing',
     );
   }
+
+  // The premise under `SHIPPED_ROOTS` — everything esbuild inlines lives under
+  // those roots — holds for three workspace packages. A fourth would be inlined
+  // exactly as `@sandforge/shared` is, and read by nothing here, without a
+  // floor moving.
+  const packagesDir = join(repoRoot, 'packages');
+  const workspacePackages = readdirSync(packagesDir, { withFileTypes: true })
+    .filter(
+      (entry) => entry.isDirectory() && existsSync(join(packagesDir, entry.name, 'package.json')),
+    )
+    .map((entry) => JSON.parse(readFileSync(join(packagesDir, entry.name, 'package.json'), 'utf8')))
+    .map((manifest) => manifest.name)
+    .sort();
+  assert.deepEqual(
+    workspacePackages,
+    WORKSPACE_PACKAGES,
+    'the workspace no longer holds the three packages this scan is scoped to — a new one is ' +
+      'inlined into dist/extension.js and read by nothing here; add its sources to SHIPPED_ROOTS',
+  );
 
   // Coverage is judged by what shipped code loads, at any depth: every relative
   // import of a file the scan read lands on a file the scan read too. A test
@@ -670,9 +900,47 @@ test('anchor: nothing shipped gives the model tools or acts on a tool call', (t)
 });
 
 /**
+ * The English a user reads when a locale has no entry for a key: the fallback
+ * argument of `t('key', 'English')`, which is where this repository keeps the
+ * source string rather than in `locales/en.json`. Read off the syntax tree, so
+ * the same call written in a comment is not a surface.
+ */
+let webviewFallbackCache;
+function webviewFallbackStrings() {
+  if (webviewFallbackCache) return webviewFallbackCache;
+  const units = [];
+  for (const file of sourceFilesUnder(join(repoRoot, 'packages', 'webview', 'src'))) {
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && invokedName(node.expression) === 't') {
+        const [key, fallback] = node.arguments;
+        if (key && fallback && ts.isStringLiteralLike(key) && ts.isStringLiteralLike(fallback)) {
+          units.push({ label: `${toRepoPath(file)} t('${key.text}')`, text: fallback.text });
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  assert.ok(
+    units.length >= 200,
+    `the scan found ${units.length} English fallbacks in the webview, far fewer than the 300 it ` +
+      'carries — it has stopped reading them, so an empty result below proves nothing',
+  );
+  webviewFallbackCache = units;
+  return units;
+}
+
+/**
  * The same surfaces as `userFacingText()`, as a reader meets them: Markdown
  * by paragraph, with soft line breaks joined and fenced code left out; a
- * locale file by string value, never by key.
+ * locale file by string value, never by key; and the webview's English
+ * fallbacks, one string each.
  */
 function userFacingProse() {
   const units = [];
@@ -687,7 +955,7 @@ function userFacingProse() {
       units.push({ label, text });
     }
   }
-  return units;
+  return [...units, ...webviewFallbackStrings()];
 }
 
 function* jsonStrings(value, key = '') {
@@ -736,232 +1004,368 @@ function markdownParagraphs(text) {
 }
 
 /**
- * Prose as the claim rules read it: compatibility forms folded, emphasis,
- * quotes and link targets dropped, table bars spaced, every dash a hyphen,
- * lower case — so `read-*only*`, a non-breaking hyphen or a full-width letter
- * does not let a paraphrase through.
+ * Number words two to twelve, in the five Latin-script locales, folded to the
+ * digit: a wording mined with `10` is still that wording written `ten`, `dix`,
+ * `zehn`, `diez` or `dez`. One is left alone — its translations are articles.
+ */
+const NUMBER_WORDS = {
+  2: ['two', 'deux', 'zwei', 'dos', 'dois', 'duas'],
+  3: ['three', 'trois', 'drei', 'tres', 'três'],
+  4: ['four', 'quatre', 'vier', 'cuatro', 'quatro'],
+  5: ['five', 'cinq', 'fünf', 'funf', 'cinco'],
+  6: ['six', 'sechs', 'seis'],
+  7: ['seven', 'sept', 'sieben', 'siete', 'sete'],
+  8: ['eight', 'huit', 'acht', 'ocho', 'oito'],
+  9: ['nine', 'neuf', 'neun', 'nueve', 'nove'],
+  10: ['ten', 'dix', 'zehn', 'diez', 'dez'],
+  11: ['eleven', 'onze', 'elf', 'once'],
+  12: ['twelve', 'douze', 'zwölf', 'zwolf', 'doce', 'doze'],
+};
+const NUMBER_WORD = new Map(
+  Object.entries(NUMBER_WORDS).flatMap(([digits, words]) => words.map((word) => [word, digits])),
+);
+const NUMBER_WORD_PATTERN = new RegExp(
+  String.raw`(?<![\p{L}\p{N}])(${[...NUMBER_WORD.keys()]
+    .sort((a, b) => b.length - a.length)
+    .join('|')})(?![\p{L}\p{N}])`,
+  'gu',
+);
+
+/** The sixth locale counts with kanji, so those fold too — but only in front of a counter, where the character is a number and not a word. */
+const JAPANESE_NUMERAL = {
+  一: '1',
+  二: '2',
+  三: '3',
+  四: '4',
+  五: '5',
+  六: '6',
+  七: '7',
+  八: '8',
+  九: '9',
+  十: '10',
+  十一: '11',
+  十二: '12',
+};
+const JAPANESE_NUMERAL_PATTERN = /(十[一二]|[一二三四五六七八九十])(?=個|つ|種類|件)/gu;
+
+/** Width-less characters a copy-paste leaves behind, mid-word and invisible. */
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
+
+/** The entities a writer reaches for instead of the character: a space that will not break, and the dashes. */
+const SPACE_ENTITY =
+  /&(?:nbsp|ensp|emsp|thinsp|#0*160|#0*8194|#0*8195|#0*8201|#0*8239|#[xX]0*a0);/gi;
+const DASH_ENTITY = /&(?:ndash|mdash|shy|#0*8211|#0*8212|#0*8209|#0*173);/gi;
+
+/** What an i18n string writes where a number goes; it reads as the number it will hold. */
+const INTERPOLATION = /\{\{[^{}]*\}\}|\$\{[^{}]*\}|\{[^{}\s]*\}|%[sd]/g;
+
+/**
+ * Markup that ends a line or a block. What follows starts a new run of text,
+ * the way a new table cell or a new list item does; inline tags are typography
+ * and fold to a space, so `read-<b>only</b>` still reads as `read only`.
+ */
+const BLOCK_TAG =
+  /<\/?(?:br|hr|p|div|li|ul|ol|tr|td|th|table|thead|tbody|section|h[1-6]|blockquote)\b[^>]*>/gi;
+
+/** Where one run of text ends and the next begins. No mined wording spans one. */
+const BREAK = '\n';
+
+/**
+ * Prose, and a mined wording, reduced to the words a reader meets. Both sides
+ * go through this, so the comparison is about words and not about typography:
+ * compatibility forms folded (NFKC), zero-width characters and Markdown link
+ * targets dropped, space and dash entities resolved, an interpolated count read
+ * as a count, emphasis and code ticks dropped with no space, quotes and
+ * parentheses spaced, soft separators (comma, colon, semicolon, arrow) spaced,
+ * every Unicode dash — the non-breaking hyphen included — folded to a hyphen
+ * and then to a space, number words folded to digits, lower case. So
+ * `read-*only*`, `read‑only`, `read&nbsp;only`, `read only`, `ten`,
+ * `{{count}}`, `１０`, and `read-only` with a zero-width space pasted into it,
+ * all read alike.
+ *
+ * Structure, on the other hand, separates: a sentence end, a table bar, a link
+ * label's brackets and a line-breaking tag each start a new run of text, and a
+ * wording is only ever matched inside one run. Two neighbouring cells, two
+ * link labels in a list, a label and the value after its colon: none of them
+ * can be glued into a phrase no reader ever sees.
  */
 const normalizeProse = (text) =>
   text
     .normalize('NFKC')
-    .replace(/\]\([^)]*\)/g, '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/[*_`~"«»“”„[\]]/g, '')
-    .replace(/[’‘]/g, "'")
-    .replace(/\|/g, ' ')
-    .replace(/[\p{Pd}−­]/gu, '-')
-    .toLowerCase()
+    .replace(ZERO_WIDTH, '')
+    .replace(SPACE_ENTITY, ' ')
+    .replace(DASH_ENTITY, '-')
+    .replace(INTERPOLATION, '0')
     .replace(/\s+/g, ' ')
-    .trim();
-
-const sentencesOf = (text) =>
-  text
-    .split(/(?<=[.!?;])\s+|(?<=[。！？；])/u)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-
-const B = String.raw`(?<![\p{L}\p{N}])`;
-const E = String.raw`(?![\p{L}\p{N}])`;
-const rule = (source) => new RegExp(source, 'u');
-
-/** Words that may sit between "read-only" and "tools" when the first qualifies the second. */
-const MODIFIER = {
-  en: String.raw`(?:\d+|salesforce|sf|org|org-level|org-wide|soql|sosl|query|data|metadata|api|apex|schema|record|lookup|search|research|diagnostics?|inspection|analysis|crm|mcp|ai|agent|built-in|internal|dedicated|speciali[sz]ed|safe|simple|lightweight|helper|utility|database|platform|admin|developer)`,
-  fr: String.raw`(?:\d+|salesforce|sf|org|soql|sosl|api|apex|ia|internes|d[ée]di[ée]s|int[ée]gr[ée]s|sp[ée]cialis[ée]s|m[ée]tier|de (?:requ[êe]te|diagnostic|recherche|consultation)|d'analyse)`,
-  de: String.raw`(?:\d+|salesforce|sf|org|org-[\p{L}]+|soql|sosl|api|apex|ki|abfrage|daten|metadaten|interne[nrs]?|eigene[nrs]?|spezielle[nrs]?)`,
-  es: String.raw`(?:\d+|salesforce|sf|org|soql|sosl|api|apex|ia|internas|dedicadas|integradas|especializadas|de (?:consulta|diagn[oó]stico|an[aá]lisis|b[uú]squeda))`,
-  pt: String.raw`(?:\d+|salesforce|sf|org|soql|sosl|api|apex|ia|internas|dedicadas|integradas|especializadas|de (?:consulta|diagn[oó]stico|an[aá]lise|busca))`,
-};
-const gap = (language) => String.raw`(?: ${MODIFIER[language]}){0,2}`;
-const gapBefore = (language) => String.raw`(?:${MODIFIER[language]} ){0,2}`;
+    .replace(/\]\([^)]*\)/g, ']')
+    .replace(BLOCK_TAG, BREAK)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[*_`~]/g, '')
+    .replace(/[‘’]/g, "'")
+    .replace(/["«»“”„(){}]/g, ' ')
+    .replace(/[[\]|]|[.!?…。！？]+/g, BREAK)
+    .replace(/[,;:、，]|→|⇒|->/g, ' ')
+    .replace(/[\p{Pd}­]/gu, '-')
+    .replace(/-/g, ' ')
+    .toLowerCase()
+    .replace(NUMBER_WORD_PATTERN, (word) => NUMBER_WORD.get(word))
+    .replace(JAPANESE_NUMERAL_PATTERN, (numeral) => JAPANESE_NUMERAL[numeral])
+    .split(BREAK)
+    .map((run) => run.replace(/\s+/g, ' ').trim())
+    .filter((run) => run !== '')
+    .join(BREAK);
 
 /**
- * Tools that only read, as each locale writes the qualifier: before the noun
- * in English, German and Japanese, after it in French, Spanish and Portuguese,
- * or as a relative clause. "Read-only mode hides the tools" does not qualify
- * the tools, and does not match.
+ * The wording that sold the tools, or the diagnosis they served, on a surface a
+ * user reads. Mined from every revision of both READMEs, `docs/`, the manifest,
+ * `package.nls*.json`, the walkthrough pages and the six locale files that this
+ * repository has ever held, in the six languages.
+ *
+ * The five other languages returned nothing: every locale string that carries a
+ * tools noun is a side-panel label, an onboarding tagline or a GDPR line, and
+ * none of them was ever about the assistant. So the list below is English, and
+ * it is the whole of it.
+ *
+ * This is not a guess at what a promise looks like — an earlier cut tried that
+ * and flagged the honest removal note, the competitor comparison and a true
+ * sentence about Monitor and Compare. It is the text that shipped. A wording
+ * comes off this list only when the anchor above says the feature is back, or
+ * — for the wordings that never named the tools — when it is rewritten.
+ *
+ * Each one is mined whole, as the cell or the bullet carried it. A fragment is
+ * not: `read-only tool surface` alone is what any module with no write access
+ * has, in English and in the four languages that borrow the term, and
+ * `10 fine-grained read-only tools` is a sentence about Compare's drift checks
+ * as easily as one about the assistant.
  */
-const READ_ONLY_TOOLS = [
-  rule(String.raw`${B}(?:read-only|read only|readonly|query-only)${gap('en')} tools?${E}`),
-  rule(String.raw`${B}(?:read-only|readonly)-tools?${E}`),
-  rule(
-    String.raw`${B}tools? (?:that|which) (?:are |is )?(?:all |strictly |only )?(?:read-only|read only|readonly)${E}`,
-  ),
-  rule(String.raw`${B}tools? (?:that|which) (?:only|just) read${E}`),
-  rule(
-    String.raw`${B}outils? ${gapBefore('fr')}(?:en |de |à )?(?:lecture seule|lecture uniquement|seule lecture|consultation seule)${E}`,
-  ),
-  rule(
-    String.raw`${B}outils? ${gapBefore('fr')}(?:qui (?:ne font que lire|se contentent de lire|sont en lecture seule)|sans (?:droits? d'|acc[eè]s en )?[ée]criture)${E}`,
-  ),
-  rule(
-    String.raw`${B}(?:schreibgesch[üu]tzt[\p{L}]*|nur[- ]?lesend[\p{L}]*|read-only)${gap('de')} (?:werkzeug[\p{L}]*|tools?)${E}`,
-  ),
-  rule(String.raw`${B}nur-?lese-?(?:werkzeug|tool)[\p{L}]*`),
-  rule(
-    String.raw`${B}(?:werkzeug[\p{L}]*|tools?)${gap('de')},? (?:die|welche) (?:nur|ausschlie(?:ß|ss)lich) lesen${E}`,
-  ),
-  rule(
-    String.raw`${B}(?:werkzeug[\p{L}]*|tools?)${gap('de')} (?:mit (?:reinem |nur )?lesezugriff|ohne schreib(?:zugriff|rechte[\p{L}]*))${E}`,
-  ),
-  rule(
-    String.raw`${B}herramientas? ${gapBefore('es')}(?:de |en |para )?(?:s[oó]lo|solamente|[uú]nicamente) (?:de )?(?:lectura|consulta)${E}`,
-  ),
-  rule(
-    String.raw`${B}herramientas? ${gapBefore('es')}(?:que )?(?:s[oó]lo leen|no modifican|no escriben|sin (?:permisos? de |acceso de )?escritura)${E}`,
-  ),
-  rule(
-    String.raw`${B}ferramentas? ${gapBefore('pt')}(?:de |em |para )?(?:somente|apenas|s[oó]) (?:de )?(?:leitura|consulta)${E}`,
-  ),
-  rule(
-    String.raw`${B}ferramentas? ${gapBefore('pt')}(?:que )?(?:s[oó] leem|apenas leem|n[ãa]o (?:alteram|modificam|escrevem)|sem (?:permiss[ãa]o de )?escrita)${E}`,
-  ),
-  rule(
-    String.raw`(?:読み取り専用|読取専用|リードオンリー|参照専用|読み取りのみ)[^。！？]{0,8}ツール`,
-  ),
-  rule(String.raw`ツール[^。！？]{0,8}(?:読み取り専用|読取専用|読み取りのみ)`),
-];
-
-/** A tools noun in any of the six locales. */
-const TOOLS = rule(
-  String.raw`${B}(?:tools?|outils?|werkzeug[\p{L}]*|herramientas?|ferramentas?)${E}|ツール`,
-);
-
-const COUNT = rule(
-  String.raw`^(?:\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|dozens?|deux|trois|quatre|cinq|sept|huit|neuf|dix|onze|douze|zwei|drei|vier|f[üu]nf|sechs|sieben|acht|neun|zehn|zw[öo]lf|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|doce|dois|duas|tr[êe]s|quatro|sete|oito|nove|dez|doze)[,:]?$`,
-);
-
-const AI_SUBJECT = rule(
-  String.raw`${B}(?:ai|ia|ki|llm|claude|anthropic|assistant|assistente|asistente|assistent(?:en)?|agent|agente|chatbot)${E}|アシスタント|エージェント|人工知能`,
-);
-
-/** A diagnosis, or a failed job, run or task. */
-const DIAGNOSIS = rule(
-  [
-    String.raw`${B}(?:diagnos|diagn[oó]stic|troubleshoot|root-cause|root cause|ursachenanalyse|fehleranalyse|causa ra[ií]z|cause racine)`,
-    String.raw`${B}an[aá]lis[ei]s? de (?:[\p{L}-]+ )?(?:fall|error|falha|erro)`,
-    String.raw`${B}(?:failed|failing|broken|crashed)[- ](?:[\p{L}\d-]+ )?(?:jobs?|runs?|tasks?)${E}`,
-    String.raw`${B}(?:jobs?|runs?|tasks?) (?:that )?(?:failed|fails?|failing|broke|crashed)${E}`,
-    String.raw`${B}(?:job|run|task) failures?${E}`,
-    String.raw`${B}(?:jobs?|t[âa]ches?|ex[ée]cutions?) (?:[\p{L}-]+ )?(?:en [ée]chec|[ée]chou[ée]e?s?|qui ont [ée]chou[ée])`,
-    String.raw`${B}(?:fehlgeschlagen|gescheitert|abgebrochen)[\p{L}]* (?:[\p{L}-]+ )?(?:jobs?|aufgaben|l[äa]ufe|ausf[üu]hrungen)${E}`,
-    String.raw`${B}(?:trabajos?|tareas?|ejecuci[oó]n(?:es)?|jobs?) (?:[\p{L}-]+ )?(?:fallid[oa]s?|fallad[oa]s?|con errore?s?|que fallaron)`,
-    String.raw`${B}(?:jobs?|tarefas?|execu[çc](?:[ãa]o|[õo]es)|trabalhos?) (?:[\p{L}-]+ )?(?:com falhas?|com erros?|que falharam|falhad[oa]s?)`,
-    '診断|原因分析|原因を特定|失敗した(?:ジョブ|タスク)|(?:ジョブ|タスク)の?(?:失敗|エラー)',
-  ].join('|'),
-);
-
-const NEGATION = rule(
-  String.raw`^(?:not|never|no|longer|cannot|can't|don't|doesn't|won't|isn't|aren't|ne|n'[\p{L}]+|jamais|aucun[\p{L}]*|nicht|kein[\p{L}]*|nie|niemals|nunca|ningun[\p{L}]*|ningún|não|nenhum[\p{L}]*)[,:]?$`,
-);
-const JAPANESE_NEGATION = /ない|ません|なし/u;
+const PUBLISHED_CLAIMS = [
+  {
+    // `| **AI Assistant** | … |`, the feature table of README.md from f25de974
+    // (2026-08-06) and of packages/extension/README.md from 73a8da80 (v1.7.0,
+    // 2026-08-11), in both until 8110fd25 (2026-09-11) removed the flow.
+    // NL2SOQL, the other half of the cell, works and stays out of the wording.
+    text: 'failed-job diagnosis over 10 read-only tools',
+    where: 'the AI Assistant row of the feature table, both READMEs, v1.7.0 to v1.21',
+  },
+  {
+    // The bullet the table replaced: packages/extension/README.md, f25de974
+    // (2026-08-06) to 73a8da80, with and without the parenthesis that followed.
+    text: 'failed-job diagnosis, read-only by design',
+    where: 'the AI assistant bullet, packages/extension/README.md, 2026-08-06 to v1.7.0',
+  },
+  {
+    // README.md "Read-only by design" bullet, 885842ee (v1.2.6, 2026-05-05) to
+    // f25de974. The ten tool names it went on to list are left to the anchor:
+    // listing them again means the tools exist again, and that trips first.
+    text: '**Read-only by design** — 10 fine-grained read-only tools',
+    where: 'the "Read-only by design" bullet, README.md, v1.2.6 to 2026-08-06',
+  },
+  {
+    // README.md release highlights, same span, with the parenthesis that made
+    // it a claim about the assistant rather than a property of a module.
+    text: '**Read-only tool surface** (10 tools, registry CI fence, `DML_FORBIDDEN` at 2 layers)',
+    where: 'the release highlights, README.md, v1.2.6 to 2026-08-06',
+  },
+  {
+    // README.md AI section, same span. A diagnose flow built again — without
+    // tools, so the anchor stays green — is described in new words; this
+    // sentence stays refused because it promises the screen that never shipped.
+    text: '**Failed-job diagnose flow** — Right-click a failed bulk job in Monitor → "Diagnose with AI"',
+    where: 'the AI section, README.md, v1.2.6 to 2026-08-06',
+  },
+  {
+    // The same flow in the release highlights, named after the handler that was
+    // deleted with it: the arrow reads as a space.
+    text: '**Failed-job → diagnose flow** with `AIDiagnoseHandler` + `ActionCard`',
+    where: 'the release highlights, README.md, v1.2.6 to 2026-08-06',
+  },
+  {
+    // The half of the diagnose bullet that promised execution, not an answer.
+    text: 'Read-only suggested actions auto-execute silently',
+    where: 'the "Failed-job diagnose flow" bullet, README.md, v1.2.6 to 2026-08-06',
+  },
+].map((claim) => {
+  const needle = normalizeProse(claim.text);
+  return { ...claim, needle, pattern: claimPattern(needle) };
+});
 
 /**
- * The removed promise, one sentence at a time: tools that only read, or tools
- * given a count, sold together with the assistant or with a diagnosis. A
- * read-only-tools phrase needs two of a count right before the tools, an AI
- * subject and a diagnosis or failed job; a plain count of tools needs all
- * three. Either alone is how honest prose talks about Production Guard, Monitor
- * or a connection error.
+ * A mined wording as a pattern: the words as they were published, on word
+ * boundaries, with the count left free. Rewriting `10` as `12` — or as the
+ * `{{count}}` a locale interpolates, which normalises to a number — is editing
+ * the sentence that shipped, not writing a new one.
  */
-function promisesIn(text) {
-  const promises = [];
-  for (const sentence of sentencesOf(normalizeProse(text))) {
-    if (/[?？]$/.test(sentence)) continue;
-    const ai = AI_SUBJECT.test(sentence);
-    const diagnosis = DIAGNOSIS.test(sentence);
-    const countBefore = (index) => {
-      const before = sentence.slice(0, index);
-      const words = before.split(' ').filter(Boolean);
-      return (
-        words.slice(-2).some((word) => COUNT.test(word)) ||
-        /[\d十]+(?:個|つ|種類)?の?$/u.test(before)
-      );
-    };
-    const disclaimed = (index) =>
-      sentence
-        .slice(0, index)
-        .split(' ')
-        .filter(Boolean)
-        .slice(-4)
-        .some((word) => NEGATION.test(word)) || JAPANESE_NEGATION.test(sentence.slice(index));
-
-    const readOnly = READ_ONLY_TOOLS.map((pattern) => pattern.exec(sentence)).find(Boolean);
-    if (readOnly && !disclaimed(readOnly.index)) {
-      if ([countBefore(readOnly.index), ai, diagnosis].filter(Boolean).length >= 2) {
-        promises.push(sentence);
-        continue;
-      }
-    }
-    const tools = TOOLS.exec(sentence);
-    if (tools && ai && diagnosis && countBefore(tools.index) && !disclaimed(tools.index)) {
-      promises.push(sentence);
-    }
-  }
-  return promises;
+function claimPattern(needle) {
+  const body = needle
+    .split(/(\d+)/)
+    .map((part, index) =>
+      index % 2 === 1 ? String.raw`\d+` : part.replace(/[\\^$.*+?()[\]{}|]/g, String.raw`\$&`),
+    )
+    .join('');
+  return new RegExp(String.raw`(?<![\p{L}\p{N}])${body}(?![\p{L}\p{N}])`, 'u');
 }
 
-test('the claim rules read the removed promise, and nothing plausible around it', () => {
-  // Wording the gate exists to stop, in the six locales and the shapes prose
-  // takes: a table row, a wrapped paragraph, emphasis, a non-breaking hyphen.
-  const promises = [
+/**
+ * The mined wordings a text republishes. A wording has to be there whole, on
+ * word boundaries and inside one run of text: wrapping it in a sentence does
+ * not excuse it, so a prefix or a suffix — including one that disowns it —
+ * still counts. Rewrite the sentence, or put the quote in a changelog, which is
+ * not a surface.
+ */
+function republishedClaims(text) {
+  const runs = normalizeProse(text).split(BREAK);
+  return PUBLISHED_CLAIMS.filter((claim) => runs.some((run) => claim.pattern.test(run)));
+}
+
+test('the mined wordings are matched whole, and honest prose is left alone', () => {
+  // A wording short enough to be written by accident makes the gate noise: the
+  // 22-character `read-only tool surface` refused five true sentences, one of
+  // them in a language that borrows the English term. A mined wording carries a
+  // whole claim, so the floor sits under the shortest one that does.
+  const short = PUBLISHED_CLAIMS.filter((claim) => claim.needle.length < 30);
+  assert.deepEqual(
+    short.map((claim) => claim.text),
+    [],
+    'these mined wordings are too short to be refused on their own: mine the sentence that ' +
+      'carried them, or leave the claim to the anchor above',
+  );
+
+  // Each wording as published, then the shapes a reappearance takes: a table
+  // row, a paragraph wrapped mid-phrase, emphasis inside a word, a
+  // non-breaking hyphen, a space written as an entity, an invisible character
+  // pasted mid-word, the count spelled out in another language, interpolated by
+  // i18n or brought up to date, and the wording carried by a longer sentence.
+  const republished = [
+    ...PUBLISHED_CLAIMS.map((claim) => claim.text),
     '| **AI Assistant**   | NL2SOQL and failed-job diagnosis over 10 read-only tools |',
-    '| **AI Assistant**   | Diagnoses failing jobs across 10 read-only Salesforce tools |',
-    '| **AI Assistant**   | Ask why a run broke: the assistant looks it up with ten read‑only org tools |',
-    '| **AI Assistant**   | Answers org questions with ten read-*only* Salesforce tools |',
-    'The assistant looks up why a Seed or Sync run broke with ten read-only\nSalesforce tools.',
-    'The AI Assistant diagnoses failed jobs over 10 Salesforce tools.',
-    'Diagnostic des jobs en échec via 10 outils en lecture seule',
-    "L'assistant IA analyse vos org avec dix outils Salesforce en lecture seule.",
-    'Diagnose gescheiterter Jobs über zehn Werkzeuge, die nur lesen',
-    'Ursachenanalyse für abgebrochene Jobs mit 10 Werkzeugen ohne Schreibzugriff',
-    'Der KI-Assistent prüft Ihre Org mit zehn schreibgeschützten Werkzeugen.',
-    'Diagnóstico de tareas con errores mediante diez herramientas que no modifican nada',
-    'Análisis de trabajos fallidos con 10 herramientas de solo consulta',
-    'Diagnóstico de jobs com falha usando 10 ferramentas somente leitura',
-    'ジョブの失敗を10個の読み取り専用ツールで診断します',
+    'NL2SOQL and failed-job\ndiagnosis over 10 read-only tools, with your own key.',
+    'NL2SOQL and failed-*job* diagnosis over `10` read-only tools',
+    'NL2SOQL and failed‑job diagnosis over 10 read‑only tools',
+    'NL2SOQL and failed-job diagnosis over 10&nbsp;read-only tools',
+    'NL2SOQL and failed-job diagnosis over 10 read\u200B-only tools', // a zero-width space, pasted from a mock-up
+    'failed job diagnosis over ten read only tools',
+    'failed-job diagnosis over {{count}} read-only tools',
+    'failed-job diagnosis over 12 read-only tools',
+    'Diagnose fehlgeschlagener Jobs: failed-job diagnosis over zehn read-only tools',
+    'The assistant now offers failed-job diagnosis over 10 read-only tools again.',
+    // A quotation of a withdrawn wording republishes it on a page a user reads,
+    // whether it is struck through, in a removal note or in an answer about an
+    // old version. All three are refused like the promise, on purpose: the
+    // alternative is a negation rule per language, which is the guessing this
+    // gate dropped. Quote it in a changelog, which is not a surface.
+    'Version 1.20 removed failed-job diagnosis over ten read-only tools from the AI Assistant.',
+    '~~Failed-job diagnosis over 10 read-only tools~~ — withdrawn in 1.20.',
+    'The v1.2.6 README promised "**Read-only by design** — 10 fine-grained read-only tools". It was never true.',
+    '- **AI assistant**: NL2SOQL and failed-job diagnosis, read-only by design.',
+    '- **Read-only by design** — 10 fine-grained read-only tools (`describe_object`, `query_records`).',
+    '- **Read-only tool surface** (10 tools, registry CI fence, `DML_FORBIDDEN` at 2 layers)',
+    '- **Failed-job diagnose flow** — Right-click a failed bulk job in Monitor → "Diagnose with AI" surfaces an ActionCard.',
+    '- **Failed-job → diagnose flow** with `AIDiagnoseHandler` + `ActionCard` (Approve / Modify / Reject)',
+    'Read-only suggested actions auto-execute silently; org-mutating ones gate behind Approve.',
   ];
-  // Prose an honest page could hold, with the same words in it.
-  const legitimate = [
+  assert.deepEqual(
+    republished.filter((text) => republishedClaims(text).length === 0),
+    [],
+    'these republish wording that was withdrawn, and the rules let them through',
+  );
+
+  // Prose an honest page could hold, with the same words in it. The removal
+  // notes, the competitor comparison and the Monitor/Compare sentences are the
+  // ones an earlier, guessing cut of this gate flagged, in the six languages.
+  // The block after them is what a cut that mined fragments flagged next: true
+  // sentences about modules that have no write access, a capability matrix, a
+  // settings line, an index of archived links, and a diagnose flow rebuilt
+  // without tools and described in its own words.
+  const honest = [
     'Read-only mode prevents writes to production',
     'Read-only orgs hide the write tools',
     'Diagnose why an operation failed from the log panel',
     'In a production org, only read-only tools stay enabled.',
     'Monitor and Compare are two read-only tools: they never write to an org.',
+    'Monitor and Compare are two read-only tools for inspecting a failed Sync run.',
+    'Diagnostics: Monitor and Compare are two read-only tools for inspecting a failed Sync run.',
     'Read-only tools in the toolbar stay available while the AI Assistant is off.',
     'The diagnostics panel shows why the last Sync run failed.',
     'While AI is on, every failed Seed run sends its error message to the model for a fix suggestion.',
     'The AI Assistant does not use read-only tools or diagnose failed jobs.',
     'Can the AI Assistant diagnose failed jobs with read-only tools?',
+    'Unlike SFDMU, SandForge does not ship an agent with ten read-only org tools.',
+    'The assistant can explain a failed job, but it has no read-only tools.',
+    'Version 1.20 removed the tool-based diagnosis from the AI Assistant.',
+    'Tools',
     "Diagnostiquer une erreur de connexion à l'org",
     "Le mode lecture seule masque les outils d'écriture.",
     'En production, seuls les outils en lecture seule restent actifs.',
     'Le panneau de diagnostic affiche la dernière exécution en échec.',
+    'Monitor et Compare sont deux outils en lecture seule pour analyser une exécution en échec.',
+    "L'assistant IA ne propose plus le diagnostic des jobs en échec par dix outils en lecture seule.",
     'Im schreibgeschützten Modus sind die Schreibwerkzeuge ausgeblendet.',
     'Im Schutzmodus bleiben nur zwei Werkzeuge ohne Schreibzugriff aktiv.',
     'Der KI-Assistent erklärt Fehler, führt aber keine Werkzeuge aus.',
+    'Der KI-Assistent führt zehn schreibgeschützte Werkzeuge nicht mehr aus.',
+    'Die Diagnose fehlgeschlagener Jobs über zehn schreibgeschützte Werkzeuge wurde in Version 1.20 entfernt.',
     'El modo de solo lectura oculta las herramientas de escritura.',
     'Herramientas de consulta SOQL',
     'En producción solo quedan activas las herramientas de solo lectura.',
+    'El asistente de IA ya no ejecuta diez herramientas de solo lectura.',
+    'El diagnóstico de trabajos fallidos con diez herramientas de solo lectura se eliminó en la versión 1.20.',
     'O modo somente leitura oculta as ferramentas de escrita.',
     'O painel de diagnóstico mostra a última execução com falha.',
+    'O diagnóstico de jobs com falha usando dez ferramentas somente leitura foi removido na versão 1.20.',
     '読み取り専用モードでは書き込みツールが非表示になります',
     '診断パネルに失敗したジョブの一覧が表示されます',
-    'Tools',
+    'AIアシスタントの読み取り専用ツールによる診断は廃止されました',
+    'In a production org SandForge keeps a read-only tool surface: Compare inspects the schema, Monitor reads job state, and neither writes a record.',
+    '**Read-only tool surface** — the set of operations a module may run without write access. Compare and Monitor never leave it.',
+    'Unlike SFDMU, SandForge ships no agent at all: its read-only tool surface is limited to what Compare and Monitor read for you.',
+    'Le mode read-only tool surface de Compare est le seul que la production autorise.',
+    'Compare und Monitor bilden eine Read-only-Tool-Surface: Sie schreiben nie in die Org.',
+    'Compare y Monitor mantienen una read-only tool surface: nunca escriben en la org.',
+    'Compare と Monitor は read-only tool surface (読み取り専用) の範囲でのみ動作します。',
+    '| Read-only suggested actions | Auto-execute | Never — you apply them yourself |',
+    'Read-only suggested actions: auto-execute is off, and there is no setting that turns it on.',
+    'See also: [Failed-job diagnosis](archive/diagnose.md), [read-only by design](archive/read-only.md) — both pages describe versions before 1.20.',
+    "Compare's drift detection runs 10 fine-grained read-only tools of its own. None of them is an AI feature, and none needs a key.",
+    '- **Failed-job diagnose flow** — right-click a failed bulk job in Monitor and the assistant explains the error in prose.',
   ];
   assert.deepEqual(
-    promises.filter((text) => promisesIn(text).length === 0),
+    honest.filter((text) => republishedClaims(text).length > 0),
     [],
-    'the claim rules let these promises through',
+    'the mined wordings flag these honest sentences',
   );
+
+  // The limit, pinned so it cannot drift into a claim this gate does not make:
+  // prose refuses what was published, not what it means. Every line here is a
+  // promise the extension cannot keep, and every line here passes. The anchor
+  // above is what stops the tools themselves coming back, and it fails in both
+  // directions — build them and it trips first, then this list is stale. The
+  // last four are the near misses: a word inflected, and a wording split over
+  // two locale keys that a component renders side by side.
+  const paraphrasesThatPass = [
+    'Chat, NL2SOQL, and read-only Salesforce tools that answer questions about your org',
+    'The AI Assistant diagnoses failed jobs with ten read-only org tools.',
+    'The assistant answers your questions with ten read-only sandbox tools.',
+    'Ten read-only actions: it looks up records and explains why a job failed',
+    'The AI Assistant queries your org with {{count}} read-only tools.',
+    "L'assistant IA interroge votre org avec dix outils de consultation.",
+    'Zehn schreibgeschützte KI-Werkzeuge beantworten Fragen zu Ihrer Org.',
+    'El asistente de IA responde con diez herramientas de consulta.',
+    'O assistente de IA consulta sua org com dez ferramentas de leitura.',
+    'AIアシスタントが参照専用ツールでお答えします',
+    'NL2SOQL and failed-job diagnostics over 10 read-only tools',
+    '- **Read-only tool surfaces** (10 tools, registry CI fence, `DML_FORBIDDEN` at 2 layers)',
+    'NL2SOQL and failed-job diagnosis over',
+    '10 read-only tools',
+  ];
   assert.deepEqual(
-    legitimate.filter((text) => promisesIn(text).length > 0),
+    paraphrasesThatPass.filter((text) => republishedClaims(text).length > 0),
     [],
-    'the claim rules flag these honest sentences',
+    'a paraphrase is now being refused — the rules have started guessing again, which is what ' +
+      'this gate was rewritten to stop; re-read the limits in the header',
   );
 });
 
-test('no user-facing surface claims failed-job diagnosis or read-only AI tools', () => {
+test('no user-facing surface republishes the withdrawn AI wording', () => {
   // Diagnosis was only ever reachable through tools, so the wording is judged
   // against the same scan — controls included — rather than trusted.
   const found = toolCapabilities();
@@ -974,11 +1378,15 @@ test('no user-facing surface claims failed-job diagnosis or read-only AI tools',
 
   const offenders = [];
   for (const { label, text } of userFacingProse()) {
-    for (const sentence of promisesIn(text)) offenders.push(`${label}: ${sentence.slice(0, 160)}`);
+    for (const claim of republishedClaims(text)) {
+      offenders.push(`${label}: "${claim.text}" — published in ${claim.where}`);
+    }
   }
   assert.deepEqual(
     offenders,
     [],
-    'these lines sell an AI feature the extension does not have:\n  ' + offenders.join('\n  '),
+    'these surfaces put back wording the product withdrew. Rewrite the sentence; a note about ' +
+      'the removal belongs in a changelog, which this gate does not read:\n  ' +
+      offenders.join('\n  '),
   );
 });
