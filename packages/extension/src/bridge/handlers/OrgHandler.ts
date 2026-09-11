@@ -10,6 +10,7 @@ import {
 } from '../validatePayload.js';
 import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
 import { getConnectionPool } from '../../core/connection/ConnectionHelper.js';
+import { parseHttpsUrl } from '../../core/common/parseHttpsUrl.js';
 
 /** Message types handled by OrgHandler. */
 const ORG_TYPES = new Set(['org:list', 'org:connect', 'org:disconnect', 'org:select']);
@@ -182,16 +183,14 @@ export class OrgHandler implements DomainHandler {
     }
 
     const loginUrl = payload.loginUrl ?? 'https://login.salesforce.com';
-    try {
-      const parsed = new URL(loginUrl);
-      if (parsed.protocol !== 'https:') {
-        sendNotification(this.deps, 'error', 'Auth', 'Login URL must use HTTPS.');
-        this.failConnect(msg, 'Login URL must use HTTPS.', 'INVALID_LOGIN_URL');
-        return;
-      }
-    } catch {
-      sendNotification(this.deps, 'error', 'Auth', `Invalid login URL: "${loginUrl}".`);
-      this.failConnect(msg, `Invalid login URL: "${loginUrl}".`, 'INVALID_LOGIN_URL');
+    const parsedLogin = parseHttpsUrl(loginUrl);
+    if (!parsedLogin.ok) {
+      const reason =
+        parsedLogin.reason === 'not-https'
+          ? 'Login URL must use HTTPS.'
+          : `Invalid login URL: "${loginUrl}".`;
+      sendNotification(this.deps, 'error', 'Auth', reason);
+      this.failConnect(msg, reason, 'INVALID_LOGIN_URL');
       return;
     }
 
