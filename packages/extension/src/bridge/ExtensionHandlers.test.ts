@@ -828,36 +828,35 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('monitor:abort-job', () => {
-    it('should send error when connection fails', async () => {
-      (getJsforceConnection as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('No access'));
+  // Routed end to end: the broker admits the request, the router hands it to
+  // MonitorOpsHandler, and the refusal comes back correlated. Neither case
+  // reaches the browser, and this file mocks no VS Code API: the adapter
+  // behind the handler imports it only when a page is actually opened.
+  describe('monitor:open-apex-jobs', () => {
+    it('answers an org it does not know on monitor:error, correlated to the request', async () => {
+      broker['dispatch'](msg('monitor:open-apex-jobs', { orgId: 'org-unknown' }));
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      broker['dispatch'](msg('monitor:abort-job', { orgId: 'org-1', jobId: '7071x000001ABCDE12' }));
-      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
-
-      const response = posted.find((p) => p.type === 'monitor:abort-job:response');
-      expect(response).toBeDefined();
-      const payload = (response as BaseMessage & { payload: { success: boolean } }).payload;
-      expect(payload.success).toBe(false);
+      expect(posted).toHaveLength(1);
+      expect(posted[0]).toMatchObject({
+        type: 'monitor:error',
+        correlationId: 'test-1',
+        payload: { code: 'ORG_NOT_FOUND' },
+      });
     });
 
-    it('should abort job successfully', async () => {
-      const mockConnection = {
-        sobject: vi.fn().mockReturnValue({
-          update: vi.fn().mockResolvedValue({ success: true }),
-        }),
-      };
-      (getJsforceConnection as ReturnType<typeof vi.fn>).mockResolvedValue(mockConnection);
+    it('refuses an address slipped into the payload', async () => {
+      broker['dispatch'](
+        msg('monitor:open-apex-jobs', { orgId: 'org-1', url: 'https://attacker.example' }),
+      );
+      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
 
-      broker['dispatch'](msg('monitor:abort-job', { orgId: 'org-1', jobId: '7071x000001ABCDE12' }));
-      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
-
-      const response = posted.find((p) => p.type === 'monitor:abort-job:response');
-      expect(response).toBeDefined();
-      const payload = (response as BaseMessage & { payload: { success: boolean; jobId: string } })
-        .payload;
-      expect(payload.success).toBe(true);
-      expect(payload.jobId).toBe('7071x000001ABCDE12');
+      expect(posted).toHaveLength(1);
+      expect(posted[0]).toMatchObject({
+        type: 'monitor:error',
+        correlationId: 'test-1',
+        payload: { code: 'INVALID_PAYLOAD' },
+      });
     });
   });
 

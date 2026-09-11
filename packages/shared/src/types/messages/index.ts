@@ -125,8 +125,8 @@ import type {
   MonitorStartRequest,
   MonitorDataMessage,
   MonitorErrorResponse,
-  MonitorAbortJobRequest,
-  MonitorAbortJobResponse,
+  MonitorOpenApexJobsRequest,
+  MonitorOpenApexJobsResponse,
   MonitorAlertsRequest,
   MonitorAlertsResultMessage,
   MonitorAlertAcknowledgeRequest,
@@ -485,7 +485,7 @@ export type WebViewToExtensionMessage =
   // Monitor
   | MonitorRefreshRequest
   | MonitorStartRequest
-  | MonitorAbortJobRequest
+  | MonitorOpenApexJobsRequest
   | MonitorAlertsRequest
   | MonitorAlertAcknowledgeRequest
   | MonitorAlertDismissRequest
@@ -681,7 +681,7 @@ export type ExtensionToWebViewMessage =
   | SyncErrorResponse
   | SyncScheduleErrorResponse
   // Monitor
-  | MonitorAbortJobResponse
+  | MonitorOpenApexJobsResponse
   | MonitorAlertsResultMessage
   | MonitorAlertAcknowledgeResponse
   | MonitorAlertDismissResponse

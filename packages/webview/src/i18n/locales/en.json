@@ -136,7 +136,7 @@
     "period24h": "24h",
     "period7d": "7d",
     "alertsCount": "alert(s)",
-    "abortJob": "Abort Job",
+    "openApexJobs": "Open Apex Jobs in Salesforce",
     "filterAll": "All",
     "filterRunning": "Running",
     "filterFailed": "Failed",

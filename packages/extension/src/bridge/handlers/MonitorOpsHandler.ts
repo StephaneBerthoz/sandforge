@@ -5,6 +5,7 @@ import type {
   DeploymentEntry,
   ApiUsageCategory,
   OrgHealthStatus,
+  MonitorOpenApexJobsResponse,
 } from '@sandforge/shared';
 import { MONITOR_KEY_LIMITS, DEFAULT_SOQL_LIMITS, SF_LIMITS } from '@sandforge/shared';
 import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
@@ -12,9 +13,11 @@ import { buildResponse, sendHandlerError, sendNotification } from './HandlerType
 import {
   validatePayload,
   monitorOrgPayloadSchema,
-  monitorAbortJobPayloadSchema,
+  monitorOpenApexJobsPayloadSchema,
   monitorAlertIdPayloadSchema,
 } from '../validatePayload.js';
+import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
+import { apexJobsSetupUrl } from '../../modules/monitor/apexJobsSetupUrl.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
 import { queryAll } from '../../core/common/soqlQueryHelper.js';
 import { UnifiedHealthScorer } from '../../modules/monitor/UnifiedHealthScorer.js';
@@ -109,10 +112,12 @@ const IN_FLIGHT_STATUSES: ReadonlySet<string> = new Set(['Queued', 'Preparing', 
  * out on purpose, because a claim about a lifecycle SandForge has not modelled
  * is a guess shown in red:
  * - ScheduledApex: the row stays Queued until the schedule fires (docs), days
- *   away for a weekly job. Excluding it is the side that cannot put an Abort
- *   on a healthy schedule.
+ *   away for a weekly job. Excluding it is the side that cannot band a healthy
+ *   schedule. It also keeps the band's link honest: a scheduled job is not
+ *   aborted from Setup > Apex Jobs, the page the band opens, but from Setup >
+ *   All Scheduled Jobs (Salesforce help).
  * - BatchApexWorker: rows under a BatchApex parent, which carries the
- *   counters; an abort pointed at a worker would target the wrong row.
+ *   counters; a verdict pointed at a worker would name the wrong row.
  * - TestRequest, TestWorker: test runs, long by nature.
  * - SharingRecalculation, ApexToken: platform-initiated work.
  */
@@ -132,8 +137,8 @@ const MODELLED_JOB_TYPES: ReadonlySet<string> = new Set(['BatchApex', 'Queueable
  * limits cap at 10 minutes of execution (docs). A healthy job whose every
  * batch ran to that ceiling would still have moved several times in an hour.
  * The platform documents no bound on the wait between two batches, so the
- * window is set generously rather than tightly, and even past it the abort
- * stays behind a typed confirmation that restates this evidence.
+ * window is set generously rather than tightly. Even past it SandForge aborts
+ * nothing: the band links to Setup > Apex Jobs, where the reader decides.
  */
 const STALL_WINDOW_MS = 60 * 60 * 1000;
 
@@ -249,8 +254,8 @@ function trackJobProgress(
  * already holds and what earlier refreshes saw of the same jobs.
  *
  * Asks the org for nothing. Each tier claims no more than its evidence:
- * - `stuck` (critical, one insight per job, the only tier the page offers an
- *   abort on): a job in Processing, with batches left to run, whose batch
+ * - `stuck` (critical, one insight per job, the only tier the page links to
+ *   Setup > Apex Jobs from): a job in Processing, with batches left to run, whose batch
  *   counter stayed unchanged across {@link STALL_WINDOW_MS} of watching. The
  *   counter is the proof, whatever the type; BatchApex is the type that has one.
  * - `frequent_failures` (critical, no action): see
@@ -400,7 +405,7 @@ function computeJobInsights(
 const MONITOR_TYPES = new Set([
   'monitor:refresh',
   'monitor:start',
-  'monitor:abort-job',
+  'monitor:open-apex-jobs',
   'monitor:live-operations',
   'monitor:health-score',
   'monitor:storage',
@@ -419,7 +424,7 @@ const MONITOR_TYPES = new Set([
  * Domain handler for monitor-related webview-to-extension messages.
  *
  * Routes monitor:* message types to health calculation, limits fetching,
- * trend computation, async job management, and full refresh operations.
+ * trend computation, the Setup > Apex Jobs link, and full refresh operations.
  * Service construction (stores, alert pipeline, SOQL-backed monitors,
  * /limits cache, health providers) is delegated to {@link createMonitorOps};
  * this handler only orchestrates message handling.
@@ -451,9 +456,18 @@ export class MonitorOpsHandler implements DomainHandler {
    * only provable across two refreshes.
    */
   private readonly jobProgress = new Map<string, JobProgressLog>();
+  /** Opens Setup > Apex Jobs in the system browser (see {@link handleOpenApexJobs}). */
+  private readonly externalBrowser: ExternalBrowserAdapter;
 
-  /** @param deps - Injected handler dependencies. */
-  constructor(private readonly deps: HandlerDeps) {
+  /**
+   * @param deps - Injected handler dependencies.
+   * @param externalBrowser - Injected for tests; defaults to VS Code's `openExternal`.
+   */
+  constructor(
+    private readonly deps: HandlerDeps,
+    externalBrowser?: ExternalBrowserAdapter,
+  ) {
+    this.externalBrowser = externalBrowser ?? new ExternalBrowserAdapter();
     const ops = createMonitorOps({
       configStore: deps.configStore,
       log: (message) => deps.log(message),
@@ -507,8 +521,8 @@ export class MonitorOpsHandler implements DomainHandler {
       case 'monitor:start':
         await this.handleRefresh(msg);
         return true;
-      case 'monitor:abort-job':
-        await this.handleAbortJob(msg);
+      case 'monitor:open-apex-jobs':
+        await this.handleOpenApexJobs(msg);
         return true;
       case 'monitor:live-operations':
         this.handleLiveOperations(msg);
@@ -1022,42 +1036,72 @@ export class MonitorOpsHandler implements DomainHandler {
     }
   }
 
-  private async handleAbortJob(msg: InboundRequest): Promise<void> {
+  /**
+   * Handle monitor:open-apex-jobs -- open the org's Setup > Apex Jobs page.
+   *
+   * The action the Monitor band offers on a stalled job. SandForge aborts
+   * nothing itself: `AsyncApexJob` is not updateable (describe), so an update
+   * of its Status fails on every attempt, and the documented abort is Apex
+   * executed in the user's org (Salesforce help 000385103). The page opened
+   * here is where an abort works, by the user's own hand.
+   *
+   * The webview names an org and nothing else: the schema refuses any other
+   * key, so no address ever comes from the page. It is built here from the
+   * org's stored instance URL, behind the HTTPS gate `sandforge.openOrgInBrowser`
+   * uses. Refusals leave on `monitor:error`; the response carries what the
+   * browser did.
+   *
+   * @param msg - The incoming open-apex-jobs request message.
+   */
+  private async handleOpenApexJobs(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(monitorAbortJobPayloadSchema, msg, 'monitor:error', this.deps);
-    if (!parsed) return;
-    const payload = parsed;
+    const payload = validatePayload(
+      monitorOpenApexJobsPayloadSchema,
+      msg,
+      'monitor:error',
+      this.deps,
+    );
+    if (!payload) return;
+
+    const org = this.deps.orgManager.getOrg(payload.orgId);
+    if (!org) {
+      sendHandlerError(
+        this.deps,
+        'monitor:open-apex-jobs',
+        'monitor:error',
+        msg,
+        new Error(`No registered org has the id "${payload.orgId}".`),
+        { code: 'ORG_NOT_FOUND' },
+      );
+      return;
+    }
+
+    const target = apexJobsSetupUrl(org.instanceUrl);
+    if (!target.ok) {
+      const why =
+        target.reason === 'not-https'
+          ? `its instance URL must use HTTPS, got "${target.protocol}"`
+          : 'its instance URL is not a valid URL';
+      sendHandlerError(
+        this.deps,
+        'monitor:open-apex-jobs',
+        'monitor:error',
+        msg,
+        new Error(`Cannot open Apex Jobs for "${org.alias}": ${why}.`),
+        { code: 'INVALID_INSTANCE_URL' },
+      );
+      return;
+    }
 
     try {
-      const conn = await getJsforceConnection(
-        payload.orgId,
-        this.deps.orgRegistry,
-        this.deps.orgManager,
+      const outcome: MonitorOpenApexJobsResponse['payload'] = await this.externalBrowser.open(
+        target.url,
       );
-      await conn.sobject('AsyncApexJob').update({ Id: payload.jobId, Status: 'Aborted' } as Record<
-        string,
-        unknown
-      > & {
-        Id: string;
-      });
-
-      const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', {
-        jobId: payload.jobId,
-        success: true,
-        message: 'Job abort requested.',
-      });
+      const response = buildResponse(this.deps, msg, 'monitor:open-apex-jobs:response', outcome);
       this.deps.broker.postToWebview(response);
-      sendNotification(this.deps, 'success', 'Monitor', `Job ${payload.jobId} abort requested.`);
+      this.deps.log(`[TX] ${response.type} id=${response.id} status=${outcome.status}`);
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
-      this.deps.log(`[ERR] monitor:abort-job: ${message}`);
-      const response = buildResponse(this.deps, msg, 'monitor:abort-job:response', {
-        jobId: payload.jobId,
-        success: false,
-        message,
-      });
-      this.deps.broker.postToWebview(response);
-      sendNotification(this.deps, 'error', 'Monitor', `Failed to abort job: ${message}`);
+      sendHandlerError(this.deps, 'monitor:open-apex-jobs', 'monitor:error', msg, err);
     }
   }
 

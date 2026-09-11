@@ -12,7 +12,7 @@ import {
   dataOpsBackupPayloadSchema,
   dataOpsRollbackPayloadSchema,
   dataOpsAnonymizePayloadSchema,
-  monitorAbortJobPayloadSchema,
+  monitorOpenApexJobsPayloadSchema,
   compareExecutePayloadSchema,
 } from './validatePayload.js';
 import { inboundRequest } from '../test/mockFactories.js';
@@ -304,21 +304,23 @@ describe('dataops payload schemas', () => {
   });
 });
 
-describe('monitorAbortJobPayloadSchema', () => {
-  it('accepts 18-char SF job ids', () => {
-    expect(
-      monitorAbortJobPayloadSchema.safeParse({
-        orgId: 'o',
-        jobId: '707XXXXXXXXXXXXXXX',
-      }).success,
-    ).toBe(true);
+describe('monitorOpenApexJobsPayloadSchema', () => {
+  it('accepts an org id', () => {
+    expect(monitorOpenApexJobsPayloadSchema.safeParse({ orgId: 'o' }).success).toBe(true);
   });
 
-  it('rejects malformed job ids', () => {
-    expect(monitorAbortJobPayloadSchema.safeParse({ orgId: 'o', jobId: 'not a job' }).success).toBe(
+  it('refuses an address supplied by the page', () => {
+    expect(
+      monitorOpenApexJobsPayloadSchema.safeParse({ orgId: 'o', url: 'https://attacker.example' })
+        .success,
+    ).toBe(false);
+    expect(monitorOpenApexJobsPayloadSchema.safeParse({ orgId: 'o', path: '/x' }).success).toBe(
       false,
     );
-    expect(monitorAbortJobPayloadSchema.safeParse({ orgId: 'o', jobId: '' }).success).toBe(false);
+  });
+
+  it('refuses a payload without an org id', () => {
+    expect(monitorOpenApexJobsPayloadSchema.safeParse({}).success).toBe(false);
   });
 });
 

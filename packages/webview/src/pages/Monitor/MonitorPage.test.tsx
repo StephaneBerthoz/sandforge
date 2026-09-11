@@ -29,8 +29,7 @@ vi.mock('recharts', async () => {
 /* Mock bridge hooks                                                   */
 /* ------------------------------------------------------------------ */
 const mockRefetch = vi.fn();
-const mockAbortMutate = vi.fn();
-const mockAbortReset = vi.fn();
+const mockOpenApexJobsMutate = vi.fn();
 
 /** Mutable query state — tests mutate this before rendering. */
 let mockMonitorQueryState = {
@@ -40,13 +39,11 @@ let mockMonitorQueryState = {
   refetch: mockRefetch,
 };
 
-/** Mutable abort mutation state. */
-let mockAbortMutationState = {
-  mutate: mockAbortMutate,
-  data: null as { success: boolean } | null,
+/** Mutable `monitor:open-apex-jobs` state — the host's answer, as the page sees it. */
+let mockOpenApexJobsState = {
+  data: null as { status: 'opened' } | { status: 'error'; message: string } | null,
   loading: false,
   error: null as string | null,
-  reset: mockAbortReset,
 };
 
 vi.mock('../../hooks/useBridgeQuery', () => ({
@@ -89,8 +86,8 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: (type: string) => {
-    if (type === 'monitor:abort-job') {
-      return mockAbortMutationState;
+    if (type === 'monitor:open-apex-jobs') {
+      return { ...mockOpenApexJobsState, mutate: mockOpenApexJobsMutate, reset: vi.fn() };
     }
     // AlertsPanel mutations
     return { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() };
@@ -160,8 +157,7 @@ describe('MonitorPage', () => {
     resetNotificationCounter();
     useNotificationStore.setState({ notifications: [] });
     mockRefetch.mockClear();
-    mockAbortMutate.mockClear();
-    mockAbortReset.mockClear();
+    mockOpenApexJobsMutate.mockClear();
     // Reset to default idle state
     mockMonitorQueryState = {
       data: null,
@@ -169,13 +165,7 @@ describe('MonitorPage', () => {
       error: null,
       refetch: mockRefetch,
     };
-    mockAbortMutationState = {
-      mutate: mockAbortMutate,
-      data: null,
-      loading: false,
-      error: null,
-      reset: mockAbortReset,
-    };
+    mockOpenApexJobsState = { data: null, loading: false, error: null };
   });
 
   afterEach(() => {
@@ -1038,7 +1028,8 @@ describe('MonitorPage', () => {
 
   // An empty band is the trap: "scanned, nothing wrong", "nothing ran" and
   // "nothing received" look identical when all three render zero rows. The
-  // page says which one it is, and an abort is never a single click.
+  // page says which one it is. Its one action is a link to Setup > Apex Jobs,
+  // where an abort works: SandForge aborts nothing itself.
 
   /** A stall the extension proved: the batch counter did not move in an hour of watching. */
   const stalledInsight = {
@@ -1050,7 +1041,7 @@ describe('MonitorPage', () => {
     recommendation: 'Check the job in Setup, then abort it if it is still at the same batch.',
   };
 
-  /** Old but unproven: a warning, never an abort. */
+  /** Old but unproven: a warning, never an action. */
   const unfinishedInsight = {
     type: 'long_running',
     severity: 'warning',
@@ -1071,9 +1062,12 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
   }
 
-  function clickBandAbort(): void {
+  /** The stall row's action, by the name a reader sees. */
+  function openApexJobsButton(): HTMLButtonElement {
     const row = screen.getByTestId('monitor-job-insight-critical');
-    fireEvent.click(within(row).getByRole('button', { name: 'Abort Job' }));
+    return within(row).getByRole('button', {
+      name: 'Open Apex Jobs in Salesforce',
+    }) as HTMLButtonElement;
   }
 
   it('says there was nothing to scan when the org ran no jobs', () => {
@@ -1145,7 +1139,7 @@ describe('MonitorPage', () => {
   });
 
   // A warning is not an emergency, and not an all-clear either.
-  it('shows an unfinished-job warning without an abort, and never the clear verdict', () => {
+  it('shows an unfinished-job warning without an action, and never the clear verdict', () => {
     renderWithInsights([unfinishedInsight]);
 
     const warning = screen.getByTestId('monitor-job-insight-warning');
@@ -1155,7 +1149,7 @@ describe('MonitorPage', () => {
     expect(screen.queryByTestId('monitor-job-insights-clear')).toBeNull();
   });
 
-  it('bands critical insights in red, with an Abort only on a proven stall', () => {
+  it('bands critical insights in red, with the Apex Jobs link only on a proven stall', () => {
     const repeatedFailures = {
       type: 'frequent_failures',
       severity: 'critical',
@@ -1172,8 +1166,12 @@ describe('MonitorPage', () => {
     const failureRow = criticalRows.find((row) =>
       row.textContent?.includes(repeatedFailures.title),
     );
-    expect(within(stallRow!).getByRole('button', { name: 'Abort Job' })).toBeDefined();
-    // Failed jobs are already finished: there is nothing to abort.
+    expect(
+      within(stallRow!).getByRole('button', { name: 'Open Apex Jobs in Salesforce' }),
+    ).toBeDefined();
+    // A way to the job, not an abort of it.
+    expect(within(stallRow!).queryByRole('button', { name: /abort/i })).toBeNull();
+    // Failed jobs are already finished: there is nothing to act on.
     expect(within(failureRow!).queryByRole('button')).toBeNull();
     const warningRow = screen.getByTestId('monitor-job-insight-warning');
     expect(within(warningRow).queryByRole('button')).toBeNull();
@@ -1197,37 +1195,59 @@ describe('MonitorPage', () => {
     expect(screen.queryByText('Heavy job')).toBeNull();
   });
 
-  it('opens a typed confirmation on Abort and sends nothing on the click', () => {
+  // A navigation needs no confirmation: nothing in the org changes on click.
+  it('asks for Apex Jobs of the selected org in one click, with no confirmation', () => {
     renderWithInsights([stalledInsight]);
 
-    clickBandAbort();
+    fireEvent.click(openApexJobsButton());
 
-    const dialog = screen.getByRole('dialog');
-    // The confirmation names the job and repeats the evidence it rests on.
-    expect(dialog.textContent).toContain('job-2');
-    expect(dialog.textContent).toContain(stalledInsight.detail);
-    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
-    expect(mockAbortMutate).not.toHaveBeenCalled();
+    expect(mockOpenApexJobsMutate).toHaveBeenCalledTimes(1);
+    expect(mockOpenApexJobsMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('aborts the named job only once the confirmation text is typed and confirmed', () => {
+  it('shows a page the browser did not open as an error', () => {
+    mockOpenApexJobsState = {
+      data: { status: 'error', message: 'VS Code did not open the page.' },
+      loading: false,
+      error: null,
+    };
     renderWithInsights([stalledInsight]);
 
-    clickBandAbort();
-    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort Job' } });
-    expect(mockAbortMutate).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
-
-    expect(mockAbortMutate).toHaveBeenCalledTimes(1);
-    expect(mockAbortMutate).toHaveBeenCalledWith({ orgId: 'org-1', jobId: 'job-2' });
+    const alert = screen.getByTestId('monitor-open-apex-jobs-error');
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.textContent).toContain('VS Code did not open the page.');
   });
 
-  it('sends nothing when the confirmation is cancelled', () => {
+  it('shows a refusal from the extension as an error', () => {
+    mockOpenApexJobsState = {
+      data: null,
+      loading: false,
+      error:
+        'Cannot open Apex Jobs for "DevSandbox": its instance URL must use HTTPS, got "http:".',
+    };
     renderWithInsights([stalledInsight]);
 
-    clickBandAbort();
-    fireEvent.click(within(screen.getByRole('dialog')).getByText('Cancel'));
+    expect(screen.getByTestId('monitor-open-apex-jobs-error').textContent).toContain(
+      'must use HTTPS',
+    );
+  });
 
-    expect(mockAbortMutate).not.toHaveBeenCalled();
+  it('shows no error once the page opened', () => {
+    mockOpenApexJobsState = { data: { status: 'opened' }, loading: false, error: null };
+    renderWithInsights([stalledInsight]);
+
+    expect(openApexJobsButton()).toBeDefined();
+    expect(screen.queryByTestId('monitor-open-apex-jobs-error')).toBeNull();
+  });
+
+  it('holds the link while an open is waiting for the host', () => {
+    mockOpenApexJobsState = { data: null, loading: true, error: null };
+    renderWithInsights([stalledInsight]);
+
+    const button = openApexJobsButton();
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(mockOpenApexJobsMutate).not.toHaveBeenCalled();
   });
 });

@@ -33,6 +33,7 @@ import { applyLateServices } from './composition/lateServices';
 import { registerModuleCommands } from './composition/commandsComposition';
 import { validateOrgsOnStartup } from './core/connection/startupValidation';
 import { extractErrorMessage } from './core/common/extractErrorMessage.js';
+import { parseHttpsUrl } from './core/common/parseHttpsUrl.js';
 
 let router: MessageRouter | undefined;
 let broker: MessageBroker | undefined;
@@ -351,15 +352,11 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       // instanceUrl comes from stored org state, which is hand-editable and
-      // also populated by an sfdx import. `Uri.parse` is lenient — it accepts
-      // `javascript:` and `file:` and does not throw on them — so the previous
-      // try/catch caught almost nothing and any scheme reached openExternal.
-      // Allowlist https, matching the check OrgHandler already applies to a
-      // login URL.
-      let parsed: URL;
-      try {
-        parsed = new URL(org.instanceUrl);
-      } catch {
+      // also populated by an sfdx import, and `Uri.parse` accepts `javascript:`
+      // and `file:` without throwing. The HTTPS gate every path from org state
+      // to the browser shares refuses them (see parseHttpsUrl).
+      const parsed = parseHttpsUrl(org.instanceUrl);
+      if (!parsed.ok && parsed.reason === 'invalid') {
         void vscode.window.showErrorMessage(
           vscode.l10n.t(
             'SandForge: cannot open "{0}" — invalid instance URL: {1}',
@@ -369,7 +366,7 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         return;
       }
-      if (parsed.protocol !== 'https:') {
+      if (!parsed.ok) {
         void vscode.window.showErrorMessage(
           vscode.l10n.t(
             'SandForge: refusing to open "{0}" — instance URL must use HTTPS, got "{1}".',
@@ -379,7 +376,9 @@ export function activate(context: vscode.ExtensionContext): void {
         );
         return;
       }
-      void vscode.env.openExternal(vscode.Uri.parse(org.instanceUrl));
+      // Open the URL that passed the gate, parsed strictly — not the raw
+      // stored string, which `Uri.parse` would read leniently again.
+      void vscode.env.openExternal(vscode.Uri.parse(parsed.url.toString(), true));
     },
   );
 

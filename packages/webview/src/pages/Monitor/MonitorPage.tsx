@@ -9,12 +9,12 @@ import {
   WifiOff,
   Plug,
   CircleDashed,
+  ExternalLink,
 } from 'lucide-react';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
 import { cn } from '../../theme';
 import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
@@ -139,10 +139,9 @@ export const MonitorPage: React.FC = () => {
     autoRefresh,
     setAutoRefresh,
     handleRefresh,
-    pendingAbortJobId,
-    requestAbortJob,
-    confirmAbortJob,
-    cancelAbortJob,
+    openApexJobs,
+    openingApexJobs,
+    openApexJobsError,
     orgHealthStatus,
   } = useMonitorPageData();
 
@@ -154,13 +153,6 @@ export const MonitorPage: React.FC = () => {
    */
   const criticalInsights = (jobInsights ?? []).filter((insight) => insight.severity === 'critical');
   const warningInsights = (jobInsights ?? []).filter((insight) => insight.severity === 'warning');
-  /** The verdict a pending abort rests on, restated in its confirmation. */
-  const pendingAbortInsight =
-    pendingAbortJobId === null
-      ? undefined
-      : criticalInsights.find(
-          (insight) => insight.type === 'stuck' && insight.affectedJobs.includes(pendingAbortJobId),
-        );
 
   // Live operations tracking
   const liveOpsQuery = useBridgeQuery<{ operations: LiveOperationSnapshot[] }>(
@@ -409,10 +401,12 @@ export const MonitorPage: React.FC = () => {
 
           A warning never borrows the red, and never gets an action. Only a
           critical `stuck` row, a stall the extension proved from a batch
-          counter that stood still under observation, carries Abort, and that
-          button only arms the typed DangerConfirm below: the org call leaves
-          from its confirm, through a hook that refuses any job such a verdict
-          does not name at that moment. ── */}
+          counter that stood still under observation, carries one: a link to
+          the org's Setup > Apex Jobs page, where the job can be aborted.
+          SandForge aborts nothing itself (AsyncApexJob is not updateable), so
+          the link asks for no confirmation, and a failed open shows as an
+          error. The stall detection never names a scheduled job, which that
+          page does not abort. ── */}
       {jobInsights === null ? (
         <div
           data-testid="monitor-job-insights-unknown"
@@ -438,13 +432,24 @@ export const MonitorPage: React.FC = () => {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => requestAbortJob(insight.affectedJobs[0])}
+                  icon={<ExternalLink className="w-3.5 h-3.5" />}
+                  loading={openingApexJobs}
+                  onClick={openApexJobs}
                 >
-                  {t('monitor.abortJob', 'Abort')}
+                  {t('monitor.openApexJobs')}
                 </Button>
               )}
             </div>
           ))}
+          {openApexJobsError !== null && (
+            <p
+              role="alert"
+              data-testid="monitor-open-apex-jobs-error"
+              className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2 text-xs text-red-400"
+            >
+              {openApexJobsError}
+            </p>
+          )}
           {warningInsights.map((insight, idx) => (
             <div
               key={`warning-${insight.type}-${idx}`}
@@ -630,19 +635,6 @@ export const MonitorPage: React.FC = () => {
           </div>
         </m.div>
       </AnimatePresence>
-
-      <DangerConfirm
-        open={pendingAbortJobId !== null}
-        onClose={cancelAbortJob}
-        onConfirm={confirmAbortJob}
-        title={t('monitor.abortJob')}
-        description={
-          pendingAbortInsight
-            ? `${pendingAbortInsight.title}. ${pendingAbortInsight.detail} ${pendingAbortInsight.recommendation}`
-            : ''
-        }
-        confirmText={t('monitor.abortJob')}
-      />
     </div>
   );
 };

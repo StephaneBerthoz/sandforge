@@ -143,8 +143,9 @@ const MonitorMessages = [
   // Dashboard snapshot (trends included) and the domain error channel.
   msg('monitor:data'),
   msg('monitor:error'),
-  msg('monitor:abort-job'),
-  msg('monitor:abort-job:response'),
+  // Opens Setup > Apex Jobs for a stalled job; refusals answer on monitor:error.
+  msg('monitor:open-apex-jobs'),
+  msg('monitor:open-apex-jobs:response'),
   msg('monitor:live-operations'),
   msg('monitor:live-operations:response'),
   msg('monitor:health-score'),

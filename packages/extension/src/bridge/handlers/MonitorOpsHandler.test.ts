@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MonitorOpsHandler } from './MonitorOpsHandler.js';
 import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import type * as vscode from 'vscode';
 import { inboundRequest } from '../../test/mockFactories.js';
+import { ExternalBrowserAdapter } from '../../adapters/browser/ExternalBrowserAdapter.js';
 
 /**
  * Hoisted mocks -- available before module evaluation.
@@ -943,26 +945,6 @@ describe('MonitorOpsHandler', () => {
   });
 
   describe('payload validation', () => {
-    it('rejects monitor:abort-job with a malformed jobId', async () => {
-      const msg = inboundRequest({
-        id: 'bad-job',
-        type: 'monitor:abort-job',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1', jobId: 'not a job id' },
-      } as unknown as import('@sandforge/shared').BaseMessage);
-
-      const result = await handler.handle(msg);
-      expect(result).toBe(true);
-
-      const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const errMsg = postToWebview.mock.calls[0][0] as {
-        type: string;
-        payload: { code: string };
-      };
-      expect(errMsg.type).toBe('monitor:error');
-      expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
-    });
-
     it('rejects monitor:refresh without orgId', async () => {
       const msg = inboundRequest({
         id: 'bad-refresh',
@@ -979,6 +961,144 @@ describe('MonitorOpsHandler', () => {
         payload: { code: string };
       };
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
+    });
+  });
+
+  /**
+   * The stalled-job action is a link to Setup > Apex Jobs. `AsyncApexJob` is
+   * not updateable, so the former in-product abort failed on every confirm;
+   * the page the link opens is where an abort works.
+   */
+  describe('monitor:open-apex-jobs', () => {
+    const PAGE = 'https://acme.my.salesforce.com/lightning/setup/AsyncApexJobs/home';
+    let openExternal: ReturnType<typeof vi.fn>;
+    let browser: ExternalBrowserAdapter;
+
+    /** A handler with a stand-in browser, over an org store holding `org-1` (or nothing). */
+    function handlerWithOrg(instanceUrl: string | undefined): MonitorOpsHandler {
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockImplementation((orgId: string) =>
+        orgId === 'org-1' && instanceUrl !== undefined
+          ? { id: 'org-1', alias: 'Acme', instanceUrl }
+          : undefined,
+      );
+      return new MonitorOpsHandler(deps, browser);
+    }
+
+    function openRequest(payload: Record<string, unknown>): InboundRequest {
+      return inboundRequest({
+        id: 'req-apex-jobs',
+        type: 'monitor:open-apex-jobs',
+        timestamp: Date.now(),
+        payload,
+      } as BaseMessage);
+    }
+
+    function posted(): Array<BaseMessage & { payload: Record<string, unknown> }> {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls.map(
+        (call: unknown[]) => call[0] as BaseMessage & { payload: Record<string, unknown> },
+      );
+    }
+
+    beforeEach(() => {
+      openExternal = vi.fn().mockResolvedValue(true);
+      browser = new ExternalBrowserAdapter({
+        openExternal,
+        parseUri: (value: string) => ({ toString: () => value }) as unknown as vscode.Uri,
+      });
+    });
+
+    it("opens the org's Setup > Apex Jobs page, built from org state, and answers opened", async () => {
+      const handler = handlerWithOrg('https://acme.my.salesforce.com');
+
+      expect(await handler.handle(openRequest({ orgId: 'org-1' }))).toBe(true);
+
+      expect(openExternal).toHaveBeenCalledTimes(1);
+      expect(String(openExternal.mock.calls[0][0])).toBe(PAGE);
+      expect(posted()).toHaveLength(1);
+      expect(posted()[0]).toMatchObject({
+        type: 'monitor:open-apex-jobs:response',
+        correlationId: 'req-apex-jobs',
+        payload: { status: 'opened' },
+      });
+      // A navigation: no connection is opened, nothing is written to the org.
+      expect(mockGetJsforceConnection).not.toHaveBeenCalled();
+    });
+
+    it('answers status error, correlated, when VS Code does not open the page', async () => {
+      openExternal.mockResolvedValue(false);
+      const handler = handlerWithOrg('https://acme.my.salesforce.com');
+
+      await handler.handle(openRequest({ orgId: 'org-1' }));
+
+      expect(posted()).toHaveLength(1);
+      const [response] = posted();
+      expect(response.type).toBe('monitor:open-apex-jobs:response');
+      expect(response.correlationId).toBe('req-apex-jobs');
+      expect(response.payload.status).toBe('error');
+      expect(response.payload.message).toEqual(expect.stringMatching(/\S/));
+    });
+
+    // The webview names an org, never an address: a URL or a path slipped into
+    // the payload is refused before the org store is even read.
+    it.each([
+      ['a url', { orgId: 'org-1', url: 'https://attacker.example/phish' }],
+      ['a path', { orgId: 'org-1', path: '/secur/logout.jsp' }],
+    ])('refuses a payload carrying %s, and opens nothing', async (_label, payload) => {
+      const handler = handlerWithOrg('https://acme.my.salesforce.com');
+
+      await handler.handle(openRequest(payload));
+
+      expect(openExternal).not.toHaveBeenCalled();
+      expect(deps.orgManager.getOrg).not.toHaveBeenCalled();
+      expect(posted()).toHaveLength(1);
+      expect(posted()[0]).toMatchObject({
+        type: 'monitor:error',
+        correlationId: 'req-apex-jobs',
+        payload: { code: 'INVALID_PAYLOAD' },
+      });
+    });
+
+    it('refuses an instance URL the HTTPS gate rejects, and opens nothing', async () => {
+      const handler = handlerWithOrg('javascript:alert(document.cookie)');
+
+      await handler.handle(openRequest({ orgId: 'org-1' }));
+
+      expect(openExternal).not.toHaveBeenCalled();
+      expect(posted()).toHaveLength(1);
+      expect(posted()[0]).toMatchObject({
+        type: 'monitor:error',
+        correlationId: 'req-apex-jobs',
+        payload: { code: 'INVALID_INSTANCE_URL' },
+      });
+      expect(String(posted()[0].payload.message)).toContain('javascript:');
+    });
+
+    it('reports an org it does not know on monitor:error, correlated', async () => {
+      const handler = handlerWithOrg(undefined);
+
+      await handler.handle(openRequest({ orgId: 'org-1' }));
+
+      expect(openExternal).not.toHaveBeenCalled();
+      expect(posted()).toHaveLength(1);
+      expect(posted()[0]).toMatchObject({
+        type: 'monitor:error',
+        correlationId: 'req-apex-jobs',
+        payload: { code: 'ORG_NOT_FOUND' },
+      });
+    });
+
+    it('reports a browser that cannot be reached on monitor:error, correlated', async () => {
+      const handler = handlerWithOrg('https://acme.my.salesforce.com');
+      vi.spyOn(browser, 'open').mockRejectedValue(new Error('VS Code API unavailable'));
+
+      await handler.handle(openRequest({ orgId: 'org-1' }));
+
+      expect(posted()).toHaveLength(1);
+      expect(posted()[0]).toMatchObject({
+        type: 'monitor:error',
+        correlationId: 'req-apex-jobs',
+        payload: { message: 'VS Code API unavailable' },
+      });
     });
   });
 
@@ -1658,7 +1778,9 @@ describe('MonitorOpsHandler', () => {
 
     /**
      * A scheduled job sits in Queued until its cron fires — days, for a weekly
-     * schedule. Flagging it would put an Abort button on a healthy schedule.
+     * schedule. Flagging it would band a healthy schedule, and send the reader
+     * to Setup > Apex Jobs, which does not abort scheduled jobs (All Scheduled
+     * Jobs does).
      */
     it('never flags a scheduled job waiting for its fire time', async () => {
       const org = watchOrg();

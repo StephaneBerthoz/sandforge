@@ -489,7 +489,7 @@ export class ExtensionHandlers {
       [
         'monitor:refresh',
         'monitor:start',
-        'monitor:abort-job',
+        'monitor:open-apex-jobs',
         'monitor:live-operations',
         'monitor:health-score',
         'monitor:storage',
