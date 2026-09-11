@@ -159,7 +159,7 @@ export interface ERDEdge {
 
 // ── Smart Field Generation ───────────────────────────────
 
-/** Field generation mode for SmartFieldGenerator */
+/** Field generation mode carried by a {@link FieldGenerationConfig}. */
 export type FieldGenerationMode =
   | 'auto'
   | 'faker'

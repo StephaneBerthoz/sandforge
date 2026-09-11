@@ -1,9 +1,8 @@
 /**
  * Types for execution progress tracking and error recovery.
  *
- * Used by the BulkJobProgressTracker (extension) and the
- * ObjectProgressPanel / ErrorRecoveryPanel (webview) to communicate
- * real-time per-object progress and retry state via the message bus.
+ * Used by the BulkJobProgressTracker (extension) to publish real-time
+ * per-object progress and retry state on the message bus.
  */
 
 /** Per-object progress state during a bulk execution. */

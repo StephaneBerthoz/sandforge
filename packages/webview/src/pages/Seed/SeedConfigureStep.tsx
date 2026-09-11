@@ -109,11 +109,11 @@ export const SeedConfigureStep: React.FC<SeedConfigureStepProps> = ({
                     {t('seed.configureRelations')}
                   </span>
                   {/* "+ Add relation" appended an empty row rendered as
-                      ". → .Id": the editor (Step4ConfigureRelations) is never
-                      mounted, so no field could be filled in, and
-                      useSeedExecution.handleExecute never puts relations in the
-                      seed payload. Saying the capability is not wired beats a
-                      row nobody can complete. */}
+                      ". → .Id": no relation editor is mounted, so no field
+                      could be filled in, and useSeedExecution.handleExecute
+                      never puts relations in the seed payload. Saying the
+                      capability is not wired beats a row nobody can
+                      complete. */}
                   <ComingSoon
                     data-testid="seed-relations-soon"
                     description={t('seed.configureRelationsDesc')}

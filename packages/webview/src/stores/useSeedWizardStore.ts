@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import type { PersonaMsg } from '@sandforge/shared';
-import type { SeedRelation } from '../pages/Seed/Step4_ConfigureRelations';
+
+/** One parent-child relation row of the Seed wizard. */
+export interface SeedRelation {
+  childObject: string;
+  childField: string;
+  parentObject: string;
+  parentField: string;
+}
 
 /** Wizard state shared across the Seed page step sections. */
 export interface SeedWizardState {

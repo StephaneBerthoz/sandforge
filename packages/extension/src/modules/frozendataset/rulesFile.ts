@@ -6,7 +6,8 @@
  *
  * The file is versioned JSON (`rulesVersion`, semver). A `keep` rule is
  * only honored when it carries `approved: true`, which a human sets after
- * explicit review — the {@link RuleProposer} never emits `keep` itself.
+ * explicit review: keeping a field in clear text is never the default and
+ * never automatic.
  */
 
 import { PSEUDONYM_GENERATORS, type PseudonymGenerator } from './DeterministicPseudonymizer.js';

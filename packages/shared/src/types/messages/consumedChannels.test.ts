@@ -121,8 +121,12 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
   { channel: 'scheduler:upsert', reason: 'Same panel — nothing creates or edits a schedule.' },
   { channel: 'scheduler:delete', reason: 'Same panel — nothing deletes a schedule.' },
   { channel: 'scheduler:toggle', reason: 'Same panel — nothing enables or pauses a schedule.' },
-  { channel: 'execution:status', reason: 'useRetryManager sends abort and manual-retry only.' },
+  { channel: 'execution:status', reason: 'No page polls one execution; Seed aborts by id only.' },
   { channel: 'execution:list', reason: 'Same — no page enumerates running executions.' },
+  {
+    channel: 'execution:manual-retry',
+    reason: 'The retry panel was removed; the replay path stays reachable via sync:history:rerun.',
+  },
   { channel: 'realtime:status', reason: 'CDC stores send start/stop/metrics; status is unused.' },
 ];
 

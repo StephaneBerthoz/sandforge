@@ -13,9 +13,18 @@ import { Select } from '../../components/ui/Select';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { OrgCard } from './OrgCard';
-import type { ConnectOrgPayload } from './OrgConnectDialog';
 import { OrgEditDialog } from './OrgEditDialog';
 import type { OrgEditPayload } from './OrgEditDialog';
+
+/** What the inline connect form submits for a new org. */
+interface ConnectOrgPayload {
+  alias: string;
+  authMethod: AuthMethod;
+  loginUrl: string;
+  username?: string;
+  password?: string;
+  securityToken?: string;
+}
 
 /** Payload shape returned by org:list:response. */
 interface OrgListPayload {

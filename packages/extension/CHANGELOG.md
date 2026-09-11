@@ -118,6 +118,18 @@ front of every destructive action could be armed without typing a word.
 
 ### Removed
 
+- **Thirty modules that never ran are gone.** Twenty-five files in the
+  extension host — a smart field generator, two validation-rule helpers, a
+  pipeline version store, an approval gate, a sync impact analyser, CSV and
+  JSON connectors, a data masker and others — were compiled, tested and
+  maintained, and not one of them was reachable from the code the extension
+  starts: none appears in the shipped `dist/extension.js`, so removing all
+  3,737 lines leaves that file byte for byte the size it was. Five webview
+  components were in the same state, including a relation editor and an ERD
+  mini-map no page mounted, an org-connect dialog the org page replaced with
+  an inline form, and a retry hook whose panel had already been deleted. The
+  14 translation keys only they displayed leave all six languages with them,
+  3.6 KB off the catalogue every install carries.
 - **Failed-job diagnosis, which nothing in the product could start.** The
   listing sold "failed-job diagnosis over 10 read-only tools"; no screen asked
   for a diagnosis or sent an approval, and the tools were connected to nothing.
@@ -145,6 +157,15 @@ front of every destructive action could be armed without typing a word.
 
 ### Build
 
+- **The orphan-module check covers the extension and the shared contract, not
+  just the webview.** It walks the import graph from the four entry points the
+  build really uses, over the TypeScript syntax tree rather than a regular
+  expression, so a module named in a comment, imported for its types alone, or
+  kept alive by nothing but its own test is reported instead of counted as
+  live. Modules that compile to nothing — interfaces and type aliases — are
+  left alone, since deleting one would break the type check without changing a
+  bundle. Checked against the shipped bundle, the graph contains every file
+  esbuild emitted, so nothing it reports can be a false alarm.
 - **`pnpm validate` runs what CI blocks on**, including the screenshot check,
   and the check that enforces this no longer accepts a commented-out command
   as a command that runs.

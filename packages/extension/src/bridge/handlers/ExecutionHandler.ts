@@ -65,7 +65,7 @@ export class ExecutionHandler implements DomainHandler {
   }
 
   /**
-   * Handle a manual retry request from the ErrorRecoveryPanel.
+   * Handle a manual retry request for a failed execution.
    *
    * Sync executions are replayable: their config snapshot is persisted in
    * {@link SyncHistoryStore} (written by SyncExecutionLogger on every completed
@@ -75,8 +75,10 @@ export class ExecutionHandler implements DomainHandler {
    * events. Every other module keeps the honest `canRetry: false` answer:
    * its configuration was never persisted for replay.
    *
-   * Both outcomes answer on the exact channel the webview consumes —
-   * `execution:retry-status` — so the panel leaves its pending state.
+   * Both outcomes answer on `execution:retry-status`, so a caller never
+   * waits on a request that goes unanswered. No webview surface posts
+   * `execution:manual-retry` today; the channel is kept because the replay
+   * path behind it is live and reachable through `sync:history:rerun`.
    */
   private async handleManualRetry(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -92,11 +94,10 @@ export class ExecutionHandler implements DomainHandler {
 
     const replayEntry = this.findReplayableSyncEntry(payload.executionId, operation?.module);
     if (replayEntry && this.syncOps) {
-      // Acknowledge before relaunching: the retry-status row is replaced
-      // (useRetryManager merges on executionId+objectName), which disables the
-      // retry button and clears the stale error. `canAbort: false` is honest —
-      // the rerun gets its own operation id (msg.id), so the panel's abort
-      // button (bound to the old executionId) cannot reach it.
+      // Acknowledge before relaunching, keyed on executionId+objectName so a
+      // caller can replace its pending row and clear the stale error.
+      // `canAbort: false` is honest — the rerun gets its own operation id
+      // (msg.id), so an abort bound to the old executionId cannot reach it.
       const response = buildResponse(this.deps, msg, 'execution:retry-status', {
         executionId: payload.executionId,
         objectName: payload.objectName,
@@ -189,8 +190,8 @@ export class ExecutionHandler implements DomainHandler {
         this.deps,
       );
       if (!parsed) return;
-      // NOTE: the current webview (useRetryManager) sends `executionId`; the
-      // historical contract is `operationId`. Both are accepted by the schema.
+      // NOTE: the contract is `operationId`; `executionId` is the alias the
+      // retry surface used. Both stay accepted by the schema.
       const operationId = parsed.operationId ?? parsed.executionId ?? '';
 
       if (!this.registry.has(operationId)) {

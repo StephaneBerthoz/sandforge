@@ -15,7 +15,6 @@ export * from './salesforceId.js';
 export * from './SasPathGuard.js';
 export * from './DeterministicPseudonymizer.js';
 export * from './rulesFile.js';
-export * from './RuleProposer.js';
 export * from './queryTemplates.js';
 export * from './CoverageMatrixSelector.js';
 export * from './ForgeGraphHealthChecker.js';
