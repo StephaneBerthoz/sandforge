@@ -6,7 +6,7 @@ import {
   aiAnomalyScanPayloadSchema,
   aiSchemaAdvicePayloadSchema,
 } from '../../validatePayload.js';
-import type { AIModules } from '../AIHandler.js';
+import type { RuleModules } from '../AIHandler.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
 import { queryWithFieldsFallback } from '../../../core/common/soqlQueryHelper.js';
@@ -15,19 +15,22 @@ import { queryWithFieldsFallback } from '../../../core/common/soqlQueryHelper.js
 const AI_ANALYSIS_TYPES = new Set(['ai:anomaly-scan', 'ai:schema-advice']);
 
 /**
- * Sub-handler for AI analysis messages.
+ * Sub-handler for the org analysis messages.
  *
- * Handles anomaly scanning and schema advice using the AI modules bundle.
+ * Anomaly scanning and schema advice are rule engines — local heuristics over
+ * a record sample or a describe, with no provider call — so they answer
+ * whether or not AI is enabled. The `ai:` channel names are kept as-is: the
+ * webview and the message contract already ship under them.
  */
 export class AIAnalysisHandler implements DomainHandler {
-  private aiModules?: AIModules;
+  private ruleModules?: RuleModules;
 
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
-  /** Inject AI modules (Tier 2). */
-  setAIModules(modules: AIModules): void {
-    this.aiModules = modules;
+  /** Inject the rule-based analysis modules. */
+  setRuleModules(modules: RuleModules): void {
+    this.ruleModules = modules;
   }
 
   /**
@@ -57,10 +60,8 @@ export class AIAnalysisHandler implements DomainHandler {
     if (!parsed) return;
     const { orgId, objectName, sampleSize } = parsed;
     try {
-      if (!this.aiModules?.anomalyDetector) {
-        throw new Error(
-          'AI not configured. Set your API key in Settings > AI to enable this feature.',
-        );
+      if (!this.ruleModules?.anomalyDetector) {
+        throw new Error('Anomaly scan is still starting up. Try again in a moment.');
       }
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const safeObj = sanitizeSoqlObjectName(objectName);
@@ -68,7 +69,7 @@ export class AIAnalysisHandler implements DomainHandler {
       const soql = `SELECT FIELDS(ALL) FROM ${safeObj} LIMIT ${limit}`;
       const records = await queryWithFieldsFallback<Record<string, unknown>>(conn, safeObj, soql);
       const sample = { records, fields: Object.keys(records[0] ?? {}) };
-      const report = this.aiModules.anomalyDetector.detectAnomalies(sample, objectName);
+      const report = this.ruleModules.anomalyDetector.detectAnomalies(sample, objectName);
       const response = buildResponse(this.deps, msg, 'ai:anomaly-scan:response', {
         success: true,
         anomalies: report.anomalies.map(
@@ -97,10 +98,8 @@ export class AIAnalysisHandler implements DomainHandler {
     if (!parsed) return;
     const { orgId, objectNames } = parsed;
     try {
-      if (!this.aiModules?.schemaAdvisor) {
-        throw new Error(
-          'AI not configured. Set your API key in Settings > AI to enable this feature.',
-        );
+      if (!this.ruleModules?.schemaAdvisor) {
+        throw new Error('Schema advice is still starting up. Try again in a moment.');
       }
       const conn = await getJsforceConnection(orgId, this.deps.orgRegistry, this.deps.orgManager);
       const names = objectNames ?? ['Account', 'Contact', 'Lead', 'Opportunity'];
@@ -138,7 +137,7 @@ export class AIAnalysisHandler implements DomainHandler {
           };
         }),
       );
-      const advice = this.aiModules.schemaAdvisor.analyzeSchema(describes);
+      const advice = this.ruleModules.schemaAdvisor.analyzeSchema(describes);
       const response = buildResponse(this.deps, msg, 'ai:schema-advice:response', {
         success: true,
         advice: {

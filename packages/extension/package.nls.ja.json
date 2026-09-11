@@ -41,7 +41,7 @@
   "config.ai.enabled.description": "AI アシスタントを有効にする（シークレットに API キーが必要）",
   "config.ai.provider.description": "AI プロバイダー。実装済みは `anthropic` のみです。`openai` と `custom` は宣言されていますが、呼び出すと「未実装」が発生します。",
   "config.ai.model.description": "アシスタントに使用する AI モデル",
-  "config.ai.tokenBudgetMaxPerSession.description": "Assistant パネルのセッションごとの AI トークン予算の上限。パネルを閉じるとカウンターはリセットされます。SandForge は 80% で警告し、100% で以降のリクエストを拒否します。",
+  "config.ai.tokenBudgetMaxPerSession.description": "1 セッションの AI トークン予算の上限。SandForge のすべての AI 機能で共有されます。SandForge は 80% で警告し、100% で以降のリクエストを拒否します。カウンターはウィンドウの再読み込み時、または sandforge.ai.* 設定の変更時にリセットされます。",
   "config.backup.maxCount.description": "Org ごとに保持するバックアップの最大数",
   "config.pipeline.timeout.description": "パイプライン実行のタイムアウト（ミリ秒）",
   "config.safety.requireProdConfirmation.description": "本番 Org の操作に確認ダイアログを要求する",

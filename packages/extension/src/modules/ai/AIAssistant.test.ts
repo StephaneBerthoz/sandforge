@@ -77,6 +77,36 @@ describe('AIAssistant', () => {
     expect(assistant.deleteConversation('nope')).toBe(false);
   });
 
+  it('should chat on a conversation it never created but was handed back', async () => {
+    assistant.restoreConversation({
+      id: 'conv-from-storage',
+      title: 'Yesterday',
+      messages: [
+        { id: 'm1', role: 'user', content: 'first', timestamp: '2025-01-01T10:00:00Z' },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'answer',
+          timestamp: '2025-01-01T10:00:01Z',
+          tokenCount: 7,
+        },
+      ],
+      createdAt: '2025-01-01T10:00:00Z',
+      updatedAt: '2025-01-01T10:00:01Z',
+      totalTokens: 7,
+    });
+
+    await assistant.chat('conv-from-storage', 'second');
+
+    const sent = mockCallFn.mock.calls[0][0].filter((m) => m.role !== 'system');
+    expect(sent).toEqual([
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'answer' },
+      { role: 'user', content: 'second' },
+    ]);
+    expect(assistant.getConversation('conv-from-storage')?.totalTokens).toBe(49);
+  });
+
   it('should clear all conversations', () => {
     assistant.createConversation('A');
     assistant.createConversation('B');

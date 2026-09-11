@@ -18,6 +18,7 @@ vi.mock('../modules/ai/SchemaAdvisor.js', () => ({ SchemaAdvisor: vi.fn() }));
 import { initAIComposition } from './aiComposition';
 import type { AICompositionDeps } from './aiComposition';
 import type { BreakerStateChangeEvent } from '../adapters/ai/AIClient';
+import { SessionBudget, type BudgetBroker } from '../adapters/ai/tokenBudget/index.js';
 
 describe('initAIComposition — ai:provider:status forwarding', () => {
   const posted: Array<Record<string, unknown>> = [];
@@ -40,6 +41,8 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
         isAIEnabled: () => aiEnabled,
         aiClient: () => fakeClient,
         telemetry: { getLogger: () => ({}) },
+        createSessionBudget: (sessionId: string, budgetBroker?: BudgetBroker) =>
+          new SessionBudget({ sessionId, budget: 50_000, broker: budgetBroker }),
       },
       secretVault: {
         getSecret: vi.fn(() => Promise.resolve(hasKey ? 'sk-test' : undefined)),
@@ -47,6 +50,7 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
       handlers: {
         setAIAssistant: vi.fn(),
         setAIModules: vi.fn(),
+        setRuleModules: vi.fn(),
       },
       broker: {
         postToWebview: vi.fn((msg: Record<string, unknown>) => {
@@ -73,9 +77,9 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
       lastErrorVerdict: { kind: 'overloaded', userMessageKey: 'ai.error.overloaded' },
     } as BreakerStateChangeEvent);
 
-    expect(posted).toHaveLength(1);
-    expect(posted[0].type).toBe('ai:provider:status');
-    const payload = posted[0].payload as Record<string, unknown>;
+    const statusFeed = posted.filter((m) => m.type === 'ai:provider:status');
+    expect(statusFeed).toHaveLength(1);
+    const payload = statusFeed[0].payload as Record<string, unknown>;
     expect(payload.provider).toBe('anthropic');
     expect(payload.state).toBe('open');
     expect(payload.cooldownEndsAt).toBe('2026-08-11T12:00:00Z');
@@ -86,7 +90,7 @@ describe('initAIComposition — ai:provider:status forwarding', () => {
   it('subscribes nothing when AI is disabled', async () => {
     await initAIComposition(makeDeps({ aiEnabled: false }));
     expect(stateChangeListener).toBeUndefined();
-    expect(posted).toHaveLength(0);
+    expect(posted.filter((m) => m.type === 'ai:provider:status')).toHaveLength(0);
   });
 
   it('subscribes nothing when no API key is stored', async () => {

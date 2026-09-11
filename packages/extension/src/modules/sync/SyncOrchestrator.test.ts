@@ -79,9 +79,6 @@ function createMockDeps(): SyncOrchestratorDeps {
         .fn()
         .mockImplementation((record: Record<string, unknown>) => ({ ...record })),
     } as unknown as SyncOrchestratorDeps['transformPipeline'],
-    migrationScript: {
-      execute: vi.fn().mockResolvedValue({ success: true, output: '', errors: [] }),
-    } as unknown as SyncOrchestratorDeps['migrationScript'],
     incrementalTracker: {
       getLastSync: vi.fn().mockReturnValue(undefined),
       recordSync: vi.fn(),
@@ -137,32 +134,17 @@ describe('SyncOrchestrator', () => {
       expect(deps.dataSync.sync).toHaveBeenCalled();
     });
 
-    it('should execute preScript before syncing objects', async () => {
-      const config = createConfig({ preScript: 'System.debug("pre");' });
+    it('should ignore script fields left in an old config', async () => {
+      const config = {
+        ...createConfig(),
+        preScript: 'Database.delete([SELECT Id FROM Account]);',
+        postScript: 'System.debug("post");',
+      } as unknown as SyncConfig;
 
-      await orchestrator.execute(config);
+      const result = await orchestrator.execute(config);
 
-      expect(deps.migrationScript.execute).toHaveBeenCalledWith('System.debug("pre");', 'src-org');
-    });
-
-    it('should execute postScript after syncing objects', async () => {
-      const config = createConfig({ postScript: 'System.debug("post");' });
-
-      await orchestrator.execute(config);
-
-      expect(deps.migrationScript.execute).toHaveBeenCalledWith('System.debug("post");', 'tgt-org');
-    });
-
-    it('should return failure status when preScript fails', async () => {
-      vi.mocked(deps.migrationScript.execute).mockResolvedValue({
-        success: false,
-        output: '',
-        errors: ['Compilation error'],
-      });
-
-      const result = await orchestrator.execute(createConfig({ preScript: 'bad code;' }));
-
-      expect(result.status).toBe('failure');
+      expect(result.status).toBe('success');
+      expect(deps.dataSync.sync).toHaveBeenCalled();
     });
 
     it('should process objects in insertOrder', async () => {
@@ -264,17 +246,6 @@ describe('SyncOrchestrator', () => {
       const result = await orchestrator.dryRun(createConfig());
 
       expect(result.totalProcessed).toBe(2);
-    });
-
-    it('should not execute pre/post scripts', async () => {
-      const config = createConfig({
-        preScript: 'pre();',
-        postScript: 'post();',
-      });
-
-      await orchestrator.dryRun(config);
-
-      expect(deps.migrationScript.execute).not.toHaveBeenCalled();
     });
 
     it('should not record sync timestamps', async () => {

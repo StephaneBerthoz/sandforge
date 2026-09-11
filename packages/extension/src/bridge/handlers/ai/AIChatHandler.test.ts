@@ -3,6 +3,7 @@ import { AIChatHandler } from './AIChatHandler.js';
 import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { inboundRequest } from '../../../test/mockFactories.js';
+import { AIAssistant, type AICallFn, type AIModelConfig } from '../../../modules/ai/AIAssistant.js';
 
 vi.mock('../../../core/common/extractErrorMessage.js', () => ({
   extractErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
@@ -69,7 +70,7 @@ function createMsg(
 
 function createMockAssistant(
   overrides: Record<string, unknown> = {},
-): Parameters<AIChatHandler['setAIAssistant']>[0] {
+): NonNullable<Parameters<AIChatHandler['setAIAssistant']>[0]> {
   return {
     chat: vi.fn().mockResolvedValue({
       id: 'resp-1',
@@ -96,7 +97,7 @@ function createMockAssistant(
       totalInputTokens: 0,
     }),
     ...overrides,
-  } as unknown as Parameters<AIChatHandler['setAIAssistant']>[0];
+  } as unknown as NonNullable<Parameters<AIChatHandler['setAIAssistant']>[0]>;
 }
 
 describe('AIChatHandler', () => {
@@ -419,6 +420,168 @@ describe('AIChatHandler', () => {
 
       await handler.handle(createMsg('ai:conversation:delete', { conversationId: 'c1' }));
       expect(mockAssistant.deleteConversation).toHaveBeenCalledWith('c1');
+    });
+  });
+
+  describe('persisted conversation after a VS Code restart', () => {
+    const MODEL_CONFIG: AIModelConfig = {
+      provider: 'anthropic',
+      model: 'test-model',
+      apiKey: 'sk-test',
+      maxTokens: 1024,
+      temperature: 0,
+    };
+
+    /** A conversation written to the store by a previous VS Code session. */
+    function persistOldConversation(): void {
+      deps.configStore.set(
+        'ai:conversation:conv-old',
+        {
+          id: 'conv-old',
+          title: 'Yesterday',
+          messages: [
+            {
+              id: 'm1',
+              role: 'user',
+              content: 'which object holds cases',
+              timestamp: '2025-01-01T10:00:00Z',
+            },
+            {
+              id: 'm2',
+              role: 'assistant',
+              content: 'Case',
+              timestamp: '2025-01-01T10:00:01Z',
+              tokenCount: 4,
+            },
+          ],
+          createdAt: '2025-01-01T10:00:00Z',
+          updatedAt: '2025-01-01T10:00:01Z',
+        },
+        'ai',
+      );
+      deps.configStore.set(
+        'ai:conversations:index',
+        [
+          {
+            id: 'conv-old',
+            title: 'Yesterday',
+            createdAt: '2025-01-01T10:00:00Z',
+            messageCount: 2,
+          },
+        ],
+        'ai',
+      );
+    }
+
+    /** A brand-new assistant, i.e. the empty memory a restart leaves behind. */
+    function freshAssistant(): { assistant: AIAssistant; callFn: ReturnType<typeof vi.fn> } {
+      const callFn = vi.fn().mockResolvedValue({
+        content: 'Yes, Case.',
+        tokenCount: 6,
+        model: 'test-model',
+        durationMs: 1,
+      });
+      return {
+        assistant: new AIAssistant(callFn as unknown as AICallFn, MODEL_CONFIG),
+        callFn,
+      };
+    }
+
+    /** Every `ai:error` message the handler pushed, most recent last. */
+    function errorMessages(): string[] {
+      return (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls
+        .map(([m]) => m as { type: string; payload: { message?: string } })
+        .filter((m) => m.type === 'ai:error')
+        .map((m) => m.payload.message ?? '');
+    }
+
+    it('answers a chat on a conversation reloaded after the restart', async () => {
+      persistOldConversation();
+      const { assistant } = freshAssistant();
+      handler.setAIAssistant(assistant);
+
+      await handler.handle(createMsg('ai:conversation:load', { conversationId: 'conv-old' }));
+      await handler.handle(createMsg('ai:chat', { conversationId: 'conv-old', message: 'sure?' }));
+
+      expect(errorMessages()).toEqual([]);
+      expect(deps.broker.postToWebview).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'ai:chat:response' }),
+      );
+    });
+
+    it('answers a chat on a persisted conversation that was never reloaded', async () => {
+      persistOldConversation();
+      const { assistant } = freshAssistant();
+      handler.setAIAssistant(assistant);
+
+      await handler.handle(createMsg('ai:chat', { conversationId: 'conv-old', message: 'sure?' }));
+
+      expect(errorMessages()).toEqual([]);
+      expect(deps.broker.postToWebview).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'ai:chat:response' }),
+      );
+    });
+
+    it('sends the persisted history to the model, in order', async () => {
+      persistOldConversation();
+      const { assistant, callFn } = freshAssistant();
+      handler.setAIAssistant(assistant);
+
+      await handler.handle(createMsg('ai:chat', { conversationId: 'conv-old', message: 'sure?' }));
+
+      const sent = (
+        callFn.mock.calls[0]?.[0] as Array<{ role: string; content: string }> | undefined
+      )?.filter((m) => m.role !== 'system');
+      expect(sent).toEqual([
+        { role: 'user', content: 'which object holds cases' },
+        { role: 'assistant', content: 'Case' },
+        { role: 'user', content: 'sure?' },
+      ]);
+    });
+
+    it('keeps the restored history when persisting the new exchange', async () => {
+      persistOldConversation();
+      const { assistant } = freshAssistant();
+      handler.setAIAssistant(assistant);
+
+      await handler.handle(createMsg('ai:chat', { conversationId: 'conv-old', message: 'sure?' }));
+
+      const saved = deps.configStore.get<{
+        id: string;
+        title: string;
+        createdAt: string;
+        messages: Array<{ content: string }>;
+      }>('ai:conversation:conv-old');
+      expect(saved?.title).toBe('Yesterday');
+      expect(saved?.createdAt).toBe('2025-01-01T10:00:00Z');
+      expect(saved?.messages.map((m) => m.content)).toEqual([
+        'which object holds cases',
+        'Case',
+        'sure?',
+        'Yes, Case.',
+      ]);
+    });
+
+    it('still errors on a conversation id nothing ever persisted', async () => {
+      const { assistant } = freshAssistant();
+      handler.setAIAssistant(assistant);
+
+      await handler.handle(createMsg('ai:chat', { conversationId: 'ghost', message: 'hi' }));
+
+      expect(errorMessages()).toEqual(['Conversation ghost not found']);
+    });
+
+    it('drops a restored conversation from memory and store on delete', async () => {
+      persistOldConversation();
+      const { assistant } = freshAssistant();
+      handler.setAIAssistant(assistant);
+
+      await handler.handle(createMsg('ai:chat', { conversationId: 'conv-old', message: 'sure?' }));
+      await handler.handle(createMsg('ai:conversation:delete', { conversationId: 'conv-old' }));
+
+      expect(assistant.getConversation('conv-old')).toBeUndefined();
+      expect(deps.configStore.get('ai:conversation:conv-old')).toBeUndefined();
+      expect(deps.configStore.get<Array<{ id: string }>>('ai:conversations:index')).toEqual([]);
     });
   });
 

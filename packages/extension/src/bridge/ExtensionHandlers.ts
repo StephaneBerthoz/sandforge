@@ -41,7 +41,7 @@ import { CompareHandler } from './handlers/CompareHandler.js';
 import { DataOpsHandler } from './handlers/DataOpsHandler.js';
 import { AutomationHandler } from './handlers/AutomationHandler.js';
 import { AIHandler } from './handlers/AIHandler.js';
-import type { AIModules } from './handlers/AIHandler.js';
+import type { AIModules, RuleModules } from './handlers/AIHandler.js';
 import { AutopilotHandler } from './handlers/AutopilotHandler.js';
 import { ForgeHandler } from './handlers/ForgeHandler.js';
 import type { ForgeServices } from './handlers/ForgeHandler.js';
@@ -69,7 +69,7 @@ export type CommandExecutor = (command: string, ...args: unknown[]) => PromiseLi
 
 // Re-export interfaces for backward compatibility
 export type { InfraServices } from './handlers/HandlerTypes.js';
-export type { AIModules } from './handlers/AIHandler.js';
+export type { AIModules, RuleModules } from './handlers/AIHandler.js';
 export type { MigrationFileReader } from './handlers/MigrationHandler.js';
 
 /** Dependencies injected into ExtensionHandlers. */
@@ -225,8 +225,8 @@ export class ExtensionHandlers {
     this.dataOpsHandler.setMaskingTemplateService(service);
   }
 
-  /** Inject AI assistant service. */
-  setAIAssistant(ai: AIAssistant): void {
+  /** Inject the AI assistant service, or `undefined` to take it away. */
+  setAIAssistant(ai: AIAssistant | undefined): void {
     this.aiHandler.setAIAssistant(ai);
   }
 
@@ -336,9 +336,17 @@ export class ExtensionHandlers {
     this.syncScheduleHandler.stopScheduler();
   }
 
-  /** Inject AI modules (Tier 2). */
-  setAIModules(modules: AIModules): void {
+  /** Inject the model-backed modules (Tier 2), or `undefined` to take them away. */
+  setAIModules(modules: AIModules | undefined): void {
     this.aiHandler.setAIModules(modules);
+    // Mutate the shared deps object so `sendOperationFailed` can answer a
+    // failed operation from the knowledge base — once, where it is raised.
+    this.handlerDeps.errorResolver = modules.errorResolver;
+  }
+
+  /** Inject the rule-based analysis modules. Independent of the AI switch. */
+  setRuleModules(modules: RuleModules): void {
+    this.aiHandler.setRuleModules(modules);
   }
 
   /** Inject migration file reader (Tier 3). */
@@ -566,7 +574,6 @@ export class ExtensionHandlers {
         'ai:status',
         'ai:save-key',
         'ai:nl2soql',
-        'ai:resolve-error',
         'ai:anomaly-scan',
         'ai:generate-pipeline',
         'ai:schema-advice',

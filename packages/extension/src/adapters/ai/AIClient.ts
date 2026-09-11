@@ -1,5 +1,6 @@
 import type { AIUsage } from '@sandforge/shared';
 import type { AIErrorVerdict } from './errorClassifier.js';
+import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
 export type AIProviderType = 'anthropic' | 'openai' | 'custom';
 
@@ -43,6 +44,13 @@ export interface AICountTokensResult {
 
 export interface AIClient {
   readonly provider: AIProviderType;
+  /**
+   * Token budget for the current AI session, attached by the composition root
+   * once the stack is initialised (see `initAIComposition`). Every adapter
+   * declares the field; only the Anthropic one enforces it (the others are
+   * stubs that never reach an SDK). Left undefined, the adapter is unmetered.
+   */
+  budget?: SessionBudget;
   chat(opts: AIChatOpts): Promise<AIChatResult>;
   countTokens(opts: AICountTokensOpts): Promise<AICountTokensResult>;
   /**

@@ -97,6 +97,22 @@ describe('AIPersonaManager', () => {
       }
     });
 
+    it('should carry an instruction the Seed field-rule mapping can read on every ai_generate pattern', () => {
+      const personas = manager.getBuiltInPersonas();
+
+      for (const persona of personas) {
+        for (const [fieldName, pattern] of Object.entries(persona.dataPatterns)) {
+          if (pattern.generator !== 'ai_generate') continue;
+          /* The mapping fills the `aiPrompt` config key from one of these two
+             params — that key is the only part of the rule the model sees. */
+          const instruction = pattern.params?.['prompt'] ?? pattern.params?.['aiPrompt'];
+          expect(instruction, `Missing prompt instruction for ${persona.id}/${fieldName}`).toEqual(
+            expect.any(String),
+          );
+        }
+      }
+    });
+
     it('should return a copy of the built-in personas array', () => {
       const personas = manager.getBuiltInPersonas();
       personas.length = 0;

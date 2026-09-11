@@ -3,7 +3,6 @@ import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
   aiNl2SoqlPayloadSchema,
-  aiResolveErrorPayloadSchema,
   aiGeneratePipelinePayloadSchema,
 } from '../../validatePayload.js';
 import type { AIModules } from '../AIHandler.js';
@@ -11,12 +10,14 @@ import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
 
 /** Message types handled by AIToolsHandler. */
-const AI_TOOLS_TYPES = new Set(['ai:nl2soql', 'ai:resolve-error', 'ai:generate-pipeline']);
+const AI_TOOLS_TYPES = new Set(['ai:nl2soql', 'ai:generate-pipeline']);
 
 /**
  * Sub-handler for AI tool messages.
  *
- * Handles NL2SOQL translation, error resolution, and pipeline generation.
+ * Handles NL2SOQL translation and pipeline generation. Error resolution has no
+ * inbound channel: a failure is resolved once by `sendOperationFailed`, on the
+ * side that raises it — see the note on `AIResolveErrorResponse`.
  */
 export class AIToolsHandler implements DomainHandler {
   private aiModules?: AIModules;
@@ -24,8 +25,12 @@ export class AIToolsHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
-  /** Inject AI modules (Tier 2). */
-  setAIModules(modules: AIModules): void {
+  /**
+   * Inject the model-backed modules (Tier 2). Passing `undefined` takes them
+   * away, so an AI switched off mid-session stops NL2SOQL, error resolution
+   * and pipeline drafts from reaching a provider.
+   */
+  setAIModules(modules: AIModules | undefined): void {
     this.aiModules = modules;
   }
 
@@ -41,9 +46,6 @@ export class AIToolsHandler implements DomainHandler {
     switch (msg.type) {
       case 'ai:nl2soql':
         await this.handleNL2SOQL(msg);
-        return true;
-      case 'ai:resolve-error':
-        await this.handleResolveError(msg);
         return true;
       case 'ai:generate-pipeline':
         await this.handleGeneratePipeline(msg);
@@ -81,41 +83,6 @@ export class AIToolsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:nl2soql: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:nl2soql:response', {
-        success: false,
-        error: extractErrorMessage(err),
-      });
-      this.deps.broker.postToWebview(errResp);
-    }
-  }
-
-  private async handleResolveError(msg: InboundRequest): Promise<void> {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(aiResolveErrorPayloadSchema, msg, 'ai:error', this.deps);
-    if (!parsed) return;
-    const { errorMessage, errorCode, module, context } = parsed;
-    try {
-      if (!this.aiModules?.errorResolver) {
-        throw new Error(
-          'AI not configured. Set your API key in Settings > AI to enable this feature.',
-        );
-      }
-      const result = await this.aiModules.errorResolver.resolveError(
-        { errorCode: errorCode ?? 'UNKNOWN', message: errorMessage },
-        { module, operation: 'unknown', orgId: '', ...context },
-      );
-      const suggestedFix = result.suggestions[0]?.description ?? result.explanation;
-      const response = buildResponse(this.deps, msg, 'ai:resolve-error:response', {
-        success: true,
-        resolution: {
-          explanation: result.explanation,
-          suggestedFix,
-          confidence: result.confidence,
-        },
-      });
-      this.deps.broker.postToWebview(response);
-    } catch (err: unknown) {
-      this.deps.log(`[ERR] ai:resolve-error: ${extractErrorMessage(err)}`);
-      const errResp = buildResponse(this.deps, msg, 'ai:resolve-error:response', {
         success: false,
         error: extractErrorMessage(err),
       });

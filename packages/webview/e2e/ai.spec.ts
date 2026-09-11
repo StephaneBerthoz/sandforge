@@ -358,16 +358,17 @@ test.describe('AI Module — Conversation management', () => {
  *
  * The quarantined version "tested" this by typing the words "I got this error"
  * into the chat box, which posts `ai:chat` like any other sentence — it never
- * touched the resolver. The real surface is in BridgeProvider: a failed
- * operation is forwarded to the assistant on `ai:resolve-error` whenever AI is
- * available, and the answer is surfaced as a toast.
+ * touched the resolver. The real surface is a failed operation: the extension
+ * resolves it where it raises it and pushes the answer on
+ * `ai:resolve-error:response`, which the page turns into a toast. The page
+ * itself asks nothing, because `operation:failed` reaches every open panel.
  */
 test.describe('AI Module — Error resolver', () => {
   test.beforeEach(async ({ page }) => {
     await openAIPanel(page);
   });
 
-  test('forwards a failed operation to the assistant', async ({ page }) => {
+  test('does not ask the assistant about a failure it merely received', async ({ page }) => {
     await sendExtensionMessage(page, {
       type: 'operation:failed',
       id: 'evt-op-failed',
@@ -378,15 +379,9 @@ test.describe('AI Module — Error resolver', () => {
       },
     });
 
-    await expect
-      .poll(async () => (await outgoing(page, 'ai:resolve-error')).length, { timeout: 5000 })
-      .toBeGreaterThan(0);
-
-    const asked = await outgoingPayloads(page, 'ai:resolve-error');
-    expect(asked[0].errorMessage).toBe(
-      'FIELD_CUSTOM_VALIDATION_EXCEPTION: Amount must be positive',
-    );
-    expect(asked[0].context).toMatchObject({ operationId: 'op-42', retryable: false });
+    // Give the listener the same window a real request would have needed.
+    await page.waitForTimeout(500);
+    expect(await outgoing(page, 'ai:resolve-error')).toHaveLength(0);
   });
 
   test('surfaces the suggested fix as a notification', async ({ page }) => {
@@ -395,9 +390,6 @@ test.describe('AI Module — Error resolver', () => {
       id: 'evt-op-failed-2',
       payload: { operationId: 'op-43', error: 'INSUFFICIENT_ACCESS', retryable: true },
     });
-    await expect
-      .poll(async () => (await outgoing(page, 'ai:resolve-error')).length, { timeout: 5000 })
-      .toBeGreaterThan(0);
 
     await sendExtensionMessage(page, {
       type: 'ai:resolve-error:response',

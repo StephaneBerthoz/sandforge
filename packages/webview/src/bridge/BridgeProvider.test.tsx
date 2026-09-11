@@ -336,4 +336,134 @@ describe('BridgeProvider', () => {
     // Restore the shared i18n instance for the rest of the suite.
     await i18n.changeLanguage('en');
   });
+
+  /**
+   * One failure must cost one resolution.
+   *
+   * `operation:failed` is broadcast by the broker to every open SandForge
+   * panel, and each panel mounts its own BridgeProvider. A provider that asks
+   * the model about the failure it just received turns one failed operation
+   * into one request, one org error text sent out and one toast *per open
+   * panel*. Mounting several providers over the same window models that
+   * fan-out: they all receive the single dispatched message, exactly as
+   * separate panels would.
+   */
+  it('should not ask the assistant about a failure it merely received', () => {
+    useAppStore.setState({ aiAvailable: true });
+
+    render(
+      <>
+        <BridgeProvider>
+          <div />
+        </BridgeProvider>
+        <BridgeProvider>
+          <div />
+        </BridgeProvider>
+        <BridgeProvider>
+          <div />
+        </BridgeProvider>
+      </>,
+    );
+
+    fireMessage({
+      id: 'ext-op-failed',
+      type: 'operation:failed',
+      timestamp: Date.now(),
+      payload: {
+        operationId: 'op-42',
+        error: 'FIELD_CUSTOM_VALIDATION_EXCEPTION: Amount must be positive',
+        retryable: false,
+      },
+    });
+
+    const asked = mockPostMessage.mock.calls.filter(
+      (call) =>
+        (call[0] as { payload?: { type?: string } } | undefined)?.payload?.type ===
+        'ai:resolve-error',
+    );
+    // The extension resolves the failure once, where it is raised.
+    expect(asked).toHaveLength(0);
+    expect(useAppStore.getState().isLoading).toBe(false);
+  });
+
+  it('should still surface a resolution pushed by the extension', () => {
+    render(
+      <BridgeProvider>
+        <div />
+      </BridgeProvider>,
+    );
+
+    fireMessage({
+      id: 'ext-resolution',
+      type: 'ai:resolve-error:response',
+      timestamp: Date.now(),
+      payload: {
+        success: true,
+        resolution: {
+          explanation: 'Another transaction is locking the record.',
+          suggestedFix: 'Wait a moment and retry.',
+          confidence: 0.95,
+        },
+      },
+    });
+
+    const notifications = useNotificationStore.getState().notifications;
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].message).toBe('Wait a moment and retry.');
+  });
+
+  describe('AI availability', () => {
+    /** Outbound message types sent since the provider mounted. */
+    function sentTypes(): string[] {
+      return mockPostMessage.mock.calls.map(
+        (c: unknown[]) => (c[0] as { payload: { type: string } }).payload.type,
+      );
+    }
+
+    it('stops resolving failures with the model once the host says AI is off', () => {
+      render(
+        <BridgeProvider>
+          <div />
+        </BridgeProvider>,
+      );
+
+      // The host pushes availability on its own when a setting changes — no
+      // request is behind it, so the message carries no correlationId.
+      fireMessage({
+        id: 'ai-status-1',
+        type: 'ai:status:response',
+        timestamp: Date.now(),
+        payload: {
+          enabled: true,
+          provider: 'anthropic',
+          model: 'm',
+          usage: { totalCalls: 0, totalOutputTokens: 0, averageLatencyMs: 0 },
+        },
+      });
+      expect(useAppStore.getState().aiAvailable).toBe(true);
+
+      mockPostMessage.mockClear();
+      fireMessage({
+        id: 'ai-status-2',
+        type: 'ai:status:response',
+        timestamp: Date.now(),
+        payload: {
+          enabled: false,
+          provider: 'none',
+          model: '',
+          usage: { totalCalls: 0, totalOutputTokens: 0, averageLatencyMs: 0 },
+        },
+      });
+      expect(useAppStore.getState().aiAvailable).toBe(false);
+
+      fireMessage({
+        id: 'ext-op-failed',
+        type: 'operation:failed',
+        timestamp: Date.now(),
+        payload: { operationId: 'op-1', error: 'boom', retryable: true },
+      });
+
+      expect(sentTypes()).not.toContain('ai:resolve-error');
+    });
+  });
 });

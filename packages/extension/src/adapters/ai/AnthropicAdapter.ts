@@ -77,9 +77,9 @@ export class AnthropicAdapter implements AIClient {
   public readonly breaker: CircuitBreaker;
   public readonly breakerEvents = new EventEmitter();
   /**
-   * Per-panel-session budget (Plan 04-05). Mutable via field assignment so
-   * the panel-open lifecycle can attach a fresh budget without re-creating
-   * the adapter. Set to undefined on panel-close to disable budget logic.
+   * Per-session token budget. Mutable via field assignment so the composition
+   * root can attach a fresh budget without re-creating the adapter. Left
+   * undefined (tests, stub providers), the adapter is unmetered.
    */
   public budget?: SessionBudget;
 
@@ -193,7 +193,10 @@ export class AnthropicAdapter implements AIClient {
     const predicted = this.estimateInputTokens(payload);
     const result = this.budget.preflight(predicted);
     if (!result.allowed) {
-      const err = new Error('AI token budget exceeded for this panel session');
+      const err = new Error(
+        `AI token budget exceeded for this session (${result.state.used.total}/${result.state.budget} tokens used). ` +
+          'Raise sandforge.ai.tokenBudgetMaxPerSession in Settings, or reload the window, to start a new session.',
+      );
       (err as Error & { code?: string }).code = 'AI_BUDGET_EXCEEDED';
       (err as Error & { budgetState?: typeof result.state }).budgetState = result.state;
       throw err;

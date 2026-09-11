@@ -30,6 +30,26 @@ function readErrorCode(err: unknown): string | undefined {
 }
 
 /**
+ * Read back the error code {@link extractErrorMessage} puts in front of a
+ * Salesforce message.
+ *
+ * Once an error has been rendered for the UI there is no code field left —
+ * `operation:failed` carries a plain string. Anything keyed on the code (the
+ * error knowledge base) therefore has to recover it from that string, and the
+ * only shape worth trusting is the one this module produces: the code, alone
+ * or followed by `": "` and the API's text. A message that does not start that
+ * way is treated as having no code rather than guessed at.
+ *
+ * @param message - A message produced by {@link extractErrorMessage}.
+ * @returns The leading error code, or `undefined` when the message has none.
+ */
+export function extractErrorCode(message: string): string | undefined {
+  const separator = message.indexOf(':');
+  const candidate = (separator === -1 ? message : message.slice(0, separator)).trim();
+  return ERROR_CODE_PATTERN.test(candidate) ? candidate : undefined;
+}
+
+/**
  * Render the individual API errors jsforce parks on `error.data`.
  *
  * When Salesforce answers with several errors at once, jsforce throws a single

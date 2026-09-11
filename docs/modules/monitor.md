@@ -59,7 +59,9 @@ An expandable section listing all Salesforce governor limits:
 - Sorted by usage percentage (highest first)
 - Color-coded progress bars (green/amber/red)
 - Critical limit badges highlighted at the top
-- Anomaly scan button that uses AI to detect statistical outliers
+- Anomaly scan button: statistical outliers, future dates, negative amounts,
+  near-empty fields and duplicate names or emails over a sample of Account
+  records. Rules only -- no model, no key, and it works with AI off
 
 ### Alerts Panel
 

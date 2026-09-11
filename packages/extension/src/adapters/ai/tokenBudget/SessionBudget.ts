@@ -29,15 +29,17 @@ export interface SessionBudgetDeps {
 }
 
 /**
- * Per-panel-session token counter.
+ * Per-session token counter, shared by every AI feature: the composition root
+ * attaches one instance to the memoised AI adapter, which is the single
+ * chokepoint all AI calls pass through.
  *
  * Counts ALL four `AIUsage` fields (input + output + cacheRead + cacheCreate)
  * — RESEARCH P-04.6: output-only counters under-bill 5-20×.
  *
  * Lifecycle:
- *   - panel-open  → `new SessionBudget({ sessionId, budget, broker })`
- *   - per-call    → `preflight(predictedInput)` then (after SDK) `increment(usage)`
- *   - panel-close → `dispose()` (alias of `reset()` — clears state)
+ *   - AI-stack init → `new SessionBudget({ sessionId, budget, broker })`
+ *   - per-call      → `preflight(predictedInput)` then (after SDK) `increment(usage)`
+ *   - re-init       → a fresh instance replaces this one (counter restarts)
  *
  * Envelopes:
  *   - `ai:budget:state`     — every increment + reset (mini-bar live update)

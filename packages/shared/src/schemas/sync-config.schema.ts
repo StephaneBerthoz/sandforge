@@ -79,8 +79,6 @@ export const syncConfigSchema = z.object({
   conflictStrategy: z.enum(['source_wins', 'target_wins', 'newest_wins', 'manual', 'merge']),
   enableRollback: z.boolean().default(false),
   dryRun: z.boolean().default(false),
-  preScript: z.string().optional(),
-  postScript: z.string().optional(),
 });
 
 /** Inferred type for transform rule configuration input */

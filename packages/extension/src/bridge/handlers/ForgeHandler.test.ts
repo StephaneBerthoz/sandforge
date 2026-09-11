@@ -1032,9 +1032,9 @@ describe('ForgeHandler', () => {
       await handler.handle(msg);
 
       const postCalls = vi.mocked(deps.broker.postToWebview).mock.calls;
-      // B8: single error channel — BridgeProvider auto-invokes ai:resolve-error
-      // on every operation:failed, so emitting both caused a parasitic
-      // duplicate AI call per forge failure.
+      // B8: single error channel — every operation:failed also triggers an
+      // error resolution, so emitting both caused a parasitic duplicate per
+      // forge failure.
       const failedCalls = postCalls.filter(
         (call) => (call[0] as BaseMessage).type === 'operation:failed',
       );

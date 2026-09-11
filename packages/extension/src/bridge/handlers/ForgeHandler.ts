@@ -564,9 +564,10 @@ export class ForgeHandler implements DomainHandler {
       throttledProgress.flush();
       // Single error channel: `forge:discover:error` is what the webview
       // consumes (ForgeDiscovery clears loading + surfaces the message).
-      // `operation:failed` is intentionally NOT emitted here — BridgeProvider
-      // auto-invokes `ai:resolve-error` on every operation:failed, which made
-      // each forge failure trigger a parasitic duplicate AI call.
+      // `operation:failed` is intentionally NOT emitted here — every
+      // `operation:failed` also triggers an error resolution
+      // (`sendOperationFailed`), so emitting one alongside the domain error
+      // would make each forge failure pay for a parasitic duplicate.
       sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', msg, error, {
         code: 'DISCOVER_ERROR',
         retryable: true,
@@ -613,7 +614,7 @@ export class ForgeHandler implements DomainHandler {
       guard.logOperation(guardRequest, check);
       if (!check.allowed) {
         // Single error channel (see handleDiscover): forge:execute:error
-        // only — no duplicate operation:failed / parasitic ai:resolve-error.
+        // only — no duplicate operation:failed / parasitic error resolution.
         sendHandlerError(
           this.deps,
           'forge:execute',
@@ -743,7 +744,7 @@ export class ForgeHandler implements DomainHandler {
       // the user can fix the cause and re-run immediately.
       this.lastWriteAt.delete(forgeOpId);
       // Single error channel (see handleDiscover): `forge:execute:error`
-      // only — no duplicate `operation:failed` / parasitic ai:resolve-error.
+      // only — no duplicate `operation:failed` / parasitic error resolution.
       sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
         code: 'EXECUTE_ERROR',
         retryable: true,

@@ -365,7 +365,6 @@ const AIMessages = [
   msg('ai:error'),
   msg('ai:nl2soql'),
   msg('ai:nl2soql:response'),
-  msg('ai:resolve-error'),
   msg('ai:resolve-error:response'),
   msg('ai:anomaly-scan'),
   msg('ai:anomaly-scan:response'),

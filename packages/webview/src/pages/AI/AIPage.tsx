@@ -21,6 +21,7 @@ export const AIPage: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessageDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [localIdCounter, setLocalIdCounter] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>();
 
   // Load persisted conversation list on mount when AI is available
   useEffect(() => {
@@ -59,8 +60,11 @@ export const AIPage: React.FC = () => {
     },
   );
 
-  useMessageListener<BaseMessage & { payload: { message: string } }>('ai:error', () => {
+  // An AI failure used to only switch the spinner off, so a refused request
+  // looked exactly like one that answered nothing — show what the host said.
+  useMessageListener<BaseMessage & { payload: { message?: string } }>('ai:error', (msg) => {
     setIsLoading(false);
+    setErrorMessage(msg.payload?.message || t('ai.error.unknown', 'Unexpected AI error.'));
   });
 
   // Listen for conversation loaded with messages
@@ -82,6 +86,7 @@ export const AIPage: React.FC = () => {
       };
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
+      setErrorMessage(undefined);
       sendMessage(
         buildMessage<{ conversationId: string; message: string }>('ai:chat', {
           conversationId,
@@ -105,6 +110,7 @@ export const AIPage: React.FC = () => {
       setConversations((prev) => [...prev, localConv]);
       setActiveConversationId(localConv.id);
       setMessages([]);
+      setErrorMessage(undefined);
       sendMessage(buildMessage<{ title: string }>('ai:conversation:create', { title }));
     },
     [localIdCounter, sendMessage],
@@ -114,6 +120,7 @@ export const AIPage: React.FC = () => {
     (conversationId: string) => {
       setActiveConversationId(conversationId);
       setMessages([]);
+      setErrorMessage(undefined);
       sendMessage(
         buildMessage<{ conversationId: string }>('ai:conversation:load', { conversationId }),
       );
@@ -182,6 +189,8 @@ export const AIPage: React.FC = () => {
       activeConversationId={activeConversationId}
       messages={messages}
       isLoading={isLoading}
+      errorMessage={errorMessage}
+      onDismissError={() => setErrorMessage(undefined)}
       onSendMessage={handleSendMessage}
       onNewConversation={handleNewConversation}
       onSelectConversation={handleSelectConversation}

@@ -81,11 +81,12 @@ export interface CoreServices {
    */
   getWorkspaceFolders?: () => string[];
   /**
-   * Build a fresh `SessionBudget` for an AI panel session. Caller is
-   * responsible for attaching it to the adapter
-   * (`services.aiClient().budget = sessionBudget`) on panel-open and
-   * calling `sessionBudget.dispose()` on panel-close. Reads the current
-   * `sandforge.ai.tokenBudgetMaxPerSession` setting at construction.
+   * Build a fresh `SessionBudget` for an AI session. `initAIComposition`
+   * calls this and attaches the result to the memoised adapter
+   * (`services.aiClient().budget`), so every AI feature shares one counter.
+   * A new one is built on each AI-stack init — i.e. the counter restarts on
+   * window reload and on any `sandforge.ai.*` setting change. Reads the
+   * current `sandforge.ai.tokenBudgetMaxPerSession` setting at construction.
    */
   createSessionBudget: (sessionId: string, broker?: BudgetBroker) => SessionBudget;
 }

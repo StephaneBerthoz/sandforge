@@ -7,12 +7,16 @@ import { useSeedFieldRules, mapGeneratorToRuleType } from './useSeedFieldRules';
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
 /* ------------------------------------------------------------------ */
-const mockMutate = vi.fn();
+const bridge = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  /* describe-object response replayed by the hook's mapping effect */
+  data: null as unknown,
+}));
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
   useBridgeMutation: () => ({
-    mutate: mockMutate,
-    data: null,
+    mutate: bridge.mutate,
+    data: bridge.data,
     loading: false,
     error: null,
     reset: vi.fn(),
@@ -21,7 +25,8 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
 
 describe('useSeedFieldRules', () => {
   beforeEach(() => {
-    mockMutate.mockClear();
+    bridge.mutate.mockClear();
+    bridge.data = null;
   });
 
   it('should initialize with empty field configs', () => {
@@ -93,6 +98,54 @@ describe('useSeedFieldRules', () => {
     });
 
     expect(count).toBe(0);
+  });
+
+  it('should carry a persona ai_generate instruction to the aiPrompt config key', () => {
+    bridge.data = {
+      objectApiName: 'Product_Review__c',
+      objectLabel: 'Product Review',
+      fields: [
+        {
+          fieldApiName: 'Review_Text__c',
+          label: 'Review Text',
+          type: 'textarea',
+          required: false,
+          picklistValues: [],
+          referenceTo: [],
+          length: 32768,
+        },
+      ],
+    };
+
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Product_Review__c'], 1));
+
+    /* Same pattern shape as the built-in "E-commerce B2C" persona: the
+       instruction sits under the persona-side `prompt` param. */
+    const persona: PersonaMsg = {
+      id: 'ecommerce-b2c',
+      name: 'E-commerce B2C',
+      description: 'Online retail with products, orders, customers, and reviews.',
+      industry: 'Retail',
+      locale: 'en-US',
+      dataPatterns: {
+        Review_Text__c: {
+          fieldType: 'textarea',
+          generator: 'ai_generate',
+          params: { prompt: 'Product review, 1-3 sentences, realistic tone' },
+          examples: ['Great product, fast shipping!'],
+        },
+      },
+    };
+
+    act(() => {
+      result.current.applyPersona(persona);
+    });
+
+    const field = result.current.fieldConfigs[0].fields[0];
+    expect(field.ruleType).toBe('ai_generate');
+    /* Only `config.aiPrompt` is forwarded to the model (AIDataGenerator.buildPrompt)
+       and it is the only prompt key the seed contract carries (FieldRuleConfig). */
+    expect(field.config['aiPrompt']).toBe('Product review, 1-3 sentences, realistic tone');
   });
 });
 

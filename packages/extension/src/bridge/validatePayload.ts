@@ -89,6 +89,14 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
   })
   .passthrough();
 
+/**
+ * Apex hooks a sync config used to carry. A sync moves data and never runs
+ * code in an org, so these are refused rather than dropped: a configuration
+ * saved when they still ran must say so out loud instead of quietly syncing
+ * without the script its author expected.
+ */
+const REMOVED_SCRIPT_FIELDS = ['preScript', 'postScript'] as const;
+
 /** Sync config accepted by `sync:execute` / `sync:config:save`. */
 export const syncConfigPayloadSchema = syncConfigSchema
   .extend({
@@ -96,7 +104,20 @@ export const syncConfigPayloadSchema = syncConfigSchema
     targetOrgId: orgIdSchema,
     objects: z.array(syncObjectPayloadSchema).min(1).max(MAX_OBJECTS_PER_REQUEST),
   })
-  .passthrough();
+  .passthrough()
+  .superRefine((config, ctx) => {
+    const extras = config as Record<string, unknown>;
+    for (const field of REMOVED_SCRIPT_FIELDS) {
+      if (extras[field] === undefined) continue;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message:
+          `Sync does not run Apex: remove "${field}" from this configuration. ` +
+          `The sync was not started so the script cannot be skipped without you knowing.`,
+      });
+    }
+  });
 
 /**
  * `file:save` — an export the user asked for.
@@ -540,12 +561,6 @@ export const aiSchemaAdvicePayloadSchema = z.object({
 export const aiNl2SoqlPayloadSchema = z.object({
   query: z.string().min(1).max(2_000),
   orgId: orgIdSchema,
-});
-export const aiResolveErrorPayloadSchema = z.object({
-  errorMessage: z.string().min(1).max(10_000),
-  errorCode: z.string().max(100).optional(),
-  module: z.string().min(1).max(50),
-  context: z.record(z.unknown()).optional(),
 });
 export const aiGeneratePipelinePayloadSchema = z.object({
   description: aiPromptSchema,

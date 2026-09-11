@@ -27,9 +27,6 @@ vi.mock('../../modules/sync/FieldMapping.js', () => ({
 vi.mock('../../modules/sync/TransformPipeline.js', () => ({
   TransformPipeline: vi.fn().mockImplementation(() => ({})),
 }));
-vi.mock('../../modules/sync/MigrationScript.js', () => ({
-  MigrationScript: vi.fn().mockImplementation(() => ({})),
-}));
 vi.mock('../../modules/sync/IncrementalTracker.js', () => ({
   IncrementalTracker: vi.fn().mockImplementation(() => ({})),
 }));
@@ -283,7 +280,6 @@ describe('SyncOpsHandler', () => {
           update: vi.fn().mockResolvedValue([]),
           destroy: vi.fn().mockResolvedValue([]),
         }),
-        tooling: { executeAnonymous: vi.fn() },
         limitInfo: undefined,
       } as never);
 
@@ -654,7 +650,6 @@ describe('SyncOpsHandler', () => {
           update: vi.fn().mockResolvedValue([]),
           destroy: vi.fn().mockResolvedValue([]),
         }),
-        tooling: { executeAnonymous: vi.fn() },
         limitInfo: undefined,
       } as never);
 
@@ -690,7 +685,6 @@ describe('SyncOpsHandler', () => {
           update: vi.fn().mockResolvedValue([]),
           destroy: vi.fn().mockResolvedValue([]),
         }),
-        tooling: { executeAnonymous: vi.fn() },
         limitInfo: undefined,
       } as never);
 
@@ -844,7 +838,6 @@ describe('SyncOpsHandler', () => {
           update: vi.fn().mockResolvedValue([]),
           destroy: vi.fn().mockResolvedValue([]),
         }),
-        tooling: { executeAnonymous: vi.fn() },
         limitInfo: undefined,
       } as never);
 
@@ -1027,7 +1020,6 @@ describe('SyncOpsHandler', () => {
           update: vi.fn().mockResolvedValue([]),
           destroy: vi.fn().mockResolvedValue([]),
         }),
-        tooling: { executeAnonymous: vi.fn() },
         limitInfo: undefined,
       } as never);
     }
@@ -1320,7 +1312,6 @@ describe('SyncOpsHandler', () => {
           update: vi.fn().mockResolvedValue([]),
           destroy: vi.fn().mockResolvedValue([]),
         }),
-        tooling: { executeAnonymous: vi.fn() },
         limitInfo: undefined,
       };
     }

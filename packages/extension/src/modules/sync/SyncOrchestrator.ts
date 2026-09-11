@@ -11,7 +11,6 @@ import type { DeltaDetector } from './DeltaDetector';
 import type { ConflictResolver } from './ConflictResolver';
 import type { FieldMappingService } from './FieldMapping';
 import type { TransformPipeline } from './TransformPipeline';
-import type { MigrationScript } from './MigrationScript';
 import type { IncrementalTracker } from './IncrementalTracker';
 import type { CoreServices } from '../../services.js';
 
@@ -35,7 +34,6 @@ export interface SyncOrchestratorDeps {
   conflictResolver: ConflictResolver;
   fieldMapping: FieldMappingService;
   transformPipeline: TransformPipeline;
-  migrationScript: MigrationScript;
   incrementalTracker: IncrementalTracker;
   querySource: OrchestratorQueryFn;
   queryTarget: OrchestratorQueryFn;
@@ -51,9 +49,12 @@ export interface SyncOrchestratorDeps {
 
 /**
  * Central orchestrator that coordinates all sync sub-services.
- * Manages the full sync lifecycle: pre-script execution, per-object
- * data querying, delta detection, field mapping, conflict resolution,
- * data sync, and post-script execution.
+ * Manages the full sync lifecycle for each object: data querying, delta
+ * detection, field mapping, conflict resolution and data sync.
+ *
+ * A sync moves data and nothing else — it never runs code in an org. Configs
+ * carrying a `preScript`/`postScript` are refused at the bridge boundary
+ * (`syncConfigPayloadSchema`) rather than silently ignored here.
  */
 export class SyncOrchestrator {
   private readonly deps: SyncOrchestratorDeps;
@@ -71,16 +72,6 @@ export class SyncOrchestrator {
     const startTime = Date.now();
     const operationId = `sync-${Date.now()}`;
     const objectResults: SyncObjectResult[] = [];
-
-    if (config.preScript) {
-      const preResult = await this.deps.migrationScript.execute(
-        config.preScript,
-        config.sourceOrgId,
-      );
-      if (!preResult.success) {
-        return buildResult(config.id, operationId, objectResults, startTime, 'failure');
-      }
-    }
 
     const sortedObjects = [...config.objects].sort((a, b) => a.insertOrder - b.insertOrder);
 
@@ -108,10 +99,6 @@ export class SyncOrchestrator {
           },
         });
       }
-    }
-
-    if (config.postScript) {
-      await this.deps.migrationScript.execute(config.postScript, config.targetOrgId);
     }
 
     const timestamp = new Date().toISOString();

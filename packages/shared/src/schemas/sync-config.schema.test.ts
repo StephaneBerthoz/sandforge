@@ -42,8 +42,6 @@ describe('syncConfigSchema', () => {
     expect(result.mode).toBe('full');
     expect(result.enableRollback).toBe(false);
     expect(result.dryRun).toBe(false);
-    expect(result.preScript).toBeUndefined();
-    expect(result.postScript).toBeUndefined();
   });
 
   it('should apply object batchSize default of 200', () => {
@@ -58,15 +56,22 @@ describe('syncConfigSchema', () => {
       description: 'Full account sync',
       enableRollback: true,
       dryRun: true,
-      preScript: 'SELECT COUNT() FROM Account',
-      postScript: 'UPDATE Account SET Status__c = "Synced"',
     });
 
     expect(result.description).toBe('Full account sync');
     expect(result.enableRollback).toBe(true);
     expect(result.dryRun).toBe(true);
-    expect(result.preScript).toBeDefined();
-    expect(result.postScript).toBeDefined();
+  });
+
+  it('should not carry script fields', () => {
+    const result = syncConfigSchema.parse({
+      ...createValidSyncConfig(),
+      preScript: 'System.debug("pre");',
+      postScript: 'System.debug("post");',
+    }) as Record<string, unknown>;
+
+    expect(result.preScript).toBeUndefined();
+    expect(result.postScript).toBeUndefined();
   });
 
   it('should accept all valid directions', () => {
