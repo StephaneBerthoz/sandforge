@@ -48,16 +48,30 @@ export interface MonitorStartRequest extends BaseMessage {
   payload: { orgId: string };
 }
 
-/** Monitor abort job */
-export interface MonitorAbortJobRequest extends BaseMessage {
-  type: 'monitor:abort-job';
-  payload: { orgId: string; jobId: string };
+/**
+ * `monitor:open-apex-jobs`. WebView -> Extension.
+ *
+ * Asks the extension to open the org's Setup > Apex Jobs page in the system
+ * browser: the action the Monitor band offers on a stalled job. SandForge
+ * aborts nothing itself. The page names the org and nothing else; the
+ * extension builds the address from the org's stored instance URL, and its
+ * payload schema refuses any other key.
+ */
+export interface MonitorOpenApexJobsRequest extends BaseMessage {
+  type: 'monitor:open-apex-jobs';
+  payload: { orgId: string };
 }
 
-/** Response after attempting to abort a Salesforce async job */
-export interface MonitorAbortJobResponse extends BaseMessage {
-  type: 'monitor:abort-job:response';
-  payload: { jobId: string; success: boolean; message: string };
+/**
+ * `monitor:open-apex-jobs:response`. Extension -> WebView.
+ *
+ * What the browser did. A refused request (invalid payload, unknown org, an
+ * instance URL that is not HTTPS) is answered on `monitor:error` instead,
+ * correlated to the request.
+ */
+export interface MonitorOpenApexJobsResponse extends BaseMessage {
+  type: 'monitor:open-apex-jobs:response';
+  payload: { status: 'opened' } | { status: 'error'; message: string };
 }
 
 // (The `monitor:metric` / `monitor:metrics:batch` / `monitor:metric:subscribe`

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest';
 
 const mockOutputChannel = {
   appendLine: vi.fn(),
@@ -58,6 +58,7 @@ vi.mock('vscode', () => ({
     createTreeView: vi.fn(() => ({ ...mockTreeView })),
     registerTreeDataProvider: vi.fn(() => mockDisposable),
     showInformationMessage: vi.fn().mockResolvedValue(undefined),
+    showErrorMessage: vi.fn().mockResolvedValue(undefined),
   },
   commands: {
     registerCommand: vi.fn((command: string, callback: (...args: unknown[]) => unknown) => {
@@ -68,6 +69,7 @@ vi.mock('vscode', () => ({
   },
   env: {
     isTelemetryEnabled: false,
+    openExternal: vi.fn().mockResolvedValue(true),
   },
   workspace: {
     getConfiguration: vi.fn(() => ({
@@ -77,11 +79,16 @@ vi.mock('vscode', () => ({
     workspaceFolders: undefined,
   },
   Uri: {
+    parse: vi.fn((value: string) => ({ toString: () => value })),
     joinPath: vi
       .fn()
       .mockImplementation((base: { toString: () => string }, ...segments: string[]) => ({
         toString: () => `${base.toString()}/${segments.join('/')}`,
       })),
+  },
+  l10n: {
+    t: (message: string, ...args: unknown[]) =>
+      message.replace(/\{(\d+)\}/g, (_match: string, i: string) => String(args[Number(i)])),
   },
   EventEmitter: vi.fn(() => mockEventEmitter),
   ThemeIcon: vi.fn().mockImplementation((iconId: string) => ({ id: iconId })),
@@ -93,6 +100,7 @@ vi.mock('vscode', () => ({
 }));
 
 import { activate, deactivate, buildStatusBarLabel } from './extension';
+import { OrgManager } from './core/connection/OrgManager';
 import { MODULE_COMMANDS } from './composition/moduleCommands';
 import type { SidebarViewProvider } from './providers/SidebarViewProvider';
 import type { StatusBarOrg } from './extension';
@@ -237,6 +245,49 @@ describe('extension', () => {
       expect.any(Function),
     );
     expect(vscode.window.registerTreeDataProvider).not.toHaveBeenCalled();
+  });
+
+  describe('sandforge.openOrgInBrowser', () => {
+    // The command opens a URL read from stored org state, which is
+    // hand-editable and filled by sfdx imports. It shares its HTTPS allowlist
+    // with monitor:open-apex-jobs, but only the handler's refusal was tested:
+    // bypassing the command's check left every test here green.
+    const orgWith = (instanceUrl: string) =>
+      ({ id: 'org-1', alias: 'Acme', instanceUrl }) as unknown as ReturnType<OrgManager['getOrg']>;
+    let getOrg: MockInstance<OrgManager['getOrg']> | undefined;
+
+    afterEach(() => {
+      getOrg?.mockRestore();
+    });
+
+    it.each([
+      'javascript:alert(1)',
+      'file:///etc/passwd',
+      'http://acme.my.salesforce.com',
+      'not a url',
+    ])('refuses to open %s', async (instanceUrl) => {
+      getOrg = vi.spyOn(OrgManager.prototype, 'getOrg').mockReturnValue(orgWith(instanceUrl));
+      activate(createContext());
+      const vscode = await import('vscode');
+
+      registeredCommands.get('sandforge.openOrgInBrowser')?.('org-1');
+
+      expect(vscode.env.openExternal).not.toHaveBeenCalled();
+      expect(vscode.window.showErrorMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('opens the URL that passed the check, parsed strictly', async () => {
+      getOrg = vi
+        .spyOn(OrgManager.prototype, 'getOrg')
+        .mockReturnValue(orgWith('https://acme.my.salesforce.com'));
+      activate(createContext());
+      const vscode = await import('vscode');
+
+      registeredCommands.get('sandforge.openOrgInBrowser')?.('org-1');
+
+      expect(vscode.Uri.parse).toHaveBeenCalledWith('https://acme.my.salesforce.com/', true);
+      expect(vscode.env.openExternal).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('should push disposables to subscriptions', () => {

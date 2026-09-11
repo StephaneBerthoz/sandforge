@@ -38,11 +38,6 @@ export const sfApiNameSchema = z
   .regex(/^[A-Za-z][A-Za-z0-9_]*$/, 'Invalid Salesforce API name')
   .max(80);
 
-/** Strict Salesforce record ID (15 or 18 alphanumerics). */
-export const sfIdSchema = z
-  .string()
-  .regex(/^[A-Za-z0-9]{15}([A-Za-z0-9]{3})?$/, 'Invalid Salesforce record ID');
-
 /** Bounded opaque identifier (operation ids, template ids, alert ids, config ids). */
 export const opaqueIdSchema = z.string().min(1).max(200);
 
@@ -311,10 +306,12 @@ export const piiScanPayloadSchema = z.object({
 // ── monitor:* payload schemas ─────────────────────────────────────────────
 
 export const monitorOrgPayloadSchema = z.object({ orgId: orgIdSchema });
-export const monitorAbortJobPayloadSchema = z.object({
-  orgId: orgIdSchema,
-  jobId: sfIdSchema,
-});
+/**
+ * `monitor:open-apex-jobs`: an org id and nothing else. Strict, because the
+ * address opened is built from the org's stored instance URL; a `url` or
+ * `path` sent by a page is refused, never read.
+ */
+export const monitorOpenApexJobsPayloadSchema = z.object({ orgId: orgIdSchema }).strict();
 export const monitorAlertIdPayloadSchema = z.object({ alertId: opaqueIdSchema });
 
 // ── compare:* payload schemas ─────────────────────────────────────────────

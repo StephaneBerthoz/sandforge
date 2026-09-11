@@ -133,7 +133,7 @@
     "period24h": "24時間",
     "period7d": "7日間",
     "alertsCount": "件のアラート",
-    "abortJob": "ジョブを中止",
+    "openApexJobs": "Salesforce で Apex ジョブを開く",
     "filterAll": "すべて",
     "filterRunning": "実行中",
     "filterFailed": "失敗",

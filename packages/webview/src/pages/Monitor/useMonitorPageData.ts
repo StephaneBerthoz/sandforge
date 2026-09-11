@@ -1,10 +1,17 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useBridgeQuery } from '../../hooks/useBridgeQuery';
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
-import type { ApiLimit, HealthReport, TrendData, JobInsight, OrgInfo } from '@sandforge/shared';
+import type {
+  ApiLimit,
+  HealthReport,
+  TrendData,
+  JobInsight,
+  OrgInfo,
+  MonitorOpenApexJobsResponse,
+} from '@sandforge/shared';
 import type { TrendSeries } from './TrendCharts';
 import type { JobDisplayInfo } from './MonitorPage';
 import type { OrgHealthStatus } from './HealthCheckPanel';
@@ -21,6 +28,9 @@ interface MonitorData {
   orgHealthStatus?: OrgHealthStatus;
   lastUpdated: string;
 }
+
+/** What the host answers to `monitor:open-apex-jobs`. */
+type OpenApexJobsOutcome = MonitorOpenApexJobsResponse['payload'];
 
 /** Auto-refresh interval in milliseconds. */
 const AUTO_REFRESH_INTERVAL_MS = 30_000;
@@ -123,19 +133,17 @@ export interface MonitorPageData {
   /** Manually trigger a data refresh. */
   handleRefresh: () => void;
   /**
-   * The job an abort was requested for, while a critical `stuck` insight still
-   * names it; `null` otherwise. Drives the confirmation dialog.
+   * Asks the extension to open the selected org's Setup > Apex Jobs page.
+   * Sends the org id only: the address is built extension-side, from org state.
    */
-  pendingAbortJobId: string | null;
+  openApexJobs: () => void;
+  /** Whether an open request is still waiting for the host's answer. */
+  openingApexJobs: boolean;
   /**
-   * Arms the abort confirmation for a job a critical `stuck` insight names.
-   * Sends nothing; any other job id is ignored.
+   * Why the last open failed (the browser did not open the page, or the
+   * extension refused the request), or `null`.
    */
-  requestAbortJob: (jobId: string) => void;
-  /** Sends the armed abort, then disarms. The only path to `monitor:abort-job`. */
-  confirmAbortJob: () => void;
-  /** Disarms the abort confirmation without sending anything. */
-  cancelAbortJob: () => void;
+  openApexJobsError: string | null;
   /** Org health status from the monitor:data response. */
   orgHealthStatus: OrgHealthStatus | undefined;
 }
@@ -146,7 +154,7 @@ export interface MonitorPageData {
  *
  * This hook manages:
  * - Bridge queries for monitor data and alerts
- * - Bridge mutation for job abort, reachable only through a confirmed request
+ * - Bridge mutation that opens Setup > Apex Jobs for the selected org
  * - All useMemo derived state (limits, jobs, healthScore, trends, predictions, etc.)
  * - The timeAgo ticker effect
  * - The auto-refresh interval effect
@@ -173,8 +181,11 @@ export function useMonitorPageData(): MonitorPageData {
     { responseType: 'monitor:data', skip: !selectedOrgId },
   );
 
-  const abortJobMutation = useBridgeMutation<{ success: boolean }>('monitor:abort-job', {
-    responseType: 'monitor:abort-job:response',
+  const openApexJobsMutation = useBridgeMutation<OpenApexJobsOutcome>('monitor:open-apex-jobs', {
+    // VS Code may ask before opening an external site, and the host only
+    // answers once the user has decided. The 30 s default would report a
+    // page that did open as a failure, and drop the answer that says so.
+    timeoutMs: 300_000,
   });
 
   const alertsQuery = useBridgeQuery<{ alerts: Array<{ status: string }> }>(
@@ -351,41 +362,34 @@ export function useMonitorPageData(): MonitorPageData {
   }, [autoRefresh, selectedOrgId, monitorRefetch]);
 
   const handleRefresh = useCallback(() => monitorQuery.refetch(), [monitorQuery]);
-  // ── Job abort: never a single call ──
+  // ── Setup > Apex Jobs: a link, not an abort ──
   //
-  // Aborting an AsyncApexJob cannot be undone, and the band that offers it is
-  // only as right as its last refresh. So the hook exposes no one-shot abort:
-  // a request arms a confirmation, and the org call leaves only on confirm.
-  // A request is dropped whenever no critical `stuck` verdict names its job,
-  // including when a refresh withdraws the verdict (the job moved again, or
-  // finished) while the confirmation is open.
-  const stalledJobIds = useMemo(
-    () =>
-      new Set(
-        (jobInsights ?? [])
-          .filter((insight) => insight.type === 'stuck' && insight.severity === 'critical')
-          .flatMap((insight) => insight.affectedJobs),
-      ),
-    [jobInsights],
-  );
-  const [requestedAbortJobId, setRequestedAbortJobId] = useState<string | null>(null);
-  // Adjusted during render rather than in an effect: React re-renders before
-  // committing, so no committed render, and no confirm callback, ever holds a
-  // request its verdict does not back. A dropped request stays dropped: the
-  // verdict coming back on a later refresh does not reopen the confirmation.
-  if (requestedAbortJobId !== null && !stalledJobIds.has(requestedAbortJobId)) {
-    setRequestedAbortJobId(null);
-  }
-  const pendingAbortJobId = requestedAbortJobId;
-
-  const requestAbortJob = useCallback((jobId: string) => setRequestedAbortJobId(jobId), []);
-  const cancelAbortJob = useCallback(() => setRequestedAbortJobId(null), []);
-  const confirmAbortJob = useCallback(() => {
-    setRequestedAbortJobId(null);
-    if (selectedOrgId && pendingAbortJobId !== null) {
-      abortJobMutation.mutate({ orgId: selectedOrgId, jobId: pendingAbortJobId });
-    }
-  }, [selectedOrgId, pendingAbortJobId, abortJobMutation]);
+  // SandForge aborts no job: `AsyncApexJob` is not updateable, so an in-product
+  // abort could never succeed. The page this opens is where an abort works, by
+  // the user's hand. The request names the org and nothing else (the extension
+  // builds the address from its own org state), and it needs no confirmation:
+  // nothing in the org changes on click.
+  const openApexJobsMutate = openApexJobsMutation.mutate;
+  const openApexJobs = useCallback(() => {
+    if (selectedOrgId) openApexJobsMutate({ orgId: selectedOrgId });
+  }, [selectedOrgId, openApexJobsMutate]);
+  // An open error names the org whose page did not open, and says nothing
+  // about the next one. The ref fires the reset on a real change only — never
+  // at mount, and never because `reset` came back as a new function.
+  const openApexJobsReset = openApexJobsMutation.reset;
+  const lastOpenApexJobsOrgRef = useRef(selectedOrgId);
+  useEffect(() => {
+    if (lastOpenApexJobsOrgRef.current === selectedOrgId) return;
+    lastOpenApexJobsOrgRef.current = selectedOrgId;
+    openApexJobsReset();
+  }, [selectedOrgId, openApexJobsReset]);
+  const openApexJobsOutcome = openApexJobsMutation.data;
+  // Two failures, one reading: a refusal answers on `monitor:error` (the
+  // mutation's error), a browser that did not open answers `status: 'error'`.
+  const openApexJobsError =
+    openApexJobsMutation.error ??
+    (openApexJobsOutcome?.status === 'error' ? openApexJobsOutcome.message : null);
+  const openingApexJobs = openApexJobsMutation.loading;
 
   return {
     loading,
@@ -420,10 +424,9 @@ export function useMonitorPageData(): MonitorPageData {
     autoRefresh,
     setAutoRefresh,
     handleRefresh,
-    pendingAbortJobId,
-    requestAbortJob,
-    confirmAbortJob,
-    cancelAbortJob,
+    openApexJobs,
+    openingApexJobs,
+    openApexJobsError,
     orgHealthStatus,
   };
 }

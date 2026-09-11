@@ -49,7 +49,8 @@ When SandForge operations (Seed, Sync, etc.) are running, a Live Operations pane
 - Active Apex jobs, Bulk API jobs, and scheduled tasks
 - Status badges (running, completed, failed)
 - Job type, object type, record counts, and timing
-- Abort button for stuck jobs
+- A stalled batch job links to the org's Setup › Apex Jobs page in Salesforce,
+  where it can be aborted; SandForge does not abort jobs itself
 
 ### Governor Limits
 

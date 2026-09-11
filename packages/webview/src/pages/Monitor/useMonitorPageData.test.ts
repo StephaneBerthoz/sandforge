@@ -32,16 +32,21 @@ vi.mock('../../hooks/useBridgeQuery', () => ({
   },
 }));
 
-const mockAbortMutate = vi.fn();
+const mockOpenApexJobsMutate = vi.fn();
+const mockOpenApexJobsReset = vi.fn();
+
+/** Mutable `monitor:open-apex-jobs` state -- the host's answer, as the hook sees it. */
+let mockOpenApexJobsState = {
+  data: null as { status: 'opened' } | { status: 'error'; message: string } | null,
+  loading: false,
+  error: null as string | null,
+};
 
 vi.mock('../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: (type: string) => ({
-    mutate: type === 'monitor:abort-job' ? mockAbortMutate : vi.fn(),
-    data: null,
-    loading: false,
-    error: null,
-    reset: vi.fn(),
-  }),
+  useBridgeMutation: (type: string) =>
+    type === 'monitor:open-apex-jobs'
+      ? { ...mockOpenApexJobsState, mutate: mockOpenApexJobsMutate, reset: mockOpenApexJobsReset }
+      : { mutate: vi.fn(), data: null, loading: false, error: null, reset: vi.fn() },
 }));
 
 /** Standard monitor:data payload for tests. */
@@ -440,107 +445,92 @@ describe('useMonitorPageData', () => {
   });
 
   /* ---------------------------------------------------------------- */
-  /* Job abort — never one call                                        */
+  /* Setup > Apex Jobs link                                            */
   /* ---------------------------------------------------------------- */
 
-  // The hook exposes no one-shot abort. A request only arms a confirmation;
-  // the org call leaves on confirm, and only for a job a critical stuck
-  // verdict still names at that moment.
-  describe('job abort', () => {
-    const stalled = {
-      type: 'stuck',
-      severity: 'critical',
-      title: 'BatchApex 707x0000000STAL: no batch completed in 1h05m',
-      detail: '3 of 10 batches processed, unchanged across 1h05m of observation.',
-      affectedJobs: ['707x0000000STAL'],
-      recommendation: 'Check the job, then abort it if it is still at the same batch.',
-    };
-    const unfinished = {
-      type: 'long_running',
-      severity: 'warning',
-      title: '1 job unfinished 3h10m after submission',
-      detail: 'Queueable 707x0000000SLOW is Processing.',
-      affectedJobs: ['707x0000000SLOW'],
-      recommendation: 'Keep watching.',
-    };
-
-    function withInsights(jobInsights: unknown[]): void {
-      mockMonitorQueryState = {
-        ...mockMonitorQueryState,
-        data: { ...standardPayload, jobInsights },
-      };
-    }
-
+  // The band's action is a navigation, not an abort: the hook names the
+  // selected org and nothing else, and the extension builds the address from
+  // its own org state.
+  describe('open Apex Jobs', () => {
     beforeEach(() => {
-      mockAbortMutate.mockClear();
+      mockOpenApexJobsMutate.mockClear();
+      mockOpenApexJobsState = { data: null, loading: false, error: null };
+      mockOpenApexJobsReset.mockClear();
     });
 
-    it('sends nothing when an abort is requested: the request only arms the confirmation', () => {
-      withInsights([stalled]);
+    it("forgets the previous org's open error once the org changes", () => {
+      // The error names the org whose page did not open. Left in place, it
+      // sat under the next org's band until someone clicked again.
+      mockOpenApexJobsState = {
+        data: null,
+        loading: false,
+        error: 'Cannot open Apex Jobs for "Acme": its instance URL must use HTTPS.',
+      };
+      const { rerender } = renderHook(() => useMonitorPageData());
+      expect(mockOpenApexJobsReset).not.toHaveBeenCalled();
+
+      act(() => {
+        useOrgStore.setState({ selectedOrgId: 'org-2' });
+      });
+      rerender();
+
+      expect(mockOpenApexJobsReset).toHaveBeenCalledTimes(1);
+    });
+
+    it('asks the extension to open Apex Jobs for the selected org, and sends no address', () => {
       const { result } = renderHook(() => useMonitorPageData());
 
-      act(() => result.current.requestAbortJob('707x0000000STAL'));
+      act(() => result.current.openApexJobs());
 
-      expect(result.current.pendingAbortJobId).toBe('707x0000000STAL');
-      expect(mockAbortMutate).not.toHaveBeenCalled();
+      expect(mockOpenApexJobsMutate).toHaveBeenCalledTimes(1);
+      expect(mockOpenApexJobsMutate).toHaveBeenCalledWith({ orgId: 'org-1' });
     });
 
-    it('sends the armed abort once confirmed, then disarms', () => {
-      withInsights([stalled]);
+    it('sends nothing without a selected org', () => {
+      useOrgStore.setState({ selectedOrgId: null });
       const { result } = renderHook(() => useMonitorPageData());
 
-      act(() => result.current.requestAbortJob('707x0000000STAL'));
-      act(() => result.current.confirmAbortJob());
+      act(() => result.current.openApexJobs());
 
-      expect(mockAbortMutate).toHaveBeenCalledTimes(1);
-      expect(mockAbortMutate).toHaveBeenCalledWith({ orgId: 'org-1', jobId: '707x0000000STAL' });
-      expect(result.current.pendingAbortJobId).toBeNull();
-
-      // A second confirm has nothing armed.
-      act(() => result.current.confirmAbortJob());
-      expect(mockAbortMutate).toHaveBeenCalledTimes(1);
+      expect(mockOpenApexJobsMutate).not.toHaveBeenCalled();
     });
 
-    it('sends nothing when the confirmation is cancelled', () => {
-      withInsights([stalled]);
-      const { result } = renderHook(() => useMonitorPageData());
-
-      act(() => result.current.requestAbortJob('707x0000000STAL'));
-      act(() => result.current.cancelAbortJob());
-      act(() => result.current.confirmAbortJob());
-
-      expect(result.current.pendingAbortJobId).toBeNull();
-      expect(mockAbortMutate).not.toHaveBeenCalled();
-    });
-
-    it('refuses to arm an abort for a job no stuck verdict names', () => {
-      withInsights([stalled, unfinished]);
-      const { result } = renderHook(() => useMonitorPageData());
-
-      act(() => result.current.requestAbortJob('707x0000000SLOW'));
-      expect(result.current.pendingAbortJobId).toBeNull();
-
-      act(() => result.current.confirmAbortJob());
-      expect(mockAbortMutate).not.toHaveBeenCalled();
-    });
-
-    it('disarms a pending abort when a refresh withdraws the stall evidence', () => {
-      withInsights([stalled]);
+    it('reports no error before an answer, nor once the page opened', () => {
       const { result, rerender } = renderHook(() => useMonitorPageData());
-      act(() => result.current.requestAbortJob('707x0000000STAL'));
-      expect(result.current.pendingAbortJobId).toBe('707x0000000STAL');
+      expect(result.current.openApexJobsError).toBeNull();
 
-      // The job moved again before the reader confirmed.
-      withInsights([]);
+      mockOpenApexJobsState = { data: { status: 'opened' }, loading: false, error: null };
       rerender();
-      expect(result.current.pendingAbortJobId).toBeNull();
-      act(() => result.current.confirmAbortJob());
-      expect(mockAbortMutate).not.toHaveBeenCalled();
+      expect(result.current.openApexJobsError).toBeNull();
+    });
 
-      // Evidence coming back later does not reopen a confirmation by itself.
-      withInsights([stalled]);
-      rerender();
-      expect(result.current.pendingAbortJobId).toBeNull();
+    it('reports a page the browser did not open as an error', () => {
+      mockOpenApexJobsState = {
+        data: { status: 'error', message: 'VS Code did not open the page.' },
+        loading: false,
+        error: null,
+      };
+      const { result } = renderHook(() => useMonitorPageData());
+
+      expect(result.current.openApexJobsError).toBe('VS Code did not open the page.');
+    });
+
+    it('reports a refusal from the extension as an error', () => {
+      mockOpenApexJobsState = {
+        data: null,
+        loading: false,
+        error: 'Cannot open Apex Jobs for "Acme": its instance URL must use HTTPS, got "http:".',
+      };
+      const { result } = renderHook(() => useMonitorPageData());
+
+      expect(result.current.openApexJobsError).toContain('must use HTTPS');
+    });
+
+    it('reports an open still waiting for the host', () => {
+      mockOpenApexJobsState = { data: null, loading: true, error: null };
+      const { result } = renderHook(() => useMonitorPageData());
+
+      expect(result.current.openingApexJobs).toBe(true);
     });
   });
 });
