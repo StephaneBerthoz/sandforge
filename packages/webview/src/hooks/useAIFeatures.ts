@@ -1,5 +1,5 @@
 /**
- * Hooks for AI features (Tier 2).
+ * Hooks for AI features.
  * Thin wrappers around useBridgeMutation for type-safe AI feature access.
  */
 

@@ -97,7 +97,7 @@ describe('patchCycleFkUpdates', () => {
     expect(objects).toEqual(['Account', 'Contact']);
   });
 
-  it('splits pass 2 at the REST limit instead of posting one oversized UPDATE (PERF-01)', async () => {
+  it('splits pass 2 at the REST limit instead of posting one oversized UPDATE', async () => {
     // deps.updateRecords is `conn.sobject(name).update(records)`, and jsforce
     // only chunks an oversized array when `options.allowRecursive` is passed,
     // which that call site does not. Pass 1 was bounded and pass 2, which it

@@ -22,7 +22,7 @@ const KNOWN_MASTER_DETAIL_FIELDS = new Set(['OpportunityId', 'CaseId', 'Contract
  * Detects parent object dependencies by analyzing reference/lookup fields
  * on a given Salesforce object.
  *
- * Used by Quick Sync to auto-suggest parent objects when a child is selected (SWIZ-06).
+ * Used by Quick Sync to auto-suggest parent objects when a child is selected.
  */
 export class RelationshipDetector {
   /**

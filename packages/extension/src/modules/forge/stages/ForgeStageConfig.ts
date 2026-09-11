@@ -35,7 +35,7 @@ export interface ForgeStageConfig {
    * (matched on `Name` / `DeveloperName`) instead of inserted.
    */
   readonly referenceDataObjects: ReadonlySet<string>;
-  /** Wave 2 v4 — single-hop orphan parent expansion toggle. */
+  /** Single-hop orphan parent expansion toggle. */
   readonly expandOrphanParents: boolean;
   /** Cap on orphan parent expansions per `execute()` call. */
   readonly maxOrphanParentExpansions: number;

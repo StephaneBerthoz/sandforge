@@ -1,5 +1,5 @@
 /**
- * FR-04 — the Get Started walkthrough spoke English only.
+ * The Get Started walkthrough spoke English only.
  *
  * The manifest strings around the four steps were translated six ways
  * (`package.nls.*.json`, pinned by `marketplace-claims.test.mjs`), but the

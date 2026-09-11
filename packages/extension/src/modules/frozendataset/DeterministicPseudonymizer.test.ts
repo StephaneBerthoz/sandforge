@@ -74,7 +74,7 @@ describe('DeterministicPseudonymizer — determinism of every generator', () => 
     expect(PSEUDONYM_GENERATORS).toHaveLength(14);
   });
 
-  it('null/undefined pass through for every generator (pitfall 6)', () => {
+  it('null/undefined pass through for every generator', () => {
     for (const generator of PSEUDONYM_GENERATORS) {
       expect(pA.pseudonymize(generator, null)).toBeNull();
       expect(pA.pseudonymize(generator, undefined)).toBeUndefined();
@@ -128,7 +128,7 @@ describe('DeterministicPseudonymizer — formats', () => {
     expect(out).not.toBe('CTR-2024-AB123');
   });
 
-  it('postalCodeGeneralize zeroes at length — 5 AND 4 digits (pitfall 4)', () => {
+  it('postalCodeGeneralize zeroes at length — 5 AND 4 digits', () => {
     expect(pA.pseudonymize('postalCodeGeneralize', '75012')).toBe('75000');
     expect(pA.pseudonymize('postalCodeGeneralize', '8011')).toBe('8000');
     expect(pA.pseudonymize('postalCodeGeneralize', '69003')).toBe('69000');

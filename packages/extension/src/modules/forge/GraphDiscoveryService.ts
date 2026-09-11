@@ -177,7 +177,7 @@ export class GraphDiscoveryService {
       discoveredCount: 0,
       queueRemaining: 1,
     });
-    // PERF-001: breadcrumb the cold path. Profiling identified
+    // Breadcrumb the cold path. Profiling identified
     // resolveRootObject (which calls describeGlobal) as the source of
     // 30-90s freezes on big orgs. Logging Date.now() at entry/exit lets
     // us measure empirically whether the cache + timeout fix is effective
@@ -259,7 +259,7 @@ export class GraphDiscoveryService {
         countError?: string;
         describeError?: string;
       };
-      // PERF-001: wave is processed cooperatively — Promise.all gathers
+      // The wave is processed cooperatively — Promise.all gathers
       // all describes/queryCounts (bounded by per-call timeouts in the
       // adapter layer) and the abort latch in the result-processing loop
       // below halts the BFS at the next wave boundary. The previous attempt

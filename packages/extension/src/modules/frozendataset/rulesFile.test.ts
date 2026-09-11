@@ -20,7 +20,7 @@ describe('parsePseudonymRules', () => {
     expect(file.rules['Account.Industry'].approved).toBe(true);
   });
 
-  it('rejects keep without explicit human approval (spec §3)', () => {
+  it('rejects keep without explicit human approval', () => {
     expect(() =>
       parsePseudonymRules({
         rulesVersion: '1.0.0',

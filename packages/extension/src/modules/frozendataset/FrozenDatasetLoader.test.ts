@@ -247,7 +247,7 @@ describe('FrozenDatasetLoader — fresh load', () => {
     // The Contact FK carries the REAL Account ID captured at insert.
     const contactPayload = calls[1].payload as Array<Record<string, unknown>>;
     expect(contactPayload[0].AccountId).toBe('REAL-Account-1');
-    // referenceId → real ID mapping persisted in the sas (spec pitfall 9).
+    // referenceId → real ID mapping persisted in the sas.
     const mapping = await new SasReferenceIdMappingStore(deps.sasDir, {
       guard: new SasPathGuard(repoRoot),
     }).load();
@@ -310,7 +310,7 @@ describe('FrozenDatasetLoader — fresh load', () => {
     expect(contract.objects.Contact).toBeUndefined();
   });
 
-  it('resolves RecordTypeId by DeveloperName, never by label (spec pitfall 1)', async () => {
+  it('resolves RecordTypeId by DeveloperName, never by label', async () => {
     const dataset = makeAccountContactDataset();
     dataset.recordTypes = {
       Account: [{ name: 'Compte professionnel', developerName: 'Business_Account' }],
@@ -363,7 +363,7 @@ describe('FrozenDatasetLoader — fresh load', () => {
   });
 });
 
-describe('FrozenDatasetLoader — required lookup placeholder (spec pitfall 3)', () => {
+describe('FrozenDatasetLoader — required lookup placeholder', () => {
   it('creates ONE named, record-typed placeholder and points records at it', async () => {
     const dataset = makeAccountContactDataset();
     const describes = describeFromDataset(dataset, {
@@ -490,7 +490,7 @@ describe('FrozenDatasetLoader — cycles and PersonContact post-load', () => {
   it('restores Account.PersonContactId from the sidecar as targeted updates', async () => {
     const dataset = makeAccountContactDataset();
     // The frozen Account carries the sidecar referenceId in PersonContactId
-    // (the field does not exist at insert time — spec §6).
+    // (the field does not exist at insert time).
     dataset.objects[0].records[0].fields.PersonContactId = 'Contact-000001';
     dataset.personContactSidecar = [
       { accountReferenceId: 'Account-000001', contactReferenceId: 'Contact-000001' },
@@ -589,7 +589,7 @@ describe('FrozenDatasetLoader — reload without refresh', () => {
     expect(mapping.get('Contact-000001')).toMatch(/^REAL-Contact-/);
   });
 
-  it('DEACTIVATES undeletable objects instead of deleting them (spec pitfall 10)', async () => {
+  it('DEACTIVATES undeletable objects instead of deleting them', async () => {
     const dataset = makeAccountContactDataset();
     const sasDir = makeTmpDir();
     await seedPreviousMapping(sasDir, {

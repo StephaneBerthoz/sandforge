@@ -2,7 +2,7 @@
  * Follow a SOQL result cursor to the end, bounded.
  *
  * `conn.query()` returns only the first page — 2 000 records at most — and
- * Forge read exactly that and stopped (PERF-02): a 50 000-row object cloned
+ * Forge read exactly that and stopped: a 50 000-row object cloned
  * as 2 000 rows and reported success, next to a wizard showing the real
  * `SELECT COUNT()` from discovery.
  *

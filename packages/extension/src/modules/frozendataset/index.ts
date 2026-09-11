@@ -1,6 +1,6 @@
 /**
- * Frozen Reference Dataset — core engine (spec §1-§5 + dead-ID sweep) and
- * load phase (spec §6-§7).
+ * Frozen Reference Dataset — core engine (extraction, anonymization,
+ * non-reidentification control, dead-ID sweep) and load phase.
  *
  * Core engine: the FrozenDataset data structures, the manifest, and the
  * PersonContact sidecar. Load phase: FrozenDatasetLoader (replayable load
@@ -25,7 +25,7 @@ export * from './NonReidentificationControl.js';
 export * from './manifest.js';
 export * from './FrozenDatasetWriter.js';
 
-// Load phase (spec §6) and post-load verification (spec §7).
+// Load phase and post-load verification.
 export * from './loadTypes.js';
 export * from './LoadGuards.js';
 export * from './TargetRecordTypeIdResolver.js';

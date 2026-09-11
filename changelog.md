@@ -1831,7 +1831,7 @@ Tests: 205/205 forge across 14 files (8 new `ReferenceDataMapper` tests +
 
 ## [1.2.4] - 2026-04-23
 
-**Milestone v1.2.3 « Scale & Complete », shipped as v1.2.4.** Marketplace release of the Scale & Complete milestone, tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps. (Entry restored from the `v1.2.4` tag message.)
+**« Scale & Complete » (v1.2.3), shipped as v1.2.4.** Marketplace release of « Scale & Complete », tagged `v1.2.4`. The feature content is documented under [1.2.3]; this entry records the version actually published so the version sequence has no gaps.
 
 - Three seed modes: AI Personas (10 industry personas), CSV Import (drag-and-drop + validation), Clone from Org (topological insert + ID mapping)
 - Real-time sync lifecycle: CDC subscriptions, conflict resolution UI, execution history, cron scheduling

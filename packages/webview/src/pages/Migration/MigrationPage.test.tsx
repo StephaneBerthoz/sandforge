@@ -355,7 +355,7 @@ describe('MigrationPage — running an imported config', () => {
   });
 
   it('reports what the run actually moved once the channel answers', () => {
-    // WV-12: the run moved records for real and rendered nothing back — the
+    // The run moved records for real and rendered nothing back — the
     // user could not tell whether it had happened, let alone what it did.
     mockRunState = { ...mockRunState, data: runResult };
     render(<MigrationPage />);

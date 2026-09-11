@@ -149,7 +149,7 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
   handlers.setAIAssistant(aiAssistant);
   log('AI Assistant initialized (unified adapter stack).');
 
-  // Wire up AI modules (Tier 2) using the same unified client
+  // Wire up the AI modules using the same unified client
   const aiProvider = async (prompt: string, system?: string): Promise<string> => {
     const result = await services.aiClient().chat({
       messages: [{ role: 'user', content: prompt }],
@@ -170,12 +170,12 @@ export async function initAIComposition(deps: AICompositionDeps): Promise<void> 
     errorResolver: new ErrorResolver(aiProvider),
     pipelineGenerator: new PipelineGenerator(aiProvider),
   });
-  log('AI modules (Tier 2) initialized.');
+  log('AI modules initialized.');
   postAIStatus(broker, true);
 
   // Forward breaker state changes to the webview as `ai:provider:status` —
-  // the provider-status banner (cooldown countdown etc.) has been listening
-  // for this channel since 04-02, but nothing ever emitted it. Subscribing
+  // the provider-status banner (cooldown countdown etc.) had been listening
+  // for this channel from the start, but nothing ever emitted it. Subscribing
   // per init is safe: adapters are disposed on invalidate() (which removes
   // every listener), and the re-init subscribes on the fresh instance.
   const breakerFeed = aiClient.breakerEvents;

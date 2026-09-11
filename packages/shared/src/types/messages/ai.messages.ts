@@ -126,7 +126,7 @@ export interface AIStatusResponse extends BaseMessage {
   };
 }
 
-// ─── AI Feature Messages (Tier 2) ───────────────────────────────────────────
+// ─── AI Feature Messages ────────────────────────────────────────────────────
 
 /** NL2SOQL: convert natural language to SOQL */
 export interface AINL2SOQLRequest extends BaseMessage {
@@ -205,7 +205,7 @@ export interface AISchemaAdviceResponse extends BaseMessage {
 }
 
 /**
- * Phase 04 plan 04-02 — provider status banner.
+ * Provider status banner.
  *
  * Sent from extension → webview every time the AI adapter's per-provider
  * CircuitBreaker changes state (closed → open after 3 consecutive failures,
@@ -229,7 +229,7 @@ export interface AIProviderStatusMessage extends BaseMessage {
 }
 
 /**
- * Phase 04 plan 04-05 — per-panel-session token budget snapshots.
+ * Per-panel-session token budget snapshots.
  */
 export interface AIBudgetStateMessage extends BaseMessage {
   type: 'ai:budget:state';

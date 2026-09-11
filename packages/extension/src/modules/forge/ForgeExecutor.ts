@@ -160,7 +160,7 @@ export interface ExecuteOptions {
    */
   referenceDataObjects?: string[];
   /**
-   * Wave 2 v4 — single-hop orphan parent expansion. When a record has a
+   * Single-hop orphan parent expansion. When a record has a
    * required reference field whose target was *never* in the discovery
    * graph (e.g. `Asset.AccountId` pointing at an Account outside the
    * scoped clone), the executor on-demand:
@@ -246,7 +246,7 @@ export interface ForgeExecutorDeps {
     records: Record<string, unknown>[],
   ) => Promise<InsertResult[]>;
   /**
-   * Update existing records on a Salesforce org. Used by Wave 2 v3 cycle
+   * Update existing records on a Salesforce org. Used by two-pass cycle
    * handling: when a record was inserted with a nullified cycle FK, the
    * second pass patches the FK to the now-cloned parent's target ID via
    * this method. Optional — when omitted, the executor skips the
@@ -381,7 +381,7 @@ interface ExecutionState {
  * Executes a Forge plan by processing graph nodes in topological order.
  *
  * Thin orchestrator over the stage pipeline in `./stages/`:
- * ScopeResolver (ordering + SOQL) → OrphanExpander (Wave 2 v4) →
+ * ScopeResolver (ordering + SOQL) → OrphanExpander (single-hop parents) →
  * RecordCleaner (remap/nullify/strip) → BatchWriter (insert/upsert) →
  * CycleFkPatcher (pass-2 cycle FK UPDATE). For each included node the
  * executor queries records from the source org, lets the stages transform
@@ -769,7 +769,7 @@ export class ForgeExecutor {
         ? intersect(createableSet, targetCreatableSet)
         : createableSet;
 
-      // Wave 2 v4 — single-hop orphan parent expansion. Runs before the
+      // Single-hop orphan parent expansion. Runs before the
       // clean stage so expanded parents land in the remapper and children
       // pick up the new target ID instead of orphan-nullifying.
       await state.orphanExpander.expandForNode({

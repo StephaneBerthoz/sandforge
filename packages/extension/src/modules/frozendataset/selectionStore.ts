@@ -1,6 +1,6 @@
 /**
- * Persistence of the retained-ID list in the sas (spec §1): the selection
- * contains source-org record IDs, so it must live outside the repo —
+ * Persistence of the retained-ID list in the sas: the selection contains
+ * source-org record IDs, so it must live outside the repo —
  * versioned, it would form a real↔anonymized correspondence table.
  */
 
@@ -40,8 +40,8 @@ export function writeSelectionToSas(
 
 /**
  * Read a persisted selection from the sas. The extraction phase injects
- * these IDs into its queries at execution time (spec §2: no hard-coded
- * IDs in templates — values come from the sas).
+ * these IDs into its queries at execution time: no hard-coded IDs in
+ * templates — values come from the sas.
  */
 export function readSelectionFromSas(
   sasDir: string,

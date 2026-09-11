@@ -39,7 +39,7 @@ describe('queryAllPages', () => {
     expect(source.queryMore).not.toHaveBeenCalled();
   });
 
-  it('follows the cursor across pages and concatenates in order (PERF-02)', async () => {
+  it('follows the cursor across pages and concatenates in order', async () => {
     // The defect: `conn.query()` returns the first page only, so a 5 000-row
     // object cloned as its first 2 000 rows and reported success.
     const source = sourceOf([

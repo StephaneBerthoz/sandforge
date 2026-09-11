@@ -92,8 +92,7 @@ function createTestImportResult(overrides: Partial<SfdxImportResult> = {}): Sfdx
 
 /**
  * Builds an enveloped inbound message. The broker drops raw (non-enveloped)
- * messages since the Plan 01-04 hardening, so every dispatch in this suite
- * goes through the envelope path.
+ * messages, so every dispatch in this suite goes through the envelope path.
  */
 function msg(type: string, payload?: Record<string, unknown>): unknown {
   return {

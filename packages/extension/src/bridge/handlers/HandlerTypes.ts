@@ -49,10 +49,10 @@ export interface HandlerDeps {
   authProvider: AuthProvider;
   /** Bridge to the Salesforce CLI (sf/sfdx). */
   sfdxBridge: SfdxBridge;
-  /** Optional infrastructure services (Tier 1). */
+  /** Optional infrastructure services. */
   infraServices?: InfraServices;
   /**
-   * Optional curated error resolver (Tier 2, injected with the AI modules by
+   * Optional curated error resolver (injected with the AI modules by
    * `ExtensionHandlers.setAIModules`). Absent whenever the AI stack is not
    * configured — `aiComposition` only builds it with AI enabled and a stored
    * key — which is exactly when a failed operation must be answered in

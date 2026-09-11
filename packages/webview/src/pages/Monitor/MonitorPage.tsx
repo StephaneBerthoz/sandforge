@@ -559,7 +559,7 @@ export const MonitorPage: React.FC = () => {
           {/* ── Deployment Timeline ── */}
           <DeploymentTimeline />
 
-          {/* ── Service Panels (WIRE-01..05) ── */}
+          {/* ── Service Panels ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <ErrorLogsPanel />
             <SessionsPanel />

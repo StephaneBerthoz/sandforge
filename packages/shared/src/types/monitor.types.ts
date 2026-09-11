@@ -66,7 +66,7 @@ export interface AlertInstance {
   acknowledgedAt?: ISODateString;
   resolvedAt?: ISODateString;
   /**
-   * Phase 03 Plan 03-05 — UI badge variant. `'anomaly'` is set by
+   * UI badge variant. `'anomaly'` is set by
    * AnomalyEngine bridge so AlertsPanel can render the synthetic instance
    * with a distinct visual treatment without inspecting `definitionId`.
    * Absent on alerts produced by the rule-based `AlertEngine.evaluate`
@@ -74,9 +74,9 @@ export interface AlertInstance {
    */
   badge?: 'anomaly';
   /**
-   * Phase 03 Plan 03-05 — opaque per-source metadata bag. AnomalyEngine
+   * Opaque per-source metadata bag. AnomalyEngine
    * stores `{ mean, stdDev, zScore, recentContext }` here so downstream
-   * consumers (Phase 04 AI narrator, AlertsPanel detail view) can render
+   * consumers (the AI narrator, AlertsPanel detail view) can render
    * richer context without widening the core AlertInstance shape.
    */
   metadata?: Record<string, unknown>;

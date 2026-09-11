@@ -1220,7 +1220,7 @@ describe('SyncOpsHandler', () => {
     });
   });
 
-  describe('PERF-04: the source read is paginated, and a bound that cuts it is announced', () => {
+  describe('the source read is paginated, and a bound that cuts it is announced', () => {
     /**
      * One row as a real `SELECT FIELDS(ALL) FROM Account` returns it:
      * `attributes` plus ~35 columns. A three-field fixture pages exactly the
@@ -1471,7 +1471,7 @@ describe('SyncOpsHandler', () => {
       expect(fromTarget).toHaveLength(500);
       expect(conn.query).toHaveBeenLastCalledWith(expect.stringContaining('LIMIT 500'));
 
-      // And the sandbox source is still read in full, as PERF-04 requires.
+      // And the sandbox source is still read in full, to the end of the cursor.
       const fromSource = await querySource('src-org', accountConfig());
       expect(fromSource.length).toBeGreaterThan(500);
     });

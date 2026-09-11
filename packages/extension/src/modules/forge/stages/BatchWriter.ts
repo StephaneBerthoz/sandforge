@@ -43,7 +43,7 @@ export const WRITE_API_MAX_BATCH: Readonly<Record<ResolvedBatchStrategy['api'], 
  * `upsertRecords` onto `conn.sobject(name).create/upsert` — REST sObject
  * Collections. No Bulk 2.0 transport is reachable from this stage, so the
  * effective batch size is derived from THIS constant and never from
- * `ForgeBatchStrategy.batchSize` alone (PERF-01): the strategy returns
+ * `ForgeBatchStrategy.batchSize` alone: the strategy returns
  * `api: 'bulk'` + `batchSize: 10_000` as soon as a node holds more than 200
  * records, and posting 10 000 records to a 200-record endpoint failed every
  * object above the threshold. Moving Forge onto a real Bulk path means
@@ -158,7 +158,7 @@ export class BatchWriter {
     const { node, records, cleanedRecords, fieldInfos, creatableFields, targetOrgId, remapper } =
       input;
     const planned = this.batchStrategy.resolve(node.batchStrategy, records.length);
-    // PERF-01: the resolved `api` used to be discarded, so a node resolved to
+    // The resolved `api` used to be discarded, so a node resolved to
     // 'bulk' was sliced into 10 000-record batches and handed to the REST
     // write path, which rejects anything over 200.
     const { batchSize, batchCount, clamped } = resolveWriteBatching(planned, records.length);
@@ -227,7 +227,7 @@ export class BatchWriter {
           if (typeof oldId === 'string') {
             remapper.add(oldId, result.id);
           }
-          // Wave 2 v3 — record nullified FKs so pass 2 can patch them
+          // Record nullified FKs so pass 2 can patch them
           // once the parent target is in the IdRemapper.
           if (built && built.nullifiedFks.length > 0) {
             const sourceId =
@@ -322,7 +322,7 @@ export class BatchWriter {
         seen.add(v);
       }
       if (ok) {
-        // CR-004: log the chosen field so the user can attribute
+        // Log the chosen field so the user can attribute
         // upsert-related errors to the picked external Id without
         // having to re-derive it from describe metadata.
         logger.info(
@@ -331,7 +331,7 @@ export class BatchWriter {
         return c.name;
       }
     }
-    // CR-004: no clean winner → fall BACK TO INSERT instead of the
+    // No clean winner → fall BACK TO INSERT instead of the
     // alphabetically-first candidate. The previous behavior produced
     // DUPLICATE_EXTERNAL_ID errors at run time when the chosen field
     // wasn't actually unique; falling back to a plain insert lets the
@@ -355,7 +355,7 @@ export function summarizeRecordForError(record: Record<string, unknown>): string
   const parts: string[] = [];
   for (const k of keys) {
     const v = record[k];
-    // CR-020: explicit handling for undefined and objects so debug output
+    // Explicit handling for undefined and objects so debug output
     // doesn't show '[object Object]' or 'undefined' generically.
     let str: string;
     if (v === null) str = 'null';

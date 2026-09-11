@@ -97,7 +97,7 @@ describe('sortNodesForExecution', () => {
     expect(() => sortNodesForExecution(graph, 'Account')).toThrow(/excluded/);
   });
 
-  // ERRORS-07: `included === false` means both "left out on purpose" and
+  // `included === false` means both "left out on purpose" and
   // "discovery could not measure it". The two must not produce the same
   // message — the second one is an org/access failure, not a user choice.
   it('reports a count-failed root as unmeasured, not as excluded by choice', () => {

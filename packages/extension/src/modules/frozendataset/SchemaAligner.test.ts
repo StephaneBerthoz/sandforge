@@ -162,7 +162,7 @@ describe('SchemaAligner — restricted picklists', () => {
     expect(result.adjustments[0]).toMatchObject({ scope: 'global', value: 'A;B;C' });
   });
 
-  it('detects a RecordType assignment gap via the UI API (spec pitfall 2)', async () => {
+  it('detects a RecordType assignment gap via the UI API', async () => {
     // Value active GLOBALLY but not assigned to the record's RecordType —
     // invisible to describe, only the UI API sees it.
     const picklistValues = vi.fn().mockResolvedValue(['Other']);
@@ -213,7 +213,7 @@ describe('SchemaAligner — restricted picklists', () => {
   });
 });
 
-describe('SchemaAligner — required fields (spec pitfall 3)', () => {
+describe('SchemaAligner — required fields', () => {
   it('lists a required lookup absent from every record', async () => {
     const aligner = new SchemaAligner({
       query: vi.fn(),

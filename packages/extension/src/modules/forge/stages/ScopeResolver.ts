@@ -165,13 +165,13 @@ export function seedScopeCache(
  * mode to guarantee the root record (and the FK values it carries) populate
  * the scope cache before any sibling node from the same cycle wave runs.
  *
- * CR-003: throws if the root is excluded from the graph. In scoped mode
+ * Throws if the root is excluded from the graph. In scoped mode
  * the root *must* be cloned; otherwise every child that references it
  * orphan-nullifies its FK silently, producing a disconnected clone.
  * The error surfaces to the UI so the user can either include the root
  * or drop scoped mode.
  *
- * ERRORS-07: `included === false` carries two unrelated facts. Discovery
+ * `included === false` carries two unrelated facts. Discovery
  * clears it for a node the user (or `skipEmpty`) deliberately left out, and
  * also for one it could not measure at all — a describe or a `SELECT COUNT()`
  * that failed, which discovery marks with `status: 'error'` and the reason in

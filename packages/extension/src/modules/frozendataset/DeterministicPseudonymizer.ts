@@ -1,6 +1,6 @@
 /**
  * Deterministic pseudonymizer — the heart of the Frozen Reference Dataset
- * module (spec §3).
+ * module.
  *
  * Every generator derives its output from `HMAC-SHA256(salt,
  * "<generator>|<value>")`. The object and field carrying the value are
@@ -235,8 +235,8 @@ export class DeterministicPseudonymizer {
    * Pseudonymize a single value with the named generator.
    *
    * `null`/`undefined` pass through untouched: an absent field stays
-   * absent and a null stays null (spec pitfall 6 — tree exports omit null
-   * fields; absence must not be confused with emptiness).
+   * absent and a null stays null (tree exports omit null fields; absence
+   * must not be confused with emptiness).
    */
   pseudonymize(generator: PseudonymGenerator, value: unknown): unknown {
     if (value === null || value === undefined) {
@@ -352,9 +352,8 @@ export class DeterministicPseudonymizer {
 
   /**
    * First two digits kept, the rest zeroed AT LENGTH: '75012' → '75000',
-   * and foreign 4-digit codes too: '8011' → '8000' (spec pitfall 4:
-   * 4-digit foreign postcodes must not slip through a 5-digit-oriented
-   * generalization). Non-numeric foreign postcodes keep their first two
+   * and foreign 4-digit codes too: '8011' → '8000' (4-digit foreign
+   * postcodes must not slip through a 5-digit-oriented generalization). Non-numeric foreign postcodes keep their first two
    * characters and are shape-masked beyond that.
    */
   private postalCodeGeneralize(value: string): string {

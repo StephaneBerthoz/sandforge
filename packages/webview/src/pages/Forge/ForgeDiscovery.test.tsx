@@ -261,7 +261,7 @@ describe('ForgeDiscovery', () => {
     expect(mockToggleNodeIncluded).toHaveBeenCalledWith('Account');
   });
 
-  // UX-20: Retry discovery
+  // Retry discovery
   it('should show retry button on error state when config is set', async () => {
     mockGraph = null;
     mockConfig = {
@@ -333,7 +333,7 @@ describe('ForgeDiscovery', () => {
     expect(mockSendMessage.mock.calls[0][0].type).toBe('forge:discover');
   });
 
-  // UX-11: View mode toggle
+  // View mode toggle
   it('should toggle between graph and table view', () => {
     render(<ForgeDiscovery />);
     // Default view shows graph
@@ -346,21 +346,21 @@ describe('ForgeDiscovery', () => {
     expect(screen.getByTestId('live-graph')).toBeDefined();
   });
 
-  // UX-21: Select All
+  // Select All
   it('should call setAllNodesIncluded(true) when Select All is clicked', () => {
     render(<ForgeDiscovery />);
     fireEvent.click(screen.getByTestId('forge-select-all'));
     expect(mockSetAllNodesIncluded).toHaveBeenCalledWith(true);
   });
 
-  // UX-21: Deselect All
+  // Deselect All
   it('should call setAllNodesIncluded(false) when Deselect All is clicked', () => {
     render(<ForgeDiscovery />);
     fireEvent.click(screen.getByTestId('forge-deselect-all'));
     expect(mockSetAllNodesIncluded).toHaveBeenCalledWith(false);
   });
 
-  // UX-22: Search input
+  // Search input
   it('should render search input and accept input', () => {
     render(<ForgeDiscovery />);
     const searchInput = screen.getByTestId('forge-node-search');

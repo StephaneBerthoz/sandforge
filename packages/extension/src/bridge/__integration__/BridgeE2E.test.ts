@@ -31,7 +31,7 @@ function createMockPanel() {
     /**
      * Simulate a message sent from WebView to Extension. The webview always
      * envelops (protocolVersion + payload) — the broker drops raw,
-     * non-enveloped messages since the Plan 01-04 hardening.
+     * non-enveloped messages.
      */
     simulateWebViewMessage: (msg: BaseMessage) => {
       const envelope = { protocolVersion: PROTOCOL_VERSION, payload: msg };

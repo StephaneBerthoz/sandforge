@@ -71,7 +71,7 @@ export class AIHandler implements DomainHandler {
     this.chatHandler.setAIAssistant(ai);
   }
 
-  /** Inject the model-backed modules (Tier 2), or `undefined` to take them away. */
+  /** Inject the model-backed modules, or `undefined` to take them away. */
   setAIModules(modules: AIModules | undefined): void {
     this.toolsHandler.setAIModules(modules);
   }

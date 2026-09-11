@@ -194,7 +194,7 @@ describe('OrgRegistry', () => {
       expect(result).toBeUndefined();
     });
 
-    // PERF-11: the startup sweep validates orgs one after the other and every
+    // The startup sweep validates orgs one after the other and every
     // org's check begins with this read. A keyring that never answers used to
     // park the sweep on org 1 forever.
     it('should reject on a secret-storage read that never settles instead of hanging', async () => {

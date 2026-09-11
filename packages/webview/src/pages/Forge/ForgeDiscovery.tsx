@@ -214,7 +214,7 @@ export const ForgeDiscovery: React.FC = () => {
     );
   }
 
-  // Error or no graph (UX-20: retry discovery)
+  // Error or no graph (retry discovery)
   if (!graph) {
     return (
       <div
@@ -278,7 +278,7 @@ export const ForgeDiscovery: React.FC = () => {
         </m.div>
       )}
 
-      {/* UX-11/UX-22: View mode toggle + search input */}
+      {/* View mode toggle + search input */}
       <m.div variants={slideUp} className="flex items-center gap-2">
         <div className="flex rounded-md border border-subtle overflow-hidden">
           <button
@@ -417,7 +417,7 @@ export const ForgeDiscovery: React.FC = () => {
         >
           {t('common.back')}
         </Button>
-        {/* UX-21: Select All / Deselect All */}
+        {/* Select All / Deselect All */}
         <div className="flex items-center gap-2">
           <Button
             data-testid="forge-select-all"

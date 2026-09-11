@@ -61,7 +61,7 @@ const SF_OBJECT_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]{0,79}$/;
  * Base ForgeConfig schema (no cross-field refine). Kept as a plain ZodObject
  * so consumers like `forgeTemplateSchema` can still call `.omit()` on it.
  * For handler validation that requires the `inputMode → matching field`
- * contract, prefer `forgeConfigSchemaStrict` below (CR-017).
+ * contract, prefer `forgeConfigSchemaStrict` below.
  */
 export const forgeConfigSchema = z.object({
   inputMode: forgeInputModeSchema,
@@ -154,7 +154,7 @@ export const forgeConfigSchema = z.object({
 
 /**
  * Strict ForgeConfig validation: enforces the inputMode→required-field
- * contract via `.refine`. CR-017 — without this, a payload like
+ * contract via `.refine`. Without this, a payload like
  * `{inputMode:'soql', recordId:'…'}` passes validation, then crashes
  * downstream in `resolveRootObject` with a generic message.
  */

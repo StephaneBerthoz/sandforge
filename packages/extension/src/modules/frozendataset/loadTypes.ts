@@ -1,5 +1,5 @@
 /**
- * Load-phase types (spec §6-§7): configuration, org-access abstractions,
+ * Load-phase types: configuration, org-access abstractions,
  * progress events and reports for the FrozenDatasetLoader / PostLoadVerifier.
  *
  * Nothing here is client-specific: protected environments, identity keys,
@@ -24,7 +24,7 @@ export interface TargetFieldDescribe {
   nillable: boolean;
   /** Required-at-insert detection: createable && !nillable && !defaultedOnCreate. */
   defaultedOnCreate: boolean;
-  /** Lookup targets — first entry is the placeholder object (spec pitfall 3). */
+  /** Lookup targets — first entry is the placeholder object. */
   referenceTo?: string[];
   /** Restricted picklist: values outside the active set are rejected at insert. */
   restrictedPicklist?: boolean;
@@ -50,8 +50,8 @@ export interface TargetOrgAccess {
   /**
    * UI API `picklist-values/{recordTypeId}/{field}`: the ONLY source that
    * sees RecordType assignment gaps — a value active globally may not be
-   * assigned to the record's RecordType, invisible to describe (spec
-   * pitfall 2). Returns the active values for that (RT, field) pair.
+   * assigned to the record's RecordType, invisible to describe. Returns
+   * the active values for that (RT, field) pair.
    */
   picklistValues(
     orgId: string,
@@ -80,7 +80,7 @@ export interface FrozenDmlWriter {
 }
 
 /**
- * Injectable detection of unmocked callouts in the target org (spec §6).
+ * Injectable detection of unmocked callouts in the target org.
  * The default implementation is {@link CustomMetadataCalloutMockDetector}
  * (see LoadGuards.ts): a custom metadata record flagging `IsMocked`.
  */
@@ -93,9 +93,8 @@ export interface CalloutMockDetector {
 export type PicklistRule = { action: 'clear' } | { action: 'replace'; value: string };
 
 /**
- * Placeholder spec for a required lookup absent from the dataset
- * (spec pitfall 3 — a lookup turned required AFTER the source data was
- * created). The loader creates ONE technical record, named and correctly
+ * Placeholder spec for a required lookup absent from the dataset (a
+ * lookup turned required AFTER the source data was created). The loader creates ONE technical record, named and correctly
  * record-typed, and points every record lacking the lookup at it. Records
  * are never silently excluded.
  */
@@ -110,7 +109,7 @@ export interface RequiredLookupPlaceholder {
 
 /**
  * Frozen-dataset load configuration. Every list is client configuration,
- * never hard-coded (spec « Contraintes d'implémentation »).
+ * never hard-coded.
  */
 export interface FrozenLoadConfig {
   /**
@@ -127,7 +126,7 @@ export interface FrozenLoadConfig {
   /**
    * Undeletable objects (e.g. FSL ServiceResource):
    * `ObjectApiName → deactivation field` — residuals are DEACTIVATED
-   * instead of deleted (spec pitfall 10).
+   * instead of deleted.
    */
   undeletableObjects?: Record<string, string>;
   /** Placeholder specs keyed `Object.field` for required lookups missing from the dataset. */
@@ -199,7 +198,7 @@ export interface PicklistAdjustment {
   scope: 'global' | 'record-type';
 }
 
-/** A required field absent from every record of the dataset (spec pitfall 3). */
+/** A required field absent from every record of the dataset. */
 export interface MissingRequiredField {
   objectApiName: string;
   field: string;
@@ -238,7 +237,7 @@ export interface SchemaAlignmentReport {
   recordTypeIssues: RecordTypeIssue[];
 }
 
-/** A placeholder record created for a required lookup (spec pitfall 3). */
+/** A placeholder record created for a required lookup. */
 export interface PlaceholderCreation {
   objectApiName: string;
   field: string;
@@ -314,7 +313,7 @@ export interface FrozenLoadReport {
   /** PersonContact post-load: sidecar links restored as targeted updates. */
   personContact: { restored: number; unresolved: PersonContactLink[] };
   purge: PurgeReport;
-  /** Sas path of the persisted referenceId→Id mapping (spec pitfall 9). */
+  /** Sas path of the persisted referenceId→Id mapping. */
   mappingPath: string;
   /** Sas path of the counting contract consumed by the PostLoadVerifier. */
   contractPath: string;

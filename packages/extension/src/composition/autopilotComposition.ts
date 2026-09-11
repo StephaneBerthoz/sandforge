@@ -6,7 +6,7 @@ import type { ExtensionHandlers } from '../bridge/ExtensionHandlers';
 import type { GrappeConfig } from '@sandforge/shared';
 import type { GrappeEventEnvelope } from '../bridge/handlers/HandlerTypes';
 
-/** Inputs required to wire the Autopilot orchestrator (Tier 4). */
+/** Inputs required to wire the Autopilot orchestrator. */
 export interface AutopilotCompositionDeps {
   handlers: ExtensionHandlers;
   log: (msg: string) => void;
@@ -24,7 +24,7 @@ export interface AutopilotCompositionDeps {
 }
 
 /**
- * Wire up the Autopilot orchestrator (Tier 4) via dynamic imports, then inject
+ * Wire up the Autopilot orchestrator via dynamic imports, then inject
  * it into the handlers through the late setter (`setAutopilotOrchestrator`).
  *
  * Fire-and-forget by design: the 9 dynamic imports stay OFF the activation hot

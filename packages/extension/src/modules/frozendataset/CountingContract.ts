@@ -1,6 +1,5 @@
 /**
- * Counting contract (spec §7): written by the loader into the sas at load
- * time, consumed by the PostLoadVerifier. Per object, the expected count
+ * Counting contract: written by the loader into the sas at load time, consumed by the PostLoadVerifier. Per object, the expected count
  * is « files minus exclusions » — dataset records considered for load,
  * minus every listed exclusion (duplicate skips, DML failures). Reused
  * reference records stay in the expected count: they ARE in the org.
@@ -21,7 +20,7 @@ export interface CountingContractEntry {
   exclusionReasons: Record<string, number>;
   /** Total excluded records (sum of exclusionReasons). */
   excluded: number;
-  /** Records added beyond the dataset (technical placeholders, spec pitfall 3). */
+  /** Records added beyond the dataset (technical placeholders). */
   added: number;
   /** Expected record count in the org: fromFiles − excluded + added. */
   expected: number;

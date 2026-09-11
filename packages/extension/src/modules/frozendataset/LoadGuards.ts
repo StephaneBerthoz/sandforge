@@ -1,5 +1,5 @@
 /**
- * Entry guards of the frozen-dataset load (spec §6). A load is REFUSED —
+ * Entry guards of the frozen-dataset load. A load is REFUSED —
  * with an actionable remediation, never an opaque error — when:
  *
  *   1. the target org is not a sandbox (production/staging tier);
@@ -47,7 +47,7 @@ export interface LoadGuardInput {
   dataset: FrozenDataset;
   /** Frozen manifest — its source org is cross-checked against the target. */
   manifest?: FrozenManifest;
-  /** Injectable unmocked-callout detection (spec §6). */
+  /** Injectable unmocked-callout detection. */
   mockDetector: CalloutMockDetector;
   /** Configured protected environments (shared orgs the load must refuse). */
   protectedOrgIds?: string[];
@@ -124,8 +124,7 @@ export interface CustomMetadataMockDetectionConfig {
 }
 
 /**
- * Default {@link CalloutMockDetector} (documented in spec §6): the target
- * org is considered mocked when at least one record of the configured
+ * Default {@link CalloutMockDetector}: the target org is considered mocked when at least one record of the configured
  * custom metadata type carries the configured `IsMocked` flag. When the
  * metadata type is not deployed (query fails), the org is treated as NOT
  * mocked — the guard refuses with the "deploy configuration" remediation.

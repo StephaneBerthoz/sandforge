@@ -40,8 +40,8 @@ export interface ForgeConfig {
   batchSize: 'auto' | number;
   /**
    * When `true`, the executor performs single-hop fetch+insert of any
-   * required reference field whose target wasn't in the discovery graph
-   * (Wave 2 v4). Defaults to `false`. See `ForgeExecutor.ExecuteOptions`
+   * required reference field whose target wasn't in the discovery graph.
+   * Defaults to `false`. See `ForgeExecutor.ExecuteOptions`
    * for the cap and the underlying mechanism.
    */
   expandOrphanParents?: boolean;

@@ -171,7 +171,7 @@ describe('ForgeNodeDetail', () => {
     expect(screen.queryByTestId('node-errors-list')).toBeNull();
   });
 
-  /* ---- A11Y-07: Contrast fix for skipped status ---- */
+  /* ---- Contrast fix for skipped status ---- */
   it('should use text-gray-400 for skipped status badge', () => {
     render(
       <ForgeNodeDetail

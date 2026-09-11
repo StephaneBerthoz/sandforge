@@ -200,7 +200,7 @@ export class ForgePlanGenerator {
 
     // Tarjan's SCC — iterative implementation.
     //
-    // RT-003: Recursive Tarjan blew the call stack at >10K-node depth on
+    // Recursive Tarjan blew the call stack at >10K-node depth on
     // forged graphs (nodes are bounded server-side now, but this is
     // defense-in-depth — 50 is the realistic cap, but the algorithm
     // shouldn't be one-edge-away from RangeError on any input).

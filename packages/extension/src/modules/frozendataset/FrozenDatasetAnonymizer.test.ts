@@ -194,7 +194,7 @@ describe('FrozenDatasetAnonymizer', () => {
     expect(frozen.objects[0].records[0].fields.NotesInternes__c).toBe('client premium depuis 2019');
   });
 
-  it('emits the PersonContact sidecar as referenceId → referenceId (spec §6)', () => {
+  it('emits the PersonContact sidecar as referenceId → referenceId', () => {
     const frozen = anonymizer.anonymize({
       extracted: makeExtracted(),
       rules,
@@ -208,7 +208,7 @@ describe('FrozenDatasetAnonymizer', () => {
     expect(JSON.stringify(frozen.personContactSidecar)).not.toContain(CONTACT_ID);
   });
 
-  it('keeps nulls null and absences absent (pitfall 6)', () => {
+  it('keeps nulls null and absences absent', () => {
     const extracted = makeExtracted();
     extracted.objects[1].records[0].fields.MobilePhone = null;
     const frozen = anonymizer.anonymize({

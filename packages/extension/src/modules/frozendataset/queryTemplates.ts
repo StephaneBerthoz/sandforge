@@ -1,6 +1,6 @@
 /**
- * SOQL query templates with `{{TOKEN}}` placeholders (spec §2): templates
- * committed in configuration contain NO hard-coded IDs; token values
+ * SOQL query templates with `{{TOKEN}}` placeholders: templates committed
+ * in configuration contain NO hard-coded IDs; token values
  * (ID lists, date bounds) are injected at execution time from the sas.
  */
 

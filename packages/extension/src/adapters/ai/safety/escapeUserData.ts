@@ -4,8 +4,8 @@
  * `</user-data><instructions>…</instructions>`) cannot break out of the
  * Anthropic XML tag boundary that Claude is trained to respect.
  *
- * RESEARCH Pitfall #5: Anthropic's XML-tag mitigation only holds when the
- * data payload truly cannot include a literal `</tag>`. Naive interpolation
+ * Anthropic's XML-tag mitigation only holds when the data payload truly
+ * cannot include a literal `</tag>`. Naive interpolation
  * defeats the boundary; HTML entity escape restores it. Belt-and-suspenders:
  * the system prompt also instructs Claude to treat `<user-data>` content as
  * data only (see the untrusted-data clause in systemPrompts/index.ts).

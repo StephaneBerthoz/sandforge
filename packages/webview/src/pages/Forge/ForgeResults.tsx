@@ -462,7 +462,7 @@ export const ForgeResults: React.FC<ForgeResultsProps> = ({ className }) => {
         </div>
       )}
 
-      {/* Structured execution errors (Wave 2.6 — grouped by object/stage) */}
+      {/* Structured execution errors, grouped by object/stage */}
       {result?.errors && result.errors.length > 0 && <ForgeErrorsPanel errors={result.errors} />}
 
       {/* Collapsible execution logs */}
@@ -561,7 +561,7 @@ const stageStyles: Record<ForgeExecutionError['stage'], { labelKey: string; cls:
 
 /**
  * Structured errors panel — surfaces `ForgeExecutionResult.errors` from the
- * executor (Wave 2.6) grouped by object and stage, with up to three sample
+ * executor, grouped by object and stage, with up to three sample
  * failures and the raw Salesforce status codes. Lets the user see exactly
  * which fields/records broke without re-running the operation.
  */

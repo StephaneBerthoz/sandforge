@@ -9,7 +9,7 @@
  *  - `SECURITY.md` and `CONTRIBUTING.md` — the other two pages the repository
  *    root publishes;
  *  - every `.md` under `docs/`, linked from a README or not, minus
- *    `docs/archive/` (a record of what was once planned, not maintained);
+ *    `docs/archive/` (untracked, and no longer maintained);
  *  - the four walkthrough bodies under `packages/extension/walkthrough/` and
  *    the five translations of each, which VS Code renders in Get Started;
  *  - `ci-examples/README.md` and `packages/extension/examples/README.md` —
@@ -183,7 +183,7 @@ const isTestFile = (name) => /\.(?:test|spec)\./.test(name);
 
 /**
  * Every page under `docs/`, linked or not, minus `docs/archive/` — which is
- * kept as a record of what the product used to plan and is not maintained.
+ * untracked, superseded by the pages above it, and no longer maintained.
  *
  * An earlier cut read only the pages a README links to, on the theory that the
  * link list maintains itself. It does, and it also lets a page drop out of the
@@ -755,8 +755,8 @@ const GRAPPE_WORDINGS = [
     where: 'the Grappe page empty state, 2026-03-17 to 2026-08-13',
   },
   {
-    // `sandforge.grappe.maxWorkers`, removed from the manifest by CONTRACT-03
-    // in v1.17.0: nothing read it, and there is no concurrency to size.
+    // `sandforge.grappe.maxWorkers`, removed from the manifest in v1.17.0:
+    // nothing read it, and there is no concurrency to size.
     text: 'Maximum number of partitions processed concurrently',
     where: 'the sandforge.grappe.maxWorkers description, the manifest, to v1.17.0',
   },
@@ -1559,7 +1559,7 @@ function assertScanReadsShippedCode(scan) {
       unread.join('\n  '),
   );
 
-  // The assistant and the Tier 2 modules reach the model through
+  // The assistant and the model-backed modules reach the model through
   // `aiClient().chat({...})` in the AI composition root. `chat` has to be
   // called there, never bound, aliased or destructured: a call made through an
   // alias is a call this scan cannot attribute.
@@ -2415,7 +2415,7 @@ function assertRuleModulesHaveNoProvider() {
   assert.deepEqual(
     withProvider.filter((call) => call.args.length === 0).map((call) => call.name),
     [],
-    'a Tier 2 AI module is now built with no argument — the arity check cannot tell a ' +
+    'a model-backed AI module is now built with no argument — the arity check cannot tell a ' +
       'rule-based module from a model-backed one any more',
   );
 

@@ -38,7 +38,7 @@ describe('classifyAnthropicError', () => {
     expect(v.retryAfterMs).toBe(90_000);
   });
 
-  it('status 529 → overloaded, trips breaker (Pitfall #2)', () => {
+  it('status 529 → overloaded, trips breaker', () => {
     const err = new MockSDKError('InternalServerError', 529);
     const v = classifyAnthropicError(err);
     expect(v.kind).toBe('overloaded');
@@ -46,7 +46,7 @@ describe('classifyAnthropicError', () => {
     expect(v.shouldRetry).toBe(true);
   });
 
-  it('status 500 + body type=overloaded_error → overloaded (dual signal Pitfall #2)', () => {
+  it('status 500 + body type=overloaded_error → overloaded (dual signal)', () => {
     const err = new MockSDKError('InternalServerError', 500, {
       error: { type: 'overloaded_error' },
     });

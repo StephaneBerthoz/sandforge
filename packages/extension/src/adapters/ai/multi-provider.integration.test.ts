@@ -51,7 +51,7 @@ function makeFactory() {
   });
 }
 
-describe('multi-provider isolation — Plan 04-07 vertical slice', () => {
+describe('multi-provider isolation', () => {
   it('factory returns three DISTINCT instances per provider', () => {
     const factory = makeFactory();
     const a = factory('anthropic');
@@ -131,16 +131,15 @@ describe('multi-provider isolation — Plan 04-07 vertical slice', () => {
   });
 });
 
-describe('RT-#11 closure CI gate — zero regex-extract callsites in migrated AI modules', () => {
+describe('CI gate — zero regex-extract callsites in migrated AI modules', () => {
   /**
-   * Plan 04-07 task 08 (sweep). The legacy modules AIAssistant /
-   * ErrorResolver / NL2SOQL still ship their pre-Phase-04 implementations
-   * (full migration deferred to v1.4 backlog per the SUMMARY) so this
-   * gate is informational only at this moment — it asserts the FILES
-   * exist and have NOT regressed beyond their current baseline.
+   * The legacy modules AIAssistant / ErrorResolver / NL2SOQL still ship
+   * their own pre-unified-client implementations, so this gate is
+   * informational only at this moment — it asserts the FILES exist and have
+   * NOT regressed beyond their current baseline.
    *
-   * When the v1.4 migration lands, swap the .toBeDefined() to
-   * .not.toMatch(/extractJsonFromMarkdown/).
+   * Once those three are migrated onto the unified client, swap the
+   * .toBeDefined() to .not.toMatch(/extractJsonFromMarkdown/).
    */
   it('AIAssistant.ts exists', async () => {
     const fs = await import('node:fs/promises');

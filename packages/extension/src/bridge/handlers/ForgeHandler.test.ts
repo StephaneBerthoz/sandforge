@@ -76,7 +76,7 @@ function createMockGraph(): ForgeGraph {
 function createMockConfig(overrides?: Partial<ForgeConfig>): ForgeConfig {
   return {
     inputMode: 'record',
-    // 15-char strict Salesforce ID (audit RT-001 hardened forgeConfigSchema)
+    // 15-char strict Salesforce ID — forgeConfigSchema enforces the regex
     recordId: '001AP00000j2CEg',
     depth: 'direct',
     sourceOrgId: 'src-org',
@@ -1336,7 +1336,7 @@ describe('ForgeHandler', () => {
       expect(response.payload.estimatedSize).toBe(0);
     });
 
-    // PERF-08 — describeGlobal returns 1-2 MB of JSON and the webview fires a
+    // describeGlobal returns 1-2 MB of JSON and the webview fires a
     // preview on every corrected record id. The prefix table is org-wide, so
     // it must be downloaded once per org, not once per keystroke.
     describe('describeGlobal caching', () => {

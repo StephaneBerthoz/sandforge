@@ -7,7 +7,7 @@
  * the same record collapse to a single UPDATE call, then dispatched
  * through `deps.updateRecords` in per-object batches.
  *
- * Those batches are bounded by the same REST limit as pass 1 (PERF-01).
+ * Those batches are bounded by the same REST limit as pass 1.
  * `deps.updateRecords` is wired onto `conn.sobject(name).update(records)`,
  * and jsforce only splits an oversized array when `options.allowRecursive`
  * is set, which that call site does not pass — so the whole array went out
@@ -81,7 +81,7 @@ export async function patchCycleFkUpdates(
       perObj = new Map();
       updatesByObject.set(upd.objectApiName, perObj);
     }
-    // CR-002: explicit "read current → check conflict → build → set"
+    // Explicit "read current → check conflict → build → set"
     // pattern so the mutable-by-reference semantics are obvious.
     // Previous code relied on `existing` aliasing the map entry and
     // mutating it in place — silently broken if a refactor introduces

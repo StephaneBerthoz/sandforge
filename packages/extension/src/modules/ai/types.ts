@@ -1,5 +1,5 @@
 /**
- * Shared types for the AI modules (Tier 2).
+ * Shared types for the AI modules.
  *
  * Single source of truth for the prompt-function signature — previously
  * redeclared identically in NL2SOQL, ErrorResolver and AIPersonaManager.

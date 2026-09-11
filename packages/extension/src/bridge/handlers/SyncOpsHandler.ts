@@ -709,7 +709,7 @@ export class SyncOpsHandler implements DomainHandler {
             }
             soql += ` WHERE ${objectConfig.where}`;
           }
-          // PERF-04: this query used to end in a bare
+          // This query used to end in a bare
           // `LIMIT ${syncQueryLimits.defaultQueryLimit}` and read the first
           // page only — 2 000 rows from a sandbox source, 500 from a
           // production one. On the 100 000-record orgs this product targets
@@ -717,7 +717,7 @@ export class SyncOpsHandler implements DomainHandler {
           //
           // Two changes, and only these two:
           //  - the read follows the cursor to the end (`queryAllPages`, the
-          //    same bounded helper Forge uses since PERF-02);
+          //    same bounded helper Forge uses);
           //  - when a bound cuts the read short the user is told, on the
           //    notification channel and in the log. A bounded sync is a
           //    legitimate outcome; a silently partial one is the defect.

@@ -18,7 +18,7 @@ const mockExecFile = vi.mocked(execFile);
 /**
  * `loginWeb` branches on `process.platform`:
  * - Windows uses `exec` (shell required for `sf.cmd` PATHEXT resolution)
- * - POSIX uses `execFile` with argv-as-array (no shell — RT-#8 hardening)
+ * - POSIX uses `execFile` with argv-as-array (no shell — no interpolation)
  *
  * Tests pick the active mock for the current platform so they stay
  * platform-agnostic (same pattern as ConnectionHelper.test.ts).

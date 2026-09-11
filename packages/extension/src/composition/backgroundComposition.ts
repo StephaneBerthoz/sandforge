@@ -17,7 +17,7 @@ export interface BackgroundCompositionDeps {
 }
 
 /**
- * Infrastructure services (Tier 1) + the background operation registry.
+ * Infrastructure services + the background operation registry.
  * All constructors are cheap and side-effect free.
  */
 export interface BackgroundComposition {

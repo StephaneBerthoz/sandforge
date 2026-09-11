@@ -585,7 +585,7 @@ describe('ForgeExecutor', () => {
     });
   });
 
-  describe('Wave 2 v3 — 2-pass cycle FK update', () => {
+  describe('2-pass cycle FK update', () => {
     const ROOT_ID = '500XX00000000001AAA';
 
     it('issues a pass-2 UPDATE for FKs nullified during pass-1 insert', async () => {
@@ -893,7 +893,7 @@ describe('ForgeExecutor', () => {
     });
   });
 
-  describe('Wave 2 v4 — single-hop orphan parent expansion', () => {
+  describe('single-hop orphan parent expansion', () => {
     const ROOT_ID = '500XX00000000001AAA';
 
     it('fetches+inserts the missing parent when expandOrphanParents=true and patches the child FK', async () => {

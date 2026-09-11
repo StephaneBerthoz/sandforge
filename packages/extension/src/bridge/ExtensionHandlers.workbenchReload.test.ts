@@ -39,14 +39,13 @@ function createMockSfdxBridge(): SfdxBridge {
 }
 
 /**
- * Task 01-04-11 — verify the `workbench:reload` handler is registered and
- * invokes the injected command executor with `workbench.action.reloadWindow`.
+ * Verifies the `workbench:reload` handler is registered and invokes the
+ * injected command executor with `workbench.action.reloadWindow`.
  *
- * This is a scoped test file (not folded into ExtensionHandlers.test.ts) to
- * keep the 800+ line legacy suite untouched and avoid merge conflicts with
- * ongoing Phase 01 work.
+ * Scoped to its own file (not folded into ExtensionHandlers.test.ts) to keep
+ * the 800+ line legacy suite untouched.
  */
-describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
+describe('ExtensionHandlers — workbench:reload handler', () => {
   let broker: MessageBroker;
   let router: MessageRouter;
   let handlers: ExtensionHandlers;
@@ -94,7 +93,7 @@ describe('ExtensionHandlers — workbench:reload handler (01-04-11)', () => {
 
   it('invokes workbench.action.reloadWindow when a workbench:reload message is dispatched', () => {
     // Post an enveloped message through the broker (raw, non-enveloped
-    // messages are dropped since the Plan 01-04 hardening). The reload
+    // messages are dropped by the broker). The reload
     // handler is wired via router.route(...) in ExtensionHandlers.
     const panel = {
       webview: {

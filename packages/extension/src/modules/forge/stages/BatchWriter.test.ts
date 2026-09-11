@@ -226,11 +226,11 @@ describe('BatchWriter', () => {
     warnSpy.mockRestore();
   });
 
-  // PERF-01 — ForgeBatchStrategy.resolve() returns api:'bulk' + batchSize:10_000
+  // ForgeBatchStrategy.resolve() returns api:'bulk' + batchSize:10_000
   // above 200 records, but insertRecords/upsertRecords are wired (in
   // composition/forgeComposition.ts) to conn.sobject(x).create/upsert, i.e.
   // REST sObject Collections, which rejects more than 200 records per call.
-  it('caps batches at the REST limit when the strategy resolves to bulk (PERF-01)', async () => {
+  it('caps batches at the REST limit when the strategy resolves to bulk', async () => {
     const records = Array.from({ length: 450 }, (_, i) => ({ Id: `001OLD${i}`, Name: `R${i}` }));
     const deps = makeDeps();
     const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);

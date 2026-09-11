@@ -35,7 +35,7 @@ export interface MessageBrokerOptions {
 }
 
 /**
- * Envelope-carrying shape the webview is expected to send after Plan 01-04.
+ * Envelope-carrying shape every message from the webview is expected to use.
  * Kept loose here (type-only) since the broker validates via Zod at runtime.
  */
 interface RawEnvelope {
@@ -95,7 +95,7 @@ export interface RegisterPanelOptions {
  * Handlers subscribe to inbound messages by type.
  * Inbound messages are rate-limited to prevent flooding.
  *
- * Plan 01-04 hardening:
+ * Envelope hardening:
  *  - Every inbound message must be enveloped and is parsed via
  *    `EnvelopedMessageSchema`; raw non-enveloped messages are dropped — the
  *    webview always envelops (same VSIX), so a pre-envelope client cannot exist.

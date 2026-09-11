@@ -193,7 +193,7 @@ export class ScopedSoqlBuilder {
  *
  * This is a bound on what the transport can carry, not a product decision.
  * Raising it means batching the query, which is a real change with real
- * consumers (PERF-03) — not a bigger number here.
+ * consumers — not a bigger number here.
  */
 const MAX_SCOPE_IDS = 600;
 

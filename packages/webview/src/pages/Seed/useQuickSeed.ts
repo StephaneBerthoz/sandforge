@@ -50,7 +50,7 @@ export interface QuickSeedState {
  * Hook managing the Quick Seed state machine.
  *
  * Phases: idle -> selectOrg -> executing -> results.
- * Uses the template's field rules directly as Smart Suggest defaults (QSEED-02).
+ * Uses the template's field rules directly as Smart Suggest defaults.
  */
 export function useQuickSeed(): QuickSeedState {
   const [phase, setPhase] = useState<QuickSeedPhase>('idle');

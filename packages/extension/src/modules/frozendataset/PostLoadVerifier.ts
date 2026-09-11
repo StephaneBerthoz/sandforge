@@ -1,5 +1,5 @@
 /**
- * Post-load verifier (spec §7) — READ-ONLY, chained after the load. It
+ * Post-load verifier — READ-ONLY, chained after the load. It
  * consumes the counting contract the loader wrote into the sas and checks:
  *
  *   - **counts**: per-object org counts vs the contract (files minus
@@ -27,7 +27,7 @@ import type { FrozenLoadProgressEvent, TargetOrgAccess } from './loadTypes.js';
 
 /** Default pause between two measurements (ms). */
 export const DEFAULT_MEASUREMENT_INTERVAL_MS = 2_000;
-/** Hard cap on measurement attempts (spec §7: max 3 relevés). */
+/** Hard cap on measurement attempts. */
 export const DEFAULT_MAX_ATTEMPTS = 3;
 /** Default orphan sample size per mandatory lookup. */
 export const DEFAULT_ORPHAN_SAMPLE_SIZE = 10;
@@ -115,7 +115,7 @@ export class PostLoadVerifier {
     const contract = readCountingContract(this.sasGuard, options.contractPath);
 
     emit({ phase: 'verify', status: 'started', progress: 0, message: 'Measuring org state' });
-    // Robustness loop: re-measure until TWO IDENTICAL snapshots (spec §7).
+    // Robustness loop: re-measure until TWO IDENTICAL snapshots.
     let previousSerialized: string | null = null;
     let stableSnapshot: VerificationSnapshot | null = null;
     let lastSnapshot: VerificationSnapshot | null = null;

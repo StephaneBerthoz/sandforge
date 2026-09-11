@@ -36,7 +36,7 @@ function polymorphic(name: string, targets: string[]): ScopableField {
 const ROOT_ID = '500XX00000000001AAA';
 
 describe('ScopedSoqlBuilder', () => {
-  describe('scope id bound (PERF-03)', () => {
+  describe('scope id bound', () => {
     it('refuses a scope too large for a query URI, and says what to do', () => {
       // A scoped query travels over GET. Past roughly 600 quoted Ids the
       // request URI stops fitting and the org rejects it with a transport

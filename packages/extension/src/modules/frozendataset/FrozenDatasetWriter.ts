@@ -1,6 +1,6 @@
 /**
- * Frozen dataset writer (spec §5): the ONLY service that persists the
- * frozen artifacts. It hard-requires a PASS from the non-reidentification
+ * Frozen dataset writer: the ONLY service that persists the frozen
+ * artifacts. It hard-requires a PASS from the non-reidentification
  * control — a FAIL means nothing is written, hence nothing can be
  * versioned. Output always goes through the SasPathGuard, so artifacts
  * can only land outside the repository.
@@ -22,7 +22,7 @@ export class ControlNotPassedError extends Error {
       .join(', ');
     super(
       `Refusing to write the frozen dataset: non-reidentification control FAILED ` +
-        `[${failed}]. A FAIL means nothing is written or versioned (spec §5).`,
+        `[${failed}]. A FAIL means nothing is written or versioned.`,
     );
     this.name = 'ControlNotPassedError';
   }

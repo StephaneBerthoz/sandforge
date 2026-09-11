@@ -6,9 +6,9 @@
  *  - decide whether a retry is sensible
  *  - surface a localised banner copy via `userMessageKey`
  *
- * RESEARCH Pitfall #2: the SDK has no `OverloadedError` class. Detect via
- * dual signal — `err.status === 529` OR `err.error?.error?.type ===
- * 'overloaded_error'`. Either signal trips the breaker (P-04.2).
+ * The SDK ships no `OverloadedError` class, so overload is detected via a dual
+ * signal — `err.status === 529` OR `err.error?.error?.type ===
+ * 'overloaded_error'`. Either signal trips the breaker.
  *
  * APIUserAbortError is special: NEVER trips the breaker (cancel is a user
  * action, not a provider failure).
@@ -104,7 +104,7 @@ export function classifyAnthropicError(err: unknown): AIErrorVerdict {
   const status = typeof e.status === 'number' ? e.status : undefined;
   const retryAfterMs = parseRetryAfter(e.headers);
 
-  // 2) Overloaded — dual signal (Pitfall #2).
+  // 2) Overloaded — dual signal (status 529 OR an `overloaded_error` body).
   if (isOverloaded(e)) {
     return {
       kind: 'overloaded',

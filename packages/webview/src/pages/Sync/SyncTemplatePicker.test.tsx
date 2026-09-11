@@ -22,7 +22,7 @@ describe('SyncTemplatePicker', () => {
     expect(screen.getByText('Full Account Hierarchy')).toBeDefined();
     expect(screen.getByText('Opportunities + Products')).toBeDefined();
     // Renamed in v1.18.0: SandForge never carried attachments with a synced
-    // record, and the template promised them by name (FEATURE-08).
+    // record, and the template promised them by name.
     expect(screen.getByText('Cases + Comments')).toBeDefined();
   });
 

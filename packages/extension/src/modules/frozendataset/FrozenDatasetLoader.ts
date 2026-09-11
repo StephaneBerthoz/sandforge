@@ -1,5 +1,5 @@
 /**
- * Frozen dataset loader (spec §6): replays a frozen dataset into a fresh
+ * Frozen dataset loader: replays a frozen dataset into a fresh
  * sandbox, REPLAYABLY — reload without refresh reuses the reference data
  * by identity keys and purges residuals children-before-parents.
  *
@@ -7,18 +7,17 @@
  *   1. entry guards (LoadGuards.ts) — sandbox-only, protected envs,
  *      mocked callouts, non-empty dataset;
  *   2. reload: reuse by configured identity keys, then purge residuals
- *      children-before-parents (undeletable objects are DEACTIVATED —
- *      spec pitfall 10);
+ *      children-before-parents (undeletable objects are DEACTIVATED);
  *   3. schema alignment (SchemaAligner.ts) incl. RecordType resolution by
- *      DeveloperName (spec pitfall 1) and picklist RT-gap checks (pitfall 2);
+ *      DeveloperName and picklist RecordType-gap checks;
  *   4. technical placeholders for required lookups absent from the dataset
- *      (spec pitfall 3) — named, correctly record-typed, never an exclusion;
+ *      — named, correctly record-typed, never an exclusion;
  *   5. insert pass 1 in topological order — cycle FKs are nullified and
  *      queued, then patched in pass 2 (pattern of forge CycleFkPatcher);
  *   6. PersonContact post-load: the sidecar referenceId→referenceId pairs
  *      are resolved through the persisted mapping and posted as targeted
  *      Account.PersonContactId updates;
- *   7. the referenceId→real-ID mapping (spec pitfall 9) is persisted in
+ *   7. the referenceId→real-ID mapping is persisted in
  *      the sas, and the counting contract (files minus exclusions) is
  *      written for the PostLoadVerifier.
  *
@@ -545,7 +544,7 @@ export class FrozenDatasetLoader {
    * Purge residuals: records of the PREVIOUS mapping not reused by this
    * run. Deletion runs children-before-parents (reverse insertion order;
    * objects unknown to the current graph last). Undeletable objects are
-   * deactivated instead (spec pitfall 10).
+   * deactivated instead.
    */
   private async purgeResiduals(
     options: FrozenLoadOptions,
@@ -599,7 +598,8 @@ export class FrozenDatasetLoader {
 
   /**
    * Resolve one record's RecordTypeId (carried as the RT *Name*) to the
-   * target ID by DeveloperName — never by label (spec pitfall 1). Also
+   * target ID by DeveloperName — never by label, which differs between
+   * orgs (mojibake included). Also
    * strips Account.PersonContactId: restored post-load from the sidecar.
    */
   private async resolveRecordType(

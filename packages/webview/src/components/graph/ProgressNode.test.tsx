@@ -150,7 +150,7 @@ describe('ProgressNode', () => {
     expect(handler).toHaveBeenCalledWith('Account');
   });
 
-  /* ---- A11Y-06: checkbox uses onChange, not onClick+readOnly ---- */
+  /* ---- Checkbox uses onChange, not onClick+readOnly ---- */
   it('should not have readOnly attribute on checkbox', () => {
     render(<ProgressNode {...makeNodeProps({ onIncludeToggle: vi.fn() })} />);
     const checkbox = screen.getByTestId('include-checkbox') as HTMLInputElement;

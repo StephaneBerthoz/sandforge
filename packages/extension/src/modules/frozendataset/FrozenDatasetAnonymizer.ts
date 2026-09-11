@@ -1,6 +1,6 @@
 /**
- * Dataset anonymizer (spec §3): turns the raw sas-only extraction into
- * the frozen, versionable dataset.
+ * Dataset anonymizer: turns the raw sas-only extraction into the frozen,
+ * versionable dataset.
  *
  * Per record, in order:
  *   1. `Id` is dropped — the stable `referenceId` is the identity;
@@ -15,7 +15,7 @@
  *      18-char checksum is emptied (the reliable discriminant — it catches
  *      RecordType IDs of other pods and IDs pasted into free-text fields).
  *
- * The PersonContact sidecar (spec §6) is emitted here: Account →
+ * The PersonContact sidecar is emitted here: Account →
  * PersonContact `referenceId → referenceId` pairs, resolved as targeted
  * updates by the load phase after insert.
  */
@@ -112,7 +112,8 @@ export class FrozenDatasetAnonymizer {
       if (field === 'Id') {
         continue;
       }
-      // Nulls/absences pass through untouched (spec pitfall 6).
+      // Nulls/absences pass through untouched: tree exports omit null
+      // fields, so absence must not be turned into emptiness.
       if (value === null || value === undefined) {
         out[field] = value;
         continue;

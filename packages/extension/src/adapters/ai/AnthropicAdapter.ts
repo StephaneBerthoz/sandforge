@@ -67,10 +67,9 @@ function mapBreakerState(internal: string): BreakerState {
  *
  * Lazy: SecretStorage is read on first call, never at construction.
  *
- * RESEARCH Pitfall #2: 529 / overloaded_error trips the breaker. Cancel does
- * not. RESEARCH Pitfall #3: each call allocates its own AbortController; the
- * caller's signal is mirrored via a one-way listener so cancelling the caller
- * aborts only that request.
+ * A 529 / `overloaded_error` trips the breaker; a cancel does not. Each call
+ * allocates its own AbortController; the caller's signal is mirrored via a
+ * one-way listener so cancelling the caller aborts only that request.
  */
 export class AnthropicAdapter implements AIClient {
   public readonly provider: AIProviderType = 'anthropic';
@@ -372,7 +371,7 @@ export class AnthropicAdapter implements AIClient {
 
   /**
    * Strip API-key-shaped substrings from an SDK error message before
-   * surfacing it to logs / handlers (P-04.7).
+   * surfacing it to logs / handlers.
    */
   private extractAndRedactErrorMessage(err: unknown): string {
     const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : String(err);

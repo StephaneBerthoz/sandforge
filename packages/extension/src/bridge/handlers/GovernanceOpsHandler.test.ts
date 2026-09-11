@@ -56,7 +56,7 @@ function createMockDeps(): HandlerDeps {
   };
 }
 
-/** Creates a mock AlertEngine for GOV-03 pipeline testing. */
+/** Creates a mock AlertEngine for governance-to-alert pipeline testing. */
 function createMockAlertEngine(): AlertEngine {
   return {
     evaluate: vi.fn(),
@@ -354,7 +354,7 @@ describe('GovernanceOpsHandler', () => {
     expect(evalResponse.payload.result.ruleResults.length).toBe(2);
   });
 
-  it('GOV-03: feeds failing governance rules into AlertEngine', async () => {
+  it('feeds failing governance rules into AlertEngine', async () => {
     const mockAlertEngine = createMockAlertEngine();
     const handlerWithAlerts = new GovernanceOpsHandler(deps, mockAlertEngine);
 
@@ -444,7 +444,7 @@ describe('GovernanceOpsHandler', () => {
     expect(response.payload.templates[0].rules.length).toBeGreaterThan(0);
   });
 
-  it('GOV-03: skips AlertEngine feed when alertEngine is not provided', async () => {
+  it('skips AlertEngine feed when alertEngine is not provided', async () => {
     const policy = createTestPolicy();
     policy.rules = [
       {

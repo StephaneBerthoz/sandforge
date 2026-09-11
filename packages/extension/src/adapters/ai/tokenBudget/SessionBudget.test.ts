@@ -33,7 +33,7 @@ describe('SessionBudget', () => {
     expect(s.state).toBe('ok');
   });
 
-  it('increment sums all 4 fields (P-04.6)', () => {
+  it('increment sums all 4 fields, cache tokens included', () => {
     const sb = new SessionBudget({ sessionId: 's', budget: 1000 });
     sb.increment(u(10, 5, 3, 2));
     expect(sb.getState().used.total).toBe(20);

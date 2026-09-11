@@ -52,7 +52,7 @@ export interface MonitorOpsServices {
   apexLogAnalyzer: ApexLogAnalyzer;
   /** Sandbox refresh event tracker. */
   sandboxRefreshTracker: SandboxRefreshTracker;
-  /** Aggregated org health computation (WIRE-05). */
+  /** Aggregated org health computation. */
   healthCheck: HealthCheck;
   /**
    * Return a cached /limits response or fetch a fresh one.
@@ -220,7 +220,8 @@ export function createMonitorOps(deps: MonitorOpsFactoryDeps): MonitorOpsService
       }));
     },
   );
-  // No onRefreshDetected callback -- see Pitfall 9 in research
+  // No onRefreshDetected callback: the tracker starts with an empty seen-set,
+  // so the first fetch would report every historical refresh as newly detected.
 
   // Shared /limits cache: one API call per org per 30-second window.
   const limitsCache = new Map<string, { data: RawLimitsResponse; fetchedAt: number }>();
