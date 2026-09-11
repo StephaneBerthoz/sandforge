@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSendMessage, useMessageListener } from '../../hooks/useMessageBus';
 import { buildMessage } from '../../bridge/messageHelpers';
@@ -23,12 +23,29 @@ export const AIPage: React.FC = () => {
   const [localIdCounter, setLocalIdCounter] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
 
+  /**
+   * Ids of the requests this page sent, so a shared answer can be matched to
+   * one of them. Capped: only a recent request can still be answered.
+   */
+  const ownRequests = useRef<Set<string>>(new Set());
+  const send = useCallback(
+    (msg: BaseMessage) => {
+      ownRequests.current.add(msg.id);
+      if (ownRequests.current.size > 32) {
+        const oldest = ownRequests.current.values().next().value;
+        if (oldest !== undefined) ownRequests.current.delete(oldest);
+      }
+      sendMessage(msg);
+    },
+    [sendMessage],
+  );
+
   // Load persisted conversation list on mount when AI is available
   useEffect(() => {
     if (aiAvailable) {
-      sendMessage(buildMessage('ai:conversation:list', {}));
+      send(buildMessage('ai:conversation:list', {}));
     }
-  }, [aiAvailable, sendMessage]);
+  }, [aiAvailable, send]);
 
   // Listen for conversation list response
   useMessageListener<BaseMessage & { payload: { conversations: ConversationSummary[] } }>(
@@ -62,7 +79,12 @@ export const AIPage: React.FC = () => {
 
   // An AI failure used to only switch the spinner off, so a refused request
   // looked exactly like one that answered nothing — show what the host said.
-  useMessageListener<BaseMessage & { payload: { message?: string } }>('ai:error', (msg) => {
+  //
+  // `ai:error` answers every AI channel — schema advice, anomaly scan, NL2SOQL,
+  // pipeline drafts — and the host sends it to every open panel. Only an error
+  // that names a request this page sent is this page's to show.
+  useMessageListener<BaseMessage & { payload?: { message?: string } }>('ai:error', (msg) => {
+    if (!msg.correlationId || !ownRequests.current.delete(msg.correlationId)) return;
     setIsLoading(false);
     setErrorMessage(msg.payload?.message || t('ai.error.unknown', 'Unexpected AI error.'));
   });
@@ -87,14 +109,14 @@ export const AIPage: React.FC = () => {
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
       setErrorMessage(undefined);
-      sendMessage(
+      send(
         buildMessage<{ conversationId: string; message: string }>('ai:chat', {
           conversationId,
           message,
         }),
       );
     },
-    [sendMessage],
+    [send],
   );
 
   const handleNewConversation = useCallback(
@@ -111,9 +133,9 @@ export const AIPage: React.FC = () => {
       setActiveConversationId(localConv.id);
       setMessages([]);
       setErrorMessage(undefined);
-      sendMessage(buildMessage<{ title: string }>('ai:conversation:create', { title }));
+      send(buildMessage<{ title: string }>('ai:conversation:create', { title }));
     },
-    [localIdCounter, sendMessage],
+    [localIdCounter, send],
   );
 
   const handleSelectConversation = useCallback(
@@ -121,11 +143,9 @@ export const AIPage: React.FC = () => {
       setActiveConversationId(conversationId);
       setMessages([]);
       setErrorMessage(undefined);
-      sendMessage(
-        buildMessage<{ conversationId: string }>('ai:conversation:load', { conversationId }),
-      );
+      send(buildMessage<{ conversationId: string }>('ai:conversation:load', { conversationId }));
     },
-    [sendMessage],
+    [send],
   );
 
   const handleDeleteConversation = useCallback(
@@ -135,11 +155,9 @@ export const AIPage: React.FC = () => {
         setActiveConversationId(undefined);
         setMessages([]);
       }
-      sendMessage(
-        buildMessage<{ conversationId: string }>('ai:conversation:delete', { conversationId }),
-      );
+      send(buildMessage<{ conversationId: string }>('ai:conversation:delete', { conversationId }));
     },
-    [activeConversationId, sendMessage],
+    [activeConversationId, send],
   );
 
   // Show guidance when AI is not configured

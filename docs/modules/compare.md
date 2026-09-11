@@ -61,8 +61,8 @@ set of rules -- no model, no key, nothing leaves the machine:
 - Actionable recommendations for schema improvements
 - Object-specific analysis
 
-Rules cover unused custom fields, naming conventions, labels duplicated across
-objects and missing standard relationships. Each run returns a score out of 100.
+Rules cover naming conventions, labels duplicated across objects and missing
+standard relationships. Each run returns a score out of 100.
 
 ## Tips
 

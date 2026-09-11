@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type * as vscode from 'vscode';
 
 import { createServices, runSecretMigration } from './services.js';
@@ -83,11 +83,15 @@ function createMockContext(
 
 // Stub vscode.env.isTelemetryEnabled (default true) via mock — the TelemetryAdapter
 // reads it during construction. We don't enable Sentry (no DSN provided), so Pino-only.
+/** Settings a test wants the mocked workspace configuration to return. */
+const configValues = vi.hoisted(() => ({ map: new Map<string, unknown>() }));
+
 vi.mock('vscode', () => ({
   env: { isTelemetryEnabled: false },
   workspace: {
     getConfiguration: () => ({
-      get: (_key: string, fallback: string) => fallback,
+      get: (key: string, fallback: unknown) =>
+        configValues.map.has(key) ? configValues.map.get(key) : fallback,
     }),
   },
   ExtensionMode: { Production: 1, Development: 2, Test: 3 },
@@ -344,6 +348,8 @@ describe('services', () => {
   });
 
   describe('createSessionBudget', () => {
+    afterEach(() => configValues.map.clear());
+
     // The mocked vscode config returns the fallback, so this pins the value an
     // unconfigured install gets — the ceiling every AI feature then shares.
     it('builds a budget with the manifest default when nothing is configured', () => {
@@ -355,5 +361,22 @@ describe('services', () => {
       expect(budget.getState().used.total).toBe(0);
       expect(budget.getState().state).toBe('ok');
     });
+
+    // `minimum` in the manifest guards the settings editor, not a file edited by
+    // hand. SessionBudget refuses a budget that is not a positive number, and
+    // this factory runs while the assistant is wired: a throw here used to leave
+    // AI silently unavailable, with one line in the output channel as the only
+    // trace.
+    it.each([0, -1, Number.NaN, 'lots'])(
+      'falls back to the default when the setting holds %p',
+      (value) => {
+        configValues.map.set('tokenBudgetMaxPerSession', value);
+        const services = createServices(createMockContext());
+
+        const budget = services.createSessionBudget('ai-session-test');
+
+        expect(budget.getState().budget).toBe(50_000);
+      },
+    );
   });
 });

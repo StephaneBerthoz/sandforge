@@ -99,6 +99,9 @@ export interface CoreServices {
  * known when a webview message arrives. Instead, factories capture the
  * adapters and build fully-wired orchestrators on demand from handlers.
  */
+/** Token budget applied when the setting holds nothing usable. */
+const DEFAULT_TOKEN_BUDGET = 50_000;
+
 export interface OrchestratorFactories {
   seedOrchestrator: (deps: SeedOrchestratorDependencies) => SeedOrchestrator;
   syncOrchestrator: (deps: SyncOrchestratorDeps) => SyncOrchestrator;
@@ -185,9 +188,17 @@ export function createServices(
     getWorkspaceFolders: (): string[] =>
       vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? [],
     createSessionBudget: (sessionId, broker) => {
-      const budget = vscode.workspace
+      const configured = vscode.workspace
         .getConfiguration('sandforge.ai')
-        .get<number>('tokenBudgetMaxPerSession', 50_000);
+        .get<number>('tokenBudgetMaxPerSession', DEFAULT_TOKEN_BUDGET);
+      // `minimum` in the manifest guards the settings editor, not a hand-edited
+      // settings.json: 0, a negative number or a string reach us unchanged, and
+      // SessionBudget refuses them. This factory runs while the assistant is
+      // being wired, so a throw here would leave AI silently unavailable.
+      const budget =
+        typeof configured === 'number' && Number.isFinite(configured) && configured > 0
+          ? configured
+          : DEFAULT_TOKEN_BUDGET;
       return new SessionBudget({
         sessionId,
         budget,

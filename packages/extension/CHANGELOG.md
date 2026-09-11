@@ -48,6 +48,60 @@ front of every destructive action could be armed without typing a word.
   address from the org it already knows — the page cannot choose where it sends
   you — and a slow confirmation from VS Code no longer shows as a failure.
 
+- **A saved AI conversation continues after a restart.** The assistant only knew
+  the conversations opened during the current session: after restarting VS Code —
+  or after any change to an AI setting — an older conversation could still be
+  reread, but the first message sent into it came back as "conversation not
+  found", whether it had been reopened from the list or not. It now resumes with
+  its full history, in order, and deleting it removes it from the list and from
+  storage alike.
+- **An AI failure says what went wrong.** It only switched the waiting indicator
+  off, so a refused request looked exactly like one that answered nothing. The
+  reason the extension gives is now shown in the conversation, can be copied,
+  and clears on the next message. Only the failures of what this page asked for
+  appear there: an analysis that failed in another panel no longer surfaces in
+  the chat.
+- **The AI token budget you set is enforced.** `sandforge.ai.tokenBudgetMaxPerSession`
+  was read by nothing: no counter ever started, the gauge in the assistant never
+  appeared, and no request was ever refused however many tokens it had spent. One
+  counter now meters every AI call — chat, natural-language SOQL, pipeline
+  drafts, error resolution, Seed personas and AI field rules share it — the gauge
+  turns amber at 80% and further requests are refused at 100% with a message
+  naming the setting and the count. **If you use AI and never touched this
+  setting, its default of 50,000 tokens now applies to you**: roughly a dozen
+  exchanges per window, after which requests are refused until you raise the
+  setting — which restarts the counter — or reload the window. During seed
+  generation a refused call falls back to Faker data instead of failing the run,
+  and the refusal is only logged.
+- **A failed operation is explained once, and from the answers that ship with
+  SandForge first.** Every failure was handed to the assistant without the
+  Salesforce error code, so the twenty-five resolutions built into SandForge were
+  never found: a locked row, a validation rule or an expired session went to the
+  AI provider like anything else, taking the org's error text with it. It was
+  also handed over once per open SandForge panel — three panels meant three
+  calls, three copies of that text leaving the machine and nine notifications for
+  one failure. A failure is now resolved once, where it happens, and a known
+  Salesforce error is answered from the built-in list without contacting the
+  provider at all.
+- **Two analyses that never needed a model no longer ask for a key.** Compare's
+  schema advice and Monitor's anomaly scan are rule sets: they read the org's
+  description or a sample of records and send nothing anywhere. Their buttons
+  were clickable without AI all the same, only to answer "AI not configured".
+  They now work with AI off and no key stored.
+- **Turning AI off stops it at once.** Once a session was running, clearing the
+  setting undid nothing: chat, natural-language SOQL, pipeline drafts and the fix
+  suggestion after a failed run kept sending to the model until the window was
+  reloaded. Everything that talks to the model is now put away as soon as the
+  setting changes, the interface is told without waiting for a reload, and
+  turning AI back on restores it just as quickly.
+- **A persona's AI fields follow its instruction again.** Applying a built-in
+  persona set up its AI-generated fields — the e-commerce product review, the
+  non-profit campaign name — but the model only ever received the field name: the
+  instruction the persona carried was stored under a name the generation contract
+  does not know, and was dropped before it reached the model. It now arrives, and
+  is shown in the instruction box of the configuration step, where you can edit
+  it before running.
+
 ### Changed
 
 - **The shipped catalogue is a quarter smaller.** 555 translation keys that
@@ -79,6 +133,15 @@ front of every destructive action could be armed without typing a word.
   suggestions and AI personas. Seed's own personas are unaffected.
 - **The extension package no longer ships an extra copy of zod** that only the
   removed diagnosis loaded: the VSIX is 13% smaller (2.08 MB to 1.81 MB).
+
+- **A sync could run Apex, and nothing in the product could ask it to.** A sync
+  configuration accepted two fields whose contents were sent to the org as
+  anonymous Apex — one before a single record was read, the other after the last
+  was written. No wizard field, no importer, no example and no page ever produced
+  them; they could only reach the extension through a configuration edited by
+  hand. Both fields and the path behind them are gone: a sync moves data and runs
+  no code. A configuration that still carries one is refused with an explicit
+  message rather than run — or quietly stripped — behind your back.
 
 ### Build
 

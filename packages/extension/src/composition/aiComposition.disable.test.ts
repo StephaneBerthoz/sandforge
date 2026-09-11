@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { SessionBudget } from '../adapters/ai/tokenBudget/SessionBudget.js';
 import type { BaseMessage } from '@sandforge/shared';
 
 vi.mock('vscode', () => ({
@@ -57,6 +58,9 @@ describe('initAIComposition — turning AI off mid-session', () => {
       stopReason: 'end_turn',
     }),
   );
+  /** The last model-backed modules the composition injected, if any. */
+  let lastModules: Parameters<AIHandler['setAIModules']>[0];
+
   const aiClientFactory = Object.assign(
     vi.fn(() => ({ chat, breakerEvents: undefined })),
     { invalidate: vi.fn() },
@@ -87,6 +91,10 @@ describe('initAIComposition — turning AI off mid-session', () => {
         isAIEnabled: () => aiEnabled,
         aiClient: aiClientFactory,
         telemetry: { getLogger: () => ({}) },
+        // The composition attaches a session budget before wiring the
+        // assistant: a real one, so nothing here depends on its internals.
+        createSessionBudget: (sessionId: string, broker?: { send: (m: unknown) => void }) =>
+          new SessionBudget({ sessionId, budget: 50_000, broker }),
       },
       secretVault: { getSecret: vi.fn(() => Promise.resolve('sk-test')) },
       handlers: {
@@ -94,6 +102,7 @@ describe('initAIComposition — turning AI off mid-session', () => {
           aiHandler.setAIAssistant(assistant);
         },
         setAIModules: (modules: Parameters<AIHandler['setAIModules']>[0]) => {
+          lastModules = modules;
           aiHandler.setAIModules(modules);
         },
         setRuleModules: (modules: Parameters<AIHandler['setRuleModules']>[0]) => {
@@ -176,18 +185,19 @@ describe('initAIComposition — turning AI off mid-session', () => {
     expect(lastOf('ai:nl2soql:response')?.payload.success).toBe(false);
   });
 
-  it('stops ai:resolve-error from reaching the model once AI is turned off', async () => {
+  /**
+   * A failed operation is explained where it is raised, from the modules the
+   * composition injects — no webview request carries it. Taking the modules
+   * away is therefore what stops the model being asked about a failure.
+   */
+  it('takes the error resolver away once AI is turned off', async () => {
     await initAIComposition(makeDeps());
+    expect(lastModules?.errorResolver).toBeDefined();
+
     aiEnabled = false;
     await initAIComposition(makeDeps());
 
-    chat.mockClear();
-    await aiHandler.handle(
-      request('ai:resolve-error', { errorMessage: 'boom', module: 'seed', context: {} }),
-    );
-
-    expect(chat).not.toHaveBeenCalled();
-    expect(lastOf('ai:resolve-error:response')?.payload.success).toBe(false);
+    expect(lastModules).toBeUndefined();
   });
 
   it('answers ai:status with enabled:false once AI is turned off', async () => {

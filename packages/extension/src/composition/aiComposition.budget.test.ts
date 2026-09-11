@@ -45,7 +45,7 @@ describe('initAIComposition — session token budget wiring', () => {
         createSessionBudget,
       },
       secretVault: { getSecret: vi.fn(() => Promise.resolve('sk-test')) },
-      handlers: { setAIAssistant: vi.fn(), setAIModules: vi.fn() },
+      handlers: { setAIAssistant: vi.fn(), setAIModules: vi.fn(), setRuleModules: vi.fn() },
       broker: {
         postToWebview: vi.fn((msg: { type: string; payload?: unknown }) => {
           posted.push(msg);
