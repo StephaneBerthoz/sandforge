@@ -5,6 +5,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Button } from '../../components/ui/Button';
 import { Card, CardBody } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Spinner } from '../../components/ui/Spinner';
 import { useMessageListener } from '../../hooks/useMessageBus';
 import { AIProviderStatusBanner, type AIProviderState } from './components/AIProviderStatusBanner';
@@ -32,6 +33,9 @@ export interface AIChatPanelProps {
   activeConversationId?: string;
   messages?: ChatMessageDisplay[];
   isLoading?: boolean;
+  /** Last failure reported by the host, shown until dismissed or superseded. */
+  errorMessage?: string;
+  onDismissError?: () => void;
   onSendMessage?: (conversationId: string, message: string) => void;
   onNewConversation?: (title: string) => void;
   onSelectConversation?: (conversationId: string) => void;
@@ -44,6 +48,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
   activeConversationId,
   messages = [],
   isLoading = false,
+  errorMessage,
+  onDismissError,
   onSendMessage,
   onNewConversation,
   onSelectConversation,
@@ -113,6 +119,14 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
           state={providerStatus.state}
           cooldownEndsAt={providerStatus.cooldownEndsAt}
           userMessageKey={providerStatus.userMessageKey}
+        />
+      )}
+
+      {errorMessage && (
+        <ErrorBanner
+          message={errorMessage}
+          onDismiss={onDismissError}
+          data-testid="ai-error-banner"
         />
       )}
 

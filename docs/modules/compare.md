@@ -52,13 +52,17 @@ Automated detection of configuration drift between orgs:
 
 > **Coming soon:** the Deploy tab renders an empty state as of v1.16.0 -- no deployment channel is wired to it, so nothing can be pushed to the target org from here yet. Cherry-picking changes out of a diff and deploying them without leaving SandForge is the planned design.
 
-### Schema Advice (AI)
+### Schema Advice
 
-The Schema Advice button uses AI to analyze your source org schema and surface issues:
+The Schema Advice button reads your source org's describe and runs it through a
+set of rules -- no model, no key, nothing leaves the machine:
 
 - Field-level issues with severity badges (high/medium/low)
 - Actionable recommendations for schema improvements
 - Object-specific analysis
+
+Rules cover unused custom fields, naming conventions, labels duplicated across
+objects and missing standard relationships. Each run returns a score out of 100.
 
 ## Tips
 

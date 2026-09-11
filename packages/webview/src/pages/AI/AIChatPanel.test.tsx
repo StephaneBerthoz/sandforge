@@ -158,4 +158,31 @@ describe('AIChatPanel', () => {
     const sendBtn = screen.getByTestId('send-btn') as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(true);
   });
+
+  it('shows the token budget indicator once an ai:budget:state arrives', () => {
+    render(<AIChatPanel />);
+    expect(screen.queryByTestId('ai-token-budget-indicator')).toBeNull();
+
+    fireEvent(
+      window,
+      new MessageEvent('message', {
+        data: {
+          id: 'budget-1',
+          type: 'ai:budget:state',
+          timestamp: Date.now(),
+          payload: {
+            sessionId: 'ai-session-1',
+            used: { input: 40_000, output: 0, cacheRead: 0, cacheCreate: 0, total: 40_000 },
+            budget: 50_000,
+            percent: 80,
+            state: 'warn',
+          },
+        },
+      }),
+    );
+
+    const indicator = screen.getByTestId('ai-token-budget-indicator');
+    expect(indicator.getAttribute('data-state')).toBe('warn');
+    expect(screen.getByTestId('ai-token-budget-label').textContent).toBe('40000/50000');
+  });
 });

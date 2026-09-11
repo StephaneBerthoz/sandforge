@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   sendHandlerError,
   sendNotification,
+  sendOperationFailed,
   buildResponse,
   syntheticRequest,
   uncorrelated,
@@ -10,6 +11,7 @@ import {
   type UncorrelatedReason,
 } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import { createMockBroker, inboundRequest } from '../../test/mockFactories.js';
 
 /**
@@ -280,5 +282,86 @@ describe('sendNotification', () => {
     expect(posted.payload.level).toBe('error');
     expect(posted.payload.title).toBe('Test');
     expect(posted.payload.message).toBe('Something went wrong');
+  });
+});
+
+/**
+ * Curated resolution of a failed operation.
+ *
+ * `sendOperationFailed` is the only emitter of `operation:failed`, and the
+ * broker fans that message out to every open panel. Resolving the failure on
+ * the receiving side multiplies the work by the number of panels, and a panel
+ * has no error code to look up with — it only sees the rendered message. Both
+ * properties are checked here: the resolution happens once, and it reaches the
+ * built-in knowledge base whenever the code is in the text.
+ */
+describe('sendOperationFailed — curated error resolution', () => {
+  /** Deps carrying a real ErrorResolver whose model provider is a spy. */
+  function createResolvingDeps() {
+    const provider = vi.fn(() =>
+      Promise.resolve(
+        JSON.stringify({
+          explanation: 'model answer',
+          suggestions: [{ title: 'ask', description: 'model fix', probability: 0.5 }],
+          confidence: 0.4,
+        }),
+      ),
+    );
+    return { ...createMockDeps(), errorResolver: new ErrorResolver(provider), provider };
+  }
+
+  /** The `ai:resolve-error:response` messages posted to the webview. */
+  function resolutions(deps: ReturnType<typeof createResolvingDeps>) {
+    return deps.broker.postToWebview.mock.calls
+      .map((c) => c[0] as BaseMessage & { payload: { resolution?: { explanation: string } } })
+      .filter((m) => m.type === 'ai:resolve-error:response');
+  }
+
+  it('answers a known error code from the knowledge base, without calling the model', async () => {
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(
+      deps,
+      'op-1',
+      'UNABLE_TO_LOCK_ROW: unable to obtain exclusive access to this record',
+      true,
+    );
+    await vi.waitFor(() => expect(resolutions(deps)).toHaveLength(1));
+
+    expect(deps.provider).not.toHaveBeenCalled();
+    expect(resolutions(deps)[0].payload.resolution?.explanation).toContain(
+      'Another transaction is currently locking the record(s)',
+    );
+  });
+
+  it('resolves a failure once, whatever the number of open panels', async () => {
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(deps, 'op-2', 'SOMETHING_WE_HAVE_NEVER_SEEN: odd', false);
+    await vi.waitFor(() => expect(resolutions(deps)).toHaveLength(1));
+
+    // One call for the whole failure. Fanning the answer out to N panels is
+    // the broker's job and costs nothing extra.
+    expect(deps.provider).toHaveBeenCalledTimes(1);
+  });
+
+  it('still asks the model when the message carries no known code', async () => {
+    const deps = createResolvingDeps();
+
+    sendOperationFailed(deps, 'op-3', 'Network request failed after 3 attempts', true);
+    await vi.waitFor(() => expect(resolutions(deps)).toHaveLength(1));
+
+    expect(deps.provider).toHaveBeenCalledTimes(1);
+    expect(resolutions(deps)[0].payload.resolution?.explanation).toBe('model answer');
+  });
+
+  it('stays silent when the AI stack is not wired', async () => {
+    const deps = createMockDeps();
+
+    sendOperationFailed(deps, 'op-4', 'UNABLE_TO_LOCK_ROW: locked', true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const posted = deps.broker.postToWebview.mock.calls.map((c) => (c[0] as BaseMessage).type);
+    expect(posted).toEqual(['operation:failed']);
   });
 });

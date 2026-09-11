@@ -82,15 +82,12 @@ describe('AIToolsHandler', () => {
     expect(response.correlationId).toBe('msg-1');
   });
 
-  it('handles ai:resolve-error without modules with correlationId', async () => {
+  it('does not claim ai:resolve-error — a failure is resolved where it is raised', async () => {
     const result = await handler.handle(
       createMsg('ai:resolve-error', { errorMessage: 'fail', module: 'sync' }),
     );
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:resolve-error:response');
-    expect(response.payload.success).toBe(false);
-    expect(response.correlationId).toBe('msg-1');
+    expect(result).toBe(false);
+    expect(deps.broker.postToWebview).not.toHaveBeenCalled();
   });
 
   it('handles ai:generate-pipeline without modules with correlationId', async () => {

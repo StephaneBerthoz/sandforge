@@ -8,7 +8,7 @@ import {
   aiConversationIdPayloadSchema,
   aiSaveKeyPayloadSchema,
 } from '../../validatePayload.js';
-import type { AIAssistant, Conversation } from '../../../modules/ai/AIAssistant.js';
+import type { AIAssistant, ChatRole, Conversation } from '../../../modules/ai/AIAssistant.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 
 /** Maximum number of messages per conversation before pruning. */
@@ -74,8 +74,12 @@ export class AIChatHandler implements DomainHandler {
   /** @param deps - Injected handler dependencies. */
   constructor(private readonly deps: HandlerDeps) {}
 
-  /** Inject AI assistant service. */
-  setAIAssistant(ai: AIAssistant): void {
+  /**
+   * Inject the AI assistant service. Passing `undefined` takes it away — that
+   * is how switching `sandforge.ai.enabled` off mid-session stops chat from
+   * reaching a provider and flips `ai:status:response` back to disabled.
+   */
+  setAIAssistant(ai: AIAssistant | undefined): void {
     this.aiAssistant = ai;
   }
 
@@ -196,6 +200,68 @@ export class AIChatHandler implements DomainHandler {
     return [...systemMessages, ...nonSystemMessages.slice(-keepCount)];
   }
 
+  /**
+   * Narrow a persisted role string to the roles a conversation accepts.
+   * @param role - The role read back from the store.
+   */
+  private isChatRole(role: string): role is ChatRole {
+    return role === 'user' || role === 'assistant' || role === 'system';
+  }
+
+  /**
+   * Rebuild an in-memory conversation from its persisted form, message order
+   * preserved. Anything carrying an unknown role is dropped rather than sent
+   * to the provider, which would reject the whole call.
+   *
+   * @param persisted - The conversation as stored in ConfigStore.
+   */
+  private toConversation(persisted: PersistedConversation): Conversation {
+    const messages = persisted.messages
+      .filter((m) => this.isChatRole(m.role))
+      .map((m) => ({
+        id: m.id,
+        role: m.role as ChatRole,
+        content: m.content,
+        timestamp: m.timestamp,
+        tokenCount: m.tokenCount,
+      }));
+
+    return {
+      id: persisted.id,
+      title: persisted.title,
+      messages,
+      createdAt: persisted.createdAt,
+      updatedAt: persisted.updatedAt,
+      totalTokens: messages.reduce((sum, m) => sum + (m.tokenCount ?? 0), 0),
+    };
+  }
+
+  /**
+   * Guarantee the assistant knows the conversation before it is chatted to.
+   *
+   * The assistant only ever learns about a conversation it created itself, and
+   * its memory is wiped by a VS Code restart and by every `sandforge.ai.*`
+   * setting change. ConfigStore is the durable side — a conversation is written
+   * there on creation and after each exchange — so a miss is repaired from it.
+   *
+   * Done here rather than on `ai:conversation:load` because the webview can
+   * hold on to a conversation id without ever reloading it: the chat is the
+   * only point where in-memory state is actually required, and repairing it
+   * there covers the load path too.
+   *
+   * @param conversationId - The conversation the webview wants to continue.
+   */
+  private restoreConversationIfNeeded(conversationId: string): void {
+    const assistant = this.aiAssistant;
+    if (!assistant || assistant.getConversation(conversationId)) return;
+
+    const persisted = this.loadConversation(conversationId);
+    if (!persisted) return;
+
+    assistant.restoreConversation(this.toConversation(persisted));
+    this.deps.log(`Restored conversation ${conversationId} from store.`);
+  }
+
   private async handleChat(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiChatPayloadSchema, msg, 'ai:error', this.deps);
@@ -209,6 +275,8 @@ export class AIChatHandler implements DomainHandler {
       this.deps.broker.postToWebview(errResponse);
       return;
     }
+
+    this.restoreConversationIfNeeded(payload.conversationId);
 
     try {
       const aiResponse = await this.aiAssistant.chat(payload.conversationId, payload.message);

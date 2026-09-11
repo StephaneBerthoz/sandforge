@@ -117,6 +117,23 @@ export class AIAssistant {
   }
 
   /**
+   * Hold an already-existing conversation in memory, id and history intact.
+   *
+   * Conversations outlive this object: they are persisted by the caller and
+   * this map starts empty on every VS Code restart, and again whenever an
+   * `sandforge.ai.*` setting change rebuilds the assistant. Without a way
+   * back in, a stored conversation could only be read, never continued —
+   * `chat()` would reject its own id as unknown.
+   *
+   * @param conversation - The conversation to put back in memory.
+   * @returns The conversation now held in memory.
+   */
+  restoreConversation(conversation: Conversation): Conversation {
+    this.conversations.set(conversation.id, conversation);
+    return conversation;
+  }
+
+  /**
    * Send a user message and get an AI response.
    * @param conversationId - The conversation to continue
    * @param userMessage - The user's message

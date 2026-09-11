@@ -41,7 +41,7 @@
   "config.ai.enabled.description": "Enable AI Assistant (requires API key in secrets)",
   "config.ai.provider.description": "AI provider. Only `anthropic` is implemented; `openai` and `custom` are declared but every call raises \"not implemented\".",
   "config.ai.model.description": "AI model to use for the assistant",
-  "config.ai.tokenBudgetMaxPerSession.description": "Maximum AI token budget per Assistant panel session. Counter resets when the panel closes. SandForge soft-warns at 80% and hard-refuses further requests at 100%.",
+  "config.ai.tokenBudgetMaxPerSession.description": "Maximum AI token budget for one session, shared by every SandForge AI feature. SandForge soft-warns at 80% and hard-refuses further requests at 100%. The counter resets when the window reloads or a sandforge.ai.* setting changes.",
   "config.backup.maxCount.description": "Maximum number of backups to retain per org",
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
   "config.safety.requireProdConfirmation.description": "Require confirmation dialog for production org operations",

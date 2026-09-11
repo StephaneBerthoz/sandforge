@@ -41,7 +41,7 @@
   "config.ai.enabled.description": "Activer l'assistant IA (nécessite une clé API dans les secrets)",
   "config.ai.provider.description": "Fournisseur d'IA. Seul `anthropic` est implémenté ; `openai` et `custom` sont déclarés mais chaque appel lève « non implémenté ».",
   "config.ai.model.description": "Modèle IA à utiliser pour l'assistant",
-  "config.ai.tokenBudgetMaxPerSession.description": "Budget IA maximum par session du panneau Assistant. Le compteur se réinitialise à la fermeture. SandForge avertit à 80 % et refuse les nouvelles requêtes à 100 %.",
+  "config.ai.tokenBudgetMaxPerSession.description": "Budget de jetons IA maximum pour une session, partagé par toutes les fonctionnalités IA de SandForge. SandForge avertit à 80 % et refuse les nouvelles requêtes à 100 %. Le compteur se réinitialise au rechargement de la fenêtre ou à la modification d'un réglage sandforge.ai.*.",
   "config.backup.maxCount.description": "Nombre maximum de sauvegardes à conserver par org",
   "config.pipeline.timeout.description": "Délai d'expiration des pipelines en millisecondes",
   "config.safety.requireProdConfirmation.description": "Exiger une confirmation pour les opérations sur les orgs de production",

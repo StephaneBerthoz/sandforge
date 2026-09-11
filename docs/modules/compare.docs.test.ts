@@ -47,7 +47,7 @@ const HEADING_TO_TAB: Readonly<Record<string, string>> = {
 };
 
 /** Headings that describe a control on the page rather than one of its tabs. */
-const NON_TAB_HEADINGS: readonly string[] = ['Schema Advice (AI)'];
+const NON_TAB_HEADINGS: readonly string[] = ['Schema Advice'];
 
 /** Spelled-out counts, so the doc's "five tabs" can be checked against the code. */
 const NUMBER_WORDS: readonly string[] = [
@@ -121,6 +121,16 @@ describe('docs/modules/compare.md', () => {
       expect(tabId, `"### ${heading}" documents no known tab or control`).toBeDefined();
       expect(tabIds, `"### ${heading}" describes a tab absent from COMPARE_TABS`).toContain(tabId);
     }
+  });
+
+  it('does not sell the rule-based schema advice as AI', () => {
+    // SchemaAdvisor is a local rule engine — `new SchemaAdvisor()` takes no
+    // provider and `analyzeSchema` is synchronous — so the doc must not put a
+    // model behind the button.
+    const section = /\n### Schema Advice([^\n]*)\n([\s\S]*?)(?=\n#{2,3} |$)/.exec(DOC);
+    expect(section, 'no "### Schema Advice" section in compare.md').not.toBeNull();
+    expect(section![1], 'the heading must not qualify Schema Advice').toBe('');
+    expect(section![2], 'the section must not put a model behind the button').not.toMatch(/\bAI\b/);
   });
 
   it('marks Deploy as coming soon while the tab is mounted without deploy props', () => {

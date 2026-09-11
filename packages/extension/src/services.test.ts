@@ -342,4 +342,18 @@ describe('services', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  describe('createSessionBudget', () => {
+    // The mocked vscode config returns the fallback, so this pins the value an
+    // unconfigured install gets — the ceiling every AI feature then shares.
+    it('builds a budget with the manifest default when nothing is configured', () => {
+      const services = createServices(createMockContext());
+
+      const budget = services.createSessionBudget('ai-session-test');
+
+      expect(budget.getState().budget).toBe(50_000);
+      expect(budget.getState().used.total).toBe(0);
+      expect(budget.getState().state).toBe('ok');
+    });
+  });
 });

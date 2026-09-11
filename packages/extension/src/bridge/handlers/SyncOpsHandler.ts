@@ -805,7 +805,6 @@ export class SyncOpsHandler implements DomainHandler {
       const { ConflictResolver } = await import('../../modules/sync/ConflictResolver.js');
       const { FieldMappingService } = await import('../../modules/sync/FieldMapping.js');
       const { TransformPipeline } = await import('../../modules/sync/TransformPipeline.js');
-      const { MigrationScript } = await import('../../modules/sync/MigrationScript.js');
       const { IncrementalTracker } = await import('../../modules/sync/IncrementalTracker.js');
 
       const dataSync = new DataSync({
@@ -834,22 +833,6 @@ export class SyncOpsHandler implements DomainHandler {
       const conflictResolver = new ConflictResolver();
       const fieldMapping = new FieldMappingService();
       const transformPipeline = new TransformPipeline();
-      const migrationScript = new MigrationScript({
-        executeAnonymous: async (_orgId, script) => {
-          const result = (await sourceConn.tooling.executeAnonymous(script)) as {
-            compiled: boolean;
-            success: boolean;
-            compileProblem?: string;
-            exceptionMessage?: string;
-          };
-          return {
-            compiled: result.compiled,
-            success: result.success,
-            compileProblem: result.compileProblem,
-            exceptionMessage: result.exceptionMessage,
-          };
-        },
-      });
       const incrementalTracker = new IncrementalTracker();
 
       const syncDeps = {
@@ -859,7 +842,6 @@ export class SyncOpsHandler implements DomainHandler {
         conflictResolver,
         fieldMapping,
         transformPipeline,
-        migrationScript,
         incrementalTracker,
         querySource: buildQueryFn(sourceConn, config.sourceOrgId),
         queryTarget: buildQueryFn(targetConn, config.targetOrgId),

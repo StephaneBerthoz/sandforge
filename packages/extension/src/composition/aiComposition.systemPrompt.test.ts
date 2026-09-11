@@ -19,6 +19,7 @@ import { NL2SOQL } from '../modules/ai/NL2SOQL.js';
 import { initAIComposition } from './aiComposition';
 import type { AICompositionDeps } from './aiComposition';
 import type { AIProvider } from '../modules/ai/types.js';
+import { SessionBudget, type BudgetBroker } from '../adapters/ai/tokenBudget/index.js';
 
 /**
  * The Tier 2 modules pass their spotlight system prompt as the second
@@ -37,11 +38,14 @@ describe('initAIComposition — aiProvider forwards the system prompt', () => {
         isAIEnabled: () => true,
         aiClient: () => fakeClient,
         telemetry: { getLogger: () => ({}) },
+        createSessionBudget: (sessionId: string, budgetBroker?: BudgetBroker) =>
+          new SessionBudget({ sessionId, budget: 50_000, broker: budgetBroker }),
       },
       secretVault: { getSecret: vi.fn(() => Promise.resolve('sk-test')) },
       handlers: {
         setAIAssistant: vi.fn(),
         setAIModules: vi.fn(),
+        setRuleModules: vi.fn(),
       },
       broker: { postToWebview: vi.fn() },
       log: vi.fn(),

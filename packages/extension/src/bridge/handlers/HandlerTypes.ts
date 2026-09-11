@@ -1,6 +1,12 @@
-import type { BaseMessage, NotificationMessage, GrappeConfig } from '@sandforge/shared';
+import type {
+  BaseMessage,
+  NotificationMessage,
+  GrappeConfig,
+  AIResolveErrorResponse,
+} from '@sandforge/shared';
 import { DEFAULT_GRAPPE_CONFIG } from '@sandforge/shared';
-import { extractErrorMessage } from '../../core/common/extractErrorMessage.js';
+import { extractErrorMessage, extractErrorCode } from '../../core/common/extractErrorMessage.js';
+import type { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
 import type { MessageBroker } from '../MessageBroker.js';
 import type { OrgManager } from '../../core/connection/OrgManager.js';
 import type { OrgRegistry } from '../../core/connection/OrgRegistry.js';
@@ -45,6 +51,14 @@ export interface HandlerDeps {
   sfdxBridge: SfdxBridge;
   /** Optional infrastructure services (Tier 1). */
   infraServices?: InfraServices;
+  /**
+   * Optional curated error resolver (Tier 2, injected with the AI modules by
+   * `ExtensionHandlers.setAIModules`). Absent whenever the AI stack is not
+   * configured — `aiComposition` only builds it with AI enabled and a stored
+   * key — which is exactly when a failed operation must be answered in
+   * silence. See {@link sendOperationFailed}.
+   */
+  errorResolver?: ErrorResolver;
   /**
    * Optional composition-root Services bundle (adapters + orchestrator factories).
    * When present, handlers should use the factory functions exposed here
@@ -416,9 +430,21 @@ export function readGrappeConfig(services: Services | undefined): GrappeConfig |
   };
 }
 
-/** Send operation:failed lifecycle message. */
+/** Deps {@link sendOperationFailed} needs; the resolution ones are optional. */
+type OperationFailedDeps = Pick<HandlerDeps, 'broker' | 'nextId'> &
+  Partial<Pick<HandlerDeps, 'errorResolver' | 'log'>>;
+
+/**
+ * Send the `operation:failed` lifecycle message and resolve the failure once.
+ *
+ * This is the only emitter of `operation:failed`, which is why the resolution
+ * belongs here: the broker fans the message out to every open panel, so a
+ * panel that answers what it receives turns one failed operation into one
+ * resolution *per panel* — and a panel cannot do it well anyway, since all it
+ * gets is the rendered message.
+ */
 export function sendOperationFailed(
-  deps: Pick<HandlerDeps, 'broker' | 'nextId'>,
+  deps: OperationFailedDeps,
   operationId: string,
   error: string,
   retryable: boolean,
@@ -433,4 +459,52 @@ export function sendOperationFailed(
     payload: { operationId, error, retryable, ...extraPayload },
   };
   deps.broker.postToWebview(msg);
+  resolveFailedOperation(deps, error);
+}
+
+/**
+ * Ask the error resolver about a failure and push its answer to the webview.
+ *
+ * The resolver reads its knowledge base before it reads the model, keyed on
+ * the Salesforce error code — so the code has to be recovered from the message
+ * with {@link extractErrorCode}, the inverse of the `CODE: text` shape
+ * `extractErrorMessage` produces. Without it every code reads as `UNKNOWN`,
+ * no entry ever matches, and the org's error text is sent to the model even
+ * when a curated answer was already on disk.
+ *
+ * Fire-and-forget: the caller is on an error path and must not wait, and a
+ * resolution that fails is an extra the user never asked for — it is logged,
+ * not surfaced.
+ */
+function resolveFailedOperation(deps: OperationFailedDeps, error: string): void {
+  const resolver = deps.errorResolver;
+  if (!resolver) return;
+
+  resolver
+    .resolveError(
+      { errorCode: extractErrorCode(error) ?? 'UNKNOWN', message: error },
+      // The lifecycle message names neither the module nor the operation, and
+      // both only decorate the model prompt — the knowledge base lookup keys
+      // on the code alone.
+      { module: 'unknown', operation: 'unknown', orgId: '' },
+    )
+    .then((resolution) => {
+      const answer: AIResolveErrorResponse = {
+        id: deps.nextId(),
+        type: 'ai:resolve-error:response',
+        timestamp: Date.now(),
+        payload: {
+          success: true,
+          resolution: {
+            explanation: resolution.explanation,
+            suggestedFix: resolution.suggestions[0]?.description ?? resolution.explanation,
+            confidence: resolution.confidence,
+          },
+        },
+      };
+      deps.broker.postToWebview(answer);
+    })
+    .catch((err: unknown) => {
+      deps.log?.(`[ERR] operation:failed resolution: ${extractErrorMessage(err)}`);
+    });
 }

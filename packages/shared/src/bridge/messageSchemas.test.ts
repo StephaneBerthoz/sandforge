@@ -240,7 +240,7 @@ describe('retired AI channels', () => {
   });
 
   it('still accepts the AI requests that ship, in the same envelope', () => {
-    for (const type of ['ai:chat', 'ai:nl2soql', 'ai:resolve-error', 'ai:generate-pipeline']) {
+    for (const type of ['ai:chat', 'ai:nl2soql', 'ai:generate-pipeline']) {
       expect(
         EnvelopedMessageSchema.safeParse({
           protocolVersion: PROTOCOL_VERSION,

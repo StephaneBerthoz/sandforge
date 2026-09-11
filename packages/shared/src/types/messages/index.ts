@@ -296,7 +296,6 @@ import type {
   AISaveKeyResponse,
   AINL2SOQLRequest,
   AINL2SOQLResponse,
-  AIResolveErrorRequest,
   AIResolveErrorResponse,
   AIAnomalyScanRequest,
   AIAnomalyScanResponse,
@@ -556,7 +555,6 @@ export type WebViewToExtensionMessage =
   | AIStatusRequest
   | AISaveKeyRequest
   | AINL2SOQLRequest
-  | AIResolveErrorRequest
   | AIAnomalyScanRequest
   | AIGeneratePipelineRequest
   | AISchemaAdviceRequest

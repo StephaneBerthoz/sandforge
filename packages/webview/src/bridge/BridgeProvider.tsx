@@ -160,27 +160,17 @@ export const BridgeProvider: React.FC<BridgeProviderProps> = ({ children }) => {
     useAppStore.getState().setLoading(false);
   });
 
-  useMessageListener<
-    BaseMessage & { payload: { operationId: string; error: string; retryable: boolean } }
-  >('operation:failed', (msg) => {
+  // `operation:failed` is broadcast to every open panel, and each one mounts
+  // this provider — so a panel must not act on the failure beyond its own UI.
+  // Asking the assistant from here cost one request, one org error text sent
+  // out and one toast per open panel, for a single failed operation. The
+  // extension now resolves the failure once where it raises it
+  // (`sendOperationFailed`) and pushes the answer on the channel below.
+  useMessageListener<BaseMessage>('operation:failed', () => {
     useAppStore.getState().setLoading(false);
-
-    // Auto-invoke AI error resolver if an operation fails and AI is available
-    if (useAppStore.getState().aiAvailable) {
-      sendMessage(
-        buildMessage<{ errorMessage: string; module: string; context: Record<string, unknown> }>(
-          'ai:resolve-error',
-          {
-            errorMessage: msg.payload.error,
-            module: 'unknown',
-            context: { operationId: msg.payload.operationId, retryable: msg.payload.retryable },
-          },
-        ),
-      );
-    }
   });
 
-  // Listen for AI error resolution responses → show as notification
+  // Listen for AI error resolutions → show as notification
   useMessageListener<
     BaseMessage & {
       payload: {

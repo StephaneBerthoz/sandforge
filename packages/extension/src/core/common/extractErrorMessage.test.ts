@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractErrorMessage } from './extractErrorMessage.js';
+import { extractErrorMessage, extractErrorCode } from './extractErrorMessage.js';
 
 describe('extractErrorMessage', () => {
   it('returns the message from an Error instance', () => {
@@ -152,5 +152,44 @@ describe('extractErrorMessage', () => {
         'REQUIRED_FIELD_MISSING: Required fields are missing: [Name]',
       );
     });
+  });
+});
+
+describe('extractErrorCode', () => {
+  it('reads back the code extractErrorMessage puts in front of the text', () => {
+    const err = Object.assign(new Error('unable to obtain exclusive access to this record'), {
+      errorCode: 'UNABLE_TO_LOCK_ROW',
+      name: 'UNABLE_TO_LOCK_ROW',
+    });
+
+    expect(extractErrorCode(extractErrorMessage(err))).toBe('UNABLE_TO_LOCK_ROW');
+  });
+
+  it('reads the code of a message that degraded to the code alone', () => {
+    const err = Object.assign(new Error(''), { errorCode: 'INVALID_SESSION_ID' });
+
+    expect(extractErrorMessage(err)).toBe('INVALID_SESSION_ID');
+    expect(extractErrorCode('INVALID_SESSION_ID')).toBe('INVALID_SESSION_ID');
+  });
+
+  it('reads the first code of an aggregated MULTIPLE_API_ERRORS line', () => {
+    expect(extractErrorCode('DUPLICATE_VALUE: duplicate | STRING_TOO_LONG: too long')).toBe(
+      'DUPLICATE_VALUE',
+    );
+  });
+
+  it('reads the lower_snake codes of the OAuth token endpoint', () => {
+    expect(extractErrorCode('invalid_grant: expired authorization code')).toBe('invalid_grant');
+  });
+
+  it('finds no code in prose that happens to contain a colon', () => {
+    expect(extractErrorCode('Duplicate operation: op-17')).toBeUndefined();
+    expect(extractErrorCode('Operation blocked by Production Guard: 40k records')).toBeUndefined();
+    expect(extractErrorCode('Network request failed after 3 attempts')).toBeUndefined();
+  });
+
+  it('does not mistake a plain error class name for a code', () => {
+    expect(extractErrorCode(extractErrorMessage(new Error('boom')))).toBeUndefined();
+    expect(extractErrorCode('AbortError: aborted')).toBeUndefined();
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AIAnalysisHandler } from './AIAnalysisHandler.js';
 import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
-import type { AIModules } from '../AIHandler.js';
+import type { RuleModules } from '../AIHandler.js';
 import { inboundRequest } from '../../../test/mockFactories.js';
 
 vi.mock('../../../core/connection/ConnectionHelper.js', () => ({
@@ -64,7 +64,7 @@ describe('AIAnalysisHandler', () => {
   });
 
   it('handles ai:anomaly-scan with modules', async () => {
-    const mockModules: Partial<AIModules> = {
+    const mockModules: Partial<RuleModules> = {
       anomalyDetector: {
         detectAnomalies: vi.fn().mockReturnValue({
           anomalies: [
@@ -76,9 +76,9 @@ describe('AIAnalysisHandler', () => {
             },
           ],
         }),
-      } as unknown as AIModules['anomalyDetector'],
+      } as unknown as RuleModules['anomalyDetector'],
     };
-    handler.setAIModules(mockModules as AIModules);
+    handler.setRuleModules(mockModules as RuleModules);
 
     const result = await handler.handle(
       createMsg('ai:anomaly-scan', {
@@ -104,7 +104,7 @@ describe('AIAnalysisHandler', () => {
   });
 
   it('handles ai:schema-advice with modules', async () => {
-    const mockModules: Partial<AIModules> = {
+    const mockModules: Partial<RuleModules> = {
       schemaAdvisor: {
         analyzeSchema: vi.fn().mockReturnValue({
           issues: [
@@ -116,9 +116,9 @@ describe('AIAnalysisHandler', () => {
           ],
           suggestions: [{ title: 'Add index', description: 'On Name field' }],
         }),
-      } as unknown as AIModules['schemaAdvisor'],
+      } as unknown as RuleModules['schemaAdvisor'],
     };
-    handler.setAIModules(mockModules as AIModules);
+    handler.setRuleModules(mockModules as RuleModules);
 
     const result = await handler.handle(
       createMsg('ai:schema-advice', {

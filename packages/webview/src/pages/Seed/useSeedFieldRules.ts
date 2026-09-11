@@ -192,6 +192,19 @@ export function useSeedFieldRules(
           matchedCount++;
           const config: Record<string, unknown> = { ...(pattern.params ?? {}) };
 
+          if (ruleType === 'ai_generate') {
+            // Personas name the instruction `prompt`; the seed contract
+            // (FieldRuleConfig) calls it `aiPrompt`, and that is the only key
+            // the prompt sent to the model is built from — anything else is
+            // dropped by the seed:execute schema. Without this translation the
+            // model received the field name alone.
+            const instruction = config['aiPrompt'] ?? config['prompt'];
+            if (typeof instruction === 'string') {
+              config['aiPrompt'] = instruction;
+              delete config['prompt'];
+            }
+          }
+
           return { ...field, ruleType, config };
         }),
       })),

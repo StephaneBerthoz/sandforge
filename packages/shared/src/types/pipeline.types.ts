@@ -60,8 +60,6 @@ export interface PipelineOptions {
   errorHandling: ErrorHandlingStrategy;
   enableRollback: boolean;
   dryRun: boolean;
-  preScript?: string;
-  postScript?: string;
   checkpoint: boolean;
 }
 

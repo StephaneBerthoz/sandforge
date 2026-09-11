@@ -48,8 +48,6 @@ export interface SyncConfig {
   conflictStrategy: ConflictStrategy;
   enableRollback: boolean;
   dryRun: boolean;
-  preScript?: string;
-  postScript?: string;
   schedule?: SyncSchedule;
   createdAt: ISODateString;
   updatedAt: ISODateString;

@@ -140,18 +140,14 @@ export interface AINL2SOQLResponse extends BaseMessage {
   payload: { success: boolean; soql?: string; explanation?: string; error?: string };
 }
 
-/** AI error resolution */
-export interface AIResolveErrorRequest extends BaseMessage {
-  type: 'ai:resolve-error';
-  payload: {
-    errorMessage: string;
-    errorCode?: string;
-    module: string;
-    context?: Record<string, unknown>;
-  };
-}
-
-/** Response from AI error resolution with suggested fix */
+/**
+ * Resolution of a failed operation, with a suggested fix.
+ *
+ * Pushed, not answered: the extension resolves a failure where it raises it
+ * (`sendOperationFailed`), because `operation:failed` reaches every open panel
+ * and a panel holds only the rendered message, not the error code the
+ * knowledge base is keyed on. There is no request counterpart.
+ */
 export interface AIResolveErrorResponse extends BaseMessage {
   type: 'ai:resolve-error:response';
   payload: {
