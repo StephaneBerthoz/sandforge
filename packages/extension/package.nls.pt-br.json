@@ -31,7 +31,7 @@
   "walkthrough.step.monitorLimits.title": "Monitore os limites da org",
   "walkthrough.step.monitorLimits.description": "Acompanhe limites de API, jobs, armazenamento e a saúde da org em tempo real.\n[Abrir Monitor](command:sandforge.openMonitor)",
   "walkthrough.step.exploreSettings.title": "Ajuste suas configurações",
-  "walkthrough.step.exploreSettings.description": "Tamanhos de lote, proteções de produção, log de auditoria e o assistente de IA.\n[Abrir Configurações](command:sandforge.openSettings)",
+  "walkthrough.step.exploreSettings.description": "Tamanhos de lote, proteções de produção, o log de verificações de segurança em memória e o assistente de IA.\n[Abrir Configurações](command:sandforge.openSettings)",
   "config.title": "SandForge",
   "config.telemetry.description": "Habilitar telemetria de uso anônima",
   "config.orgs.validateOnStartup.description": "Validar organizações registradas na inicialização e atualizar automaticamente sessões expiradas via CLI sf",
@@ -45,8 +45,8 @@
   "config.backup.maxCount.description": "Número máximo de backups a manter por org",
   "config.pipeline.timeout.description": "Tempo limite de execução do pipeline em milissegundos",
   "config.safety.requireProdConfirmation.description": "Exigir diálogo de confirmação para operações em orgs de produção",
-  "config.safety.auditLogging.description": "Habilitar o log de auditoria para todas as operações de dados",
-  "config.grappe.enabled.description": "Executar operações grandes de Seed, Sync e Autopilot em modo particionado (grappe), com progresso por partição na visão Grappe.",
+  "config.safety.auditLogging.description": "Registrar cada decisão de verificação de segurança do Production Guard em um log em memória (os últimos 1000, apenas nesta sessão, nunca gravados em disco).",
+  "config.grappe.enabled.description": "Executar operações grandes de Seed, Sync e Autopilot em modo particionado (grappe). O Seed informa cada partição ao concluí-la na visão Grappe, o Sync informa uma partição por objeto e o Autopilot informa apenas o início e o fim da execução.",
   "config.grappe.autoActivateThreshold.description": "Número de registros a partir do qual o modo grappe é ativado (seed e autopilot). Ignorado quando sandforge.grappe.enabled está desativado.",
   "config.grappe.grappeSize.description": "Registros por partição de grappe."
 }

@@ -39,7 +39,6 @@ scripts/
 
 # Dev configs
 .editorconfig
-.sandforge.example.json
 phases/
 plans/
 prompts/

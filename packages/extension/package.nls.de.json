@@ -31,7 +31,7 @@
   "walkthrough.step.monitorLimits.title": "Überwachen Sie Org-Limits",
   "walkthrough.step.monitorLimits.description": "Verfolgen Sie API-Limits, Jobs, Speicher und Org-Zustand in Echtzeit.\n[Monitor öffnen](command:sandforge.openMonitor)",
   "walkthrough.step.exploreSettings.title": "Optimieren Sie Ihre Einstellungen",
-  "walkthrough.step.exploreSettings.description": "Batchgrößen, Produktions-Schutzmaßnahmen, Audit-Protokollierung und der KI-Assistent.\n[Einstellungen öffnen](command:sandforge.openSettings)",
+  "walkthrough.step.exploreSettings.description": "Batchgrößen, Produktions-Schutzmaßnahmen, das Sicherheitsprüfungs-Protokoll im Arbeitsspeicher und der KI-Assistent.\n[Einstellungen öffnen](command:sandforge.openSettings)",
   "config.title": "SandForge",
   "config.telemetry.description": "Anonyme Nutzungstelemetrie aktivieren",
   "config.orgs.validateOnStartup.description": "Registrierte Organisationen beim Start validieren und abgelaufene Sitzungen automatisch über die sf CLI aktualisieren",
@@ -45,8 +45,8 @@
   "config.backup.maxCount.description": "Maximale Anzahl der pro Org aufzubewahrenden Backups",
   "config.pipeline.timeout.description": "Timeout für die Pipeline-Ausführung in Millisekunden",
   "config.safety.requireProdConfirmation.description": "Bestätigungsdialog für Vorgänge in Produktions-Orgs erforderlich",
-  "config.safety.auditLogging.description": "Audit-Protokollierung für alle Datenvorgänge aktivieren",
-  "config.grappe.enabled.description": "Große Seed-, Sync- und Autopilot-Vorgänge im partitionierten Modus (Grappe) ausführen, mit Fortschritt pro Partition in der Grappe-Ansicht.",
+  "config.safety.auditLogging.description": "Jede Sicherheitsprüfung von Production Guard in einem Protokoll im Arbeitsspeicher festhalten (die letzten 1000, nur für diese Sitzung, nie auf die Festplatte geschrieben).",
+  "config.grappe.enabled.description": "Große Seed-, Sync- und Autopilot-Vorgänge im partitionierten Modus (Grappe) ausführen. Seed meldet jede Partition nach Abschluss in der Grappe-Ansicht, Sync meldet eine Partition je Objekt, und Autopilot meldet nur Beginn und Ende des Laufs.",
   "config.grappe.autoActivateThreshold.description": "Datensatzanzahl, ab der der Grappe-Modus aktiviert wird (Seed und Autopilot). Wird ignoriert, wenn sandforge.grappe.enabled deaktiviert ist.",
   "config.grappe.grappeSize.description": "Datensätze pro Grappe-Partition."
 }

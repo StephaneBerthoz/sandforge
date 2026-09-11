@@ -8,8 +8,12 @@ import { useGrappeStore } from '../../stores/useGrappeStore';
 import { useAppStore } from '../../stores/useAppStore';
 
 /**
- * Grappe module page — Parallel execution engine dashboard.
- * Shows active operation and partition progress.
+ * Grappe module page — partitioned-run dashboard.
+ *
+ * Shows the partitions a run reports as it goes: Seed reports one per chunk it
+ * writes, Sync one per object, Autopilot only the start and the end. Nothing
+ * here runs anything; the store is fed by the `grappe:*` events the
+ * orchestrators emit around their sequential loops.
  */
 export const GrappePage: React.FC = () => {
   const { t } = useTranslation();
@@ -39,7 +43,7 @@ export const GrappePage: React.FC = () => {
           <div>
             <h1 className="text-lg font-bold text-text-primary">{t('nav.grappe', 'Grappe')}</h1>
             <p className="text-xs text-text-secondary">
-              {t('grappe.subtitle', 'Parallel execution engine for large-scale data operations')}
+              {t('grappe.subtitle', 'Per-partition progress for large-scale data operations')}
             </p>
           </div>
         </div>
@@ -173,8 +177,10 @@ export const GrappePage: React.FC = () => {
               <p className="text-xs text-text-secondary max-w-sm">{t('grappe.emptyDesc')}</p>
             </div>
             {/*
-             * Grappe has no settings of its own — it engages by itself once a
-             * run is large enough — so the only useful thing to offer from an
+             * Grappe is switched on in Settings, not here: it needs
+             * `sandforge.grappe.enabled`, and then a run past
+             * `sandforge.grappe.autoActivateThreshold` records. This page has no
+             * control over either, so the only useful thing to offer from an
              * idle dashboard is a module that produces such runs. Seed, Sync
              * and Autopilot are the three that emit grappe:* events; Forge
              * emits none, so the CTA that pointed there could never populate
@@ -220,12 +226,12 @@ export const GrappePage: React.FC = () => {
                 <Cpu className="w-5 h-5 text-cyan-400" />
               </div>
               <span className="text-[11px] font-medium text-text-primary">
-                {t('grappe.step2Title', 'Worker Pool')}
+                {t('grappe.step2Title', 'Partition Queue')}
               </span>
               <span className="text-[10px] text-text-muted">
                 {t(
                   'grappe.step2Desc',
-                  'Parallel workers process partitions with back-pressure control',
+                  'Partitions are processed one after another, each reported as it completes',
                 )}
               </span>
             </div>
@@ -234,10 +240,13 @@ export const GrappePage: React.FC = () => {
                 <Gauge className="w-5 h-5 text-green-400" />
               </div>
               <span className="text-[11px] font-medium text-text-primary">
-                {t('grappe.step3Title', 'Adaptive Throttle')}
+                {t('grappe.step3Title', 'Run Totals')}
               </span>
               <span className="text-[10px] text-text-muted">
-                {t('grappe.step3Desc', 'Monitors API limits and adjusts throughput in real-time')}
+                {t(
+                  'grappe.step3Desc',
+                  'When the run ends, the view keeps the partition count and the records processed and failed',
+                )}
               </span>
             </div>
           </div>
