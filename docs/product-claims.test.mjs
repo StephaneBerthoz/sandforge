@@ -1,10 +1,52 @@
 /**
- * Keeps the prose a user reads honest about features the code does not have:
- * both READMEs, every page under `docs/` they link to, the Grappe setting
- * descriptions in the manifest, the six webview locale files, and — for the AI
- * wordings — the English fallbacks the webview hands to `t()`. The other
- * setting descriptions, `package.nls*.json` and the walkthrough pages are not
- * read.
+ * Keeps the prose a user reads honest about features the code does not have.
+ *
+ * Every rule below reads the same surfaces, and they are every place this
+ * product writes a sentence to somebody who has not read its source:
+ *
+ *  - `README.md` and `packages/extension/README.md` — the repository landing
+ *    page and the Marketplace listing;
+ *  - `SECURITY.md` and `CONTRIBUTING.md` — the other two pages the repository
+ *    root publishes;
+ *  - every `.md` under `docs/`, linked from a README or not, minus
+ *    `docs/archive/` (a record of what was once planned, not maintained);
+ *  - the four walkthrough bodies under `packages/extension/walkthrough/` and
+ *    the five translations of each, which VS Code renders in Get Started;
+ *  - `ci-examples/README.md` and `packages/extension/examples/README.md` —
+ *    neither ships in the VSIX (the first sits outside the extension package,
+ *    the second is listed in `.vscodeignore`), and both are tracked by git and
+ *    served by GitHub, which is what makes them pages somebody reads;
+ *  - every `description` and `markdownDescription` in the extension manifest —
+ *    settings, the Restricted Mode notice, the walkthrough steps — with `%key%`
+ *    resolved into the six sentences VS Code shows, through the same
+ *    `resolveNls` the marketplace gate uses (`claims-surfaces.mjs`);
+ *  - the six `package.nls*.json`, by value: the listing text, the Settings
+ *    editor, the command palette;
+ *  - the six `l10n/bundle.l10n*.json`, by value: the notifications an operation
+ *    ends on and the modal that gates a write to production, which VS Code
+ *    renders outside the webview and the VSIX carries;
+ *  - the six webview locale bundles, by value.
+ *
+ * Checked against the VSIX rather than claimed: `unzip -l sandforge.vsix` lists
+ * the manifest, the six `package.nls*`, the readme, the changelog, the 24
+ * walkthrough bodies, the six `l10n/bundle.l10n*`, `dist/` and `webview-dist/`.
+ * Every one of them is read here, or is a build of something read here, bar the
+ * changelog — which is left out on purpose, below. The VSIX is the floor, not
+ * the boundary: what a reader meets is decided by publication, so the `.md`
+ * files git tracks outside it are read too. That is every one of them today
+ * except the changelogs and `.github/PULL_REQUEST_TEMPLATE.md`, a form only a
+ * contributor opening a pull request ever sees.
+ *
+ * A bundle is read by string VALUE, never by key: `config.grappe.enabled` is an
+ * identifier no reader meets, and it must be able neither to trip a rule nor to
+ * satisfy one.
+ *
+ * On top of that, the AI Assistant rules alone also read the English fallbacks
+ * the webview hands to `t()`, because that is where this repository keeps its
+ * source strings rather than in `locales/en.json`.
+ *
+ * Not read, on purpose: source comments, and the changelogs — a note about what
+ * a release withdrew has to be free to name it.
  *
  * The sibling gate, `automation-scheduler-claims.test.mjs`, guards one claim in
  * two files of `docs/`. That shape works: it is the one gate in this repo that
@@ -16,8 +58,16 @@
  * files. At v1.17.0 it was wrong in two opposite directions at once: the
  * READMEs called it a "parallel execution engine" that "no operation activates
  * yet", while `AutopilotOrchestrator` does activate it and does not partition
- * anything — `grappeAdapter.partition()` has no caller, and `grappeActive`
+ * anything — there, `grappeAdapter.partition()` has no caller and `grappeActive`
  * only wraps an unchanged sequential loop in two progress events.
+ *
+ * What does partition is Seed: `executeWithGrappe` asks the adapter to split the
+ * template, then walks the chunks in a `for` loop, awaiting each and reporting
+ * it before the next begins. So the two anchors read the two paths — one for
+ * what happens, one for what does not — and the surfaces are held to both: per
+ * partition for Seed and Sync, start and end only for Autopilot, and no
+ * sentence that reaches for the VOCABULARY of concurrency to describe either.
+ * The vocabulary, not the idea: the limit is spelt out below.
  *
  * CDC is the same story: removed from the Sync UI, disclaimed in
  * `docs/modules/sync.md`, routed to `NoOpHandler` in the extension — and still
@@ -28,11 +78,23 @@
  * read-only tools". No screen could start a diagnosis, the tools were wired to
  * nothing, and the one call into the tool loop handed it an empty list.
  *
+ * The FAQ's privacy answer said data reached the provider "only when you
+ * explicitly use AI features", from the first FAQ to v1.21. `operation:failed`
+ * has been resolved inside the extension since the diagnose flow was removed:
+ * every failed run hands the org's error text — which quotes record values — to
+ * the model with no screen, no button and no consent in between.
+ *
+ * Compare's schema advice and Monitor's anomaly scan went the other way. Both
+ * are built with no provider at all and wired before the API-key gate, and both
+ * were sold as "AI-powered" on the module pages and in the Marketplace listing —
+ * then, once corrected, as rule-based but "still need AI enabled with a key".
+ *
  * So each assertion here is anchored to the code that decides the truth, and
  * fails in BOTH directions: build the feature — the partition, the CDC route,
- * the tools — and the anchor test trips first, telling you the prose is now
- * understating the product and may be rewritten. The wordings that named no
- * tool are the exception, and the limits below say so.
+ * the tools, a provider for the rule modules — and the anchor test trips first,
+ * telling you the prose is now understating the product and may be rewritten.
+ * The wordings that named no tool are the exception, and the limits below say
+ * so.
  *
  * The code is read off the syntax tree. The prose is not read for meaning at
  * all: it is matched against the wording this product actually published,
@@ -65,7 +127,24 @@
  *  - Any quotation of a published wording is refused like the promise: struck through, inside quotation marks, in a removal note or in an answer about an old version alike. A changelog is not a surface, so that is where the quote belongs.
  *  - A wording that does not name the tools is released by rewriting it, not by the anchor: the anchor answers one question, whether shipped code gives the model tools.
  *  - Markdown is read by paragraph, table row, heading and list item: a fenced code block is not prose, and a wording split across two rows or two items passes — as it does across two locale keys rendered side by side.
- *  - The webview's English fallbacks are read for these wordings only. The Grappe and CDC rules above read the files listed at the top, and `grappe.subtitle` still calls Grappe a parallel execution engine in `GrappePage.tsx`, which those rules refuse in every file they do read.
+ *  - The webview's English fallbacks are read for these wordings and by the Grappe rules, which is how `grappe.subtitle` and `grappe.step2Desc` were caught — `Parallel execution engine`, six languages and the fallback, on the Grappe page header. The CDC rule reads the six locale bundles it was written against and nothing else.
+ *
+ * What the two code anchors added last do not see, one limit per line:
+ *  - The automatic-resolution anchor reads one emitter, `sendOperationFailed`. A second path to `resolveError` — another caller, a webview channel wired back — is not read; it would only make the wordings more false, never less.
+ *  - It reads the call, not the condition: a resolution put behind `if (userAskedForIt)` inside `resolveFailedOperation` still reads as automatic. Move it back behind a screen and the wordings are true again while the anchor stays green, so rewrite the anchor with the feature.
+ *  - It reads one wire, `setAIModules` writing the injected resolver into `handlerDeps` — the object every handler is constructed on, and the only one the emitter can be reading. A second injection — a constructor argument, a deps object built elsewhere — is not read.
+ *  - The rule-module anchor counts constructor ARGUMENTS in the composition root. A provider reaching `AnomalyDetector` another way — a setter, a field assigned later, a default parameter — is invisible; the count only answers the question the composition root answers today.
+ *  - It also reads POSITION: the statement that wires them runs before the first statement of `initAIComposition` that can return. A gate built some third way — a throw, an early exit inside a helper it awaits — is not read as a gate. And "the first statement that can return" is a proxy for the AI gate, not the gate itself: a guard clause added above it moves the line this anchor measures without moving the gate.
+ *  - It reads the condition around the call, never inside it: `setRuleModules(enabled ? modules : undefined)` puts the AI switch back in front of the rule-based modules with no `if` anywhere an ancestor walk can see. Left unread on purpose — a ternary in an argument is ordinary code, and a rule that refused one would fail this gate on honest wiring.
+ *  - Both read `aiComposition.ts` by name. Move the composition root and they fail loudly on a missing construction rather than passing on an empty file, which is the failure mode worth having.
+ *
+ * What the Grappe rules do not see, one limit per line:
+ *  - The Seed anchor reads `executeWithGrappe` in `SeedOrchestrator` and the Autopilot anchor reads `executePlan`. Sync reports one partition per object from its own loop, and that loop is read by neither: a change there is caught by the prose rules only when the prose changes with it.
+ *  - The rule is a VOCABULARY, not a meaning: `paral*`, `concurren*`/`concorren*`, `gleichzeitig`/`nebenläufig`, `simult*`, 並列/並行/同時. Concurrency said in ordinary language — "at once", "à la fois", "auf einmal", "de una vez", "ao mesmo tempo", 一度に — passes in all six, and it is the one way to sell this feature falsely that costs nothing to write.
+ *  - Concurrency reached without a word for it — an unawaited call inside the loop, a queue drained elsewhere — is invisible to the prose rules; the anchor's `Promise.all` check is what watches the Seed path for it.
+ *  - A sentence that denies concurrency passes, and a sentence that denies one thing while asserting concurrency in the same breath passes with it: "not queued: run in parallel" reads as a denial. Widening the negation class to the elided and contracted forms the six languages actually write widened that hole with it — deliberately, since the other direction refuses true sentences. What stands behind it is the mined list of wordings this product published, which is refused whole, quotation included.
+ *  - Two wordings are too short to mine — `Motor de ejecución paralela`, `大規模データ操作のための並列実行エンジン` — and are left to the word rule, which is what caught them.
+ *  - The Seed anchor pins the report to the innermost loop that inserts, which is the granularity the surfaces publish. It does not read what that loop iterates: chunk the objects into one partition each and the report is still per partition, and still true.
  *
  *   node --test docs/product-claims.test.mjs
  */
@@ -77,6 +156,8 @@ import { fileURLToPath } from 'node:url';
 
 import ts from 'typescript';
 
+import { NLS_FILES, isNlsPlaceholder, parallelAssertions, resolveNls } from './claims-surfaces.mjs';
+
 const docsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(docsDir, '..');
 const read = (...p) => readFileSync(join(repoRoot, ...p), 'utf8');
@@ -87,112 +168,752 @@ const localeFiles = () => readdirSync(LOCALES_DIR).filter((f) => f.endsWith('.js
 const READMES = ['README.md', 'packages/extension/README.md'];
 
 /**
- * The pages a README sends a reader to: every `docs/**.md` either one links to,
- * written relatively in the repository README and as a GitHub URL in the
- * marketplace one. A page reached from the listing in one click is read like
- * the listing itself, and the list maintains itself — link a new page and it
- * becomes a surface, drop the link and it stops being one.
+ * The other pages the repository publishes from its root. `changelog.md` is
+ * deliberately not here — a note about what a release withdrew has to be able
+ * to name it — and neither is any file git does not track.
  */
-function linkedDocPages() {
-  const pages = new Set();
-  for (const readme of READMES) {
-    for (const [, target] of read(...readme.split('/')).matchAll(/\]\(([^)\s]+)/g)) {
-      const path = /(?:^|\/)(docs\/[^#?]+\.md)/.exec(target.split('#')[0])?.[1];
-      if (path && existsSync(join(repoRoot, path))) pages.add(path);
+const ROOT_PAGES = ['SECURITY.md', 'CONTRIBUTING.md'];
+
+const EXT = ['packages', 'extension'];
+const WALKTHROUGH_DIR = 'packages/extension/walkthrough';
+const L10N_DIR = 'packages/extension/l10n';
+
+/** A `.test.` / `.spec.` file is tooling, whatever its extension. */
+const isTestFile = (name) => /\.(?:test|spec)\./.test(name);
+
+/**
+ * Every page under `docs/`, linked or not, minus `docs/archive/` — which is
+ * kept as a record of what the product used to plan and is not maintained.
+ *
+ * An earlier cut read only the pages a README links to, on the theory that the
+ * link list maintains itself. It does, and it also lets a page drop out of the
+ * checks by losing a link, which is the opposite of what a published page
+ * needs: `docs/` is served by GitHub whether anything points at it or not.
+ */
+function docPages() {
+  const pages = [];
+  const walk = (relativeDir) => {
+    for (const entry of readdirSync(join(repoRoot, relativeDir), { withFileTypes: true })) {
+      const rel = `${relativeDir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (entry.name !== 'archive') walk(rel);
+      } else if (entry.name.endsWith('.md') && !isTestFile(entry.name)) {
+        pages.push(rel);
+      }
     }
-  }
-  // A README whose links stopped resolving would quietly shrink the surface.
+  };
+  walk('docs');
   assert.ok(
-    pages.size >= 8,
-    `the READMEs link to ${pages.size} pages under docs/, fewer than the 11 they carry — the ` +
-      'link scan has stopped resolving, so an empty result below proves nothing',
+    pages.length >= 15,
+    `the walk found ${pages.length} pages under docs/, fewer than the 15 it carries — it has ` +
+      'stopped reading them, so an empty result below proves nothing',
   );
-  return [...pages].sort();
+  return pages.sort();
 }
 
-/** Every surface a user reads, as `label → text`. Source comments are not here. */
-function userFacingText() {
+/**
+ * The walkthrough bodies VS Code renders in the Get Started page: the four
+ * English ones the manifest points at, and the five translations of each that
+ * VS Code picks up by filename (`<name>.nls.<locale>.md`, pinned by
+ * `walkthrough-i18n.test.mjs`). All of them are read, so a claim cannot be
+ * made in German only.
+ */
+function walkthroughPages() {
+  const files = readdirSync(join(repoRoot, WALKTHROUGH_DIR)).filter((f) => f.endsWith('.md'));
+  assert.ok(
+    files.length >= 24,
+    `the walk found ${files.length} walkthrough bodies, fewer than the 24 the extension ships ` +
+      '(4 steps × 6 languages) — an empty result below would prove nothing',
+  );
+  return files.sort().map((f) => `${WALKTHROUGH_DIR}/${f}`);
+}
+
+/**
+ * Every `description` and `markdownDescription` in the manifest, wherever it
+ * sits — a setting, the untrusted-workspace notice, a walkthrough step — with
+ * `%key%` resolved into the six sentences VS Code actually shows. The raw
+ * placeholder is not prose and reading it as prose is how a localized setting
+ * used to escape these checks.
+ */
+function manifestDescriptions() {
   const surfaces = {};
-  for (const readme of READMES) surfaces[readme] = read(...readme.split('/'));
-  for (const page of linkedDocPages()) surfaces[page] = read(...page.split('/'));
-  const manifest = JSON.parse(read('packages', 'extension', 'package.json'));
-  const props = manifest.contributes?.configuration?.properties ?? {};
-  for (const [key, value] of Object.entries(props)) {
-    if (key.startsWith('sandforge.grappe.') && typeof value.description === 'string') {
-      surfaces[`package.json ${key}`] = value.description;
+  const visit = (value, path) => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}[${index}]`));
+      return;
     }
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      const at = path ? `${path}.${key}` : key;
+      if ((key === 'description' || key === 'markdownDescription') && typeof child === 'string') {
+        if (isNlsPlaceholder(child)) {
+          for (const [locale, text] of Object.entries(resolveNls(child))) {
+            surfaces[`packages/extension/package.json ${at} [${locale}]`] = text;
+          }
+        } else {
+          surfaces[`packages/extension/package.json ${at}`] = child;
+        }
+      }
+      visit(child, at);
+    }
+  };
+  visit(JSON.parse(read(...EXT, 'package.json')), '');
+  assert.ok(
+    Object.keys(surfaces).length >= 100,
+    `the walk found ${Object.keys(surfaces).length} manifest descriptions, fewer than the 100 ` +
+      'the manifest carries once localized — it has stopped reading them',
+  );
+  return surfaces;
+}
+
+/**
+ * The six `l10n/bundle.l10n*.json`: what VS Code itself renders — the
+ * notifications an operation ends on, and the modal that gates a write to a
+ * production org. They are packaged in the VSIX and a user meets them without
+ * ever opening the panel, so they are prose like any other. The English bundle
+ * keys are the English sentences; like every bundle here it is read by VALUE.
+ */
+function l10nBundles() {
+  const files = readdirSync(join(repoRoot, ...L10N_DIR.split('/'))).filter((f) =>
+    f.endsWith('.json'),
+  );
+  assert.ok(
+    files.length >= 6,
+    `the walk found ${files.length} l10n bundles, fewer than the 6 the extension ships — it has ` +
+      'stopped reading them, so an empty result below proves nothing',
+  );
+  return files.sort();
+}
+
+/**
+ * Every surface a user or a buyer reads, once, as `{ label, text }` for prose
+ * and `{ label, json }` for a bundle whose string values are the prose:
+ *
+ *  - both READMEs — the repository landing page and the Marketplace listing;
+ *  - `SECURITY.md` and `CONTRIBUTING.md`, the other two pages the root
+ *    publishes;
+ *  - every page under `docs/` outside the archive;
+ *  - the four walkthrough bodies and their five translations each;
+ *  - `ci-examples/README.md`, which documents what can be automated, and
+ *    `packages/extension/examples/README.md`, the Forge recipes — neither
+ *    ships in the VSIX, and both are published by GitHub all the same, which
+ *    is the only thing that decides whether a reader meets them;
+ *  - every manifest description, `%key%` resolved in all six languages;
+ *  - the six `package.nls*.json` — the listing text, the Settings editor and
+ *    the command palette titles;
+ *  - the six `l10n/bundle.l10n*.json` — the notifications and the production
+ *    guard modal VS Code renders outside the webview;
+ *  - the six webview locale bundles.
+ *
+ * That is every file of the VSIX that carries a sentence, bar one: the
+ * changelog, which ships with the extension and is deliberately not read — a
+ * note about what a release withdrew has to be able to name it. `dist/` and
+ * `webview-dist/` are builds of sources already read here, and source comments
+ * are not surfaces.
+ */
+function surfaceSources() {
+  const sources = [];
+  const file = (label, ...parts) => sources.push({ label, text: read(...parts) });
+
+  for (const readme of READMES) file(readme, ...readme.split('/'));
+  for (const page of ROOT_PAGES) file(page, page);
+  for (const page of docPages()) file(page, ...page.split('/'));
+  for (const page of walkthroughPages()) file(page, ...page.split('/'));
+  file('ci-examples/README.md', 'ci-examples', 'README.md');
+  file('packages/extension/examples/README.md', ...EXT, 'examples', 'README.md');
+
+  for (const [label, text] of Object.entries(manifestDescriptions())) sources.push({ label, text });
+
+  for (const nls of Object.values(NLS_FILES)) {
+    sources.push({ label: `packages/extension/${nls}`, json: JSON.parse(read(...EXT, nls)) });
   }
+
+  for (const bundle of l10nBundles()) {
+    sources.push({
+      label: `${L10N_DIR}/${bundle}`,
+      json: JSON.parse(read(...L10N_DIR.split('/'), bundle)),
+    });
+  }
+
   const locales = localeFiles();
   assert.ok(
     locales.length >= 6,
     `only ${locales.length} locale files found, the extension ships 6`,
   );
-  for (const file of locales) {
-    surfaces[`locales/${file}`] = readFileSync(join(LOCALES_DIR, file), 'utf8');
+  for (const f of locales) {
+    sources.push({
+      label: `locales/${f}`,
+      json: JSON.parse(readFileSync(join(LOCALES_DIR, f), 'utf8')),
+    });
   }
-  return surfaces;
+  return sources;
 }
 
 // ── Grappe ────────────────────────────────────────────────────────────────
 
-test('anchor: Grappe still does not partition or parallelise anything', () => {
-  const orchestrator = read(
-    'packages',
-    'extension',
-    'src',
-    'modules',
-    'autopilot',
-    'AutopilotOrchestrator.ts',
+const SEED_ORCHESTRATOR_FILE = 'packages/extension/src/modules/seed/SeedOrchestrator.ts';
+const AUTOPILOT_ORCHESTRATOR_FILE =
+  'packages/extension/src/modules/autopilot/AutopilotOrchestrator.ts';
+
+/** Whether a node sits inside a loop, without leaving the body it was found in. */
+function isLooped(node, body) {
+  for (let parent = node.parent; parent && parent !== body; parent = parent.parent) {
+    if (
+      ts.isForOfStatement(parent) ||
+      ts.isForInStatement(parent) ||
+      ts.isForStatement(parent) ||
+      ts.isWhileStatement(parent) ||
+      ts.isDoStatement(parent)
+    ) {
+      return parent;
+    }
+  }
+  return null;
+}
+
+/** Whether a string literal with this exact text is written anywhere under a node. */
+function mentions(node, literal) {
+  let found = false;
+  const visit = (child) => {
+    if (ts.isStringLiteralLike(child) && child.text === literal) found = true;
+    else ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** Whether an identifier of this name is read anywhere under a node. */
+function reads(node, name) {
+  let found = false;
+  const visit = (child) => {
+    if (ts.isIdentifier(child) && child.text === name) found = true;
+    else ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return found;
+}
+
+/** Every distinct `grappe:*` event literal written under a node, sorted. */
+function grappeEventsIn(node) {
+  const events = new Set();
+  const visit = (child) => {
+    if (ts.isStringLiteralLike(child) && child.text.startsWith('grappe:')) events.add(child.text);
+    else ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return [...events].sort();
+}
+
+/** Whether a node awaits something itself, rather than in a callback it hands out. */
+function awaits(node) {
+  let found = false;
+  const visit = (child) => {
+    if (ts.isFunctionLike(child)) return;
+    if (ts.isAwaitExpression(child)) found = true;
+    else ts.forEachChild(child, visit);
+  };
+  ts.forEachChild(node, visit);
+  return found;
+}
+
+/** `Promise.all` and its siblings: the calls that would run partitions at once. */
+const FAN_OUT = new Set(['all', 'allSettled', 'race', 'any']);
+const fanOutCalls = (node) =>
+  callsWithin(node).filter((call) => {
+    const chain = accessChain(call.node.expression);
+    return chain[0] === 'Promise' && FAN_OUT.has(chain[chain.length - 1]);
+  });
+
+/**
+ * What Seed's grappe mode actually does — the code the Grappe page is now
+ * written against, read off the syntax tree rather than asserted to be absent.
+ *
+ * `executeWithGrappe` asks the adapter to `partition(...)` the template, then
+ * walks the chunks in a `for` loop: each one is awaited, and each one is
+ * reported with `grappe:partitionProgress` before the next begins. That is
+ * "per-partition progress" and "one after another, each reported as it
+ * completes", which is what six locales and the webview fallback now say.
+ *
+ * Fails in both directions. Take the partitioning away, take the report out of
+ * the loop, hand the chunks to `Promise.all` — each one trips an assertion
+ * here, and the page has to be rewritten with it.
+ */
+function assertSeedPartitionsAndReportsEachOne() {
+  const body = methodBody(parseFile(SEED_ORCHESTRATOR_FILE), 'executeWithGrappe');
+  assert.ok(
+    body,
+    `${SEED_ORCHESTRATOR_FILE} no longer declares executeWithGrappe — the path that partitions a ` +
+      'seed moved, so this anchor is reading nothing; find it and re-point the scan',
   );
+  const calls = callsWithin(body);
+
+  // Positive control: the walk reads that body, and sees it insert records.
+  assert.ok(
+    calls.some((call) => call.name === 'insert'),
+    'the scan cannot see executeWithGrappe inserting anything — it is reading an empty body, so ' +
+      'everything below would prove nothing',
+  );
+
+  assert.ok(
+    calls.some((call) => {
+      const chain = accessChain(call.node.expression);
+      return chain[chain.length - 1] === 'partition' && chain.includes('adapter');
+    }),
+    'executeWithGrappe no longer calls adapter.partition(...) — nothing partitions a seed any ' +
+      'more, and the surfaces that promise per-partition progress became false',
+  );
+
+  const started = calls.find((call) => call.args.some((arg) => mentions(arg, 'grappe:started')));
+  const progress = calls.find((call) =>
+    call.args.some((arg) => mentions(arg, 'grappe:partitionProgress')),
+  );
+  assert.ok(
+    progress,
+    'executeWithGrappe no longer emits grappe:partitionProgress — the Grappe view is told ' +
+      'nothing per partition, and the surfaces that promise it became false',
+  );
+  // Positive control for the loop test: the run-level event is in the same body
+  // and is NOT in a loop, so "inside a loop" below distinguishes something.
+  assert.ok(started, 'executeWithGrappe no longer emits grappe:started — re-read this anchor');
+  assert.equal(
+    isLooped(started.node, body),
+    null,
+    'grappe:started is now emitted inside a loop — the walk cannot tell a per-partition event ' +
+      'from a per-run one, so the check below proves nothing',
+  );
+
+  const loop = isLooped(progress.node, body);
+  assert.ok(
+    loop,
+    'grappe:partitionProgress is no longer emitted from inside a loop — a run reports once, not ' +
+      'once per partition, and every "each partition as it completes" wording became false',
+  );
+
+  // WHICH loop. `executeWithGrappe` nests two: the objects of the template, and
+  // the chunks each object is split into. Only the inner one is a partition, and
+  // the granularity the surfaces publish turns on that — "Seed reports each
+  // partition" is written against it, and "Sync reports one partition per
+  // object" is the coarser thing it is contrasted with. So the report has to sit
+  // in the same innermost loop as the write it reports: move the emission up one
+  // level and a seed starts reporting per object, with every assertion that only
+  // asked for "a loop" still green.
+  const inserts = calls.filter((call) => call.name === 'insert');
+  const insertLoop = isLooped(inserts[0].node, body);
+  assert.ok(
+    insertLoop,
+    'executeWithGrappe no longer writes its partitions from inside a loop — there is one write, ' +
+      'so there are no partitions to report one by one',
+  );
+  // Positive control, measured on the writes rather than on the report: the
+  // walk finds the object loop around `mapFields` and the partition loop around
+  // `insert`, and tells them apart. Without it, "same loop" would be true for
+  // free in a body with only one loop left.
+  const mapped = calls.find((call) => call.name === 'mapFields');
+  const objectLoop = mapped ? isLooped(mapped.node, body) : null;
+  assert.ok(
+    objectLoop && objectLoop !== insertLoop,
+    'the walk no longer sees the object loop nested outside the partition loop in ' +
+      'executeWithGrappe — it cannot tell two loops apart, so the check below proves nothing',
+  );
+  assert.ok(
+    inserts.every((call) => isLooped(call.node, body) === loop),
+    'the loop that emits grappe:partitionProgress is no longer the innermost loop that inserts a ' +
+      'partition — a seed now reports at a coarser grain than it writes, and "Seed reports each ' +
+      'partition" became the wording Sync carries, one report per object',
+  );
+
+  assert.ok(
+    awaits(loop),
+    'the loop that reports each partition no longer awaits anything — the partitions may not be ' +
+      'written one after another any more, which is what the Grappe page says they are',
+  );
+  assert.deepEqual(
+    fanOutCalls(body).map((call) => accessChain(call.node.expression).join('.')),
+    [],
+    'executeWithGrappe now hands its work to Promise.all (or a sibling) — partitions may really ' +
+      'run at once. Re-read every Grappe surface before relaxing anything: they are written to ' +
+      'say the partitions go one at a time.',
+  );
+  // Positive control for that walk: the same detector finds a real fan-out in
+  // the composition root, so an empty result above is a fact and not a blind spot.
+  assert.ok(
+    fanOutCalls(parseFile(AI_COMPOSITION_FILE)).length > 0,
+    `the scan sees no Promise.all in ${AI_COMPOSITION_FILE}, which is built on two — it is not ` +
+      'reading fan-out calls, so their absence above proves nothing',
+  );
+}
+
+/**
+ * What Autopilot's grappe mode does: nothing to the work. `executePlan` brackets
+ * an unchanged executor with `grappe:started` and `grappe:completed` and never
+ * calls `grappeAdapter.partition(...)`, so on that path there is no partition
+ * and nothing to report per partition — which is why the surfaces name Seed and
+ * Sync where they promise per-partition progress, and Autopilot only for the
+ * start and the end.
+ *
+ * "Only bracketed" is the claim, so the events are what this reads: the set of
+ * `grappe:*` literals `executePlan` writes has to be exactly the two, no more.
+ * An earlier cut asserted the absence of one call — `grappeAdapter.partition(` —
+ * and would have stayed green through an autopilot run that reported every wave
+ * it walked, which is the thing six locales say it does not do.
+ *
+ * The other half is the opposite error, shipped in the same table row: the run
+ * IS bracketed, so "no operation activates it" is false too.
+ */
+function assertAutopilotOnlyBracketsTheRun() {
+  const body = methodBody(parseFile(AUTOPILOT_ORCHESTRATOR_FILE), 'executePlan');
+  assert.ok(
+    body,
+    `${AUTOPILOT_ORCHESTRATOR_FILE} no longer declares executePlan — the path that brackets an ` +
+      'autopilot run moved, so this anchor is reading nothing; find it and re-point the scan',
+  );
+
+  // Positive control: the same walk reads three events out of the seed path,
+  // `grappe:partitionProgress` among them. So the two below are a fact about
+  // Autopilot, not a scan that cannot see a per-partition event anywhere.
+  const seedBody = methodBody(parseFile(SEED_ORCHESTRATOR_FILE), 'executeWithGrappe');
+  assert.ok(
+    seedBody,
+    `${SEED_ORCHESTRATOR_FILE} no longer declares executeWithGrappe — the per-partition path ` +
+      'this anchor measures itself against moved; find it and re-point both scans',
+  );
+  assert.deepEqual(
+    grappeEventsIn(seedBody),
+    ['grappe:completed', 'grappe:partitionProgress', 'grappe:started'],
+    'the walk no longer reads three grappe events out of executeWithGrappe — it is not reading ' +
+      'event literals, so the set it reads out of executePlan below proves nothing',
+  );
+  assert.deepEqual(
+    grappeEventsIn(body),
+    ['grappe:completed', 'grappe:started'],
+    'executePlan no longer emits exactly grappe:started and grappe:completed. If it reports a ' +
+      'partition now, the surfaces that say an autopilot run reports only its start and its end ' +
+      'became false in six languages — re-read them before touching this test.',
+  );
+
+  const orchestrator = read(...AUTOPILOT_ORCHESTRATOR_FILE.split('/'));
   assert.doesNotMatch(
     orchestrator,
     /grappeAdapter\s*\.\s*partition\s*\(/,
-    'AutopilotOrchestrator now calls grappeAdapter.partition() — Grappe may really partition ' +
-      'work. Re-read every surface below before deleting this test: they are currently written ' +
-      'to say it does not.',
+    'AutopilotOrchestrator now calls grappeAdapter.partition() — an autopilot run may really be ' +
+      'partitioned. Re-read every surface below before deleting this test: they are written to ' +
+      'say that path reports only its start and its end.',
   );
+  assert.match(
+    orchestrator,
+    /grappeActive/,
+    'nothing sets grappeActive any more — the "not activated" wording may be true again',
+  );
+}
+
+test('anchor: a seed partitions, and reports each partition as it completes', () => {
+  assertSeedPartitionsAndReportsEachOne();
 });
 
-test('no user-facing surface calls Grappe parallel', () => {
-  // `grappeActive` gates two progress events around a sequential executor, so
-  // "parallel" is the one word that cannot be used until the anchor above trips.
+test('anchor: an autopilot run is only bracketed by two events', () => {
+  assertAutopilotOnlyBracketsTheRun();
+});
+
+/**
+ * A string a reader meets, and the subject it is written about. For a bundle
+ * value the subject is its key: `grappe.subtitle` is a sentence about Grappe
+ * even when the word "Grappe" is nowhere in the sentence, which is exactly how
+ * `Parallel execution engine for large-scale data operations` sat on the
+ * Grappe page header, in six languages, under a rule that required both words
+ * on one line. The key is a subject, never prose: it cannot satisfy a rule,
+ * only say what the value is about.
+ */
+const grappeUnits = () =>
+  userFacingProse().filter((unit) => /grappe/i.test(unit.label) || /grappe/i.test(unit.text));
+
+/**
+ * What this product published about Grappe running things at once, mined from
+ * every revision of the surfaces read here. Refused whole, like the AI
+ * wordings, and for the same reason: it is the text that shipped, not a guess
+ * at what a promise looks like.
+ *
+ * Two of the six languages carry a wording short enough that the floor in
+ * `assertMinedWordingsCarryAClaim` rejects it — `Motor de ejecución paralela`,
+ * `大規模データ操作のための並列実行エンジン`. They are left to the word rule below,
+ * which is what caught them in the first place.
+ *
+ * Built lazily: `mine` normalises, and `normalizeProse` is defined further down
+ * this file.
+ */
+const GRAPPE_WORDINGS = [
+  {
+    // The Grappe page header, `grappe.subtitle` + the webview fallback, from
+    // 7ad1d527 (2026-03-17) through 335040c0 (2026-08-13) to v1.21.
+    text: 'Parallel execution engine for large-scale data operations',
+    where: 'the Grappe page header, English, 2026-03-17 to v1.21',
+  },
+  {
+    text: "Moteur d'exécution parallèle pour les opérations de données à grande échelle",
+    where: 'the Grappe page header, French, 2026-08-13 to v1.21',
+  },
+  {
+    text: 'Parallele Ausführungs-Engine für Datenoperationen im großen Maßstab',
+    where: 'the Grappe page header, German, 2026-08-13 to v1.21',
+  },
+  {
+    text: 'Motor de execução paralela para operações de dados em larga escala',
+    where: 'the Grappe page header, Portuguese, 2026-08-13 to v1.21',
+  },
+  {
+    // `grappe.step2Desc`, the middle card of "How Grappe Works", same span.
+    text: 'Parallel workers process partitions with back-pressure control',
+    where: 'the "How Grappe Works" card, English, 2026-03-17 to v1.21',
+  },
+  {
+    text: 'Des workers parallèles traitent les partitions avec contrôle de la contre-pression',
+    where: 'the "How Grappe Works" card, French, 2026-08-13 to v1.21',
+  },
+  {
+    text: 'Parallele Worker verarbeiten Partitionen mit Gegendruck-Steuerung',
+    where: 'the "How Grappe Works" card, German, 2026-08-13 to v1.21',
+  },
+  {
+    text: 'Workers paralelos procesan las particiones con control de contrapresión',
+    where: 'the "How Grappe Works" card, Spanish, 2026-08-13 to v1.21',
+  },
+  {
+    text: 'Workers paralelos processam as partições com controle de contrapressão',
+    where: 'the "How Grappe Works" card, Portuguese, 2026-08-13 to v1.21',
+  },
+  {
+    text: '並列ワーカーがバックプレッシャー制御のもとでパーティションを処理します',
+    where: 'the "How Grappe Works" card, Japanese, 2026-08-13 to v1.21',
+  },
+  {
+    // `settings.enableGrappeDesc`, the Settings toggle, 7ad1d527 (2026-03-17)
+    // to e9a4bdeb (2026-09-09). French shipped in both spellings.
+    text: 'Automatically partition large operations into parallel clusters for faster execution',
+    where: 'the Settings toggle, English, 2026-03-17 to 2026-09-09',
+  },
+  {
+    text: 'Partitionne automatiquement les operations volumineuses en clusters paralleles pour une execution plus rapide',
+    where: 'the Settings toggle, French, 2026-03-17 to 2026-09-09',
+  },
+  {
+    text: 'Partitionne automatiquement les opérations volumineuses en clusters parallèles pour une exécution plus rapide',
+    where: 'the Settings toggle, French with accents, 2026-09-09',
+  },
+  {
+    text: 'Große Operationen für schnellere Ausführung automatisch in parallele Cluster aufteilen',
+    where: 'the Settings toggle, German, 2026-03-17 to 2026-09-09',
+  },
+  {
+    text: 'Particionar automáticamente operaciones grandes en clústeres paralelos para una ejecución más rápida',
+    where: 'the Settings toggle, Spanish, 2026-03-17 to 2026-09-09',
+  },
+  {
+    text: 'Particiona automaticamente operações grandes em clusters paralelos para execução mais rápida',
+    where: 'the Settings toggle, Portuguese, 2026-03-17 to 2026-09-09',
+  },
+  {
+    text: '大規模な操作を自動的に並列クラスターに分割し、高速に実行します',
+    where: 'the Settings toggle, Japanese, 2026-03-17 to 2026-09-09',
+  },
+  {
+    // The module table of both READMEs, f25de974 (2026-08-06) to 35dd6060.
+    text: 'Parallel execution engine for datasets above 10,000 records',
+    where: 'the Grappe row of the module table, both READMEs, 2026-08-06 to 2026-08-12',
+  },
+  {
+    // What replaced it, wrong in the other direction too, to e9a4bdeb.
+    text: 'Partitioned parallel execution engine for large datasets',
+    where: 'the Grappe row of the module table, both READMEs, 2026-08-12 to 2026-09-09',
+  },
+  {
+    // The settings table of README.md, d1b1e371 (2026-03-16) to 8c9d15a3.
+    text: 'Enable parallel processing for large datasets',
+    where: 'the settings table, README.md, 2026-03-16 to 2026-08-10',
+  },
+  {
+    // README.md release highlights and the packages/extension/README.md AI-era
+    // feature list, 2026-03-16 to 2026-03-28.
+    text: 'Grappe Engine for parallel processing of large datasets',
+    where: 'the highlights, README.md, 2026-03-16 to 2026-03-28',
+  },
+  {
+    text: '**Parallel Processing** — Grappe engine with 7 partitioning strategies for 10K+ records',
+    where: 'the feature list, packages/extension/README.md, 2026-03-20 to 2026-03-28',
+  },
+  {
+    // docs/faq.md, cb52cda6 (2026-03-16) to 35dd6060 (2026-08-12).
+    text: 'the Grappe Engine activates automatically for parallel processing',
+    where: 'the slow-run answer, docs/faq.md, 2026-03-16 to 2026-08-12',
+  },
+  {
+    // docs/modules/sync.md, 35dd6060 (2026-08-12) to 02a61d14 (2026-09-10).
+    text: 'Grappe parallel execution is coming soon',
+    where: 'the execution section, docs/modules/sync.md, 2026-08-12 to 2026-09-10',
+  },
+  {
+    // The Grappe page empty state, webview fallback, 2026-03-17 to 2026-08-13.
+    text: 'Grappe automatically activates when operations exceed the parallel threshold',
+    where: 'the Grappe page empty state, 2026-03-17 to 2026-08-13',
+  },
+  {
+    // `sandforge.grappe.maxWorkers`, removed from the manifest by CONTRACT-03
+    // in v1.17.0: nothing read it, and there is no concurrency to size.
+    text: 'Maximum number of partitions processed concurrently',
+    where: 'the sandforge.grappe.maxWorkers description, the manifest, to v1.17.0',
+  },
+];
+
+let grappeClaimsCache;
+const grappeClaims = () => (grappeClaimsCache ??= GRAPPE_WORDINGS.map(mine));
+
+test('no user-facing surface republishes the withdrawn Grappe wording', () => {
+  assertSeedPartitionsAndReportsEachOne();
+  assertAutopilotOnlyBracketsTheRun();
+
   const offenders = [];
-  for (const [label, text] of Object.entries(userFacingText())) {
-    for (const line of text.split('\n')) {
-      if (!/grappe/i.test(line)) continue;
-      if (/\bparall[eè]l/i.test(line)) offenders.push(`${label}: ${line.trim().slice(0, 120)}`);
+  for (const { label, text } of userFacingProse()) {
+    for (const claim of republishedClaims(text, grappeClaims())) {
+      offenders.push(`${label}: "${claim.text}" — published in ${claim.where}`);
     }
   }
   assert.deepEqual(
     offenders,
     [],
-    'these lines sell Grappe as parallel execution, which it is not:\n  ' + offenders.join('\n  '),
+    'a seed walks its partitions one at a time and an autopilot run is not partitioned at all; ' +
+      'these surfaces put back wording the product withdrew. Rewrite the sentence; a note about ' +
+      'the removal belongs in a changelog, which this gate does not read:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+test('no user-facing surface claims Grappe runs anything at once', () => {
+  assertSeedPartitionsAndReportsEachOne();
+  assertAutopilotOnlyBracketsTheRun();
+
+  // Beyond the wordings that shipped, the claim itself: every grappe path is a
+  // sequential `for await`, so no sentence about Grappe may assert concurrency
+  // in any of the six languages. A sentence that DENIES it is the honest one,
+  // and passes — `docs/faq.md` publishes exactly that.
+  const offenders = [];
+  for (const { label, text } of grappeUnits()) {
+    for (const sentence of parallelAssertions(text)) {
+      offenders.push(`${label}: ${sentence.slice(0, 140)}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'these lines sell Grappe as concurrent execution, which it is not:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+test('the Grappe rules refuse what shipped and leave an honest denial alone', () => {
+  assertMinedWordingsCarryAClaim(grappeClaims());
+
+  // Each wording as published, then the shapes a reappearance takes: a table
+  // row, a paragraph wrapped mid-phrase, emphasis inside a word, a
+  // non-breaking hyphen, a space written as an entity, the count brought up to
+  // date, a longer sentence carrying it, and a removal note quoting it.
+  const republished = [
+    ...GRAPPE_WORDINGS.map((claim) => claim.text),
+    '| **Grappe** | Parallel execution engine for datasets above 10,000 records |',
+    'Parallel execution engine\nfor large-scale data operations',
+    'Parallel *execution* engine for large-scale data operations',
+    'Parallel execution engine for datasets above 10,000&nbsp;records',
+    'Parallel execution engine for datasets above 25,000 records',
+    'Grappe is a parallel execution engine for large-scale data operations, and always was.',
+    '~~Parallel workers process partitions with back-pressure control~~ — withdrawn in 1.21.',
+    'The Grappe page used to read "Parallel execution engine for large-scale data operations".',
+  ];
+  assert.deepEqual(
+    republished.filter((text) => republishedClaims(text, grappeClaims()).length === 0),
+    [],
+    'these republish wording the product withdrew about Grappe, and the rules let them through',
+  );
+
+  // The word rule, in the direction that matters: a sentence asserting
+  // concurrency about Grappe is refused in all six languages, whichever word it
+  // reaches for — the accented French forms and `concurrently` are the two the
+  // first class could not see.
+  const asserted = [
+    'Grappe processes partitions in parallel across a worker pool.',
+    'Partitions are processed concurrently once the threshold is reached.',
+    'Le parallélisme de Grappe accélère les gros volumes.',
+    'La parallélisation des partitions est automatique.',
+    'Grappe verarbeitet die Partitionen gleichzeitig.',
+    'Las particiones se procesan de forma simultánea.',
+    'As partições são processadas simultaneamente.',
+    'Grappe はパーティションを並行して処理します。',
+    'Maximum number of partitions processed concurrently',
+  ];
+  assert.deepEqual(
+    asserted.filter((text) => parallelAssertions(text).length === 0),
+    [],
+    'these sell a concurrency no grappe path has, and the word rule lets them through',
+  );
+
+  // Prose an honest page could hold, in the six languages the extension ships:
+  // the denials `docs/faq.md` and `docs/modules/sync.md` publish today, the ADR
+  // such a decision deserves, and the sentences the newly-read surfaces carry —
+  // the production-guard modal, the offline-queue notifications, SECURITY.md
+  // and CONTRIBUTING.md. Every one of them passes both Grappe rules.
+  const honest = [
+    'Grappe, when enabled, reports progress per partition; it does not run the partitions concurrently.',
+    'With Grappe enabled, the run reports progress one partition per object over that same sequential loop -- nothing is split and nothing runs concurrently.',
+    '# ADR 0012 — Grappe is not a parallel executor',
+    'Partitions are processed one after another, each reported as it completes',
+    'Grappe needs sandforge.grappe.enabled. A Seed run past the record threshold then reports each partition as it completes.',
+    'SandForge: org unreachable — the queued operation will replay automatically when connectivity returns.',
+    'This operation writes data to a PRODUCTION org.',
+    'Report a vulnerability privately through GitHub Security Advisories; do not open a public issue.',
+    'Run `pnpm validate` before opening a pull request: it is the same pipeline CI runs, and it is not parallel.',
+    "Les partitions ne sont pas traitées en parallèle : Grappe signale chacune d'elles à sa fin.",
+    "Grappe n'exécute rien simultanément ; il rend compte, partition par partition.",
+    'Die Partitionen werden nicht gleichzeitig verarbeitet, sondern nacheinander gemeldet.',
+    'Grappe ist keine parallele Ausführungs-Engine; es meldet nur jede Partition nach Abschluss.',
+    'Las particiones no se procesan en paralelo: Grappe informa cada una al completarse.',
+    'Grappe no ejecuta nada de forma simultánea.',
+    'As partições não são processadas em paralelo; o Grappe informa cada uma ao concluí-la.',
+    'O Grappe não executa nada simultaneamente.',
+    'Grappe はパーティションを並列に処理しません。完了ごとに報告するだけです。',
+    'Grappe が処理を同時に実行することはありません。',
+    // The same denial written the way each language actually writes it: the
+    // elided phrase, the contracted preposition, the nominal form. Every one of
+    // these was refused before the negation class was widened, two per language.
+    'Seed writes its partitions in sequence, in place of the parallel worker pool the page once promised.',
+    'Grappe walks the partitions one by one, sequentially instead — the concurrency it advertised was withdrawn.',
+    "Grappe traite les partitions l'une après l'autre, plutôt qu'en parallèle.",
+    "Grappe rend compte partition par partition, au lieu d'une exécution en parallèle.",
+    "Le parallélisme annoncé n'existe plus : chaque partition est signalée à sa fin.",
+    'Die Partitionen werden nacheinander geschrieben, anstelle einer parallelen Ausführung.',
+    'Grappe verarbeitet die Partitionen keinesfalls gleichzeitig.',
+    'Las particiones se escriben una tras otra, en lugar del motor paralelo que se anunciaba.',
+    'Grappe procesa las particiones de una en una, en vez de hacerlo de forma simultánea.',
+    'As partições são gravadas uma após a outra, em vez do processamento paralelo prometido.',
+    'O Grappe relata cada partição ao concluí-la, em lugar da execução simultânea.',
+    'Grappe は並列実行の代わりに、パーティションごとの進捗を報告します。',
+    'Grappe は同時実行なしで、パーティションごとに結果を報告します。',
+  ];
+  assert.deepEqual(
+    honest.filter(
+      (text) =>
+        republishedClaims(text, grappeClaims()).length > 0 || parallelAssertions(text).length > 0,
+    ),
+    [],
+    'the Grappe rules flag these honest sentences — a gate that refuses a true sentence gets ' +
+      'weakened by hand, which costs more than the coverage it buys',
   );
 });
 
 test('no user-facing surface claims nothing activates Grappe', () => {
   // The opposite error, shipped in the same table row: Seed, Sync and Autopilot
   // all set `grappeActive`, so "no operation activates it" is equally false.
-  const activates = read(
-    'packages',
-    'extension',
-    'src',
-    'modules',
-    'autopilot',
-    'AutopilotOrchestrator.ts',
-  );
-  assert.match(
-    activates,
-    /grappeActive/,
-    'nothing sets grappeActive any more — the "not activated" wording may be true again',
-  );
+  assertAutopilotOnlyBracketsTheRun();
 
   const offenders = [];
-  for (const [label, text] of Object.entries(userFacingText())) {
-    for (const line of text.split('\n')) {
-      if (!/grappe/i.test(line)) continue;
-      if (/no operation activates/i.test(line))
-        offenders.push(`${label}: ${line.trim().slice(0, 120)}`);
+  for (const { label, text } of grappeUnits()) {
+    if (/no operation activates/i.test(text)) {
+      offenders.push(`${label}: ${text.trim().slice(0, 120)}`);
     }
   }
   assert.deepEqual(
@@ -937,22 +1658,30 @@ function webviewFallbackStrings() {
 }
 
 /**
- * The same surfaces as `userFacingText()`, as a reader meets them: Markdown
- * by paragraph, with soft line breaks joined and fenced code left out; a
- * locale file by string value, never by key; and the webview's English
- * fallbacks, one string each.
+ * `surfaceSources()` as a reader meets it, one unit per thing read: Markdown by
+ * paragraph, with soft line breaks joined and fenced code left out; a bundle by
+ * string value, never by key, the key kept in the label so an offender can be
+ * named and so a rule can tell what the value is about; and the webview's
+ * English fallbacks, one string each.
+ *
+ * There is no second, line-oriented view of the same walk. There was, and it
+ * could not name which key of a bundle it had just quoted — which is how six
+ * `grappe.subtitle` values sold a parallel execution engine under a rule that
+ * read every one of them.
  */
 function userFacingProse() {
   const units = [];
-  for (const [label, text] of Object.entries(userFacingText())) {
-    if (label.endsWith('.md')) {
-      for (const paragraph of markdownParagraphs(text)) units.push({ label, text: paragraph });
-    } else if (label.startsWith('locales/')) {
-      for (const [key, value] of jsonStrings(JSON.parse(text))) {
-        units.push({ label: `${label} ${key}`, text: value });
+  for (const source of surfaceSources()) {
+    if (source.json) {
+      for (const [key, value] of jsonStrings(source.json)) {
+        units.push({ label: `${source.label} ${key}`, text: value });
+      }
+    } else if (source.label.endsWith('.md')) {
+      for (const paragraph of markdownParagraphs(source.text)) {
+        units.push({ label: source.label, text: paragraph });
       }
     } else {
-      units.push({ label, text });
+      units.push({ label: source.label, text: source.text });
     }
   }
   return [...units, ...webviewFallbackStrings()];
@@ -1184,10 +1913,13 @@ const PUBLISHED_CLAIMS = [
     text: 'Read-only suggested actions auto-execute silently',
     where: 'the "Failed-job diagnose flow" bullet, README.md, v1.2.6 to 2026-08-06',
   },
-].map((claim) => {
+].map(mine);
+
+/** A mined wording, ready to match: the words a reader meets, and the pattern for them. */
+function mine(claim) {
   const needle = normalizeProse(claim.text);
   return { ...claim, needle, pattern: claimPattern(needle) };
-});
+}
 
 /**
  * A mined wording as a pattern: the words as they were published, on word
@@ -1212,23 +1944,29 @@ function claimPattern(needle) {
  * still counts. Rewrite the sentence, or put the quote in a changelog, which is
  * not a surface.
  */
-function republishedClaims(text) {
+function republishedClaims(text, claims) {
   const runs = normalizeProse(text).split(BREAK);
-  return PUBLISHED_CLAIMS.filter((claim) => runs.some((run) => claim.pattern.test(run)));
+  return claims.filter((claim) => runs.some((run) => claim.pattern.test(run)));
 }
 
-test('the mined wordings are matched whole, and honest prose is left alone', () => {
-  // A wording short enough to be written by accident makes the gate noise: the
-  // 22-character `read-only tool surface` refused five true sentences, one of
-  // them in a language that borrows the English term. A mined wording carries a
-  // whole claim, so the floor sits under the shortest one that does.
-  const short = PUBLISHED_CLAIMS.filter((claim) => claim.needle.length < 30);
+/**
+ * A wording short enough to be written by accident makes the gate noise: the
+ * 22-character `read-only tool surface` refused five true sentences, one of
+ * them in a language that borrows the English term. A mined wording carries a
+ * whole claim, so the floor sits under the shortest one that does.
+ */
+function assertMinedWordingsCarryAClaim(claims) {
+  const short = claims.filter((claim) => claim.needle.length < 30);
   assert.deepEqual(
     short.map((claim) => claim.text),
     [],
     'these mined wordings are too short to be refused on their own: mine the sentence that ' +
-      'carried them, or leave the claim to the anchor above',
+      'carried them, or leave the claim to the anchor that reads the code',
   );
+}
+
+test('the mined wordings are matched whole, and honest prose is left alone', () => {
+  assertMinedWordingsCarryAClaim(PUBLISHED_CLAIMS);
 
   // Each wording as published, then the shapes a reappearance takes: a table
   // row, a paragraph wrapped mid-phrase, emphasis inside a word, a
@@ -1264,7 +2002,7 @@ test('the mined wordings are matched whole, and honest prose is left alone', () 
     'Read-only suggested actions auto-execute silently; org-mutating ones gate behind Approve.',
   ];
   assert.deepEqual(
-    republished.filter((text) => republishedClaims(text).length === 0),
+    republished.filter((text) => republishedClaims(text, PUBLISHED_CLAIMS).length === 0),
     [],
     'these republish wording that was withdrawn, and the rules let them through',
   );
@@ -1329,7 +2067,7 @@ test('the mined wordings are matched whole, and honest prose is left alone', () 
     '- **Failed-job diagnose flow** — right-click a failed bulk job in Monitor and the assistant explains the error in prose.',
   ];
   assert.deepEqual(
-    honest.filter((text) => republishedClaims(text).length > 0),
+    honest.filter((text) => republishedClaims(text, PUBLISHED_CLAIMS).length > 0),
     [],
     'the mined wordings flag these honest sentences',
   );
@@ -1358,7 +2096,7 @@ test('the mined wordings are matched whole, and honest prose is left alone', () 
     '10 read-only tools',
   ];
   assert.deepEqual(
-    paraphrasesThatPass.filter((text) => republishedClaims(text).length > 0),
+    paraphrasesThatPass.filter((text) => republishedClaims(text, PUBLISHED_CLAIMS).length > 0),
     [],
     'a paraphrase is now being refused — the rules have started guessing again, which is what ' +
       'this gate was rewritten to stop; re-read the limits in the header',
@@ -1378,7 +2116,7 @@ test('no user-facing surface republishes the withdrawn AI wording', () => {
 
   const offenders = [];
   for (const { label, text } of userFacingProse()) {
-    for (const claim of republishedClaims(text)) {
+    for (const claim of republishedClaims(text, PUBLISHED_CLAIMS)) {
       offenders.push(`${label}: "${claim.text}" — published in ${claim.where}`);
     }
   }
@@ -1388,5 +2126,496 @@ test('no user-facing surface republishes the withdrawn AI wording', () => {
     'these surfaces put back wording the product withdrew. Rewrite the sentence; a note about ' +
       'the removal belongs in a changelog, which this gate does not read:\n  ' +
       offenders.join('\n  '),
+  );
+});
+
+// ── Reading one file's syntax tree ────────────────────────────────────────
+
+/** One shipped file, parsed. Never read as text: a comment promises nothing. */
+function parseFile(relativePath) {
+  const file = join(repoRoot, ...relativePath.split('/'));
+  return ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true);
+}
+
+/** Every call and `new` under a node, as `{ name, args, node }`, at any depth. */
+function callsWithin(node) {
+  const calls = [];
+  const visit = (child) => {
+    if (ts.isCallExpression(child) || ts.isNewExpression(child)) {
+      calls.push({
+        name: invokedName(child.expression),
+        args: child.arguments ?? [],
+        node: child,
+      });
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return calls;
+}
+
+/** The body of a function declared at any depth in a file, by name. */
+function functionBody(source, name) {
+  let body;
+  const visit = (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === name && node.body) body = node.body;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return body;
+}
+
+/** The body of a class method declared at any depth in a file, by name. */
+function methodBody(source, name) {
+  let body;
+  const visit = (node) => {
+    if (ts.isMethodDeclaration(node) && memberName(node) === name && node.body) body = node.body;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return body;
+}
+
+/** Whether a node sits under an `if` — the difference between "always" and "sometimes". */
+function isConditional(node) {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (ts.isIfStatement(parent) || ts.isConditionalExpression(parent)) return true;
+  }
+  return false;
+}
+
+const OPERATION_FAILED_FILE = 'packages/extension/src/bridge/handlers/HandlerTypes.ts';
+const AI_COMPOSITION_FILE = 'packages/extension/src/composition/aiComposition.ts';
+const HANDLERS_FILE = 'packages/extension/src/bridge/ExtensionHandlers.ts';
+
+/** Every assignment written under a node, `a.b = c` and `a.b ??= c` alike. */
+function assignmentsWithin(node) {
+  const assignments = [];
+  const visit = (child) => {
+    if (isAssignment(child)) assignments.push(child);
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return assignments;
+}
+
+/** Whether a statement can return from the function it sits in. */
+function returnsFrom(node) {
+  let found = false;
+  const visit = (child) => {
+    if (ts.isFunctionLike(child)) return;
+    if (ts.isReturnStatement(child)) found = true;
+    else ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return found;
+}
+
+// ── Error resolution nobody asked for ─────────────────────────────────────
+
+/**
+ * The extension asks the model to explain a failure the moment one happens.
+ *
+ * `sendOperationFailed` is the only emitter of `operation:failed`, and it ends
+ * on `resolveFailedOperation`, which calls `resolver.resolveError(...)` — with
+ * no screen, no button and no consent in between. The resolver reads a
+ * knowledge base first, so a *known* Salesforce error code is answered from
+ * disk; an unknown one goes to `this.provider(...)`, which
+ * `aiComposition.ts` builds out of `services.aiClient().chat`.
+ *
+ * So while AI is on, a failed run can put the org's own error text — which
+ * quotes record values — in front of the model without the user doing
+ * anything. Any surface that says data leaves only when the user asks for it
+ * is describing a version of this extension that stopped existing when the
+ * resolution moved into the emitter.
+ *
+ * Fails in both directions: put the resolution back behind a button and the
+ * assertions below trip, and the wording they refuse may be published again.
+ */
+function assertFailureResolutionIsAutomatic() {
+  const source = parseFile(OPERATION_FAILED_FILE);
+
+  const emitter = functionBody(source, 'sendOperationFailed');
+  assert.ok(
+    emitter,
+    `${OPERATION_FAILED_FILE} no longer declares sendOperationFailed — the emitter of ` +
+      'operation:failed moved, so this anchor is reading nothing; find it and re-point the scan',
+  );
+  const emitterCalls = callsWithin(emitter).map((call) => call.name);
+  // Positive control: the walk reads that body, and sees what it does with the
+  // message before it sees what it does about the failure.
+  assert.ok(
+    emitterCalls.includes('postToWebview'),
+    'the scan cannot see sendOperationFailed posting the lifecycle message — it is reading an ' +
+      'empty body, so the absence of a resolution call below would prove nothing',
+  );
+  assert.ok(
+    emitterCalls.includes('resolveFailedOperation'),
+    'sendOperationFailed no longer resolves the failure it reports. If a user action is needed ' +
+      'again before anything reaches the model, the wordings below became true and may go back.',
+  );
+
+  const resolution = functionBody(source, 'resolveFailedOperation');
+  assert.ok(resolution, `${OPERATION_FAILED_FILE} no longer declares resolveFailedOperation`);
+  const resolutionCalls = callsWithin(resolution).map((call) => call.name);
+  assert.ok(
+    resolutionCalls.includes('resolveError'),
+    'resolveFailedOperation no longer calls resolveError — nothing is asked of the model on a ' +
+      'failure any more, and the wordings below may be published again',
+  );
+  // The resolver it calls is the one handed to the emitter's deps, by that name.
+  assert.ok(
+    resolution.getText().includes('deps.errorResolver'),
+    'resolveFailedOperation no longer reads deps.errorResolver — it resolves through something ' +
+      'else, so the wire checked below is no longer the wire that matters',
+  );
+
+  // And something puts a resolver in those deps. `setAIModules` is the only
+  // wire between the AI stack and the emitter: it mutates the shared deps
+  // object, and deleting that one line leaves every call above in place while
+  // no failure ever reaches the model again — `resolveFailedOperation` returns
+  // on its first statement. The wordings would be true, with nothing else in
+  // this anchor moving.
+  const setter = methodBody(parseFile(HANDLERS_FILE), 'setAIModules');
+  assert.ok(
+    setter,
+    `${HANDLERS_FILE} no longer declares setAIModules — the injection point moved; find it and ` +
+      're-point this anchor rather than dropping it',
+  );
+  // Positive control: the walk reads that body, and sees it hand the modules on.
+  assert.ok(
+    callsWithin(setter).some((call) => call.name === 'setAIModules'),
+    'the scan cannot see setAIModules passing the modules to the AI handler — it is reading an ' +
+      'empty body, so the assignment below would prove nothing',
+  );
+  // Into WHICH object. `handlerDeps` is the one the emitter is handed — every
+  // handler is constructed on it — so an assignment named `errorResolver` on any
+  // other deps object is a resolver nothing reads. Matching the property name
+  // alone left this anchor green while the wire was cut.
+  const intoHandlerDeps = (target) => accessChain(target).includes('handlerDeps');
+  const wired = assignmentsWithin(setter).filter(
+    (node) =>
+      assignedProperty(node.left) === 'errorResolver' &&
+      intoHandlerDeps(node.left) &&
+      reads(node.right, 'modules'),
+  );
+  // The same wire written as a merge: `Object.assign(this.handlerDeps, { … })`
+  // reaches the emitter exactly as the assignment does, and refusing to read it
+  // would fail this anchor on a rewrite that changed nothing.
+  const merged = callsWithin(setter).filter((call) => {
+    if (accessChain(call.node.expression).join('.') !== 'Object.assign') return false;
+    const [target, ...patches] = call.args;
+    if (!target || !intoHandlerDeps(target)) return false;
+    return patches.some(
+      (patch) =>
+        ts.isObjectLiteralExpression(patch) &&
+        patch.properties.some((property) => memberName(property) === 'errorResolver') &&
+        reads(patch, 'modules'),
+    );
+  });
+  assert.equal(
+    wired.length + merged.length,
+    1,
+    'setAIModules no longer copies the injected errorResolver into the handler deps the emitter ' +
+      'reads — nothing reaches the model on a failure any more, and the wordings below became true',
+  );
+
+  // And that resolver can reach the model: it is built with the provider that
+  // closes over `services.aiClient().chat`.
+  const built = callsWithin(parseFile(AI_COMPOSITION_FILE)).filter(
+    (call) => call.name === 'ErrorResolver',
+  );
+  assert.ok(
+    built.length > 0,
+    `${AI_COMPOSITION_FILE} no longer builds an ErrorResolver — re-read this anchor`,
+  );
+  const providerless = built.filter((call) => call.args.length === 0);
+  assert.equal(
+    providerless.length,
+    0,
+    'the ErrorResolver is built with no provider — it can only answer from its knowledge base, ' +
+      'nothing reaches the model on a failure, and the wordings below became true',
+  );
+}
+
+test('anchor: a failed operation still asks the model on its own', () => {
+  assertFailureResolutionIsAutomatic();
+});
+
+/**
+ * What this product published about when data leaves, mined from every
+ * revision of `docs/faq.md`: one privacy answer, in two wordings, carried from
+ * the first FAQ (cb52cda6, 2026-03-16) to the day the automatic resolution was
+ * documented (8110fd25, 2026-09-11).
+ *
+ * `No data is sent otherwise`, the sentence that followed, is not mined: at 25
+ * characters it is a phrase any page about telemetry or about a provider that
+ * is not configured may write truthfully.
+ */
+const AUTOMATIC_SEND_CLAIMS = [
+  {
+    text: 'Data is sent to your LLM provider (Anthropic) only when you explicitly use AI features',
+    where: 'the privacy answer, docs/faq.md, 2026-08-10 to 2026-09-10',
+  },
+  {
+    text: 'Data is sent to your chosen LLM provider only when you explicitly use AI features',
+    where: 'the privacy answer, docs/faq.md, 2026-03-16 to 2026-03-27',
+  },
+].map(mine);
+
+test('no user-facing surface says the model hears nothing you did not ask for', () => {
+  assertFailureResolutionIsAutomatic();
+
+  const offenders = [];
+  for (const { label, text } of userFacingProse()) {
+    for (const claim of republishedClaims(text, AUTOMATIC_SEND_CLAIMS)) {
+      offenders.push(`${label}: "${claim.text}" — published in ${claim.where}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'a failed run sends its error text to the model with no user action, so these surfaces ' +
+      'promise a silence the extension does not keep:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+// ── Rule-based analysis sold as AI ────────────────────────────────────────
+
+/**
+ * Compare's schema advice and Monitor's anomaly scan run on local heuristics.
+ *
+ * Every other AI module in `aiComposition.ts` is handed `aiProvider`, the
+ * function that closes over `services.aiClient().chat` — `new NL2SOQL(…)`,
+ * `new ErrorResolver(…)`, `new PipelineGenerator(…)`. `AnomalyDetector` and
+ * `SchemaAdvisor` are constructed with nothing at all, so there is no route
+ * from either to a model, and `setRuleModules` is called outside the
+ * `isAIEnabled()` / API-key gate, so neither needs the setting or the key.
+ *
+ * Fails in both directions: pass either one a provider and the arity check
+ * trips, which is the moment the wordings below stop being false.
+ */
+function assertRuleModulesHaveNoProvider() {
+  const calls = callsWithin(parseFile(AI_COMPOSITION_FILE));
+
+  // Positive control: the same arity check sees the constructions that DO take
+  // a provider, in the same file. Without it, a walk returning nothing would
+  // read as "no provider anywhere".
+  const withProvider = calls.filter((call) =>
+    ['NL2SOQL', 'ErrorResolver', 'PipelineGenerator'].includes(call.name),
+  );
+  assert.equal(
+    withProvider.length,
+    3,
+    `the scan sees ${withProvider.length} model-backed modules built in ${AI_COMPOSITION_FILE}, ` +
+      'not the three it carries — it is not reading constructions, so the arity check below ' +
+      'proves nothing',
+  );
+  assert.deepEqual(
+    withProvider.filter((call) => call.args.length === 0).map((call) => call.name),
+    [],
+    'a Tier 2 AI module is now built with no argument — the arity check cannot tell a ' +
+      'rule-based module from a model-backed one any more',
+  );
+
+  for (const name of ['AnomalyDetector', 'SchemaAdvisor']) {
+    const built = calls.filter((call) => call.name === name);
+    assert.ok(
+      built.length > 0,
+      `${AI_COMPOSITION_FILE} no longer builds a ${name} — re-point this anchor before ` +
+        'trusting it',
+    );
+    assert.deepEqual(
+      built.filter((call) => call.args.length > 0).map((call) => call.name),
+      [],
+      `${name} is now built with an argument. If that argument is a model provider, the ` +
+        'wordings below became true and may be published again — check, then rewrite this anchor.',
+    );
+  }
+
+  // Wired outside the AI gate, so "needs AI enabled with a key" is false too.
+  // The gate is not an `if` wrapped around the wiring: `initAIComposition`
+  // leaves on an early `return` when the setting is off and again when no key
+  // is stored. So the question this asks is position — does the statement that
+  // wires them run before anything in that body can return? Move the call six
+  // lines down, under both returns, and no condition appears anywhere near it
+  // while the modules stop existing for a user with AI off.
+  const composition = functionBody(parseFile(AI_COMPOSITION_FILE), 'initAIComposition');
+  assert.ok(
+    composition,
+    `${AI_COMPOSITION_FILE} no longer declares initAIComposition — the composition root moved; ` +
+      'find it and re-point this anchor',
+  );
+  const statements = [...composition.statements];
+  const wiringAt = statements.findIndex((statement) =>
+    callsWithin(statement).some((call) => call.name === 'setRuleModules'),
+  );
+  assert.ok(
+    wiringAt >= 0,
+    'initAIComposition no longer wires the rule-based modules at all — the anomaly scan and the ' +
+      'schema advice reach no screen, whatever the AI setting says',
+  );
+  // Positive control: the walk sees the gate it is measuring against. A body
+  // with no early exit would make "before the first return" true for free.
+  const firstReturnAt = statements.findIndex(returnsFrom);
+  assert.ok(
+    firstReturnAt > 0,
+    'the scan sees no statement that can return in initAIComposition — the AI gate is not two ' +
+      'early returns any more, so the position check below proves nothing; read the body and ' +
+      'rewrite this anchor against whatever gates it now',
+  );
+  assert.ok(
+    wiringAt < firstReturnAt,
+    `setRuleModules is now wired at statement ${wiringAt + 1}, after the first one that can ` +
+      `return (${firstReturnAt + 1}) — the rule-based modules sit behind the AI gate, so "they ` +
+      'run with AI off and no key" became false in every language that says it',
+  );
+
+  const wiring = calls.filter((call) => call.name === 'setRuleModules');
+  assert.equal(wiring.length, 1, 'setRuleModules is no longer called exactly once — re-read this');
+  assert.equal(
+    isConditional(wiring[0].node),
+    false,
+    'the rule-based modules are now wired behind a condition — they may depend on the AI ' +
+      'setting or the key again',
+  );
+  // Positive control: the same ancestor walk finds a call that IS gated.
+  assert.ok(
+    calls.some((call) => call.name === 'teardownAI' && isConditional(call.node)),
+    'the scan sees no conditional call in the composition root — it is not reading ancestors, ' +
+      'so "not behind a condition" above proves nothing',
+  );
+}
+
+test('anchor: schema advice and the anomaly scan are still built without a model', () => {
+  assertRuleModulesHaveNoProvider();
+});
+
+/**
+ * What this product published about those two, mined from every revision of
+ * `packages/extension/README.md` and of the two module pages. The headings
+ * themselves (`### Schema Advice (AI)`) are not mined: three words are too few
+ * to refuse, and `docs/modules/compare.docs.test.ts` pins that one anyway.
+ */
+const RULE_BASED_CLAIMS = [
+  {
+    text: 'The Schema Advice button uses AI to analyze your source org schema and surface issues',
+    where: 'the Schema Advice section, docs/modules/compare.md, to v1.21',
+  },
+  {
+    text: 'Anomaly scan button that uses AI to detect statistical outliers',
+    where: 'the Monitor feature list, docs/modules/monitor.md, to v1.21',
+  },
+  {
+    text: '**Schema Advice** — AI-powered schema analysis and recommendations',
+    where: 'the AI section, packages/extension/README.md, to v1.7.0',
+  },
+  {
+    text: '**Schema Advice** — AI-powered schema analysis with actionable recommendations',
+    where: 'the AI section, packages/extension/README.md, to v1.7.0',
+  },
+  {
+    text: '**Anomaly Detection** — AI-powered statistical outlier detection',
+    where: 'the AI section, packages/extension/README.md, to v1.7.0',
+  },
+  {
+    // The opposite error, in the row that replaced them: rule-based, but sold
+    // as needing the stack `setRuleModules` is deliberately wired before.
+    text: "Compare's schema advice and Monitor's anomaly scan are rule-based but still need AI enabled with a key",
+    where: 'the AI Assistant row of the feature table, both READMEs, v1.21',
+  },
+].map(mine);
+
+test('no user-facing surface sells the rule-based analysis as a model', () => {
+  assertRuleModulesHaveNoProvider();
+
+  const offenders = [];
+  for (const { label, text } of userFacingProse()) {
+    for (const claim of republishedClaims(text, RULE_BASED_CLAIMS)) {
+      offenders.push(`${label}: "${claim.text}" — published in ${claim.where}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'schema advice and the anomaly scan are built with no provider and wired before the AI ' +
+      'gate; these surfaces sell them as something else:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+test('the two new mined lists are matched whole, and honest prose is left alone', () => {
+  assertMinedWordingsCarryAClaim(AUTOMATIC_SEND_CLAIMS);
+  assertMinedWordingsCarryAClaim(RULE_BASED_CLAIMS);
+
+  // Each wording as published, then the shapes a reappearance takes: the whole
+  // FAQ answer it sat in, a paragraph wrapped mid-phrase, emphasis inside a
+  // word, a space written as an entity, an invisible character pasted mid-word,
+  // a heading plus the sentence under it, a bullet carried on past the wording,
+  // and a removal note quoting it.
+  const republished = [
+    ...AUTOMATIC_SEND_CLAIMS.map((claim) => claim.text),
+    ...RULE_BASED_CLAIMS.map((claim) => claim.text),
+    'Data is sent to your LLM provider (Anthropic) only when you explicitly use AI features (AI data generation, NL2SOQL, Schema Advice, Pipeline Generator). No data is sent otherwise.',
+    'Data is sent to your LLM provider (Anthropic) only when you\nexplicitly use AI features.',
+    'Data is sent to your LLM provider (Anthropic) only when you *explicitly* use AI features',
+    'Data is sent to your LLM&nbsp;provider (Anthropic) only when you explicitly use AI features',
+    'Data is sent to your LLM provider (Anthropic) only when you explic​itly use AI features',
+    'Until 1.21 the FAQ said "Data is sent to your chosen LLM provider only when you explicitly use AI features".',
+    '### Schema Advice (AI)\n\nThe Schema Advice button uses AI to analyze your source org schema and surface issues:',
+    '- Anomaly scan button that uses AI to detect statistical outliers, future dates and negative amounts',
+    '- **Schema Advice** -- AI-powered schema analysis and recommendations',
+    '- **Anomaly Detection** — AI-powered statistical outlier detection',
+    "| **AI Assistant** | Compare's schema advice and Monitor's anomaly scan are rule-based but still need AI enabled with a key |",
+  ];
+  assert.deepEqual(
+    republished.filter(
+      (text) =>
+        republishedClaims(text, AUTOMATIC_SEND_CLAIMS).length === 0 &&
+        republishedClaims(text, RULE_BASED_CLAIMS).length === 0,
+    ),
+    [],
+    'these republish wording the product withdrew, and the rules let them through',
+  );
+
+  // Prose an honest page could hold, with the same words in it, in the six
+  // languages the extension ships — the current FAQ privacy answer, the
+  // current README row and the current module pages among them. The last two
+  // are the near misses the header's limits declare: one word inflected, and a
+  // true sentence built out of the same vocabulary.
+  const honest = [
+    'Only to Anthropic, and nothing before you turn AI on and store an Anthropic key. Every failed Seed, Sync, DataOps or Automation run also sends its error message automatically, for a fix suggestion.',
+    'No data is sent to the model while AI is off.',
+    'Data is sent to your LLM provider automatically when a run fails, as well as when you use an AI feature.',
+    'Telemetry is opt-in and never includes org data or PII.',
+    "Compare's schema advice and Monitor's anomaly scan are rule-based: they run with AI off and no key",
+    'The Schema Advice button reads your source org describe and runs it through a set of rules -- no model, no key, nothing leaves the machine',
+    'Anomaly scan button: statistical outliers, future dates, negative amounts. Rules only -- no model, no key, and it works with AI off',
+    'Unlike SFDMU, SandForge sends nothing to an LLM unless you turn AI on.',
+    'Schema advice and the anomaly scan were once described as AI-powered. They have always been rule-based.',
+    "Les données ne partent chez Anthropic qu'une fois l'IA activée et la clé enregistrée.",
+    'Les conseils de schéma de Compare reposent sur des règles : aucun modèle, aucune clé.',
+    "Chaque exécution en échec envoie son message d'erreur au modèle, sans action de votre part.",
+    'Die Schema-Empfehlungen von Compare sind regelbasiert: kein Modell, kein Schlüssel.',
+    'Daten werden an Anthropic gesendet, sobald ein Lauf fehlschlägt.',
+    'El escaneo de anomalías de Monitor se basa en reglas y no usa ningún modelo.',
+    'Los datos se envían a su proveedor de IA en cuanto una ejecución falla.',
+    'A varredura de anomalias do Monitor é baseada em regras: nenhum modelo, nenhuma chave.',
+    'Os dados são enviados ao provedor de IA assim que uma execução falha.',
+    'Compare のスキーマ提案はルールベースで、モデルもキーも使いません。',
+    'AIが有効な場合、失敗した実行のエラーメッセージが自動的にモデルへ送信されます。',
+    'Data is sent to your LLM provider (Anthropic) only when you explicitly use an AI feature',
+    'The Schema Advice button uses a rule set to analyze your source org schema and surface issues',
+  ];
+  assert.deepEqual(
+    honest.filter(
+      (text) =>
+        republishedClaims(text, AUTOMATIC_SEND_CLAIMS).length > 0 ||
+        republishedClaims(text, RULE_BASED_CLAIMS).length > 0,
+    ),
+    [],
+    'the two new mined lists flag these honest sentences — the rules have started guessing, ' +
+      'which is what this gate was rewritten to stop',
   );
 });

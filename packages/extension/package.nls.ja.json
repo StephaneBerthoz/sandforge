@@ -31,7 +31,7 @@
   "walkthrough.step.monitorLimits.title": "Org の制限を監視",
   "walkthrough.step.monitorLimits.description": "API 制限、ジョブ、ストレージ、Org の健全性をリアルタイムで追跡します。\n[モニターを開く](command:sandforge.openMonitor)",
   "walkthrough.step.exploreSettings.title": "設定を調整",
-  "walkthrough.step.exploreSettings.description": "バッチサイズ、本番ガードレール、監査ログ、AI アシスタント。\n[設定を開く](command:sandforge.openSettings)",
+  "walkthrough.step.exploreSettings.description": "バッチサイズ、本番ガードレール、メモリ上の安全性チェックログ、AI アシスタント。\n[設定を開く](command:sandforge.openSettings)",
   "config.title": "SandForge",
   "config.telemetry.description": "匿名の利用状況テレメトリを有効にする",
   "config.orgs.validateOnStartup.description": "起動時に登録済み組織を検証し、期限切れのセッションを sf CLI で自動的に更新する",
@@ -45,8 +45,8 @@
   "config.backup.maxCount.description": "Org ごとに保持するバックアップの最大数",
   "config.pipeline.timeout.description": "パイプライン実行のタイムアウト（ミリ秒）",
   "config.safety.requireProdConfirmation.description": "本番 Org の操作に確認ダイアログを要求する",
-  "config.safety.auditLogging.description": "すべてのデータ操作の監査ログを有効にする",
-  "config.grappe.enabled.description": "大規模な Seed / Sync / Autopilot 操作をパーティション分割（grappe）モードで実行し、Grappe ビューにパーティションごとの進捗を表示します。",
+  "config.safety.auditLogging.description": "Production Guard の安全性チェックの判定をメモリ上のログに記録します（直近 1000 件、このセッション限り、ディスクには書き込まれません）。",
+  "config.grappe.enabled.description": "大規模な Seed / Sync / Autopilot 操作をパーティション分割（grappe）モードで実行します。Seed は各パーティションの完了を Grappe ビューに報告し、Sync はオブジェクトごとに1パーティションを報告し、Autopilot は実行の開始と終了のみを報告します。",
   "config.grappe.autoActivateThreshold.description": "grappe モードが有効になるレコード件数のしきい値（seed と autopilot）。sandforge.grappe.enabled がオフの場合は無視されます。",
   "config.grappe.grappeSize.description": "grappe パーティションあたりのレコード件数。"
 }

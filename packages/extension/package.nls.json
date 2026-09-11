@@ -31,7 +31,7 @@
   "walkthrough.step.monitorLimits.title": "Monitor org limits",
   "walkthrough.step.monitorLimits.description": "Track API limits, jobs, storage, and org health in real time.\n[Open Monitor](command:sandforge.openMonitor)",
   "walkthrough.step.exploreSettings.title": "Tune your settings",
-  "walkthrough.step.exploreSettings.description": "Batch sizes, production guardrails, audit logging, and the AI assistant.\n[Open Settings](command:sandforge.openSettings)",
+  "walkthrough.step.exploreSettings.description": "Batch sizes, production guardrails, the in-memory safety-check log, and the AI assistant.\n[Open Settings](command:sandforge.openSettings)",
   "config.title": "SandForge",
   "config.telemetry.description": "Enable anonymous usage telemetry",
   "config.orgs.validateOnStartup.description": "Validate registered orgs at startup and auto-refresh expired sessions via the sf CLI",
@@ -45,8 +45,8 @@
   "config.backup.maxCount.description": "Maximum number of backups to retain per org",
   "config.pipeline.timeout.description": "Pipeline execution timeout in milliseconds",
   "config.safety.requireProdConfirmation.description": "Require confirmation dialog for production org operations",
-  "config.safety.auditLogging.description": "Enable audit logging for all data operations",
-  "config.grappe.enabled.description": "Run large seed, sync and autopilot operations in partitioned (grappe) mode, with per-partition progress in the Grappe view.",
+  "config.safety.auditLogging.description": "Record each Production Guard safety-check decision in an in-memory log (last 1000, this session only, never written to disk).",
+  "config.grappe.enabled.description": "Run large seed, sync and autopilot operations in partitioned (grappe) mode. Seed reports each partition as it completes in the Grappe view, sync reports one partition per object, and autopilot reports only the start and the end of the run.",
   "config.grappe.autoActivateThreshold.description": "Record count at or above which grappe mode activates (seed and autopilot). Ignored when sandforge.grappe.enabled is off.",
   "config.grappe.grappeSize.description": "Records per grappe partition."
 }

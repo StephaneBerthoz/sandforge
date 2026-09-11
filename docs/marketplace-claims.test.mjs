@@ -22,9 +22,10 @@
  *   /MKT-10 unbuilt.
  *
  * FR-08 also moves the Grappe wording out of `package.json` and into the six
- * `package.nls.*` files, which `product-claims.test.mjs` does not read. The
- * honesty checks it applied to the manifest are re-applied here to the resolved
- * locale values, so localizing the setting does not buy Grappe an exemption.
+ * `package.nls.*` files. The honesty checks the sibling gate applied to the
+ * manifest are re-applied here to the resolved locale values, on the same
+ * anchor, so localizing a setting cannot buy Grappe an exemption; the
+ * resolution itself is shared, in `claims-surfaces.mjs`.
  *
  *   node --test docs/marketplace-claims.test.mjs
  */
@@ -34,6 +35,8 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+import { parallelAssertions, resolveNls } from './claims-surfaces.mjs';
+
 const docsDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(docsDir, '..');
 const read = (...p) => readFileSync(join(repoRoot, ...p), 'utf8');
@@ -41,35 +44,6 @@ const readJson = (...p) => JSON.parse(read(...p));
 
 const EXT = ['packages', 'extension'];
 const manifest = () => readJson(...EXT, 'package.json');
-
-/** The six manifest locale bundles, as `locale → flat key/value map`. */
-const NLS_FILES = {
-  en: 'package.nls.json',
-  fr: 'package.nls.fr.json',
-  de: 'package.nls.de.json',
-  es: 'package.nls.es.json',
-  ja: 'package.nls.ja.json',
-  'pt-br': 'package.nls.pt-br.json',
-};
-const bundles = () =>
-  Object.fromEntries(Object.entries(NLS_FILES).map(([l, f]) => [l, readJson(...EXT, f)]));
-
-/** `%key%` → the value each locale gives it. Throws if any locale lacks it. */
-function resolveNls(placeholder) {
-  const key = /^%(.+)%$/.exec(placeholder)?.[1];
-  assert.ok(key, `not a localization placeholder: ${JSON.stringify(placeholder)}`);
-  const out = {};
-  for (const [locale, bundle] of Object.entries(bundles())) {
-    const value = bundle[key];
-    assert.equal(
-      typeof value,
-      'string',
-      `${NLS_FILES[locale]} has no entry for "${key}" — the manifest renders the raw %key%`,
-    );
-    out[locale] = value;
-  }
-  return out;
-}
 
 // ── MKT-04: a palette command that cannot succeed ─────────────────────────
 
@@ -132,14 +106,16 @@ test('every sandforge.grappe.* description is localized', () => {
 });
 
 test('localizing Grappe did not smuggle the claims product-claims.test.mjs bans', () => {
-  // That gate reads `properties[...].description` straight out of the manifest;
-  // a `%key%` is opaque to it, so the same two assertions are re-run here
-  // against what the six locales actually say. Same anchor, same direction.
+  // The sibling gate now resolves `%key%` too, so this is deliberate overlap
+  // rather than the only cover: the same two assertions, on the same anchor,
+  // written against the three keys FR-08 localized. Same direction, so the two
+  // can only ever fail together.
   const orchestrator = read(...EXT, 'src', 'modules', 'autopilot', 'AutopilotOrchestrator.ts');
   assert.doesNotMatch(
     orchestrator,
     /grappeAdapter\s*\.\s*partition\s*\(/,
-    'Grappe may really partition work now — re-read the six locale descriptions before relaxing',
+    'an autopilot run may really be partitioned now — re-read the six locale descriptions, which ' +
+      'say that path reports only its start and its end',
   );
   assert.match(orchestrator, /grappeActive/, 'nothing activates Grappe any more');
 
@@ -147,9 +123,11 @@ test('localizing Grappe did not smuggle the claims product-claims.test.mjs bans'
   const offenders = [];
   for (const key of GRAPPE_KEYS) {
     for (const [locale, text] of Object.entries(resolveNls(props[key].description))) {
-      // "parallel" is the one word that cannot be used while `grappeActive`
-      // only wraps a sequential loop in two progress events.
-      if (/\bparall[eèa]l|並列/i.test(text)) offenders.push(`${locale} ${key}: ${text}`);
+      // Concurrency is what cannot be claimed while every grappe path is a
+      // sequential `for await`; a sentence that denies it is honest and passes.
+      for (const sentence of parallelAssertions(text)) {
+        offenders.push(`${locale} ${key}: ${sentence}`);
+      }
       if (/no operation activates|aucune opération ne l/i.test(text)) {
         offenders.push(`${locale} ${key}: ${text}`);
       }
@@ -158,7 +136,7 @@ test('localizing Grappe did not smuggle the claims product-claims.test.mjs bans'
   assert.deepEqual(
     offenders,
     [],
-    'these locale strings resell Grappe as parallel execution:\n  ' + offenders.join('\n  '),
+    'these locale strings resell Grappe as concurrent execution:\n  ' + offenders.join('\n  '),
   );
 });
 
