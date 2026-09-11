@@ -32,7 +32,7 @@ async function execAsync(
 
 /**
  * Execute a command without a shell (POSIX argv-as-array hardening).
- * Mirrors the RT-#8 pattern used by ConnectionHelper.refreshTokenViaCli:
+ * Mirrors the pattern used by ConnectionHelper.refreshTokenViaCli:
  * no shell means no interpolation, so args need no escaping.
  */
 async function execFileAsync(
@@ -200,8 +200,8 @@ export class SfdxBridge {
 
   /** Execute sf org login web to open browser auth flow */
   async loginWeb(alias: string, instanceUrl: string): Promise<void> {
-    // Validate before any shell/exec use (audit RT-#8 hardening, same pattern
-    // as ConnectionHelper.refreshTokenViaCli). These checks are the only
+    // Validate before any shell/exec use (same pattern as
+    // ConnectionHelper.refreshTokenViaCli). These checks are the only
     // shell-injection defense on the Windows exec branch below.
     if (alias && !/^[\w.-]+$/.test(alias)) {
       throw new Error(`Invalid alias format: "${alias}"`);

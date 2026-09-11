@@ -194,7 +194,7 @@ describe('NonReidentificationControl — one failure per check', () => {
   });
 });
 
-describe('NonReidentificationControl — pitfall 6 semantics', () => {
+describe('NonReidentificationControl — absence vs emptiness semantics', () => {
   it('absent and null clear-fields are NOT confounded with non-empty residue', () => {
     const extracted = makeExtracted();
     // Original Free__c was already null → nothing to substitute, and the

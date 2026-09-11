@@ -120,7 +120,7 @@ async function refreshTokenViaCli(username: string): Promise<CliCredentials> {
     env: { ...process.env, NO_COLOR: '1' },
   } as const;
 
-  // POSIX: argv-as-array via execFile — no shell, no interpolation (RT-#8).
+  // POSIX: argv-as-array via execFile — no shell, no interpolation.
   // Windows: `sf` resolves to `sf.cmd` which requires shell-based PATHEXT
   // resolution, so keep exec there; the regex above is the injection defense.
   const run = (argsDisplay: string, argsArray: string[]): Promise<{ stdout: string }> =>

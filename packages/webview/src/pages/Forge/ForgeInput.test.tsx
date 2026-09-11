@@ -305,7 +305,7 @@ describe('ForgeInput', () => {
     expect(config.recordId).toBe('003ABCDEFGHIJKLMNO');
   });
 
-  /* ---- UX-01: Auto-select source org on mount ---- */
+  /* ---- Auto-select source org on mount ---- */
   it('should auto-select source org from global selectedOrgId on mount', () => {
     render(<ForgeInput />);
     const sourceTrigger = screen.getByTestId('forge-source-org');
@@ -313,7 +313,7 @@ describe('ForgeInput', () => {
     expect(sourceTrigger.textContent).toContain('SourceOrg');
   });
 
-  /* ---- UX-03: Same org guard ---- */
+  /* ---- Same org guard ---- */
   it('should show warning and disable discover when source === target', () => {
     render(<ForgeInput />);
     // Source is auto-selected to org-src; set target to the same
@@ -325,7 +325,7 @@ describe('ForgeInput', () => {
     expect((screen.getByTestId('forge-discover-btn') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  /* ---- UX-04: Swap orgs ---- */
+  /* ---- Swap orgs ---- */
   it('should swap source and target orgs when swap button is clicked', () => {
     render(<ForgeInput />);
     // Source is auto-selected to org-src; set target to org-tgt
@@ -338,7 +338,7 @@ describe('ForgeInput', () => {
     expect(targetTrigger.textContent).toContain('SourceOrg');
   });
 
-  /* ---- UX-05: Disabled CTA hint ---- */
+  /* ---- Disabled CTA hint ---- */
   it('should show hint message when discover button is disabled', () => {
     render(<ForgeInput />);
     // Clear source org that was auto-selected by selecting the empty option
@@ -346,7 +346,7 @@ describe('ForgeInput', () => {
     expect(screen.getByTestId('forge-discover-hint')).toBeDefined();
   });
 
-  /* ---- UX-07: Depth chip tooltips ---- */
+  /* ---- Depth chip tooltips ---- */
   it('should render depth chips with title tooltips', () => {
     render(<ForgeInput />);
     const directChip = screen.getByTestId('forge-depth-direct');
@@ -355,7 +355,7 @@ describe('ForgeInput', () => {
     expect(fullChip.getAttribute('title')).toBeTruthy();
   });
 
-  /* ---- UX-08: Ctrl+Enter submit ---- */
+  /* ---- Ctrl+Enter submit ---- */
   it('should not trigger discover on Ctrl+Enter when canDiscover is false', () => {
     render(<ForgeInput />);
     // Record input is visible by default; type something but do NOT set target org
@@ -423,7 +423,7 @@ describe('ForgeInput', () => {
     expect(mockSetPhase).not.toHaveBeenCalled();
   });
 
-  /* ---- UX-09: Preview panel shows record-mode text by default ---- */
+  /* ---- Preview panel shows record-mode text by default ---- */
   it('should show record-mode preview placeholder on record tab', () => {
     render(<ForgeInput />);
     // On the record tab with a source org auto-selected, the placeholder should show recordIdPlaceholder text
@@ -436,14 +436,14 @@ describe('ForgeInput', () => {
     expect(previewArea?.textContent).not.toContain('AI');
   });
 
-  /* ---- UX-10: Refresh button exists ---- */
+  /* ---- Refresh button exists ---- */
   it('should render a refresh preview button', () => {
     render(<ForgeInput />);
     const previewBtn = screen.getByTestId('forge-preview-btn');
     expect(previewBtn.getAttribute('aria-label')).toContain('efresh');
   });
 
-  /* ---- UX-23: Template management ---- */
+  /* ---- Template management ---- */
   it('should show create template button in template tab', () => {
     render(<ForgeInput />);
     fireEvent.click(screen.getByTestId('forge-tab-template'));
@@ -467,7 +467,7 @@ describe('ForgeInput', () => {
     expect(screen.getByTestId('forge-template-create')).toBeDefined();
   });
 
-  /* ---- A11Y-04: Depth chips radiogroup ---- */
+  /* ---- Depth chips radiogroup ---- */
   it('should have role="radiogroup" on depth chips container', () => {
     render(<ForgeInput />);
     const radiogroup = screen.getByRole('radiogroup');

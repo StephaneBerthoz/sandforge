@@ -7,22 +7,21 @@
  * one pins the opposite failures found in the same review — prose and manifest
  * that lag the code, plus manifest entries that ship broken to the user:
  *
- *   MKT-04  `sandforge.openOrgInBrowser` was in the Command Palette with a
- *           100% failure rate: it needs an org id the palette cannot supply.
- *   MKT-09  `capabilities.untrustedWorkspaces` had no `description`, so VS Code
- *           disabled the extension in a restricted workspace without saying why.
- *   FR-08   the three `sandforge.grappe.*` descriptions were raw English inside
- *           a fully localized Settings block.
- *   FR-05   the Get Started walkthrough had four steps and no action button.
- *   VSIX-01 the bundle carried a `sourceMappingURL` to a map `.vscodeignore`
- *           excludes, so every load looked for a file that is not in the VSIX.
- *   MKT-05  the listing buys the "sfdmu" and "data loader" keywords and never
- *           answered "why switch".
- *   MKT-06  DataOps Restore ships since v1.18.0 and the docs still called it
- *   /MKT-10 unbuilt.
+ *   - `sandforge.openOrgInBrowser` was in the Command Palette with a 100%
+ *     failure rate: it needs an org id the palette cannot supply.
+ *   - `capabilities.untrustedWorkspaces` had no `description`, so VS Code
+ *     disabled the extension in a restricted workspace without saying why.
+ *   - the three `sandforge.grappe.*` descriptions were raw English inside a
+ *     fully localized Settings block.
+ *   - the Get Started walkthrough had four steps and no action button.
+ *   - the bundle carried a `sourceMappingURL` to a map `.vscodeignore`
+ *     excludes, so every load looked for a file that is not in the VSIX.
+ *   - the listing buys the "sfdmu" and "data loader" keywords and never
+ *     answered "why switch".
+ *   - DataOps Restore ships since v1.18.0 and the docs still called it unbuilt.
  *
- * FR-08 also moves the Grappe wording out of `package.json` and into the six
- * `package.nls.*` files. The honesty checks the sibling gate applied to the
+ * Localizing Grappe also moved its wording out of `package.json` and into the
+ * six `package.nls.*` files. The honesty checks the sibling gate applied to the
  * manifest are re-applied here to the resolved locale values, on the same
  * anchor, so localizing a setting cannot buy Grappe an exemption; the
  * resolution itself is shared, in `claims-surfaces.mjs`.
@@ -45,7 +44,7 @@ const readJson = (...p) => JSON.parse(read(...p));
 const EXT = ['packages', 'extension'];
 const manifest = () => readJson(...EXT, 'package.json');
 
-// ── MKT-04: a palette command that cannot succeed ─────────────────────────
+// ── a palette command that cannot succeed ─────────────────────────────────
 
 test('anchor: openOrgInBrowser still needs an org id the palette cannot give', () => {
   const src = read(...EXT, 'src', 'extension.ts');
@@ -68,7 +67,7 @@ test('openOrgInBrowser is hidden from the Command Palette', () => {
   assert.equal(entry.when, 'false', 'the palette entry must be suppressed unconditionally');
 });
 
-// ── MKT-09: Restricted Mode with no explanation ───────────────────────────
+// ── Restricted Mode with no explanation ───────────────────────────────────
 
 test('untrustedWorkspaces says why the extension is disabled, in six languages', () => {
   const untrusted = manifest().capabilities?.untrustedWorkspaces;
@@ -83,7 +82,7 @@ test('untrustedWorkspaces says why the extension is disabled, in six languages',
   }
 });
 
-// ── FR-08: the Grappe settings were the only untranslated block ───────────
+// ── the Grappe settings were the only untranslated block ──────────────────
 
 const GRAPPE_KEYS = [
   'sandforge.grappe.enabled',
@@ -108,7 +107,7 @@ test('every sandforge.grappe.* description is localized', () => {
 test('localizing Grappe did not smuggle the claims product-claims.test.mjs bans', () => {
   // The sibling gate now resolves `%key%` too, so this is deliberate overlap
   // rather than the only cover: the same two assertions, on the same anchor,
-  // written against the three keys FR-08 localized. Same direction, so the two
+  // written against the three keys that were localized. Same direction, so the two
   // can only ever fail together.
   const orchestrator = read(...EXT, 'src', 'modules', 'autopilot', 'AutopilotOrchestrator.ts');
   assert.doesNotMatch(
@@ -140,7 +139,7 @@ test('localizing Grappe did not smuggle the claims product-claims.test.mjs bans'
   );
 });
 
-// ── FR-05: a walkthrough with no buttons ──────────────────────────────────
+// ── a walkthrough with no buttons ─────────────────────────────────────────
 
 test('every Get Started step offers a command button, in six languages', () => {
   const m = manifest();
@@ -172,7 +171,7 @@ test('every Get Started step offers a command button, in six languages', () => {
   );
 });
 
-// ── VSIX-01: a sourceMappingURL to a file the VSIX does not contain ───────
+// ── a sourceMappingURL to a file the VSIX does not contain ────────────────
 
 test('the bundle does not point at a source map the VSIX excludes', () => {
   const excludesMaps = /^\*\*\/\*\.map$/m.test(read(...EXT, '.vscodeignore'));
@@ -190,7 +189,7 @@ test('the bundle does not point at a source map the VSIX excludes', () => {
   );
 });
 
-// ── MKT-05: the listing never answered "why switch" ───────────────────────
+// ── the listing never answered "why switch" ───────────────────────────────
 
 const READMES = ['README.md', 'packages/extension/README.md'];
 
@@ -263,7 +262,7 @@ test('the SFDMU FAQ answer keeps the search term and answers the question', () =
   );
 });
 
-// ── MKT-06 / MKT-10: Restore shipped, the docs did not notice ─────────────
+// ── Restore shipped, the docs did not notice ──────────────────────────────
 
 test('anchor: DataOps Restore is wired end to end', () => {
   const handler = read(...EXT, 'src', 'bridge', 'handlers', 'DataOpsHandler.ts');

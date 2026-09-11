@@ -34,7 +34,7 @@ export interface SessionBudgetDeps {
  * chokepoint all AI calls pass through.
  *
  * Counts ALL four `AIUsage` fields (input + output + cacheRead + cacheCreate)
- * — RESEARCH P-04.6: output-only counters under-bill 5-20×.
+ * — an output-only counter under-bills by 5-20×.
  *
  * Lifecycle:
  *   - AI-stack init → `new SessionBudget({ sessionId, budget, broker })`

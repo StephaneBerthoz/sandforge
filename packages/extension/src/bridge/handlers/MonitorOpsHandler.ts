@@ -63,7 +63,7 @@ const ASYNC_APEX_JOB_SOQL = `SELECT Id, JobType, Status, NumberOfErrors, JobItem
  * The same window as the health check's jobs provider asks for it in
  * `MonitorOpsFactory`: fewer columns, same rows. Byte-identical to that query,
  * because {@link MonitorOpsHandler.withSharedJobQuery} matches on the string;
- * the PERF-07 tests go red if the two drift apart.
+ * the shared-job-query tests go red if the two drift apart.
  */
 const HEALTH_CHECK_JOB_SOQL = `SELECT Id, JobType, Status, NumberOfErrors, CreatedDate, CreatedById FROM AsyncApexJob ORDER BY CreatedDate DESC LIMIT ${DEFAULT_SOQL_LIMITS.monitorJobs}`;
 
@@ -778,7 +778,7 @@ export class MonitorOpsHandler implements DomainHandler {
       });
       const healthScore = healthReport.overallScore;
 
-      // 5b. Compute org health status (WIRE-05)
+      // 5b. Compute org health status
       let orgHealthStatus: OrgHealthStatus | undefined;
       try {
         orgHealthStatus = await this.healthCheck.computeHealth(payload.orgId);

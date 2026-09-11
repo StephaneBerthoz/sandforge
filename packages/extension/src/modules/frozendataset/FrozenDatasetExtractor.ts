@@ -1,11 +1,11 @@
 /**
- * Scope-aware extraction (spec §2) — pulls the full descendant closure of
+ * Scope-aware extraction — pulls the full descendant closure of
  * the retained root records plus the necessary reference data, reusing
  * Forge's `RecordScopeCache` + `ScopedSoqlBuilder` WITHOUT modifying them.
  *
- * Design choices (documented per spec):
+ * Design choices:
  *
- *  - **Frozen date bound (spec pitfall 8).** SOQL has no `AS OF`
+ *  - **Frozen date bound.** SOQL has no `AS OF`
  *    operator. The feasible freeze is a `CreatedDate <= <asOf>` literal
  *    appended to every node query via `ScopedSoqlBuilder.extraWhere`:
  *    records created after the bound are excluded. Records *modified*
@@ -37,7 +37,7 @@ import type { ExtractedDataset, ExtractedRecord, RecordTypeMapEntry } from './ty
 export const DEFAULT_RECORD_TYPES_SOQL =
   'SELECT Id, SobjectType, DeveloperName, Name FROM RecordType ORDER BY SobjectType, DeveloperName';
 
-/** rt-map file name inside the sas (spec §2). */
+/** rt-map file name inside the sas. */
 export const RT_MAP_FILE_NAME = 'rt-map.json';
 
 /** Strict ISO instant — validated before interpolation into SOQL literals. */
@@ -185,8 +185,8 @@ export class FrozenDatasetExtractor {
     }
 
     // Stable referenceIds: per object, records sorted by source ID, then
-    // numbered — identical exports produce identical referenceIds
-    // (spec pitfall 7), reusable for diffs and sidecars.
+    // numbered — identical exports produce identical referenceIds,
+    // reusable for diffs and sidecars.
     const objects = [...recordsByObject.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([objectApiName, bucket]) => {

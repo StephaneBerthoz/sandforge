@@ -15,7 +15,7 @@ import {
   queryAllPages,
 } from '../modules/forge/queryAllPages.js';
 
-/** Inputs required to wire the Forge orchestrator (Tier 5). */
+/** Inputs required to wire the Forge orchestrator. */
 export interface ForgeCompositionDeps {
   handlers: ExtensionHandlers;
   orgRegistry: OrgRegistry;
@@ -26,7 +26,7 @@ export interface ForgeCompositionDeps {
 }
 
 /**
- * Wire up the Forge orchestrator (Tier 5) via dynamic imports, then inject it
+ * Wire up the Forge orchestrator via dynamic imports, then inject it
  * into the handlers through the late setter (`setForgeOrchestrator`).
  *
  * Fire-and-forget by design: the 11 dynamic imports stay OFF the activation
@@ -71,7 +71,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         // Per-call timeouts: describe 30s, describeGlobal 60s, queryCount 15s.
         // Without timeouts, jsforce calls hang indefinitely on rate-limited orgs.
         //
-        // PERF-002: byte cap backed by a structural estimator that walks each
+        // Byte cap backed by a structural estimator that walks each
         // field descriptor (name/label/type/picklist values/help text) instead
         // of JSON.stringify — see SchemaCache.estimateSize. `maxSize` is the
         // count backstop: 50 entries caps the describe heap at a sane fraction
@@ -165,7 +165,7 @@ export function initForgeComposition(deps: ForgeCompositionDeps): void {
         const executor = new ForgeExecutor({
           queryRecords: async (orgId, soql) => {
             const conn = await getJsforceConnection(orgId, orgRegistry, orgManager);
-            // PERF-02: `conn.query` returns only the FIRST page (2 000 records
+            // `conn.query` returns only the FIRST page (2 000 records
             // max), so a 50 000-row object silently cloned as 2 000 rows.
             // `queryAllPages` follows the cursor, bounded, and says when a
             // bound cut the read short. See queryAllPages.ts for the bounds.

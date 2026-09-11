@@ -1,6 +1,6 @@
 /**
- * Non-reidentification control (spec §5) — the GATE before any frozen
- * artifact is written or versioned. Four checks compare the raw sas-only
+ * Non-reidentification control — the GATE before any frozen artifact is
+ * written or versioned. Four checks compare the raw sas-only
  * extraction against the frozen dataset, record to record, matched by
  * `referenceId`:
  *
@@ -8,8 +8,8 @@
  *      field AND from every other field of the same record (TRANSVERSAL
  *      leak: e.g. a license plate typed into a "brand" free-text field);
  *   2. **clear-empty** — fields under the `clear` generator hold zero
- *      residue (present values must be `''`; absence/null are acceptable —
- *      spec pitfall 6: tree exports omit null fields);
+ *      residue (present values must be `''`; absence/null are acceptable
+ *      because tree exports omit null fields);
  *   3. **formats** — SIV / E.164 / email / generalized postcodes still
  *      match their expected shape;
  *   4. **no-residual-id** — no remaining string validates the Salesforce
@@ -235,7 +235,8 @@ export class NonReidentificationControl {
       if (resolveGenerator(rules, objectApiName, field) !== 'clear') {
         continue;
       }
-      // Absence is fine (pitfall 6); a present value must be empty.
+      // Absence is fine (tree exports omit null fields); a present value
+      // must be empty.
       if (value !== '' && value !== null && value !== undefined) {
         violations.push({
           check: 'clear-empty',

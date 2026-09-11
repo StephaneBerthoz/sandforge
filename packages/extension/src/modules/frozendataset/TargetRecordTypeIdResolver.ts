@@ -3,7 +3,7 @@
  * point {@link RecordTypeIdResolver} (types.ts).
  *
  * Resolution is by (SobjectType, DeveloperName) ONLY — labels differ
- * between orgs, mojibake included (spec pitfall 1). Results are cached
+ * between orgs, mojibake included. Results are cached
  * per (org, object, developerName): RecordType metadata is stable within
  * a load run.
  */

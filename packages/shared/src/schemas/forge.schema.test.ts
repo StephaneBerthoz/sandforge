@@ -625,7 +625,7 @@ describe('forgeCheckpointSchema', () => {
       forgeId: 'forge-001',
       config: {
         inputMode: 'record',
-        // 15-char strict Salesforce ID (audit RT-001 hardened forgeConfigSchema)
+        // 15-char strict Salesforce ID — forgeConfigSchema enforces the regex
         recordId: '001AP00000j2CEg',
         depth: 'full',
         sourceOrgId: 'src',

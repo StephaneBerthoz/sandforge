@@ -25,7 +25,7 @@ const QUICKSYNC_TYPES = new Set([
   'quicksync:execute',
 ]);
 
-/** Smart defaults for Quick Sync execution (QSYNC-04). */
+/** Smart defaults for Quick Sync execution. */
 const QUICK_SYNC_DEFAULTS = {
   direction: 'source_to_target' as const,
   mode: 'full' as const,
@@ -237,7 +237,7 @@ export class QuickSyncHandler implements DomainHandler {
    * Payload: { config: QuickSyncConfig }
    *
    * Validates config with Zod, auto-generates field mappings via AutoFieldMapper,
-   * builds a full SyncConfig with smart defaults (QSYNC-04), and delegates to
+   * builds a full SyncConfig with smart defaults, and delegates to
    * the existing sync execution flow.
    */
   private async handleExecute(msg: InboundRequest): Promise<void> {
@@ -266,7 +266,7 @@ export class QuickSyncHandler implements DomainHandler {
         this.deps.orgManager,
       );
 
-      // Build per-object configs with auto-field mapping (QSYNC-03)
+      // Build per-object configs with auto-field mapping
       const allObjects = [...validatedConfig.selectedObjects, ...validatedConfig.parentObjects];
       const objectConfigs: Array<{
         objectApiName: string;

@@ -41,7 +41,7 @@ function buildValid(): FrozenManifest {
 }
 
 describe('buildFrozenManifest', () => {
-  it('contains every required field (spec §4)', () => {
+  it('contains every required field', () => {
     const manifest = buildValid();
     expect(manifest.version).toBe('1.4.0');
     expect(manifest.status).toBe('frozen');

@@ -119,7 +119,7 @@ describe('LogStream', () => {
     expect(screen.getByTestId('logstream-filter-warn')).toBeDefined();
   });
 
-  /* ---- UX-15: Copy All button ---- */
+  /* ---- Copy All button ---- */
   it('should render Copy All button when entries exist', () => {
     const singleEntry = [
       { id: '1', timestamp: Date.now(), level: 'info' as const, message: 'Hello' },
@@ -128,7 +128,7 @@ describe('LogStream', () => {
     expect(screen.getByTestId('logstream-copy-all')).toBeDefined();
   });
 
-  /* ---- UX-15: Export button ---- */
+  /* ---- Export button ---- */
   it('should render Export button when entries exist', () => {
     const singleEntry = [
       { id: '1', timestamp: Date.now(), level: 'info' as const, message: 'Hello' },
@@ -139,13 +139,13 @@ describe('LogStream', () => {
     expect(screen.getByTestId('logstream-export')).toBeDefined();
   });
 
-  /* ---- UX-15: Buttons not shown when empty ---- */
+  /* ---- Buttons not shown when empty ---- */
   it('should not render toolbar when entries are empty', () => {
     render(<LogStream entries={[]} />);
     expect(screen.queryByTestId('logstream-copy-all')).toBeNull();
   });
 
-  /* ---- UX-16: Scroll container has onScroll handler ---- */
+  /* ---- Scroll container has onScroll handler ---- */
   it('should have onScroll handler on scroll container', () => {
     const singleEntry = [
       { id: '1', timestamp: Date.now(), level: 'info' as const, message: 'Test' },
@@ -156,7 +156,7 @@ describe('LogStream', () => {
     expect(container).toBeDefined();
   });
 
-  /* ---- A11Y-02: aria-pressed on filter buttons ---- */
+  /* ---- aria-pressed on filter buttons ---- */
   it('should have aria-pressed="true" on active filter and "false" on others', () => {
     render(<LogStream entries={entries} />);
     expect(screen.getByTestId('logstream-filter-all').getAttribute('aria-pressed')).toBe('true');
@@ -172,7 +172,7 @@ describe('LogStream', () => {
     expect(screen.getByTestId('logstream-filter-warn').getAttribute('aria-pressed')).toBe('false');
   });
 
-  /* ---- A11Y-03: role=log and aria-live on scroll container ---- */
+  /* ---- role=log and aria-live on scroll container ---- */
   it('should have role="log" and aria-live="polite" on the scroll container', () => {
     render(<LogStream entries={entries} />);
     const logContainer = screen.getByRole('log');
@@ -180,7 +180,7 @@ describe('LogStream', () => {
     expect(logContainer.getAttribute('aria-live')).toBe('polite');
   });
 
-  /* ---- PERF-05: All filter returns all entries without copying ---- */
+  /* ---- The "all" filter returns all entries without copying ---- */
   it('should render all entries without filtering when filter is "all"', () => {
     const mixedEntries: LogEntry[] = [
       { id: '1', timestamp: Date.now(), level: 'info', message: 'Info message' },

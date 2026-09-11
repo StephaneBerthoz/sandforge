@@ -296,7 +296,7 @@ describe('ForgeResults', () => {
     expect(mockSetPhase).toHaveBeenCalledWith('execution');
   });
 
-  /* ---- UX-19: Duration + Timestamp ---- */
+  /* ---- Duration + Timestamp ---- */
 
   it('should display duration and timestamp from result', () => {
     render(<ForgeResults />);
@@ -309,7 +309,7 @@ describe('ForgeResults', () => {
     expect(timestamp.textContent).toContain('2026');
   });
 
-  /* ---- UX-18: Sort by column ---- */
+  /* ---- Sort by column ---- */
 
   it('should sort table rows when clicking a column header', () => {
     render(<ForgeResults />);
@@ -327,7 +327,7 @@ describe('ForgeResults', () => {
     expect(rowsDesc[2].textContent).toContain('Account');
   });
 
-  /* ---- UX-18: Filter by status ---- */
+  /* ---- Filter by status ---- */
 
   it('should filter table rows by status', () => {
     render(<ForgeResults />);
@@ -343,7 +343,7 @@ describe('ForgeResults', () => {
     expect(rows[1].textContent).toContain('Contact');
   });
 
-  /* ---- UX-14: Collapsible logs toggle ---- */
+  /* ---- Collapsible logs toggle ---- */
 
   it('should toggle execution logs visibility', () => {
     render(<ForgeResults />);
@@ -359,7 +359,7 @@ describe('ForgeResults', () => {
     expect(screen.queryByTestId('logstream')).toBeNull();
   });
 
-  /* ---- PERF-10: the Id remap table is virtualized ---- */
+  /* ---- Id remap table virtualization ---- */
 
   /** One source -> target pair per cloned record, as the executor returns them. */
   const makeIdRemapTable = (count: number): Record<string, string> => {

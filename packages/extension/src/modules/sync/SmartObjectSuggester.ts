@@ -10,7 +10,7 @@ interface CommonObject {
  * Suggests the top 5 most commonly synced Salesforce objects,
  * filtered against what is actually available in the connected org.
  *
- * Used by Quick Sync to pre-populate the object selection screen (SWIZ-05).
+ * Used by Quick Sync to pre-populate the object selection screen.
  */
 export class SmartObjectSuggester {
   /** Top 5 most common Salesforce objects for sync scenarios. */

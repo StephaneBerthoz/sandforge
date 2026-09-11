@@ -38,7 +38,7 @@ const mockExecFile = vi.mocked(execFile);
 /**
  * `refreshTokenViaCli` branches on `process.platform`:
  * - Windows uses `exec` (shell required for `sf.cmd` PATHEXT resolution)
- * - POSIX uses `execFile` with argv-as-array (no shell — safer per audit RT-#8)
+ * - POSIX uses `execFile` with argv-as-array (no shell — no interpolation)
  *
  * Tests must mock the right one for the current platform; this helper
  * returns the active mock so individual tests stay platform-agnostic.
@@ -249,7 +249,7 @@ describe('ConnectionHelper', () => {
           expect.objectContaining({ maxBuffer: expect.any(Number) }),
         );
       } else {
-        // POSIX: argv-as-array execFile — no shell, no interpolation (RT-#8 hardening)
+        // POSIX: argv-as-array execFile — no shell, no interpolation
         expect(mockExecFile).toHaveBeenCalledWith(
           'sf',
           ['org', 'display', '-u', 'admin@test.com', '--json'],

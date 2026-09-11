@@ -11,18 +11,17 @@
  *    Records carry `referenceId`s, in-scope lookups hold `referenceId`s
  *    (not source IDs), RecordTypeId fields hold the RecordType *Name*.
  *
- * The load-phase contract (spec §6-7, implemented by another agent) is
- * expressed here as extension-point interfaces — intentionally not
- * implemented by the core engine.
+ * The load-phase contract is expressed here as extension-point
+ * interfaces — intentionally not implemented by the core engine.
  */
 
 /** A raw record as extracted from the source org, keyed by referenceId. */
 export interface ExtractedRecord {
   /**
    * Stable synthetic identifier (`<ObjectApiName>-NNNNNN`, assigned in
-   * source-ID-sorted order so identical exports produce identical ids —
-   * spec pitfall 7). This is the ONLY join key allowed in the sas and in
-   * the frozen dataset.
+   * source-ID-sorted order so identical exports produce identical ids).
+   * This is the ONLY join key allowed in the sas and in the frozen
+   * dataset.
    */
   referenceId: string;
   /** Source-org record ID. Working data: sas-only, never frozen. */
@@ -37,7 +36,7 @@ export interface ExtractedObjectData {
   records: ExtractedRecord[];
 }
 
-/** One entry of `rt-map.json` produced at extraction (spec §2). */
+/** One entry of `rt-map.json` produced at extraction. */
 export interface RecordTypeMapEntry {
   /** Source-org RecordType ID (sas-only). */
   id: string;
@@ -79,8 +78,7 @@ export interface FrozenObjectData {
 
 /**
  * RecordType reference carried by the frozen dataset so the load phase
- * can resolve target-org IDs *by DeveloperName* (never by label —
- * spec pitfall 1).
+ * can resolve target-org IDs *by DeveloperName*, never by label.
  */
 export interface FrozenRecordTypeRef {
   name: string;
@@ -88,8 +86,8 @@ export interface FrozenRecordTypeRef {
 }
 
 /**
- * Sidecar link between a person Account and its PersonContact
- * (spec §6): `Account.PersonContactId` only exists after insert, so the
+ * Sidecar link between a person Account and its PersonContact:
+ * `Account.PersonContactId` only exists after insert, so the
  * anonymization phase emits referenceId→referenceId pairs here and the
  * load phase resolves and posts them as targeted updates.
  */
@@ -105,13 +103,13 @@ export interface FrozenDataset {
   objects: FrozenObjectData[];
   /** RecordTypes referenced by the dataset, per object (names only). */
   recordTypes: Record<string, FrozenRecordTypeRef[]>;
-  /** PersonContact sidecar (spec §6) consumed by the load phase. */
+  /** PersonContact sidecar consumed by the load phase. */
   personContactSidecar: PersonContactLink[];
 }
 
 /**
- * EXTENSION POINT for the load phase (spec §3/§6) — NOT implemented by
- * the core engine. Resolves a RecordType reference to a target-org
+ * EXTENSION POINT for the load phase — NOT implemented by the core
+ * engine. Resolves a RecordType reference to a target-org
  * RecordType ID by (SobjectType, DeveloperName); labels are never used
  * because they differ between orgs (mojibake included).
  */
@@ -124,8 +122,8 @@ export interface RecordTypeIdResolver {
 }
 
 /**
- * EXTENSION POINT for the load phase (spec §6 pitfall 9) — NOT
- * implemented by the core engine. Persists the only reliable address of
+ * EXTENSION POINT for the load phase — NOT implemented by the core
+ * engine. Persists the only reliable address of
  * a loaded record: the mapping `referenceId → real target Id` captured at
  * insert (target-org automations may rewrite business identifiers).
  */

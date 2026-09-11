@@ -1,5 +1,5 @@
 /**
- * Target schema alignment (spec §6): brings every record of the frozen
+ * Target schema alignment: brings every record of the frozen
  * dataset in line with what the TARGET org actually accepts, listing every
  * divergence in the report — never a silent exclusion:
  *
@@ -7,13 +7,13 @@
  *     REMOVED and listed;
  *   - restricted picklist values inactive at the global level are
  *     cleared/replaced per the DECLARED rule and listed;
- *   - RecordType assignment gaps (spec pitfall 2): a value active
- *     globally may be unassigned to the record's RecordType — invisible
+ *   - RecordType assignment gaps: a value active globally may be
+ *     unassigned to the record's RecordType — invisible
  *     to describe, only the UI API `picklist-values/{recordTypeId}/{field}`
  *     sees it. Rejected values follow the same declared rule and are
  *     listed with scope 'record-type';
- *   - required fields missing from EVERY record (spec pitfall 3 — a
- *     lookup turned required after the source data was created) are
+ *   - required fields missing from EVERY record (a lookup turned
+ *     required after the source data was created) are
  *     reported for the placeholder pattern; records are never dropped.
  */
 
@@ -170,8 +170,7 @@ export class SchemaAligner {
       return this.applyRule(rule, components, inactiveGlobal, isMulti);
     }
 
-    // RecordType assignment gap (spec pitfall 2) — only visible through the
-    // UI API, only when the record carries a resolved RecordType.
+    // RecordType assignment gap — only visible through the UI API, only when the record carries a resolved RecordType.
     const recordTypeId = input.resolvedRecordTypes.get(record.referenceId);
     if (!recordTypeId) {
       return value;

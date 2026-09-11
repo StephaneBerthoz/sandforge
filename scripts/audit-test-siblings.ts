@@ -1,5 +1,5 @@
 /**
- * Test-sibling ratchet for the extension host (TESTS-08).
+ * Test-sibling ratchet for the extension host.
  *
  * The repo constraint is "tests are mandatory for behaviour changes", but
  * nothing enforced it, so files carrying live bridge channels and bulk-write
@@ -33,7 +33,7 @@ const SRC_ROOT = 'packages/extension/src';
 
 /**
  * Line count above which a file must be reachable from a test. 200 is the
- * value the TESTS-08 measurement used; below it a file is small enough that
+ * value the coverage measurement used; below it a file is small enough that
  * its callers' tests exercise it incidentally.
  */
 const LINE_THRESHOLD = 200;

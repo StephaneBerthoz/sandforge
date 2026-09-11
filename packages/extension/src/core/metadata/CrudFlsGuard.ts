@@ -126,7 +126,7 @@ export class CrudFlsGuard {
    * for a restore: a backup is a verbatim `SELECT FIELDS(ALL)` snapshot, so it
    * always carries CreatedDate, SystemModstamp, formulas, roll-ups and compound
    * fields — none of them writable by anyone. Asking the all-or-nothing question
-   * about that payload made every single restore fail (EXT-02), and the first
+   * about that payload made every single restore fail, and the first
    * fix for it hard-coded ten field names, which misses every formula and
    * compound field the same way.
    *
@@ -176,7 +176,7 @@ export class CrudFlsGuard {
    * Is this field read-only for everyone, rather than for this user?
    *
    * `createable`/`updateable` collapse both cases into one false, which is why
-   * the first fix for EXT-02 reached for a list of field names. The describe
+   * the first fix for the restore failure reached for a list of field names. The describe
    * does carry the distinction, in four independent shapes:
    *
    * - not `permissionable` — FLS cannot be set on it at all, which is what

@@ -139,7 +139,7 @@ describe('FrozenDatasetWriter', () => {
     ]);
   });
 
-  it('refuses to write anything on control FAIL (spec §5 gate)', () => {
+  it('refuses to write anything on control FAIL', () => {
     const dir = makeTmpDir();
     const { frozen, manifest } = runPipeline();
     const failedControl = {

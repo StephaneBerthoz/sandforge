@@ -54,7 +54,7 @@ const complianceRequestPayloadSchema = z.object({
 const metadataDiffRequestPayloadSchema = z.object({
   sourceOrgId: orgIdSchema,
   targetOrgId: orgIdSchema,
-  // RT-005: tightened from .max(500) to .max(100). 100 SObjects per diff
+  // Tightened from .max(500) to .max(100). 100 SObjects per diff
   // is already past any realistic UI use case; 500 enabled API-limit DoS
   // (500 source describes + 500 target describes = 1000 calls per request).
   objectApiNames: z
@@ -233,7 +233,7 @@ export class ForgeHandler implements DomainHandler {
   private templateStore?: ForgeTemplateStore;
 
   /**
-   * PERF-08: per-org `describeGlobal` result, keyed by org id.
+   * Per-org `describeGlobal` result, keyed by org id.
    *
    * The preview path only needs the key-prefix -> {name,label} table, but
    * `conn.describeGlobal()` re-downloads 1-2 MB of JSON on every call. The
@@ -433,7 +433,7 @@ export class ForgeHandler implements DomainHandler {
 
       // Resolve object type from record ID key prefix. The prefix table is
       // org-wide and identical for every preview, so it is cached per org
-      // (PERF-08) — without it each pasted record id re-downloaded the whole
+      // — without the cache each pasted record id re-downloaded the whole
       // describeGlobal payload.
       const keyPrefix = recordId.substring(0, 3);
       let sobjects = this.describeGlobalCache.get(orgId);
@@ -539,7 +539,7 @@ export class ForgeHandler implements DomainHandler {
     // the webview with hundreds of postMessages, each carrying a JSON
     // payload that vscode has to serialize. Terminal events are emitted
     // immediately; mid-stream events are coalesced. Hoisted out of try
-    // so the catch path can flush pending events too (PERF-004).
+    // so the catch path can flush pending events too.
     const throttledProgress = throttle((event: Record<string, unknown>) => {
       const progressMsg = buildResponse(this.deps, msg, 'forge:discover:progress', event);
       this.deps.broker.postToWebview(progressMsg);
@@ -558,7 +558,7 @@ export class ForgeHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { nodeCount: graph.nodes?.length ?? 0 });
     } catch (error: unknown) {
-      // PERF-004: flush any pending throttled progress event so the UI gets
+      // Flush any pending throttled progress event so the UI gets
       // the latest queue state before the error response arrives. Without
       // this, an abort mid-BFS leaves the wizard frozen on stale counts.
       throttledProgress.flush();
@@ -750,7 +750,7 @@ export class ForgeHandler implements DomainHandler {
         retryable: true,
       });
     } finally {
-      // CR-012: unsubscribe BEFORE flushing so the flush's terminal event
+      // Unsubscribe BEFORE flushing so the flush's terminal event
       // doesn't trigger any progress listeners that we're about to remove.
       // Then flush so the last queued progress event reaches the webview
       // before this handler returns.
@@ -771,7 +771,7 @@ export class ForgeHandler implements DomainHandler {
   }
 
   private handleAbort(_msg: BaseMessage): void {
-    // CR-010: signal abort, then null the refs so a stale post-abort signal
+    // Signal abort, then null the refs so a stale post-abort signal
     // can't leak between sequential operations (e.g. abort during discover
     // followed by an immediate execute). The handler functions reset the
     // refs on entry, but defensive nulling here closes the race window.

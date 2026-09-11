@@ -9,7 +9,7 @@ import { useVSCodeApi } from './useVSCodeApi';
  * Hook that returns a stable callback for sending typed messages
  * to the extension host via the VSCode webview API.
  *
- * Plan 01-04: every outbound message is wrapped in a protocol envelope:
+ * Every outbound message is wrapped in a protocol envelope:
  *
  *   { protocolVersion, correlationId?, payload: message }
  *

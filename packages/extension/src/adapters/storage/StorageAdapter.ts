@@ -12,7 +12,7 @@ import type * as vscode from 'vscode';
  * Key format convention: `sandforge.${namespace}.${field}` — enforced by callers.
  *
  * Why: centralises storage IO, avoids direct `context.globalState.*` scatter,
- * unblocks HARD-06 SecretStorage migration.
+ * unblocks the SecretStorage migration.
  */
 export class StorageAdapter {
   private readonly context: vscode.ExtensionContext;

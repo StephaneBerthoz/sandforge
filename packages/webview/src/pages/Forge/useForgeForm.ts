@@ -181,7 +181,7 @@ export function useForgeForm(): ForgeFormState {
    */
   const [recordLimit, setRecordLimit] = useState<string>('smart');
 
-  /* ---- UX-01: Auto-select source org from global selectedOrgId on mount ---- */
+  /* ---- Auto-select source org from global selectedOrgId on mount ---- */
   useEffect(() => {
     if (!sourceOrgId && selectedOrgId) {
       setSourceOrgId(selectedOrgId);
@@ -295,12 +295,12 @@ export function useForgeForm(): ForgeFormState {
     [setDepth],
   );
 
-  /** Record input change: reset preview and auto-detect org from URL domain (UX-02). */
+  /** Record input change: reset preview and auto-detect org from URL domain. */
   const handleRecordIdChange = useCallback(
     (value: string) => {
       setRecordId(value);
       resetPreview();
-      // UX-02: Auto-detect org from pasted URL domain
+      // Auto-detect org from pasted URL domain
       const domain = extractSalesforceDomain(value);
       if (domain) {
         const matchedOrg = orgs.find((o) => {

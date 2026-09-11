@@ -1,6 +1,6 @@
 /**
  * Pseudonymization rules file — the single source of truth mapping
- * `Object.Field` → generator (spec §3). No rule is hard-coded in the
+ * `Object.Field` → generator. No rule is hard-coded in the
  * engine: a field without a rule falls back to the `clear` default so no
  * clear-text ever leaks into the frozen dataset.
  *
@@ -95,7 +95,7 @@ export function parsePseudonymRules(payload: unknown): PseudonymRulesFile {
     }
     const approved = rawEntry.approved === true;
     if (generator === 'keep' && !approved) {
-      // Spec §3: keep requires explicit human validation.
+      // `keep` requires explicit human validation.
       violations.push(
         `"${key}": generator "keep" requires "approved": true (explicit human review)`,
       );
@@ -129,7 +129,7 @@ export function serializePseudonymRules(file: PseudonymRulesFile): string {
 
 /**
  * Resolve the effective generator for `objectApiName.fieldApiName`.
- * Fields without a rule default to `clear` — never clear-text (spec §3).
+ * Fields without a rule default to `clear` — never clear-text.
  */
 export function resolveGenerator(
   rules: PseudonymRulesFile,

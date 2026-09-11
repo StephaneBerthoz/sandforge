@@ -75,7 +75,7 @@ beforeEach(() => {
   ConstructorSpy.mockReset();
 });
 
-describe('AnthropicAdapter — Plan 04-01 happy path', () => {
+describe('AnthropicAdapter — happy path', () => {
   it('lazy SecretStorage: construction does NOT call getSecret; first call does; subsequent calls re-use cached client', async () => {
     const { storage, getSecretSpy } = makeStorage();
     const adapter = new AnthropicAdapter({ storage });
@@ -120,7 +120,7 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
     expect(result.stopReason).toBe('end_turn');
   });
 
-  it('usage breakdown sums all 4 fields including cache tokens (P-04.6)', async () => {
+  it('usage breakdown sums all 4 fields including cache tokens', async () => {
     const { storage } = makeStorage();
     const adapter = new AnthropicAdapter({ storage });
     mockMessagesCreate.mockResolvedValue({
@@ -154,7 +154,7 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
     );
   });
 
-  it('SDK errors are re-wrapped with API-key shaped substrings redacted (P-04.7)', async () => {
+  it('SDK errors are re-wrapped with API-key shaped substrings redacted', async () => {
     const { storage } = makeStorage();
     const adapter = new AnthropicAdapter({ storage });
     mockMessagesCreate.mockRejectedValue(
@@ -179,7 +179,7 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
   });
 });
 
-// ── Plan 04-02 — CircuitBreaker + per-request AbortController ─────────────
+// ── CircuitBreaker + per-request AbortController ──────────────────────────
 // A small SDK-like error helper for breaker tests.
 class MockOverloadedError extends Error {
   constructor(public status = 529) {
@@ -196,7 +196,7 @@ class MockRateLimitError extends Error {
   }
 }
 
-describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
+describe('AnthropicAdapter — breaker + abort', () => {
   it('3x 529 trips the breaker; 4th call fast-fails without hitting the SDK', async () => {
     const { storage } = makeStorage();
     const adapter = new AnthropicAdapter({ storage });
@@ -363,7 +363,7 @@ describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
     expect(getSecretSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('aborting one user signal does NOT propagate to a sibling call (Pitfall #3 isolation)', async () => {
+  it('aborting one user signal does NOT propagate to a sibling call', async () => {
     const { storage } = makeStorage();
     const adapter = new AnthropicAdapter({ storage });
 
@@ -411,7 +411,7 @@ describe('AnthropicAdapter — Plan 04-02 breaker + abort', () => {
   });
 });
 
-describe('AnthropicAdapter — Plan 04-02 vertical slice (3x 529 → open → fast reject → 5min reset)', () => {
+describe('AnthropicAdapter — breaker lifecycle (3x 529 → open → fast reject → 5min reset)', () => {
   it('3 sequential 529s open the breaker; 4th rejects fast; 5min later the next call attempts the SDK', async () => {
     vi.useFakeTimers();
     const { storage } = makeStorage();
@@ -442,8 +442,8 @@ describe('AnthropicAdapter — Plan 04-02 vertical slice (3x 529 → open → fa
   });
 });
 
-// ── Plan 04-05 vertical slice — token budget end-to-end ────────────────────
-describe('AnthropicAdapter — Plan 04-05 vertical slice (5 calls → warn → preflight refuse)', () => {
+// ── Token budget end-to-end ───────────────────────────────────────────────
+describe('AnthropicAdapter — token budget end-to-end (5 calls → warn → preflight refuse)', () => {
   it('5 cumulative chats hit warn at 80% then 6th preflight refuses BEFORE the SDK call', async () => {
     const { SessionBudget } = await import('./tokenBudget/SessionBudget.js');
     const sentEnvelopes: Array<{ type: string }> = [];

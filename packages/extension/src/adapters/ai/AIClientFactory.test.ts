@@ -47,7 +47,7 @@ describe('AIClientFactory', () => {
     expect(client1).toBe(client3);
   });
 
-  it('returns an OpenAIAdapter STUB for openai (Plan 04-07 — no factory throw)', () => {
+  it('returns an OpenAIAdapter STUB for openai — the factory does not throw', () => {
     const factory = createAIClientFactory({
       storage: fakeStorage,
       getProvider: () => 'openai',
@@ -57,7 +57,7 @@ describe('AIClientFactory', () => {
     expect(typeof client.chat).toBe('function');
   });
 
-  it('returns a CustomAdapter STUB for custom (Plan 04-07 — no factory throw)', () => {
+  it('returns a CustomAdapter STUB for custom — the factory does not throw', () => {
     const factory = createAIClientFactory({
       storage: fakeStorage,
       getProvider: () => 'custom',

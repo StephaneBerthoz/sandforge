@@ -4,7 +4,7 @@
  * Every output of the frozen-dataset engine that may contain source-org
  * identifiers (exports, retained-ID lists, working manifests) MUST live
  * outside the git repository: versioned, such a file would become a
- * real↔anonymized correspondence table (spec §1/§2). This guard resolves
+ * real↔anonymized correspondence table. This guard resolves
  * candidate paths and refuses anything located inside the repo.
  */
 

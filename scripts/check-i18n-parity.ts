@@ -982,9 +982,9 @@ function auditDynamicTailPrefixes(
  * The ratchet on that baseline. Three ways it stops telling the truth, all of
  * them blocking:
  *
- *   - an entry referenced again — the DEADCODE-08 mechanism, where a key that
- *     merely lost its consumer for the length of a purge was written down as
- *     dead instead of being left to come back;
+ *   - an entry referenced again — a key that merely lost its consumer for the
+ *     length of a purge was written down as dead instead of being left to
+ *     come back;
  *   - an entry en.json no longer defines, which suppresses nothing and only
  *     inflates the count;
  *   - a list longer than the census it was last counted at, i.e. an append.

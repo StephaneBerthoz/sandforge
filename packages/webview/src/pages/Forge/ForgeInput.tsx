@@ -121,7 +121,7 @@ export const ForgeInput: React.FC = () => {
         />
       </div>
 
-      {/* UX-03: Same-org warning */}
+      {/* Same-org warning */}
       {form.sameOrgSelected && (
         <div
           className="flex items-center gap-2 px-3 py-2 rounded-md text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20"
@@ -410,7 +410,7 @@ export const ForgeInput: React.FC = () => {
             <Flame size={16} />
             {t('forge.discoverGraph')}
           </button>
-          {/* UX-05: Disabled CTA hint */}
+          {/* Disabled CTA hint */}
           {!form.canDiscover && (
             <p
               className="text-[10px] text-text-muted text-center mt-1"

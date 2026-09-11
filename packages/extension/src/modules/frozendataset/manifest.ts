@@ -1,6 +1,6 @@
 /**
- * Frozen dataset manifest (spec §4): the versioned identity card of a
- * frozen dataset. Contains NO source data — only the salt FINGERPRINT,
+ * Frozen dataset manifest: the versioned identity card of a frozen
+ * dataset. Contains NO source data — only the salt FINGERPRINT,
  * volumetry, and control outcomes.
  */
 
@@ -27,8 +27,8 @@ export interface ManifestVolumetry {
 }
 
 /**
- * EXTENSION POINT for the load phase (spec §6): the dry-run load outcome
- * is filled by the loading agent; the core engine always writes `null`.
+ * EXTENSION POINT for the load phase: the dry-run load outcome is filled
+ * by the load phase; the core engine always writes `null`.
  */
 export interface DryRunLoadControl {
   status: 'pending' | 'passed' | 'failed';

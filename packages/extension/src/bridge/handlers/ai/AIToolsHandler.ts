@@ -26,7 +26,7 @@ export class AIToolsHandler implements DomainHandler {
   constructor(private readonly deps: HandlerDeps) {}
 
   /**
-   * Inject the model-backed modules (Tier 2). Passing `undefined` takes them
+   * Inject the model-backed modules. Passing `undefined` takes them
    * away, so an AI switched off mid-session stops NL2SOQL, error resolution
    * and pipeline drafts from reaching a provider.
    */

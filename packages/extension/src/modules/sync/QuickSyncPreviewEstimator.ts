@@ -17,7 +17,7 @@ const SECONDS_PER_API_CALL = 2;
 /**
  * Estimates Quick Sync execution costs: record counts, API calls, and duration.
  *
- * Used by the Quick Sync preview screen (QSYNC-05) to show the user
+ * Used by the Quick Sync preview screen to show the user
  * what will happen before they confirm execution.
  */
 export class QuickSyncPreviewEstimator {

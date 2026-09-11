@@ -1,8 +1,7 @@
 /**
- * Dossier health check backed by the existing Forge graph discovery
- * (spec §1: "graphe complet via le discovery forge existant — pas de
- * dossier boiteux"). A root record is healthy when its dependency graph
- * is discovered completely: no truncation, and every expected object is
+ * Dossier health check backed by the existing Forge graph discovery: a
+ * complete graph, never a lame dossier. A root record is healthy when its
+ * dependency graph is discovered completely: no truncation, and every expected object is
  * reached. This module only CONSUMES GraphDiscoveryService — Forge is
  * not modified.
  */

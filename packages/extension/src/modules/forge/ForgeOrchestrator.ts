@@ -62,7 +62,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
    *
    * Includes every config field that materially affects the resulting graph
    * (target org, anonymize, expandOrphanParents, maxRecordsPerObject) so
-   * cache hits never silently swap one configuration for another. RT-004.
+   * cache hits never silently swap one configuration for another.
    */
   private cacheKeyFor(config: ForgeConfig): string {
     const root =
@@ -94,7 +94,7 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
 
   /**
    * Free resources held by the orchestrator. Called when the extension
-   * deactivates or the user disconnects an org. CR-008 — without this,
+   * deactivates or the user disconnects an org. Without this,
    * the discoveryCache (16 entries × ~5 MB) stays in heap until VSCode
    * restarts, and stale graphs survive schema changes on the source org.
    */
@@ -177,8 +177,8 @@ export class ForgeOrchestrator extends TypedEventEmitter<ForgeEvents> {
     try {
       // When inputMode === 'record', activate scoped execution so the
       // executor only clones the transitive closure of the root record
-      // instead of the whole graph. Wave 2 v4 features (orphan parent
-      // expansion) flow through ForgeConfig. The maxRecordsPerObject cap
+      // instead of the whole graph. Orphan parent expansion flows
+      // through ForgeConfig. The maxRecordsPerObject cap
       // applies to all input modes — it's a safety knob, not scope-only.
       const scoped =
         config.inputMode === 'record' && typeof config.recordId === 'string'

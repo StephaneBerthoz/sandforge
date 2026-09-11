@@ -372,9 +372,9 @@ const AIMessages = [
   msg('ai:generate-pipeline:response'),
   msg('ai:schema-advice'),
   msg('ai:schema-advice:response'),
-  // Phase 04 plan 04-02: provider status banner (breaker open / half-open / closed).
+  // Provider status banner (breaker open / half-open / closed).
   msg('ai:provider:status'),
-  // Phase 04 plan 04-05: per-panel-session token budget surface.
+  // Per-panel-session token budget surface.
   msg('ai:budget:state'),
   msg('ai:budget:warn'),
   msg('ai:budget:exceeded'),

@@ -2,9 +2,9 @@
  * Sas-persisted referenceId→Id mapping store — implements the engine
  * extension point {@link ReferenceIdMappingStore} (types.ts).
  *
- * Target-org automations may rewrite business identifiers at insert
- * (spec pitfall 9): the ONLY reliable address of a loaded record is the
- * real ID captured in the DML outcome. This store persists that mapping
+ * Target-org automations may rewrite business identifiers at insert: the
+ * ONLY reliable address of a loaded record is the real ID captured in the
+ * DML outcome. This store persists that mapping
  * as JSON inside the sas (outside the repo, enforced by SasPathGuard) so
  * reloads, PersonContact post-loads and the PostLoadVerifier can resolve
  * referenceIds to real IDs.

@@ -210,7 +210,7 @@ else
   echo "SKIP: clean install validation (SKIP_BUILD_CHECKS=1)"
 fi
 
-# 11. Activation time check (MKT-08: < 2s)
+# 11. Activation time check (target: < 2s)
 # Note: Precise activation time measurement requires running in VSCode via @vscode/test-electron.
 # This check verifies the extension bundle is small enough for fast activation.
 if [[ -f "packages/extension/dist/extension.js" ]]; then

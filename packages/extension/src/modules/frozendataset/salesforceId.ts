@@ -55,7 +55,7 @@ export function to18(id15: string): string {
 /**
  * True when `value` is an 18-character string whose last three characters
  * are the valid case checksum of the first fifteen. This is the
- * discriminant used by the dead-ID sweep (spec §3): it catches record IDs
+ * discriminant used by the dead-ID sweep: it catches record IDs
  * AND RecordType IDs regardless of pod marker.
  */
 export function isValidSalesforceId18(value: string): boolean {

@@ -576,7 +576,7 @@ describe('GraphDiscoveryService', () => {
       expect(graph.edges.length).toBeGreaterThan(0);
     });
 
-    // ERRORS-07: ScopeResolver (and every other consumer that has to explain
+    // ScopeResolver (and every other consumer that has to explain
     // a missing object) reads `status`/`errors` to tell an object that is
     // genuinely empty from one whose size could not be established. Both end
     // up with `included === false` and `recordCount === 0`, so the boolean

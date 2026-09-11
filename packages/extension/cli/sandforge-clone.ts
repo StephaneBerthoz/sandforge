@@ -441,7 +441,7 @@ async function main(): Promise<void> {
       const meta = await c.sobject(name).describe();
       return meta.createable !== false;
     },
-    // CR-016: surface upsert path so re-runs against the same source records
+    // Surface upsert path so re-runs against the same source records
     // don't pile DUPLICATE_VALUE errors on objects with external Id fields.
     upsertRecords: async (orgId, name, externalIdField, records) => {
       if (args.dryRun) return records.map(() => ({ id: '', success: true, errors: [] }));
@@ -510,7 +510,7 @@ async function main(): Promise<void> {
       dryRun: args.dryRun,
       recordTypeMappings,
       maxRecordsPerObject: args.maxRecordsPerObject,
-      // CR-014: Force 'nullify' for cross-org CLI clones. The default
+      // Force 'nullify' for cross-org CLI clones. The default
       // ('keep' for non-scoped) preserves source IDs which would be
       // invalid on the target unless source and target share state, which
       // is never the case for a real cross-org clone via this CLI.

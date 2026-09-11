@@ -91,7 +91,7 @@ export interface ExtensionHandlersDeps {
   services?: Services;
   /**
    * Injected executor for VSCode commands. Used by the `workbench:reload`
-   * handler (Plan 01-04-11) to trigger `workbench.action.reloadWindow` when
+   * handler to trigger `workbench.action.reloadWindow` when
    * the protocol-mismatch banner's Reload button is clicked. Defaults to a
    * no-op in tests that don't provide one.
    */
@@ -235,7 +235,7 @@ export class ExtensionHandlers {
     this.settingsHandler.setOnboardingServices(onboarding, hints);
   }
 
-  /** Inject infrastructure services (Tier 1). */
+  /** Inject infrastructure services. */
   setInfraServices(services: InfraServices): void {
     // Mutate the shared deps object so all handlers see the update
     this.handlerDeps.infraServices = services;
@@ -336,7 +336,7 @@ export class ExtensionHandlers {
     this.syncScheduleHandler.stopScheduler();
   }
 
-  /** Inject the model-backed modules (Tier 2), or `undefined` to take them away. */
+  /** Inject the model-backed modules, or `undefined` to take them away. */
   setAIModules(modules: AIModules | undefined): void {
     this.aiHandler.setAIModules(modules);
     // Mutate the shared deps object so `sendOperationFailed` can answer a
@@ -351,23 +351,23 @@ export class ExtensionHandlers {
     this.aiHandler.setRuleModules(modules);
   }
 
-  /** Inject migration file reader (Tier 3). */
+  /** Inject the migration file reader. */
   setMigrationServices(fileReader: MigrationFileReader): void {
     this.migrationHandler.setFileReader(fileReader);
   }
 
-  /** Inject pipeline marketplace (Tier 3). */
+  /** Inject the pipeline marketplace. */
   setPipelineMarketplace(marketplace: PipelineMarketplace): void {
     this.automationHandler.setPipelineMarketplace(marketplace);
   }
 
-  /** Inject autopilot orchestrator (Tier 4). */
+  /** Inject the autopilot orchestrator. */
   setAutopilotOrchestrator(orchestrator: AutopilotOrchestrator): void {
     this.autopilotHandler.setOrchestrator(orchestrator);
   }
 
   /**
-   * Inject forge orchestrator and optional v2 services (Tier 5).
+   * Inject the forge orchestrator and optional v2 services.
    *
    * @param orchestrator - The ForgeOrchestrator instance.
    * @param services - Optional additional Forge v2 services.
@@ -674,7 +674,7 @@ export class ExtensionHandlers {
       this.noOpHandler,
     );
 
-    // Bridge protocol-mismatch reload (Plan 01-04-11). Triggered by the
+    // Bridge protocol-mismatch reload. Triggered by the
     // ProtocolMismatchBanner in the webview when the user clicks "Reload".
     router.route('workbench:reload', () => {
       void this.executeCommand('workbench.action.reloadWindow');

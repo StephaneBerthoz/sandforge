@@ -37,13 +37,13 @@ export interface LateServices {
   /** Onboarding + hints for the settings handler. */
   onboardingService: OnboardingService;
   hintTracker: HintTracker;
-  /** Infrastructure services (Tier 1) shared via the mutable HandlerDeps. */
+  /** Infrastructure services shared via the mutable HandlerDeps. */
   infraServices: InfraServices;
   /** Background registry — also constructs the ExecutionHandler. */
   backgroundRegistry: BackgroundOperationRegistry;
-  /** Migration file reader (Tier 3). */
+  /** Migration file reader. */
   migrationFileReader: MigrationFileReader;
-  /** Pipeline marketplace (Tier 3). */
+  /** Pipeline marketplace. */
   pipelineMarketplace: PipelineMarketplace;
   /** Live operation tracker serving monitor:live-operations polls. */
   liveOperationTracker: LiveOperationTracker;

@@ -1,8 +1,8 @@
 /**
  * Property-based tests for DiffEngine.
  *
- * Fresh `DiffEngine` per property body (P-02.5 mitigation). Each property
- * explicitly sets `numRuns: 100`.
+ * Fresh `DiffEngine` per property body, so no state bleeds across runs. Each
+ * property explicitly sets `numRuns: 100`.
  */
 import * as fc from 'fast-check';
 import { describe, it, expect } from 'vitest';

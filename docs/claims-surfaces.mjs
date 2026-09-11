@@ -51,8 +51,8 @@ export const bundles = () =>
  *
  * The word is not the only way to say it, and the missing spellings were not
  * hypothetical: `sandforge.grappe.maxWorkers` shipped for a release as "maximum
- * number of partitions processed **concurrently**" (removed in v1.17.0,
- * CONTRACT-03), which the accent-free `paral…` class could not see. So the
+ * number of partitions processed **concurrently**" (removed in v1.17.0),
+ * which the accent-free `paral…` class could not see. So the
  * class carries the concurrency vocabulary of all six: the accented French
  * forms (`parallélisme`, `parallélisation`), `concurrent`/`concurremment` and
  * the Iberian `concorrente`, German `gleichzeitig` and `nebenläufig`,

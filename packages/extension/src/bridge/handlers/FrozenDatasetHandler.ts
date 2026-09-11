@@ -226,7 +226,7 @@ function toManifestInfo(manifest: FrozenManifest): FrozenManifestInfo {
 /**
  * Map a selection result to its REDACTED bridge summary: source record IDs
  * stay in the sas — a real↔anonymized correspondence table never crosses
- * the bridge (spec §1).
+ * the bridge.
  */
 function toSelectionSummary(
   result: CoverageSelectionResult,
@@ -517,7 +517,7 @@ export class FrozenDatasetHandler implements DomainHandler {
   /**
    * Target-org access adapter over jsforce (query / describe / UI API).
    * The UI API `picklist-values` call is the ONLY source that sees
-   * RecordType assignment gaps (spec pitfall 2).
+   * RecordType assignment gaps.
    */
   private buildTargetOrgAccess(): TargetOrgAccess {
     return {
@@ -842,7 +842,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps.broker.postToWebview(controlMsg);
 
       if (!report.passed) {
-        // Spec §5: a FAIL means nothing is written, hence nothing versioned.
+        // A FAIL means nothing is written, hence nothing versioned.
         sendHandlerError(
           this.deps,
           'frozen:extract',
@@ -1046,7 +1046,7 @@ export class FrozenDatasetHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       sendOperationCompleted(this.deps, operationId, { status: report.status });
 
-      // Chained post-load verification (spec §7) — read-only.
+      // Chained post-load verification — read-only.
       await this.runVerification(msg, {
         orgId: parsed.targetOrgId,
         contractPath: report.contractPath,

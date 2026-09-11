@@ -22,7 +22,7 @@ import type { AIProvider } from '../modules/ai/types.js';
 import { SessionBudget, type BudgetBroker } from '../adapters/ai/tokenBudget/index.js';
 
 /**
- * The Tier 2 modules pass their spotlight system prompt as the second
+ * The AI modules pass their spotlight system prompt as the second
  * argument of AIProvider. That prompt is one of the two prompt-injection
  * defences, so it is only real if the composition forwards it to the client —
  * the previous single-argument closure dropped it silently.
@@ -52,7 +52,7 @@ describe('initAIComposition — aiProvider forwards the system prompt', () => {
     } as unknown as AICompositionDeps;
   }
 
-  /** Recover the closure the composition handed to the Tier 2 constructors. */
+  /** Recover the closure the composition handed to the AI module constructors. */
   async function captureProvider(): Promise<AIProvider> {
     await initAIComposition(makeDeps());
     const ctor = vi.mocked(NL2SOQL);

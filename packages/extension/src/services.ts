@@ -106,7 +106,7 @@ export interface OrchestratorFactories {
   seedOrchestrator: (deps: SeedOrchestratorDependencies) => SeedOrchestrator;
   syncOrchestrator: (deps: SyncOrchestratorDeps) => SyncOrchestrator;
   compareOrchestrator: (deps: CompareDependencies) => CompareOrchestrator;
-  /** DataOps currently has no single orchestrator — reserved for Phase 03+. */
+  /** Always null: DataOps has no single orchestrator to build. */
   dataopsOrchestrator: null;
   automationOrchestrator: (deps: PipelineOrchestratorDependencies) => PipelineOrchestrator;
 }

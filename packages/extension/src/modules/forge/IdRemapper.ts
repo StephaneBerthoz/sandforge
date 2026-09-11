@@ -28,7 +28,7 @@ export class IdRemapper {
     const remapped = { ...record };
     for (const field of lookupFields) {
       const value = remapped[field];
-      // CR-019: single-lookup pattern (was has() + get(), 2× the cost on
+      // Single-lookup pattern (was has() + get(), 2× the cost on
       // hot path of 50K records × 30 lookup fields = 3M lookups).
       if (typeof value === 'string') {
         const newId = this.map.get(value);
@@ -65,7 +65,7 @@ export class IdRemapper {
       // checkpoint was hand-edited or a future Salesforce field was named
       // `__proto__` (very unlikely, but free to enforce). Map.set is itself
       // immune to proto pollution (vs. obj[k]=v) — the filter is belt-and-
-      // suspenders. RT-007: typeof key check is dead code (Object.entries
+      // suspenders. The typeof key check is dead code (Object.entries
       // always returns string keys) but kept for value safety.
       if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
       if (typeof value !== 'string') continue;

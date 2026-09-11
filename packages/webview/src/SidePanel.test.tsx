@@ -262,7 +262,7 @@ describe('SidePanel', () => {
     }
   });
 
-  // SP-01: Org switcher sorts connected first
+  // Org switcher sorts connected first
   it('sorts connected orgs before disconnected in dropdown', () => {
     const disconnectedOrg: SalesforceOrg = {
       ...mockOrg,
@@ -288,7 +288,7 @@ describe('SidePanel', () => {
     expect(buttons[1]?.getAttribute('data-testid')).toBe('sidepanel-org-option-org-expired');
   });
 
-  // SP-01: Status dot reflects selected org status
+  // Status dot reflects selected org status
   it('shows red status dot when selected org is expired', () => {
     const expiredOrg: SalesforceOrg = {
       ...mockOrg,
@@ -304,7 +304,7 @@ describe('SidePanel', () => {
     expect(dot?.className).not.toContain('bg-green-500');
   });
 
-  // SP-03: Collapsible Quick Metrics
+  // Collapsible Quick Metrics
   it('toggles Quick Metrics visibility when clicking the toggle', () => {
     useOrgStore.setState({ orgs: [mockOrg] });
     render(<SidePanel />);
@@ -318,7 +318,7 @@ describe('SidePanel', () => {
     expect(screen.getByTestId('sidepanel-metrics')).toBeInTheDocument();
   });
 
-  // SP-04: Favorite stars always visible
+  // Favorite stars always visible
   it('renders favorite stars with visible opacity (not hidden)', () => {
     render(<SidePanel />);
     const starBtn = screen.getByTestId('sidepanel-star-monitor');
@@ -326,7 +326,7 @@ describe('SidePanel', () => {
     expect(starBtn.className).not.toContain('opacity-0');
   });
 
-  // SP-06: No version badge in header
+  // No version badge in header
   it('does not render version badge in branding header', () => {
     render(<SidePanel />);
     const root = screen.getByTestId('sidepanel-root');

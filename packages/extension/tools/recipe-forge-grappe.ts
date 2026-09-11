@@ -46,12 +46,12 @@ const SCENARIO = {
   skipEmpty: true,
   apiVersion: '66.0',
   /** When true, the recipe runs read-only (Phase B preview). When false, the
-   *  executor performs real inserts on the target org (Wave 3). Default to
+   *  executor performs real inserts on the target org. Default to
    *  true for safety — flip explicitly to write. */
   dryRun: true,
   /** Per-object hard cap. */
   maxRecordsPerObject: 5,
-  /** Wave 2 v4 — auto-fetch missing required parents (single-hop). */
+  /** Auto-fetch missing required parents (single-hop). */
   expandOrphanParents: true,
 };
 

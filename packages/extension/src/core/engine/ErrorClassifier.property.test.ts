@@ -3,7 +3,7 @@
  *
  * Each property is wrapped in `fc.assert(fc.property(...), { numRuns: 100 })`.
  * A fresh `ErrorClassifier` is constructed inside every property body to avoid
- * shared-state bleed across runs (P-02.5 mitigation).
+ * shared-state bleed across runs.
  */
 import * as fc from 'fast-check';
 import { describe, it, expect } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Orphan expansion stage of the Forge execution pipeline (Wave 2 v4).
+ * Orphan expansion stage of the Forge execution pipeline.
  *
  * When a record has a required reference field whose target was *never* in
  * the discovery graph (e.g. `Asset.AccountId` pointing at an Account
@@ -43,7 +43,7 @@ const SF_RECORD_ID_RE = /^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$/;
  * here avoids burning API calls + spamming the error panel with
  * predictable REQUIRED_FIELD_MISSING / CANNOT_INSERT failures.
  *
- * CR-018: extended to mirror the BFS-side exclusion list. Without this,
+ * Extended to mirror the BFS-side exclusion list. Without this,
  * orphan-expand could try to clone a BusinessProcess / DandBCompany /
  * ProcessInstance — silently round-tripping the API and littering the
  * error panel with predictable failures.
@@ -183,12 +183,12 @@ export class OrphanExpander {
               input.recordTypeMapper,
             );
             if (newId) {
-              // CR-001: count only successful expansions toward the cap
+              // Count only successful expansions toward the cap
               // so a string of misses doesn't silently exhaust the budget
               // before the eligible list has had a chance to succeed.
               this.expansionsUsed++;
               remapper.add(entry.sourceId, newId);
-              // CR-007: register the parent in scopeCache so multi-hop
+              // Register the parent in scopeCache so multi-hop
               // children that pivot through this object include the
               // newly cloned row in their scope query (otherwise the
               // scope cache reports the orphan as out-of-scope and the

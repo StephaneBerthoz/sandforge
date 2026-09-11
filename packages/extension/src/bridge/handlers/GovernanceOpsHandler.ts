@@ -48,7 +48,7 @@ const GOVERNANCE_TYPES = new Set([
  *
  * Routes governance:* message types to GovernancePolicyStore CRUD operations
  * and GovernanceEngine evaluation. When evaluation produces failing rules,
- * they are fed into the AlertEngine (GOV-03 pipeline) if one is provided.
+ * they are fed into the AlertEngine if one is provided.
  */
 export class GovernanceOpsHandler implements DomainHandler {
   private readonly store: GovernancePolicyStore;
@@ -57,7 +57,7 @@ export class GovernanceOpsHandler implements DomainHandler {
 
   /**
    * @param deps - Injected handler dependencies.
-   * @param alertEngine - Optional AlertEngine for GOV-03 governance-to-alert pipeline.
+   * @param alertEngine - Optional AlertEngine for the governance-to-alert pipeline.
    */
   constructor(
     private readonly deps: HandlerDeps,
@@ -261,7 +261,7 @@ export class GovernanceOpsHandler implements DomainHandler {
    *
    * Fetches /limits from Salesforce, builds MetricValues (usedPercent per limit),
    * runs GovernanceEngine.evaluatePolicy, and feeds failing rules into AlertEngine
-   * (GOV-03 pipeline) when an AlertEngine is available.
+   * when an AlertEngine is available.
    *
    * @param msg - The incoming request message with policyId and orgId payload.
    */

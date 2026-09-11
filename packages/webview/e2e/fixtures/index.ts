@@ -20,5 +20,5 @@ export {
   createAutopilotCompletedResponse,
   ACCOUNT_DESCRIBE_FIELDS,
   CONTACT_DESCRIBE_FIELDS,
-  // Plan 02-03 — 5 critical flow fixtures
+  // Critical-flow fixtures
 } from './mock-responses';

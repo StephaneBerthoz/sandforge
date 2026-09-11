@@ -45,8 +45,8 @@ const { join } = require('node:path') as { join(...parts: string[]): string };
  * Deliberate exclusions:
  *   - `*.test.*` files, so a channel kept alive only by its own test is dead.
  *   - Import-graph reachability: a sender inside a never-rendered (orphan)
- *     module still counts here. Orphan modules are DEADCODE-03's subject; this
- *     guard would otherwise fail for a reason it cannot explain.
+ *     module still counts here. Orphan modules are the orphan-module guard's
+ *     subject; this guard would otherwise fail for a reason it cannot explain.
  *
  * A second guard lives at the bottom of this file, running the opposite way:
  * every channel the webview *names* must be declared. See KNOWN_CONSUMED_GAPS.

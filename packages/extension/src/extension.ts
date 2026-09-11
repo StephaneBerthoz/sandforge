@@ -125,14 +125,14 @@ export function activate(context: vscode.ExtensionContext): void {
   } = createCoreComposition({ context, services });
   log('ConfigStore initialized.');
 
-  // 3. Infrastructure services (Tier 1) + background operation registry
+  // 3. Infrastructure services + background operation registry
   const { performanceTracker, productionGuard, offlineManager, piiDetector, backgroundRegistry } =
     createBackgroundComposition({ services, configStore });
   // Start connectivity probing so connectivity:status reflects reality and the
   // offline queue can drain on reconnect. Stopped by offlineManager.dispose().
   startOfflineProbing(offlineManager);
 
-  // 4. Standalone services (Tier 3)
+  // 4. Standalone services
   const pipelineMarketplace = new PipelineMarketplace();
   const liveOperationTracker = new LiveOperationTracker();
   const maskingTemplateService = new MaskingTemplateService();
@@ -142,7 +142,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   // 5. MessageBroker + MessageRouter + WebviewStateSync
-  // Telemetry adapter is injected so Plan 01-04 envelope validation failures
+  // Telemetry adapter is injected so envelope validation failures
   // emit bridge breadcrumbs + Pino warn entries for observability.
   broker = new MessageBroker({ telemetry: services.telemetry });
   router = new MessageRouter(broker);
@@ -163,7 +163,7 @@ export function activate(context: vscode.ExtensionContext): void {
     authProvider,
     sfdxBridge,
     services,
-    // Plan 01-04-11: workbench:reload handler needs the commands API.
+    // The workbench:reload handler needs the commands API.
     executeCommand: (cmd, ...args) => vscode.commands.executeCommand(cmd, ...args),
     // Lazy i18n loading: packaged webview locale JSONs (copied from the
     // webview build output) served by the I18nHandler.

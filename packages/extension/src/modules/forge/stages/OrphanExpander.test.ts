@@ -99,7 +99,7 @@ describe('OrphanExpander', () => {
     // Minimal payload: Id not createable, OwnerId orphan-nullified (omitted).
     expect(payload[0]).toEqual({ Name: 'GAN ASSURANCES' });
     expect(input.remapper.get(ORPHAN_ID)).toBe('001NEW');
-    // CR-007: parent registered in scope cache for multi-hop children.
+    // Parent registered in scope cache for multi-hop children.
     expect(input.scopeCache?.has('Account')).toBe(true);
     expect(expander.buildErrorReport()).toBeNull();
   });
@@ -209,7 +209,7 @@ describe('OrphanExpander', () => {
     expect(report).not.toBeNull();
     expect(report?.objectApiName).toBe('__expandOrphanParents__');
     expect(report?.failedCount).toBe(1);
-    expect(report?.attemptedCount).toBe(0); // only successful expansions count (CR-001)
+    expect(report?.attemptedCount).toBe(0); // only successful expansions count
     expect(report?.samples[0].messages[0]).toContain('no new id');
   });
 

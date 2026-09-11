@@ -1,5 +1,5 @@
 /**
- * Coverage-matrix selection (spec §1) — picks WHICH root records
+ * Coverage-matrix selection — picks WHICH root records
  * ("dossiers") enter the frozen dataset. This is deliberately not a
  * random sample: coverage axes are crossed, one healthy root is retained
  * per observed combination, plus one per declared edge case.
@@ -89,7 +89,7 @@ export interface CoverageMatrixConfig {
   rootObject: string;
   axes: CoverageAxis[];
   edgeCases: EdgeCaseDefinition[];
-  /** Volumetry ceiling, records — default 2 500 (spec §1). */
+  /** Volumetry ceiling, records — default 2 500. */
   budgetMaxRecords?: number;
   /** Candidates probed per combination before declaring it uncovered. */
   candidatesPerCombination?: number;
@@ -129,7 +129,7 @@ export interface CoverageSelectionResult {
   selectedAt: string;
 }
 
-/** Default volumetry ceiling (spec §1). */
+/** Default volumetry ceiling. */
 export const DEFAULT_BUDGET_MAX_RECORDS = 2_500;
 
 const DEFAULT_CANDIDATES_PER_COMBINATION = 3;

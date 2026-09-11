@@ -154,7 +154,7 @@ describe('FrozenDatasetExtractor', () => {
     expect(accountSoql).toContain('Id IN (');
   });
 
-  it('freezes a CreatedDate bound on every node query (pitfall 8)', async () => {
+  it('freezes a CreatedDate bound on every node query', async () => {
     const dir = makeTmpDir();
     const captured: string[] = [];
     const extractor = new FrozenDatasetExtractor(buildDeps(captured));
@@ -179,7 +179,7 @@ describe('FrozenDatasetExtractor', () => {
     expect(captured.some((q) => q.includes('FROM Orphan__c'))).toBe(false);
   });
 
-  it('assigns stable referenceIds in source-ID-sorted order (pitfall 7)', async () => {
+  it('assigns stable referenceIds in source-ID-sorted order', async () => {
     const dir = makeTmpDir();
     const extractor = new FrozenDatasetExtractor(buildDeps([]));
     const first = await extractor.extract(makeOptions(dir, []));

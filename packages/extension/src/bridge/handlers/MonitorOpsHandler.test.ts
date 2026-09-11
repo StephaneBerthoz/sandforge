@@ -246,7 +246,7 @@ describe('MonitorOpsHandler', () => {
     }
   });
 
-  describe('limits caching (PERF-01)', () => {
+  describe('limits caching', () => {
     let mockConnRequest: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
@@ -259,8 +259,8 @@ describe('MonitorOpsHandler', () => {
     });
 
     /**
-     * PERF-01: Two rapid handler calls (handleHealthScore + handleApiUsage) to
-     * the same orgId should share a single /limits API call via the 30s cache.
+     * Two rapid handler calls (handleHealthScore + handleApiUsage) to the same
+     * orgId should share a single /limits API call via the 30s cache.
      */
     it('should share /limits cache across handler calls (conn.request called once)', async () => {
       const localDeps = createMockDeps();
@@ -296,7 +296,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('LIMITS-01/02: api-usage includes email and platform event categories', () => {
+  describe('api-usage includes email and platform event categories', () => {
     beforeEach(() => {
       const fakeConn = {
         limitInfo: { apiUsage: { used: 100, limit: 15000 } },
@@ -350,7 +350,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('WIRE-01: monitor:error-logs', () => {
+  describe('monitor:error-logs', () => {
     it('handles monitor:error-logs and returns error entries', async () => {
       const fakeConn = {
         limitInfo: {},
@@ -437,7 +437,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('WIRE-02: monitor:sessions', () => {
+  describe('monitor:sessions', () => {
     it('handles monitor:sessions and returns active sessions', async () => {
       const fakeConn = {
         limitInfo: {},
@@ -499,7 +499,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('WIRE-03: monitor:apex-insights', () => {
+  describe('monitor:apex-insights', () => {
     it('handles monitor:apex-insights and returns analyses with top issues', async () => {
       const fakeConn = {
         limitInfo: {},
@@ -555,7 +555,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('WIRE-04: monitor:sandbox-refresh', () => {
+  describe('monitor:sandbox-refresh', () => {
     it('handles monitor:sandbox-refresh and returns refresh events', async () => {
       const fakeConn = {
         limitInfo: {},
@@ -636,7 +636,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('WIRE-05: handleRefresh includes orgHealthStatus', () => {
+  describe('handleRefresh includes orgHealthStatus', () => {
     it('handleRefresh includes orgHealthStatus in response', async () => {
       const fakeConn = {
         request: vi.fn().mockResolvedValue(FAKE_LIMITS),
@@ -700,7 +700,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('OrgInfoFetcher cache sharing (PERF-02)', () => {
+  describe('OrgInfoFetcher cache sharing', () => {
     let mockConnIdentity: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
@@ -743,7 +743,7 @@ describe('MonitorOpsHandler', () => {
     });
 
     /**
-     * PERF-02: OrgInfoFetcher is a single instance on MonitorOpsHandler.
+     * OrgInfoFetcher is a single instance on MonitorOpsHandler.
      * Two refresh calls within 5 minutes should reuse the cached OrgInfo,
      * meaning the connection's identity/query methods are called only once.
      */
@@ -785,7 +785,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('ALERT-01: AlertEngine integration', () => {
+  describe('AlertEngine integration', () => {
     it('constructor seeds default alert definitions when no persisted definitions exist', () => {
       const localDeps = createMockDeps();
       new MonitorOpsHandler(localDeps);
@@ -851,7 +851,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('ALERT-02: monitor:alerts handler', () => {
+  describe('monitor:alerts handler', () => {
     it('handles monitor:alerts and returns alerts:result with alerts and history', async () => {
       const msg: InboundRequest = inboundRequest({
         id: 'req-alerts-1',
@@ -878,7 +878,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('ALERT-03: monitor:alert:acknowledge handler', () => {
+  describe('monitor:alert:acknowledge handler', () => {
     it('handles monitor:alert:acknowledge and responds with success', async () => {
       const msg: InboundRequest & { payload: { alertId: string } } = inboundRequest({
         id: 'req-ack-1',
@@ -903,7 +903,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('ALERT-04: monitor:alert:dismiss handler', () => {
+  describe('monitor:alert:dismiss handler', () => {
     it('handles monitor:alert:dismiss and responds with success', async () => {
       const msg: InboundRequest & { payload: { alertId: string } } = inboundRequest({
         id: 'req-dismiss-1',
@@ -928,7 +928,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('ALERT-05: MONITOR_TYPES includes alert types', () => {
+  describe('MONITOR_TYPES includes alert types', () => {
     it('handles all three alert message types', async () => {
       const alertTypes = ['monitor:alerts', 'monitor:alert:acknowledge', 'monitor:alert:dismiss'];
       for (const type of alertTypes) {
@@ -1102,7 +1102,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('PERF-07: one AsyncApexJob query per refresh tick', () => {
+  describe('one AsyncApexJob query per refresh tick', () => {
     /** One recent job row, shaped as the AsyncApexJob SOQL reads it. */
     const JOB_ROW = {
       Id: '707x00000000001',
@@ -1239,7 +1239,7 @@ describe('MonitorOpsHandler', () => {
     });
   });
 
-  describe('EXT-09: a refresh that outlives its bound', () => {
+  describe('a refresh that outlives its bound', () => {
     /** The handler's refresh bound, kept below the webview's 30 s bridge timeout. */
     const MONITOR_REFRESH_BOUND_MS = 25_000;
 

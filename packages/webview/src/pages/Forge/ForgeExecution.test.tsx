@@ -356,7 +356,7 @@ describe('ForgeExecution', () => {
     expect(screen.getByTestId('forge-execution-eta')).toBeDefined();
   });
 
-  /* ---- A11Y-02: aria-pressed on external filter buttons ---- */
+  /* ---- aria-pressed on external filter buttons ---- */
   it('should have aria-pressed matching logFilter state', () => {
     render(<ForgeExecution />);
     expect(screen.getByTestId('log-filter-all').getAttribute('aria-pressed')).toBe('true');

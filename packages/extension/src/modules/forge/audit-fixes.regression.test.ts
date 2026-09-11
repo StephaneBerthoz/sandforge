@@ -18,9 +18,9 @@ import { ForgeOrchestrator } from './ForgeOrchestrator.js';
 import { SchemaCache } from '../../core/metadata/SchemaCache.js';
 import type { ForgeGraph, ForgeConfig } from '@sandforge/shared';
 
-// ─── RT-001: recordId regex validation ──────────────────────────────────
+// ─── recordId regex validation ──────────────────────────────────────────
 
-describe('Audit RT-001 — forgeConfigSchema rejects malicious recordId', () => {
+describe('forgeConfigSchema rejects malicious recordId', () => {
   const baseConfig = {
     inputMode: 'record' as const,
     depth: 'direct' as const,
@@ -62,9 +62,9 @@ describe('Audit RT-001 — forgeConfigSchema rejects malicious recordId', () => 
   });
 });
 
-// ─── RT-002: objectApiName regex validation ─────────────────────────────
+// ─── objectApiName regex validation ─────────────────────────────────────
 
-describe('Audit RT-002 — forgeGraphNodeSchema rejects malicious objectApiName', () => {
+describe('forgeGraphNodeSchema rejects malicious objectApiName', () => {
   const validNode = {
     objectApiName: 'Account',
     recordCount: 0,
@@ -124,9 +124,9 @@ describe('Audit RT-002 — forgeGraphNodeSchema rejects malicious objectApiName'
   });
 });
 
-// ─── RT-003: graph node/edge bounds + iterative Tarjan ──────────────────
+// ─── graph node/edge bounds + iterative Tarjan ──────────────────────────
 
-describe('Audit RT-003 — forgeGraphSchema enforces bounds, Tarjan stack-safe', () => {
+describe('forgeGraphSchema enforces bounds, Tarjan stack-safe', () => {
   it('rejects > 2000 nodes', () => {
     const node = {
       objectApiName: 'A',
@@ -252,9 +252,9 @@ describe('Audit RT-003 — forgeGraphSchema enforces bounds, Tarjan stack-safe',
   });
 });
 
-// ─── RT-004: cacheKeyFor includes all material params ───────────────────
+// ─── cacheKeyFor includes all material params ───────────────────────────
 
-describe('Audit RT-004 — discoveryCache key separates by all material params', () => {
+describe('discoveryCache key separates by all material params', () => {
   function makeOrchestrator(): ForgeOrchestrator {
     return new ForgeOrchestrator({
       discoveryService: { discover: async () => ({}) as ForgeGraph } as never,
@@ -524,9 +524,9 @@ describe('v1.2.5 — forgeConfigSchema accepts fieldMappings', () => {
   });
 });
 
-// ─── PERF-002: SchemaCache uses O(1) heuristic, never JSON.stringify ────
+// ─── SchemaCache uses O(1) heuristic, never JSON.stringify ──────────────
 
-describe('Audit PERF-002 — SchemaCache estimateSize is O(1)', () => {
+describe('SchemaCache estimateSize is O(1)', () => {
   it('does not call JSON.stringify on describe-shaped payloads', () => {
     // Track JSON.stringify calls. If the heuristic regresses to
     // `JSON.stringify(value).length * 2`, this test will see the spy fire.

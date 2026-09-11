@@ -258,8 +258,8 @@ test('section 6 falls silent once that key is listed in the baseline', () => {
 
 test('a baseline entry whose consumer came back fails until it is deleted', () => {
   // `greeting.hello` is rendered by App.tsx, so it has no business being here:
-  // the DEADCODE-08 mechanism, where a key that lost its consumer for the
-  // length of a purge was written down as dead instead of left to come back.
+  // a key that lost its consumer for the length of a purge was written down
+  // as dead instead of left to come back.
   const staleRun = runGate(orphanCatalogue, { baseline: ['greeting.hello', 'orphan.old'] });
   assert.ok(
     staleRun.output.includes(
