@@ -154,8 +154,11 @@
     "apiCalls": "Appels API aujourd'hui",
     "dataStorage": "Stockage de données",
     "selectOrgDesc": "Choisissez une org connectée pour voir sa santé, ses limites et ses jobs en direct.",
-    "scanAnomalies": "Scanner les anomalies",
+    "scanAnomaliesOn": "Scanner les anomalies ({{object}})",
+    "anomalyScanObject": "Objet à scanner pour les anomalies",
     "anomaliesFound": "Anomalies trouvées",
+    "noAnomalies": "Aucune anomalie trouvée dans {{object}}",
+    "anomalyScanFailed": "Échec de l'analyse d'anomalies",
     "governorLimits": "Limites Governor",
     "noLimits": "Aucune donnée de limite disponible",
     "exportCsv": "Exporter CSV",
@@ -559,6 +562,7 @@
       "step4": "Exécutez puis consultez les résultats"
     },
     "nl2soqlError": "Impossible de convertir cette description en SOQL. Essayez de nommer explicitement l’objet et le filtre.",
+    "nl2soqlUnverified": "SandForge n'a pas pu vérifier les noms de champs de ce brouillon dans votre org. Lancez la requête pour savoir si elle fonctionne.",
     "graph": {
       "title": "Graphe de dépendances"
     }

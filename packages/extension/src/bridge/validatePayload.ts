@@ -8,6 +8,7 @@ import {
   QuickSyncConfigSchema,
 } from '@sandforge/shared';
 import { z } from 'zod';
+import { isSafeSoqlOrderBy } from '../core/common/soqlValidator.js';
 import type { HandlerDeps, InboundRequest } from './handlers/HandlerTypes.js';
 import { sendHandlerError } from './handlers/HandlerTypes.js';
 
@@ -65,6 +66,20 @@ export const whereClauseSchema = z
     },
   );
 
+/**
+ * SOQL ORDER BY fragment. Only field paths, `ASC`/`DESC` and `NULLS
+ * FIRST`/`LAST` — the clause ends the statement, so a trailing `LIMIT 1`,
+ * `OFFSET` or `FOR UPDATE` would ride along with it. Configs converted from a
+ * third-party file (`SfdmuImporter`) carry this field verbatim, so it is
+ * checked here exactly as `where` is, and re-checked when the delta query is
+ * built (defense-in-depth, both layers stay).
+ */
+export const orderByClauseSchema = z.string().refine(isSafeSoqlOrderBy, {
+  message:
+    'ORDER BY clause must list only field names with optional ASC/DESC and NULLS FIRST/LAST ' +
+    '(no LIMIT, OFFSET, FOR UPDATE or subquery).',
+});
+
 /** Max objects accepted per data operation (bounds API-call fan-out per request). */
 const MAX_OBJECTS_PER_REQUEST = 100;
 
@@ -85,6 +100,7 @@ export const syncObjectPayloadSchema = syncObjectConfigSchema
   .extend({
     objectApiName: sfApiNameSchema,
     where: whereClauseSchema.optional(),
+    orderBy: orderByClauseSchema.optional(),
     batchSize: z.number().int().positive().max(MAX_BATCH_SIZE).optional(),
   })
   .passthrough();

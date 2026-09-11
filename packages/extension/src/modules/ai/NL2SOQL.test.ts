@@ -28,6 +28,14 @@ const MOCK_SCHEMA: SchemaContext = {
   ],
 };
 
+/** Catalog entries nobody described: API names only, no field list. */
+const NAME_ONLY_SCHEMA: SchemaContext = {
+  objects: [
+    { apiName: 'Order', label: 'Order', fields: [] },
+    { apiName: 'Asset', label: 'Asset', fields: [] },
+  ],
+};
+
 function createMockAIResponse(overrides?: Partial<NL2SOQLResult>): string {
   const result: NL2SOQLResult = {
     soql: 'SELECT Id, Name FROM Account',
@@ -204,6 +212,56 @@ describe('NL2SOQL', () => {
       const result = converter.validateSOQL('SELECT Fake1, Fake2 FROM Account', MOCK_SCHEMA);
       expect(result.valid).toBe(false);
       expect(result.errors).toHaveLength(2);
+    });
+
+    it('marks a checked field list as verified', () => {
+      expect(converter.validateSOQL('SELECT Id FROM Account', MOCK_SCHEMA).verified).toBe(true);
+      expect(converter.validateSOQL('SELECT Fake FROM Account', MOCK_SCHEMA).verified).toBe(true);
+    });
+
+    it('does not call an undescribed object invalid, nor its fields checked', () => {
+      const result = converter.validateSOQL('SELECT Id, Whatever FROM Order', NAME_ONLY_SCHEMA);
+
+      expect(result.verified).toBe(false);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('still reports an object absent from the catalog', () => {
+      const result = converter.validateSOQL('SELECT Id FROM Ghost__c', NAME_ONLY_SCHEMA);
+
+      expect(result.valid).toBe(false);
+      expect(result.verified).toBe(true);
+      expect(result.errors[0]).toContain('Ghost__c');
+    });
+
+    it('still rejects a wildcard on an undescribed object', () => {
+      const result = converter.validateSOQL('SELECT * FROM Order', NAME_ONLY_SCHEMA);
+
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]).toContain('Wildcard');
+    });
+  });
+
+  // --- Prompt shape ---
+
+  describe('prompt', () => {
+    it('names the described fields and forbids inventing others', async () => {
+      await converter.generateSOQL('accounts by industry', MOCK_SCHEMA);
+
+      const prompt = mockProvider.mock.calls[0][0];
+      expect(prompt).toContain('use ONLY these field API names');
+      expect(prompt).toContain('- Industry (picklist): Industry');
+      expect(prompt).toContain('Never invent a field API name');
+    });
+
+    it('lists undescribed objects by name instead of an empty field list', async () => {
+      await converter.generateSOQL('something', NAME_ONLY_SCHEMA);
+
+      const prompt = mockProvider.mock.calls[0][0];
+      expect(prompt).toContain('fields were NOT loaded');
+      expect(prompt).toContain('Order (Order), Asset (Asset)');
+      expect(prompt).not.toContain('use ONLY these field API names');
     });
   });
 

@@ -76,6 +76,7 @@ export * from './constants/sync-templates.js';
 // Barrel exports — Utils
 export * from './utils/sf-utils.js';
 export * from './utils/format-utils.js';
+export * from './utils/persona-field-rules.js';
 
 // Barrel exports — Templates
 export * from './templates/forge-builtin-templates.js';

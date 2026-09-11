@@ -360,6 +360,17 @@ export const GovernancePanelConnected: React.FC = () => {
     [selectedOrgId, evaluateMutation],
   );
 
+  /**
+   * An evaluation carries no org of its own, so leaving it on screen would show
+   * the previous org's compliance score under the name of the new one. The page
+   * keeps this panel mounted when the org changes, so it is dropped here.
+   */
+  const { reset: resetEvaluate } = evaluateMutation;
+  React.useEffect(() => {
+    setEvaluationResult(null);
+    resetEvaluate();
+  }, [selectedOrgId, resetEvaluate]);
+
   /** Store evaluation result when mutation completes. */
   React.useEffect(() => {
     if (evaluateMutation.data?.success && evaluateMutation.data.result) {

@@ -4,8 +4,6 @@ export type {
   AIChatMessage,
   AIChatOpts,
   AIChatResult,
-  AICountTokensOpts,
-  AICountTokensResult,
 } from './AIClient.js';
 export { AINotImplementedError } from './AIClient.js';
 export { AnthropicAdapter } from './AnthropicAdapter.js';

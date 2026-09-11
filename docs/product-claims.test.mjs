@@ -2619,3 +2619,229 @@ test('the two new mined lists are matched whole, and honest prose is left alone'
       'which is what this gate was rewritten to stop',
   );
 });
+
+// ── one model setting, sold as the chat's ─────────────────────────────────
+
+const SERVICES_FILE = 'packages/extension/src/services.ts';
+const AI_FACTORY_FILE = 'packages/extension/src/adapters/ai/AIClientFactory.ts';
+const SEED_HANDLER_FILE = 'packages/extension/src/bridge/handlers/SeedOpsHandler.ts';
+const MODEL_SETTING = 'sandforge.ai.model';
+
+/** The `aiClient().chat(…)` calls a file makes — the one route to a model. */
+function sharedClientChatCalls(relativePath) {
+  return callsWithin(parseFile(relativePath)).filter((call) => {
+    if (call.name !== 'chat') return false;
+    return accessChain(call.node.expression).slice(-2).join('.') === 'aiClient.chat';
+  });
+}
+
+/**
+ * `sandforge.ai.model` configures one adapter, and every feature that talks to
+ * a model goes through it.
+ *
+ * `services.ts` reads the setting in the `getModel` it hands to
+ * `createAIClientFactory`, the factory passes it to each adapter it builds,
+ * and `services.aiClient()` returns one memoised instance per provider. From
+ * there the calls fan out: `aiComposition.ts` closes over `.chat` twice — once
+ * for the assistant, once for the `aiProvider` that NL2SOQL, the
+ * `ErrorResolver` and the `PipelineGenerator` are built on — and
+ * `SeedOpsHandler.ts` calls it twice more, for a custom persona and for the
+ * field values a seed run generates.
+ *
+ * Fails in both directions: cut the setting off from the factory, or route a
+ * feature around `aiClient()`, and the counts below move — which is the moment
+ * a description naming one feature could start being true.
+ */
+function assertOneModelSettingServesEveryAIFeature() {
+  const factoryCall = callsWithin(parseFile(SERVICES_FILE)).find(
+    (call) => call.name === 'createAIClientFactory',
+  );
+  assert.ok(factoryCall, `${SERVICES_FILE} no longer builds the AI client factory`);
+  const deps = factoryCall.args[0];
+  assert.ok(
+    deps && ts.isObjectLiteralExpression(deps),
+    'the AI client factory is built with no dependency object — re-read this anchor',
+  );
+  const getModel = deps.properties.find((property) => memberName(property) === 'getModel');
+  assert.ok(getModel, 'the factory gets no model reader — the setting reaches no adapter');
+
+  const reads = callsWithin(getModel).map((call) => ({
+    name: call.name,
+    literals: call.args.filter(ts.isStringLiteralLike).map((arg) => arg.text),
+  }));
+  assert.ok(
+    reads.some(
+      (call) => call.name === 'getConfiguration' && call.literals.includes('sandforge.ai'),
+    ),
+    'the model reader no longer reads the sandforge.ai configuration section',
+  );
+  assert.ok(
+    reads.some((call) => call.name === 'get' && call.literals.includes('model')),
+    `the model reader no longer reads \`model\` — ${MODEL_SETTING} configures nothing`,
+  );
+
+  const adapters = callsWithin(parseFile(AI_FACTORY_FILE)).filter((call) =>
+    /Adapter$/.test(call.name ?? ''),
+  );
+  assert.equal(
+    adapters.length,
+    3,
+    `the scan sees ${adapters.length} adapters built in ${AI_FACTORY_FILE}, not the three it ` +
+      'carries — it is not reading constructions, so the check below proves nothing',
+  );
+  assert.deepEqual(
+    adapters
+      .filter((adapter) => {
+        const arg = adapter.args[0];
+        return (
+          !arg ||
+          !ts.isObjectLiteralExpression(arg) ||
+          !arg.properties.some((property) => memberName(property) === 'model')
+        );
+      })
+      .map((adapter) => adapter.name),
+    [],
+    'an adapter is built without the model this setting carries',
+  );
+
+  assert.equal(
+    sharedClientChatCalls(AI_COMPOSITION_FILE).length,
+    2,
+    `${AI_COMPOSITION_FILE} no longer makes the two model calls the assistant and the AI ` +
+      'modules are built on — re-read this anchor',
+  );
+  assert.equal(
+    callsWithin(parseFile(AI_COMPOSITION_FILE)).filter((call) =>
+      ['NL2SOQL', 'ErrorResolver', 'PipelineGenerator'].includes(call.name),
+    ).length,
+    3,
+    'the three model-backed modules are no longer built there',
+  );
+  assert.equal(
+    sharedClientChatCalls(SEED_HANDLER_FILE).length,
+    2,
+    `${SEED_HANDLER_FILE} no longer calls the model for personas and field values — the setting ` +
+      'may have stopped reaching Seed',
+  );
+}
+
+test('anchor: every AI feature calls the model this setting names', () => {
+  assertOneModelSettingServesEveryAIFeature();
+});
+
+/**
+ * What a description of this setting cannot leave out, named by the two words
+ * that survive translation: `NL2SOQL` and `Seed` are product nouns, written the
+ * same in all six bundles, and each belongs to a module the chat panel has
+ * nothing to do with. A sentence that names both is not selling the setting as
+ * the assistant's.
+ *
+ * The wording is otherwise free: what this pins is that the reader learns the
+ * model is shared, not that six locales repeat one sentence.
+ */
+const SHARED_MODEL_MARKERS = [
+  { name: 'NL2SOQL', pattern: /NL2SOQL/i },
+  { name: 'Seed', pattern: /Seed/i },
+];
+
+/**
+ * The eight places this setting is described: the sentence VS Code shows in
+ * the Settings editor, in six languages, and the row each README gives it.
+ */
+function modelSettingDescriptions() {
+  const properties =
+    JSON.parse(read(...EXT, 'package.json')).contributes?.configuration?.properties ?? {};
+  const placeholder = properties[MODEL_SETTING]?.description;
+  assert.ok(
+    isNlsPlaceholder(placeholder),
+    `${MODEL_SETTING} carries no localized description — re-read this gate`,
+  );
+  const surfaces = Object.entries(resolveNls(placeholder)).map(([locale, text]) => ({
+    label: `${NLS_FILES[locale]} config.ai.model.description`,
+    text,
+  }));
+  for (const readme of READMES) {
+    const row = read(...readme.split('/'))
+      .split(/\r?\n/)
+      .find((line) => line.startsWith(`| \`${MODEL_SETTING}\``));
+    assert.ok(row, `${readme} no longer lists ${MODEL_SETTING} in its settings table`);
+    surfaces.push({ label: `${readme} settings table`, text: row.split('|')[2] ?? '' });
+  }
+  assert.equal(surfaces.length, 8, 'the eight descriptions of this setting are no longer eight');
+  return surfaces;
+}
+
+test('the model setting is described by everything that reads it', () => {
+  assertOneModelSettingServesEveryAIFeature();
+
+  const offenders = [];
+  for (const { label, text } of modelSettingDescriptions()) {
+    const missing = SHARED_MODEL_MARKERS.filter((marker) => !marker.pattern.test(text));
+    if (missing.length > 0) {
+      offenders.push(
+        `${label}: "${text.trim()}" — names neither ${missing.map((m) => m.name).join(' nor ')}`,
+      );
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'this setting picks the model for NL2SOQL, pipeline drafts, error resolution and Seed as ' +
+      'much as for the chat; these descriptions hand it to one feature:\n  ' +
+      offenders.join('\n  '),
+  );
+});
+
+/**
+ * The sentence that gave the setting to the assistant, as it shipped in five of
+ * the six bundles and in both README settings tables.
+ *
+ * The Japanese one is not mined: at 16 characters it is any line about a model
+ * an assistant uses, and refusing it across the whole product would cost more
+ * than it buys. All six locales are covered by the marker rule above, which
+ * reads this setting's own descriptions rather than every page.
+ */
+const ASSISTANT_ONLY_MODEL_CLAIMS = [
+  {
+    text: 'AI model to use for the assistant',
+    where: 'the Settings editor, package.nls.json, to v1.21',
+  },
+  {
+    text: 'AI model used by the assistant',
+    where: 'the settings table, both READMEs, to v1.21',
+  },
+  {
+    text: "Modèle IA à utiliser pour l'assistant",
+    where: 'the Settings editor, package.nls.fr.json, to v1.21',
+  },
+  {
+    text: 'Zu verwendendes KI-Modell für den Assistenten',
+    where: 'the Settings editor, package.nls.de.json, to v1.21',
+  },
+  {
+    text: 'Modelo de IA a usar para el asistente',
+    where: 'the Settings editor, package.nls.es.json, to v1.21',
+  },
+  {
+    text: 'Modelo de IA a ser usado pelo assistente',
+    where: 'the Settings editor, package.nls.pt-br.json, to v1.21',
+  },
+].map(mine);
+
+test('no user-facing surface gives the model setting to the assistant alone', () => {
+  assertMinedWordingsCarryAClaim(ASSISTANT_ONLY_MODEL_CLAIMS);
+  assertOneModelSettingServesEveryAIFeature();
+
+  const offenders = [];
+  for (const { label, text } of userFacingProse()) {
+    for (const claim of republishedClaims(text, ASSISTANT_ONLY_MODEL_CLAIMS)) {
+      offenders.push(`${label}: "${claim.text}" — published in ${claim.where}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    'five features pick their model from this setting; these surfaces still give it to one:\n  ' +
+      offenders.join('\n  '),
+  );
+});

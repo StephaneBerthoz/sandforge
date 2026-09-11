@@ -33,15 +33,6 @@ export interface AIChatResult {
   stopReason: string | null;
 }
 
-export interface AICountTokensOpts {
-  messages: AIChatMessage[];
-  system?: string;
-}
-
-export interface AICountTokensResult {
-  inputTokens: number;
-}
-
 export interface AIClient {
   readonly provider: AIProviderType;
   /**
@@ -52,7 +43,6 @@ export interface AIClient {
    */
   budget?: SessionBudget;
   chat(opts: AIChatOpts): Promise<AIChatResult>;
-  countTokens(opts: AICountTokensOpts): Promise<AICountTokensResult>;
   /**
    * Optional breaker state-change feed — present on the Anthropic adapter,
    * absent on the stub adapters. Structural subset of Node's EventEmitter:

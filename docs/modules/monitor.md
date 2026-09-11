@@ -60,8 +60,12 @@ An expandable section listing all Salesforce governor limits:
 - Color-coded progress bars (green/amber/red)
 - Critical limit badges highlighted at the top
 - Anomaly scan button: statistical outliers, future dates, negative amounts,
-  near-empty fields and duplicate names or emails over a sample of Account
-  records. Rules only -- no model, no key, and it works with AI off
+  near-empty fields and duplicate names or emails over a sample of up to 500
+  records of one object. The dropdown next to the button chooses that object --
+  it starts on Account, then lists up to 20 of the org's objects that hold
+  records, largest first. Selecting another org puts it back on Account and
+  drops the previous report. A scan that finds nothing, or that fails, says so
+  under the button. Rules only -- no model, no key, and it works with AI off
 
 ### Alerts Panel
 
@@ -73,6 +77,7 @@ An expandable section listing all Salesforce governor limits:
 
 - Enable auto-refresh (clock icon) during long-running operations to keep the dashboard current
 - Expand Governor Limits when troubleshooting API limit errors
-- Use the Anomaly Scan to catch unusual patterns in your org data
+- Use the Anomaly Scan to catch unusual patterns in your org data -- one object
+  per run, so pick the object in the dropdown before scanning
 - Critical job insights appear as red banners at the top of the dashboard -- act on those first
 - API limit predictions show hours remaining before the daily limit is reached

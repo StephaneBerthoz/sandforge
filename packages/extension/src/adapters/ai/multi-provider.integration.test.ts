@@ -27,7 +27,7 @@ const hoisted = vi.hoisted(() => {
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class Anthropic {
-    messages = { create: hoisted.mockMessagesCreate, countTokens: vi.fn() };
+    messages = { create: hoisted.mockMessagesCreate };
     constructor(_args: { apiKey: string }) {}
   },
   APIUserAbortError: class APIUserAbortError extends Error {},

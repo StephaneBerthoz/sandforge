@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 import type { FieldRuleType, PersonaMsg, PersonaFieldPatternMsg } from '@sandforge/shared';
+import { personaPatternToFieldRule } from '@sandforge/shared';
 
 import { useBridgeMutation } from '../../hooks/useBridgeMutation';
 import type { ObjectFieldConfig, FieldConfig } from './Step3_ConfigureFields';
@@ -14,26 +15,6 @@ interface DescribedField {
   picklistValues: string[];
   referenceTo: string[];
   length: number;
-}
-
-/**
- * Map a persona field pattern generator string to the corresponding FieldRuleType.
- *
- * @param generator - The generator type from the persona data patterns
- * @returns The matching FieldRuleType, or null if unmapped
- */
-export function mapGeneratorToRuleType(generator: string): FieldRuleType | null {
-  const mapping: Record<string, FieldRuleType> = {
-    faker: 'faker',
-    random_pick: 'picklist_random',
-    weighted_pick: 'picklist_random',
-    range: 'random',
-    sequence: 'sequence',
-    pattern: 'regex',
-    ai_generate: 'ai_generate',
-    relative_date: 'faker',
-  };
-  return mapping[generator] ?? null;
 }
 
 /** Return type for the useSeedFieldRules hook. */
@@ -186,26 +167,15 @@ export function useSeedFieldRules(
             persona.dataPatterns[field.fieldApiName];
           if (!pattern) return field;
 
-          const ruleType = mapGeneratorToRuleType(pattern.generator);
-          if (!ruleType) return field;
+          // Persona vocabulary (`generator` + free-form `params`) → seed
+          // contract (`FieldRuleType` + `FieldRuleConfig`). Both shapes are
+          // declared in @sandforge/shared, and so is the translation.
+          const rule = personaPatternToFieldRule(pattern);
+          if (!rule) return field;
 
           matchedCount++;
-          const config: Record<string, unknown> = { ...(pattern.params ?? {}) };
 
-          if (ruleType === 'ai_generate') {
-            // Personas name the instruction `prompt`; the seed contract
-            // (FieldRuleConfig) calls it `aiPrompt`, and that is the only key
-            // the prompt sent to the model is built from — anything else is
-            // dropped by the seed:execute schema. Without this translation the
-            // model received the field name alone.
-            const instruction = config['aiPrompt'] ?? config['prompt'];
-            if (typeof instruction === 'string') {
-              config['aiPrompt'] = instruction;
-              delete config['prompt'];
-            }
-          }
-
-          return { ...field, ruleType, config };
+          return { ...field, ruleType: rule.ruleType, config: { ...rule.config } };
         }),
       })),
     );

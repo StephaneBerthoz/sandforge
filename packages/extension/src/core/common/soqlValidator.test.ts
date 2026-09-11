@@ -3,6 +3,8 @@ import {
   sanitizeSoqlValue,
   validateSoqlIdentifier,
   assertSoqlIdentifier,
+  isSafeSoqlOrderBy,
+  assertSoqlOrderBy,
 } from './soqlValidator.js';
 
 describe('sanitizeSoqlValue', () => {
@@ -132,5 +134,56 @@ describe('assertSoqlIdentifier', () => {
 
   it('includes the invalid name in the error message', () => {
     expect(() => assertSoqlIdentifier('bad name')).toThrow('"bad name"');
+  });
+});
+
+describe('isSafeSoqlOrderBy', () => {
+  it.each([
+    'Name',
+    'Name DESC',
+    'name desc nulls last',
+    'CreatedDate ASC, Id DESC',
+    'Account.Owner.Profile.Name ASC NULLS FIRST',
+    'My_Field__c',
+    '   ',
+  ])('accepts %j', (clause) => {
+    expect(isSafeSoqlOrderBy(clause)).toBe(true);
+  });
+
+  it.each([
+    'Id ASC LIMIT 1',
+    'Id ASC OFFSET 100',
+    'Id ASC FOR UPDATE',
+    'Id ASC, (SELECT Id FROM Contacts)',
+    "Name'",
+    'Id ASC UPDATE VIEWSTAT',
+    '1Bad',
+    'Id ASCENDING',
+  ])('rejects %j', (clause) => {
+    expect(isSafeSoqlOrderBy(clause)).toBe(false);
+  });
+
+  it('rejects more than 32 sort terms', () => {
+    const terms = Array.from({ length: 33 }, (_, i) => `F${i}__c`).join(', ');
+
+    expect(isSafeSoqlOrderBy(terms)).toBe(false);
+  });
+
+  it('rejects a clause longer than 2000 characters', () => {
+    expect(isSafeSoqlOrderBy(`Name${'_'.repeat(2000)}`)).toBe(false);
+  });
+
+  it('rejects a relationship path deeper than SOQL allows', () => {
+    expect(isSafeSoqlOrderBy('A.B.C.D.E.F.G')).toBe(false);
+  });
+});
+
+describe('assertSoqlOrderBy', () => {
+  it('returns the clause when it only sorts', () => {
+    expect(assertSoqlOrderBy('CreatedDate DESC')).toBe('CreatedDate DESC');
+  });
+
+  it('throws with the offending clause in the message', () => {
+    expect(() => assertSoqlOrderBy('Id ASC LIMIT 1')).toThrow('"Id ASC LIMIT 1"');
   });
 });

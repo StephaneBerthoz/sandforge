@@ -151,8 +151,11 @@
     "apiCalls": "今日のAPIコール",
     "dataStorage": "データストレージ",
     "selectOrgDesc": "接続済みのOrgを選んで、健全性・制限・ジョブをライブ表示します。",
-    "scanAnomalies": "異常をスキャン",
+    "scanAnomaliesOn": "異常をスキャン ({{object}})",
+    "anomalyScanObject": "異常スキャンの対象オブジェクト",
     "anomaliesFound": "検出された異常",
+    "noAnomalies": "{{object}} に異常は見つかりませんでした",
+    "anomalyScanFailed": "異常スキャンに失敗しました",
     "governorLimits": "ガバナ制限",
     "noLimits": "制限データがありません",
     "exportCsv": "CSVをエクスポート",
@@ -556,6 +559,7 @@
       "step4": "実行して結果を確認"
     },
     "nl2soqlError": "その説明を SOQL に変換できませんでした。オブジェクトとフィルターを明示してください。",
+    "nl2soqlUnverified": "SandForge はこの下書きの項目名を組織と照合できませんでした。実行して動作するかご確認ください。",
     "graph": {
       "title": "依存関係グラフ"
     }

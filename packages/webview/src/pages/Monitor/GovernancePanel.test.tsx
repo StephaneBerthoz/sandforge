@@ -91,9 +91,12 @@ vi.mock('../../hooks/useBridgeMutation', () => ({
   },
 }));
 
+/** The org the panel is looking at; a test changes it to simulate a switch. */
+let selectedOrgId: string | null = 'org-test-1';
+
 vi.mock('../../stores/useOrgStore', () => ({
   useOrgStore: (selector: (s: { selectedOrgId: string | null }) => unknown) =>
-    selector({ selectedOrgId: 'org-test-1' }),
+    selector({ selectedOrgId }),
 }));
 
 function makePolicy(overrides: Partial<GovernancePolicySummary> = {}): GovernancePolicySummary {
@@ -330,6 +333,35 @@ describe('GovernancePanelConnected', () => {
     render(<GovernancePanelConnected />);
     expect(screen.getByTestId('compliance-score')).toBeTruthy();
     expect(screen.getByText('72%')).toBeTruthy();
+  });
+
+  /**
+   * An evaluation names no org, so a score left on screen after a switch reads
+   * as the new org's. The panel is not remounted when the org changes — the
+   * page keeps it — so it has to drop the result itself.
+   */
+  it('drops the previous org compliance score when the org changes', () => {
+    mockPoliciesData = { policies: [makePolicy()] };
+    mockEvaluateData = {
+      success: true,
+      result: {
+        policyId: 'pol-1',
+        policyName: 'Security Policy',
+        evaluatedAt: '2026-03-20T12:00:00Z',
+        complianceScore: 72,
+        ruleResults: [makeRuleResult({ ruleId: 'r1', status: 'pass' })],
+        remediations: ['Fix something'],
+      },
+    };
+    const { rerender } = render(<GovernancePanelConnected />);
+    expect(screen.getByTestId('compliance-score')).toBeTruthy();
+
+    selectedOrgId = 'org-test-2';
+    rerender(<GovernancePanelConnected />);
+
+    expect(screen.queryByTestId('compliance-score')).toBeNull();
+    expect(mockEvaluateReset).toHaveBeenCalled();
+    selectedOrgId = 'org-test-1';
   });
 
   it('triggers delete mutation when delete is clicked', () => {

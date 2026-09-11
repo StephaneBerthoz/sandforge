@@ -154,8 +154,11 @@
     "apiCalls": "API-Aufrufe heute",
     "dataStorage": "Datenspeicher",
     "selectOrgDesc": "Wählen Sie eine verbundene Org, um Gesundheit, Limits und Jobs live zu sehen.",
-    "scanAnomalies": "Anomalien scannen",
+    "scanAnomaliesOn": "Anomalien scannen ({{object}})",
+    "anomalyScanObject": "Objekt für den Anomalie-Scan",
     "anomaliesFound": "Anomalien gefunden",
+    "noAnomalies": "Keine Anomalien in {{object}} gefunden",
+    "anomalyScanFailed": "Anomalie-Scan fehlgeschlagen",
     "governorLimits": "Governor-Limits",
     "noLimits": "Keine Limit-Daten verfügbar",
     "exportCsv": "CSV exportieren",
@@ -559,6 +562,7 @@
       "step4": "Ausführen und Ergebnisse prüfen"
     },
     "nl2soqlError": "Diese Beschreibung konnte nicht in SOQL übersetzt werden. Nennen Sie Objekt und Filter explizit.",
+    "nl2soqlUnverified": "SandForge konnte die Feldnamen dieses Entwurfs nicht gegen Ihre Org prüfen. Führen Sie die Abfrage aus, um zu sehen, ob sie funktioniert.",
     "graph": {
       "title": "Abhängigkeitsgraph"
     }

@@ -154,8 +154,11 @@
     "apiCalls": "API Calls Today",
     "dataStorage": "Data Storage",
     "selectOrgDesc": "Choose a connected org to see its live health, limits and jobs.",
-    "scanAnomalies": "Scan Anomalies",
+    "scanAnomaliesOn": "Scan anomalies ({{object}})",
+    "anomalyScanObject": "Object to scan for anomalies",
     "anomaliesFound": "Anomalies Found",
+    "noAnomalies": "No anomalies found in {{object}}",
+    "anomalyScanFailed": "Anomaly scan failed",
     "governorLimits": "Governor Limits",
     "noLimits": "No limits data available",
     "exportCsv": "Export CSV",
@@ -559,6 +562,7 @@
       "step4": "Execute and review the results"
     },
     "nl2soqlError": "Could not turn that description into SOQL. Try naming the object and the filter explicitly.",
+    "nl2soqlUnverified": "SandForge could not check this draft's field names against your org. Run the query to find out whether it works.",
     "graph": {
       "title": "Dependency Graph"
     }

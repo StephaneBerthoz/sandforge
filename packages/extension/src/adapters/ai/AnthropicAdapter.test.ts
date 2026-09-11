@@ -8,7 +8,6 @@ import type { StorageAdapter } from '../storage/StorageAdapter.js';
 // body can still drive them).
 const hoisted = vi.hoisted(() => {
   const mockMessagesCreate = vi.fn();
-  const mockMessagesCountTokens = vi.fn();
   const ConstructorSpy = vi.fn();
 
   class MockAPIUserAbortError extends Error {
@@ -20,21 +19,18 @@ const hoisted = vi.hoisted(() => {
 
   return {
     mockMessagesCreate,
-    mockMessagesCountTokens,
     ConstructorSpy,
     MockAPIUserAbortError,
   };
 });
 
-const { mockMessagesCreate, mockMessagesCountTokens, ConstructorSpy, MockAPIUserAbortError } =
-  hoisted;
+const { mockMessagesCreate, ConstructorSpy, MockAPIUserAbortError } = hoisted;
 
 vi.mock('@anthropic-ai/sdk', () => {
   return {
     default: class Anthropic {
       messages = {
         create: hoisted.mockMessagesCreate,
-        countTokens: hoisted.mockMessagesCountTokens,
       };
       constructor(args: { apiKey: string }) {
         hoisted.ConstructorSpy(args);
@@ -71,7 +67,6 @@ const mkOkChat = () => ({
 
 beforeEach(() => {
   mockMessagesCreate.mockReset();
-  mockMessagesCountTokens.mockReset();
   ConstructorSpy.mockReset();
 });
 
@@ -168,14 +163,6 @@ describe('AnthropicAdapter — happy path', () => {
     await expect(adapter.chat({ messages: [{ role: 'user', content: 'hi' }] })).rejects.not.toThrow(
       /sk-ant-abc/,
     );
-  });
-
-  it('countTokens: delegates to messages.countTokens and returns inputTokens', async () => {
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-    mockMessagesCountTokens.mockResolvedValue({ input_tokens: 1234 });
-    const result = await adapter.countTokens({ messages: [{ role: 'user', content: 'hi' }] });
-    expect(result).toEqual({ inputTokens: 1234 });
   });
 });
 

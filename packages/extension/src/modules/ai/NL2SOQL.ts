@@ -4,7 +4,15 @@ import type { AIProvider } from './types.js';
 import { wrapAsUserData } from '../../adapters/ai/safety/index.js';
 import { NL2SOQL_SYSTEM_PROMPT } from '../../adapters/ai/systemPrompts/index.js';
 
-/** Schema context describing Salesforce objects and their fields. */
+/**
+ * Schema context describing Salesforce objects and their fields.
+ *
+ * An empty `fields` array means "not described", not "no fields": describing
+ * every object in an org costs one REST round trip each, so the caller
+ * describes a handful and leaves the rest as bare API names. Both the prompt
+ * and {@link NL2SOQL.validateSOQL} read the distinction — neither invents
+ * fields for an object nobody fetched.
+ */
 export interface SchemaContext {
   objects: Array<{
     apiName: string;
@@ -25,6 +33,14 @@ export interface NL2SOQLResult {
 export interface SOQLValidationResult {
   valid: boolean;
   errors: string[];
+  /**
+   * Whether the field list was actually checked against a describe.
+   *
+   * `false` when the queried object carries no described fields — the query
+   * may still reference fields that do not exist. A caller must not report a
+   * `valid: true, verified: false` result as a checked query.
+   */
+  verified: boolean;
 }
 
 /** A saved SOQL query with a user-defined label. */
@@ -66,7 +82,14 @@ export class NL2SOQL {
 
   /**
    * Validate a SOQL query against the provided schema.
-   * Checks that referenced objects and fields exist.
+   *
+   * Checks that the queried object exists in the catalog and that every plain
+   * field in the SELECT list exists on it. Fields are only checked when the
+   * object carries a describe: against an object left as a bare API name the
+   * result comes back `verified: false` rather than flagging every field as
+   * unknown — an empty `fields` array means nobody fetched them, so calling
+   * them all invented would be a lie in the other direction.
+   *
    * @param soql - The SOQL query to validate
    * @param schema - The Salesforce schema context
    * @returns Validation result with any errors found
@@ -75,13 +98,13 @@ export class NL2SOQL {
     const errors: string[] = [];
 
     if (!soql.trim()) {
-      return { valid: false, errors: ['SOQL query is empty'] };
+      return { valid: false, errors: ['SOQL query is empty'], verified: true };
     }
 
     const objectMatch = /FROM\s+(\w+)/i.exec(soql);
     if (!objectMatch) {
       errors.push('No FROM clause found in SOQL query');
-      return { valid: false, errors };
+      return { valid: false, errors, verified: true };
     }
 
     const objectName = objectMatch[1];
@@ -91,19 +114,23 @@ export class NL2SOQL {
 
     if (!objectDef) {
       errors.push(`Object "${objectName}" not found in schema`);
-      return { valid: false, errors };
+      return { valid: false, errors, verified: true };
     }
 
     const selectMatch = /SELECT\s+(.+?)\s+FROM/i.exec(soql);
     if (!selectMatch) {
       errors.push('No SELECT clause found in SOQL query');
-      return { valid: false, errors };
+      return { valid: false, errors, verified: true };
     }
 
     const selectClause = selectMatch[1];
     if (selectClause.trim() === '*') {
       errors.push('Wildcard (*) is not supported in SOQL');
-      return { valid: false, errors };
+      return { valid: false, errors, verified: true };
+    }
+
+    if (objectDef.fields.length === 0) {
+      return { valid: true, errors, verified: false };
     }
 
     const fieldNames = selectClause.split(',').map((f) => f.trim());
@@ -119,7 +146,7 @@ export class NL2SOQL {
       }
     }
 
-    return { valid: errors.length === 0, errors };
+    return { valid: errors.length === 0, errors, verified: true };
   }
 
   /**
@@ -157,20 +184,41 @@ export class NL2SOQL {
 
 /**
  * Build the AI prompt from the user query and schema context.
+ *
+ * Described objects get their full field list; the rest are listed as names
+ * only, on one line. Spelling out `Name (Label):` plus an empty field list for
+ * every object in the org cost ~21 500 tokens on a measured Developer Edition
+ * (1453 SObjects) and carried no field name at all — the model had nothing to
+ * write a SELECT from but its own guesses.
  */
 function buildPrompt(naturalLanguage: string, schema: SchemaContext): string {
-  const objectDescriptions = schema.objects.map((obj) => {
-    const fieldList = obj.fields
-      .map((f) => `    - ${f.apiName} (${f.type}): ${f.label}`)
-      .join('\n');
-    return `  ${obj.apiName} (${obj.label}):\n${fieldList}`;
-  });
+  const described = schema.objects.filter((o) => o.fields.length > 0);
+  const nameOnly = schema.objects.filter((o) => o.fields.length === 0);
+
+  const schemaLines: string[] = [];
+  if (described.length > 0) {
+    schemaLines.push('Objects described in full — use ONLY these field API names:');
+    for (const obj of described) {
+      schemaLines.push(`  ${obj.apiName} (${obj.label}):`);
+      for (const f of obj.fields) {
+        schemaLines.push(`    - ${f.apiName} (${f.type}): ${f.label}`);
+      }
+    }
+  }
+  if (nameOnly.length > 0) {
+    schemaLines.push(
+      'Objects present in the org whose fields were NOT loaded. Query one only if none of the objects above fits, and then restrict the SELECT list to Id and Name:',
+    );
+    schemaLines.push(`  ${nameOnly.map((o) => `${o.apiName} (${o.label})`).join(', ')}`);
+  }
 
   const lines = [
     'You are a Salesforce SOQL expert. Convert the following natural language query into a valid SOQL query.',
     '',
     'Available schema:',
-    ...objectDescriptions,
+    ...schemaLines,
+    '',
+    'Never invent a field API name. If the request needs a field that is not listed above, leave it out and say so in the explanation.',
     '',
     // The query is free text the user pastes — and may itself have been copied
     // out of a record — so it crosses the <user-data> boundary instead of

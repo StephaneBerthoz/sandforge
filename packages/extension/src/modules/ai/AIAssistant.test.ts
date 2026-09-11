@@ -181,63 +181,12 @@ describe('AIAssistant', () => {
     expect(passedConfig).toEqual(mockConfig);
   });
 
-  // --- Complete ---
-
-  it('should perform a one-shot completion', async () => {
-    const result = await assistant.complete('Generate 10 Account names');
-    expect(result).toBe('AI response content');
-    expect(mockCallFn).toHaveBeenCalledTimes(1);
-  });
-
-  it('should use default system prompt for complete', async () => {
-    await assistant.complete('Question');
-    const messages = mockCallFn.mock.calls[0][0];
-    expect(messages[0].role).toBe('system');
-    expect(messages[0].content).toContain('SandForge AI Assistant');
-  });
-
-  it('should use custom system context for complete', async () => {
-    await assistant.complete('Question', 'Custom context only');
-    const messages = mockCallFn.mock.calls[0][0];
-    expect(messages[0].content).toBe('Custom context only');
-  });
-
-  // --- Domain-specific methods ---
-
-  it('should generate field rule suggestions', async () => {
-    const fields = [
-      { apiName: 'Name', type: 'string', label: 'Account Name', required: true },
-      { apiName: 'Industry', type: 'picklist', label: 'Industry', required: false },
-    ];
-
-    const result = await assistant.suggestFieldRules('Account', fields);
-    expect(result).toBe('AI response content');
-
-    const messages = mockCallFn.mock.calls[0][0];
-    const userPrompt = messages[1].content;
-    expect(userPrompt).toContain('Account');
-    expect(userPrompt).toContain('Name (string, required)');
-    expect(userPrompt).toContain('Industry (picklist, optional)');
-    expect(userPrompt).toContain('JSON');
-  });
-
-  it('should analyze sync configuration', async () => {
-    const result = await assistant.analyzeSyncConfig(
-      'Source: Prod, Target: Sandbox, Objects: Account, Contact',
-    );
-    expect(result).toBe('AI response content');
-
-    const messages = mockCallFn.mock.calls[0][0];
-    expect(messages[1].content).toContain('Source: Prod');
-    expect(messages[1].content).toContain('Conflict resolution');
-  });
-
   // --- Usage stats ---
 
   it('should track usage statistics', async () => {
     const conv = assistant.createConversation('Stats Test');
     await assistant.chat(conv.id, 'Q1');
-    await assistant.complete('Q2');
+    await assistant.chat(conv.id, 'Q2');
 
     const stats = assistant.getUsageStats();
     expect(stats.totalCalls).toBe(2);

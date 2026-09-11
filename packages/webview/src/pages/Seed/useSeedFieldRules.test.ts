@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import type { PersonaMsg } from '@sandforge/shared';
 
-import { useSeedFieldRules, mapGeneratorToRuleType } from './useSeedFieldRules';
+import { useSeedFieldRules } from './useSeedFieldRules';
 
 /* ------------------------------------------------------------------ */
 /* Mock bridge hooks                                                   */
@@ -147,42 +147,66 @@ describe('useSeedFieldRules', () => {
        and it is the only prompt key the seed contract carries (FieldRuleConfig). */
     expect(field.config['aiPrompt']).toBe('Product review, 1-3 sentences, realistic tone');
   });
-});
 
-describe('mapGeneratorToRuleType', () => {
-  it('should map faker to faker', () => {
-    expect(mapGeneratorToRuleType('faker')).toBe('faker');
-  });
+  it('should write persona bounds and picklists under the keys the seed contract reads', () => {
+    bridge.data = {
+      objectApiName: 'Contract__c',
+      objectLabel: 'Contract',
+      fields: [
+        {
+          fieldApiName: 'Premium__c',
+          label: 'Premium',
+          type: 'currency',
+          required: false,
+          picklistValues: [],
+          referenceTo: [],
+          length: 0,
+        },
+        {
+          fieldApiName: 'Contract_Type__c',
+          label: 'Contract Type',
+          type: 'picklist',
+          required: false,
+          picklistValues: [],
+          referenceTo: [],
+          length: 0,
+        },
+      ],
+    };
 
-  it('should map random_pick to picklist_random', () => {
-    expect(mapGeneratorToRuleType('random_pick')).toBe('picklist_random');
-  });
+    const { result } = renderHook(() => useSeedFieldRules('org-1', ['Contract__c'], 1));
 
-  it('should map weighted_pick to picklist_random', () => {
-    expect(mapGeneratorToRuleType('weighted_pick')).toBe('picklist_random');
-  });
+    /* Same pattern shapes as the built-in "Assureur français" persona. */
+    const persona: PersonaMsg = {
+      id: 'assureur-fr',
+      name: 'Assureur français',
+      description: "Compagnie d'assurance française",
+      industry: 'Insurance',
+      locale: 'fr-FR',
+      dataPatterns: {
+        Premium__c: {
+          fieldType: 'currency',
+          generator: 'range',
+          params: { min: 200, max: 5000, currency: 'EUR' },
+          examples: ['450.00'],
+        },
+        Contract_Type__c: {
+          fieldType: 'picklist',
+          generator: 'random_pick',
+          params: { values: ['Auto', 'Habitation', 'Santé'] },
+          examples: ['Auto'],
+        },
+      },
+    };
 
-  it('should map range to random', () => {
-    expect(mapGeneratorToRuleType('range')).toBe('random');
-  });
+    act(() => {
+      result.current.applyPersona(persona);
+    });
 
-  it('should map sequence to sequence', () => {
-    expect(mapGeneratorToRuleType('sequence')).toBe('sequence');
-  });
-
-  it('should map pattern to regex', () => {
-    expect(mapGeneratorToRuleType('pattern')).toBe('regex');
-  });
-
-  it('should map ai_generate to ai_generate', () => {
-    expect(mapGeneratorToRuleType('ai_generate')).toBe('ai_generate');
-  });
-
-  it('should map relative_date to faker', () => {
-    expect(mapGeneratorToRuleType('relative_date')).toBe('faker');
-  });
-
-  it('should return null for unknown generator', () => {
-    expect(mapGeneratorToRuleType('unknown_type')).toBeNull();
+    const [premium, contractType] = result.current.fieldConfigs[0].fields;
+    expect(premium.ruleType).toBe('random');
+    expect(premium.config).toEqual({ minValue: 200, maxValue: 5000 });
+    expect(contractType.ruleType).toBe('picklist_random');
+    expect(contractType.config).toEqual({ picklistValues: ['Auto', 'Habitation', 'Santé'] });
   });
 });

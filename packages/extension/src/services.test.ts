@@ -101,14 +101,12 @@ vi.mock('vscode', () => ({
 // dependency when services.aiClient('anthropic') instantiates it.
 const sdkHoisted = vi.hoisted(() => {
   const sharedCreate = vi.fn();
-  const sharedCountTokens = vi.fn();
-  return { sharedCreate, sharedCountTokens };
+  return { sharedCreate };
 });
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class Anthropic {
     messages = {
       create: sdkHoisted.sharedCreate,
-      countTokens: sdkHoisted.sharedCountTokens,
     };
     constructor(_args: { apiKey: string }) {}
   },

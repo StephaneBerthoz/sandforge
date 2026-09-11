@@ -6,7 +6,7 @@ import { AINotImplementedError } from './AIClient.js';
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class Anthropic {
-    messages = { create: vi.fn(), countTokens: vi.fn() };
+    messages = { create: vi.fn() };
     constructor(_args: { apiKey: string }) {}
   },
   APIUserAbortError: class APIUserAbortError extends Error {},
@@ -31,7 +31,6 @@ describe('AIClientFactory', () => {
     const client = factory();
     expect(client.provider).toBe('anthropic');
     expect(typeof client.chat).toBe('function');
-    expect(typeof client.countTokens).toBe('function');
     expect(typeof client.dispose).toBe('function');
   });
 

@@ -102,6 +102,46 @@ front of every destructive action could be armed without typing a word.
   is shown in the instruction box of the configuration step, where you can edit
   it before running.
 
+- **Natural-language SOQL is written against your org's fields, and says when it
+  could not be.** The model was handed the API names and labels of every object
+  in the org and not one field name, so the fields in the draft were its own
+  invention and the panel gave no sign of it. SandForge now describes up to five
+  objects your request names — by API name or by label, singular or plural —
+  sends the model their field API names, labels and types, and rejects a draft
+  that selects a plain field none of them has, naming the field. When your
+  request names no object it recognises, the draft still comes back, under a
+  line saying it could not be checked against your org.
+- **The anomaly scan reads the object you choose, and says how the run went.**
+  It sampled Account and nothing else, whatever the org held. A dropdown beside
+  the button now picks the object: Account first, then up to 20 of the org's
+  objects that hold records, largest first. Selecting another org puts the
+  choice back on Account, drops the previous org's report, and offers nothing but
+  Account until that org's own list arrives, so a scan is never sent for an
+  object the new org does not have. A run that finds nothing says
+  so, and one that fails shows the reason under the button instead of leaving
+  the panel exactly as it was.
+- **A sync configuration's sort order can only sort.** A sync object accepts an
+  `orderBy`, and whatever it held was appended to the query unchecked: `Id ASC
+LIMIT 1` would have truncated the read, `Id ASC FOR UPDATE` would have locked
+  the rows it returned. Such a value could only arrive in a configuration
+  written by hand or converted from an SFDMU export, and the one place that
+  builds that query — the sync dry run — is reachable from no screen and no
+  command, so no run has ever been affected. The field is now refused at the
+  extension boundary unless it lists field names with an optional ASC/DESC and
+  NULLS FIRST/LAST, and checked again where the query is assembled.
+- **A built-in persona's ranges, lists, prefixes and locales reach the
+  generator.** A persona describes each field in its own vocabulary — a premium
+  between 200 and 5,000, a contract type drawn from five values, a medical
+  record number prefixed `MRN-`, a French company name. Those settings were
+  passed on under the persona's own key names, which the generation contract
+  does not read, so they were dropped on the way and the fields fell back to
+  defaults: 0 to 1,000 for a number, an empty value for a picklist, a lorem
+  sentence for a name. They now arrive under the names the generator reads. Two
+  gaps remain: a field described by a digit mask, such as the French SIRET,
+  still produces the mask itself rather than a number matching it, and a faker
+  method SandForge does not implement — `commerce.productName`, `finance.iban`,
+  `finance.bic` — still produces a lorem sentence.
+
 ### Changed
 
 - **The shipped catalogue is a quarter smaller.** 555 translation keys that
@@ -115,6 +155,12 @@ front of every destructive action could be armed without typing a word.
   are not available. Safety checks are logged in memory for the session, not
   kept as an audit trail. Compare's Snapshots is a live capture of two orgs, not
   a history.
+
+- **The AI model setting says what it sets.** `sandforge.ai.model` was described
+  as the model "for the assistant". One adapter is built from it and every
+  feature that reaches a model goes through that adapter, so its description now
+  names them: assistant chat, natural-language SOQL, pipeline drafts, error
+  resolution, Seed personas and Seed AI field rules.
 
 ### Removed
 
@@ -169,6 +215,14 @@ front of every destructive action could be armed without typing a word.
   used to build their schemas at load — about 9.5 KB of the package goes with
   them; the webview never carried them at all.
 
+- **Four AI entry points no route could reach.** A one-shot completion on the
+  assistant and the two prompt builders standing on it — field-rule suggestions
+  and a sync-configuration review — had no caller: each would have sent a prompt
+  and billed a request that no screen could ask for. The provider contract's
+  token-counting method went with them, along with the three adapter
+  implementations it obliged, and a shared schema factory neither side of the
+  bridge read.
+
 ### Build
 
 - **The orphan-module check covers the extension and the shared contract, not
@@ -217,6 +271,14 @@ front of every destructive action could be armed without typing a word.
   reported on every run; and the packaging ignore list claimed the command-line
   and tooling sources it excludes were "already bundled" into the extension,
   which no build entry point reaches.
+- **The AI call-path check compares symbols, not spellings.** It credited a
+  method with a caller as soon as some `x.<name>(…)` existed anywhere in the
+  three packages, so the dead one-shot completion above was covered by the
+  Grappe store's `complete`, and the provider contract's `dispose` by
+  twenty-two unrelated ones, VS Code's included — the check could not fail. It
+  now builds a TypeScript program per bundle and resolves every call to the
+  declaration it actually reaches, so a namesake in another class, package or
+  library is not a caller. Two seconds slower, and provably able to go red.
 
 ## [1.21.0] - 2026-09-10
 
