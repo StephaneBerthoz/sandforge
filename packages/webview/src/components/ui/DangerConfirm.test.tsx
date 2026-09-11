@@ -103,4 +103,22 @@ describe('DangerConfirm', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onConfirm).not.toHaveBeenCalled();
   });
+
+  it('does not keep the typed text when its parent closes and reopens it', () => {
+    // A parent that closes the dialog itself — a refresh removing what the
+    // confirmation was about — never runs handleClose, so `typed` survived and
+    // the next open came up already confirmed: one click, nothing typed.
+    const onConfirm = vi.fn();
+    const { rerender } = render(<DangerConfirm {...baseProps} onConfirm={onConfirm} />);
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'DELETE' } });
+
+    rerender(<DangerConfirm {...baseProps} onConfirm={onConfirm} open={false} />);
+    rerender(<DangerConfirm {...baseProps} onConfirm={onConfirm} open />);
+
+    const confirmBtn = screen.getByTestId('danger-confirm-btn') as HTMLButtonElement;
+    expect((screen.getByTestId('danger-input') as HTMLInputElement).value).toBe('');
+    expect(confirmBtn.disabled).toBe(true);
+    fireEvent.click(confirmBtn);
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
 });
