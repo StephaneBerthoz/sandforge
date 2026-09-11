@@ -335,7 +335,7 @@ describe('ExecutionHandler', () => {
         id: 'abort-flat',
         type: 'execution:abort',
         timestamp: Date.now(),
-        // useRetryManager sends `{ executionId, objectName }` (no operationId).
+        // The retry shape: `{ executionId, objectName }`, no operationId.
         payload: { executionId: 'ghost', objectName: 'Account' },
       } as unknown as BaseMessage);
 

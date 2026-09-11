@@ -30,11 +30,16 @@ export interface Step3ConfigureFieldsProps {
   objectConfigs: ObjectFieldConfig[];
   onChangeRule: (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => void;
   onChangeConfig: (objectApiName: string, fieldApiName: string, key: string, value: string) => void;
-  /** Smart field generation suggestions from SmartFieldGenerator. */
+  /**
+   * Suggested field-generation configs, keyed by object API name. No caller
+   * fills this today: `SeedConfigureStep` renders the step with
+   * `objectConfigs`/`onChangeRule`/`onChangeConfig` only, so the suggest
+   * button below stays hidden.
+   */
   smartSuggestions?: Map<string, FieldGenerationConfig[]>;
   /** Callback to apply smart suggestions for an object. */
   onApplySmartSuggestions?: (objectApiName: string) => void;
-  /** Validation rule check results. */
+  /** Validation rule check results. Unset for the same reason. */
   vrCheckResults?: VRCheckResult[];
 }
 

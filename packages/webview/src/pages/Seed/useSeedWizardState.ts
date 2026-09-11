@@ -8,11 +8,11 @@ import type {
 } from '@sandforge/shared';
 import { useNotificationStore } from '../../stores/useNotificationStore';
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
+import type { SeedRelation } from '../../stores/useSeedWizardStore';
 import { useNL2SOQL } from '../../hooks/useAIFeatures';
 import { useWebviewPersistedState } from '../../hooks/useWebviewPersistedState';
 import type { SeedObjectInfo } from './Step2_SelectObjects';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
-import type { SeedRelation } from './Step4_ConfigureRelations';
 import type { ObjectProgress } from './Step7_Execute';
 import { useSeedOrgSelection } from './useSeedOrgSelection';
 import { useSeedObjectSelection } from './useSeedObjectSelection';

@@ -260,8 +260,8 @@ export class SeedCsvHandler implements DomainHandler {
  * Build a Salesforce record from a CSV row using the column mappings.
  * Unmapped columns (empty `sfFieldApiName`) and empty cells are skipped so
  * Salesforce defaults/required-field validation apply. Cell values are
- * coerced with the same rules as CsvConnector.parseValue ('true'/'false'/
- * 'null'/numeric strings) so REST writes get proper JSON primitives.
+ * coerced by {@link coerceCellValue} ('true'/'false'/'null'/numeric strings)
+ * so REST writes get proper JSON primitives.
  */
 function buildSalesforceRecord(
   row: Record<string, string>,
@@ -277,7 +277,7 @@ function buildSalesforceRecord(
   return record;
 }
 
-/** Coerce a CSV cell string to a JSON primitive (mirrors CsvConnector.parseValue). */
+/** Coerce a CSV cell string to a JSON primitive. */
 function coerceCellValue(value: string): unknown {
   if (value === 'true') return true;
   if (value === 'false') return false;

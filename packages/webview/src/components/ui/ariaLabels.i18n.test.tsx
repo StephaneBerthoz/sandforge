@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import en from '../../i18n/locales/en.json';
-import { Logo } from './Logo';
 import { PageHeader } from './PageHeader';
 import { Sparkline } from './Sparkline';
 import { Timeline } from './Timeline';
@@ -33,11 +32,6 @@ function lookup(dotted: string): unknown {
 }
 
 describe('accessible names go through i18n', () => {
-  it('labels the logo with a key', () => {
-    render(<Logo />);
-    expect(screen.getByTestId('logo-svg').getAttribute('aria-label')).toBe('a11y.logo');
-  });
-
   it('labels the page-header breadcrumb with a key', () => {
     render(<PageHeader title="Monitor" breadcrumb={['Home', 'Monitor']} />);
     expect(screen.getByTestId('page-header-breadcrumb').getAttribute('aria-label')).toBe(
@@ -97,7 +91,6 @@ describe('accessible names go through i18n', () => {
 
   it('backs every accessible-name key with an entry in the reference locale', () => {
     for (const key of [
-      'a11y.logo',
       'a11y.sparklineChart',
       'a11y.timeline',
       'a11y.stepProgress',

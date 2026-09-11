@@ -1,5 +1,5 @@
 import { useSeedWizardStore } from '../../stores/useSeedWizardStore';
-import type { SeedRelation } from './Step4_ConfigureRelations';
+import type { SeedRelation } from '../../stores/useSeedWizardStore';
 
 /** Return type for the useSeedRelations hook. */
 export interface SeedRelationsState {

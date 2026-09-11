@@ -580,9 +580,9 @@ export const migrationImportSfdmuPayloadSchema = z.object({
 });
 
 // ── execution:* payload schemas ───────────────────────────────────────────
-// Mirror what useRetryManager / ErrorRecoveryPanel post. NOTE: useRetryManager
-// sends `{ executionId, objectName }` for execution:abort where the handler
-// reads `operationId` (pre-existing mismatch) — both stay accepted.
+// `execution:abort` is posted with `{ operationId }` by the Seed page, and was
+// also posted as `{ executionId, objectName }` by the retry surface the
+// webview no longer carries — both shapes stay accepted.
 
 export const executionAbortPayloadSchema = z
   .object({
