@@ -6,7 +6,6 @@ import type {
   CloneExecutionResult,
 } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
-import { useBridgeErrorChannel } from '../useBridgeErrorChannel';
 
 /** Clone wizard step identifiers. */
 export type CloneStep = 'source' | 'objects' | 'preview' | 'execute';
@@ -82,11 +81,15 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
 
   const describeMutation = useBridgeMutation<{
     objects: Array<{ apiName: string; label: string; recordCount: number }>;
-  }>('seed:clone:describe-source');
+  }>('seed:clone:describe-source', { errorType: 'seed:clone:error' });
 
-  const previewMutation = useBridgeMutation<ClonePreviewResult>('seed:clone:preview');
+  const previewMutation = useBridgeMutation<ClonePreviewResult>('seed:clone:preview', {
+    errorType: 'seed:clone:error',
+  });
 
   const executeMutation = useBridgeMutation<CloneExecutionResult>('seed:clone:execute', {
+    // SeedCloneHandler reports failures here, correlated to the request.
+    errorType: 'seed:clone:error',
     // Bulk write: can exceed the 30 s default on real volumes; operation:progress
     // events keep flowing while the response is pending.
     timeoutMs: 120_000,
@@ -128,28 +131,6 @@ export function useClone(_t: TFunction, targetOrgId: string): UseCloneReturn {
     setExecutionStatus('error');
     if (error === null) setError(executeMutation.error);
   }
-
-  /* ------------------------------------------------------------------ */
-  /* Fail fast on the seed:clone:error channel                           */
-  /*                                                                     */
-  /* SeedCloneHandler reports describe/preview/execute failures on        */
-  /* `seed:clone:error` (no correlationId); without this listener the     */
-  /* mutation would only fail on the 30 s bridge timeout.                 */
-  /* ------------------------------------------------------------------ */
-  useBridgeErrorChannel('seed:clone:error', (message) => {
-    if (previewMutation.loading) {
-      previewMutation.reset();
-      setExecutionStatus('error');
-      setError(message);
-    } else if (executeMutation.loading) {
-      executeMutation.reset();
-      setExecutionStatus('error');
-      setError(message);
-    } else if (describeMutation.loading) {
-      describeMutation.reset();
-      setError(message);
-    }
-  });
 
   /* ------------------------------------------------------------------ */
   /* Handlers                                                            */

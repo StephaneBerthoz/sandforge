@@ -44,8 +44,14 @@ let mockMutationState = {
   reset: mockReset,
 };
 
+/** Every mutation the hook creates, with the error channel it asked for. */
+const mutationCalls: Array<{ type: string; errorType?: string }> = [];
+
 vi.mock('../../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: () => mockMutationState,
+  useBridgeMutation: (type: string, options?: { errorType?: string }) => {
+    mutationCalls.push({ type, errorType: options?.errorType });
+    return mockMutationState;
+  },
 }));
 
 const tMock: TFunction = ((key: string) => key) as unknown as TFunction;
@@ -53,6 +59,7 @@ const tMock: TFunction = ((key: string) => key) as unknown as TFunction;
 describe('useCsvImport', () => {
   beforeEach(() => {
     mockMutate.mockClear();
+    mutationCalls.length = 0;
     mockReset.mockClear();
     mockMutationState = {
       mutate: mockMutate,
@@ -167,19 +174,6 @@ describe('useCsvImport', () => {
   /* Error handling: mutation error + seed:csv:error channel             */
   /* ------------------------------------------------------------------ */
 
-  const dispatchCsvError = (message: string) => {
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: {
-          id: 'err-1',
-          type: 'seed:csv:error',
-          timestamp: Date.now(),
-          payload: { message, code: 'UNKNOWN', retryable: false },
-        },
-      }),
-    );
-  };
-
   it('unsticks the validating status when the validate mutation errors', () => {
     const { result, rerender } = renderHook(() => useCsvImport(tMock));
 
@@ -198,63 +192,35 @@ describe('useCsvImport', () => {
     expect(result.current.error).toBe('Bridge timeout');
   });
 
-  it('fails the validation immediately on seed:csv:error', () => {
-    mockMutationState = { ...mockMutationState, loading: true };
-    const { result } = renderHook(() => useCsvImport(tMock));
+  it('listens for validate and execute failures on seed:csv:error', () => {
+    // The handler posts its failures on this channel, correlated to the
+    // request, and the mutations listen there themselves. A separate
+    // type-only listener used to catch them instead and hand each one to
+    // whichever mutation happened to be loading.
+    renderHook(() => useCsvImport(tMock));
 
-    act(() => {
-      result.current.handleValidate();
-    });
-    expect(result.current.executionStatus).toBe('validating');
-
-    act(() => {
-      dispatchCsvError('Validation exploded');
-    });
-
-    expect(result.current.executionStatus).toBe('error');
-    expect(result.current.error).toBe('Validation exploded');
-    expect(mockReset).toHaveBeenCalled();
+    expect(mutationCalls).toEqual(
+      expect.arrayContaining([
+        { type: 'seed:csv:validate', errorType: 'seed:csv:error' },
+        { type: 'seed:csv:execute', errorType: 'seed:csv:error' },
+      ]),
+    );
   });
 
-  it('fails the execution immediately on seed:csv:error', () => {
-    mockMutationState = { ...mockMutationState, loading: true };
-    const { result } = renderHook(() => useCsvImport(tMock));
+  it('unsticks the executing status when the execute mutation errors', () => {
+    const { result, rerender } = renderHook(() => useCsvImport(tMock));
 
     act(() => {
       result.current.handleExecute();
     });
     expect(result.current.executionStatus).toBe('executing');
 
+    mockMutationState = { ...mockMutationState, loading: false, error: 'Import exploded' };
     act(() => {
-      dispatchCsvError('Import exploded');
+      rerender();
     });
 
     expect(result.current.executionStatus).toBe('error');
     expect(result.current.error).toBe('Import exploded');
-    expect(mockReset).toHaveBeenCalled();
-  });
-
-  it('ignores unrelated error channels', () => {
-    mockMutationState = { ...mockMutationState, loading: true };
-    const { result } = renderHook(() => useCsvImport(tMock));
-
-    act(() => {
-      result.current.handleValidate();
-    });
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            id: 'err-2',
-            type: 'seed:clone:error',
-            timestamp: Date.now(),
-            payload: { message: 'wrong channel', code: 'UNKNOWN', retryable: false },
-          },
-        }),
-      );
-    });
-
-    expect(result.current.executionStatus).toBe('validating');
-    expect(result.current.error).toBeNull();
   });
 });

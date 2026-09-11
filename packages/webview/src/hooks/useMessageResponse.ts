@@ -119,9 +119,11 @@ export function useMessageResponse<T>(
           return;
         }
 
-        // correlationId matching: if the response carries a correlationId,
-        // it must match our request's messageId. If absent, fall back to
-        // type-only matching for backward compatibility.
+        // A response carrying a correlationId must carry ours. One carrying
+        // none is still accepted by type: handler responses are always
+        // correlated (`buildResponse` takes a typed origin), but some messages
+        // of a response type are broadcasts with no request behind them —
+        // `org:list:response` is pushed on every org change.
         if (eventData.correlationId && eventData.correlationId !== messageId) {
           return;
         }
@@ -163,7 +165,11 @@ export function useMessageResponse<T>(
           if (!eventData || eventData.type !== errorType) {
             return;
           }
-          if (eventData.correlationId && eventData.correlationId !== messageId) {
+          // An error names the request it answers, or it is not ours. Handler
+          // errors are correlated at the source — `sendHandlerError` takes a
+          // typed origin — so one without a correlationId cannot be attributed,
+          // and claiming it is how a long sync showed another request's failure.
+          if (eventData.correlationId !== messageId) {
             return;
           }
           if (!mountedRef.current || activeRequestId.current !== messageId) {
@@ -175,17 +181,7 @@ export function useMessageResponse<T>(
             clearTimeout(feedbackTimerRef.current);
             feedbackTimerRef.current = null;
           }
-          // Only a correlated error closes the request. An UNCORRELATED error
-          // is a guess: `sendHandlerError` makes `request` optional and most
-          // call sites omit it, so the channel carries failures that may
-          // belong to any concurrent request of this domain. It is still shown
-          // — dropping it would turn those handler messages into 30 s timeouts
-          // — but provisionally: keeping `activeRequestId` means this request's
-          // own response (or its own correlated error) still arrives and
-          // overrides the guess, instead of being discarded as stale.
-          if (eventData.correlationId === messageId) {
-            activeRequestId.current = null;
-          }
+          activeRequestId.current = null;
 
           const payloadMessage = eventData.payload?.message;
           setError(

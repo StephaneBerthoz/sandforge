@@ -360,7 +360,7 @@ describe('useMessageResponse', () => {
       });
 
       act(() => {
-        simulateResponse('org:error', { message: 'org unreachable', code: 'CONN_FAIL' });
+        simulateResponse('org:error', { message: 'org unreachable', code: 'CONN_FAIL' }, 'req-1');
       });
 
       expect(result.current.loading).toBe(false);
@@ -384,7 +384,7 @@ describe('useMessageResponse', () => {
       });
 
       act(() => {
-        simulateResponse('org:error', { code: 'UNKNOWN' });
+        simulateResponse('org:error', { code: 'UNKNOWN' }, 'req-1');
       });
 
       expect(result.current.error).toBe("Bridge query 'org:list' failed");
@@ -417,7 +417,7 @@ describe('useMessageResponse', () => {
         simulateResponse('org:list:response', { orgs: ['a'] });
       });
       act(() => {
-        simulateResponse('org:error', { message: 'late error' });
+        simulateResponse('org:error', { message: 'late error' }, 'req-1');
       });
 
       expect(result.current.error).toBeNull();
@@ -484,16 +484,11 @@ describe('useMessageResponse', () => {
       expect(result.current.data).toEqual({ status: 'success' });
     });
 
-    it('shows an uncorrelated error provisionally, and lets its own response override it', () => {
-      // 85 of the 121 `sendHandlerError` call sites omit the optional
-      // `request` argument — including all 10 in SyncOpsHandler and the one
-      // in `validatePayload` that rejects a payload in every domain — so
-      // their error carries no correlationId and nothing in the webview can
-      // tell whose failure it is. Dropping those
-      // would trade a wrong message for no message at all (a 30 s timeout),
-      // so an uncorrelated error is still displayed — but provisionally: it
-      // must NOT release the request, or the answer this hook is actually
-      // waiting for is thrown away when it finally arrives.
+    it('ignores an error that names no request, and still takes its own response', () => {
+      // Every handler error names its request now — `sendHandlerError` takes a
+      // typed origin — so an error without a correlationId cannot be
+      // attributed. Claiming it is how a multi-minute sync used to show
+      // "describe failed on Account": another request's failure.
       const { result } = renderHook(() => useMessageResponse<{ status: string }>(syncOptions));
 
       act(() => {
@@ -501,21 +496,18 @@ describe('useMessageResponse', () => {
         result.current.listen('req-execute');
       });
 
-      // Another Sync request fails mid-run — a field describe, uncorrelated.
       act(() => {
         simulateResponse('sync:error', { message: 'describe failed on Account' });
       });
 
-      expect(result.current.error).toBe('describe failed on Account');
+      expect(result.current.error).toBeNull();
+      expect(result.current.loading).toBe(true);
 
-      // The multi-minute sync then finishes. Its own response must still be
-      // accepted, and must clear the verdict it never earned.
       act(() => {
         simulateResponse('sync:execute:response', { status: 'success' }, 'req-execute');
       });
 
       expect(result.current.data).toEqual({ status: 'success' });
-      expect(result.current.error).toBeNull();
       expect(result.current.loading).toBe(false);
     });
   });
