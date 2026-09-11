@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { BaseMessage } from '@sandforge/shared';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -95,7 +95,9 @@ async function captureInsertFn(deps: HandlerDeps): Promise<InsertFn> {
     getSandforgeSetting: <T>(_key: string, fallback: T): T => fallback,
     // AIDataGenerator is constructed unconditionally before the orchestrator.
     isAIEnabled: () => false,
-    aiClient: () => ({ chat: () => Promise.reject(new Error('no AI in this test')) }),
+    aiClient: () => ({
+      chat: () => Promise.reject(new Error('no AI in this test')),
+    }),
     seedOrchestrator: (orchestratorDeps: { insert: InsertFn }) => {
       captured = orchestratorDeps.insert;
       return { execute: () => Promise.resolve({ insertedIds: [] }) };
@@ -103,14 +105,18 @@ async function captureInsertFn(deps: HandlerDeps): Promise<InsertFn> {
   } as unknown as HandlerDeps['services'];
 
   const handler = new SeedOpsHandler(deps);
-  const msg: BaseMessage & {
-    payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-  } = {
+  const msg: InboundRequest & {
+    payload: {
+      orgId: string;
+      template: Record<string, unknown>;
+      dryRun: boolean;
+    };
+  } = inboundRequest({
     id: 'req-insert-1',
     type: 'seed:execute',
     timestamp: Date.now(),
     payload: { orgId: 'org-1', template: seedTemplate(), dryRun: false },
-  };
+  });
   await handler.handle(msg);
 
   if (!captured) {
@@ -135,7 +141,9 @@ describe('SeedOpsHandler REST insert error accounting', () => {
     mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
 
     const insert = await captureInsertFn(deps);
-    const records = Array.from({ length: 180 }, (_, i) => ({ Name: `Acme ${i}` }));
+    const records = Array.from({ length: 180 }, (_, i) => ({
+      Name: `Acme ${i}`,
+    }));
 
     const result = await insert('org-1', 'Account', records, 200);
 
@@ -153,7 +161,9 @@ describe('SeedOpsHandler REST insert error accounting', () => {
     mockGetConn.mockResolvedValue({ sobject: () => ({ create }) } as never);
 
     const insert = await captureInsertFn(deps);
-    const records = Array.from({ length: 150 }, (_, i) => ({ Name: `Acme ${i}` }));
+    const records = Array.from({ length: 150 }, (_, i) => ({
+      Name: `Acme ${i}`,
+    }));
 
     // batchSize 50 -> 3 batches, all lost.
     const result = await insert('org-1', 'Account', records, 50);

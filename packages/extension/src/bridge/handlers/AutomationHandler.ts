@@ -1,5 +1,4 @@
-import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
   sendNotification,
@@ -63,7 +62,7 @@ export class AutomationHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!AUTOMATION_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -103,7 +102,7 @@ export class AutomationHandler implements DomainHandler {
     }
   }
 
-  private async handlePipelineRun(msg: BaseMessage): Promise<void> {
+  private async handlePipelineRun(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(pipelineRunPayloadSchema, msg, 'pipeline:error', this.deps);
     if (!parsed) return;
@@ -217,7 +216,7 @@ export class AutomationHandler implements DomainHandler {
     }
   }
 
-  private handlePipelineTemplates(msg: BaseMessage): void {
+  private handlePipelineTemplates(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const response = buildResponse(this.deps, msg, 'pipeline:templates:response', {
       templates: PIPELINE_TEMPLATES,
@@ -226,7 +225,7 @@ export class AutomationHandler implements DomainHandler {
     this.deps.log(`[TX] pipeline:templates:response`);
   }
 
-  private handleOperationCancel(msg: BaseMessage): void {
+  private handleOperationCancel(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
     if (!parsed) return;
@@ -249,7 +248,7 @@ export class AutomationHandler implements DomainHandler {
     }
   }
 
-  private handleOperationPause(msg: BaseMessage): void {
+  private handleOperationPause(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
     if (!parsed) return;
@@ -272,7 +271,7 @@ export class AutomationHandler implements DomainHandler {
     }
   }
 
-  private handleOperationResume(msg: BaseMessage): void {
+  private handleOperationResume(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(operationIdPayloadSchema, msg, 'pipeline:error', this.deps);
     if (!parsed) return;
@@ -299,7 +298,7 @@ export class AutomationHandler implements DomainHandler {
    * Handle pipeline:list -- load saved pipelines from ConfigStore.
    * Retrieves all entries in the 'pipelines' category.
    */
-  private handlePipelineList(msg: BaseMessage): void {
+  private handlePipelineList(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const savedEntries = this.deps.configStore.getByCategory('pipelines');
@@ -311,7 +310,7 @@ export class AutomationHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] pipeline:list:response (${pipelines.length} pipelines)`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'pipeline:list', 'pipeline:error', err);
+      sendHandlerError(this.deps, 'pipeline:list', 'pipeline:error', msg, err);
     }
   }
 
@@ -319,7 +318,7 @@ export class AutomationHandler implements DomainHandler {
    * Handle pipeline:history -- load execution history from ConfigStore.
    * Retrieves all entries in the 'pipeline-history' category, sorted by timestamp descending.
    */
-  private handlePipelineHistory(msg: BaseMessage): void {
+  private handlePipelineHistory(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const historyEntries = this.deps.configStore.getByCategory('pipeline-history');
@@ -338,7 +337,7 @@ export class AutomationHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] pipeline:history:response (${history.length} entries)`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'pipeline:history', 'pipeline:error', err);
+      sendHandlerError(this.deps, 'pipeline:history', 'pipeline:error', msg, err);
     }
   }
 
@@ -346,7 +345,7 @@ export class AutomationHandler implements DomainHandler {
    * Handle pipeline:save -- persist a pipeline configuration to ConfigStore.
    * Stores under 'pipeline:saved:{id}' with 'pipelines' category.
    */
-  private handlePipelineSave(msg: BaseMessage): void {
+  private handlePipelineSave(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const parsed = validatePayload(pipelineSavePayloadSchema, msg, 'pipeline:error', this.deps);
@@ -370,11 +369,11 @@ export class AutomationHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] pipeline:save:response id=${pipelineId}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'pipeline:save', 'pipeline:error', err);
+      sendHandlerError(this.deps, 'pipeline:save', 'pipeline:error', msg, err);
     }
   }
 
-  private handleMarketplaceList(msg: BaseMessage): void {
+  private handleMarketplaceList(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       if (!this.pipelineMarketplace) {
@@ -418,7 +417,7 @@ export class AutomationHandler implements DomainHandler {
     }
   }
 
-  private handleMarketplaceInstall(msg: BaseMessage): void {
+  private handleMarketplaceInstall(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       marketplaceInstallPayloadSchema,

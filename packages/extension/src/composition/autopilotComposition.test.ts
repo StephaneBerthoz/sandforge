@@ -9,8 +9,9 @@ import type {
   GlobalSObjectDescribe,
 } from '../modules/autopilot/SchemaScanner.js';
 import { AutopilotHandler } from '../bridge/handlers/AutopilotHandler.js';
-import type { HandlerDeps } from '../bridge/handlers/HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from '../bridge/handlers/HandlerTypes.js';
 import type { ExtensionHandlers } from '../bridge/ExtensionHandlers.js';
+import { inboundRequest } from '../test/mockFactories.js';
 
 /** Captures the orchestrator injected through setAutopilotOrchestrator. */
 function createFakeHandlers() {
@@ -38,7 +39,10 @@ function createMockHandlerDeps(): HandlerDeps {
     stateSync: {} as HandlerDeps['stateSync'],
     orgManager: { getOrg: vi.fn() } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
-    configStore: { get: vi.fn(), set: vi.fn() } as unknown as HandlerDeps['configStore'],
+    configStore: {
+      get: vi.fn(),
+      set: vi.fn(),
+    } as unknown as HandlerDeps['configStore'],
     secretVault: {} as unknown as HandlerDeps['secretVault'],
     authProvider: {} as unknown as HandlerDeps['authProvider'],
     sfdxBridge: {} as unknown as HandlerDeps['sfdxBridge'],
@@ -47,7 +51,14 @@ function createMockHandlerDeps(): HandlerDeps {
 }
 
 function mockObjectDescribe(name: string): ObjectDescribeResult {
-  return { name, label: name, custom: false, keyPrefix: '001', fields: [], recordTypeInfos: [] };
+  return {
+    name,
+    label: name,
+    custom: false,
+    keyPrefix: '001',
+    fields: [],
+    recordTypeInfos: [],
+  };
 }
 
 function globalSObject(name: string): GlobalSObjectDescribe {
@@ -128,7 +139,11 @@ describe('autopilotComposition', () => {
   it('lifts the NOT_INITIALIZED guard on autopilot routes once injected', async () => {
     const deps = createMockHandlerDeps();
     const handler = new AutopilotHandler(deps);
-    const pauseMsg: BaseMessage = { id: 'p1', type: 'autopilot:pause', timestamp: Date.now() };
+    const pauseMsg: InboundRequest = inboundRequest({
+      id: 'p1',
+      type: 'autopilot:pause',
+      timestamp: Date.now(),
+    });
 
     // Before injection: the honest guard answers.
     await handler.handle(pauseMsg);
@@ -174,7 +189,10 @@ describe('autopilotComposition', () => {
         {
           Id: 'src1',
           Name: 'Acme',
-          attributes: { type: 'Account', url: '/services/data/v00/sobjects/Account/src1' },
+          attributes: {
+            type: 'Account',
+            url: '/services/data/v00/sobjects/Account/src1',
+          },
         },
       ],
       'tgt1',

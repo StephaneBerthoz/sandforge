@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { QuickSyncHandler } from './QuickSyncHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
@@ -8,6 +8,7 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -15,7 +16,10 @@ function createMockDeps(): HandlerDeps {
   let idCounter = 0;
   return {
     log: vi.fn(),
-    broker: { postToWebview: vi.fn(), dispatch: vi.fn() } as unknown as HandlerDeps['broker'],
+    broker: {
+      postToWebview: vi.fn(),
+      dispatch: vi.fn(),
+    } as unknown as HandlerDeps['broker'],
     stateSync: {} as HandlerDeps['stateSync'],
     orgManager: { getOrg: vi.fn() } as unknown as HandlerDeps['orgManager'],
     orgRegistry: {} as unknown as HandlerDeps['orgRegistry'],
@@ -38,7 +42,11 @@ describe('QuickSyncHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
@@ -55,12 +63,14 @@ describe('QuickSyncHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { orgId: string; alreadySelected: string[] } } = {
+    const msg: InboundRequest & {
+      payload: { orgId: string; alreadySelected: string[] };
+    } = inboundRequest({
       id: 'req-suggest',
       type: 'quicksync:suggest-objects',
       timestamp: Date.now(),
       payload: { orgId: 'org-1', alreadySelected: ['Account'] },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -92,9 +102,13 @@ describe('QuickSyncHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & {
-      payload: { sourceOrgId: string; selectedObjects: string[]; parentObjects: string[] };
-    } = {
+    const msg: InboundRequest & {
+      payload: {
+        sourceOrgId: string;
+        selectedObjects: string[];
+        parentObjects: string[];
+      };
+    } = inboundRequest({
       id: 'req-preview',
       type: 'quicksync:preview',
       timestamp: Date.now(),
@@ -103,7 +117,7 @@ describe('QuickSyncHandler', () => {
         selectedObjects: ['Account'],
         parentObjects: [],
       },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -129,7 +143,12 @@ describe('QuickSyncHandler', () => {
     const mockDescribe = vi.fn().mockResolvedValue({
       fields: [
         { name: 'Name', label: 'Name', type: 'string', createable: true },
-        { name: 'Industry', label: 'Industry', type: 'picklist', createable: true },
+        {
+          name: 'Industry',
+          label: 'Industry',
+          type: 'picklist',
+          createable: true,
+        },
       ],
     });
 
@@ -138,7 +157,7 @@ describe('QuickSyncHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & {
+    const msg: InboundRequest & {
       payload: {
         config: {
           sourceOrgId: string;
@@ -147,7 +166,7 @@ describe('QuickSyncHandler', () => {
           parentObjects: string[];
         };
       };
-    } = {
+    } = inboundRequest({
       id: 'req-execute',
       type: 'quicksync:execute',
       timestamp: Date.now(),
@@ -159,7 +178,7 @@ describe('QuickSyncHandler', () => {
           parentObjects: [],
         },
       },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -187,9 +206,15 @@ describe('QuickSyncHandler', () => {
   });
 
   it('handles quicksync:execute with invalid config and sends error', async () => {
-    const msg: BaseMessage & {
-      payload: { config: { sourceOrgId: string; targetOrgId: string; selectedObjects: never[] } };
-    } = {
+    const msg: InboundRequest & {
+      payload: {
+        config: {
+          sourceOrgId: string;
+          targetOrgId: string;
+          selectedObjects: never[];
+        };
+      };
+    } = inboundRequest({
       id: 'req-execute-invalid',
       type: 'quicksync:execute',
       timestamp: Date.now(),
@@ -200,7 +225,7 @@ describe('QuickSyncHandler', () => {
           selectedObjects: [],
         },
       },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -222,20 +247,25 @@ describe('QuickSyncHandler', () => {
             referenceTo: ['Account'],
             relationshipName: 'Account',
           },
-          { name: 'Name', type: 'string', referenceTo: [], relationshipName: null },
+          {
+            name: 'Name',
+            type: 'string',
+            referenceTo: [],
+            relationshipName: null,
+          },
         ],
       }),
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & {
+    const msg: InboundRequest & {
       payload: {
         orgId: string;
         objectApiName: string;
         alreadySelected: string[];
         availableObjects: string[];
       };
-    } = {
+    } = inboundRequest({
       id: 'req-detect',
       type: 'quicksync:detect-relationships',
       timestamp: Date.now(),
@@ -245,14 +275,16 @@ describe('QuickSyncHandler', () => {
         alreadySelected: [],
         availableObjects: ['Account', 'Contact'],
       },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     const response = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { suggestions: Array<{ parentObject: string; lookupField: string }> };
+      payload: {
+        suggestions: Array<{ parentObject: string; lookupField: string }>;
+      };
     };
     expect(response.type).toBe('quicksync:detect-relationships:response');
     expect(response.payload.suggestions).toHaveLength(1);
@@ -284,14 +316,22 @@ describe('QuickSyncHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & {
-      payload: { orgId: string; objectApiName: string; alreadySelected: string[] };
-    } = {
+    const msg: InboundRequest & {
+      payload: {
+        orgId: string;
+        objectApiName: string;
+        alreadySelected: string[];
+      };
+    } = inboundRequest({
       id: 'req-detect-fallback',
       type: 'quicksync:detect-relationships',
       timestamp: Date.now(),
-      payload: { orgId: 'org-1', objectApiName: 'Contact', alreadySelected: ['Contact'] },
-    };
+      payload: {
+        orgId: 'org-1',
+        objectApiName: 'Contact',
+        alreadySelected: ['Contact'],
+      },
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -308,12 +348,12 @@ describe('QuickSyncHandler', () => {
 
   describe('payload validation', () => {
     it('rejects quicksync:preview with non-array selectedObjects (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-preview',
         type: 'quicksync:preview',
         timestamp: Date.now(),
         payload: { sourceOrgId: 'org-1', selectedObjects: 'Account' },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -328,7 +368,7 @@ describe('QuickSyncHandler', () => {
     });
 
     it('rejects quicksync:execute with an invalid config object name (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-execute',
         type: 'quicksync:execute',
         timestamp: Date.now(),
@@ -339,7 +379,7 @@ describe('QuickSyncHandler', () => {
             selectedObjects: ['Account; DELETE'],
           },
         },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -361,12 +401,12 @@ describe('QuickSyncHandler', () => {
 
       // Legacy spelling (`sourceOrgId`) stays schema-accepted for backward
       // compatibility, though the handler reads the canonical `orgId`.
-      const msg = {
+      const msg = inboundRequest({
         id: 'req-suggest-flat',
         type: 'quicksync:suggest-objects',
         timestamp: Date.now(),
         payload: { sourceOrgId: 'org-1' },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -381,7 +421,7 @@ describe('QuickSyncHandler', () => {
     it('still accepts the legacy flat shape for quicksync:execute (schema-level)', async () => {
       // Legacy flat fields pass the payload schema; the handler then fails on
       // the missing `config` with a handler error — never INVALID_PAYLOAD.
-      const msg = {
+      const msg = inboundRequest({
         id: 'req-execute-flat',
         type: 'quicksync:execute',
         timestamp: Date.now(),
@@ -391,7 +431,7 @@ describe('QuickSyncHandler', () => {
           selectedObjects: ['Account'],
           parentObjects: [],
         },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);

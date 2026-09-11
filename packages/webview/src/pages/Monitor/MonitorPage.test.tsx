@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within } from '@testing-library/react';
 import '../../i18n';
 import { useOrgStore } from '../../stores/useOrgStore';
 import { useNotificationStore, resetNotificationCounter } from '../../stores/useNotificationStore';
@@ -1033,73 +1033,201 @@ describe('MonitorPage', () => {
   });
 
   /* ---------------------------------------------------------------- */
-  /* Job insights — the band nothing feeds                             */
+  /* Job insights — every state told apart                             */
   /* ---------------------------------------------------------------- */
 
-  // `standardMonitorPayload` carries no `jobInsights`, which is exactly what
-  // the extension sends: MonitorOpsHandler builds the `monitor:data` payload
-  // without the field, and no JobAnalyzer exists in any package to produce it.
-  // Rendering nothing in that case is indistinguishable from "we looked and
-  // found no critical problem" — the detection is not silent, it is absent.
-  it('says the critical-job detection is unbuilt when nothing feeds jobInsights', () => {
+  // An empty band is the trap: "scanned, nothing wrong", "nothing ran" and
+  // "nothing received" look identical when all three render zero rows. The
+  // page says which one it is, and an abort is never a single click.
+
+  /** A stall the extension proved: the batch counter did not move in an hour of watching. */
+  const stalledInsight = {
+    type: 'stuck',
+    severity: 'critical',
+    title: 'BatchApex job-2: no batch completed in 1h05m',
+    detail: '3 of 10 batches processed, unchanged across 1h05m of observation.',
+    affectedJobs: ['job-2'],
+    recommendation: 'Check the job in Setup, then abort it if it is still at the same batch.',
+  };
+
+  /** Old but unproven: a warning, never an abort. */
+  const unfinishedInsight = {
+    type: 'long_running',
+    severity: 'warning',
+    title: '1 job unfinished 3h10m after submission',
+    detail: 'Queueable job-1 is Processing; this job type reports no progress.',
+    affectedJobs: ['job-1'],
+    recommendation: 'Keep watching.',
+  };
+
+  function renderWithInsights(jobInsights: unknown[]): void {
     mockMonitorQueryState = {
-      data: standardMonitorPayload,
+      data: { ...standardMonitorPayload, jobInsights },
       loading: false,
       error: null,
       refetch: mockRefetch,
     };
-    useOrgStore.setState({
-      selectedOrgId: 'org-1',
-      orgs: [createMockOrg()],
-    });
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+  }
+
+  function clickBandAbort(): void {
+    const row = screen.getByTestId('monitor-job-insight-critical');
+    fireEvent.click(within(row).getByRole('button', { name: 'Abort Job' }));
+  }
+
+  it('says there was nothing to scan when the org ran no jobs', () => {
+    mockMonitorQueryState = {
+      data: { ...standardMonitorPayload, jobs: [], jobInsights: [] },
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
     render(<MonitorPage />);
 
-    expect(screen.getByTestId('monitor-job-insights-soon')).toBeDefined();
-    expect(screen.getByText('Coming soon')).toBeDefined();
+    const idle = screen.getByTestId('monitor-job-insights-idle');
+    expect(within(idle).getByText('No recent jobs')).toBeDefined();
+    // Nothing ran is not the same claim as nothing is wrong.
+    expect(within(idle).queryByText('No performance issues detected')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights-clear')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights-unknown')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights')).toBeNull();
   });
 
-  // The other half of the contract: the day a producer fills the field, the
-  // notice must step aside and the real band — with its Abort action — must
-  // render. Without this the notice could be hardcoded and still pass above.
-  it('renders the critical band and its Abort action once insights arrive', () => {
+  it('says nothing is known, not that no job ran, when no payload ever arrived', () => {
     mockMonitorQueryState = {
-      data: {
-        ...standardMonitorPayload,
-        jobInsights: [
-          {
-            type: 'stuck',
-            severity: 'critical',
-            title: 'Job stuck for 4h',
-            detail: 'AccountRollupBatch has not progressed',
-            affectedJobs: ['job-2'],
-            recommendation: 'Abort and re-run',
-          },
-          {
-            type: 'long_running',
-            severity: 'warning',
-            title: 'Slow batch',
-            detail: 'ContactDedupe took 45m',
-            affectedJobs: ['job-1'],
-            recommendation: 'Split the batch',
-          },
-        ],
-      },
+      data: null,
+      loading: false,
+      error: 'INVALID_SESSION_ID',
+      refetch: mockRefetch,
+    };
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
+    render(<MonitorPage />);
+
+    expect(screen.getByTestId('monitor-error')).toBeDefined();
+    const unknown = screen.getByTestId('monitor-job-insights-unknown');
+    expect(within(unknown).getByText('No data available')).toBeDefined();
+    expect(within(unknown).queryByText('No recent jobs')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights-idle')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights-clear')).toBeNull();
+  });
+
+  it('does not read a payload that carries no verdict as a clean scan', () => {
+    // standardMonitorPayload has jobs but no jobInsights field.
+    mockMonitorQueryState = {
+      data: { ...standardMonitorPayload },
       loading: false,
       error: null,
       refetch: mockRefetch,
     };
-    useOrgStore.setState({
-      selectedOrgId: 'org-1',
-      orgs: [createMockOrg()],
-    });
+    useOrgStore.setState({ selectedOrgId: 'org-1', orgs: [createMockOrg()] });
     render(<MonitorPage />);
 
-    expect(screen.queryByTestId('monitor-job-insights-soon')).toBeNull();
-    expect(screen.getByText('Job stuck for 4h')).toBeDefined();
-    // Only the critical one is banded; the warning stays out of the red band.
-    expect(screen.queryByText('Slow batch')).toBeNull();
+    const unknown = screen.getByTestId('monitor-job-insights-unknown');
+    expect(within(unknown).getByText('No data available')).toBeDefined();
+    expect(screen.queryByTestId('monitor-job-insights-clear')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights')).toBeNull();
+  });
 
-    fireEvent.click(screen.getByText('Abort Job'));
+  // Silence has to be earned out loud: the clear line names how many jobs the
+  // verdict covers.
+  it('says the scan found nothing wrong, and over how many jobs', () => {
+    renderWithInsights([]);
+
+    const clear = screen.getByTestId('monitor-job-insights-clear');
+    // standardMonitorPayload carries two jobs: the denominator is printed.
+    expect(clear.textContent).toContain('2');
+    expect(within(clear).getByText('No performance issues detected')).toBeDefined();
+    expect(screen.queryByTestId('monitor-job-insights-idle')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights-unknown')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights')).toBeNull();
+  });
+
+  // A warning is not an emergency, and not an all-clear either.
+  it('shows an unfinished-job warning without an abort, and never the clear verdict', () => {
+    renderWithInsights([unfinishedInsight]);
+
+    const warning = screen.getByTestId('monitor-job-insight-warning');
+    expect(within(warning).getByText(unfinishedInsight.title)).toBeDefined();
+    expect(within(warning).queryByRole('button')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insight-critical')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights-clear')).toBeNull();
+  });
+
+  it('bands critical insights in red, with an Abort only on a proven stall', () => {
+    const repeatedFailures = {
+      type: 'frequent_failures',
+      severity: 'critical',
+      title: '3 BatchApex jobs failed',
+      detail: '3 of the last 20 jobs are BatchApex failures.',
+      affectedJobs: ['job-1'],
+      recommendation: 'Read the most recent failure.',
+    };
+    renderWithInsights([stalledInsight, repeatedFailures, unfinishedInsight]);
+
+    const criticalRows = screen.getAllByTestId('monitor-job-insight-critical');
+    expect(criticalRows).toHaveLength(2);
+    const stallRow = criticalRows.find((row) => row.textContent?.includes(stalledInsight.title));
+    const failureRow = criticalRows.find((row) =>
+      row.textContent?.includes(repeatedFailures.title),
+    );
+    expect(within(stallRow!).getByRole('button', { name: 'Abort Job' })).toBeDefined();
+    // Failed jobs are already finished: there is nothing to abort.
+    expect(within(failureRow!).queryByRole('button')).toBeNull();
+    const warningRow = screen.getByTestId('monitor-job-insight-warning');
+    expect(within(warningRow).queryByRole('button')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights-clear')).toBeNull();
+    expect(screen.queryByTestId('monitor-job-insights-idle')).toBeNull();
+  });
+
+  it('neither bands an info insight nor lets it hide the clear verdict', () => {
+    renderWithInsights([
+      {
+        type: 'high_consumer',
+        severity: 'info',
+        title: 'Heavy job',
+        detail: 'Reads many rows',
+        affectedJobs: ['job-1'],
+        recommendation: 'None',
+      },
+    ]);
+
+    expect(screen.getByTestId('monitor-job-insights-clear')).toBeDefined();
+    expect(screen.queryByText('Heavy job')).toBeNull();
+  });
+
+  it('opens a typed confirmation on Abort and sends nothing on the click', () => {
+    renderWithInsights([stalledInsight]);
+
+    clickBandAbort();
+
+    const dialog = screen.getByRole('dialog');
+    // The confirmation names the job and repeats the evidence it rests on.
+    expect(dialog.textContent).toContain('job-2');
+    expect(dialog.textContent).toContain(stalledInsight.detail);
+    expect((screen.getByTestId('danger-confirm-btn') as HTMLButtonElement).disabled).toBe(true);
+    expect(mockAbortMutate).not.toHaveBeenCalled();
+  });
+
+  it('aborts the named job only once the confirmation text is typed and confirmed', () => {
+    renderWithInsights([stalledInsight]);
+
+    clickBandAbort();
+    fireEvent.change(screen.getByTestId('danger-input'), { target: { value: 'Abort Job' } });
+    expect(mockAbortMutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('danger-confirm-btn'));
+
+    expect(mockAbortMutate).toHaveBeenCalledTimes(1);
     expect(mockAbortMutate).toHaveBeenCalledWith({ orgId: 'org-1', jobId: 'job-2' });
+  });
+
+  it('sends nothing when the confirmation is cancelled', () => {
+    renderWithInsights([stalledInsight]);
+
+    clickBandAbort();
+    fireEvent.click(within(screen.getByRole('dialog')).getByText('Cancel'));
+
+    expect(mockAbortMutate).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,5 @@
-import type { BaseMessage } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, DEFAULT_SOQL_LIMITS } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
@@ -39,7 +38,7 @@ export class AIAnalysisHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!AI_ANALYSIS_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -57,7 +56,7 @@ export class AIAnalysisHandler implements DomainHandler {
     }
   }
 
-  private async handleAnomalyScan(msg: BaseMessage): Promise<void> {
+  private async handleAnomalyScan(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiAnomalyScanPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -97,7 +96,7 @@ export class AIAnalysisHandler implements DomainHandler {
     }
   }
 
-  private async handleSuggestions(msg: BaseMessage): Promise<void> {
+  private async handleSuggestions(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiSuggestionsPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -130,7 +129,7 @@ export class AIAnalysisHandler implements DomainHandler {
     }
   }
 
-  private async handleSchemaAdvice(msg: BaseMessage): Promise<void> {
+  private async handleSchemaAdvice(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiSchemaAdvicePayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;

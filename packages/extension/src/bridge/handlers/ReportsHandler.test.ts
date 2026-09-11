@@ -2,12 +2,16 @@ import { describe, it, expect, vi } from 'vitest';
 import type { BaseMessage, ForgeExecutionResult, SyncHistoryEntry } from '@sandforge/shared';
 
 import { ReportsHandler, summarise } from './ReportsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 type Deps = Pick<HandlerDeps, 'nextId' | 'broker' | 'log' | 'configStore'>;
 
 /** A store holding exactly what Forge and Sync write today. */
-function makeDeps(store: Record<string, unknown>): { deps: Deps; posted: BaseMessage[] } {
+function makeDeps(store: Record<string, unknown>): {
+  deps: Deps;
+  posted: BaseMessage[];
+} {
   const posted: BaseMessage[] = [];
   const deps = {
     nextId: () => 'resp-1',
@@ -46,8 +50,13 @@ const syncRun = (over: Partial<SyncHistoryEntry> = {}): SyncHistoryEntry =>
     ...over,
   }) as unknown as SyncHistoryEntry;
 
-const listMsg = (payload?: Record<string, unknown>): BaseMessage =>
-  ({ id: 'req-1', type: 'reports:list', timestamp: 1, payload }) as BaseMessage;
+const listMsg = (payload?: Record<string, unknown>): InboundRequest =>
+  inboundRequest({
+    id: 'req-1',
+    type: 'reports:list',
+    timestamp: 1,
+    payload,
+  } as BaseMessage);
 
 describe('ReportsHandler', () => {
   it('builds reports from the history Forge and Sync already keep', async () => {
@@ -98,7 +107,10 @@ describe('ReportsHandler', () => {
   it('bounds the requested limit instead of trusting it', async () => {
     const { deps, posted } = makeDeps({
       'forge:history': Array.from({ length: 10 }, (_, i) =>
-        forgeRun({ forgeId: `f-${i}`, timestamp: `2026-09-0${(i % 9) + 1}T00:00:00.000Z` }),
+        forgeRun({
+          forgeId: `f-${i}`,
+          timestamp: `2026-09-0${(i % 9) + 1}T00:00:00.000Z`,
+        }),
       ),
     });
 
@@ -121,11 +133,13 @@ describe('ReportsHandler', () => {
 
   it('leaves messages it does not own alone', async () => {
     const { deps, posted } = makeDeps({});
-    const handled = await new ReportsHandler(deps).handle({
-      id: 'x',
-      type: 'org:list',
-      timestamp: 1,
-    } as BaseMessage);
+    const handled = await new ReportsHandler(deps).handle(
+      inboundRequest({
+        id: 'x',
+        type: 'org:list',
+        timestamp: 1,
+      } as BaseMessage),
+    );
 
     expect(handled).toBe(false);
     expect(posted).toHaveLength(0);

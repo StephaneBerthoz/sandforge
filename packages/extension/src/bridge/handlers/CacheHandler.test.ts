@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CacheHandler } from './CacheHandler';
 import { CacheManager } from '../../core/cache/CacheManager';
-import type { BaseMessage } from '@sandforge/shared';
-import { createMockBroker } from '../../test/mockFactories.js';
+import { createMockBroker, inboundRequest } from '../../test/mockFactories.js';
+import type { InboundRequest } from './HandlerTypes.js';
 
 function createDeps() {
   return {
@@ -12,8 +12,8 @@ function createDeps() {
   };
 }
 
-function buildMsg(type: string): BaseMessage {
-  return { id: 'req-1', type, timestamp: Date.now() };
+function buildMsg(type: string): InboundRequest {
+  return inboundRequest({ id: 'req-1', type, timestamp: Date.now() });
 }
 
 describe('CacheHandler', () => {

@@ -1,12 +1,11 @@
 import type {
-  BaseMessage,
   CloneExecutionResult,
   CloneObjectResult,
   ClonePreviewResult,
   RobustnessConfig,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
@@ -84,7 +83,7 @@ export class SeedCloneHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!SEED_CLONE_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -109,7 +108,7 @@ export class SeedCloneHandler implements DomainHandler {
   }
 
   /** List cloneable objects on the source org. */
-  private async handleDescribeSource(msg: BaseMessage): Promise<void> {
+  private async handleDescribeSource(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       seedCloneDescribeSourcePayloadSchema,
@@ -142,12 +141,12 @@ export class SeedCloneHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} count=${objects.length}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:clone:describe-source', 'seed:clone:error', err);
+      sendHandlerError(this.deps, 'seed:clone:describe-source', 'seed:clone:error', msg, err);
     }
   }
 
   /** Preview a clone: per-object counts, bounded samples, relationships, insert order. */
-  private async handlePreview(msg: BaseMessage): Promise<void> {
+  private async handlePreview(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       seedCloneExecutePayloadSchema,
@@ -216,7 +215,7 @@ export class SeedCloneHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:clone:preview', 'seed:clone:error', err);
+      sendHandlerError(this.deps, 'seed:clone:preview', 'seed:clone:error', msg, err);
     }
   }
 
@@ -225,7 +224,7 @@ export class SeedCloneHandler implements DomainHandler {
    * references to the new target IDs, and write via BulkDataWriter (insert by
    * default, upsert when the payload opts in with an external Id field).
    */
-  private async handleExecute(msg: BaseMessage): Promise<void> {
+  private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       seedCloneExecutePayloadSchema,

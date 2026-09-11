@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ForgeHandler } from './ForgeHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, ForgeTemplate } from '@sandforge/shared';
 import { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /**
  * Forge recipes must be portable.
@@ -16,7 +17,10 @@ import { ForgeTemplateStore } from '../../modules/forge/ForgeTemplateStore.js';
  */
 
 /** In-memory stand-in for the workspace file, keyed by path. */
-function createFakeFs(): { files: Map<string, string>; store: ForgeTemplateStore } {
+function createFakeFs(): {
+  files: Map<string, string>;
+  store: ForgeTemplateStore;
+} {
   const files = new Map<string, string>();
   const store = new ForgeTemplateStore({
     workspacePath: '/ws',
@@ -73,13 +77,20 @@ function template(id: string): ForgeTemplate {
   } as unknown as ForgeTemplate;
 }
 
-function msg(type: string, payload: Record<string, unknown>): BaseMessage {
-  return { id: 'req-1', type, timestamp: Date.now(), payload } as BaseMessage;
+function msg(type: string, payload: Record<string, unknown>): InboundRequest {
+  return inboundRequest({
+    id: 'req-1',
+    type,
+    timestamp: Date.now(),
+    payload,
+  } as BaseMessage);
 }
 
 /** Attach a template store the way composition does. */
 function withStore(handler: ForgeHandler, store: ForgeTemplateStore): void {
-  handler.setForgeOrchestrator({ on: vi.fn() } as never, { templateStore: store });
+  handler.setForgeOrchestrator({ on: vi.fn() } as never, {
+    templateStore: store,
+  });
 }
 
 describe('forge template portability', () => {

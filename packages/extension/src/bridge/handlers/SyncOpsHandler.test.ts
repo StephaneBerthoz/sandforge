@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SyncOpsHandler } from './SyncOpsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
@@ -45,6 +45,7 @@ import { OfflineManager } from '../../core/connection/OfflineManager.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
 import { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import { SyncExecutionLogger } from '../../modules/sync/SyncExecutionLogger.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -174,7 +175,11 @@ describe('SyncOpsHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
@@ -185,19 +190,21 @@ describe('SyncOpsHandler', () => {
       limitInfo: undefined,
     } as never);
 
-    const msg: BaseMessage & { payload: { orgId: string } } = {
+    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
       id: 'req-sync-1',
       type: 'sync:describe-global',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
-    };
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(true);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalled();
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+    };
     expect(response.type).toBe('sync:describe-global:response');
     expect(response.correlationId).toBe('req-sync-1');
   });
@@ -227,14 +234,16 @@ describe('SyncOpsHandler', () => {
 
       mockGetConn.mockRejectedValue(new Error('connection failed'));
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: '1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
           config: validSyncConfig(),
         },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -251,9 +260,10 @@ describe('SyncOpsHandler', () => {
       const mockStart = vi.fn();
 
       deps.infraServices = {
-        performanceTracker: { start: mockStart, complete: mockComplete } as unknown as NonNullable<
-          HandlerDeps['infraServices']
-        >['performanceTracker'],
+        performanceTracker: {
+          start: mockStart,
+          complete: mockComplete,
+        } as unknown as NonNullable<HandlerDeps['infraServices']>['performanceTracker'],
         productionGuard: undefined as unknown as NonNullable<
           HandlerDeps['infraServices']
         >['productionGuard'],
@@ -277,14 +287,16 @@ describe('SyncOpsHandler', () => {
         limitInfo: undefined,
       } as never);
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: '1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
           config: validSyncConfig(),
         },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -305,12 +317,14 @@ describe('SyncOpsHandler', () => {
     it('emits sync:error with the real message exactly once when executeSync fails', async () => {
       mockGetConn.mockRejectedValue(new Error('connection failed'));
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: '1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config: validSyncConfig() },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -340,12 +354,14 @@ describe('SyncOpsHandler', () => {
         piiDetector: undefined,
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: '1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config: validSyncConfig() },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -354,6 +370,46 @@ describe('SyncOpsHandler', () => {
       expect(syncErrors).toHaveLength(1);
       expect(syncErrors[0].payload.message).toContain('prod org write blocked');
       expect(posted.filter((m) => m.type === 'operation:failed')).toHaveLength(1);
+    });
+
+    it('correlates sync:error to the request that caused it', async () => {
+      // The whole point of the correlationId: `useMessageResponse` can only
+      // drop a stale or foreign error when the error names its request. An
+      // uncorrelated `sync:error` is adopted by whatever sync request happens
+      // to be in flight — a minutes-long execute reported as failed because an
+      // unrelated describe blew up.
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
+        id: 'req-execute-42',
+        type: 'sync:execute',
+        timestamp: Date.now(),
+        payload: { config: validSyncConfig() },
+      });
+
+      await handler.handle(msg);
+
+      const syncErrors = postedMessages().filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0].correlationId).toBe('req-execute-42');
+    });
+
+    it('gives a scheduled run a correlationId that matches no webview request', async () => {
+      // A scheduled tick answers nobody. Its error still carries the synthetic
+      // run id, so the webview matches it against nothing and drops it —
+      // the opposite of an uncorrelated error, which every in-flight sync
+      // request would try to claim.
+      mockGetConn.mockRejectedValue(new Error('connection failed'));
+
+      await handler.executeScheduled(
+        validSyncConfig() as unknown as import('@sandforge/shared').SyncConfig,
+      );
+
+      const syncErrors = postedMessages().filter((m) => m.type === 'sync:error');
+      expect(syncErrors).toHaveLength(1);
+      expect(syncErrors[0].correlationId).toMatch(/^sync:schedule:/);
     });
 
     it('scheduled executions still convert failure to a failure-status result and emit sync:error once', async () => {
@@ -373,19 +429,26 @@ describe('SyncOpsHandler', () => {
   describe('robustness integration', () => {
     it('wraps describe-global with TimeoutManager', async () => {
       const describeGlobalFn = vi.fn().mockResolvedValue({
-        sobjects: [{ name: 'Account', label: 'Account', createable: true, queryable: true }],
+        sobjects: [
+          {
+            name: 'Account',
+            label: 'Account',
+            createable: true,
+            queryable: true,
+          },
+        ],
       });
       mockGetConn.mockResolvedValue({
         describeGlobal: describeGlobalFn,
         limitInfo: undefined,
       } as never);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-timeout-sync',
         type: 'sync:describe-global',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -414,14 +477,22 @@ describe('SyncOpsHandler', () => {
         return { describe: targetDescribeFn, limitInfo: undefined } as never;
       });
 
-      const msg: BaseMessage & {
-        payload: { sourceOrgId: string; targetOrgId: string; objectApiName: string };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          sourceOrgId: string;
+          targetOrgId: string;
+          objectApiName: string;
+        };
+      } = inboundRequest({
         id: 'req-fields-timeout',
         type: 'sync:describe-fields',
         timestamp: Date.now(),
-        payload: { sourceOrgId: 'src-org', targetOrgId: 'tgt-org', objectApiName: 'Account' },
-      };
+        payload: {
+          sourceOrgId: 'src-org',
+          targetOrgId: 'tgt-org',
+          objectApiName: 'Account',
+        },
+      });
 
       await handler.handle(msg);
 
@@ -435,12 +506,12 @@ describe('SyncOpsHandler', () => {
         limitInfo: undefined,
       } as never);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-config-sync',
         type: 'sync:describe-global',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -455,12 +526,12 @@ describe('SyncOpsHandler', () => {
         limitInfo: undefined,
       } as never);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-default-sync',
         type: 'sync:describe-global',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -471,12 +542,14 @@ describe('SyncOpsHandler', () => {
     it('handles sync:config:save and responds with success', async () => {
       const config = validSyncConfig();
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'req-save',
         type: 'sync:config:save',
         timestamp: Date.now(),
         payload: { config },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -494,22 +567,28 @@ describe('SyncOpsHandler', () => {
 
     it('handles sync:config:list and responds with summaries', async () => {
       // Save a config first
-      const config = { ...validSyncConfig(), id: 'cfg-list', name: 'List Config' };
-      await handler.handle({
-        id: 'save-1',
-        type: 'sync:config:save',
-        timestamp: Date.now(),
-        payload: { config },
-      } as BaseMessage & { payload: { config: Record<string, unknown> } });
+      const config = {
+        ...validSyncConfig(),
+        id: 'cfg-list',
+        name: 'List Config',
+      };
+      await handler.handle(
+        inboundRequest({
+          id: 'save-1',
+          type: 'sync:config:save',
+          timestamp: Date.now(),
+          payload: { config },
+        } as BaseMessage & { payload: { config: Record<string, unknown> } }),
+      );
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       postToWebview.mockClear();
 
-      const msg: BaseMessage = {
+      const msg: InboundRequest = inboundRequest({
         id: 'req-list',
         type: 'sync:config:list',
         timestamp: Date.now(),
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -524,12 +603,12 @@ describe('SyncOpsHandler', () => {
     });
 
     it('handles sync:config:load and responds with config or null', async () => {
-      const msg: BaseMessage & { payload: { id: string } } = {
+      const msg: InboundRequest & { payload: { id: string } } = inboundRequest({
         id: 'req-load',
         type: 'sync:config:load',
         timestamp: Date.now(),
         payload: { id: 'non-existent' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -543,12 +622,12 @@ describe('SyncOpsHandler', () => {
     });
 
     it('handles sync:config:delete and responds with success boolean', async () => {
-      const msg: BaseMessage & { payload: { id: string } } = {
+      const msg: InboundRequest & { payload: { id: string } } = inboundRequest({
         id: 'req-del',
         type: 'sync:config:delete',
         timestamp: Date.now(),
         payload: { id: 'non-existent' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -579,14 +658,16 @@ describe('SyncOpsHandler', () => {
         limitInfo: undefined,
       } as never);
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'bg-op-1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
           config: validSyncConfig(),
         },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -613,14 +694,16 @@ describe('SyncOpsHandler', () => {
         limitInfo: undefined,
       } as never);
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'bg-op-2',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
           config: validSyncConfig(),
         },
-      };
+      });
 
       // handleExecute should return without awaiting completion
       const result = await handler.handle(msg);
@@ -659,12 +742,12 @@ describe('SyncOpsHandler', () => {
       (config.objects as Array<Record<string, unknown>>)[0].objectApiName =
         'Account WHERE Id != null';
 
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config },
-      } as BaseMessage;
+      } as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -684,12 +767,12 @@ describe('SyncOpsHandler', () => {
       (config.objects as Array<Record<string, unknown>>)[0].where =
         'Id IN (SELECT Id FROM Contact)';
 
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-2',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config },
-      } as BaseMessage;
+      } as BaseMessage);
 
       await handler.handle(msg);
       expect(mockGetConn).not.toHaveBeenCalled();
@@ -704,12 +787,12 @@ describe('SyncOpsHandler', () => {
     it('accepts a valid sync:execute payload (validation does not break the flow)', async () => {
       mockGetConn.mockRejectedValue(new Error('no org in test'));
 
-      const msg = {
+      const msg = inboundRequest({
         id: 'good-1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config: validSyncConfig() },
-      } as BaseMessage;
+      } as BaseMessage);
 
       await handler.handle(msg);
       // Reached the connection stage: validation let the payload through.
@@ -724,12 +807,14 @@ describe('SyncOpsHandler', () => {
 
       mockGetConn.mockRejectedValue(new Error('connection failed'));
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'sync-live-1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config: validSyncConfig() },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -763,12 +848,14 @@ describe('SyncOpsHandler', () => {
         limitInfo: undefined,
       } as never);
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'sync-live-2',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config: validSyncConfig() },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -820,12 +907,14 @@ describe('SyncOpsHandler', () => {
         }),
       );
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'sync-offline-1',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config: validSyncConfig() },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -842,12 +931,14 @@ describe('SyncOpsHandler', () => {
 
       mockGetConn.mockRejectedValue(new Error('FIELD_INTEGRITY_EXCEPTION: bad value'));
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'sync-offline-2',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config: validSyncConfig() },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -868,11 +959,11 @@ describe('SyncOpsHandler', () => {
       // must drop the operation instead of re-queuing it — otherwise the drain
       // loops forever, firing operationQueued/operationExecuted notifications
       // on every cycle.
-      const msg: BaseMessage = {
+      const msg: InboundRequest = inboundRequest({
         id: 'sync-offline-rerun',
         type: 'sync:history:rerun',
         timestamp: Date.now(),
-      };
+      });
 
       await handler.rerunFromSnapshot(msg, validSyncConfig());
 
@@ -946,14 +1037,16 @@ describe('SyncOpsHandler', () => {
       mockTargetOrgType('Production');
       mockWorkingConnection();
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'sync-guard-delete',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: {
           config: syncConfigWithObjects([{ objectApiName: 'Account', operation: 'delete' }]),
         },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -990,7 +1083,9 @@ describe('SyncOpsHandler', () => {
       mockTargetOrgType('Sandbox');
       mockWorkingConnection();
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'sync-guard-request',
         type: 'sync:execute',
         timestamp: Date.now(),
@@ -1000,7 +1095,7 @@ describe('SyncOpsHandler', () => {
             { objectApiName: 'Contact', operation: 'delete' },
           ]),
         },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -1021,7 +1116,9 @@ describe('SyncOpsHandler', () => {
       mockTargetOrgType('Sandbox');
       mockWorkingConnection();
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'sync-guard-request-2',
         type: 'sync:execute',
         timestamp: Date.now(),
@@ -1031,7 +1128,7 @@ describe('SyncOpsHandler', () => {
             { objectApiName: 'Contact', operation: 'update' },
           ]),
         },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -1054,12 +1151,14 @@ describe('SyncOpsHandler', () => {
       const store = wireRealHistory();
       mockGetConn.mockRejectedValue(new Error('connection failed'));
 
-      const msg: BaseMessage & { payload: { config: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { config: Record<string, unknown> };
+      } = inboundRequest({
         id: 'sync-history-fail',
         type: 'sync:execute',
         timestamp: Date.now(),
         payload: { config: validSyncConfig() },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -1075,7 +1174,11 @@ describe('SyncOpsHandler', () => {
       // And the persisted snapshot really drives `sync:history:rerun`.
       mockGetConn.mockClear();
       await handler.rerunFromSnapshot(
-        { id: 'sync-history-rerun', type: 'sync:history:rerun', timestamp: Date.now() },
+        inboundRequest({
+          id: 'sync-history-rerun',
+          type: 'sync:history:rerun',
+          timestamp: Date.now(),
+        }),
         entries[0].configSnapshot,
       );
       expect(mockGetConn).toHaveBeenCalled();
@@ -1134,7 +1237,10 @@ describe('SyncOpsHandler', () => {
     function accountRow(index: number): Record<string, unknown> {
       const id = `001AB000${String(index).padStart(6, '0')}`;
       return {
-        attributes: { type: 'Account', url: `/services/data/v62.0/sobjects/Account/${id}` },
+        attributes: {
+          type: 'Account',
+          url: `/services/data/v62.0/sobjects/Account/${id}`,
+        },
         Id: id,
         IsDeleted: false,
         MasterRecordId: null,
@@ -1191,7 +1297,11 @@ describe('SyncOpsHandler', () => {
           done,
           records: Array.from({ length: count }, (_, i) => accountRow(offset + i)),
           // The cursor carries the cap so the double stays stateless.
-          ...(done ? {} : { nextRecordsUrl: `/services/data/v62.0/query/01g000-${cap}-${next}` }),
+          ...(done
+            ? {}
+            : {
+                nextRecordsUrl: `/services/data/v62.0/query/01g000-${cap}-${next}`,
+              }),
         };
       };
       return {
@@ -1244,38 +1354,48 @@ describe('SyncOpsHandler', () => {
         getSandforgeSetting: vi.fn(() => 200),
         syncOrchestrator: vi.fn((d: unknown) => {
           both = d as { querySource: QueryFn; queryTarget: QueryFn };
-          return { execute: vi.fn().mockResolvedValue({ status: 'completed' }) };
+          return {
+            execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+          };
         }),
       } as unknown as HandlerDeps['services'];
 
-      await handler.handle({
-        id: `sync-perf04-${sourceType}-${targetType}`,
-        type: 'sync:execute',
-        timestamp: Date.now(),
-        payload: { config: validSyncConfig() },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: `sync-perf04-${sourceType}-${targetType}`,
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
 
       if (!both) throw new Error('syncOrchestrator was never called');
       return both;
     }
 
     async function captureQuerySource(orgType: string): Promise<QueryFn> {
-      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({ orgType });
+      (deps.orgManager.getOrg as ReturnType<typeof vi.fn>).mockReturnValue({
+        orgType,
+      });
       let captured: { querySource: QueryFn } | undefined;
       deps.services = {
         getSandforgeSetting: vi.fn(() => 200),
         syncOrchestrator: vi.fn((d: unknown) => {
           captured = d as { querySource: QueryFn };
-          return { execute: vi.fn().mockResolvedValue({ status: 'completed' }) };
+          return {
+            execute: vi.fn().mockResolvedValue({ status: 'completed' }),
+          };
         }),
       } as unknown as HandlerDeps['services'];
 
-      await handler.handle({
-        id: `sync-perf04-${orgType}`,
-        type: 'sync:execute',
-        timestamp: Date.now(),
-        payload: { config: validSyncConfig() },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: `sync-perf04-${orgType}`,
+          type: 'sync:execute',
+          timestamp: Date.now(),
+          payload: { config: validSyncConfig() },
+        } as BaseMessage),
+      );
 
       if (!captured) throw new Error('syncOrchestrator was never called');
       return captured.querySource;
@@ -1287,12 +1407,18 @@ describe('SyncOpsHandler', () => {
     }
 
     /** Every `notification` message posted to the webview. */
-    function notifications(): Array<{ level: string; title: string; message: string }> {
+    function notifications(): Array<{
+      level: string;
+      title: string;
+      message: string;
+    }> {
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       return postToWebview.mock.calls
         .map(
           (c) =>
-            c[0] as BaseMessage & { payload: { level: string; title: string; message: string } },
+            c[0] as BaseMessage & {
+              payload: { level: string; title: string; message: string };
+            },
         )
         .filter((m) => m.type === 'notification')
         .map((m) => m.payload);

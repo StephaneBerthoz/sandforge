@@ -1,6 +1,6 @@
-import type { BaseMessage, CsvValidationResult, RobustnessConfig } from '@sandforge/shared';
+import type { CsvValidationResult, RobustnessConfig } from '@sandforge/shared';
 import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
@@ -64,7 +64,7 @@ export class SeedCsvHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!SEED_CSV_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -86,7 +86,7 @@ export class SeedCsvHandler implements DomainHandler {
   }
 
   /** Validate mapped CSV rows against the target object's live describe metadata. */
-  private async handleValidate(msg: BaseMessage): Promise<void> {
+  private async handleValidate(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedCsvPayloadSchema, msg, 'seed:csv:error', this.deps);
     if (!parsed) return;
@@ -117,12 +117,12 @@ export class SeedCsvHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id} valid=${result.valid}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:csv:validate', 'seed:csv:error', err);
+      sendHandlerError(this.deps, 'seed:csv:validate', 'seed:csv:error', msg, err);
     }
   }
 
   /** Import mapped CSV rows into the target org via BulkDataWriter. */
-  private async handleExecute(msg: BaseMessage): Promise<void> {
+  private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedCsvPayloadSchema, msg, 'seed:csv:error', this.deps);
     if (!parsed) return;

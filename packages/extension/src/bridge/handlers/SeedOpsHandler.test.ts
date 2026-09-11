@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SeedOpsHandler } from './SeedOpsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 
@@ -14,6 +14,7 @@ import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js'
 import { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
 import { OfflineManager } from '../../core/connection/OfflineManager.js';
 import { ProductionGuard } from '../../core/precheck/ProductionGuard.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
@@ -109,7 +110,11 @@ describe('SeedOpsHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
@@ -124,12 +129,12 @@ describe('SeedOpsHandler', () => {
       }),
     } as never);
 
-    const msg: BaseMessage & { payload: { orgId: string } } = {
+    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
       id: 'req-100',
       type: 'seed:describe-global',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -165,12 +170,14 @@ describe('SeedOpsHandler', () => {
       }),
     } as never);
 
-    const msg: BaseMessage & { payload: { orgId: string; objectApiName: string } } = {
+    const msg: InboundRequest & {
+      payload: { orgId: string; objectApiName: string };
+    } = inboundRequest({
       id: 'req-200',
       type: 'seed:describe-object',
       timestamp: Date.now(),
       payload: { orgId: 'org-1', objectApiName: 'Account' },
-    };
+    });
 
     const result = await handler.handle(msg);
     expect(result).toBe(true);
@@ -178,7 +185,9 @@ describe('SeedOpsHandler', () => {
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     expect(postToWebview).toHaveBeenCalledTimes(1);
 
-    const response = postToWebview.mock.calls[0][0] as BaseMessage & { correlationId?: string };
+    const response = postToWebview.mock.calls[0][0] as BaseMessage & {
+      correlationId?: string;
+    };
     expect(response.type).toBe('seed:describe-object:response');
     expect(response.correlationId).toBe('req-200');
   });
@@ -186,12 +195,12 @@ describe('SeedOpsHandler', () => {
   it('error path sends error response via sendHandlerError', async () => {
     mockGetConn.mockRejectedValue(new Error('connection failed'));
 
-    const msg: BaseMessage & { payload: { orgId: string } } = {
+    const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
       id: 'req-300',
       type: 'seed:describe-global',
       timestamp: Date.now(),
       payload: { orgId: 'org-1' },
-    };
+    });
 
     await handler.handle(msg);
 
@@ -209,14 +218,22 @@ describe('SeedOpsHandler', () => {
     it('returns synthetic result when dryRun is true without performing inserts', async () => {
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'req-dry-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: true,
+        },
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -226,7 +243,12 @@ describe('SeedOpsHandler', () => {
 
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
         correlationId?: string;
-        payload: { success: boolean; dryRun: boolean; insertedCount: number; results: unknown[] };
+        payload: {
+          success: boolean;
+          dryRun: boolean;
+          insertedCount: number;
+          results: unknown[];
+        };
       };
       expect(response.type).toBe('seed:execute:response');
       expect(response.correlationId).toBe('req-dry-1');
@@ -238,14 +260,22 @@ describe('SeedOpsHandler', () => {
     it('does not short-circuit when dryRun is false', async () => {
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'req-dry-2',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -265,14 +295,16 @@ describe('SeedOpsHandler', () => {
       const describeGlobalFn = vi.fn().mockResolvedValue({
         sobjects: [{ name: 'Account', label: 'Account', createable: true }],
       });
-      mockGetConn.mockResolvedValue({ describeGlobal: describeGlobalFn } as never);
+      mockGetConn.mockResolvedValue({
+        describeGlobal: describeGlobalFn,
+      } as never);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-timeout-1',
         type: 'seed:describe-global',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -304,12 +336,14 @@ describe('SeedOpsHandler', () => {
       });
       mockGetConn.mockResolvedValue({ describe: describeFn } as never);
 
-      const msg: BaseMessage & { payload: { orgId: string; objectApiName: string } } = {
+      const msg: InboundRequest & {
+        payload: { orgId: string; objectApiName: string };
+      } = inboundRequest({
         id: 'req-timeout-2',
         type: 'seed:describe-object',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', objectApiName: 'Account' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -326,21 +360,28 @@ describe('SeedOpsHandler', () => {
             /* never resolves -- simulates a hung API call */
           }),
       );
-      mockGetConn.mockResolvedValue({ describeGlobal: describeGlobalFn } as never);
+      mockGetConn.mockResolvedValue({
+        describeGlobal: describeGlobalFn,
+      } as never);
 
       // Set very short timeout via configStore
       vi.mocked(deps.configStore.get).mockReturnValue({
-        timeouts: { describeGlobal: 5000, describe: 5000, crudBatch: 10000, bulkJob: 60000 },
+        timeouts: {
+          describeGlobal: 5000,
+          describe: 5000,
+          crudBatch: 10000,
+          bulkJob: 60000,
+        },
         retry: { maxRetries: 0 },
         bulk: { threshold: 200 },
       });
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-timeout-err',
         type: 'seed:describe-global',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      };
+      });
 
       // The handler should catch the timeout and send an error
       // But since 5s is too long for a test, just verify the timeout wrapping
@@ -353,8 +394,18 @@ describe('SeedOpsHandler', () => {
 
     it('loads robustness config from ConfigStore', async () => {
       const customConfig = {
-        timeouts: { describeGlobal: 60000, describe: 30000, crudBatch: 120000, bulkJob: 600000 },
-        retry: { maxRetries: 5, initialDelay: 2000, maxDelay: 60000, backoffMultiplier: 3 },
+        timeouts: {
+          describeGlobal: 60000,
+          describe: 30000,
+          crudBatch: 120000,
+          bulkJob: 600000,
+        },
+        retry: {
+          maxRetries: 5,
+          initialDelay: 2000,
+          maxDelay: 60000,
+          backoffMultiplier: 3,
+        },
         bulk: { threshold: 500 },
       };
       vi.mocked(deps.configStore.get).mockReturnValue(customConfig);
@@ -363,12 +414,12 @@ describe('SeedOpsHandler', () => {
         describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
       } as never);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-config',
         type: 'seed:describe-global',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      };
+      });
 
       await handler.handle(msg);
 
@@ -383,12 +434,12 @@ describe('SeedOpsHandler', () => {
         describeGlobal: vi.fn().mockResolvedValue({ sobjects: [] }),
       } as never);
 
-      const msg: BaseMessage & { payload: { orgId: string } } = {
+      const msg: InboundRequest & { payload: { orgId: string } } = inboundRequest({
         id: 'req-default',
         type: 'seed:describe-global',
         timestamp: Date.now(),
         payload: { orgId: 'org-1' },
-      };
+      });
 
       // Should not throw even with undefined config
       const result = await handler.handle(msg);
@@ -398,11 +449,11 @@ describe('SeedOpsHandler', () => {
 
   describe('seed:list-personas', () => {
     it('returns 10 built-in personas', async () => {
-      const msg: BaseMessage = {
+      const msg: InboundRequest = inboundRequest({
         id: 'req-personas-1',
         type: 'seed:list-personas',
         timestamp: Date.now(),
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -412,7 +463,9 @@ describe('SeedOpsHandler', () => {
 
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
         correlationId?: string;
-        payload: { personas: Array<{ id: string; name: string; industry: string }> };
+        payload: {
+          personas: Array<{ id: string; name: string; industry: string }>;
+        };
       };
       expect(response.type).toBe('seed:list-personas:response');
       expect(response.correlationId).toBe('req-personas-1');
@@ -424,12 +477,12 @@ describe('SeedOpsHandler', () => {
 
   describe('seed:create-persona', () => {
     it('returns error when description is empty', async () => {
-      const msg: BaseMessage & { payload: { description: string } } = {
+      const msg: InboundRequest & { payload: { description: string } } = inboundRequest({
         id: 'req-create-1',
         type: 'seed:create-persona',
         timestamp: Date.now(),
         payload: { description: '' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -446,12 +499,12 @@ describe('SeedOpsHandler', () => {
     });
 
     it('returns error when description is whitespace only', async () => {
-      const msg: BaseMessage & { payload: { description: string } } = {
+      const msg: InboundRequest & { payload: { description: string } } = inboundRequest({
         id: 'req-create-2',
         type: 'seed:create-persona',
         timestamp: Date.now(),
         payload: { description: '   ' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -468,12 +521,12 @@ describe('SeedOpsHandler', () => {
 
     it('sends an explicit error when AI is disabled (no services injected)', async () => {
       // Default mock deps have no `services` — isAIEnabled() cannot be true.
-      const msg: BaseMessage & { payload: { description: string } } = {
+      const msg: InboundRequest & { payload: { description: string } } = inboundRequest({
         id: 'req-create-3',
         type: 'seed:create-persona',
         timestamp: Date.now(),
         payload: { description: 'A veterinary clinic in Texas' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -493,12 +546,12 @@ describe('SeedOpsHandler', () => {
       } as unknown as HandlerDeps['services'];
       handler = new SeedOpsHandler(deps);
 
-      const msg: BaseMessage & { payload: { description: string } } = {
+      const msg: InboundRequest & { payload: { description: string } } = inboundRequest({
         id: 'req-create-4',
         type: 'seed:create-persona',
         timestamp: Date.now(),
         payload: { description: 'A veterinary clinic in Texas' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -527,7 +580,13 @@ describe('SeedOpsHandler', () => {
             },
           },
         }),
-        usage: { input: 10, output: 20, cacheRead: 0, cacheCreate: 0, total: 30 },
+        usage: {
+          input: 10,
+          output: 20,
+          cacheRead: 0,
+          cacheCreate: 0,
+          total: 30,
+        },
         model: 'claude-sonnet-4-5-20250929',
         stopReason: 'end_turn',
       });
@@ -538,12 +597,12 @@ describe('SeedOpsHandler', () => {
       } as unknown as HandlerDeps['services'];
       handler = new SeedOpsHandler(deps);
 
-      const msg: BaseMessage & { payload: { description: string } } = {
+      const msg: InboundRequest & { payload: { description: string } } = inboundRequest({
         id: 'req-create-5',
         type: 'seed:create-persona',
         timestamp: Date.now(),
         payload: { description: 'A veterinary clinic in Texas' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -556,7 +615,10 @@ describe('SeedOpsHandler', () => {
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
-        payload: { success: boolean; persona: { name: string; industry: string } };
+        payload: {
+          success: boolean;
+          persona: { name: string; industry: string };
+        };
       };
       expect(response.type).toBe('seed:create-persona:response');
       expect(response.payload.success).toBe(true);
@@ -574,12 +636,12 @@ describe('SeedOpsHandler', () => {
       } as unknown as HandlerDeps['services'];
       handler = new SeedOpsHandler(deps);
 
-      const msg: BaseMessage & { payload: { description: string } } = {
+      const msg: InboundRequest & { payload: { description: string } } = inboundRequest({
         id: 'req-create-6',
         type: 'seed:create-persona',
         timestamp: Date.now(),
         payload: { description: 'A veterinary clinic in Texas' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -616,14 +678,22 @@ describe('SeedOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'bg-seed-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -639,14 +709,22 @@ describe('SeedOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'bg-seed-dry',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: true,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -685,12 +763,14 @@ describe('SeedOpsHandler', () => {
         tags: ['test'],
       };
 
-      const msg: BaseMessage & { payload: { template: Record<string, unknown> } } = {
+      const msg: InboundRequest & {
+        payload: { template: Record<string, unknown> };
+      } = inboundRequest({
         id: 'req-tpl-save',
         type: 'seed:template:save',
         timestamp: Date.now(),
         payload: { template: template as unknown as Record<string, unknown> },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -708,46 +788,53 @@ describe('SeedOpsHandler', () => {
 
     it('handles seed:template:list and responds with summaries', async () => {
       // Save first
-      await handler.handle({
-        id: 'save-1',
-        type: 'seed:template:save',
-        timestamp: Date.now(),
-        payload: {
-          template: {
-            name: 'T1',
-            description: 'd1',
-            version: 1,
-            strategy: 'faker',
-            objects: [
-              {
-                objectApiName: 'Account',
-                recordCount: 10,
-                fieldRules: [],
-                excludedFields: [],
-                insertOrder: 1,
-                batchSize: 200,
-              },
-            ],
-            tags: ['a'],
+      await handler.handle(
+        inboundRequest({
+          id: 'save-1',
+          type: 'seed:template:save',
+          timestamp: Date.now(),
+          payload: {
+            template: {
+              name: 'T1',
+              description: 'd1',
+              version: 1,
+              strategy: 'faker',
+              objects: [
+                {
+                  objectApiName: 'Account',
+                  recordCount: 10,
+                  fieldRules: [],
+                  excludedFields: [],
+                  insertOrder: 1,
+                  batchSize: 200,
+                },
+              ],
+              tags: ['a'],
+            },
           },
-        },
-      } as BaseMessage & { payload: { template: Record<string, unknown> } });
+        } as BaseMessage & { payload: { template: Record<string, unknown> } }),
+      );
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
       postToWebview.mockClear();
 
-      const msg: BaseMessage = {
+      const msg: InboundRequest = inboundRequest({
         id: 'req-tpl-list',
         type: 'seed:template:list',
         timestamp: Date.now(),
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
 
       const response = postToWebview.mock.calls[0][0] as BaseMessage & {
         payload: {
-          templates: Array<{ id: string; name: string; objectCount: number; totalRecords: number }>;
+          templates: Array<{
+            id: string;
+            name: string;
+            objectCount: number;
+            totalRecords: number;
+          }>;
         };
       };
       expect(response.type).toBe('seed:template:list:response');
@@ -758,12 +845,12 @@ describe('SeedOpsHandler', () => {
     });
 
     it('handles seed:template:load for non-existent returns null', async () => {
-      const msg: BaseMessage & { payload: { id: string } } = {
+      const msg: InboundRequest & { payload: { id: string } } = inboundRequest({
         id: 'req-tpl-load',
         type: 'seed:template:load',
         timestamp: Date.now(),
         payload: { id: 'ghost' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -777,12 +864,12 @@ describe('SeedOpsHandler', () => {
     });
 
     it('handles seed:template:delete for non-existent returns false', async () => {
-      const msg: BaseMessage & { payload: { id: string } } = {
+      const msg: InboundRequest & { payload: { id: string } } = inboundRequest({
         id: 'req-tpl-del',
         type: 'seed:template:delete',
         timestamp: Date.now(),
         payload: { id: 'ghost' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -801,12 +888,12 @@ describe('SeedOpsHandler', () => {
       const template = validSeedTemplate();
       (template.objects as Array<Record<string, unknown>>)[0].objectApiName = "Account' OR '1'='1";
 
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-seed',
         type: 'seed:execute',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', template },
-      } as BaseMessage;
+      } as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -825,18 +912,20 @@ describe('SeedOpsHandler', () => {
       const template = validSeedTemplate();
       (template.objects as Array<Record<string, unknown>>)[0].recordCount = 99_000_000;
 
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-seed-2',
         type: 'seed:execute',
         timestamp: Date.now(),
         payload: { orgId: 'org-1', template },
-      } as BaseMessage;
+      } as BaseMessage);
 
       await handler.handle(msg);
       expect(mockGetConn).not.toHaveBeenCalled();
 
       const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
-      const errMsg = postToWebview.mock.calls[0][0] as { payload: { code: string } };
+      const errMsg = postToWebview.mock.calls[0][0] as {
+        payload: { code: string };
+      };
       expect(errMsg.payload.code).toBe('INVALID_PAYLOAD');
     });
   });
@@ -850,14 +939,22 @@ describe('SeedOpsHandler', () => {
       // services are injected in this test setup.
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'seed-live-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -885,14 +982,22 @@ describe('SeedOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'seed-live-2',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -910,14 +1015,22 @@ describe('SeedOpsHandler', () => {
 
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'seed-live-dry',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: true },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: true,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -950,17 +1063,27 @@ describe('SeedOpsHandler', () => {
       const offlineManager = wireOfflineManager();
 
       mockGetConn.mockRejectedValue(
-        Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), { code: 'ECONNREFUSED' }),
+        Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), {
+          code: 'ECONNREFUSED',
+        }),
       );
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'seed-offline-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -980,14 +1103,22 @@ describe('SeedOpsHandler', () => {
 
       mockGetConn.mockRejectedValue(new Error('STORAGE_LIMIT_EXCEEDED: org is full'));
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'seed-offline-2',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -1006,20 +1137,30 @@ describe('SeedOpsHandler', () => {
       return postToWebview.mock.calls.map((c) => c[0]);
     }
 
-    function executeMsg(id: string): BaseMessage & {
-      payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
+    function executeMsg(id: string): InboundRequest & {
+      payload: {
+        orgId: string;
+        template: Record<string, unknown>;
+        dryRun: boolean;
+      };
     } {
-      return {
+      return inboundRequest({
         id,
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
     }
 
     it('emits seed:error with the retryHint on a pre-flight network failure', async () => {
       mockGetConn.mockRejectedValue(
-        Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), { code: 'ECONNREFUSED' }),
+        Object.assign(new Error('connect ECONNREFUSED 10.0.0.1:443'), {
+          code: 'ECONNREFUSED',
+        }),
       );
 
       await handler.handle(executeMsg('seed-err-1'));
@@ -1056,11 +1197,11 @@ describe('SeedOpsHandler', () => {
         isAIEnabled: () => false,
         getSandforgeSetting: vi.fn(() => 200),
         seedOrchestrator: vi.fn(() => ({
-          execute: vi
-            .fn()
-            .mockRejectedValue(
-              Object.assign(new Error('connect ETIMEDOUT 10.0.0.1:443'), { code: 'ETIMEDOUT' }),
-            ),
+          execute: vi.fn().mockRejectedValue(
+            Object.assign(new Error('connect ETIMEDOUT 10.0.0.1:443'), {
+              code: 'ETIMEDOUT',
+            }),
+          ),
         })),
       } as unknown as HandlerDeps['services'];
       mockGetConn.mockResolvedValue({} as never);
@@ -1122,14 +1263,22 @@ describe('SeedOpsHandler', () => {
       // Connection succeeds but executeSeed throws (no services injected).
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'seed-reg-1',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -1162,14 +1311,22 @@ describe('SeedOpsHandler', () => {
       } as unknown as HandlerDeps['services'];
       mockGetConn.mockResolvedValue({} as never);
 
-      const msg: BaseMessage & {
-        payload: { orgId: string; template: Record<string, unknown>; dryRun: boolean };
-      } = {
+      const msg: InboundRequest & {
+        payload: {
+          orgId: string;
+          template: Record<string, unknown>;
+          dryRun: boolean;
+        };
+      } = inboundRequest({
         id: 'seed-reg-2',
         type: 'seed:execute',
         timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: validSeedTemplate(), dryRun: false },
-      };
+        payload: {
+          orgId: 'org-1',
+          template: validSeedTemplate(),
+          dryRun: false,
+        },
+      });
 
       await handler.handle(msg);
 
@@ -1227,12 +1384,18 @@ describe('SeedOpsHandler', () => {
       } as unknown as NonNullable<HandlerDeps['infraServices']>;
       mockGetConn.mockResolvedValue({} as never);
 
-      await handler.handle({
-        id: 'seed-guard-1',
-        type: 'seed:execute',
-        timestamp: Date.now(),
-        payload: { orgId: 'org-1', template: bigSeedTemplate(), dryRun: false },
-      } as BaseMessage);
+      await handler.handle(
+        inboundRequest({
+          id: 'seed-guard-1',
+          type: 'seed:execute',
+          timestamp: Date.now(),
+          payload: {
+            orgId: 'org-1',
+            template: bigSeedTemplate(),
+            dryRun: false,
+          },
+        } as BaseMessage),
+      );
 
       expect(requestConfirmation).toHaveBeenCalledTimes(1);
       const summary = requestConfirmation.mock.calls[0][0];

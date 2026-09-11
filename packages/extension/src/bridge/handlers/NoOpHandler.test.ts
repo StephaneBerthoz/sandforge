@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { NoOpHandler } from './NoOpHandler';
 import type { BaseMessage } from '@sandforge/shared';
-import { createMockBroker } from '../../test/mockFactories.js';
+import { createMockBroker, inboundRequest } from '../../test/mockFactories.js';
+import type { InboundRequest } from './HandlerTypes.js';
 
 function createMockDeps() {
   let idCounter = 0;
@@ -15,7 +16,11 @@ describe('NoOpHandler', () => {
   it('returns false for unhandled types', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-1', type: 'org:list', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-1',
+      type: 'org:list',
+      timestamp: Date.now(),
+    });
 
     expect(await handler.handle(msg)).toBe(false);
     expect(deps.broker.postToWebview).not.toHaveBeenCalled();
@@ -24,7 +29,11 @@ describe('NoOpHandler', () => {
   it('returns true for scheduler:list', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-2', type: 'scheduler:list', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-2',
+      type: 'scheduler:list',
+      timestamp: Date.now(),
+    });
 
     expect(await handler.handle(msg)).toBe(true);
   });
@@ -39,7 +48,11 @@ describe('NoOpHandler', () => {
       'scheduler:delete',
       'scheduler:toggle',
     ]) {
-      const msg: BaseMessage = { id: `req-${type}`, type, timestamp: Date.now() };
+      const msg: InboundRequest = inboundRequest({
+        id: `req-${type}`,
+        type,
+        timestamp: Date.now(),
+      });
       expect(await handler.handle(msg)).toBe(true);
     }
   });
@@ -55,7 +68,11 @@ describe('NoOpHandler', () => {
       'realtime:metrics',
       'realtime:resolve-conflict',
     ]) {
-      const msg: BaseMessage = { id: `req-${type}`, type, timestamp: Date.now() };
+      const msg: InboundRequest = inboundRequest({
+        id: `req-${type}`,
+        type,
+        timestamp: Date.now(),
+      });
       expect(await handler.handle(msg)).toBe(true);
     }
   });
@@ -63,7 +80,11 @@ describe('NoOpHandler', () => {
   it('maps realtime:resolve-conflict to the webview contract type realtime:conflict-resolved', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-rt-1', type: 'realtime:resolve-conflict', timestamp: 4000 };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-rt-1',
+      type: 'realtime:resolve-conflict',
+      timestamp: 4000,
+    });
 
     expect(await handler.handle(msg)).toBe(true);
 
@@ -79,7 +100,11 @@ describe('NoOpHandler', () => {
   it('maps realtime:start to realtime:started (webview contract)', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-rt-2', type: 'realtime:start', timestamp: 5000 };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-rt-2',
+      type: 'realtime:start',
+      timestamp: 5000,
+    });
 
     await handler.handle(msg);
 
@@ -90,7 +115,11 @@ describe('NoOpHandler', () => {
   it('maps realtime:stop to realtime:stopped (webview contract)', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-rt-3', type: 'realtime:stop', timestamp: 6000 };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-rt-3',
+      type: 'realtime:stop',
+      timestamp: 6000,
+    });
 
     await handler.handle(msg);
 
@@ -101,7 +130,11 @@ describe('NoOpHandler', () => {
   it('realtime:status responds with realtime:status:response and a truthful disconnected status', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-rt-4', type: 'realtime:status', timestamp: 7000 };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-rt-4',
+      type: 'realtime:status',
+      timestamp: 7000,
+    });
 
     await handler.handle(msg);
 
@@ -116,7 +149,11 @@ describe('NoOpHandler', () => {
   it('realtime:metrics keeps the :response suffix (matches useCDCMetricsStore)', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-rt-5', type: 'realtime:metrics', timestamp: 8000 };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-rt-5',
+      type: 'realtime:metrics',
+      timestamp: 8000,
+    });
 
     await handler.handle(msg);
 
@@ -127,7 +164,11 @@ describe('NoOpHandler', () => {
   it('response includes correlationId matching the request id', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-42', type: 'scheduler:list', timestamp: 1000 };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-42',
+      type: 'scheduler:list',
+      timestamp: 1000,
+    });
 
     await handler.handle(msg);
 
@@ -143,7 +184,11 @@ describe('NoOpHandler', () => {
   it('response payload has success: false and comingSoon: true', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-99', type: 'realtime:start', timestamp: 2000 };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-99',
+      type: 'realtime:start',
+      timestamp: 2000,
+    });
 
     await handler.handle(msg);
 
@@ -158,7 +203,11 @@ describe('NoOpHandler', () => {
   it('response type follows the pattern type:response', async () => {
     const deps = createMockDeps();
     const handler = new NoOpHandler(deps);
-    const msg: BaseMessage = { id: 'req-50', type: 'scheduler:upsert', timestamp: 3000 };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-50',
+      type: 'scheduler:upsert',
+      timestamp: 3000,
+    });
 
     await handler.handle(msg);
 

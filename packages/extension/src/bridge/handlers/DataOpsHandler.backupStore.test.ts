@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { DataOpsHandler } from './DataOpsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BackupRecordStore } from '../../modules/dataops/BackupRecordStore.js';
 import type { BaseMessage } from '@sandforge/shared';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -74,17 +75,19 @@ function mockConnection(): void {
       queryable: true,
       fields: [{ name: 'Name', createable: true, updateable: true }],
     }),
-    sobject: vi.fn(() => ({ upsert: vi.fn().mockResolvedValue([{ success: true, id: '001a' }]) })),
+    sobject: vi.fn(() => ({
+      upsert: vi.fn().mockResolvedValue([{ success: true, id: '001a' }]),
+    })),
   } as never);
 }
 
-function backupMsg(id: string): BaseMessage & { payload: Record<string, unknown> } {
-  return {
+function backupMsg(id: string): InboundRequest & { payload: Record<string, unknown> } {
+  return inboundRequest({
     id,
     type: 'dataops:backup',
     timestamp: Date.now(),
     payload: { orgId: 'org-1', objects: ['Account'] },
-  };
+  });
 }
 
 describe('DataOpsHandler backup record storage', () => {
@@ -130,12 +133,14 @@ describe('DataOpsHandler backup record storage', () => {
     });
     store.read.mockResolvedValue(RECORDS);
 
-    await handler.handle({
-      id: 'req-2',
-      type: 'dataops:rollback',
-      timestamp: Date.now(),
-      payload: { orgId: 'org-1', operationId: 'op-9' },
-    } as BaseMessage);
+    await handler.handle(
+      inboundRequest({
+        id: 'req-2',
+        type: 'dataops:rollback',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', operationId: 'op-9' },
+      } as BaseMessage),
+    );
 
     expect(store.read).toHaveBeenCalledWith('op-9', 'Account');
     expect(vi.mocked(getJsforceConnection).mock.results.length).toBeGreaterThan(0);
@@ -152,12 +157,14 @@ describe('DataOpsHandler backup record storage', () => {
     config.set('backup:op-old:Account', RECORDS);
     store.read.mockResolvedValue(null);
 
-    await handler.handle({
-      id: 'req-3',
-      type: 'dataops:rollback',
-      timestamp: Date.now(),
-      payload: { orgId: 'org-1', operationId: 'op-old' },
-    } as BaseMessage);
+    await handler.handle(
+      inboundRequest({
+        id: 'req-3',
+        type: 'dataops:rollback',
+        timestamp: Date.now(),
+        payload: { orgId: 'org-1', operationId: 'op-old' },
+      } as BaseMessage),
+    );
 
     expect(deps.configStore.get).toHaveBeenCalledWith('backup:op-old:Account');
     // No "nothing to restore" bail-out — the legacy records were found.

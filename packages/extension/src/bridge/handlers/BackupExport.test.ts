@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DataOpsHandler } from './DataOpsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /**
  * A backup must be able to leave the machine.
@@ -37,8 +38,13 @@ function createDeps(): HandlerDeps & { posted: Record<string, unknown>[] } {
   } as HandlerDeps & { posted: Record<string, unknown>[] };
 }
 
-function msg(type: string, payload: Record<string, unknown>): BaseMessage {
-  return { id: 'req-1', type, timestamp: Date.now(), payload } as BaseMessage;
+function msg(type: string, payload: Record<string, unknown>): InboundRequest {
+  return inboundRequest({
+    id: 'req-1',
+    type,
+    timestamp: Date.now(),
+    payload,
+  } as BaseMessage);
 }
 
 describe('backup:export', () => {

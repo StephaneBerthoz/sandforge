@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SettingsHandler } from './SettingsHandler';
 import type { HandlerDeps } from './HandlerTypes';
-import type { BaseMessage } from '@sandforge/shared';
 import type { ConfigStoreBackend, ConfigEntry } from '../../core/storage/ConfigStoreBackend';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
+import type { InboundRequest } from './HandlerTypes.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 class InMemoryBackend implements ConfigStoreBackend {
   private data: Record<string, ConfigEntry> = {};
@@ -33,8 +34,8 @@ function createMockDeps(store: ConfigStore): HandlerDeps {
 function createMsg(
   type: string,
   payload: Record<string, unknown> = {},
-): BaseMessage & { payload: Record<string, unknown> } {
-  return { id: 'req-42', type, timestamp: Date.now(), payload };
+): InboundRequest & { payload: Record<string, unknown> } {
+  return inboundRequest({ id: 'req-42', type, timestamp: Date.now(), payload });
 }
 
 describe('SettingsHandler', () => {

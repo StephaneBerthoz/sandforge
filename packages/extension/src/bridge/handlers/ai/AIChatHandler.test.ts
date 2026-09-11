@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AIChatHandler } from './AIChatHandler.js';
-import type { HandlerDeps } from '../HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from '../HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
+import { inboundRequest } from '../../../test/mockFactories.js';
 
 vi.mock('../../../core/common/extractErrorMessage.js', () => ({
   extractErrorMessage: (err: unknown) => (err instanceof Error ? err.message : String(err)),
@@ -10,7 +11,9 @@ vi.mock('../../../core/common/extractErrorMessage.js', () => ({
 /** In-memory store for ConfigStore mock. */
 type StoreData = Record<string, { value: string; category: string }>;
 
-function createMockConfigStore(): HandlerDeps['configStore'] & { _data: StoreData } {
+function createMockConfigStore(): HandlerDeps['configStore'] & {
+  _data: StoreData;
+} {
   const data: StoreData = {};
   return {
     _data: data,
@@ -60,8 +63,8 @@ function createMockDeps(): HandlerDeps {
 function createMsg(
   type: string,
   payload: Record<string, unknown> = {},
-): BaseMessage & { payload: Record<string, unknown> } {
-  return { id: 'msg-1', type, timestamp: Date.now(), payload };
+): InboundRequest & { payload: Record<string, unknown> } {
+  return inboundRequest({ id: 'msg-1', type, timestamp: Date.now(), payload });
 }
 
 function createMockAssistant(
@@ -126,7 +129,12 @@ describe('AIChatHandler', () => {
         id: 'conv-1',
         title: 'Test',
         messages: [
-          { id: 'm1', role: 'user', content: 'hi', timestamp: new Date().toISOString() },
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'hi',
+            timestamp: new Date().toISOString(),
+          },
           {
             id: 'resp-1',
             role: 'assistant',
@@ -144,7 +152,10 @@ describe('AIChatHandler', () => {
       });
       handler.setAIAssistant(mockAssistant);
 
-      const msg = createMsg('ai:chat', { conversationId: 'conv-1', message: 'hi' });
+      const msg = createMsg('ai:chat', {
+        conversationId: 'conv-1',
+        message: 'hi',
+      });
       await handler.handle(msg);
 
       expect(deps.broker.postToWebview).toHaveBeenCalledWith(
@@ -160,7 +171,12 @@ describe('AIChatHandler', () => {
         id: 'conv-1',
         title: 'Test',
         messages: [
-          { id: 'm1', role: 'user', content: 'hi', timestamp: new Date().toISOString() },
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'hi',
+            timestamp: new Date().toISOString(),
+          },
           {
             id: 'resp-1',
             role: 'assistant',
@@ -202,7 +218,10 @@ describe('AIChatHandler', () => {
       await handler.handle(createMsg('ai:conversation:create', { title: 'New Chat' }));
 
       expect(deps.broker.postToWebview).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'ai:conversation:created', correlationId: 'msg-1' }),
+        expect.objectContaining({
+          type: 'ai:conversation:created',
+          correlationId: 'msg-1',
+        }),
       );
       expect(deps.configStore.set).toHaveBeenCalledWith(
         'ai:conversation:conv-1',
@@ -222,8 +241,18 @@ describe('AIChatHandler', () => {
   describe('ai:conversation:list', () => {
     it('returns conversations from ConfigStore index', async () => {
       const index = [
-        { id: 'conv-1', title: 'Chat 1', createdAt: '2025-01-01T00:00:00Z', messageCount: 5 },
-        { id: 'conv-2', title: 'Chat 2', createdAt: '2025-01-02T00:00:00Z', messageCount: 3 },
+        {
+          id: 'conv-1',
+          title: 'Chat 1',
+          createdAt: '2025-01-01T00:00:00Z',
+          messageCount: 5,
+        },
+        {
+          id: 'conv-2',
+          title: 'Chat 2',
+          createdAt: '2025-01-02T00:00:00Z',
+          messageCount: 3,
+        },
       ];
       deps.configStore.set('ai:conversations:index', index, 'ai');
 
@@ -255,7 +284,14 @@ describe('AIChatHandler', () => {
       const conv = {
         id: 'conv-1',
         title: 'Test',
-        messages: [{ id: 'm1', role: 'user', content: 'hi', timestamp: new Date().toISOString() }],
+        messages: [
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'hi',
+            timestamp: new Date().toISOString(),
+          },
+        ],
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         totalTokens: 0,
@@ -280,7 +316,12 @@ describe('AIChatHandler', () => {
         id: 'conv-old',
         title: 'Old Chat',
         messages: [
-          { id: 'm1', role: 'user', content: 'old message', timestamp: '2025-01-01T00:00:00Z' },
+          {
+            id: 'm1',
+            role: 'user',
+            content: 'old message',
+            timestamp: '2025-01-01T00:00:00Z',
+          },
         ],
         createdAt: '2025-01-01T00:00:00Z',
         updatedAt: '2025-01-01T00:00:00Z',
@@ -323,8 +364,18 @@ describe('AIChatHandler', () => {
     it('removes from ConfigStore and updates index', async () => {
       // Pre-populate ConfigStore
       const index = [
-        { id: 'conv-1', title: 'Chat 1', createdAt: '2025-01-01', messageCount: 2 },
-        { id: 'conv-2', title: 'Chat 2', createdAt: '2025-01-02', messageCount: 1 },
+        {
+          id: 'conv-1',
+          title: 'Chat 1',
+          createdAt: '2025-01-01',
+          messageCount: 2,
+        },
+        {
+          id: 'conv-2',
+          title: 'Chat 2',
+          createdAt: '2025-01-02',
+          messageCount: 1,
+        },
       ];
       deps.configStore.set('ai:conversations:index', index, 'ai');
       deps.configStore.set(
@@ -403,9 +454,9 @@ describe('AIChatHandler', () => {
       await handler.handle(createMsg('ai:chat', { conversationId: 'conv-big', message: 'test' }));
 
       // The saved conversation should have at most 200 messages
-      const savedConv = deps.configStore.get<{ messages: Array<{ id: string }> }>(
-        'ai:conversation:conv-big',
-      );
+      const savedConv = deps.configStore.get<{
+        messages: Array<{ id: string }>;
+      }>('ai:conversation:conv-big');
       expect(savedConv).toBeDefined();
       expect(savedConv!.messages.length).toBeLessThanOrEqual(200);
     });
@@ -417,36 +468,36 @@ describe('AIChatHandler', () => {
       handler.setAIAssistant(mockAssistant);
 
       // Test ai:conversation:create
-      const createMsg1 = {
+      const createMsg1 = inboundRequest({
         id: 'req-create',
         type: 'ai:conversation:create',
         timestamp: Date.now(),
         payload: { title: 'T' },
-      } as BaseMessage & { payload: Record<string, unknown> };
+      } as BaseMessage & { payload: Record<string, unknown> });
       await handler.handle(createMsg1);
       expect(deps.broker.postToWebview).toHaveBeenCalledWith(
         expect.objectContaining({ correlationId: 'req-create' }),
       );
 
       // Test ai:status
-      const statusMsg = {
+      const statusMsg = inboundRequest({
         id: 'req-status',
         type: 'ai:status',
         timestamp: Date.now(),
         payload: {},
-      } as BaseMessage & { payload: Record<string, unknown> };
+      } as BaseMessage & { payload: Record<string, unknown> });
       await handler.handle(statusMsg);
       expect(deps.broker.postToWebview).toHaveBeenCalledWith(
         expect.objectContaining({ correlationId: 'req-status' }),
       );
 
       // Test ai:conversation:list
-      const listMsg = {
+      const listMsg = inboundRequest({
         id: 'req-list',
         type: 'ai:conversation:list',
         timestamp: Date.now(),
         payload: {},
-      } as BaseMessage & { payload: Record<string, unknown> };
+      } as BaseMessage & { payload: Record<string, unknown> });
       await handler.handle(listMsg);
       expect(deps.broker.postToWebview).toHaveBeenCalledWith(
         expect.objectContaining({ correlationId: 'req-list' }),
@@ -470,7 +521,11 @@ describe('AIChatHandler', () => {
   describe('ai:save-key', () => {
     it('saves key and responds with success and correlationId', async () => {
       const result = await handler.handle(
-        createMsg('ai:save-key', { apiKey: 'sk-test' }) as unknown as BaseMessage,
+        inboundRequest(
+          createMsg('ai:save-key', {
+            apiKey: 'sk-test',
+          }) as unknown as BaseMessage,
+        ),
       );
       expect(result).toBe(true);
       expect(deps.secretVault.storeSecret).toHaveBeenCalledWith('ai.anthropic.key', 'sk-test');
@@ -485,7 +540,9 @@ describe('AIChatHandler', () => {
 
     it('turns AI on by writing sandforge.ai.enabled after the key is stored', async () => {
       const setSandforgeSetting = vi.fn().mockResolvedValue(undefined);
-      deps.services = { setSandforgeSetting } as unknown as HandlerDeps['services'];
+      deps.services = {
+        setSandforgeSetting,
+      } as unknown as HandlerDeps['services'];
 
       await handler.handle(createMsg('ai:save-key', { apiKey: 'sk-test' }));
 
@@ -494,7 +551,9 @@ describe('AIChatHandler', () => {
 
     it('does not enable AI when the key could not be stored', async () => {
       const setSandforgeSetting = vi.fn().mockResolvedValue(undefined);
-      deps.services = { setSandforgeSetting } as unknown as HandlerDeps['services'];
+      deps.services = {
+        setSandforgeSetting,
+      } as unknown as HandlerDeps['services'];
       (deps.secretVault.storeSecret as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new Error('keychain locked'),
       );

@@ -8,7 +8,7 @@ import type {
 import { forgeConfigSchema, forgeGraphSchema, forgeTemplateSchema } from '@sandforge/shared';
 import { orgTypeToGuardTier } from '@sandforge/shared';
 import { z } from 'zod';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -130,7 +130,7 @@ function throttle<T extends (...args: never[]) => void>(
  */
 function parsePayload<T>(
   schema: z.ZodSchema<T>,
-  msg: BaseMessage,
+  msg: InboundRequest,
   responseType: string,
   deps: HandlerDeps,
 ): T | null {
@@ -306,7 +306,7 @@ export class ForgeHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!FORGE_TYPES.has(msg.type)) return false;
 
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -423,7 +423,7 @@ export class ForgeHandler implements DomainHandler {
   }
 
   /** Preview a single record by ID (resolve object type, fetch standard fields). */
-  private async handleForgePreview(msg: BaseMessage): Promise<void> {
+  private async handleForgePreview(msg: InboundRequest): Promise<void> {
     const parsed = parsePayload(previewPayloadSchema, msg, 'forge:preview:error', this.deps);
     if (!parsed) return;
     const { recordId, orgId } = parsed;
@@ -509,27 +509,21 @@ export class ForgeHandler implements DomainHandler {
       });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'forge:preview',
-        'forge:preview:error',
-        err,
-        'PREVIEW_ERROR',
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'forge:preview', 'forge:preview:error', msg, err, {
+        code: 'PREVIEW_ERROR',
+      });
     }
   }
 
-  private async handleDiscover(msg: BaseMessage): Promise<void> {
+  private async handleDiscover(msg: InboundRequest): Promise<void> {
     if (!this.orchestrator) {
       sendHandlerError(
         this.deps,
         'forge:discover',
         'forge:discover:error',
+        msg,
         new Error('Forge module is not initialized'),
-        'NOT_INITIALIZED',
+        { code: 'NOT_INITIALIZED' },
       );
       return;
     }
@@ -573,27 +567,24 @@ export class ForgeHandler implements DomainHandler {
       // `operation:failed` is intentionally NOT emitted here — BridgeProvider
       // auto-invokes `ai:resolve-error` on every operation:failed, which made
       // each forge failure trigger a parasitic duplicate AI call.
-      sendHandlerError(
-        this.deps,
-        'forge:discover',
-        'forge:discover:error',
-        error,
-        'DISCOVER_ERROR',
-        true,
-      );
+      sendHandlerError(this.deps, 'forge:discover', 'forge:discover:error', msg, error, {
+        code: 'DISCOVER_ERROR',
+        retryable: true,
+      });
     } finally {
       this.discoverAbortController = null;
     }
   }
 
-  private async handleExecute(msg: BaseMessage): Promise<void> {
+  private async handleExecute(msg: InboundRequest): Promise<void> {
     if (!this.orchestrator) {
       sendHandlerError(
         this.deps,
         'forge:execute',
         'forge:execute:error',
+        msg,
         new Error('Forge module is not initialized'),
-        'NOT_INITIALIZED',
+        { code: 'NOT_INITIALIZED' },
       );
       return;
     }
@@ -627,10 +618,11 @@ export class ForgeHandler implements DomainHandler {
           this.deps,
           'forge:execute',
           'forge:execute:error',
+          msg,
           new Error(
             `Operation blocked by Production Guard: ${check.blockedReason ?? check.impactSummary}`,
           ),
-          'GUARD_BLOCKED',
+          { code: 'GUARD_BLOCKED' },
         );
         return;
       }
@@ -642,9 +634,9 @@ export class ForgeHandler implements DomainHandler {
           this.deps,
           'forge:execute',
           'forge:execute:error',
+          msg,
           new Error('Operation cancelled by user (production confirmation declined).'),
-          'GUARD_DECLINED',
-          true,
+          { code: 'GUARD_DECLINED', retryable: true },
         );
         return;
       }
@@ -670,8 +662,9 @@ export class ForgeHandler implements DomainHandler {
         this.deps,
         'forge:execute',
         'forge:execute:error',
+        msg,
         new Error(`Duplicate forge operation: ${forgeOpId}`),
-        'DUPLICATE',
+        { code: 'DUPLICATE' },
       );
       return;
     }
@@ -751,14 +744,10 @@ export class ForgeHandler implements DomainHandler {
       this.lastWriteAt.delete(forgeOpId);
       // Single error channel (see handleDiscover): `forge:execute:error`
       // only — no duplicate `operation:failed` / parasitic ai:resolve-error.
-      sendHandlerError(
-        this.deps,
-        'forge:execute',
-        'forge:execute:error',
-        error,
-        'EXECUTE_ERROR',
-        true,
-      );
+      sendHandlerError(this.deps, 'forge:execute', 'forge:execute:error', msg, error, {
+        code: 'EXECUTE_ERROR',
+        retryable: true,
+      });
     } finally {
       // CR-012: unsubscribe BEFORE flushing so the flush's terminal event
       // doesn't trigger any progress listeners that we're about to remove.
@@ -793,13 +782,13 @@ export class ForgeHandler implements DomainHandler {
     logger.info('Forge aborted');
   }
 
-  private async handleTemplatesList(msg: BaseMessage): Promise<void> {
+  private async handleTemplatesList(msg: InboundRequest): Promise<void> {
     const templates = await this.loadTemplates();
     const response = buildResponse(this.deps, msg, 'forge:templates:list:response', { templates });
     this.deps.broker.postToWebview(response);
   }
 
-  private async handleSaveTemplate(msg: BaseMessage): Promise<void> {
+  private async handleSaveTemplate(msg: InboundRequest): Promise<void> {
     const parsed = parsePayload(
       saveTemplatePayloadSchema,
       msg,
@@ -819,7 +808,7 @@ export class ForgeHandler implements DomainHandler {
     this.deps.broker.postToWebview(response);
   }
 
-  private async handleDeleteTemplate(msg: BaseMessage): Promise<void> {
+  private async handleDeleteTemplate(msg: InboundRequest): Promise<void> {
     const parsed = parsePayload(
       deleteTemplatePayloadSchema,
       msg,
@@ -836,21 +825,22 @@ export class ForgeHandler implements DomainHandler {
     this.deps.broker.postToWebview(response);
   }
 
-  private handleHistoryList(msg: BaseMessage): void {
+  private handleHistoryList(msg: InboundRequest): void {
     const history = this.loadHistory();
     const response = buildResponse(this.deps, msg, 'forge:history:list:response', { history });
     this.deps.broker.postToWebview(response);
   }
 
   /** Generate a forge execution plan from a graph. */
-  private async handlePlanRequest(msg: BaseMessage): Promise<void> {
+  private async handlePlanRequest(msg: InboundRequest): Promise<void> {
     if (!this.planGenerator) {
       sendHandlerError(
         this.deps,
         'forge:plan',
         'forge:plan:error',
+        msg,
         new Error('Plan generator not configured'),
-        'NOT_INITIALIZED',
+        { code: 'NOT_INITIALIZED' },
       );
       return;
     }
@@ -870,26 +860,23 @@ export class ForgeHandler implements DomainHandler {
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
       // Single error channel (see handleDiscover): no duplicate operation:failed.
-      sendHandlerError(
-        this.deps,
-        'forge:plan',
-        'forge:plan:error',
-        error,
-        isTimeout ? 'TIMEOUT' : 'PLAN_ERROR',
-        isTimeout,
-      );
+      sendHandlerError(this.deps, 'forge:plan', 'forge:plan:error', msg, error, {
+        code: isTimeout ? 'TIMEOUT' : 'PLAN_ERROR',
+        retryable: isTimeout,
+      });
     }
   }
 
   /** Generate a compliance report for a graph and framework. */
-  private async handleComplianceRequest(msg: BaseMessage): Promise<void> {
+  private async handleComplianceRequest(msg: InboundRequest): Promise<void> {
     if (!this.complianceService) {
       sendHandlerError(
         this.deps,
         'forge:compliance',
         'forge:compliance:error',
+        msg,
         new Error('Compliance service not configured'),
-        'NOT_INITIALIZED',
+        { code: 'NOT_INITIALIZED' },
       );
       return;
     }
@@ -923,14 +910,10 @@ export class ForgeHandler implements DomainHandler {
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
       // Single error channel (see handleDiscover): no duplicate operation:failed.
-      sendHandlerError(
-        this.deps,
-        'forge:compliance',
-        'forge:compliance:error',
-        error,
-        isTimeout ? 'TIMEOUT' : 'COMPLIANCE_ERROR',
-        isTimeout,
-      );
+      sendHandlerError(this.deps, 'forge:compliance', 'forge:compliance:error', msg, error, {
+        code: isTimeout ? 'TIMEOUT' : 'COMPLIANCE_ERROR',
+        retryable: isTimeout,
+      });
     }
   }
 
@@ -943,7 +926,7 @@ export class ForgeHandler implements DomainHandler {
    * counts (FLS, non-queryable, etc.) come back as `existing: -1` rather
    * than failing the whole batch.
    */
-  private async handleTargetPreflightRequest(msg: BaseMessage): Promise<void> {
+  private async handleTargetPreflightRequest(msg: InboundRequest): Promise<void> {
     const parsed = parsePayload(
       targetPreflightPayloadSchema,
       msg,
@@ -991,22 +974,23 @@ export class ForgeHandler implements DomainHandler {
         this.deps,
         'forge:target-preflight',
         'forge:target-preflight:error',
+        msg,
         error,
-        isTimeout ? 'TIMEOUT' : 'PREFLIGHT_ERROR',
-        isTimeout,
+        { code: isTimeout ? 'TIMEOUT' : 'PREFLIGHT_ERROR', retryable: isTimeout },
       );
     }
   }
 
   /** Compare metadata schemas between source and target orgs. */
-  private async handleMetadataDiffRequest(msg: BaseMessage): Promise<void> {
+  private async handleMetadataDiffRequest(msg: InboundRequest): Promise<void> {
     if (!this.metadataDiff) {
       sendHandlerError(
         this.deps,
         'forge:metadata-diff',
         'forge:metadata-diff:error',
+        msg,
         new Error('Metadata diff service not configured'),
-        'NOT_INITIALIZED',
+        { code: 'NOT_INITIALIZED' },
       );
       return;
     }
@@ -1032,14 +1016,10 @@ export class ForgeHandler implements DomainHandler {
     } catch (error: unknown) {
       const isTimeout = error instanceof TimeoutError;
       // Single error channel (see handleDiscover): no duplicate operation:failed.
-      sendHandlerError(
-        this.deps,
-        'forge:metadata-diff',
-        'forge:metadata-diff:error',
-        error,
-        isTimeout ? 'TIMEOUT' : 'METADATA_DIFF_ERROR',
-        isTimeout,
-      );
+      sendHandlerError(this.deps, 'forge:metadata-diff', 'forge:metadata-diff:error', msg, error, {
+        code: isTimeout ? 'TIMEOUT' : 'METADATA_DIFF_ERROR',
+        retryable: isTimeout,
+      });
     }
   }
 }

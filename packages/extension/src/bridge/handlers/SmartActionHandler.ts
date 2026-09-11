@@ -1,5 +1,5 @@
-import type { BaseMessage, SmartActionRecommendation } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { SmartActionRecommendation } from '@sandforge/shared';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import { validatePayload, smartActionAnalyzePayloadSchema } from '../validatePayload.js';
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
@@ -42,7 +42,7 @@ export class SmartActionHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!SMART_ACTION_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -62,7 +62,7 @@ export class SmartActionHandler implements DomainHandler {
    *
    * @param msg - The analyze request message.
    */
-  private async handleAnalyze(msg: BaseMessage): Promise<void> {
+  private async handleAnalyze(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
       smartActionAnalyzePayloadSchema,
       msg,
@@ -97,7 +97,7 @@ export class SmartActionHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log('[TX] smart-action:analyze:response');
     } catch (err) {
-      sendHandlerError(this.deps, 'smart-action:analyze', 'smart-action:error', err);
+      sendHandlerError(this.deps, 'smart-action:analyze', 'smart-action:error', msg, err);
     }
   }
 }

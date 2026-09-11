@@ -116,6 +116,33 @@ describe('MessageRouter', () => {
     });
   });
 
+  describe('admission', () => {
+    it('hands each handler the dispatched message frozen, so the id it answers cannot be rewritten', () => {
+      let received: BaseMessage | undefined;
+      router.route('org:list', (msg) => {
+        received = msg;
+      });
+      const mockPanel = {
+        webview: {
+          onDidReceiveMessage: vi.fn().mockReturnValue({ dispose: vi.fn() }),
+          postMessage: vi.fn(),
+        },
+      };
+      broker.registerPanel(mockPanel as never);
+      const deliver = mockPanel.webview.onDidReceiveMessage.mock.calls[0][0] as (
+        raw: unknown,
+      ) => void;
+
+      deliver(enveloped(createMessage('org:list')));
+
+      expect(received?.type).toBe('org:list');
+      expect(Object.isFrozen(received)).toBe(true);
+      expect(() => {
+        (received as { id: string }).id = '';
+      }).toThrow(TypeError);
+    });
+  });
+
   describe('dispose', () => {
     it('should unsubscribe all registered routes from the broker', () => {
       const handler = vi.fn<MessageHandler>();

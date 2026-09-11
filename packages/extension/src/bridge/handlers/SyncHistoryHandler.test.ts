@@ -6,6 +6,8 @@ import type { HandlerDeps } from './HandlerTypes';
 import type { BaseMessage, SyncHistoryEntry } from '@sandforge/shared';
 import { ConfigStore } from '../../core/storage/ConfigStore.js';
 import type { ConfigStoreBackend, ConfigEntry } from '../../core/storage/ConfigStoreBackend';
+import type { InboundRequest } from './HandlerTypes.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 class InMemoryBackend implements ConfigStoreBackend {
   private data: Record<string, ConfigEntry> = {};
@@ -35,14 +37,17 @@ function createMockDeps(store: ConfigStore): HandlerDeps {
 function createMsg(
   type: string,
   payload: Record<string, unknown> = {},
-): BaseMessage & { payload: Record<string, unknown> } {
-  return { id: 'req-9', type, timestamp: Date.now(), payload };
+): InboundRequest & { payload: Record<string, unknown> } {
+  return inboundRequest({ id: 'req-9', type, timestamp: Date.now(), payload });
 }
 
 function fakeEntry(id: string, name: string): SyncHistoryEntry {
   return {
     id,
-    configSnapshot: { id: 'cfg-1', name } as unknown as SyncHistoryEntry['configSnapshot'],
+    configSnapshot: {
+      id: 'cfg-1',
+      name,
+    } as unknown as SyncHistoryEntry['configSnapshot'],
     result: {
       configId: 'cfg-1',
       operationId: 'op-1',
@@ -79,7 +84,9 @@ describe('SyncHistoryHandler', () => {
 
   function lastPosted(): BaseMessage & { payload: Record<string, unknown> } {
     const calls = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls;
-    return calls[calls.length - 1][0] as BaseMessage & { payload: Record<string, unknown> };
+    return calls[calls.length - 1][0] as BaseMessage & {
+      payload: Record<string, unknown>;
+    };
   }
 
   it('returns false for unknown message types', async () => {
@@ -88,7 +95,10 @@ describe('SyncHistoryHandler', () => {
 
   it('lists entries newest first', async () => {
     historyStore.save(fakeEntry('e-1', 'first'));
-    historyStore.save({ ...fakeEntry('e-2', 'second'), startTime: '2026-02-01T00:00:00.000Z' });
+    historyStore.save({
+      ...fakeEntry('e-2', 'second'),
+      startTime: '2026-02-01T00:00:00.000Z',
+    });
 
     expect(await handler.handle(createMsg('sync:history:list'))).toBe(true);
 
@@ -128,7 +138,9 @@ describe('SyncHistoryHandler', () => {
     await handler.handle(createMsg('sync:history:export', { format: 'json', entryIds: ['e-1'] }));
 
     const response = lastPosted();
-    const parsed = JSON.parse(response.payload['data'] as string) as Array<{ id: string }>;
+    const parsed = JSON.parse(response.payload['data'] as string) as Array<{
+      id: string;
+    }>;
     expect(parsed).toHaveLength(1);
     expect(parsed[0].id).toBe('e-1');
   });

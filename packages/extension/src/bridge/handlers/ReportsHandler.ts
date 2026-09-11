@@ -5,7 +5,7 @@ import type {
   SyncHistoryEntry,
 } from '@sandforge/shared';
 
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 
 /** Message types handled by ReportsHandler. */
@@ -61,13 +61,13 @@ export class ReportsHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!REPORTS_TYPES.has(msg.type)) return false;
     this.handleList(msg);
     return true;
   }
 
-  private handleList(msg: BaseMessage): void {
+  private handleList(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const limit = this.readLimit(msg);
     const result = this.build(limit);

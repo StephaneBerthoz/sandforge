@@ -75,10 +75,16 @@ describe('Domain schemas — valid / invalid samples', () => {
     expect(AutomationMessageSchema.safeParse(baseFields('pipeline:bogus')).success).toBe(false);
   });
 
-  it('ExecutionMessageSchema accepts execution:progress and operation:started', () => {
-    expect(ExecutionMessageSchema.safeParse(baseFields('execution:progress')).success).toBe(true);
+  it('ExecutionMessageSchema accepts execution:retry-status and operation:started', () => {
+    expect(ExecutionMessageSchema.safeParse(baseFields('execution:retry-status')).success).toBe(
+      true,
+    );
     expect(ExecutionMessageSchema.safeParse(baseFields('operation:started')).success).toBe(true);
     expect(ExecutionMessageSchema.safeParse(baseFields('execution:bogus')).success).toBe(false);
+  });
+
+  it('ExecutionMessageSchema rejects execution:progress, retired with its never-started emitter', () => {
+    expect(ExecutionMessageSchema.safeParse(baseFields('execution:progress')).success).toBe(false);
   });
 
   it('AIMessageSchema accepts ai:chat and rejects missing type', () => {

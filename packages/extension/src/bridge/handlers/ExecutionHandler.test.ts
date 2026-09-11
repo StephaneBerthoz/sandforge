@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ExecutionHandler } from './ExecutionHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type {
   BaseMessage,
   SyncConfig,
@@ -10,6 +10,7 @@ import type {
 import { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import { SyncHistoryStore } from '../../modules/sync/SyncHistoryStore.js';
 import type { SyncOpsHandler } from './SyncOpsHandler.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /**
  * Creates minimal mock deps for ExecutionHandler tests.
@@ -100,7 +101,11 @@ describe('ExecutionHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
@@ -113,12 +118,12 @@ describe('ExecutionHandler', () => {
       });
       registry.register('op-1', 'sync', 'Test operation', promise, abortController);
 
-      const msg: BaseMessage & { payload: { operationId: string } } = {
+      const msg: InboundRequest & { payload: { operationId: string } } = inboundRequest({
         id: 'req-abort-1',
         type: 'execution:abort',
         timestamp: Date.now(),
         payload: { operationId: 'op-1' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -140,12 +145,12 @@ describe('ExecutionHandler', () => {
     });
 
     it('sends error response for unknown operation', async () => {
-      const msg: BaseMessage & { payload: { operationId: string } } = {
+      const msg: InboundRequest & { payload: { operationId: string } } = inboundRequest({
         id: 'req-abort-2',
         type: 'execution:abort',
         timestamp: Date.now(),
         payload: { operationId: 'non-existent' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -171,12 +176,12 @@ describe('ExecutionHandler', () => {
       registry.register('op-2', 'seed', 'Seed 5 objects', promise, abortController);
       registry.updateProgress('op-2', 42, '4,200 records');
 
-      const msg: BaseMessage & { payload: { operationId: string } } = {
+      const msg: InboundRequest & { payload: { operationId: string } } = inboundRequest({
         id: 'req-status-1',
         type: 'execution:status',
         timestamp: Date.now(),
         payload: { operationId: 'op-2' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -210,12 +215,12 @@ describe('ExecutionHandler', () => {
     });
 
     it('returns not-found for unknown operation', async () => {
-      const msg: BaseMessage & { payload: { operationId: string } } = {
+      const msg: InboundRequest & { payload: { operationId: string } } = inboundRequest({
         id: 'req-status-2',
         type: 'execution:status',
         timestamp: Date.now(),
         payload: { operationId: 'ghost' },
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -244,11 +249,11 @@ describe('ExecutionHandler', () => {
       registry.register('op-a', 'sync', 'Sync 3 objects', p1, ac1);
       registry.register('op-b', 'seed', 'Seed 10 objects', p2, ac2);
 
-      const msg: BaseMessage = {
+      const msg: InboundRequest = inboundRequest({
         id: 'req-list-1',
         type: 'execution:list',
         timestamp: Date.now(),
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -268,11 +273,11 @@ describe('ExecutionHandler', () => {
     });
 
     it('returns empty array when no operations exist', async () => {
-      const msg: BaseMessage = {
+      const msg: InboundRequest = inboundRequest({
         id: 'req-list-2',
         type: 'execution:list',
         timestamp: Date.now(),
-      };
+      });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -288,12 +293,12 @@ describe('ExecutionHandler', () => {
 
   describe('payload validation', () => {
     it('rejects execution:status without operationId (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-status',
         type: 'execution:status',
         timestamp: Date.now(),
         payload: {},
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -307,12 +312,12 @@ describe('ExecutionHandler', () => {
     });
 
     it('rejects execution:manual-retry without objectName (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-retry',
         type: 'execution:manual-retry',
         timestamp: Date.now(),
         payload: { executionId: 'op-1' },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -326,13 +331,13 @@ describe('ExecutionHandler', () => {
     });
 
     it('accepts execution:abort with the webview executionId shape', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'abort-flat',
         type: 'execution:abort',
         timestamp: Date.now(),
         // useRetryManager sends `{ executionId, objectName }` (no operationId).
         payload: { executionId: 'ghost', objectName: 'Account' },
-      } as unknown as BaseMessage;
+      } as unknown as BaseMessage);
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -363,13 +368,13 @@ describe('ExecutionHandler', () => {
       );
     });
 
-    function retryMsg(executionId: string, objectName = 'Account'): BaseMessage {
-      return {
+    function retryMsg(executionId: string, objectName = 'Account'): InboundRequest {
+      return inboundRequest({
         id: 'req-retry-1',
         type: 'execution:manual-retry',
         timestamp: Date.now(),
         payload: { executionId, objectName },
-      } as BaseMessage;
+      } as BaseMessage);
     }
 
     function postedOfType(type: string): (BaseMessage & { payload: Record<string, unknown> })[] {

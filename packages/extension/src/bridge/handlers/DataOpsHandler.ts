@@ -1,6 +1,6 @@
-import type { BaseMessage, BackupSummary } from '@sandforge/shared';
+import type { BackupSummary } from '@sandforge/shared';
 import { sanitizeSoqlObjectName, orgTypeToGuardTier } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import {
   buildResponse,
   sendNotification,
@@ -179,7 +179,7 @@ export class DataOpsHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!DATAOPS_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -237,7 +237,7 @@ export class DataOpsHandler implements DomainHandler {
     return desc.fields.map((f) => f.name).join(', ');
   }
 
-  private async handleBackup(msg: BaseMessage): Promise<void> {
+  private async handleBackup(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsBackupPayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;
@@ -252,16 +252,7 @@ export class DataOpsHandler implements DomainHandler {
       this.deps.log(`[WARN] ${message}`);
       // Settle the in-flight useBridgeMutation listener on dataops:error
       // (same dual-channel contract as the catch below).
-      sendHandlerError(
-        this.deps,
-        'dataops:backup',
-        'dataops:error',
-        new Error(message),
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', msg, new Error(message));
       sendOperationFailed(this.deps, operationId, message, false);
       return;
     }
@@ -274,11 +265,8 @@ export class DataOpsHandler implements DomainHandler {
           this.deps,
           'dataops:backup',
           'dataops:error',
-          new Error(`Duplicate operation: ${operationId}`),
-          undefined,
-          undefined,
-          undefined,
           msg,
+          new Error(`Duplicate operation: ${operationId}`),
         );
         sendOperationFailed(this.deps, operationId, `Duplicate operation: ${operationId}`, false);
         return;
@@ -387,16 +375,7 @@ export class DataOpsHandler implements DomainHandler {
       // the `<domain>:error` channel useBridgeMutation listens on — it settles
       // the in-flight mutation with the real message. The webview surfaces the
       // error from dataops:error only, so the user sees it exactly once.
-      sendHandlerError(
-        this.deps,
-        'dataops:backup',
-        'dataops:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'dataops:backup', 'dataops:error', msg, err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     } finally {
       this.activeOrgOperations.delete(lockKey);
@@ -420,7 +399,7 @@ export class DataOpsHandler implements DomainHandler {
    * Key partitioning mirrors pruneBackups: meta keys are `backup:<operationId>`,
    * record keys are `backup:<operationId>:<objectApiName>`.
    */
-  private handleBackupList(msg: BaseMessage): void {
+  private handleBackupList(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsBackupListPayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;
@@ -467,7 +446,7 @@ export class DataOpsHandler implements DomainHandler {
    * touches the org — it reads what was already stored and hands back a
    * document the webview downloads, the same shape sync:history:export uses.
    */
-  private async handleBackupExport(msg: BaseMessage): Promise<void> {
+  private async handleBackupExport(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       dataOpsBackupExportPayloadSchema,
@@ -490,11 +469,9 @@ export class DataOpsHandler implements DomainHandler {
         this.deps,
         'backup:export',
         'dataops:error',
-        new Error(`Backup not found: ${parsed.operationId}`),
-        'BACKUP_NOT_FOUND',
-        undefined,
-        undefined,
         msg,
+        new Error(`Backup not found: ${parsed.operationId}`),
+        { code: 'BACKUP_NOT_FOUND' },
       );
       return;
     }
@@ -552,7 +529,7 @@ export class DataOpsHandler implements DomainHandler {
     }
   }
 
-  private async handleRollback(msg: BaseMessage): Promise<void> {
+  private async handleRollback(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsRollbackPayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;
@@ -564,16 +541,7 @@ export class DataOpsHandler implements DomainHandler {
     if (this.activeOrgOperations.has(lockKey)) {
       const message = `A backup or rollback operation is already running for org ${payload.orgId}. Please wait for it to complete.`;
       this.deps.log(`[WARN] ${message}`);
-      sendHandlerError(
-        this.deps,
-        'dataops:rollback',
-        'dataops:error',
-        new Error(message),
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
       sendOperationFailed(this.deps, rollbackOpId, message, false);
       return;
     }
@@ -586,11 +554,8 @@ export class DataOpsHandler implements DomainHandler {
           this.deps,
           'dataops:rollback',
           'dataops:error',
-          new Error(`Duplicate operation: ${rollbackOpId}`),
-          undefined,
-          undefined,
-          undefined,
           msg,
+          new Error(`Duplicate operation: ${rollbackOpId}`),
         );
         sendOperationFailed(this.deps, rollbackOpId, `Duplicate operation: ${rollbackOpId}`, false);
         return;
@@ -655,16 +620,7 @@ export class DataOpsHandler implements DomainHandler {
         const confirmed = await guard.confirmIfNeeded(check);
         if (!confirmed) {
           const message = 'Operation cancelled by user (production confirmation declined).';
-          sendHandlerError(
-            this.deps,
-            'dataops:rollback',
-            'dataops:error',
-            new Error(message),
-            undefined,
-            undefined,
-            undefined,
-            msg,
-          );
+          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(message));
           sendOperationFailed(this.deps, rollbackOpId, message, false);
           return;
         }
@@ -706,11 +662,8 @@ export class DataOpsHandler implements DomainHandler {
             this.deps,
             'dataops:rollback',
             'dataops:error',
-            new Error(crudCheck.reason),
-            undefined,
-            undefined,
-            undefined,
             msg,
+            new Error(crudCheck.reason),
           );
           sendOperationFailed(this.deps, rollbackOpId, crudCheck.reason, false);
           return;
@@ -731,16 +684,7 @@ export class DataOpsHandler implements DomainHandler {
         if (denied.length > 0) {
           const reason = `FLS violation on '${safeObj}': fields [${denied.join(', ')}] are not updateable.`;
           this.deps.log(`[WARN] CRUD/FLS check failed for rollback on ${safeObj}: ${reason}`);
-          sendHandlerError(
-            this.deps,
-            'dataops:rollback',
-            'dataops:error',
-            new Error(reason),
-            undefined,
-            undefined,
-            undefined,
-            msg,
-          );
+          sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, new Error(reason));
           sendOperationFailed(this.deps, rollbackOpId, reason, false);
           return;
         }
@@ -840,23 +784,14 @@ export class DataOpsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.dmlTracker.markFailed(rollbackOpId);
       // Dual channel, single display (see handleBackup).
-      sendHandlerError(
-        this.deps,
-        'dataops:rollback',
-        'dataops:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'dataops:rollback', 'dataops:error', msg, err);
       sendOperationFailed(this.deps, rollbackOpId, extractErrorMessage(err), true);
     } finally {
       this.activeOrgOperations.delete(lockKey);
     }
   }
 
-  private async handleAnonymize(msg: BaseMessage): Promise<void> {
+  private async handleAnonymize(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(dataOpsAnonymizePayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;
@@ -891,11 +826,8 @@ export class DataOpsHandler implements DomainHandler {
             this.deps,
             'dataops:anonymize',
             'dataops:error',
-            new Error(message),
-            undefined,
-            undefined,
-            undefined,
             msg,
+            new Error(message),
           );
           sendOperationFailed(this.deps, operationId, message, false);
           return;
@@ -978,11 +910,8 @@ export class DataOpsHandler implements DomainHandler {
             this.deps,
             'dataops:anonymize',
             'dataops:error',
-            new Error(flsCheck.reason),
-            undefined,
-            undefined,
-            undefined,
             msg,
+            new Error(flsCheck.reason),
           );
           sendOperationFailed(this.deps, operationId, flsCheck.reason, false);
           return;
@@ -1071,21 +1000,12 @@ export class DataOpsHandler implements DomainHandler {
       }
     } catch (err: unknown) {
       // Dual channel, single display (see handleBackup).
-      sendHandlerError(
-        this.deps,
-        'dataops:anonymize',
-        'dataops:error',
-        err,
-        undefined,
-        undefined,
-        undefined,
-        msg,
-      );
+      sendHandlerError(this.deps, 'dataops:anonymize', 'dataops:error', msg, err);
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true);
     }
   }
 
-  private handleAnonymizationTemplates(msg: BaseMessage): void {
+  private handleAnonymizationTemplates(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const response = buildResponse(this.deps, msg, 'dataops:anonymization-templates:response', {
       templates: ANONYMIZATION_TEMPLATES,
@@ -1094,7 +1014,7 @@ export class DataOpsHandler implements DomainHandler {
     this.deps.log(`[TX] dataops:anonymization-templates:response`);
   }
 
-  private handleMaskingTemplatesByObject(msg: BaseMessage): void {
+  private handleMaskingTemplatesByObject(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       dataOpsMaskingTemplatesPayloadSchema,
@@ -1124,7 +1044,7 @@ export class DataOpsHandler implements DomainHandler {
     this.deps.log(`[TX] dataops:masking-templates-by-object:response`);
   }
 
-  private async handlePIIScan(msg: BaseMessage): Promise<void> {
+  private async handlePIIScan(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(piiScanPayloadSchema, msg, 'dataops:error', this.deps);
     if (!parsed) return;

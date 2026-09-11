@@ -1,6 +1,5 @@
-import type { BaseMessage } from '@sandforge/shared';
 import { AI_CONFIG, AI_PROVIDER } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from '../HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from '../HandlerTypes.js';
 import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
@@ -91,7 +90,7 @@ export class AIChatHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!AI_CHAT_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -202,7 +201,7 @@ export class AIChatHandler implements DomainHandler {
     return [...systemMessages, ...nonSystemMessages.slice(-keepCount)];
   }
 
-  private async handleChat(msg: BaseMessage): Promise<void> {
+  private async handleChat(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiChatPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -245,7 +244,7 @@ export class AIChatHandler implements DomainHandler {
     }
   }
 
-  private handleConversationCreate(msg: BaseMessage): void {
+  private handleConversationCreate(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiConversationCreatePayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -275,7 +274,7 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[TX] ai:conversation:created id=${conversation.id}`);
   }
 
-  private handleConversationLoad(msg: BaseMessage): void {
+  private handleConversationLoad(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiConversationIdPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -329,7 +328,7 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[TX] ai:conversation:loaded id=${persisted.id} (store)`);
   }
 
-  private handleConversationList(msg: BaseMessage): void {
+  private handleConversationList(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const index = this.loadIndex();
     const response = buildResponse(this.deps, msg, 'ai:conversation:list:response', {
@@ -339,7 +338,7 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[TX] ai:conversation:list:response count=${index.length}`);
   }
 
-  private handleConversationDelete(msg: BaseMessage): void {
+  private handleConversationDelete(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiConversationIdPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;
@@ -364,7 +363,7 @@ export class AIChatHandler implements DomainHandler {
     this.deps.log(`[TX] ai:conversation:deleted id=${payload.conversationId}`);
   }
 
-  private async handleStatus(msg: BaseMessage): Promise<void> {
+  private async handleStatus(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     await this.postStatus(msg);
   }
@@ -377,7 +376,7 @@ export class AIChatHandler implements DomainHandler {
    *
    * @param request - The request the response is correlated to.
    */
-  private async postStatus(request: BaseMessage): Promise<void> {
+  private async postStatus(request: InboundRequest): Promise<void> {
     const hasKey = await this.deps.secretVault.hasSecret(AI_API_KEY_SECRET);
 
     const response = buildResponse(this.deps, request, 'ai:status:response', {
@@ -414,7 +413,7 @@ export class AIChatHandler implements DomainHandler {
     }
   }
 
-  private async handleSaveKey(msg: BaseMessage): Promise<void> {
+  private async handleSaveKey(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(aiSaveKeyPayloadSchema, msg, 'ai:error', this.deps);
     if (!parsed) return;

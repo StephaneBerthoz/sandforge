@@ -1,7 +1,6 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { BaseMessage } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -141,7 +140,7 @@ export class MigrationHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!MIGRATION_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -162,7 +161,7 @@ export class MigrationHandler implements DomainHandler {
     return [...workspaceFolders, os.homedir()];
   }
 
-  private async handleImport(msg: BaseMessage): Promise<void> {
+  private async handleImport(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(migrationImportPayloadSchema, msg, 'migration:error', this.deps);
     if (!parsed) return;
@@ -201,7 +200,7 @@ export class MigrationHandler implements DomainHandler {
     }
   }
 
-  private async handleImportSfdmu(msg: BaseMessage): Promise<void> {
+  private async handleImportSfdmu(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       migrationImportSfdmuPayloadSchema,

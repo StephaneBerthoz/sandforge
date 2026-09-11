@@ -2,7 +2,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
-  BaseMessage,
   ForgeConfig,
   FrozenControlReport,
   FrozenLoadReportInfo,
@@ -12,7 +11,7 @@ import type {
   FrozenStatusInfo,
 } from '@sandforge/shared';
 import { orgTypeToGuardTier, RobustnessConfigSchema } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import {
   buildResponse,
@@ -333,7 +332,7 @@ export class FrozenDatasetHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!FROZEN_TYPES.has(msg.type)) return false;
 
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
@@ -374,7 +373,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     return this.deps.configStore.get<FrozenProjectConfig>(CONFIG_KEY) ?? null;
   }
 
-  private handleConfigGet(msg: BaseMessage): void {
+  private handleConfigGet(msg: InboundRequest): void {
     const config = this.loadConfig();
     const response = buildResponse(this.deps, msg, 'frozen:config:get:response', {
       config,
@@ -384,7 +383,7 @@ export class FrozenDatasetHandler implements DomainHandler {
     this.deps.broker.postToWebview(response);
   }
 
-  private handleConfigSave(msg: BaseMessage): void {
+  private handleConfigSave(msg: InboundRequest): void {
     const parsed = validatePayload(
       frozenConfigSavePayloadSchema,
       msg,
@@ -637,18 +636,19 @@ export class FrozenDatasetHandler implements DomainHandler {
   }
 
   /** Load the saved config or emit the actionable CONFIG_MISSING error. */
-  private requireConfig(msg: BaseMessage, errorType: string): FrozenProjectConfig | null {
+  private requireConfig(msg: InboundRequest, errorType: string): FrozenProjectConfig | null {
     const config = this.loadConfig();
     if (!config) {
       sendHandlerError(
         this.deps,
         msg.type,
         errorType,
+        msg,
         new Error(
           'No frozen dataset configuration saved — save the project configuration first ' +
             '(frozen:config:save: coverage axes, root object, budget, load rules).',
         ),
-        'CONFIG_MISSING',
+        { code: 'CONFIG_MISSING' },
       );
       return null;
     }
@@ -657,7 +657,7 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   // ── frozen:select ──────────────────────────────────────────────────────
 
-  private async handleSelect(msg: BaseMessage): Promise<void> {
+  private async handleSelect(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
       frozenSelectPayloadSchema,
       msg,
@@ -737,20 +737,16 @@ export class FrozenDatasetHandler implements DomainHandler {
         total: result.volumetry.total,
       });
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'frozen:select',
-        'frozen:select:error',
-        err,
-        this.errorCodeFor(err, 'SELECT_ERROR'),
-        err instanceof TimeoutError,
-      );
+      sendHandlerError(this.deps, 'frozen:select', 'frozen:select:error', msg, err, {
+        code: this.errorCodeFor(err, 'SELECT_ERROR'),
+        retryable: err instanceof TimeoutError,
+      });
     }
   }
 
   // ── frozen:extract ─────────────────────────────────────────────────────
 
-  private async handleExtract(msg: BaseMessage): Promise<void> {
+  private async handleExtract(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
       frozenExtractPayloadSchema,
       msg,
@@ -777,11 +773,12 @@ export class FrozenDatasetHandler implements DomainHandler {
           this.deps,
           'frozen:extract',
           'frozen:extract:error',
+          msg,
           new Error(
             `No selection found in ${sasDir} — run the coverage-matrix selection first ` +
               '(frozen:select).',
           ),
-          'SELECTION_MISSING',
+          { code: 'SELECTION_MISSING' },
         );
         return;
       }
@@ -850,11 +847,12 @@ export class FrozenDatasetHandler implements DomainHandler {
           this.deps,
           'frozen:extract',
           'frozen:extract:error',
+          msg,
           new Error(
             'Non-reidentification control FAILED — nothing was written. Fix the rules file ' +
               'and re-run the extraction (see frozen:control:result for the failing checks).',
           ),
-          'CONTROL_FAILED',
+          { code: 'CONTROL_FAILED' },
         );
         return;
       }
@@ -900,20 +898,16 @@ export class FrozenDatasetHandler implements DomainHandler {
         version: manifest.version,
       });
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'frozen:extract',
-        'frozen:extract:error',
-        err,
-        this.errorCodeFor(err, 'EXTRACT_ERROR'),
-        err instanceof TimeoutError,
-      );
+      sendHandlerError(this.deps, 'frozen:extract', 'frozen:extract:error', msg, err, {
+        code: this.errorCodeFor(err, 'EXTRACT_ERROR'),
+        retryable: err instanceof TimeoutError,
+      });
     }
   }
 
   // ── frozen:manifest:get ────────────────────────────────────────────────
 
-  private handleManifestGet(msg: BaseMessage): void {
+  private handleManifestGet(msg: InboundRequest): void {
     const config = this.loadConfig();
     const datasetDir = this.resolveDatasetDir(config);
     let manifest: FrozenManifestInfo | null = null;
@@ -935,7 +929,7 @@ export class FrozenDatasetHandler implements DomainHandler {
 
   // ── frozen:load ────────────────────────────────────────────────────────
 
-  private async handleLoad(msg: BaseMessage): Promise<void> {
+  private async handleLoad(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(frozenLoadPayloadSchema, msg, 'frozen:load:error', this.deps);
     if (!parsed) return;
     const config = this.requireConfig(msg, 'frozen:load:error');
@@ -946,8 +940,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.deps,
         'frozen:load',
         'frozen:load:error',
+        msg,
         new Error('Production Guard is not initialized — infrastructure services missing'),
-        'NOT_INITIALIZED',
+        { code: 'NOT_INITIALIZED' },
       );
       return;
     }
@@ -1064,21 +1059,17 @@ export class FrozenDatasetHandler implements DomainHandler {
       settle();
     } catch (err: unknown) {
       throttledProgress.flush();
-      sendHandlerError(
-        this.deps,
-        'frozen:load',
-        'frozen:load:error',
-        err,
-        this.errorCodeFor(err, 'LOAD_ERROR'),
-        err instanceof TimeoutError,
-      );
+      sendHandlerError(this.deps, 'frozen:load', 'frozen:load:error', msg, err, {
+        code: this.errorCodeFor(err, 'LOAD_ERROR'),
+        retryable: err instanceof TimeoutError,
+      });
       settle(err);
     }
   }
 
   // ── frozen:verify ──────────────────────────────────────────────────────
 
-  private async handleVerify(msg: BaseMessage): Promise<void> {
+  private async handleVerify(msg: InboundRequest): Promise<void> {
     const parsed = validatePayload(
       frozenVerifyPayloadSchema,
       msg,
@@ -1094,8 +1085,9 @@ export class FrozenDatasetHandler implements DomainHandler {
         this.deps,
         'frozen:verify',
         'frozen:verify:error',
+        msg,
         new Error('No load run recorded — run a load (frozen:load) before verifying.'),
-        'NO_LOAD',
+        { code: 'NO_LOAD' },
       );
       return;
     }
@@ -1123,20 +1115,16 @@ export class FrozenDatasetHandler implements DomainHandler {
         onProgress: throttledProgress,
       });
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'frozen:verify',
-        'frozen:verify:error',
-        err,
-        this.errorCodeFor(err, 'VERIFY_ERROR'),
-        err instanceof TimeoutError,
-      );
+      sendHandlerError(this.deps, 'frozen:verify', 'frozen:verify:error', msg, err, {
+        code: this.errorCodeFor(err, 'VERIFY_ERROR'),
+        retryable: err instanceof TimeoutError,
+      });
     }
   }
 
   /** Shared verification runner (chained after load + standalone verify). */
   private async runVerification(
-    msg: BaseMessage,
+    msg: InboundRequest,
     args: {
       orgId: string;
       contractPath: string;
@@ -1172,20 +1160,16 @@ export class FrozenDatasetHandler implements DomainHandler {
       const response = buildResponse(this.deps, msg, 'frozen:verify:result', { verdict });
       this.deps.broker.postToWebview(response);
     } catch (err: unknown) {
-      sendHandlerError(
-        this.deps,
-        'frozen:verify',
-        'frozen:verify:error',
-        err,
-        this.errorCodeFor(err, 'VERIFY_ERROR'),
-        err instanceof TimeoutError,
-      );
+      sendHandlerError(this.deps, 'frozen:verify', 'frozen:verify:error', msg, err, {
+        code: this.errorCodeFor(err, 'VERIFY_ERROR'),
+        retryable: err instanceof TimeoutError,
+      });
     }
   }
 
   // ── frozen:status ──────────────────────────────────────────────────────
 
-  private handleStatus(msg: BaseMessage): void {
+  private handleStatus(msg: InboundRequest): void {
     const config = this.loadConfig();
     const sasDir = this.resolveSasDir(config);
     const datasetDir = this.resolveDatasetDir(config);

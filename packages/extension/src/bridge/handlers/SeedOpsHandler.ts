@@ -1,11 +1,16 @@
-import type { BaseMessage, SeedTemplate, PersonaMsg } from '@sandforge/shared';
+import type { SeedTemplate, PersonaMsg } from '@sandforge/shared';
 import {
   sanitizeSoqlObjectName,
   orgTypeToGuardTier,
   RobustnessConfigSchema,
 } from '@sandforge/shared';
 import type { RobustnessConfig } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler, GrappeEventEnvelope } from './HandlerTypes.js';
+import type {
+  HandlerDeps,
+  DomainHandler,
+  GrappeEventEnvelope,
+  InboundRequest,
+} from './HandlerTypes.js';
 import {
   buildResponse,
   sendHandlerError,
@@ -36,7 +41,6 @@ import { TimeoutManager } from '../../core/engine/TimeoutManager.js';
 import { BulkApiExecutor } from '../../core/engine/BulkApiExecutor.js';
 import type { BulkApiConnection, BulkApiExecutorDeps } from '../../core/engine/BulkApiExecutor.js';
 import { BulkApiManager } from '../../core/engine/BulkApiManager.js';
-import { BulkJobProgressTracker } from '../../core/engine/BulkJobProgressTracker.js';
 import { ChunkedBulkExecutor } from '../../core/engine/ChunkedBulkExecutor.js';
 import type { BackgroundOperationRegistry } from '../../core/engine/BackgroundOperationRegistry.js';
 import type { LiveOperationTracker } from '../../modules/monitor/LiveOperationTracker.js';
@@ -145,7 +149,7 @@ export class SeedOpsHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!SEED_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -182,7 +186,7 @@ export class SeedOpsHandler implements DomainHandler {
   }
 
   /** Save a seed template (create new or update existing). */
-  private async handleTemplateSave(msg: BaseMessage): Promise<void> {
+  private async handleTemplateSave(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedTemplateSavePayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
@@ -207,12 +211,12 @@ export class SeedOpsHandler implements DomainHandler {
         this.deps.log(`[TX] ${response.type} id=${response.id}`);
       }
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:template:save', 'seed:error', err);
+      sendHandlerError(this.deps, 'seed:template:save', 'seed:error', msg, err);
     }
   }
 
   /** Load a seed template by ID. */
-  private async handleTemplateLoad(msg: BaseMessage): Promise<void> {
+  private async handleTemplateLoad(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedTemplateIdPayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
@@ -224,12 +228,12 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:template:load', 'seed:error', err);
+      sendHandlerError(this.deps, 'seed:template:load', 'seed:error', msg, err);
     }
   }
 
   /** List all seed templates (summary view). */
-  private async handleTemplateList(msg: BaseMessage): Promise<void> {
+  private async handleTemplateList(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const templates = this.seedTemplateStore.list();
@@ -248,12 +252,12 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:template:list', 'seed:error', err);
+      sendHandlerError(this.deps, 'seed:template:list', 'seed:error', msg, err);
     }
   }
 
   /** Delete a seed template by ID. */
-  private async handleTemplateDelete(msg: BaseMessage): Promise<void> {
+  private async handleTemplateDelete(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedTemplateIdPayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
@@ -263,7 +267,7 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:template:delete', 'seed:error', err);
+      sendHandlerError(this.deps, 'seed:template:delete', 'seed:error', msg, err);
     }
   }
 
@@ -277,7 +281,7 @@ export class SeedOpsHandler implements DomainHandler {
   }
 
   /** List all built-in and custom personas. */
-  private async handleListPersonas(msg: BaseMessage): Promise<void> {
+  private async handleListPersonas(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const builtIn = this.personaManager.getBuiltInPersonas();
@@ -294,12 +298,12 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:list-personas', 'seed:error', err);
+      sendHandlerError(this.deps, 'seed:list-personas', 'seed:error', msg, err);
     }
   }
 
   /** Create a custom persona from a text description using AI. */
-  private async handleCreatePersona(msg: BaseMessage): Promise<void> {
+  private async handleCreatePersona(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedCreatePersonaPayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
@@ -357,7 +361,7 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:create-persona', 'seed:error', err);
+      sendHandlerError(this.deps, 'seed:create-persona', 'seed:error', msg, err);
     }
   }
 
@@ -388,7 +392,7 @@ export class SeedOpsHandler implements DomainHandler {
     };
   }
 
-  private async handleDescribeGlobal(msg: BaseMessage): Promise<void> {
+  private async handleDescribeGlobal(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedDescribeGlobalPayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
@@ -418,11 +422,11 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:describe-global', 'seed:error', err);
+      sendHandlerError(this.deps, 'seed:describe-global', 'seed:error', msg, err);
     }
   }
 
-  private async handleDescribeObject(msg: BaseMessage): Promise<void> {
+  private async handleDescribeObject(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedDescribeObjectPayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
@@ -474,11 +478,11 @@ export class SeedOpsHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'seed:describe-object', 'seed:error', err);
+      sendHandlerError(this.deps, 'seed:describe-object', 'seed:error', msg, err);
     }
   }
 
-  private async handleExecute(msg: BaseMessage): Promise<void> {
+  private async handleExecute(msg: InboundRequest): Promise<void> {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(seedExecutePayloadSchema, msg, 'seed:error', this.deps);
     if (!parsed) return;
@@ -543,16 +547,10 @@ export class SeedOpsHandler implements DomainHandler {
             // webview can drop stale error responses. The code is stable and
             // SandForge-authored (unlike pass-through Salesforce messages), so
             // the UI can key off it instead of matching English prose.
-            sendHandlerError(
-              this.deps,
-              'seed:execute',
-              'seed:error',
-              new Error(message),
-              'PROD_CONFIRMATION_DECLINED',
-              false,
-              undefined,
-              msg,
-            );
+            sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, new Error(message), {
+              code: 'PROD_CONFIRMATION_DECLINED',
+              retryable: false,
+            });
             sendOperationFailed(this.deps, operationId, message, false);
             return;
           }
@@ -605,7 +603,10 @@ export class SeedOpsHandler implements DomainHandler {
       // seed:error — without it the user stared at a 120 s timeout). Both
       // carry the offline retryHint on transport failures.
       const offlineHint = buildOfflineReplayHint(err, operationId, this.deps.log);
-      sendHandlerError(this.deps, 'seed:execute', 'seed:error', err, undefined, true, offlineHint);
+      sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, err, {
+        retryable: true,
+        extraPayload: offlineHint,
+      });
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, offlineHint);
     }
   }
@@ -623,29 +624,18 @@ export class SeedOpsHandler implements DomainHandler {
    * awaits this promise inside its own try/catch.
    */
   private async executeSeed(
-    msg: BaseMessage,
+    msg: InboundRequest,
     conn: Awaited<ReturnType<typeof getJsforceConnection>>,
     payload: { orgId: string; template: Record<string, unknown>; dryRun?: boolean },
     operationId: string,
     abortController: AbortController,
   ): Promise<{ status: 'failure' } | void> {
     const robustnessConfig = this.getRobustnessConfig();
-    let progressTracker: BulkJobProgressTracker | undefined;
-    let unsubProgress: (() => void) | undefined;
 
     try {
       // Build robustness-aware insert function
       const bulkExecutor = new BulkApiExecutor(robustnessConfig.bulk.threshold);
       const bulkManager = new BulkApiManager(robustnessConfig.bulk.maxConcurrentJobs);
-      progressTracker = new BulkJobProgressTracker(bulkManager);
-      unsubProgress = progressTracker.onProgress((progress) => {
-        this.deps.broker.postToWebview({
-          id: crypto.randomUUID(),
-          type: 'execution:progress',
-          timestamp: Date.now(),
-          payload: progress,
-        } as unknown as import('@sandforge/shared').BaseMessage);
-      });
       const retryOp = new RetryableOperation({
         retryConfig: robustnessConfig.retry,
         onRetry: (attempt, classified, delay) => {
@@ -844,16 +834,15 @@ export class SeedOpsHandler implements DomainHandler {
       // the in-flight webview mutation, operation:failed carries the
       // lifecycle. Both carry the offline retryHint on transport failures.
       const offlineHint = buildOfflineReplayHint(err, operationId, this.deps.log);
-      sendHandlerError(this.deps, 'seed:execute', 'seed:error', err, undefined, true, offlineHint);
+      sendHandlerError(this.deps, 'seed:execute', 'seed:error', msg, err, {
+        retryable: true,
+        extraPayload: offlineHint,
+      });
       sendOperationFailed(this.deps, operationId, extractErrorMessage(err), true, offlineHint);
       // Failure-status result (not a rejection, not a bare resolve) so the
       // BackgroundOperationRegistry marks the operation 'failed' — see the
       // method docstring for the contract.
       return { status: 'failure' };
-    } finally {
-      progressTracker?.stopTracking(operationId);
-      unsubProgress?.();
-      progressTracker?.dispose();
     }
   }
 }

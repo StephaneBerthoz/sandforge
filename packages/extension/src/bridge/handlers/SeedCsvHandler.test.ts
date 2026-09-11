@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
 import { SeedCsvHandler } from './SeedCsvHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 
 vi.mock('../../core/connection/ConnectionHelper.js', () => ({
   getJsforceConnection: vi.fn(),
@@ -29,12 +29,18 @@ vi.mock('../../modules/seed/CsvValidator.js', () => ({
 }));
 
 import { getJsforceConnection } from '../../core/connection/ConnectionHelper.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 const mockGetConn = vi.mocked(getJsforceConnection);
 
 /** Message envelope shaped like what MessageBroker hands a handler. */
-function buildMsg(type: string, payload?: unknown): BaseMessage {
-  return { id: `msg-${type}`, type, timestamp: Date.now(), payload } as BaseMessage;
+function buildMsg(type: string, payload?: unknown): InboundRequest {
+  return inboundRequest({
+    id: `msg-${type}`,
+    type,
+    timestamp: Date.now(),
+    payload,
+  } as BaseMessage);
 }
 
 /** A valid `seed:csv:*` payload: one mapped column, one row. */
@@ -44,7 +50,12 @@ function csvPayload(overrides?: Record<string, unknown>): Record<string, unknown
     objectApiName: 'Account',
     records: [{ name: 'Acme' }],
     columnMappings: [
-      { csvHeader: 'name', sfFieldApiName: 'Name', sfFieldType: 'string', sfFieldLength: 255 },
+      {
+        csvHeader: 'name',
+        sfFieldApiName: 'Name',
+        sfFieldType: 'string',
+        sfFieldLength: 255,
+      },
     ],
     ...overrides,
   };
@@ -90,7 +101,11 @@ describe('SeedCsvHandler', () => {
       describe: vi.fn().mockResolvedValue({ fields: [{ name: 'Name', type: 'string' }] }),
       limitInfo: undefined,
     } as unknown as Awaited<ReturnType<typeof getJsforceConnection>>);
-    validator.validate.mockReturnValue({ valid: true, errors: [], validRowCount: 1 });
+    validator.validate.mockReturnValue({
+      valid: true,
+      errors: [],
+      validRowCount: 1,
+    });
     writer.insert.mockResolvedValue([{ id: '001TGT', success: true, errors: [] }]);
     writer.upsert.mockResolvedValue([{ id: '001TGT', success: true, errors: [] }]);
   });
@@ -134,7 +149,15 @@ describe('SeedCsvHandler', () => {
         buildMsg(
           'seed:csv:execute',
           csvPayload({
-            records: [{ name: 'Acme', active: 'true', employees: '42', note: 'null', skip: 'x' }],
+            records: [
+              {
+                name: 'Acme',
+                active: 'true',
+                employees: '42',
+                note: 'null',
+                skip: 'x',
+              },
+            ],
             columnMappings: [
               {
                 csvHeader: 'name',
@@ -161,7 +184,12 @@ describe('SeedCsvHandler', () => {
                 sfFieldLength: null,
               },
               // Empty target = column deliberately left unmapped in the wizard.
-              { csvHeader: 'skip', sfFieldApiName: '', sfFieldType: '', sfFieldLength: null },
+              {
+                csvHeader: 'skip',
+                sfFieldApiName: '',
+                sfFieldType: '',
+                sfFieldLength: null,
+              },
             ],
           }),
         ),
@@ -169,7 +197,14 @@ describe('SeedCsvHandler', () => {
 
       expect(writer.insert).toHaveBeenCalledWith(
         'Account',
-        [{ Name: 'Acme', Active__c: true, NumberOfEmployees: 42, Description: null }],
+        [
+          {
+            Name: 'Acme',
+            Active__c: true,
+            NumberOfEmployees: 42,
+            Description: null,
+          },
+        ],
         200,
       );
     });
@@ -184,7 +219,9 @@ describe('SeedCsvHandler', () => {
       await handler.handle(
         buildMsg(
           'seed:csv:execute',
-          csvPayload({ records: Array.from({ length: 150 }, () => ({ name: 'Acme' })) }),
+          csvPayload({
+            records: Array.from({ length: 150 }, () => ({ name: 'Acme' })),
+          }),
         ),
       );
 
@@ -265,7 +302,11 @@ describe('SeedCsvHandler', () => {
     }
 
     it('resolves the guard tier from the target org and imports once confirmed', async () => {
-      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: true });
+      const guard = wireGuard({
+        allowed: true,
+        requiresConfirmation: true,
+        confirmed: true,
+      });
       mockTargetOrgType('Production');
 
       await handler.handle(buildMsg('seed:csv:execute', csvPayload()));
@@ -335,7 +376,11 @@ describe('SeedCsvHandler', () => {
     });
 
     it('cancels the import when the user declines confirmation — no write, not retryable', async () => {
-      const guard = wireGuard({ allowed: true, requiresConfirmation: true, confirmed: false });
+      const guard = wireGuard({
+        allowed: true,
+        requiresConfirmation: true,
+        confirmed: false,
+      });
       mockTargetOrgType('Production');
 
       await handler.handle(buildMsg('seed:csv:execute', csvPayload()));

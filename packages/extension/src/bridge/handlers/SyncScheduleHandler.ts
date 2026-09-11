@@ -1,6 +1,6 @@
-import type { BaseMessage, SyncScheduleEntry } from '@sandforge/shared';
+import type { SyncScheduleEntry } from '@sandforge/shared';
 import type { SyncConfig, SyncExecutionResult } from '@sandforge/shared';
-import type { HandlerDeps, DomainHandler } from './HandlerTypes.js';
+import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.js';
 import { buildResponse, sendHandlerError } from './HandlerTypes.js';
 import {
   validatePayload,
@@ -55,7 +55,7 @@ export class SyncScheduleHandler implements DomainHandler {
    * @param msg - The typed base message from the webview.
    * @returns `true` if the message was handled, `false` otherwise.
    */
-  async handle(msg: BaseMessage): Promise<boolean> {
+  async handle(msg: InboundRequest): Promise<boolean> {
     if (!SYNC_SCHEDULE_TYPES.has(msg.type)) return false;
 
     switch (msg.type) {
@@ -154,7 +154,7 @@ export class SyncScheduleHandler implements DomainHandler {
   }
 
   /** List all sync schedules. */
-  private handleList(msg: BaseMessage): void {
+  private handleList(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     try {
       const schedules = this.getExecutor().getSchedules();
@@ -164,7 +164,7 @@ export class SyncScheduleHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:schedule:list', 'sync:schedule:error', err);
+      sendHandlerError(this.deps, 'sync:schedule:list', 'sync:schedule:error', msg, err);
     }
   }
 
@@ -172,7 +172,7 @@ export class SyncScheduleHandler implements DomainHandler {
    * Create or update a schedule.
    * Payload: { schedule: Omit<SyncScheduleEntry, 'nextRunAt'|'lastRunAt'|'lastResult'> }
    */
-  private handleUpsert(msg: BaseMessage): void {
+  private handleUpsert(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       syncScheduleUpsertPayloadSchema,
@@ -192,7 +192,7 @@ export class SyncScheduleHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:schedule:upsert', 'sync:schedule:error', err);
+      sendHandlerError(this.deps, 'sync:schedule:upsert', 'sync:schedule:error', msg, err);
     }
   }
 
@@ -200,7 +200,7 @@ export class SyncScheduleHandler implements DomainHandler {
    * Enable or pause a schedule.
    * Payload: { scheduleId, enabled }
    */
-  private handleToggle(msg: BaseMessage): void {
+  private handleToggle(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       syncScheduleTogglePayloadSchema,
@@ -216,8 +216,9 @@ export class SyncScheduleHandler implements DomainHandler {
           this.deps,
           'sync:schedule:toggle',
           'sync:schedule:error',
+          msg,
           new Error(`Schedule not found: ${parsed.scheduleId}`),
-          'NOT_FOUND',
+          { code: 'NOT_FOUND' },
         );
         return;
       }
@@ -230,7 +231,7 @@ export class SyncScheduleHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:schedule:toggle', 'sync:schedule:error', err);
+      sendHandlerError(this.deps, 'sync:schedule:toggle', 'sync:schedule:error', msg, err);
     }
   }
 
@@ -238,7 +239,7 @@ export class SyncScheduleHandler implements DomainHandler {
    * Delete a schedule permanently.
    * Payload: { scheduleId }
    */
-  private handleDelete(msg: BaseMessage): void {
+  private handleDelete(msg: InboundRequest): void {
     this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
     const parsed = validatePayload(
       syncScheduleIdPayloadSchema,
@@ -256,7 +257,7 @@ export class SyncScheduleHandler implements DomainHandler {
       this.deps.broker.postToWebview(response);
       this.deps.log(`[TX] ${response.type} id=${response.id}`);
     } catch (err: unknown) {
-      sendHandlerError(this.deps, 'sync:schedule:delete', 'sync:schedule:error', err);
+      sendHandlerError(this.deps, 'sync:schedule:delete', 'sync:schedule:error', msg, err);
     }
   }
 }

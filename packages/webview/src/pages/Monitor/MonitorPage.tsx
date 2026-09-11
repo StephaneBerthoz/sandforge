@@ -1,12 +1,20 @@
 import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, m } from 'framer-motion';
-import { RefreshCw, Clock, Activity, AlertTriangle, WifiOff, Plug } from 'lucide-react';
+import {
+  RefreshCw,
+  Clock,
+  Activity,
+  AlertTriangle,
+  WifiOff,
+  Plug,
+  CircleDashed,
+} from 'lucide-react';
 import { useOrgStore, selectSelectedOrg } from '../../stores/useOrgStore';
 import { sendBridgeMessage } from '../../bridge/sendBridgeMessage';
 import { useAppStore } from '../../stores/useAppStore';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { ComingSoon } from '../../components/ui/ComingSoon';
+import { DangerConfirm } from '../../components/ui/DangerConfirm';
 import { useAnomalyScan } from '../../hooks/useAIFeatures';
 import { cn } from '../../theme';
 import { ORG_TYPE_STYLES } from '../../theme/orgStyles';
@@ -131,9 +139,28 @@ export const MonitorPage: React.FC = () => {
     autoRefresh,
     setAutoRefresh,
     handleRefresh,
-    handleAbortJob,
+    pendingAbortJobId,
+    requestAbortJob,
+    confirmAbortJob,
+    cancelAbortJob,
     orgHealthStatus,
   } = useMonitorPageData();
+
+  /**
+   * The insights the band shows, split by what they may do. Filtered here
+   * rather than in the producer: the extension reports what it found at the
+   * severity it found it at, and the page decides what a user is interrupted
+   * for. Critical takes red, warning takes amber, info is not banded.
+   */
+  const criticalInsights = (jobInsights ?? []).filter((insight) => insight.severity === 'critical');
+  const warningInsights = (jobInsights ?? []).filter((insight) => insight.severity === 'warning');
+  /** The verdict a pending abort rests on, restated in its confirmation. */
+  const pendingAbortInsight =
+    pendingAbortJobId === null
+      ? undefined
+      : criticalInsights.find(
+          (insight) => insight.type === 'stuck' && insight.affectedJobs.includes(pendingAbortJobId),
+        );
 
   // Live operations tracking
   const liveOpsQuery = useBridgeQuery<{ operations: LiveOperationSnapshot[] }>(
@@ -365,58 +392,94 @@ export const MonitorPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── Job Insights (critical alerts at top) ──
+      {/* ── Job Insights ──
 
-          `jobInsights` has no producer. The sole emitter of `monitor:data`
-          (MonitorOpsHandler.ts) builds its payload without the field, and the
-          JobAnalyzer its type doc names exists in no package — so the array is
-          always empty and this band has never rendered once. An empty band is
-          not neutral: a dashboard that shows no critical alert is read as "no
-          critical problem", which is precisely the reassurance nothing here
-          earned. docs/modules/monitor.md still promises both the red banners
-          and the Abort button.
+          The band reads `jobInsights`, which MonitorOpsHandler computes from
+          the AsyncApexJob window it already fetched, plus what its earlier
+          refreshes saw of the same jobs. No extra org call.
 
-          So the empty case says so, the way the four other unbuilt surfaces
-          do. The band itself stays: it is correct code for a payload the
-          shared contract declares, and the day the producer lands it renders
-          without a change here — which is also why the notice keys off "no
-          insight at all" rather than "no critical insight".
+          An empty band is the one thing this surface must never render: no
+          rows reads as "no problem", and that reassurance has to be earned.
+          So the page states which situation it is in:
+          - no verdict received (no payload yet, a failed first refresh, or a
+            payload without the field): nothing is known, and it says so;
+          - something to report: critical rows in red, warnings in amber;
+          - nothing ran;
+          - nothing wrong across N jobs, with its denominator printed.
 
-          The copy reuses `monitor.abortJob`: the catalogue holds no key
-          describing stuck-job detection, and adding one is not on the table
-          (check:i18n's unreferenced-key ratchet is pinned at zero and parity
-          is enforced across six locales). "Abort Job" at least names the one
-          capability this band uniquely carries. ── */}
-      {jobInsights.length === 0 ? (
-        <ComingSoon data-testid="monitor-job-insights-soon" description={t('monitor.abortJob')} />
-      ) : (
-        jobInsights.filter((i) => i.severity === 'critical').length > 0 && (
-          <div className="flex flex-col gap-2">
-            {jobInsights
-              .filter((i) => i.severity === 'critical')
-              .map((insight, idx) => (
-                <div
-                  key={`${insight.type}-${idx}`}
-                  className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2"
+          A warning never borrows the red, and never gets an action. Only a
+          critical `stuck` row, a stall the extension proved from a batch
+          counter that stood still under observation, carries Abort, and that
+          button only arms the typed DangerConfirm below: the org call leaves
+          from its confirm, through a hook that refuses any job such a verdict
+          does not name at that moment. ── */}
+      {jobInsights === null ? (
+        <div
+          data-testid="monitor-job-insights-unknown"
+          className="flex items-center gap-3 rounded-lg border border-dashed border-subtle bg-surface-1 px-4 py-2"
+        >
+          <CircleDashed className="w-4 h-4 text-text-muted shrink-0" />
+          <span className="text-sm text-text-secondary">{t('common.noData')}</span>
+        </div>
+      ) : criticalInsights.length > 0 || warningInsights.length > 0 ? (
+        <div className="flex flex-col gap-2" data-testid="monitor-job-insights">
+          {criticalInsights.map((insight, idx) => (
+            <div
+              key={`critical-${insight.type}-${idx}`}
+              data-testid="monitor-job-insight-critical"
+              className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-2"
+            >
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-medium text-text-primary">{insight.title}</span>
+                <span className="text-xs text-text-secondary ml-2">{insight.detail}</span>
+              </div>
+              {insight.type === 'stuck' && insight.affectedJobs.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => requestAbortJob(insight.affectedJobs[0])}
                 >
-                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-text-primary">{insight.title}</span>
-                    <span className="text-xs text-text-secondary ml-2">{insight.detail}</span>
-                  </div>
-                  {insight.type === 'stuck' && insight.affectedJobs.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleAbortJob(insight.affectedJobs[0])}
-                    >
-                      {t('monitor.abortJob', 'Abort')}
-                    </Button>
-                  )}
-                </div>
-              ))}
-          </div>
-        )
+                  {t('monitor.abortJob', 'Abort')}
+                </Button>
+              )}
+            </div>
+          ))}
+          {warningInsights.map((insight, idx) => (
+            <div
+              key={`warning-${insight.type}-${idx}`}
+              data-testid="monitor-job-insight-warning"
+              className="flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-2"
+            >
+              <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-medium text-text-primary">{insight.title}</span>
+                <span className="text-xs text-text-secondary ml-2">{insight.detail}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : jobs.length === 0 ? (
+        <div
+          data-testid="monitor-job-insights-idle"
+          className="flex items-center gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-2"
+        >
+          <Clock className="w-4 h-4 text-text-muted shrink-0" />
+          <span className="text-sm text-text-secondary">
+            {t('monitor.noJobs', 'No recent jobs')}
+          </span>
+        </div>
+      ) : (
+        <div
+          data-testid="monitor-job-insights-clear"
+          className="flex items-center gap-3 rounded-lg border border-subtle bg-surface-1 px-4 py-2"
+        >
+          <Activity className="w-4 h-4 text-green-400 shrink-0" />
+          <span className="text-sm text-text-primary">{t('monitor.apexInsights.noIssues')}</span>
+          <span className="text-xs text-text-secondary">
+            {jobs.length} {t('monitor.jobs')}
+          </span>
+        </div>
       )}
 
       <AnimatePresence mode="wait">
@@ -567,6 +630,19 @@ export const MonitorPage: React.FC = () => {
           </div>
         </m.div>
       </AnimatePresence>
+
+      <DangerConfirm
+        open={pendingAbortJobId !== null}
+        onClose={cancelAbortJob}
+        onConfirm={confirmAbortJob}
+        title={t('monitor.abortJob')}
+        description={
+          pendingAbortInsight
+            ? `${pendingAbortInsight.title}. ${pendingAbortInsight.detail} ${pendingAbortInsight.recommendation}`
+            : ''
+        }
+        confirmText={t('monitor.abortJob')}
+      />
     </div>
   );
 };

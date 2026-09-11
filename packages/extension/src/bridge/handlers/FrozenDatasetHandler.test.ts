@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { FrozenDatasetHandler } from './FrozenDatasetHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage, FrozenProjectConfig } from '@sandforge/shared';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 vi.mock('../../logger.js', () => ({
   logger: {
@@ -19,13 +20,13 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 }));
 
 /** Build a BaseMessage with optional payload. */
-function buildMsg(type: string, payload?: unknown): BaseMessage {
-  return {
+function buildMsg(type: string, payload?: unknown): InboundRequest {
+  return inboundRequest({
     id: `test-${type}-${Date.now()}`,
     type,
     timestamp: Date.now(),
     ...(payload !== undefined ? { payload } : {}),
-  } as BaseMessage;
+  } as BaseMessage);
 }
 
 /** Minimal valid project config (sas redirected to a temp dir — outside any repo). */
@@ -75,7 +76,9 @@ function posted(
   deps: HandlerDeps,
   type: string,
 ): Array<BaseMessage & { payload: Record<string, unknown> }> {
-  const mock = deps.broker.postToWebview as unknown as { mock: { calls: unknown[][] } };
+  const mock = deps.broker.postToWebview as unknown as {
+    mock: { calls: unknown[][] };
+  };
   return mock.mock.calls
     .map((c) => c[0] as BaseMessage & { payload: Record<string, unknown> })
     .filter((m) => m.type === type);

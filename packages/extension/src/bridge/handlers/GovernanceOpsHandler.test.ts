@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GovernanceOpsHandler } from './GovernanceOpsHandler.js';
-import type { HandlerDeps } from './HandlerTypes.js';
+import type { HandlerDeps, InboundRequest } from './HandlerTypes.js';
 import type { BaseMessage } from '@sandforge/shared';
 import type { AlertEngine } from '../../modules/monitor/AlertEngine.js';
+import { inboundRequest } from '../../test/mockFactories.js';
 
 /**
  * Hoisted mocks -- available before module evaluation.
@@ -95,7 +96,12 @@ function createTestPolicy(id = 'test-policy-1'): Record<string, unknown> {
         name: 'Storage Check',
         description: 'Storage should not exceed 80%',
         category: 'performance',
-        condition: { metric: 'DataStorageMB', operator: 'gt', threshold: 80, warningThreshold: 60 },
+        condition: {
+          metric: 'DataStorageMB',
+          operator: 'gt',
+          threshold: 80,
+          warningThreshold: 60,
+        },
         remediation: 'Archive old records',
         enabled: true,
       },
@@ -116,17 +122,21 @@ describe('GovernanceOpsHandler', () => {
   });
 
   it('returns false for unhandled message types', async () => {
-    const msg: BaseMessage = { id: '1', type: 'unknown:type', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: '1',
+      type: 'unknown:type',
+      timestamp: Date.now(),
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(false);
   });
 
   it('handles governance:policies:list returning empty array initially', async () => {
-    const msg: BaseMessage = {
+    const msg: InboundRequest = inboundRequest({
       id: 'req-1',
       type: 'governance:policies:list',
       timestamp: Date.now(),
-    };
+    });
     const result = await handler.handle(msg);
     expect(result).toBe(true);
 
@@ -144,12 +154,12 @@ describe('GovernanceOpsHandler', () => {
 
   it('handles governance:policy:save + governance:policy:get round-trip', async () => {
     const policy = createTestPolicy();
-    const saveMsg = {
+    const saveMsg = inboundRequest({
       id: 'req-save',
       type: 'governance:policy:save',
       timestamp: Date.now(),
       payload: { policy },
-    } as BaseMessage & { payload: { policy: unknown } };
+    } as BaseMessage & { payload: { policy: unknown } });
 
     await handler.handle(saveMsg);
 
@@ -162,12 +172,12 @@ describe('GovernanceOpsHandler', () => {
 
     postToWebview.mockClear();
 
-    const getMsg = {
+    const getMsg = inboundRequest({
       id: 'req-get',
       type: 'governance:policy:get',
       timestamp: Date.now(),
       payload: { policyId: 'test-policy-1' },
-    } as BaseMessage & { payload: { policyId: string } };
+    } as BaseMessage & { payload: { policyId: string } });
 
     await handler.handle(getMsg);
     const getResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
@@ -181,22 +191,22 @@ describe('GovernanceOpsHandler', () => {
 
   it('handles governance:policies:list returns populated array after save', async () => {
     const policy = createTestPolicy();
-    const saveMsg = {
+    const saveMsg = inboundRequest({
       id: 'req-save-2',
       type: 'governance:policy:save',
       timestamp: Date.now(),
       payload: { policy },
-    } as BaseMessage & { payload: { policy: unknown } };
+    } as BaseMessage & { payload: { policy: unknown } });
     await handler.handle(saveMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     postToWebview.mockClear();
 
-    const listMsg: BaseMessage = {
+    const listMsg: InboundRequest = inboundRequest({
       id: 'req-list',
       type: 'governance:policies:list',
       timestamp: Date.now(),
-    };
+    });
     await handler.handle(listMsg);
 
     const listResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
@@ -209,22 +219,24 @@ describe('GovernanceOpsHandler', () => {
 
   it('handles governance:policy:delete returns success', async () => {
     const policy = createTestPolicy();
-    await handler.handle({
-      id: 'req-s',
-      type: 'governance:policy:save',
-      timestamp: Date.now(),
-      payload: { policy },
-    } as BaseMessage & { payload: { policy: unknown } });
+    await handler.handle(
+      inboundRequest({
+        id: 'req-s',
+        type: 'governance:policy:save',
+        timestamp: Date.now(),
+        payload: { policy },
+      } as BaseMessage & { payload: { policy: unknown } }),
+    );
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     postToWebview.mockClear();
 
-    const deleteMsg = {
+    const deleteMsg = inboundRequest({
       id: 'req-del',
       type: 'governance:policy:delete',
       timestamp: Date.now(),
       payload: { policyId: 'test-policy-1' },
-    } as BaseMessage & { payload: { policyId: string } };
+    } as BaseMessage & { payload: { policyId: string } });
     await handler.handle(deleteMsg);
 
     const delResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
@@ -236,21 +248,23 @@ describe('GovernanceOpsHandler', () => {
 
   it('handles governance:policies:export returns valid JSON', async () => {
     const policy = createTestPolicy();
-    await handler.handle({
-      id: 'req-s2',
-      type: 'governance:policy:save',
-      timestamp: Date.now(),
-      payload: { policy },
-    } as BaseMessage & { payload: { policy: unknown } });
+    await handler.handle(
+      inboundRequest({
+        id: 'req-s2',
+        type: 'governance:policy:save',
+        timestamp: Date.now(),
+        payload: { policy },
+      } as BaseMessage & { payload: { policy: unknown } }),
+    );
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     postToWebview.mockClear();
 
-    const exportMsg: BaseMessage = {
+    const exportMsg: InboundRequest = inboundRequest({
       id: 'req-exp',
       type: 'governance:policies:export',
       timestamp: Date.now(),
-    };
+    });
     await handler.handle(exportMsg);
 
     const exportResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
@@ -266,12 +280,12 @@ describe('GovernanceOpsHandler', () => {
     const policies = [createTestPolicy('import-1'), createTestPolicy('import-2')];
     const json = JSON.stringify(policies);
 
-    const importMsg = {
+    const importMsg = inboundRequest({
       id: 'req-imp',
       type: 'governance:policies:import',
       timestamp: Date.now(),
       payload: { json },
-    } as BaseMessage & { payload: { json: string } };
+    } as BaseMessage & { payload: { json: string } });
     await handler.handle(importMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
@@ -284,12 +298,12 @@ describe('GovernanceOpsHandler', () => {
   });
 
   it('handles governance:policies:import with invalid JSON', async () => {
-    const importMsg = {
+    const importMsg = inboundRequest({
       id: 'req-imp-bad',
       type: 'governance:policies:import',
       timestamp: Date.now(),
       payload: { json: 'not valid json' },
-    } as BaseMessage & { payload: { json: string } };
+    } as BaseMessage & { payload: { json: string } });
     await handler.handle(importMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
@@ -301,12 +315,14 @@ describe('GovernanceOpsHandler', () => {
 
   it('handles governance:evaluate with mock connection and returns compliance score', async () => {
     const policy = createTestPolicy();
-    await handler.handle({
-      id: 'req-s3',
-      type: 'governance:policy:save',
-      timestamp: Date.now(),
-      payload: { policy },
-    } as BaseMessage & { payload: { policy: unknown } });
+    await handler.handle(
+      inboundRequest({
+        id: 'req-s3',
+        type: 'governance:policy:save',
+        timestamp: Date.now(),
+        payload: { policy },
+      } as BaseMessage & { payload: { policy: unknown } }),
+    );
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     postToWebview.mockClear();
@@ -315,18 +331,21 @@ describe('GovernanceOpsHandler', () => {
       request: vi.fn().mockResolvedValue(FAKE_LIMITS),
     });
 
-    const evalMsg = {
+    const evalMsg = inboundRequest({
       id: 'req-eval',
       type: 'governance:evaluate',
       timestamp: Date.now(),
       payload: { policyId: 'test-policy-1', orgId: 'org-1' },
-    } as BaseMessage & { payload: { policyId: string; orgId: string } };
+    } as BaseMessage & { payload: { policyId: string; orgId: string } });
     await handler.handle(evalMsg);
 
     const evalResponse = postToWebview.mock.calls[0][0] as BaseMessage & {
       payload: {
         success: boolean;
-        result: { complianceScore: number; ruleResults: Array<{ ruleId: string; status: string }> };
+        result: {
+          complianceScore: number;
+          ruleResults: Array<{ ruleId: string; status: string }>;
+        };
       };
     };
     expect(evalResponse.type).toBe('governance:evaluate:response');
@@ -349,7 +368,11 @@ describe('GovernanceOpsHandler', () => {
           name: 'Will Fail',
           description: 'This rule will fail',
           category: 'performance' as const,
-          condition: { metric: 'DailyApiRequests', operator: 'gt' as const, threshold: 5 },
+          condition: {
+            metric: 'DailyApiRequests',
+            operator: 'gt' as const,
+            threshold: 5,
+          },
           remediation: 'Fix it',
           enabled: true,
         },
@@ -358,23 +381,27 @@ describe('GovernanceOpsHandler', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     };
 
-    await handlerWithAlerts.handle({
-      id: 'req-sf',
-      type: 'governance:policy:save',
-      timestamp: Date.now(),
-      payload: { policy: failPolicy },
-    } as BaseMessage & { payload: { policy: unknown } });
+    await handlerWithAlerts.handle(
+      inboundRequest({
+        id: 'req-sf',
+        type: 'governance:policy:save',
+        timestamp: Date.now(),
+        payload: { policy: failPolicy },
+      } as BaseMessage & { payload: { policy: unknown } }),
+    );
 
     mockGetJsforceConnection.mockResolvedValue({
       request: vi.fn().mockResolvedValue(FAKE_LIMITS),
     });
 
-    await handlerWithAlerts.handle({
-      id: 'req-eval-alert',
-      type: 'governance:evaluate',
-      timestamp: Date.now(),
-      payload: { policyId: 'fail-policy', orgId: 'org-1' },
-    } as BaseMessage & { payload: { policyId: string; orgId: string } });
+    await handlerWithAlerts.handle(
+      inboundRequest({
+        id: 'req-eval-alert',
+        type: 'governance:evaluate',
+        timestamp: Date.now(),
+        payload: { policyId: 'fail-policy', orgId: 'org-1' },
+      } as BaseMessage & { payload: { policyId: string; orgId: string } }),
+    );
 
     const alertEvaluate = mockAlertEngine.evaluate as ReturnType<typeof vi.fn>;
     expect(alertEvaluate).toHaveBeenCalledTimes(1);
@@ -382,12 +409,12 @@ describe('GovernanceOpsHandler', () => {
   });
 
   it('handles governance:evaluate returns error for unknown policy', async () => {
-    const evalMsg = {
+    const evalMsg = inboundRequest({
       id: 'req-eval-bad',
       type: 'governance:evaluate',
       timestamp: Date.now(),
       payload: { policyId: 'nonexistent', orgId: 'org-1' },
-    } as BaseMessage & { payload: { policyId: string; orgId: string } };
+    } as BaseMessage & { payload: { policyId: string; orgId: string } });
     await handler.handle(evalMsg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
@@ -399,12 +426,18 @@ describe('GovernanceOpsHandler', () => {
   });
 
   it('handles governance:templates returns default templates', async () => {
-    const msg: BaseMessage = { id: 'req-tpl', type: 'governance:templates', timestamp: Date.now() };
+    const msg: InboundRequest = inboundRequest({
+      id: 'req-tpl',
+      type: 'governance:templates',
+      timestamp: Date.now(),
+    });
     await handler.handle(msg);
 
     const postToWebview = deps.broker.postToWebview as ReturnType<typeof vi.fn>;
     const response = postToWebview.mock.calls[0][0] as BaseMessage & {
-      payload: { templates: Array<{ id: string; name: string; rules: unknown[] }> };
+      payload: {
+        templates: Array<{ id: string; name: string; rules: unknown[] }>;
+      };
     };
     expect(response.type).toBe('governance:templates:response');
     expect(response.payload.templates.length).toBeGreaterThanOrEqual(1);
@@ -425,23 +458,27 @@ describe('GovernanceOpsHandler', () => {
       },
     ];
 
-    await handler.handle({
-      id: 'req-sf2',
-      type: 'governance:policy:save',
-      timestamp: Date.now(),
-      payload: { policy },
-    } as BaseMessage & { payload: { policy: unknown } });
+    await handler.handle(
+      inboundRequest({
+        id: 'req-sf2',
+        type: 'governance:policy:save',
+        timestamp: Date.now(),
+        payload: { policy },
+      } as BaseMessage & { payload: { policy: unknown } }),
+    );
 
     mockGetJsforceConnection.mockResolvedValue({
       request: vi.fn().mockResolvedValue(FAKE_LIMITS),
     });
 
-    const result = await handler.handle({
-      id: 'req-eval-no-alert',
-      type: 'governance:evaluate',
-      timestamp: Date.now(),
-      payload: { policyId: 'test-policy-1', orgId: 'org-1' },
-    } as BaseMessage & { payload: { policyId: string; orgId: string } });
+    const result = await handler.handle(
+      inboundRequest({
+        id: 'req-eval-no-alert',
+        type: 'governance:evaluate',
+        timestamp: Date.now(),
+        payload: { policyId: 'test-policy-1', orgId: 'org-1' },
+      } as BaseMessage & { payload: { policyId: string; orgId: string } }),
+    );
 
     expect(result).toBe(true);
 
@@ -456,12 +493,12 @@ describe('GovernanceOpsHandler', () => {
 
   describe('payload validation', () => {
     it('rejects governance:evaluate without orgId (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-eval',
         type: 'governance:evaluate',
         timestamp: Date.now(),
         payload: { policyId: 'test-policy-1' },
-      } as BaseMessage & { payload: { policyId: string } };
+      } as BaseMessage & { payload: { policyId: string } });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -475,12 +512,12 @@ describe('GovernanceOpsHandler', () => {
     });
 
     it('rejects governance:policy:save with a non-object policy (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-save',
         type: 'governance:policy:save',
         timestamp: Date.now(),
         payload: { policy: 'not-an-object' },
-      } as BaseMessage & { payload: { policy: unknown } };
+      } as BaseMessage & { payload: { policy: unknown } });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);
@@ -494,12 +531,12 @@ describe('GovernanceOpsHandler', () => {
     });
 
     it('rejects governance:policy:delete without policyId (INVALID_PAYLOAD)', async () => {
-      const msg = {
+      const msg = inboundRequest({
         id: 'bad-delete',
         type: 'governance:policy:delete',
         timestamp: Date.now(),
         payload: {},
-      } as BaseMessage & { payload: Record<string, never> };
+      } as BaseMessage & { payload: Record<string, never> });
 
       const result = await handler.handle(msg);
       expect(result).toBe(true);

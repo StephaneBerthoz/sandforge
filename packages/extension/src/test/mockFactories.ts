@@ -12,6 +12,7 @@
 import { vi, type Mock } from 'vitest';
 import type { BaseMessage } from '@sandforge/shared';
 import type { MessageBroker } from '../bridge/MessageBroker.js';
+import type { InboundRequest } from '../bridge/handlers/HandlerTypes.js';
 
 /**
  * A `MessageBroker` mock whose `postToWebview` is a real `vi.fn()` that tests
@@ -29,4 +30,15 @@ export interface MockBroker extends MessageBroker {
 export function createMockBroker(): MockBroker {
   // Partial mock by design: only postToWebview is exercised by consumers.
   return { postToWebview: vi.fn() } as unknown as MockBroker;
+}
+
+/**
+ * Stand-in for a request the MessageRouter delivered.
+ *
+ * Production code obtains an `InboundRequest` only from the router or from
+ * `syntheticRequest`; a test answering a hand-written request mints one here,
+ * in the one reviewed place, instead of casting at every call site.
+ */
+export function inboundRequest<M extends BaseMessage>(message: M): M & InboundRequest {
+  return message as M & InboundRequest;
 }
