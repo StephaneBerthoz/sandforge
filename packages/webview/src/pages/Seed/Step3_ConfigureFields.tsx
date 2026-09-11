@@ -1,10 +1,9 @@
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { FieldRuleType, VRCheckResult, FieldGenerationConfig } from '@sandforge/shared';
+import type { FieldRuleType } from '@sandforge/shared';
 import { Select } from '../../components/ui/Select';
 import { Input } from '../../components/ui/Input';
 import { Badge } from '../../components/ui/Badge';
-import { ErrorBanner } from '../../components/ui/ErrorBanner';
 import { Accordion } from '../../components/ui/Accordion';
 import { cn } from '../../theme';
 
@@ -30,17 +29,6 @@ export interface Step3ConfigureFieldsProps {
   objectConfigs: ObjectFieldConfig[];
   onChangeRule: (objectApiName: string, fieldApiName: string, ruleType: FieldRuleType) => void;
   onChangeConfig: (objectApiName: string, fieldApiName: string, key: string, value: string) => void;
-  /**
-   * Suggested field-generation configs, keyed by object API name. No caller
-   * fills this today: `SeedConfigureStep` renders the step with
-   * `objectConfigs`/`onChangeRule`/`onChangeConfig` only, so the suggest
-   * button below stays hidden.
-   */
-  smartSuggestions?: Map<string, FieldGenerationConfig[]>;
-  /** Callback to apply smart suggestions for an object. */
-  onApplySmartSuggestions?: (objectApiName: string) => void;
-  /** Validation rule check results. Unset for the same reason. */
-  vrCheckResults?: VRCheckResult[];
 }
 
 /** Threshold above which objects are grouped by category with search. */
@@ -80,32 +68,9 @@ const ObjectPanel: React.FC<{
   setExpandedObject: (name: string) => void;
   onChangeRule: Step3ConfigureFieldsProps['onChangeRule'];
   onChangeConfig: Step3ConfigureFieldsProps['onChangeConfig'];
-  smartSuggestions?: Map<string, FieldGenerationConfig[]>;
-  onApplySmartSuggestions?: (objectApiName: string) => void;
-  vrCheckResults: VRCheckResult[];
   ruleOptions: { value: string; label: string }[];
   t: ReturnType<typeof useTranslation>['t'];
-}> = ({
-  obj,
-  expandedObject,
-  setExpandedObject,
-  onChangeRule,
-  onChangeConfig,
-  smartSuggestions,
-  onApplySmartSuggestions,
-  vrCheckResults,
-  ruleOptions,
-  t,
-}) => {
-  const vrWarnings = vrCheckResults.filter((r) => r.objectName === obj.objectApiName);
-  const hasSuggestions = smartSuggestions?.has(obj.objectApiName);
-
-  /** Get smart suggestion for a specific field. */
-  const getFieldSuggestion = (fieldApiName: string): FieldGenerationConfig | undefined => {
-    const objSuggestions = smartSuggestions?.get(obj.objectApiName);
-    return objSuggestions?.find((s) => s.fieldName === fieldApiName);
-  };
-
+}> = ({ obj, expandedObject, setExpandedObject, onChangeRule, onChangeConfig, ruleOptions, t }) => {
   return (
     <div key={obj.objectApiName} className="border border-[var(--sf-border)] rounded">
       <button
@@ -117,11 +82,6 @@ const ObjectPanel: React.FC<{
       >
         <span className="flex items-center gap-2">
           {obj.objectLabel} ({obj.objectApiName})
-          {vrWarnings.length > 0 && (
-            <span data-testid={`vr-badge-${obj.objectApiName}`}>
-              <Badge variant="warning">{vrWarnings.length} VR</Badge>
-            </span>
-          )}
         </span>
         <Badge variant="default">
           {obj.fields.length} {t('seed.configureFields').toLowerCase()}
@@ -130,35 +90,8 @@ const ObjectPanel: React.FC<{
 
       {expandedObject === obj.objectApiName && (
         <div className="flex flex-col gap-2 px-3 pb-3">
-          {/* Smart suggest button */}
-          {hasSuggestions && onApplySmartSuggestions && (
-            <div className="flex items-center">
-              <button
-                className="text-[10px] text-[var(--sf-accent)] hover:underline"
-                onClick={() => onApplySmartSuggestions(obj.objectApiName)}
-                data-testid={`smart-suggest-${obj.objectApiName}`}
-              >
-                {t('seed.smartSuggest')}
-              </button>
-            </div>
-          )}
-
-          {/* VR Warnings */}
-          {vrWarnings.length > 0 && (
-            <div className="flex flex-col gap-1" data-testid={`vr-warnings-${obj.objectApiName}`}>
-              {vrWarnings.map((vr, i) => (
-                <ErrorBanner
-                  key={i}
-                  message={`${vr.ruleName}: ${vr.errorMessage}`}
-                  data-testid={`vr-warning-${obj.objectApiName}-${i}`}
-                />
-              ))}
-            </div>
-          )}
-
           {/* Field rows */}
           {obj.fields.map((field) => {
-            const suggestion = getFieldSuggestion(field.fieldApiName);
             return (
               <div
                 key={field.fieldApiName}
@@ -277,17 +210,6 @@ const ObjectPanel: React.FC<{
                     className="w-32"
                   />
                 )}
-
-                {/* Smart suggestion indicator */}
-                {suggestion && suggestion.generationMode !== 'null' && (
-                  <span
-                    className="text-[9px] text-[var(--sf-info,#3B82F6)] whitespace-nowrap"
-                    title={`${t('seed.suggested', 'Suggested')}: ${suggestion.generationMode}${suggestion.fakerMethod ? ` (${suggestion.fakerMethod})` : ''}`}
-                    data-testid={`suggestion-${obj.objectApiName}-${field.fieldApiName}`}
-                  >
-                    {suggestion.fakerMethod ?? suggestion.generationMode}
-                  </span>
-                )}
               </div>
             );
           })}
@@ -297,14 +219,11 @@ const ObjectPanel: React.FC<{
   );
 };
 
-/** Step 3 -- Configure field generation rules per object with smart suggestions and VR warnings. */
+/** Step 3 -- Configure field generation rules per object. */
 export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
   objectConfigs,
   onChangeRule,
   onChangeConfig,
-  smartSuggestions,
-  onApplySmartSuggestions,
-  vrCheckResults = [],
 }) => {
   const { t } = useTranslation();
   const [expandedObject, setExpandedObject] = React.useState<string>(
@@ -351,9 +270,6 @@ export const Step3ConfigureFields: React.FC<Step3ConfigureFieldsProps> = ({
     setExpandedObject,
     onChangeRule,
     onChangeConfig,
-    smartSuggestions,
-    onApplySmartSuggestions,
-    vrCheckResults,
     ruleOptions,
     t,
   };

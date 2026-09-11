@@ -79,20 +79,6 @@ describe('Step2SelectObjects', () => {
     expect(contactRow.textContent).toContain('1');
   });
 
-  it('should show smart suggest button', () => {
-    const onSmartSuggest = vi.fn();
-    render(
-      <Step2SelectObjects
-        availableObjects={objects}
-        selectedObjects={[]}
-        onToggle={vi.fn()}
-        onSmartSuggest={onSmartSuggest}
-      />,
-    );
-    fireEvent.click(screen.getByTestId('smart-suggest-btn'));
-    expect(onSmartSuggest).toHaveBeenCalled();
-  });
-
   it('should show empty state when no objects', () => {
     render(<Step2SelectObjects availableObjects={[]} selectedObjects={[]} onToggle={vi.fn()} />);
     expect(screen.getByText('No objects selected')).toBeDefined();

@@ -2,7 +2,6 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../../theme';
 import { Badge } from '../../components/ui/Badge';
-import { Button } from '../../components/ui/Button';
 import { VirtualList } from '../../components/ui/VirtualList';
 
 /** Object info for selection. */
@@ -18,15 +17,13 @@ export interface Step2SelectObjectsProps {
   availableObjects: SeedObjectInfo[];
   selectedObjects: string[];
   onToggle: (apiName: string) => void;
-  onSmartSuggest?: () => void;
 }
 
-/** Step 2 — Select objects to seed with smart dependency suggestion. */
+/** Step 2 — Select the objects to seed. */
 export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
   availableObjects,
   selectedObjects,
   onToggle,
-  onSmartSuggest,
 }) => {
   const { t } = useTranslation();
 
@@ -37,16 +34,6 @@ export const Step2SelectObjects: React.FC<Step2SelectObjectsProps> = ({
     <div className="flex flex-col gap-3" data-testid="step-select-objects">
       <div className="flex items-center justify-between">
         <p className="text-xs text-text-secondary">{t('seed.selectObjectsDesc')}</p>
-        {onSmartSuggest && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={onSmartSuggest}
-            data-testid="smart-suggest-btn"
-          >
-            {t('seed.smartSuggest')}
-          </Button>
-        )}
       </div>
 
       {availableObjects.length > 0 && (

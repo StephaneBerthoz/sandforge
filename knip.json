@@ -21,7 +21,6 @@
     "enumMembers": "off"
   },
   "ignoreExportsUsedInFile": true,
-  "ignore": ["packages/webview/e2e/quarantine/**"],
   "ignoreBinaries": ["vsce"],
   "ignoreDependencies": [
     "@types/.*",
