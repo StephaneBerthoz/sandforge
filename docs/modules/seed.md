@@ -68,7 +68,7 @@ After input, the Discovery phase renders an interactive dependency graph in a sp
 
 ### AI and NL2SOQL
 
-- NL2SOQL translates natural language into SOQL with schema validation
+- NL2SOQL translates natural language into SOQL. It describes up to five objects your request names, gives the model their field API names, and rejects a draft that selects a plain field they do not have -- a relationship path such as `Account.Name` is left to the org to judge; a request naming no recognisable object comes back with a line saying it could not be checked
 - AI Data Generation creates context-aware realistic values using Anthropic (Claude); additional providers are planned
 - PII Scanner auto-detects sensitive fields (email, phone, address, SSN, etc.) with confidence scores
 

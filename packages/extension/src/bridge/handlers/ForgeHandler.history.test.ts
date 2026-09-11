@@ -14,7 +14,10 @@ vi.mock('../../core/connection/ConnectionHelper.js', () => ({
 vi.mock('../../core/common/soqlQueryHelper.js', () => ({
   queryWithFieldsFallback: vi.fn(),
 }));
-vi.mock('../../core/common/soqlValidator.js', () => ({
+// Partial mock: only the escaping is stubbed. The module's other exports stay
+// real so adding one does not break this suite.
+vi.mock('../../core/common/soqlValidator.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/common/soqlValidator.js')>()),
   sanitizeSoqlValue: vi.fn((v: string) => v),
 }));
 vi.mock('../../core/common/sforceLimitParser.js', () => ({

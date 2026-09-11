@@ -40,7 +40,7 @@
   "config.sync.maxConcurrentOps.description": "Maximale Anzahl gleichzeitiger Sync-Vorgänge",
   "config.ai.enabled.description": "KI-Assistent aktivieren (erfordert API-Schlüssel in den Secrets)",
   "config.ai.provider.description": "KI-Anbieter. Nur `anthropic` ist implementiert; `openai` und `custom` sind deklariert, aber jeder Aufruf löst „nicht implementiert\" aus.",
-  "config.ai.model.description": "Zu verwendendes KI-Modell für den Assistenten",
+  "config.ai.model.description": "KI-Modell, das alle KI-Funktionen von SandForge verwenden: Assistenten-Chat, NL2SOQL, Pipeline-Entwürfe, Fehlerbehebung, Seed-Personas und KI-Feldregeln von Seed.",
   "config.ai.tokenBudgetMaxPerSession.description": "Maximales KI-Token-Budget für eine Sitzung, das alle KI-Funktionen von SandForge gemeinsam nutzen. SandForge warnt bei 80 % und lehnt weitere Anfragen bei 100 % ab. Der Zähler wird beim Neuladen des Fensters oder beim Ändern einer sandforge.ai.*-Einstellung zurückgesetzt.",
   "config.backup.maxCount.description": "Maximale Anzahl der pro Org aufzubewahrenden Backups",
   "config.pipeline.timeout.description": "Timeout für die Pipeline-Ausführung in Millisekunden",

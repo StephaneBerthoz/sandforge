@@ -134,10 +134,25 @@ export interface AINL2SOQLRequest extends BaseMessage {
   payload: { query: string; orgId: string };
 }
 
-/** Response from AI natural-language to SOQL conversion */
+/**
+ * Response from AI natural-language to SOQL conversion.
+ *
+ * `verified` says whether the field list of the draft was checked against the
+ * org's describe. `false` means the request named no object the org
+ * recognises, so nothing but the model's own guess backs the field names —
+ * the draft is still returned, and the panel says so. Optional: a producer
+ * that cannot tell omits it, and a reader treats the absence as "not stated"
+ * rather than as a check that passed.
+ */
 export interface AINL2SOQLResponse extends BaseMessage {
   type: 'ai:nl2soql:response';
-  payload: { success: boolean; soql?: string; explanation?: string; error?: string };
+  payload: {
+    success: boolean;
+    soql?: string;
+    explanation?: string;
+    error?: string;
+    verified?: boolean;
+  };
 }
 
 /**

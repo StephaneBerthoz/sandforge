@@ -195,6 +195,19 @@ export const SeedSelectStep: React.FC<SeedSelectStepProps> = ({
               {nl2soql.data?.explanation && (
                 <span className="text-xs text-text-secondary">{nl2soql.data.explanation}</span>
               )}
+              {/* An accepted draft comes in two kinds and they must not look
+                  alike: one whose field names came back from the org, and one
+                  the model wrote against an object the org never confirmed.
+                  Only the second says so. */}
+              {nl2soql.data?.success === true && nl2soql.data.verified === false && (
+                <span
+                  className="text-xs text-amber-400"
+                  role="status"
+                  data-testid="nl2soql-unverified"
+                >
+                  {t('seed.nl2soqlUnverified')}
+                </span>
+              )}
               {(nl2soql.error ??
                 (nl2soql.data && !nl2soql.data.success ? nl2soql.data.error : null)) && (
                 <span

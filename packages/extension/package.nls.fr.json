@@ -40,7 +40,7 @@
   "config.sync.maxConcurrentOps.description": "Nombre maximum d'opérations de synchronisation simultanées",
   "config.ai.enabled.description": "Activer l'assistant IA (nécessite une clé API dans les secrets)",
   "config.ai.provider.description": "Fournisseur d'IA. Seul `anthropic` est implémenté ; `openai` et `custom` sont déclarés mais chaque appel lève « non implémenté ».",
-  "config.ai.model.description": "Modèle IA à utiliser pour l'assistant",
+  "config.ai.model.description": "Modèle IA utilisé par toutes les fonctionnalités IA de SandForge : chat de l'assistant, NL2SOQL, brouillons de pipeline, résolution d'erreur, personas Seed et règles de champ IA de Seed.",
   "config.ai.tokenBudgetMaxPerSession.description": "Budget de jetons IA maximum pour une session, partagé par toutes les fonctionnalités IA de SandForge. SandForge avertit à 80 % et refuse les nouvelles requêtes à 100 %. Le compteur se réinitialise au rechargement de la fenêtre ou à la modification d'un réglage sandforge.ai.*.",
   "config.backup.maxCount.description": "Nombre maximum de sauvegardes à conserver par org",
   "config.pipeline.timeout.description": "Délai d'expiration des pipelines en millisecondes",

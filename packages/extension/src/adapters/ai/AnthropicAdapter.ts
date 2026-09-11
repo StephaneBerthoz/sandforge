@@ -17,14 +17,7 @@ import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter, Logger } from '../telemetry/TelemetryAdapter.js';
 import { CircuitBreaker } from '../../core/connection/CircuitBreaker.js';
 import { classifyAnthropicError, type AIErrorVerdict } from './errorClassifier.js';
-import type {
-  AIChatOpts,
-  AIChatResult,
-  AIClient,
-  AICountTokensOpts,
-  AICountTokensResult,
-  AIProviderType,
-} from './AIClient.js';
+import type { AIChatOpts, AIChatResult, AIClient, AIProviderType } from './AIClient.js';
 
 // Re-exported for backward compatibility — the canonical declarations live in
 // AIClient.ts (the AIClient interface exposes the optional feed).
@@ -169,18 +162,6 @@ export class AnthropicAdapter implements AIClient {
     );
   }
 
-  async countTokens(opts: AICountTokensOpts): Promise<AICountTokensResult> {
-    return this.runWithBreaker('countTokens', async (_signal) => {
-      const client = await this.getClient();
-      const resp = await client.messages.countTokens({
-        model: this.model,
-        system: opts.system,
-        messages: opts.messages,
-      });
-      return { inputTokens: resp.input_tokens };
-    });
-  }
-
   /**
    * Pre-flight budget check. Throws an AI_BUDGET_EXCEEDED error BEFORE
    * any SDK call when the projected total would breach the budget.
@@ -229,7 +210,7 @@ export class AnthropicAdapter implements AIClient {
   // ── internals ────────────────────────────────────────────────────────────
 
   private async runWithBreaker<R>(
-    method: 'chat' | 'countTokens',
+    method: 'chat',
     runner: (signal: AbortSignal) => Promise<R>,
     externalSignal?: AbortSignal,
   ): Promise<R> {
@@ -391,7 +372,7 @@ export class AnthropicAdapter implements AIClient {
     }
   }
 
-  private breadcrumb(method: 'chat' | 'countTokens', usage: AIUsage): void {
+  private breadcrumb(method: 'chat', usage: AIUsage): void {
     if (!this.telemetry) return;
     try {
       this.telemetry.addBreadcrumb(

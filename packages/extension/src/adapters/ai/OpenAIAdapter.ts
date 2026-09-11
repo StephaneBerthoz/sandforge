@@ -2,14 +2,7 @@ import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter, Logger } from '../telemetry/TelemetryAdapter.js';
 import { CircuitBreaker } from '../../core/connection/CircuitBreaker.js';
 import { AINotImplementedError } from './AIClient.js';
-import type {
-  AIChatOpts,
-  AIChatResult,
-  AIClient,
-  AICountTokensOpts,
-  AICountTokensResult,
-  AIProviderType,
-} from './AIClient.js';
+import type { AIChatOpts, AIChatResult, AIClient, AIProviderType } from './AIClient.js';
 import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
 const NOT_IMPLEMENTED_MESSAGE =
@@ -59,11 +52,6 @@ export class OpenAIAdapter implements AIClient {
   async chat(_opts: AIChatOpts): Promise<AIChatResult> {
     this.notifyStub('chat');
     throw new AINotImplementedError(`OpenAIAdapter.chat() — ${NOT_IMPLEMENTED_MESSAGE}`);
-  }
-
-  async countTokens(_opts: AICountTokensOpts): Promise<AICountTokensResult> {
-    this.notifyStub('countTokens');
-    throw new AINotImplementedError(`OpenAIAdapter.countTokens() — ${NOT_IMPLEMENTED_MESSAGE}`);
   }
 
   dispose(): void {

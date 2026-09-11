@@ -30,7 +30,7 @@ Yes. AI is entirely optional. Seed uses 30+ locale-aware Faker generators by def
 
 ### Is my data sent to external services?
 
-Only to Anthropic, and nothing before you turn AI on and store an Anthropic key: the OpenAI and custom providers listed in settings are not implemented and send nothing. From then on, the chat sends your conversation, NL2SOQL sends your question with the names and labels of the org's objects, a pipeline draft sends your description, a custom persona sends its description, and an AI field rule in Seed, whether you picked it or a built-in persona set it, sends the field's API name and any instruction typed for it. A failed Seed, Sync, DataOps or Automation run also sends its error message automatically, for a fix suggestion — unless a built-in table of common Salesforce error codes already answers it, which is decided on your machine and sends nothing; Salesforce error messages can quote record values. Compare's schema advice and Monitor's anomaly scan send nothing. Telemetry is off by default and, turned on, only writes error reports to a local log.
+Only to Anthropic, and nothing before you turn AI on and store an Anthropic key: the OpenAI and custom providers listed in settings are not implemented and send nothing. From then on, the chat sends your conversation, NL2SOQL sends your question with the names and labels of the org's objects, plus the field API names, labels and types of the up to five objects your question names, a pipeline draft sends your description, a custom persona sends its description, and an AI field rule in Seed, whether you picked it or a built-in persona set it, sends the field's API name and any instruction typed for it. A failed Seed, Sync, DataOps or Automation run also sends its error message automatically, for a fix suggestion — unless a built-in table of common Salesforce error codes already answers it, which is decided on your machine and sends nothing; Salesforce error messages can quote record values. Compare's schema advice and Monitor's anomaly scan send nothing. Telemetry is off by default and, turned on, only writes error reports to a local log.
 
 ### How do I update SandForge?
 
@@ -119,7 +119,7 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 
 1. Check field-level security -- the query may reference fields the connected user cannot access
 2. Verify object and field API names are correct (use the schema browser in Seed Step 1)
-3. The NL2SOQL helper drafts a query, it does not check one: the model is sent your org's object API names and labels and no fields at all, and the query it writes back is returned unvalidated -- run it and read the error
+3. The NL2SOQL helper checks the query only as far as it looked: it describes up to five objects your request names by API name or label, sends those objects' field API names to the model, and rejects a query that selects a plain field none of them has -- a relationship path such as `Account.Name` is left to the org to judge. Name no object it recognises and it falls back to the org's object names alone -- the draft then comes back with a line saying it could not be checked against your org, so run it and read the error
 4. For relationship queries, ensure the relationship name (not the field name) is used
 5. Check the error message for specific SOQL syntax issues
 
@@ -156,4 +156,4 @@ Yes. SandForge uses Salesforce CLI (`sf`) for authentication and supports all or
 2. Reduce batch sizes for Seed and Sync operations to lower API consumption per operation
 3. Spread large operations across multiple days if hitting daily limits
 4. Upgrade your sandbox tier (Developer Pro or Full sandbox) for higher API limits
-5. The Anomaly Scan button sits in that same panel but reads no limit: it samples Account records and reports data anomalies (outliers, future dates, negative amounts), so it will not tell you where your API calls went
+5. The Anomaly Scan button sits in that same panel but reads no limit: it samples records of the object chosen in the dropdown beside it -- Account, or one of the 20 largest objects that hold records -- and reports data anomalies (outliers, future dates, negative amounts), so it will not tell you where your API calls went

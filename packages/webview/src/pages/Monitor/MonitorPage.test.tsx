@@ -510,8 +510,11 @@ describe('MonitorPage', () => {
     render(<MonitorPage />);
 
     fireEvent.click(screen.getByTestId('group-toggle-Bulk Query'));
-    expect(screen.getByText('Account')).toBeDefined();
-    expect(screen.getByTestId('job-row-job-1')).toBeDefined();
+    // Scoped to the row: 'Account' also names an option of the anomaly scan
+    // target picker, so a page-wide text query matches two elements.
+    const jobRow = screen.getByTestId('job-row-job-1');
+    expect(jobRow).toBeDefined();
+    expect(within(jobRow).getByText('Account')).toBeDefined();
   });
 
   it('should show job progress with error count when expanded', () => {

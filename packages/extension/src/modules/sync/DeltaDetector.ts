@@ -1,5 +1,5 @@
 import type { SyncObjectConfig, DeltaResult } from '@sandforge/shared';
-import { assertSoqlIdentifier } from '../../core/common/soqlValidator.js';
+import { assertSoqlIdentifier, assertSoqlOrderBy } from '../../core/common/soqlValidator.js';
 
 /** A record returned from a Salesforce query */
 export interface QueryRecord {
@@ -108,8 +108,13 @@ function buildAllRecordsQuery(config: SyncObjectConfig): string {
     soql += ` WHERE ${config.where}`;
   }
 
+  // The clause lands at the tail of the statement, so anything the config
+  // smuggled past `ORDER BY` still runs. `syncObjectPayloadSchema` already
+  // refuses it at the bridge; this second check holds for callers that build
+  // a config without crossing that boundary (both layers stay, same rule as
+  // the WHERE fragment).
   if (config.orderBy) {
-    soql += ` ORDER BY ${config.orderBy}`;
+    soql += ` ORDER BY ${assertSoqlOrderBy(config.orderBy)}`;
   }
 
   return soql;
