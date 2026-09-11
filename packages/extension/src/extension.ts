@@ -231,8 +231,6 @@ export function activate(context: vscode.ExtensionContext): void {
       secretVault,
       handlers,
       broker,
-      orgRegistry,
-      orgManager,
       log,
       disposables: context.subscriptions,
     });

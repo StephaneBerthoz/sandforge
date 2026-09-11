@@ -367,12 +367,8 @@ const AIMessages = [
   msg('ai:nl2soql:response'),
   msg('ai:resolve-error'),
   msg('ai:resolve-error:response'),
-  msg('ai:personas'),
-  msg('ai:personas:response'),
   msg('ai:anomaly-scan'),
   msg('ai:anomaly-scan:response'),
-  msg('ai:suggestions'),
-  msg('ai:suggestions:response'),
   msg('ai:generate-pipeline'),
   msg('ai:generate-pipeline:response'),
   msg('ai:schema-advice'),
@@ -383,11 +379,6 @@ const AIMessages = [
   msg('ai:budget:state'),
   msg('ai:budget:warn'),
   msg('ai:budget:exceeded'),
-  // Phase 04 plan 04-04: diagnose flow + per-action approve gate.
-  msg('ai:diagnose'),
-  msg('ai:diagnose:response'),
-  msg('ai:approve-action'),
-  msg('ai:approve-action:response'),
 ] as const;
 export const AIMessageSchema = z.discriminatedUnion('type', AIMessages);
 

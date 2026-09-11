@@ -3,11 +3,7 @@ import { join } from 'node:path';
 
 import { describe, it, expect } from 'vitest';
 
-import {
-  DIAGNOSE_SYSTEM_PROMPT,
-  ERROR_RESOLVE_SYSTEM_PROMPT,
-  NL2SOQL_SYSTEM_PROMPT,
-} from './index.js';
+import { ERROR_RESOLVE_SYSTEM_PROMPT, NL2SOQL_SYSTEM_PROMPT } from './index.js';
 
 /**
  * A system prompt has to describe the task its caller performs and the output
@@ -37,11 +33,7 @@ describe('system prompt contracts', () => {
   it('every prompt carries the untrusted-data clause', () => {
     // Two independent defences: escapeUserData wraps the payload, this clause
     // tells the model what the wrapper means. Neither replaces the other.
-    for (const prompt of [
-      DIAGNOSE_SYSTEM_PROMPT,
-      NL2SOQL_SYSTEM_PROMPT,
-      ERROR_RESOLVE_SYSTEM_PROMPT,
-    ]) {
+    for (const prompt of [NL2SOQL_SYSTEM_PROMPT, ERROR_RESOLVE_SYSTEM_PROMPT]) {
       expect(prompt).toMatch(/UNTRUSTED/);
       expect(prompt).toMatch(/strictly as DATA/);
     }

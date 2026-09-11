@@ -1,5 +1,3 @@
-import type { z } from 'zod';
-
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 import type { TelemetryAdapter, Logger } from '../telemetry/TelemetryAdapter.js';
 import { CircuitBreaker } from '../../core/connection/CircuitBreaker.js';
@@ -8,13 +6,9 @@ import type {
   AIChatOpts,
   AIChatResult,
   AIClient,
-  AICompleteOpts,
-  AICompleteResult,
   AICountTokensOpts,
   AICountTokensResult,
   AIProviderType,
-  AIRunToolsOpts,
-  AIRunToolsResult,
 } from './AIClient.js';
 import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
@@ -67,19 +61,9 @@ export class OpenAIAdapter implements AIClient {
     throw new AINotImplementedError(`OpenAIAdapter.chat() — ${NOT_IMPLEMENTED_MESSAGE}`);
   }
 
-  async complete<T extends z.ZodTypeAny>(_opts: AICompleteOpts<T>): Promise<AICompleteResult<T>> {
-    this.notifyStub('complete');
-    throw new AINotImplementedError(`OpenAIAdapter.complete() — ${NOT_IMPLEMENTED_MESSAGE}`);
-  }
-
   async countTokens(_opts: AICountTokensOpts): Promise<AICountTokensResult> {
     this.notifyStub('countTokens');
     throw new AINotImplementedError(`OpenAIAdapter.countTokens() — ${NOT_IMPLEMENTED_MESSAGE}`);
-  }
-
-  async runTools(_opts: AIRunToolsOpts): Promise<AIRunToolsResult> {
-    this.notifyStub('runTools');
-    throw new AINotImplementedError(`OpenAIAdapter.runTools() — ${NOT_IMPLEMENTED_MESSAGE}`);
   }
 
   dispose(): void {

@@ -532,10 +532,6 @@ export const aiAnomalyScanPayloadSchema = z.object({
   objectName: sfApiNameSchema,
   sampleSize: z.number().int().positive().max(10_000).optional(),
 });
-export const aiSuggestionsPayloadSchema = z.object({
-  module: z.string().min(1).max(50),
-  context: z.record(z.unknown()).optional(),
-});
 export const aiSchemaAdvicePayloadSchema = z.object({
   orgId: orgIdSchema,
   objectNames: z.array(sfApiNameSchema).max(MAX_OBJECTS_PER_REQUEST).optional(),
@@ -551,52 +547,9 @@ export const aiResolveErrorPayloadSchema = z.object({
   module: z.string().min(1).max(50),
   context: z.record(z.unknown()).optional(),
 });
-export const aiPersonasPayloadSchema = z.object({
-  action: z.enum(['list', 'create']),
-  // Required only for `create`; the handler answers with a graceful
-  // `success: false` when it is missing (existing webview flow).
-  description: aiPromptSchema.optional(),
-});
 export const aiGeneratePipelinePayloadSchema = z.object({
   description: aiPromptSchema,
   orgIds: z.array(orgIdSchema).max(50).optional(),
-});
-
-// ── ai:diagnose / ai:approve-action payload schemas ─────────────────────────
-// Mirror AIDiagnoseRequestMessage / AIApproveActionRequestMessage
-// (shared/types/messages/ai.messages.ts). The diagnose flow answers with its
-// own specialised error envelopes (ai:diagnose:response /
-// ai:approve-action:response), so AIDiagnoseAdapter parses with these schemas
-// directly instead of going through validatePayload()'s generic
-// sendHandlerError path.
-
-/** Diagnose error context as sent by the webview (failed job / deploy / test run). */
-export const aiDiagnoseErrorContextSchema = z.object({
-  kind: z.enum([
-    'bulk-job',
-    'apex-deploy',
-    'metadata-deploy',
-    'test-run',
-    'soql-analysis',
-    'generic',
-  ]),
-  jobId: opaqueIdSchema.optional(),
-  file: z.string().max(2_000).optional(),
-  errorMessage: z.string().max(50_000),
-  debugLogTail: z.string().max(500_000).optional(),
-  classifierVerdict: z.string().max(10_000).optional(),
-});
-
-export const aiDiagnosePayloadSchema = z.object({
-  runId: opaqueIdSchema,
-  orgId: orgIdSchema,
-  errorContext: aiDiagnoseErrorContextSchema,
-});
-
-export const aiApproveActionPayloadSchema = z.object({
-  runId: opaqueIdSchema,
-  actionIndex: z.number().int().nonnegative().max(1_000),
-  modifiedPayload: z.string().max(500_000).optional(),
 });
 
 // ── migration:* payload schemas ───────────────────────────────────────────

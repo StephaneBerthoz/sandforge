@@ -161,22 +161,6 @@ export interface AIResolveErrorResponse extends BaseMessage {
   };
 }
 
-/** AI personas */
-export interface AIPersonasRequest extends BaseMessage {
-  type: 'ai:personas';
-  payload: { action: 'list' | 'create'; description?: string };
-}
-
-/** Response containing AI persona list or creation result */
-export interface AIPersonasResponse extends BaseMessage {
-  type: 'ai:personas:response';
-  payload: {
-    success: boolean;
-    personas?: Array<{ id: string; name: string; description: string }>;
-    error?: string;
-  };
-}
-
 /** AI anomaly detection */
 export interface AIAnomalyScanRequest extends BaseMessage {
   type: 'ai:anomaly-scan';
@@ -189,22 +173,6 @@ export interface AIAnomalyScanResponse extends BaseMessage {
   payload: {
     success: boolean;
     anomalies?: Array<{ field: string; type: string; description: string; severity: string }>;
-    error?: string;
-  };
-}
-
-/** AI smart suggestions */
-export interface AISuggestionsRequest extends BaseMessage {
-  type: 'ai:suggestions';
-  payload: { module: string; context?: Record<string, unknown> };
-}
-
-/** Response containing AI-generated smart suggestions for a module */
-export interface AISuggestionsResponse extends BaseMessage {
-  type: 'ai:suggestions:response';
-  payload: {
-    success: boolean;
-    suggestions?: Array<{ title: string; description: string; action?: string }>;
     error?: string;
   };
 }
@@ -261,69 +229,6 @@ export interface AIProviderStatusMessage extends BaseMessage {
     lastErrorAt?: string;
     /** i18n key for the banner copy (e.g. 'ai.error.overloaded'). */
     userMessageKey?: string;
-  };
-}
-
-/**
- * Phase 04 plan 04-04 — diagnose flow envelopes.
- */
-export interface AIDiagnoseRequestMessage extends BaseMessage {
-  type: 'ai:diagnose';
-  payload: {
-    runId: string;
-    orgId: string;
-    errorContext: {
-      kind:
-        | 'bulk-job'
-        | 'apex-deploy'
-        | 'metadata-deploy'
-        | 'test-run'
-        | 'soql-analysis'
-        | 'generic';
-      jobId?: string;
-      file?: string;
-      errorMessage: string;
-      debugLogTail?: string;
-      classifierVerdict?: string;
-    };
-  };
-}
-
-export interface AIDiagnoseResponseMessage extends BaseMessage {
-  type: 'ai:diagnose:response';
-  payload:
-    | {
-        runId: string;
-        result: {
-          summary: string;
-          rootCause: string;
-          suggestedActions: Array<{
-            label: string;
-            kind: 'copy-soql' | 'open-file' | 'run-anonymous' | 'apply-fix' | 'manual';
-            payload?: string;
-            requiresApproval: boolean;
-            riskNote?: string;
-          }>;
-          confidence: 'low' | 'medium' | 'high';
-          references?: string[];
-        };
-        usage: AITokenUsage;
-      }
-    | { runId: string; error: { code: string; message: string } };
-}
-
-export interface AIApproveActionRequestMessage extends BaseMessage {
-  type: 'ai:approve-action';
-  payload: { runId: string; actionIndex: number; modifiedPayload?: string };
-}
-
-export interface AIApproveActionResponseMessage extends BaseMessage {
-  type: 'ai:approve-action:response';
-  payload: {
-    runId: string;
-    actionIndex: number;
-    status: 'executed' | 'rejected' | 'failed';
-    resultMessage: string;
   };
 }
 

@@ -62,6 +62,24 @@ front of every destructive action could be armed without typing a word.
   kept as an audit trail. Compare's Snapshots is a live capture of two orgs, not
   a history.
 
+### Removed
+
+- **Failed-job diagnosis, which nothing in the product could start.** The
+  listing sold "failed-job diagnosis over 10 read-only tools"; no screen asked
+  for a diagnosis or sent an approval, and the tools were connected to nothing.
+  The extension still acted on both requests whenever AI was set up. A diagnosis
+  request sent the error it carried to the model and kept the model's answer for
+  ten minutes. An approval naming one of that answer's actions then ran it if
+  the model had proposed anonymous Apex and marked it as needing approval: the
+  script went to `executeAnonymous` in the org the diagnosis named, with no
+  confirmation dialog — and a script sent with the approval ran in place of the
+  model's. Neither request is accepted any more, and the listing now describes
+  the assistant you can actually open.
+- **Two AI requests that no screen sent are no longer answered**: module
+  suggestions and AI personas. Seed's own personas are unaffected.
+- **The extension package no longer ships an extra copy of zod** that only the
+  removed diagnosis loaded: the VSIX is 13% smaller (2.08 MB to 1.81 MB).
+
 ### Build
 
 - **`pnpm validate` runs what CI blocks on**, including the screenshot check,

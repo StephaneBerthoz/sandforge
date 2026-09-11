@@ -613,13 +613,6 @@ describe('AIChatHandler', () => {
     });
   });
 
-  it('exposes getAIAssistant for other sub-handlers', () => {
-    expect(handler.getAIAssistant()).toBeUndefined();
-    const mockAssistant = {} as Parameters<typeof handler.setAIAssistant>[0];
-    handler.setAIAssistant(mockAssistant);
-    expect(handler.getAIAssistant()).toBe(mockAssistant);
-  });
-
   describe('payload validation', () => {
     it('rejects ai:chat without conversationId (INVALID_PAYLOAD)', async () => {
       const result = await handler.handle(createMsg('ai:chat', { message: 'hi' }));

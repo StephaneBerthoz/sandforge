@@ -42,7 +42,6 @@ import { DataOpsHandler } from './handlers/DataOpsHandler.js';
 import { AutomationHandler } from './handlers/AutomationHandler.js';
 import { AIHandler } from './handlers/AIHandler.js';
 import type { AIModules } from './handlers/AIHandler.js';
-import type { AIDiagnoseHandler } from './handlers/ai/AIDiagnoseHandler.js';
 import { AutopilotHandler } from './handlers/AutopilotHandler.js';
 import { ForgeHandler } from './handlers/ForgeHandler.js';
 import type { ForgeServices } from './handlers/ForgeHandler.js';
@@ -342,17 +341,6 @@ export class ExtensionHandlers {
     this.aiHandler.setAIModules(modules);
   }
 
-  /**
-   * Inject the concrete AI diagnose handler (Tier 2, plan 04-04).
-   *
-   * Wired from extension.ts only when the AI stack is enabled; until then the
-   * AIDiagnoseAdapter answers ai:diagnose / ai:approve-action with an explicit
-   * AI_NOT_CONFIGURED response instead of dropping the message.
-   */
-  setAIDiagnoseHandler(handler: AIDiagnoseHandler): void {
-    this.aiHandler.setDiagnoseHandler(handler);
-  }
-
   /** Inject migration file reader (Tier 3). */
   setMigrationServices(fileReader: MigrationFileReader): void {
     this.migrationHandler.setFileReader(fileReader);
@@ -579,13 +567,9 @@ export class ExtensionHandlers {
         'ai:save-key',
         'ai:nl2soql',
         'ai:resolve-error',
-        'ai:personas',
         'ai:anomaly-scan',
-        'ai:suggestions',
         'ai:generate-pipeline',
         'ai:schema-advice',
-        'ai:diagnose',
-        'ai:approve-action',
       ],
       this.aiHandler,
     );

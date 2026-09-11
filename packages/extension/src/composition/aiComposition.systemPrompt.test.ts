@@ -11,12 +11,9 @@ vi.mock('vscode', () => ({
 vi.mock('../modules/ai/AIAssistant.js', () => ({ AIAssistant: vi.fn() }));
 vi.mock('../modules/ai/NL2SOQL.js', () => ({ NL2SOQL: vi.fn() }));
 vi.mock('../modules/ai/ErrorResolver.js', () => ({ ErrorResolver: vi.fn() }));
-vi.mock('../modules/ai/SmartSuggestions.js', () => ({ SmartSuggestions: vi.fn() }));
 vi.mock('../modules/ai/PipelineGenerator.js', () => ({ PipelineGenerator: vi.fn() }));
 vi.mock('../modules/ai/AnomalyDetector.js', () => ({ AnomalyDetector: vi.fn() }));
-vi.mock('../modules/ai/AIPersonaManager.js', () => ({ AIPersonaManager: vi.fn() }));
 vi.mock('../modules/ai/SchemaAdvisor.js', () => ({ SchemaAdvisor: vi.fn() }));
-vi.mock('../bridge/handlers/ai/AIDiagnoseHandler.js', () => ({ AIDiagnoseHandler: vi.fn() }));
 
 import { NL2SOQL } from '../modules/ai/NL2SOQL.js';
 import { initAIComposition } from './aiComposition';
@@ -45,11 +42,8 @@ describe('initAIComposition — aiProvider forwards the system prompt', () => {
       handlers: {
         setAIAssistant: vi.fn(),
         setAIModules: vi.fn(),
-        setAIDiagnoseHandler: vi.fn(),
       },
       broker: { postToWebview: vi.fn() },
-      orgRegistry: {},
-      orgManager: {},
       log: vi.fn(),
     } as unknown as AICompositionDeps;
   }

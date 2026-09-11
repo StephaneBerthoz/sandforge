@@ -18,8 +18,7 @@ export interface SmartActionAnalyzerDeps {
  * Org-level analyzer that determines the best next action based on
  * record counts across standard objects.
  *
- * Unlike SmartSuggestions (which is module-level), SmartActionAnalyzer
- * operates at the org level and produces a single recommendation:
+ * Operates at the org level and produces a single recommendation:
  * Quick Seed, Clone, Sync, or none.
  */
 export class SmartActionAnalyzer {

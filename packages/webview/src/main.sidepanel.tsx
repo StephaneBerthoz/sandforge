@@ -13,7 +13,7 @@ import './styles/glass.css';
  *
  * Deliberately imports ONLY the SidePanel branch of main.tsx's runtime switch:
  * no PanelApp/PanelRouter and no pages/* module, so tree-shaking drops the
- * entire panel surface (recharts, reactflow, E2EHarness, …) from this bundle.
+ * entire panel surface (recharts, reactflow, …) from this bundle.
  * Keep it that way — anything the sidebar needs must come through SidePanel.
  */
 const root = document.getElementById('root');

@@ -24,7 +24,7 @@ import type { BackupRecordStore } from '../modules/dataops/BackupRecordStore.js'
  *
  * 2. **Async setters** — `setForgeOrchestrator` (see `./forgeComposition.ts`),
  *    `setAutopilotOrchestrator` (see `./autopilotComposition.ts`),
- *    `setAIAssistant` / `setAIModules` / `setAIDiagnoseHandler` (see
+ *    `setAIAssistant` / `setAIModules` (see
  *    `./aiComposition.ts`) — resolve AFTER `registerAll`, because they depend
  *    on dynamic imports deliberately kept off the activation hot path.
  *

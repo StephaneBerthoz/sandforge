@@ -1,4 +1,4 @@
-import type { AIProvider } from './SmartSuggestions';
+import type { AIProvider } from './types.js';
 
 /** Salesforce org metadata. */
 export interface OrgInfo {

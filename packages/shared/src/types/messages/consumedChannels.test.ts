@@ -29,17 +29,16 @@ const { join } = require('node:path') as { join(...parts: string[]): string };
  * production tree, then fails on any registered channel with no sender, minus
  * an explicit {@link KNOWN_UNSENT} allowlist.
  *
- * Sender idioms (all six are in production use — restricting the scan to the
+ * Sender idioms (all five are in production use — restricting the scan to the
  * four canonical ones reports a dozen live channels as dead):
  *   1. `useBridgeQuery<T>('<channel>')` / `useBridgeMutation<T>('<channel>')`
  *   2. `sendBridgeMessage('<channel>', payload)`
  *   3. `sendMessage(buildMessage('<channel>'))`
  *   4. domain wrappers over 1 — `useFrozenMutation('frozen:select')`, and any
  *      future `use<Domain>Query` / `use<Domain>Mutation` thin alias
- *   5. `postExtensionMessage('<channel>', payload)` (E2E harness transport)
- *   6. hand-built envelopes — `sendMessage({ type: '<channel>', … })`
+ *   5. hand-built envelopes — `sendMessage({ type: '<channel>', … })`
  *
- * Idioms 1-5 are read by scanning the *first argument* of the call rather than
+ * Idioms 1-4 are read by scanning the *first argument* of the call rather than
  * the character right after `(`, so the ternary form
  * `sendBridgeMessage(next ? 'forge:pause' : 'forge:resume')` counts both arms.
  *
@@ -70,11 +69,11 @@ const ROUTED_TABLE_RE = /\bconst ROUTED_CHANNELS(?::[^=]+)? = \{([\s\S]*?)\n\} a
 /** Matches any quoted literal inside a captured block. */
 const LITERAL_RE = /'([^']*)'/g;
 
-/** Opening of a sender call — idioms 1-5, generics optional. */
+/** Opening of a sender call — idioms 1-4, generics optional. */
 const SENDER_CALL_RE =
-  /\b(?:sendBridgeMessage|buildMessage|postExtensionMessage|use[A-Z]\w*(?:Query|Mutation))\s*(?:<[\s\S]*?>\s*)?\(/g;
+  /\b(?:sendBridgeMessage|buildMessage|use[A-Z]\w*(?:Query|Mutation))\s*(?:<[\s\S]*?>\s*)?\(/g;
 
-/** Idiom 6: the `type:` field of a hand-built message envelope. */
+/** Idiom 5: the `type:` field of a hand-built message envelope. */
 const TYPE_FIELD_RE = /\btype:\s*'([^']+)'/g;
 
 /** `domain:action` shape — filters payload strings out of the same call. */
@@ -108,7 +107,6 @@ export const KNOWN_UNSENT: ReadonlyArray<{ channel: string; reason: string }> = 
     reason: 'Per-object lookup never wired; the UI sends dataops:anonymization-templates.',
   },
   { channel: 'pipeline:run', reason: 'Legacy alias of pipeline:execute, which is what UI sends.' },
-  { channel: 'ai:approve-action', reason: 'Diagnose ships without its human-approval step.' },
   { channel: 'forge:templates:list', reason: 'The Forge recipe library UI was never built.' },
   { channel: 'forge:templates:save', reason: 'Same recipe library slice.' },
   { channel: 'forge:templates:delete', reason: 'Same recipe library slice.' },
@@ -247,9 +245,9 @@ describe('consumed channels (consumption-side anti-drift)', () => {
  * given above, and additionally so that a nested generic
  * (`useBridgeMutation<Record<string, unknown>>('pipeline:execute')`) does not
  * swallow the channel behind it:
- *   1-5. the five sender idioms of {@link SENDER_CALL_RE}
- *   6.   `useMessageListener<T>('<channel>', handler)`
- *   7.   the `responseType:` / `errorType:` options of a bridge hook
+ *   1-4. the four sender idioms of {@link SENDER_CALL_RE}
+ *   5.   `useMessageListener<T>('<channel>', handler)`
+ *   6.   the `responseType:` / `errorType:` options of a bridge hook
  *
  * Hand-built `type: '<channel>'` envelopes are deliberately *not* read here:
  * that shape also matches local discriminated-union state that never touches
@@ -257,20 +255,16 @@ describe('consumed channels (consumption-side anti-drift)', () => {
  * The raw `sidebar:*` channels reach the host that way, and stay out of the
  * Zod union on purpose.
  *
- * Deliberate exclusions:
- *   - `*.test.*`, as above.
- *   - `pages/E2EHarness`: a fixture panel that drives seven channels retired
- *     from the protocol. It is a test rig, not shipped UI, and allowlisting its
- *     debris would bury any real entry in {@link KNOWN_CONSUMED_GAPS}.
+ * Deliberate exclusion: `*.test.*`, as above.
  */
 
 /** Matches `msg('x:y')` member declarations in bridge/messageSchemas.ts. */
 const ZOD_MSG_RE = /msg\('([^']+)'\)/g;
 
-/** Idiom 6: opening of an inbound listener registration, generics optional. */
+/** Idiom 5: opening of an inbound listener registration, generics optional. */
 const LISTENER_CALL_RE = /\buseMessageListener\s*(?:<[\s\S]*?>\s*)?\(/g;
 
-/** Idiom 7: the reply channels a bridge hook resolves or rejects on. */
+/** Idiom 6: the reply channels a bridge hook resolves or rejects on. */
 const RESPONSE_OPTION_RE = /\b(?:responseType|errorType):\s*'([^']+)'/g;
 
 /**
@@ -291,16 +285,10 @@ function readDeclaredChannels(): Set<string> {
   return new Set([...src.matchAll(ZOD_MSG_RE)].map((m) => m[1]));
 }
 
-/** {@link walk} over shipped UI only — the E2E fixture panel is not contract. */
-function walkProduction(dir: string): string[] {
-  const harness = join('pages', 'E2EHarness');
-  return walk(dir).filter((file) => !file.includes(harness));
-}
-
 /**
  * Every channel literal the webview names, mapped to the files naming it.
  *
- * `inbound: false` drops idioms 6-7 and leaves only the sender idioms, which is
+ * `inbound: false` drops idioms 5-6 and leaves only the sender idioms, which is
  * how the sanity test proves the inbound halves of the scan match something.
  */
 function readConsumedChannels(inbound = true): Map<string, string[]> {
@@ -312,7 +300,7 @@ function readConsumedChannels(inbound = true): Map<string, string[]> {
     consumed.set(channel, origins);
   };
   const calls = inbound ? [SENDER_CALL_RE, LISTENER_CALL_RE] : [SENDER_CALL_RE];
-  for (const file of walkProduction(repoPath('webview', 'src'))) {
+  for (const file of walk(repoPath('webview', 'src'))) {
     const src = readFileSync(file, 'utf8');
     for (const re of calls) {
       for (const call of src.matchAll(re)) {

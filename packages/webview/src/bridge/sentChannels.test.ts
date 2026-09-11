@@ -83,18 +83,11 @@ function declaredChannels(): Set<string> {
   return new Set(Array.from(src.matchAll(/msg\('([^']+)'\)/g)).map((m) => m[1]));
 }
 
-/**
- * Every non-test source file under the webview src tree.
- *
- * E2EHarness is skipped: it mounts only under `?e2e-harness=<flow>` and talks
- * to Playwright's MockBridge, so its channels are a spec fixture rather than a
- * contract with the extension host.
- */
+/** Every non-test source file under the webview src tree. */
 function sourceFiles(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === 'E2EHarness') continue;
       sourceFiles(full, acc);
     } else if (/\.tsx?$/.test(entry.name) && !/\.test\./.test(entry.name)) acc.push(full);
   }

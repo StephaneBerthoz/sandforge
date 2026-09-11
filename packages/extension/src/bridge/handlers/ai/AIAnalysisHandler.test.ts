@@ -94,39 +94,6 @@ describe('AIAnalysisHandler', () => {
     expect(response.correlationId).toBe('msg-1');
   });
 
-  it('handles ai:suggestions without modules with correlationId', async () => {
-    const result = await handler.handle(createMsg('ai:suggestions', { module: 'seed' }));
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:suggestions:response');
-    expect(response.payload.success).toBe(false);
-    expect(response.correlationId).toBe('msg-1');
-  });
-
-  it('handles ai:suggestions with modules', async () => {
-    const mockModules: Partial<AIModules> = {
-      smartSuggestions: {
-        suggest: vi.fn().mockResolvedValue([
-          {
-            title: 'Use Bulk API',
-            description: 'Faster',
-            action: 'enable-bulk',
-          },
-        ]),
-      } as unknown as AIModules['smartSuggestions'],
-    };
-    handler.setAIModules(mockModules as AIModules);
-
-    const result = await handler.handle(
-      createMsg('ai:suggestions', { module: 'seed', context: {} }),
-    );
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:suggestions:response');
-    expect(response.payload.success).toBe(true);
-    expect(response.correlationId).toBe('msg-1');
-  });
-
   it('handles ai:schema-advice without modules with correlationId', async () => {
     const result = await handler.handle(createMsg('ai:schema-advice', { orgId: 'org1' }));
     expect(result).toBe(true);

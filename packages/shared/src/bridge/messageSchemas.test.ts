@@ -211,3 +211,42 @@ describe('EnvelopedMessageSchema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('retired AI channels', () => {
+  // The diagnosis flow ran anonymous Apex in an org on approval; module
+  // suggestions and AI personas answered requests no screen sent. None of these
+  // channels is part of the protocol any more, so the envelope refuses each one
+  // before any handler could see it.
+  const RETIRED = [
+    'ai:diagnose',
+    'ai:diagnose:response',
+    'ai:approve-action',
+    'ai:approve-action:response',
+    'ai:suggestions',
+    'ai:suggestions:response',
+    'ai:personas',
+    'ai:personas:response',
+  ];
+
+  it.each(RETIRED)('refuses %s', (type) => {
+    expect(AIMessageSchema.safeParse(baseFields(type)).success).toBe(false);
+    expect(BridgeMessageSchema.safeParse(baseFields(type)).success).toBe(false);
+    expect(
+      EnvelopedMessageSchema.safeParse({
+        protocolVersion: PROTOCOL_VERSION,
+        payload: baseFields(type),
+      }).success,
+    ).toBe(false);
+  });
+
+  it('still accepts the AI requests that ship, in the same envelope', () => {
+    for (const type of ['ai:chat', 'ai:nl2soql', 'ai:resolve-error', 'ai:generate-pipeline']) {
+      expect(
+        EnvelopedMessageSchema.safeParse({
+          protocolVersion: PROTOCOL_VERSION,
+          payload: baseFields(type),
+        }).success,
+      ).toBe(true);
+    }
+  });
+});

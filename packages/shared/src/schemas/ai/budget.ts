@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AIUsageSchema } from './diagnose.js';
+import { AIUsageSchema } from './callResult.js';
 
 /**
  * Per-panel-session token budget snapshot.

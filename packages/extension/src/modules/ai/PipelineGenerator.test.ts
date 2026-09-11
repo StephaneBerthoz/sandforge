@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { PipelineGenerator, type OrgInfo, type GeneratedPipeline } from './PipelineGenerator';
-import type { AIProvider } from './SmartSuggestions';
+import type { AIProvider } from './types.js';
 
 const testOrgs: OrgInfo[] = [
   { orgId: 'org-001', alias: 'production', type: 'production' },
