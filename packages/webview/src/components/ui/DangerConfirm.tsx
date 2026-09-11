@@ -49,6 +49,17 @@ export const DangerConfirm: React.FC<DangerConfirmProps> = ({
 }) => {
   const { t } = useTranslation();
   const [typed, setTyped] = useState('');
+  // Every opening starts empty. `handleClose` and `handleConfirm` clear the
+  // field on the dialog's own exits, but a parent that closes it — a refresh
+  // removing what the confirmation was about — runs neither, and the next
+  // opening came up already confirmed: one click, nothing typed. Resetting
+  // during render, not in an effect, leaves no painted frame in which the
+  // stale text still arms the button.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setTyped('');
+  }
   const isMatch = typed === confirmText;
   const inputRef = useRef<HTMLInputElement>(null);
   const styles = variantStyles[variant];
