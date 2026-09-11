@@ -412,6 +412,19 @@ test('a prefix named in a comment, a string or another call is not a call site',
   // mention, and none of them may stand in for the call.
   const impostors = {
     'a JSDoc': { before: "  /** @param p - the namespace, e.g. 'home' */", call: 'suffix' },
+    // The shape of the original defect: formatters.ts carried the prefix on an
+    // interior line of a seven-line JSDoc. Every other comment impostor here is
+    // a single line, so a stripper that stopped at the first line still passed.
+    'a multi-line JSDoc': {
+      before: [
+        '  /**',
+        '   * Formats a relative time.',
+        "   * @param p - the namespace, e.g. 'home'",
+        "   * @example rel('home')",
+        '   */',
+      ].join('\n'),
+      call: 'suffix',
+    },
     'a line comment': { before: "  // rel('home')", call: 'suffix' },
     'a block comment': { call: "/* rel('home') */ suffix" },
     'a string': { call: `"rel('home')"` },
