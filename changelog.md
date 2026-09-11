@@ -5,6 +5,84 @@ All notable changes to SandForge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Three operations told you they had worked when they had not, and the guard in
+front of every destructive action could be armed without typing a word.
+
+### Fixed
+
+- **A refused export no longer reports a save.** When the host rejected an
+  export — a DataOps backup over the size limit, for instance — the rejection
+  came back on the channel the page reads as an outcome, matched nothing, and
+  fell through to the success branch: a green confirmation for a file that was
+  never written. It is now an error, attached to the export that caused it.
+- **A restore Salesforce mostly rejected no longer reports success.** Restore
+  and anonymization counted the records Salesforce accepted and dropped the
+  rest. A rollback where 900 of 1,000 records were refused said "100 records
+  restored", with no error anywhere. Both now report a partial or failed result,
+  with a sample of what the org said, and tell you through a notification.
+- **An error lands on the request that caused it.** Most errors used to reach
+  the page with no indication of which request they answered, so every request
+  of the same module waiting at that moment took them as its own. A long Sync
+  could show as failed because an unrelated field lookup had failed — and its
+  real result, arriving later, was discarded. Every error now names its
+  request, and the page no longer hands one that names none to whichever
+  request happens to be waiting — CSV import and Clone included, which had
+  their own way of doing so.
+- **A confirmation you have to type starts empty every time.** If a
+  confirmation dialog was closed by the page rather than by you — a refresh
+  removing what it was about — the text you had typed stayed, and the next time
+  it opened the button was already armed: one click, nothing typed. This
+  affected every typed confirmation in the product: clone and seed execution,
+  Forge, conflict resolution, anonymization and org management.
+- **The Monitor's critical-jobs band reports what it sees.** It had no data
+  source, so it was always empty — which reads exactly like "nothing critical".
+  It now flags Apex jobs that have stopped progressing, never a job that is
+  merely long-running, and shows "unknown" rather than "all clear" when it has
+  nothing to go on.
+- **The Monitor opens the org's Apex Jobs page instead of an abort that never
+  worked.** Salesforce does not let an Apex job's status be changed through the
+  API, so every abort ended in "Failed to abort job". The critical-jobs band now
+  links to Setup › Apex Jobs, where aborting works. The extension builds that
+  address from the org it already knows — the page cannot choose where it sends
+  you — and a slow confirmation from VS Code no longer shows as a failure.
+
+### Changed
+
+- **The shipped catalogue is a quarter smaller.** 555 translation keys that
+  nothing displayed were removed from all six languages — 2,240 keys down to
+  1,685, 642 KB down to 499 KB in every install. Thirty-one keys recorded as
+  unused were in fact displayed, and stay.
+- **The documentation describes what the extension does.** Sync writes in one
+  direction; conflict resolution is what runs both ways. Automation composes
+  and saves pipelines, but its steps other than Delay and Condition do not
+  execute yet, and it has no dry-run mode. Scheduled runs and real-time sync
+  are not available. Safety checks are logged in memory for the session, not
+  kept as an audit trail. Compare's Snapshots is a live capture of two orgs, not
+  a history.
+
+### Build
+
+- **`pnpm validate` runs what CI blocks on**, including the screenshot check,
+  and the check that enforces this no longer accepts a commented-out command
+  as a command that runs.
+- **The public-links check exits after passing.** It printed its success and
+  then kept the release waiting forever.
+- **The translation check reads the whole repository**, not the webview alone,
+  exempts runtime-built keys only where a real call builds them, and ignores a
+  key named in a comment.
+- **The request-correlation check runs on every platform, and outside the
+  coverage pass.** It compared file paths as Node builds them with paths as
+  TypeScript writes them — the same on Linux and macOS, different on Windows,
+  where it read nothing and flagged what it should have trusted. Under coverage
+  instrumentation its type-checking pass also ran long enough to starve the test
+  runner on small CI machines. It now normalises every path, stays out of the
+  coverage run it adds nothing to, and `validate` is held to still running it.
+- **`execution:progress` is gone.** Nothing ever emitted it; the channel, its
+  tracker and its hook are removed, and the emission check no longer certifies
+  a channel from code that only constructs its emitter.
+
 ## [1.21.0] - 2026-09-10
 
 The end-to-end suite came back, and immediately started finding real bugs.
