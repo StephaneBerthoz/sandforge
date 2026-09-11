@@ -3,7 +3,6 @@ import type { TFunction } from 'i18next';
 import Papa from 'papaparse';
 import type { CsvColumnMapping, CsvValidationResult, SeedFieldInfo } from '@sandforge/shared';
 import { useBridgeMutation } from '../../../hooks/useBridgeMutation';
-import { useBridgeErrorChannel } from '../useBridgeErrorChannel';
 
 /** Step in the CSV import wizard. */
 export type CsvImportStep = 'upload' | 'map' | 'validate' | 'execute';
@@ -133,8 +132,12 @@ export function useCsvImport(t: TFunction): CsvImportState {
   const [step, setStep] = useState<CsvImportStep>('upload');
 
   const describeMutation = useBridgeMutation<{ fields: SeedFieldInfo[] }>('seed:describe-object');
-  const validateMutation = useBridgeMutation<CsvValidationResult>('seed:csv:validate');
+  const validateMutation = useBridgeMutation<CsvValidationResult>('seed:csv:validate', {
+    errorType: 'seed:csv:error',
+  });
   const executeMutation = useBridgeMutation<CsvExecutionResult>('seed:csv:execute', {
+    // SeedCsvHandler reports failures here, correlated to the request.
+    errorType: 'seed:csv:error',
     // Bulk write: can exceed the 30 s default on real volumes; operation:progress
     // events keep flowing while the response is pending.
     timeoutMs: 120_000,
@@ -216,21 +219,6 @@ export function useCsvImport(t: TFunction): CsvImportState {
     setExecutionStatus('error');
     setError(executeMutation.error);
   }
-
-  /* Fail fast on the seed:csv:error channel: SeedCsvHandler reports
-   * validate/execute failures there (no correlationId); without this
-   * listener the mutation would only fail on the 30 s bridge timeout. */
-  useBridgeErrorChannel('seed:csv:error', (message) => {
-    if (validateMutation.loading) {
-      validateMutation.reset();
-      setExecutionStatus('error');
-      setError(message);
-    } else if (executeMutation.loading) {
-      executeMutation.reset();
-      setExecutionStatus('error');
-      setError(message);
-    }
-  });
 
   const handleMappingChange = useCallback(
     (csvHeader: string, sfFieldApiName: string) => {

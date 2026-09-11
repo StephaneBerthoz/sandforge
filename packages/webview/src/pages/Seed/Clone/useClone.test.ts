@@ -38,8 +38,12 @@ let mockExecuteState = {
   reset: mockExecuteReset,
 };
 
+/** Every mutation the hook creates, with the error channel it asked for. */
+const mutationCalls: Array<{ type: string; errorType?: string }> = [];
+
 vi.mock('../../../hooks/useBridgeMutation', () => ({
-  useBridgeMutation: (type: string) => {
+  useBridgeMutation: (type: string, options?: { errorType?: string }) => {
+    mutationCalls.push({ type, errorType: options?.errorType });
     if (type === 'seed:clone:describe-source') return mockDescribeState;
     if (type === 'seed:clone:preview') return mockPreviewState;
     if (type === 'seed:clone:execute') return mockExecuteState;
@@ -52,6 +56,7 @@ const mockT: TFunction = ((key: string) => key) as unknown as TFunction;
 describe('useClone', () => {
   beforeEach(() => {
     mockDescribeMutate.mockClear();
+    mutationCalls.length = 0;
     mockDescribeReset.mockClear();
     mockPreviewMutate.mockClear();
     mockPreviewReset.mockClear();
@@ -242,113 +247,44 @@ describe('useClone', () => {
   /* seed:clone:error channel (fail fast, no 30 s timeout)               */
   /* ------------------------------------------------------------------ */
 
-  const dispatchCloneError = (message: string) => {
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: {
-          id: 'err-1',
-          type: 'seed:clone:error',
-          timestamp: Date.now(),
-          payload: { message, code: 'UNKNOWN', retryable: false },
-        },
-      }),
+  it('listens for describe, preview and execute failures on seed:clone:error', () => {
+    // The handler posts its failures on this channel, correlated to the
+    // request, and the mutations listen there themselves. A separate
+    // type-only listener used to catch them instead and hand each one to
+    // whichever mutation happened to be loading.
+    renderHook(() => useClone(mockT, 'target-1'));
+
+    expect(mutationCalls).toEqual(
+      expect.arrayContaining([
+        { type: 'seed:clone:describe-source', errorType: 'seed:clone:error' },
+        { type: 'seed:clone:preview', errorType: 'seed:clone:error' },
+        { type: 'seed:clone:execute', errorType: 'seed:clone:error' },
+      ]),
     );
-  };
-
-  it('fails the preview immediately on seed:clone:error', () => {
-    mockPreviewState = {
-      mutate: mockPreviewMutate,
-      data: null,
-      loading: true,
-      error: null,
-      reset: mockPreviewReset,
-    };
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
-
-    act(() => {
-      result.current.handleObjectToggle('Account');
-    });
-    act(() => {
-      result.current.handlePreview();
-    });
-    expect(result.current.executionStatus).toBe('previewing');
-
-    act(() => {
-      dispatchCloneError('Preview exploded');
-    });
-
-    expect(result.current.executionStatus).toBe('error');
-    expect(result.current.error).toBe('Preview exploded');
-    expect(mockPreviewReset).toHaveBeenCalled();
   });
 
-  it('fails the execute immediately on seed:clone:error', () => {
-    mockExecuteState = {
-      mutate: mockExecuteMutate,
-      data: null,
-      loading: true,
-      error: null,
-      reset: mockExecuteReset,
-    };
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
+  it('unsticks the executing status when the execute mutation errors', () => {
+    const { result, rerender } = renderHook(() => useClone(mockT, 'target-1'));
 
     act(() => {
       result.current.handleExecute();
     });
     expect(result.current.executionStatus).toBe('executing');
 
+    mockExecuteState = { ...mockExecuteState, loading: false, error: 'Execute exploded' };
     act(() => {
-      dispatchCloneError('Execute exploded');
+      rerender();
     });
 
     expect(result.current.executionStatus).toBe('error');
     expect(result.current.error).toBe('Execute exploded');
-    expect(mockExecuteReset).toHaveBeenCalled();
   });
 
-  it('surfaces describe-source errors from seed:clone:error without touching status', () => {
-    mockDescribeState = {
-      mutate: mockDescribeMutate,
-      data: null,
-      loading: true,
-      error: null,
-      reset: mockDescribeReset,
-    };
+  it('surfaces a describe-source failure without touching the status', () => {
+    mockDescribeState = { ...mockDescribeState, loading: false, error: 'Describe exploded' };
     const { result } = renderHook(() => useClone(mockT, 'target-1'));
-
-    act(() => {
-      dispatchCloneError('Describe exploded');
-    });
 
     expect(result.current.error).toBe('Describe exploded');
-    expect(result.current.executionStatus).toBe('idle');
-    expect(mockDescribeReset).toHaveBeenCalled();
-  });
-
-  it('ignores unrelated error channels', () => {
-    mockPreviewState = {
-      mutate: mockPreviewMutate,
-      data: null,
-      loading: true,
-      error: null,
-      reset: mockPreviewReset,
-    };
-    const { result } = renderHook(() => useClone(mockT, 'target-1'));
-
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          data: {
-            id: 'err-2',
-            type: 'seed:csv:error',
-            timestamp: Date.now(),
-            payload: { message: 'wrong channel', code: 'UNKNOWN', retryable: false },
-          },
-        }),
-      );
-    });
-
-    expect(result.current.error).toBeNull();
     expect(result.current.executionStatus).toBe('idle');
   });
 });
