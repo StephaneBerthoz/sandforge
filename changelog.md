@@ -154,6 +154,20 @@ front of every destructive action could be armed without typing a word.
   hand. Both fields and the path behind them are gone: a sync moves data and runs
   no code. A configuration that still carries one is refused with an explicit
   message rather than run — or quietly stripped — behind your back.
+- **Seed's field step no longer carries a suggest button and a
+  validation-rule warning strip that nothing could fill.** The step still
+  accepted field suggestions and validation-rule results and drew a button, a
+  badge and a warning block from them; what produced them was removed with the
+  modules that never ran, and the step's only caller passes neither. The
+  inputs, the three pieces of interface behind them and the one translation key
+  they displayed are gone from all six languages.
+- **Five more modules of the shared contract that no shipping code reads.**
+  The settings, pipeline, compliance and cluster validation schemas and the
+  standard-object reference tables were compiled and tested, and not one of
+  their values was ever read outside their own tests — they reached the rest of
+  the repository only through a re-export that names nothing. The extension
+  used to build their schemas at load — about 9.5 KB of the package goes with
+  them; the webview never carried them at all.
 
 ### Build
 
@@ -166,6 +180,20 @@ front of every destructive action could be armed without typing a word.
   left alone, since deleting one would break the type check without changing a
   bundle. Checked against the shipped bundle, the graph contains every file
   esbuild emitted, so nothing it reports can be a false alarm.
+- **A barrel is no longer counted as a caller.** `export * from './x'`
+  re-exports every symbol of a file without naming one, so `./x` used to look
+  reached the moment anything imported the barrel — and 94 files sat behind
+  such a re-export, where a module nobody names anywhere could pass a check
+  that reported "no orphan modules". A re-exported file now counts as reached
+  only once shipping code names one of its symbols, resolved through chained
+  barrels. Where the check cannot tell — a namespace import used as a value, a
+  dynamic or side-effect import, none of which names what it pulls in — it
+  keeps the file: it can still miss dead code, never call live code dead.
+- **Test data that lives next to the code it describes is not reported as
+  dead.** A fixture outside the four test-support directories was reported with
+  "delete it or wire it into an entry point" as the only advice, which is the
+  wrong move for a file whose job is to serve tests. `*.fixtures.ts` is now a
+  recognised name, and the report says so.
 - **`pnpm validate` runs what CI blocks on**, including the screenshot check,
   and the check that enforces this no longer accepts a commented-out command
   as a command that runs.
@@ -184,6 +212,11 @@ front of every destructive action could be armed without typing a word.
 - **`execution:progress` is gone.** Nothing ever emitted it; the channel, its
   tracker and its hook are removed, and the emission check no longer certifies
   a channel from code that only constructs its emitter.
+- **Two stale paths no longer describe the repository.** The unused-code check
+  was told to ignore a quarantine directory that no longer exists, which it
+  reported on every run; and the packaging ignore list claimed the command-line
+  and tooling sources it excludes were "already bundled" into the extension,
+  which no build entry point reaches.
 
 ## [1.21.0] - 2026-09-10
 

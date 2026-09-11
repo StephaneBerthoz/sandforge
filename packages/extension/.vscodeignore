@@ -52,7 +52,8 @@ test/
 **/.gitignore
 CLAUDE.md
 
-# Sources already bundled into dist/extension.js
+# Dev/CI utilities, run from the repo through tsx. No build entry point
+# reaches them, so nothing here is in dist/extension.js either.
 cli/
 tools/
 examples/

@@ -3,7 +3,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import '../../i18n';
 import { Step3ConfigureFields, categorizeObject } from './Step3_ConfigureFields';
 import type { ObjectFieldConfig } from './Step3_ConfigureFields';
-import type { VRCheckResult, FieldGenerationConfig } from '@sandforge/shared';
 
 const configs: ObjectFieldConfig[] = [
   {
@@ -126,123 +125,6 @@ describe('Step3ConfigureFields', () => {
     );
     const header = screen.getByTestId('obj-header-Account');
     expect(header.textContent).toContain('2');
-  });
-
-  it('should show smart suggest button when suggestions are available', () => {
-    const suggestions = new Map<string, FieldGenerationConfig[]>();
-    suggestions.set('Account', [
-      {
-        fieldName: 'Name',
-        fieldType: 'string',
-        generationMode: 'faker',
-        fakerMethod: 'company',
-        constraints: { required: true, unique: false },
-      },
-    ]);
-    const onApply = vi.fn();
-    render(
-      <Step3ConfigureFields
-        objectConfigs={configs}
-        onChangeRule={vi.fn()}
-        onChangeConfig={vi.fn()}
-        smartSuggestions={suggestions}
-        onApplySmartSuggestions={onApply}
-      />,
-    );
-    const btn = screen.getByTestId('smart-suggest-Account');
-    expect(btn).toBeDefined();
-    fireEvent.click(btn);
-    expect(onApply).toHaveBeenCalledWith('Account');
-  });
-
-  it('should show suggestion indicator for fields with suggestions', () => {
-    const suggestions = new Map<string, FieldGenerationConfig[]>();
-    suggestions.set('Account', [
-      {
-        fieldName: 'Name',
-        fieldType: 'string',
-        generationMode: 'faker',
-        fakerMethod: 'company',
-        constraints: { required: true, unique: false },
-      },
-    ]);
-    render(
-      <Step3ConfigureFields
-        objectConfigs={configs}
-        onChangeRule={vi.fn()}
-        onChangeConfig={vi.fn()}
-        smartSuggestions={suggestions}
-      />,
-    );
-    expect(screen.getByTestId('suggestion-Account-Name')).toBeDefined();
-  });
-
-  it('should not show suggestion indicator for null mode', () => {
-    const suggestions = new Map<string, FieldGenerationConfig[]>();
-    suggestions.set('Account', [
-      {
-        fieldName: 'Name',
-        fieldType: 'id',
-        generationMode: 'null',
-        constraints: { required: false, unique: false },
-      },
-    ]);
-    render(
-      <Step3ConfigureFields
-        objectConfigs={configs}
-        onChangeRule={vi.fn()}
-        onChangeConfig={vi.fn()}
-        smartSuggestions={suggestions}
-      />,
-    );
-    expect(screen.queryByTestId('suggestion-Account-Name')).toBeNull();
-  });
-
-  it('should show VR warning badge on object header', () => {
-    const vrResults: VRCheckResult[] = [
-      {
-        ruleName: 'Account.RequireName',
-        objectName: 'Account',
-        formula: 'ISBLANK(Name)',
-        errorMessage: 'Name required',
-        potentialConflicts: ['Name'],
-        risk: 'high',
-        fieldConstraints: [],
-      },
-    ];
-    render(
-      <Step3ConfigureFields
-        objectConfigs={configs}
-        onChangeRule={vi.fn()}
-        onChangeConfig={vi.fn()}
-        vrCheckResults={vrResults}
-      />,
-    );
-    expect(screen.getByTestId('vr-badge-Account')).toBeDefined();
-  });
-
-  it('should show VR warnings inside expanded object', () => {
-    const vrResults: VRCheckResult[] = [
-      {
-        ruleName: 'Account.RequireName',
-        objectName: 'Account',
-        formula: 'ISBLANK(Name)',
-        errorMessage: 'Name required',
-        potentialConflicts: ['Name'],
-        risk: 'high',
-        fieldConstraints: [],
-      },
-    ];
-    render(
-      <Step3ConfigureFields
-        objectConfigs={configs}
-        onChangeRule={vi.fn()}
-        onChangeConfig={vi.fn()}
-        vrCheckResults={vrResults}
-      />,
-    );
-    expect(screen.getByTestId('vr-warnings-Account')).toBeDefined();
-    expect(screen.getByTestId('vr-warning-Account-0')).toBeDefined();
   });
 
   it('should render sequence input for sequence rule type', () => {

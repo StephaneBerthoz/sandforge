@@ -57,11 +57,7 @@ export * from './bridge/messageSchemas.js';
 // Barrel exports — Schemas
 export * from './schemas/seed-config.schema.js';
 export * from './schemas/sync-config.schema.js';
-export * from './schemas/pipeline.schema.js';
-export * from './schemas/grappe.schema.js';
-export * from './schemas/settings.schema.js';
 export * from './schemas/autopilot.schema.js';
-export * from './schemas/compliance.schema.js';
 export * from './schemas/forge.schema.js';
 export * from './schemas/robustness-config.schema.js';
 export * from './schemas/quickSync.schema.js';
@@ -69,7 +65,6 @@ export * from './schemas/ai/index.js';
 
 // Barrel exports — Constants
 export * from './constants/sf-limits.js';
-export * from './constants/sf-standard-objects.js';
 export * from './constants/sf-field-types.js';
 export * from './constants/error-codes.js';
 export * from './constants/defaults.js';
