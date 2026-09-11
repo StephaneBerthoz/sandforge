@@ -265,14 +265,29 @@ test.describe('AI Module — Chat', () => {
     await page.getByTestId('send-btn').click();
     await expect(page.getByTestId('loading-indicator')).toBeVisible({ timeout: 5000 });
 
+    // `ai:error` answers every AI channel and the host sends it to every open
+    // panel: the page only takes the ones that name a request it sent, so the
+    // failure has to carry the id of the chat above.
+    const chatId = await page.evaluate(() => {
+      const msgs = (window as unknown as Record<string, unknown[]>).__SANDFORGE_MESSAGES__ ?? [];
+      const sent = msgs.map((m) => {
+        const e = m as Record<string, unknown>;
+        return (e.payload as Record<string, unknown> | undefined) ?? e;
+      });
+      return sent.reverse().find((m) => m.type === 'ai:chat')?.id as string | undefined;
+    });
+    expect(chatId).toBeTruthy();
+
     await sendExtensionMessage(page, {
       type: 'ai:error',
       id: 'evt-err-1',
+      correlationId: chatId,
       payload: { message: 'AI service unavailable' },
     });
 
     // The spinner has to stop and the composer has to come back, otherwise a
     // single failed turn locks the conversation for good.
+    await expect(page.getByTestId('ai-error-banner')).toContainText('AI service unavailable');
     await expect(page.getByTestId('loading-indicator')).toHaveCount(0);
     await expect(page.getByTestId('chat-input')).toBeEnabled();
     await expect(page.getByTestId('ai-chat-panel')).toBeVisible();

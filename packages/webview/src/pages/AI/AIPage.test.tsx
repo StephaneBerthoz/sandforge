@@ -5,10 +5,14 @@ import { AIPage } from './AIPage';
 import { useAppStore } from '../../stores/useAppStore';
 
 /** Captured bus: lets a test push a host message to the listener under test. */
-const bus = vi.hoisted(() => ({
-  send: vi.fn(),
-  listeners: new Map<string, (msg: unknown) => void>(),
-}));
+const bus = vi.hoisted(() => {
+  let counter = 0;
+  return {
+    send: vi.fn(),
+    listeners: new Map<string, (msg: unknown) => void>(),
+    nextId: () => ++counter,
+  };
+});
 
 // Mock useSendMessage to avoid side effects
 vi.mock('../../hooks/useMessageBus', () => ({
@@ -19,14 +23,25 @@ vi.mock('../../hooks/useMessageBus', () => ({
 }));
 
 /** Deliver a host message to the component's listener for that type. */
-function emit(type: string, payload: unknown): void {
+function emit(type: string, payload: unknown, correlationId?: string): void {
   const handler = bus.listeners.get(type);
   if (!handler) throw new Error(`no listener registered for ${type}`);
-  act(() => handler({ id: 'm', type, timestamp: Date.now(), payload }));
+  act(() => handler({ id: 'm', type, timestamp: Date.now(), payload, correlationId }));
+}
+
+/** The id of the request the page sent last — what its answer will name. */
+function lastSentId(): string {
+  const calls = bus.send.mock.calls;
+  if (!calls.length) throw new Error('the page sent nothing');
+  return (calls[calls.length - 1][0] as { id: string }).id;
 }
 
 vi.mock('../../bridge/messageHelpers', () => ({
-  buildMessage: vi.fn((type: string, payload: unknown) => ({ type, payload })),
+  buildMessage: vi.fn((type: string, payload: unknown) => ({
+    id: `wv-${bus.nextId()}`,
+    type,
+    payload,
+  })),
 }));
 
 describe('AIPage', () => {
@@ -113,7 +128,7 @@ describe('AIPage', () => {
     it('should show the error message sent by the host', () => {
       render(<AIPage />);
 
-      emit('ai:error', { message: 'Conversation conv-old not found' });
+      emit('ai:error', { message: 'Conversation conv-old not found' }, lastSentId());
 
       expect(screen.getByTestId('ai-error-banner').textContent).toContain(
         'Conversation conv-old not found',
@@ -123,14 +138,14 @@ describe('AIPage', () => {
     it('should fall back to a translated message when the host sends none', () => {
       render(<AIPage />);
 
-      emit('ai:error', {});
+      emit('ai:error', {}, lastSentId());
 
       expect(screen.getByTestId('ai-error-banner').textContent).toMatch(/Unexpected AI error/i);
     });
 
     it('should let the user dismiss the error', () => {
       render(<AIPage />);
-      emit('ai:error', { message: 'AI provider unreachable' });
+      emit('ai:error', { message: 'AI provider unreachable' }, lastSentId());
 
       fireEvent.click(screen.getByLabelText(/dismiss/i));
 
@@ -139,9 +154,29 @@ describe('AIPage', () => {
 
     it('should clear the error when a new conversation is opened', () => {
       render(<AIPage />);
-      emit('ai:error', { message: 'AI provider unreachable' });
+      emit('ai:error', { message: 'AI provider unreachable' }, lastSentId());
 
       fireEvent.click(screen.getByTestId('new-conversation-btn'));
+
+      expect(screen.queryByTestId('ai-error-banner')).toBeNull();
+    });
+
+    /**
+     * `ai:error` answers every AI channel and the host sends it to every open
+     * panel: a schema advice that failed in Compare must not surface here.
+     */
+    it('ignores an error that answers a request another page sent', () => {
+      render(<AIPage />);
+
+      emit('ai:error', { message: 'Schema advice failed' }, 'wv-from-another-panel');
+
+      expect(screen.queryByTestId('ai-error-banner')).toBeNull();
+    });
+
+    it('ignores an error that names no request', () => {
+      render(<AIPage />);
+
+      emit('ai:error', { message: 'AI provider unreachable' });
 
       expect(screen.queryByTestId('ai-error-banner')).toBeNull();
     });
@@ -155,7 +190,7 @@ describe('AIPage', () => {
       fireEvent.click(screen.getByTestId('send-btn'));
       expect(screen.getByTestId('loading-indicator')).toBeDefined();
 
-      emit('ai:error', { message: 'AI provider unreachable' });
+      emit('ai:error', { message: 'AI provider unreachable' }, lastSentId());
 
       expect(screen.queryByTestId('loading-indicator')).toBeNull();
     });

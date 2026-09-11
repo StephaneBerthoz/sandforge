@@ -17,12 +17,12 @@ export function useNL2SOQL() {
   return useBridgeMutation<AINL2SOQLResponse['payload']>('ai:nl2soql');
 }
 
-/** AI schema advice for an org. */
+/** Schema advice for an org — rule-based, no model call. */
 export function useSchemaAdvice() {
   return useBridgeMutation<AISchemaAdviceResponse['payload']>('ai:schema-advice');
 }
 
-/** AI anomaly detection scan. */
+/** Anomaly scan over sampled records — rule-based, no model call. */
 export function useAnomalyScan() {
   return useBridgeMutation<AIAnomalyScanResponse['payload']>('ai:anomaly-scan');
 }

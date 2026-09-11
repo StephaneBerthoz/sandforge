@@ -341,7 +341,9 @@ export class ExtensionHandlers {
     this.aiHandler.setAIModules(modules);
     // Mutate the shared deps object so `sendOperationFailed` can answer a
     // failed operation from the knowledge base — once, where it is raised.
-    this.handlerDeps.errorResolver = modules.errorResolver;
+    // Taking the modules away takes the resolver with them: turning AI off
+    // must stop the model being asked about a failure.
+    this.handlerDeps.errorResolver = modules?.errorResolver;
   }
 
   /** Inject the rule-based analysis modules. Independent of the AI switch. */
