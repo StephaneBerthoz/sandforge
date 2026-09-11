@@ -4,42 +4,25 @@ import {
   validatePayload,
   aiNl2SoqlPayloadSchema,
   aiResolveErrorPayloadSchema,
-  aiPersonasPayloadSchema,
   aiGeneratePipelinePayloadSchema,
 } from '../../validatePayload.js';
 import type { AIModules } from '../AIHandler.js';
-import type { AIAssistant } from '../../../modules/ai/AIAssistant.js';
 import { extractErrorMessage } from '../../../core/common/extractErrorMessage.js';
 import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.js';
 
 /** Message types handled by AIToolsHandler. */
-const AI_TOOLS_TYPES = new Set([
-  'ai:nl2soql',
-  'ai:resolve-error',
-  'ai:personas',
-  'ai:generate-pipeline',
-]);
+const AI_TOOLS_TYPES = new Set(['ai:nl2soql', 'ai:resolve-error', 'ai:generate-pipeline']);
 
 /**
  * Sub-handler for AI tool messages.
  *
- * Handles NL2SOQL translation, error resolution, persona management,
- * and pipeline generation.
+ * Handles NL2SOQL translation, error resolution, and pipeline generation.
  */
 export class AIToolsHandler implements DomainHandler {
   private aiModules?: AIModules;
-  private getAIAssistant: () => AIAssistant | undefined;
 
-  /**
-   * @param deps - Injected handler dependencies.
-   * @param getAIAssistant - Accessor for the AIAssistant instance (owned by AIChatHandler).
-   */
-  constructor(
-    private readonly deps: HandlerDeps,
-    getAIAssistant: () => AIAssistant | undefined,
-  ) {
-    this.getAIAssistant = getAIAssistant;
-  }
+  /** @param deps - Injected handler dependencies. */
+  constructor(private readonly deps: HandlerDeps) {}
 
   /** Inject AI modules (Tier 2). */
   setAIModules(modules: AIModules): void {
@@ -61,9 +44,6 @@ export class AIToolsHandler implements DomainHandler {
         return true;
       case 'ai:resolve-error':
         await this.handleResolveError(msg);
-        return true;
-      case 'ai:personas':
-        await this.handlePersonas(msg);
         return true;
       case 'ai:generate-pipeline':
         await this.handleGeneratePipeline(msg);
@@ -136,68 +116,6 @@ export class AIToolsHandler implements DomainHandler {
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:resolve-error: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:resolve-error:response', {
-        success: false,
-        error: extractErrorMessage(err),
-      });
-      this.deps.broker.postToWebview(errResp);
-    }
-  }
-
-  private async handlePersonas(msg: InboundRequest): Promise<void> {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(aiPersonasPayloadSchema, msg, 'ai:error', this.deps);
-    if (!parsed) return;
-    const { action, description } = parsed;
-    try {
-      if (!this.aiModules?.personaManager) {
-        throw new Error(
-          'AI not configured. Set your API key in Settings > AI to enable this feature.',
-        );
-      }
-      if (action === 'list') {
-        const builtIn = this.aiModules.personaManager.getBuiltInPersonas();
-        const custom = this.aiModules.personaManager.getCustomPersonas();
-        const personas = [...builtIn, ...custom].map(
-          (p: { id: string; name: string; description: string }) => ({
-            id: p.id,
-            name: p.name,
-            description: p.description,
-          }),
-        );
-        const response = buildResponse(this.deps, msg, 'ai:personas:response', {
-          success: true,
-          personas,
-        });
-        this.deps.broker.postToWebview(response);
-      } else if (action === 'create' && description) {
-        const aiAssistant = this.getAIAssistant();
-        const aiProvider = async (prompt: string): Promise<string> => {
-          if (!aiAssistant)
-            throw new Error(
-              'AI not configured. Set your API key in Settings > AI to enable this feature.',
-            );
-          const conv = aiAssistant.createConversation('persona-gen');
-          const result = await aiAssistant.chat(conv.id, prompt);
-          aiAssistant.deleteConversation(conv.id);
-          return result.content;
-        };
-        const persona = await this.aiModules.personaManager.createCustomPersona(
-          description,
-          aiProvider,
-        );
-        const response = buildResponse(this.deps, msg, 'ai:personas:response', {
-          success: true,
-          personas: [{ id: persona.id, name: persona.name, description: persona.description }],
-        });
-        this.deps.broker.postToWebview(response);
-      } else {
-        throw new Error(
-          'Invalid action or missing description. Provide a valid action ("list" or "create") and a description when creating a persona.',
-        );
-      }
-    } catch (err: unknown) {
-      this.deps.log(`[ERR] ai:personas: ${extractErrorMessage(err)}`);
-      const errResp = buildResponse(this.deps, msg, 'ai:personas:response', {
         success: false,
         error: extractErrorMessage(err),
       });

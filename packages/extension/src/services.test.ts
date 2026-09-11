@@ -97,22 +97,19 @@ vi.mock('vscode', () => ({
 // dependency when services.aiClient('anthropic') instantiates it.
 const sdkHoisted = vi.hoisted(() => {
   const sharedCreate = vi.fn();
-  const sharedParse = vi.fn();
   const sharedCountTokens = vi.fn();
-  return { sharedCreate, sharedParse, sharedCountTokens };
+  return { sharedCreate, sharedCountTokens };
 });
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class Anthropic {
     messages = {
       create: sdkHoisted.sharedCreate,
-      parse: sdkHoisted.sharedParse,
       countTokens: sdkHoisted.sharedCountTokens,
     };
     constructor(_args: { apiKey: string }) {}
   },
   APIUserAbortError: class APIUserAbortError extends Error {},
 }));
-vi.mock('@anthropic-ai/sdk/helpers/zod', () => ({ zodOutputFormat: (s: unknown) => s }));
 
 describe('services', () => {
   describe('createServices', () => {
@@ -165,30 +162,6 @@ describe('services', () => {
       const services = createServices(context);
       // The vscode mock returns the fallback for every setting (default: false).
       expect(services.isAIEnabled()).toBe(false);
-    });
-
-    it('Plan 04-01 vertical slice: services.aiClient().complete(DiagnoseResultSchema) round-trip', async () => {
-      const ctx = createMockContext({}, { 'sandforge.ai.anthropic.key': 'sk-ant-fake-12345' });
-      const services = createServices(ctx);
-      const ai = services.aiClient('anthropic');
-
-      sdkHoisted.sharedParse.mockResolvedValue({
-        parsed_output: {
-          summary: 'ok',
-          rootCause: 'demo',
-          suggestedActions: [],
-          confidence: 'medium',
-        },
-        usage: { input_tokens: 5, output_tokens: 2 },
-        model: 'claude-sonnet-4-5',
-        stop_reason: 'end_turn',
-      });
-
-      const { DiagnoseResultSchema } = await import('@sandforge/shared');
-      const result = await ai.complete({ prompt: 'diag', schema: DiagnoseResultSchema });
-      expect(result.payload.summary).toBe('ok');
-      expect(result.payload.confidence).toBe('medium');
-      expect(result.usage.total).toBe(7);
     });
 
     it('wires the four core adapters as instanceof of their classes', () => {

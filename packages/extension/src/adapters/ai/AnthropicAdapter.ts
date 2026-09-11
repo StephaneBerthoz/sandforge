@@ -1,19 +1,16 @@
 import { EventEmitter } from 'node:events';
-import { randomUUID } from 'node:crypto';
 
 // Type-only import: the SDK (~104 KB minified, ~1 MB on disk) is loaded
-// lazily via dynamic import() in getClient() / complete() so extension
-// activation never pays its require cost. esbuild marks it external and the
-// build vendors a pruned copy into dist/node_modules (scripts/vendor-ai-sdk.mjs).
+// lazily via dynamic import() in getClient() so extension activation never
+// pays its require cost. esbuild marks it external and the build vendors a
+// pruned copy into dist/node_modules (scripts/vendor-ai-sdk.mjs).
 // `resolution-mode: import` pins the types to the SDK's ESM entrypoint (.d.mts)
 // so the class identity matches the value-side dynamic import() below — under
 // Node16 a plain `import type` resolves to the .d.ts twin whose #private field
 // is nominal-incompatible with it.
 import type Anthropic from '@anthropic-ai/sdk' with { 'resolution-mode': 'import' };
-import type { z } from 'zod';
 import type { AIUsage } from '@sandforge/shared';
 
-import type { WrappedTool } from './tools/wrapTool.js';
 import type { SessionBudget } from './tokenBudget/SessionBudget.js';
 
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
@@ -24,8 +21,6 @@ import type {
   AIChatOpts,
   AIChatResult,
   AIClient,
-  AICompleteOpts,
-  AICompleteResult,
   AICountTokensOpts,
   AICountTokensResult,
   AIProviderType,
@@ -129,22 +124,15 @@ export class AnthropicAdapter implements AIClient {
    * scope. Heuristic ≈ chars/4 (Claude's average tokenizer ratio for
    * English text); slightly over-estimates which is the safe direction
    * for budget refusal.
-   *
-   * Tools array length is added as a coarse multiplier (each tool adds
-   * ~50 tokens of schema overhead in the system prompt).
    */
   private estimateInputTokens(payload: {
-    prompt?: string;
     messages?: { content: string }[];
     system?: string;
-    tools?: { length: number };
   }): number {
-    const promptChars = payload.prompt?.length ?? 0;
     const messagesChars =
       payload.messages?.reduce((sum, m) => sum + (m.content?.length ?? 0), 0) ?? 0;
     const systemChars = payload.system?.length ?? 0;
-    const toolsOverhead = payload.tools ? payload.tools.length * 50 * 4 : 0;
-    return Math.ceil((promptChars + messagesChars + systemChars + toolsOverhead) / 4);
+    return Math.ceil((messagesChars + systemChars) / 4);
   }
 
   // ── public AIClient surface ──────────────────────────────────────────────
@@ -182,37 +170,6 @@ export class AnthropicAdapter implements AIClient {
     );
   }
 
-  async complete<T extends z.ZodTypeAny>(opts: AICompleteOpts<T>): Promise<AICompleteResult<T>> {
-    this.budgetPreflight({ prompt: opts.prompt, system: opts.system });
-    return this.runWithBreaker(
-      'complete',
-      async (signal) => {
-        const client = await this.getClient();
-        const { zodOutputFormat } = await import('@anthropic-ai/sdk/helpers/zod');
-        const resp = await client.messages.parse(
-          {
-            model: this.model,
-            max_tokens: opts.maxTokens ?? 4096,
-            system: opts.system,
-            messages: [{ role: 'user', content: opts.prompt }],
-            output_config: { format: zodOutputFormat(opts.schema) },
-          },
-          { signal },
-        );
-        const usage = this.buildUsage(resp.usage);
-        this.budget?.increment(usage);
-        this.breadcrumb('complete', usage);
-        return {
-          payload: resp.parsed_output as z.infer<T>,
-          usage,
-          model: resp.model,
-          stopReason: resp.stop_reason,
-        };
-      },
-      opts.signal,
-    );
-  }
-
   async countTokens(opts: AICountTokensOpts): Promise<AICountTokensResult> {
     return this.runWithBreaker('countTokens', async (_signal) => {
       const client = await this.getClient();
@@ -220,102 +177,9 @@ export class AnthropicAdapter implements AIClient {
         model: this.model,
         system: opts.system,
         messages: opts.messages,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        tools: opts.tools as any,
       });
       return { inputTokens: resp.input_tokens };
     });
-  }
-
-  /**
-   * Run a multi-step tool conversation via the Anthropic toolRunner.
-   *
-   * Plan 04-03: this is the entry point for diagnose-style flows where Claude
-   * orchestrates several read-only tool calls before returning the final
-   * answer. The caller passes pre-built `WrappedTool`s (with their own
-   * `onTrace` already wired into the wrapTool layer); runTools generates a
-   * runId, drives the toolRunner to completion, and returns the final text +
-   * aggregated usage.
-   */
-  async runTools(opts: {
-    prompt: string;
-    system?: string;
-    tools: WrappedTool<z.ZodTypeAny, z.ZodTypeAny>[];
-    signal?: AbortSignal;
-    maxTokens?: number;
-    /** Default 12 — caps the multi-step loop. */
-    maxIterations?: number;
-  }): Promise<{
-    text: string;
-    usage: AIUsage;
-    model: string;
-    stopReason: string | null;
-    runId: string;
-    toolCalls: number;
-  }> {
-    const runId = randomUUID();
-    this.budgetPreflight({ prompt: opts.prompt, system: opts.system, tools: opts.tools });
-    return this.runWithBreaker(
-      'chat',
-      async (signal) => {
-        const client = await this.getClient();
-        const runner = client.beta.messages.toolRunner(
-          {
-            model: this.model,
-            max_tokens: opts.maxTokens ?? 4096,
-            system: opts.system,
-            messages: [{ role: 'user', content: opts.prompt }],
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            tools: opts.tools as any,
-            max_iterations: opts.maxIterations ?? 12,
-          },
-          { signal },
-        );
-
-        let toolCalls = 0;
-        let lastUsage: AIUsage = {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheCreate: 0,
-          total: 0,
-        };
-        let lastModel = this.model;
-        let lastStopReason: string | null = null;
-        let finalText = '';
-
-        for await (const message of runner) {
-          // BetaMessageStream support — treat both as plain message-shaped.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const m = message as any;
-          if (Array.isArray(m.content)) {
-            for (const block of m.content) {
-              if (block.type === 'tool_use') toolCalls++;
-              if (block.type === 'text' && typeof block.text === 'string') {
-                finalText = block.text; // last text block wins
-              }
-            }
-          }
-          if (m.usage) {
-            lastUsage = this.buildUsage(m.usage);
-          }
-          if (typeof m.model === 'string') lastModel = m.model;
-          if (m.stop_reason !== undefined) lastStopReason = m.stop_reason;
-        }
-
-        this.budget?.increment(lastUsage);
-        this.breadcrumb('chat', lastUsage);
-        return {
-          text: finalText,
-          usage: lastUsage,
-          model: lastModel,
-          stopReason: lastStopReason,
-          runId,
-          toolCalls,
-        };
-      },
-      opts.signal,
-    );
   }
 
   /**
@@ -363,7 +227,7 @@ export class AnthropicAdapter implements AIClient {
   // ── internals ────────────────────────────────────────────────────────────
 
   private async runWithBreaker<R>(
-    method: 'chat' | 'complete' | 'countTokens',
+    method: 'chat' | 'countTokens',
     runner: (signal: AbortSignal) => Promise<R>,
     externalSignal?: AbortSignal,
   ): Promise<R> {
@@ -525,7 +389,7 @@ export class AnthropicAdapter implements AIClient {
     }
   }
 
-  private breadcrumb(method: 'chat' | 'complete' | 'countTokens', usage: AIUsage): void {
+  private breadcrumb(method: 'chat' | 'countTokens', usage: AIUsage): void {
     if (!this.telemetry) return;
     try {
       this.telemetry.addBreadcrumb(

@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { z } from 'zod';
 
 import type { StorageAdapter } from '../storage/StorageAdapter.js';
 
@@ -9,9 +8,7 @@ import type { StorageAdapter } from '../storage/StorageAdapter.js';
 // body can still drive them).
 const hoisted = vi.hoisted(() => {
   const mockMessagesCreate = vi.fn();
-  const mockMessagesParse = vi.fn();
   const mockMessagesCountTokens = vi.fn();
-  const mockBetaMessagesToolRunner = vi.fn();
   const ConstructorSpy = vi.fn();
 
   class MockAPIUserAbortError extends Error {
@@ -23,35 +20,21 @@ const hoisted = vi.hoisted(() => {
 
   return {
     mockMessagesCreate,
-    mockMessagesParse,
     mockMessagesCountTokens,
-    mockBetaMessagesToolRunner,
     ConstructorSpy,
     MockAPIUserAbortError,
   };
 });
 
-const {
-  mockMessagesCreate,
-  mockMessagesParse,
-  mockMessagesCountTokens,
-  mockBetaMessagesToolRunner,
-  ConstructorSpy,
-  MockAPIUserAbortError,
-} = hoisted;
+const { mockMessagesCreate, mockMessagesCountTokens, ConstructorSpy, MockAPIUserAbortError } =
+  hoisted;
 
 vi.mock('@anthropic-ai/sdk', () => {
   return {
     default: class Anthropic {
       messages = {
         create: hoisted.mockMessagesCreate,
-        parse: hoisted.mockMessagesParse,
         countTokens: hoisted.mockMessagesCountTokens,
-      };
-      beta = {
-        messages: {
-          toolRunner: hoisted.mockBetaMessagesToolRunner,
-        },
       };
       constructor(args: { apiKey: string }) {
         hoisted.ConstructorSpy(args);
@@ -60,10 +43,6 @@ vi.mock('@anthropic-ai/sdk', () => {
     APIUserAbortError: hoisted.MockAPIUserAbortError,
   };
 });
-
-vi.mock('@anthropic-ai/sdk/helpers/zod', () => ({
-  zodOutputFormat: (schema: unknown) => ({ __zod: schema }),
-}));
 
 // Import AFTER vi.mock
 import { AnthropicAdapter } from './AnthropicAdapter.js';
@@ -92,7 +71,6 @@ const mkOkChat = () => ({
 
 beforeEach(() => {
   mockMessagesCreate.mockReset();
-  mockMessagesParse.mockReset();
   mockMessagesCountTokens.mockReset();
   ConstructorSpy.mockReset();
 });
@@ -140,29 +118,6 @@ describe('AnthropicAdapter — Plan 04-01 happy path', () => {
     });
     expect(result.model).toBe('claude-sonnet-4-5-20250929');
     expect(result.stopReason).toBe('end_turn');
-  });
-
-  it('complete: messages.parse + zodOutputFormat returns Zod-validated payload', async () => {
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-    const schema = z.object({ ok: z.boolean() });
-    mockMessagesParse.mockResolvedValue({
-      parsed_output: { ok: true },
-      usage: { input_tokens: 10, output_tokens: 2 },
-      model: 'claude-sonnet-4-5-20250929',
-      stop_reason: 'end_turn',
-    });
-
-    const result = await adapter.complete({ prompt: 'x', schema });
-    expect(result.payload.ok).toBe(true);
-    expect(result.usage.total).toBe(12);
-    expect(mockMessagesParse).toHaveBeenCalledWith(
-      expect.objectContaining({
-        output_config: { format: { __zod: schema } },
-        messages: [{ role: 'user', content: 'x' }],
-      }),
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
   });
 
   it('usage breakdown sums all 4 fields including cache tokens (P-04.6)', async () => {
@@ -487,181 +442,6 @@ describe('AnthropicAdapter — Plan 04-02 vertical slice (3x 529 → open → fa
   });
 });
 
-// ── Plan 04-03 — runTools() tests ────────────────────────────────────────
-function makeRunner(yields: unknown[]): {
-  setRequestOptions: ReturnType<typeof vi.fn>;
-  [Symbol.asyncIterator]: () => AsyncIterator<unknown>;
-} {
-  return {
-    setRequestOptions: vi.fn(),
-    async *[Symbol.asyncIterator](): AsyncIterator<unknown> {
-      for (const y of yields) yield y;
-    },
-  };
-}
-
-describe('AnthropicAdapter — Plan 04-03 runTools', () => {
-  it('runTools happy path: single tool call + final text → toolCalls=1, runId UUID, breadcrumb fired', async () => {
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-    mockBetaMessagesToolRunner.mockReturnValue(
-      makeRunner([
-        {
-          content: [
-            { type: 'tool_use', name: 'describe_object', input: { sObject: 'Account' }, id: 't1' },
-          ],
-          usage: { input_tokens: 50, output_tokens: 12 },
-          model: 'claude-sonnet-4-5-20250929',
-        },
-        {
-          content: [{ type: 'text', text: 'There are 142 records.' }],
-          usage: { input_tokens: 110, output_tokens: 24 },
-          model: 'claude-sonnet-4-5-20250929',
-          stop_reason: 'end_turn',
-        },
-      ]),
-    );
-
-    const result = await adapter.runTools({
-      prompt: 'How many records in Account?',
-      tools: [],
-    });
-    expect(result.text).toBe('There are 142 records.');
-    expect(result.toolCalls).toBe(1);
-    expect(result.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    expect(result.usage.input).toBe(110); // last message wins
-    expect(result.usage.total).toBe(134);
-  });
-
-  it('runTools forwards { signal } to toolRunner and the breaker is consulted', async () => {
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-    mockBetaMessagesToolRunner.mockReturnValue(
-      makeRunner([
-        {
-          content: [{ type: 'text', text: 'ok' }],
-          usage: { input_tokens: 1, output_tokens: 1 },
-          model: 'm',
-          stop_reason: 'end_turn',
-        },
-      ]),
-    );
-    await adapter.runTools({ prompt: 'x', tools: [] });
-    expect(mockBetaMessagesToolRunner).toHaveBeenCalledWith(
-      expect.objectContaining({ messages: [{ role: 'user', content: 'x' }] }),
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
-  });
-
-  it('runTools respects maxIterations (forwarded to runner constructor)', async () => {
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-    mockBetaMessagesToolRunner.mockReturnValue(
-      makeRunner([
-        {
-          content: [{ type: 'text', text: '' }],
-          usage: { input_tokens: 0, output_tokens: 0 },
-          model: 'm',
-          stop_reason: 'end_turn',
-        },
-      ]),
-    );
-    await adapter.runTools({ prompt: 'x', tools: [], maxIterations: 3 });
-    expect(mockBetaMessagesToolRunner).toHaveBeenCalledWith(
-      expect.objectContaining({ max_iterations: 3 }),
-      expect.any(Object),
-    );
-  });
-
-  it('runTools default maxIterations is 12', async () => {
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-    mockBetaMessagesToolRunner.mockReturnValue(
-      makeRunner([
-        {
-          content: [{ type: 'text', text: '' }],
-          usage: { input_tokens: 0, output_tokens: 0 },
-          model: 'm',
-          stop_reason: 'end_turn',
-        },
-      ]),
-    );
-    await adapter.runTools({ prompt: 'x', tools: [] });
-    expect(mockBetaMessagesToolRunner).toHaveBeenCalledWith(
-      expect.objectContaining({ max_iterations: 12 }),
-      expect.any(Object),
-    );
-  });
-
-  it('runTools 529 trips the breaker via runWithBreaker', async () => {
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-    // toolRunner returns a runner whose iteration throws an overloaded error.
-    mockBetaMessagesToolRunner.mockReturnValue({
-      setRequestOptions: vi.fn(),
-      // Plain async iterator (not a generator — require-yield): the first
-      // next() rejects, so runTools' for-await rethrows the overloaded error.
-      [Symbol.asyncIterator]: () => ({
-        next: () => Promise.reject(new MockOverloadedError(529)),
-      }),
-    });
-    for (let i = 0; i < 3; i++) {
-      await expect(adapter.runTools({ prompt: 'x', tools: [] })).rejects.toThrow();
-    }
-    expect(adapter.breaker.getState()).toBe('open');
-  });
-});
-
-// ── Plan 04-03 vertical slice ─────────────────────────────────────────────
-describe('AnthropicAdapter — Plan 04-03 vertical slice (runTools — describe + query)', () => {
-  it('multi-step flow: describe Account → query records → final 142 count, traces flow through wrapTool', async () => {
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-
-    // Mock toolRunner: 2 tool_use turns + 1 final answer
-    mockBetaMessagesToolRunner.mockReturnValue(
-      makeRunner([
-        {
-          content: [
-            { type: 'tool_use', name: 'describe_object', input: { sObject: 'Account' }, id: 'tu1' },
-          ],
-          usage: { input_tokens: 50, output_tokens: 12 },
-          model: 'claude-sonnet-4-5-20250929',
-        },
-        {
-          content: [
-            {
-              type: 'tool_use',
-              name: 'query_records',
-              input: { soql: 'SELECT COUNT() FROM Account', limit: 50 },
-              id: 'tu2',
-            },
-          ],
-          usage: { input_tokens: 80, output_tokens: 18 },
-          model: 'claude-sonnet-4-5-20250929',
-        },
-        {
-          content: [{ type: 'text', text: 'There are 142 Account records.' }],
-          usage: { input_tokens: 110, output_tokens: 24 },
-          model: 'claude-sonnet-4-5-20250929',
-          stop_reason: 'end_turn',
-        },
-      ]),
-    );
-
-    const result = await adapter.runTools({
-      prompt: 'Describe Account, then count records.',
-      tools: [],
-    });
-
-    expect(result.text).toContain('142');
-    expect(result.toolCalls).toBe(2);
-    expect(result.usage.input).toBe(110); // last-wins
-    expect(result.usage.total).toBe(134);
-    expect(result.runId).toMatch(/^[0-9a-f-]{36}$/);
-  });
-});
-
 // ── Plan 04-05 vertical slice — token budget end-to-end ────────────────────
 describe('AnthropicAdapter — Plan 04-05 vertical slice (5 calls → warn → preflight refuse)', () => {
   it('5 cumulative chats hit warn at 80% then 6th preflight refuses BEFORE the SDK call', async () => {
@@ -712,43 +492,5 @@ describe('AnthropicAdapter — Plan 04-05 vertical slice (5 calls → warn → p
     expect(mockMessagesCreate.mock.calls.length).toBe(callsBefore); // no SDK invocation
     const exceededCount = sentEnvelopes.filter((e) => e.type === 'ai:budget:exceeded').length;
     expect(exceededCount).toBeGreaterThanOrEqual(1);
-  });
-});
-
-describe('Plan 04-01 vertical slice — services.aiClient().complete() returns Zod-validated DiagnoseResult', () => {
-  it('full round-trip from a mocked Anthropic SDK to a typed DiagnoseResult payload', async () => {
-    const { DiagnoseResultSchema } = await import('@sandforge/shared');
-    const { storage } = makeStorage();
-    const adapter = new AnthropicAdapter({ storage });
-
-    mockMessagesParse.mockResolvedValue({
-      parsed_output: {
-        summary: 'Bulk job failed: REQUIRED_FIELD_MISSING on Account.Name',
-        rootCause: 'CSV row 17 had blank Name; sObject create requires Name.',
-        suggestedActions: [
-          {
-            label: 'Open file at row 17',
-            kind: 'open-file',
-            payload: 'data.csv:17',
-            requiresApproval: false,
-          },
-        ],
-        confidence: 'high',
-      },
-      usage: { input_tokens: 240, output_tokens: 95 },
-      model: 'claude-sonnet-4-5-20250929',
-      stop_reason: 'end_turn',
-    });
-
-    const result = await adapter.complete({
-      prompt: 'Diagnose this error',
-      schema: DiagnoseResultSchema,
-    });
-
-    expect(result.payload.summary).toContain('Bulk job failed');
-    expect(result.payload.confidence).toBe('high');
-    expect(result.payload.suggestedActions).toHaveLength(1);
-    expect(result.usage.total).toBe(335);
-    expect(result.model).toMatch(/^claude-sonnet/);
   });
 });

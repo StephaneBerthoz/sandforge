@@ -10,9 +10,9 @@
  * A file is considered covered when either
  *   (a) a sibling `<name>.test.ts` exists, or
  *   (b) a `*.test.ts` in the same directory imports it by relative specifier
- *       — the shape `registry.test.ts` uses for `readOnlyTools.ts`, and
- *       `FrozenDatasetLoader.test.ts` for `loadTypes.ts`. Requiring the exact
- *       sibling name there would only produce a bookkeeping file.
+ *       — the shape `FrozenDatasetLoader.test.ts` uses for `loadTypes.ts`.
+ *       Requiring the exact sibling name there would only produce a
+ *       bookkeeping file.
  *
  * Everything else must carry an explicit ALLOWLIST entry stating why it is
  * untestable-by-shape (types, constant tables, composition roots). The list

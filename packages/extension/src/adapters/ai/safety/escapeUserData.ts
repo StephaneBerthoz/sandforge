@@ -8,7 +8,7 @@
  * data payload truly cannot include a literal `</tag>`. Naive interpolation
  * defeats the boundary; HTML entity escape restores it. Belt-and-suspenders:
  * the system prompt also instructs Claude to treat `<user-data>` content as
- * data only (see DIAGNOSE_SYSTEM_PROMPT in prompts/index.ts).
+ * data only (see the untrusted-data clause in systemPrompts/index.ts).
  *
  * Pure module — no SDK or VS Code dependencies.
  */

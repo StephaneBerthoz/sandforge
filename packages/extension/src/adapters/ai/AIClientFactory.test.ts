@@ -6,12 +6,11 @@ import { AINotImplementedError } from './AIClient.js';
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class Anthropic {
-    messages = { create: vi.fn(), parse: vi.fn(), countTokens: vi.fn() };
+    messages = { create: vi.fn(), countTokens: vi.fn() };
     constructor(_args: { apiKey: string }) {}
   },
   APIUserAbortError: class APIUserAbortError extends Error {},
 }));
-vi.mock('@anthropic-ai/sdk/helpers/zod', () => ({ zodOutputFormat: (s: unknown) => s }));
 
 const fakeStorage = {
   getSecret: vi.fn(),
@@ -32,7 +31,6 @@ describe('AIClientFactory', () => {
     const client = factory();
     expect(client.provider).toBe('anthropic');
     expect(typeof client.chat).toBe('function');
-    expect(typeof client.complete).toBe('function');
     expect(typeof client.countTokens).toBe('function');
     expect(typeof client.dispose).toBe('function');
   });
@@ -57,7 +55,6 @@ describe('AIClientFactory', () => {
     const client = factory();
     expect(client.provider).toBe('openai');
     expect(typeof client.chat).toBe('function');
-    expect(typeof client.runTools).toBe('function');
   });
 
   it('returns a CustomAdapter STUB for custom (Plan 04-07 — no factory throw)', () => {

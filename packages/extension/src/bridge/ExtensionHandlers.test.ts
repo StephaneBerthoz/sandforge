@@ -1515,39 +1515,36 @@ describe('ExtensionHandlers', () => {
     });
   });
 
-  describe('ai:diagnose routing (handler not wired)', () => {
-    it('should answer with an explicit AI_NOT_CONFIGURED error response', async () => {
-      broker['dispatch'](
-        msg('ai:diagnose', {
-          runId: 'run-1',
-          orgId: 'org-1',
-          errorContext: { kind: 'generic', errorMessage: 'boom' },
-        }),
-      );
-      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
+  describe('retired AI requests', () => {
+    // An approved diagnosis action used to run anonymous Apex in an org. These
+    // requests no longer route anywhere: registerAll wires no handler for them,
+    // and the envelope is refused before even a handler subscribed by hand runs.
+    it.each(['ai:diagnose', 'ai:approve-action', 'ai:suggestions', 'ai:personas'])(
+      '%s reaches no handler and is answered with bridge:error',
+      (type) => {
+        expect(broker['handlers'].has(type)).toBe(false);
+        const reached = vi.fn();
+        broker.on(type, reached);
+        posted.length = 0;
 
-      const response = posted.find((p) => p.type === 'ai:diagnose:response');
-      expect(response).toBeDefined();
-      const payload = (
-        response as BaseMessage & {
-          payload: { runId: string; error: { code: string; message: string } };
-        }
-      ).payload;
-      expect(payload.runId).toBe('run-1');
-      expect(payload.error.code).toBe('AI_NOT_CONFIGURED');
-    });
+        broker['dispatch'](
+          msg(type, {
+            runId: 'run-1',
+            orgId: 'org-1',
+            actionIndex: 0,
+            errorContext: { kind: 'generic', errorMessage: 'boom' },
+          }),
+        );
 
-    it('ai:approve-action should answer failed when not configured', async () => {
-      broker['dispatch'](msg('ai:approve-action', { runId: 'run-1', actionIndex: 0 }));
-      await vi.waitFor(() => expect(posted.length).toBeGreaterThanOrEqual(1));
-
-      const response = posted.find((p) => p.type === 'ai:approve-action:response');
-      expect(response).toBeDefined();
-      const payload = (
-        response as BaseMessage & { payload: { status: string; resultMessage: string } }
-      ).payload;
-      expect(payload.status).toBe('failed');
-    });
+        expect(reached).not.toHaveBeenCalled();
+        expect(posted.map((p) => p.type)).toEqual(['bridge:error']);
+        const [error] = posted as Array<
+          BaseMessage & { correlationId?: string; payload: { reason: string } }
+        >;
+        expect(error.payload.reason).toBe('invalid-payload');
+        expect(error.correlationId).toBe('test-1');
+      },
+    );
   });
 
   describe('sync:history routing', () => {

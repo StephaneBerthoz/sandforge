@@ -30,7 +30,7 @@ Yes. AI is entirely optional. Seed uses 30+ locale-aware Faker generators by def
 
 ### Is my data sent to external services?
 
-Data is sent to your LLM provider (Anthropic) only when you explicitly use AI features (AI data generation, NL2SOQL, Schema Advice, Pipeline Generator). No data is sent otherwise. Telemetry is opt-in and never includes org data or PII.
+Only to Anthropic, and nothing before you turn AI on and store an Anthropic key: the OpenAI and custom providers listed in settings are not implemented and send nothing. From then on, the chat sends your conversation, NL2SOQL sends your question with the names and labels of the org's objects, a pipeline draft sends your description, a custom persona sends its description, and an AI field rule in Seed, whether you picked it or a built-in persona set it, sends the field's API name and any instruction typed for it. Every failed Seed, Sync, DataOps or Automation run also sends its error message automatically, for a fix suggestion; Salesforce error messages can quote record values. Compare's schema advice and Monitor's anomaly scan send nothing. Telemetry is off by default and, turned on, only writes error reports to a local log.
 
 ### How do I update SandForge?
 

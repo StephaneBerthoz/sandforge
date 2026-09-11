@@ -298,21 +298,13 @@ import type {
   AINL2SOQLResponse,
   AIResolveErrorRequest,
   AIResolveErrorResponse,
-  AIPersonasRequest,
-  AIPersonasResponse,
   AIAnomalyScanRequest,
   AIAnomalyScanResponse,
-  AISuggestionsRequest,
-  AISuggestionsResponse,
   AIGeneratePipelineRequest,
   AIGeneratePipelineResponse,
   AISchemaAdviceRequest,
   AISchemaAdviceResponse,
   AIProviderStatusMessage,
-  AIDiagnoseRequestMessage,
-  AIDiagnoseResponseMessage,
-  AIApproveActionRequestMessage,
-  AIApproveActionResponseMessage,
   AIBudgetStateMessage,
   AIBudgetWarnMessage,
   AIBudgetExceededMessage,
@@ -565,13 +557,9 @@ export type WebViewToExtensionMessage =
   | AISaveKeyRequest
   | AINL2SOQLRequest
   | AIResolveErrorRequest
-  | AIPersonasRequest
   | AIAnomalyScanRequest
-  | AISuggestionsRequest
   | AIGeneratePipelineRequest
   | AISchemaAdviceRequest
-  | AIDiagnoseRequestMessage
-  | AIApproveActionRequestMessage
   // Settings
   | SettingsGetRequest
   | SettingsUpdateRequest
@@ -775,14 +763,10 @@ export type ExtensionToWebViewMessage =
   | AISaveKeyResponse
   | AINL2SOQLResponse
   | AIResolveErrorResponse
-  | AIPersonasResponse
   | AIAnomalyScanResponse
-  | AISuggestionsResponse
   | AIGeneratePipelineResponse
   | AISchemaAdviceResponse
   | AIProviderStatusMessage
-  | AIDiagnoseResponseMessage
-  | AIApproveActionResponseMessage
   | AIBudgetStateMessage
   | AIBudgetWarnMessage
   | AIBudgetExceededMessage

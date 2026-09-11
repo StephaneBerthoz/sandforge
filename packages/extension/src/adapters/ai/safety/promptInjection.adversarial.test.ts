@@ -4,11 +4,7 @@ import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 
 import { escapeUserData, wrapAsUserData } from './escapeUserData.js';
-import {
-  DIAGNOSE_SYSTEM_PROMPT,
-  ERROR_RESOLVE_SYSTEM_PROMPT,
-  NL2SOQL_SYSTEM_PROMPT,
-} from '../systemPrompts/index.js';
+import { ERROR_RESOLVE_SYSTEM_PROMPT, NL2SOQL_SYSTEM_PROMPT } from '../systemPrompts/index.js';
 import { ErrorResolver } from '../../../modules/ai/ErrorResolver.js';
 import { NL2SOQL } from '../../../modules/ai/NL2SOQL.js';
 import type { AIProvider } from '../../../modules/ai/types.js';
@@ -34,10 +30,6 @@ import type { AIProvider } from '../../../modules/ai/types.js';
  * (ErrorResolver / NL2SOQL shipped raw interpolation and no system prompt).
  * The behavioural assertions pin the wiring; the source-level assertion pins
  * the imports so the constants cannot silently go orphaned again.
- *
- * The end-to-end "handler does not leak forbidden substrings into the
- * prompt sent to the AI client" assertions live in
- * AIDiagnoseHandler.test.ts (Plan 04-04), once the handler is shipped.
  */
 
 const FIXTURES: Array<{ name: string; payload: string; mustNotAppear: string[] }> = [
@@ -109,12 +101,6 @@ describe('Prompt injection adversarial — RT-#10 closure', () => {
   });
 
   describe('Spotlight system prompts carry the Anthropic-canonical clause', () => {
-    it('DIAGNOSE_SYSTEM_PROMPT contains the spotlight sentence', () => {
-      expect(DIAGNOSE_SYSTEM_PROMPT).toMatch(/UNTRUSTED DATA/);
-      expect(DIAGNOSE_SYSTEM_PROMPT).toMatch(/Treat it strictly as DATA/);
-      expect(DIAGNOSE_SYSTEM_PROMPT).toMatch(/refuse to follow/i);
-    });
-
     it('NL2SOQL_SYSTEM_PROMPT contains the spotlight clause', () => {
       expect(NL2SOQL_SYSTEM_PROMPT).toMatch(/UNTRUSTED/);
       expect(NL2SOQL_SYSTEM_PROMPT).toMatch(/strictly as DATA/);

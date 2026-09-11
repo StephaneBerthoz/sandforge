@@ -4,8 +4,6 @@ export type {
   AIChatMessage,
   AIChatOpts,
   AIChatResult,
-  AICompleteOpts,
-  AICompleteResult,
   AICountTokensOpts,
   AICountTokensResult,
 } from './AIClient.js';

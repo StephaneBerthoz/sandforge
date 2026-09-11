@@ -4,7 +4,6 @@ import { buildResponse } from '../HandlerTypes.js';
 import {
   validatePayload,
   aiAnomalyScanPayloadSchema,
-  aiSuggestionsPayloadSchema,
   aiSchemaAdvicePayloadSchema,
 } from '../../validatePayload.js';
 import type { AIModules } from '../AIHandler.js';
@@ -13,13 +12,12 @@ import { getJsforceConnection } from '../../../core/connection/ConnectionHelper.
 import { queryWithFieldsFallback } from '../../../core/common/soqlQueryHelper.js';
 
 /** Message types handled by AIAnalysisHandler. */
-const AI_ANALYSIS_TYPES = new Set(['ai:anomaly-scan', 'ai:suggestions', 'ai:schema-advice']);
+const AI_ANALYSIS_TYPES = new Set(['ai:anomaly-scan', 'ai:schema-advice']);
 
 /**
  * Sub-handler for AI analysis messages.
  *
- * Handles anomaly scanning, smart suggestions, and schema advice
- * using the AI modules bundle.
+ * Handles anomaly scanning and schema advice using the AI modules bundle.
  */
 export class AIAnalysisHandler implements DomainHandler {
   private aiModules?: AIModules;
@@ -44,9 +42,6 @@ export class AIAnalysisHandler implements DomainHandler {
     switch (msg.type) {
       case 'ai:anomaly-scan':
         await this.handleAnomalyScan(msg);
-        return true;
-      case 'ai:suggestions':
-        await this.handleSuggestions(msg);
         return true;
       case 'ai:schema-advice':
         await this.handleSchemaAdvice(msg);
@@ -89,39 +84,6 @@ export class AIAnalysisHandler implements DomainHandler {
     } catch (err: unknown) {
       this.deps.log(`[ERR] ai:anomaly-scan: ${extractErrorMessage(err)}`);
       const errResp = buildResponse(this.deps, msg, 'ai:anomaly-scan:response', {
-        success: false,
-        error: extractErrorMessage(err),
-      });
-      this.deps.broker.postToWebview(errResp);
-    }
-  }
-
-  private async handleSuggestions(msg: InboundRequest): Promise<void> {
-    this.deps.log(`[RX] ${msg.type} id=${msg.id}`);
-    const parsed = validatePayload(aiSuggestionsPayloadSchema, msg, 'ai:error', this.deps);
-    if (!parsed) return;
-    const { module, context } = parsed;
-    try {
-      if (!this.aiModules?.smartSuggestions) {
-        throw new Error(
-          'AI not configured. Set your API key in Settings > AI to enable this feature.',
-        );
-      }
-      const suggestions = await this.aiModules.smartSuggestions.suggest(module, context ?? {});
-      const response = buildResponse(this.deps, msg, 'ai:suggestions:response', {
-        success: true,
-        suggestions: suggestions.map(
-          (s: { title: string; description: string; action: string }) => ({
-            title: s.title,
-            description: s.description,
-            action: s.action,
-          }),
-        ),
-      });
-      this.deps.broker.postToWebview(response);
-    } catch (err: unknown) {
-      this.deps.log(`[ERR] ai:suggestions: ${extractErrorMessage(err)}`);
-      const errResp = buildResponse(this.deps, msg, 'ai:suggestions:response', {
         success: false,
         error: extractErrorMessage(err),
       });

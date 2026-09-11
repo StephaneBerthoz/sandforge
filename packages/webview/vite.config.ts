@@ -54,9 +54,6 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.NODE_ENV': JSON.stringify('production'),
       __APP_VERSION__: JSON.stringify(pkg.version),
-      /* Falsy in prod: main.tsx's LazyE2EHarness ternary is compile-time dead,
-         so E2EHarness is tree-shaken out of the IIFE bundle. */
-      'import.meta.env.VITE_E2E': JSON.stringify(''),
     },
   };
 });

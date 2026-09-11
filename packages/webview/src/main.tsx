@@ -4,7 +4,6 @@ import { PanelApp } from './PanelApp';
 import { SidePanel } from './SidePanel';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { MotionProvider } from './motion/MotionProvider';
-import { getHarnessFlow } from './pages/E2EHarness/harnessFlow';
 import { i18nReady } from './i18n';
 import './index.css';
 import './styles/glass.css';
@@ -16,42 +15,12 @@ declare global {
 }
 
 /**
- * E2E harness, loaded on demand and ONLY in e2e builds.
- *
- * The ternary is compile-time constant: `vite.config.ts` (prod) defines
- * `import.meta.env.VITE_E2E` as `''`, so Rollup tree-shakes the dead branch —
- * `E2EHarness` never reaches the production IIFE bundle. `vite.config.e2e.ts`
- * defines it as `'1'`, so the Playwright dev server lazy-loads the harness on
- * `?e2e-harness=<flow>` URLs (those specs inject no `__SANDFORGE_MODULE__`).
+ * Fallback when the host injected no module id (a plain dev-server session, for
+ * one): the Home page renders through the exact PanelApp provider stack
+ * (ErrorBoundary + BridgeProvider + MotionProvider), keeping a functional dev
+ * playground without the deleted App/AppShell shell.
  */
-const LazyE2EHarness = import.meta.env.VITE_E2E
-  ? React.lazy(async () => {
-      const mod = await import('./pages/E2EHarness/E2EHarness');
-      return { default: mod.E2EHarness };
-    })
-  : null;
-
-/**
- * Fallback when the host injected no module id — a plain dev-server session
- * or the Playwright e2e harness. The harness takes precedence when the URL
- * asks for it; otherwise the Home page renders through the exact PanelApp
- * provider stack (ErrorBoundary + BridgeProvider + MotionProvider), keeping a
- * functional dev playground without the deleted App/AppShell shell.
- */
-const NoModuleFallback: React.FC = () => {
-  const harnessFlow =
-    LazyE2EHarness && typeof window !== 'undefined' ? getHarnessFlow(window.location.search) : null;
-  if (harnessFlow && LazyE2EHarness) {
-    return (
-      <ErrorBoundary>
-        <React.Suspense fallback={null}>
-          <LazyE2EHarness flow={harnessFlow} />
-        </React.Suspense>
-      </ErrorBoundary>
-    );
-  }
-  return <PanelApp moduleId="home" />;
-};
+const NoModuleFallback: React.FC = () => <PanelApp moduleId="home" />;
 
 const root = document.getElementById('root');
 if (root) {

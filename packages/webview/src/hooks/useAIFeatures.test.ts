@@ -12,30 +12,12 @@ vi.mock('./useBridgeMutation', () => ({
 }));
 
 import { useBridgeMutation } from './useBridgeMutation';
-import {
-  useNL2SOQL,
-  useErrorResolver,
-  useSmartSuggestions,
-  useSchemaAdvice,
-  useAnomalyScan,
-  usePipelineGenerator,
-  useAIPersonas,
-} from './useAIFeatures';
+import { useNL2SOQL, useSchemaAdvice, useAnomalyScan, usePipelineGenerator } from './useAIFeatures';
 
 describe('useAIFeatures', () => {
   it('useNL2SOQL calls useBridgeMutation with ai:nl2soql', () => {
     useNL2SOQL();
     expect(useBridgeMutation).toHaveBeenCalledWith('ai:nl2soql');
-  });
-
-  it('useErrorResolver calls useBridgeMutation with ai:resolve-error', () => {
-    useErrorResolver();
-    expect(useBridgeMutation).toHaveBeenCalledWith('ai:resolve-error');
-  });
-
-  it('useSmartSuggestions calls useBridgeMutation with ai:suggestions', () => {
-    useSmartSuggestions();
-    expect(useBridgeMutation).toHaveBeenCalledWith('ai:suggestions');
   });
 
   it('useSchemaAdvice calls useBridgeMutation with ai:schema-advice', () => {
@@ -51,10 +33,5 @@ describe('useAIFeatures', () => {
   it('usePipelineGenerator calls useBridgeMutation with ai:generate-pipeline', () => {
     usePipelineGenerator();
     expect(useBridgeMutation).toHaveBeenCalledWith('ai:generate-pipeline');
-  });
-
-  it('useAIPersonas calls useBridgeMutation with ai:personas', () => {
-    useAIPersonas();
-    expect(useBridgeMutation).toHaveBeenCalledWith('ai:personas');
   });
 });

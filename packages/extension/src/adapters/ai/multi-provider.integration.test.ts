@@ -27,13 +27,11 @@ const hoisted = vi.hoisted(() => {
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class Anthropic {
-    messages = { create: hoisted.mockMessagesCreate, parse: vi.fn(), countTokens: vi.fn() };
-    beta = { messages: { toolRunner: vi.fn() } };
+    messages = { create: hoisted.mockMessagesCreate, countTokens: vi.fn() };
     constructor(_args: { apiKey: string }) {}
   },
   APIUserAbortError: class APIUserAbortError extends Error {},
 }));
-vi.mock('@anthropic-ai/sdk/helpers/zod', () => ({ zodOutputFormat: (s: unknown) => s }));
 
 class MockOverloadedError extends Error {
   status = 529;

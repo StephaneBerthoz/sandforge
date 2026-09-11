@@ -42,7 +42,7 @@ describe('AIToolsHandler', () => {
 
   beforeEach(() => {
     deps = createMockDeps();
-    handler = new AIToolsHandler(deps, () => undefined);
+    handler = new AIToolsHandler(deps);
   });
 
   it('returns false for unrelated message types', async () => {
@@ -93,34 +93,6 @@ describe('AIToolsHandler', () => {
     expect(response.correlationId).toBe('msg-1');
   });
 
-  it('handles ai:personas list without modules with correlationId', async () => {
-    const result = await handler.handle(createMsg('ai:personas', { action: 'list' }));
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:personas:response');
-    expect(response.payload.success).toBe(false);
-    expect(response.correlationId).toBe('msg-1');
-  });
-
-  it('handles ai:personas list with modules with correlationId', async () => {
-    const mockModules: Partial<AIModules> = {
-      personaManager: {
-        getBuiltInPersonas: vi
-          .fn()
-          .mockReturnValue([{ id: 'admin', name: 'Admin', description: 'Salesforce admin' }]),
-        getCustomPersonas: vi.fn().mockReturnValue([]),
-      } as unknown as AIModules['personaManager'],
-    };
-    handler.setAIModules(mockModules as AIModules);
-
-    const result = await handler.handle(createMsg('ai:personas', { action: 'list' }));
-    expect(result).toBe(true);
-    const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(response.type).toBe('ai:personas:response');
-    expect(response.payload.success).toBe(true);
-    expect(response.correlationId).toBe('msg-1');
-  });
-
   it('handles ai:generate-pipeline without modules with correlationId', async () => {
     const result = await handler.handle(
       createMsg('ai:generate-pipeline', {
@@ -157,15 +129,6 @@ describe('AIToolsHandler', () => {
   });
 
   describe('payload validation', () => {
-    it('rejects ai:personas with an unknown action (INVALID_PAYLOAD)', async () => {
-      const result = await handler.handle(createMsg('ai:personas', { action: 'delete' }));
-      expect(result).toBe(true);
-
-      const response = (deps.broker.postToWebview as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      expect(response.type).toBe('ai:error');
-      expect(response.payload.code).toBe('INVALID_PAYLOAD');
-    });
-
     it('rejects ai:nl2soql without orgId (INVALID_PAYLOAD)', async () => {
       const result = await handler.handle(createMsg('ai:nl2soql', { query: 'all accounts' }));
       expect(result).toBe(true);

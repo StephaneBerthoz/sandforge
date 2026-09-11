@@ -2,25 +2,19 @@ import type { HandlerDeps, DomainHandler, InboundRequest } from './HandlerTypes.
 import type { AIAssistant } from '../../modules/ai/AIAssistant.js';
 import type { NL2SOQL } from '../../modules/ai/NL2SOQL.js';
 import type { ErrorResolver } from '../../modules/ai/ErrorResolver.js';
-import type { SmartSuggestions } from '../../modules/ai/SmartSuggestions.js';
 import type { PipelineGenerator } from '../../modules/ai/PipelineGenerator.js';
 import type { AnomalyDetector } from '../../modules/ai/AnomalyDetector.js';
-import type { AIPersonaManager } from '../../modules/ai/AIPersonaManager.js';
 import type { SchemaAdvisor } from '../../modules/ai/SchemaAdvisor.js';
 import { AIChatHandler } from './ai/AIChatHandler.js';
 import { AIAnalysisHandler } from './ai/AIAnalysisHandler.js';
 import { AIToolsHandler } from './ai/AIToolsHandler.js';
-import { AIDiagnoseAdapter } from './ai/AIDiagnoseAdapter.js';
-import type { AIDiagnoseHandler } from './ai/AIDiagnoseHandler.js';
 
 /** AI modules bundle. */
 export interface AIModules {
   nl2soql: NL2SOQL;
   errorResolver: ErrorResolver;
-  smartSuggestions: SmartSuggestions;
   pipelineGenerator: PipelineGenerator;
   anomalyDetector: AnomalyDetector;
-  personaManager: AIPersonaManager;
   schemaAdvisor: SchemaAdvisor;
 }
 
@@ -35,13 +29,9 @@ const AI_TYPES = new Set([
   'ai:save-key',
   'ai:nl2soql',
   'ai:resolve-error',
-  'ai:personas',
   'ai:anomaly-scan',
-  'ai:suggestions',
   'ai:generate-pipeline',
   'ai:schema-advice',
-  'ai:diagnose',
-  'ai:approve-action',
 ]);
 
 /**
@@ -49,29 +39,21 @@ const AI_TYPES = new Set([
  *
  * Delegates to focused sub-handlers:
  * - {@link AIChatHandler} — chat, conversations, status, key management
- * - {@link AIAnalysisHandler} — anomaly scan, suggestions, schema advice
- * - {@link AIToolsHandler} — NL2SOQL, error resolution, personas, pipeline generation
- * - {@link AIDiagnoseAdapter} — diagnose flow + per-action approve gate
+ * - {@link AIAnalysisHandler} — anomaly scan, schema advice
+ * - {@link AIToolsHandler} — NL2SOQL, error resolution, pipeline generation
  */
 export class AIHandler implements DomainHandler {
   private readonly chatHandler: AIChatHandler;
   private readonly analysisHandler: AIAnalysisHandler;
   private readonly toolsHandler: AIToolsHandler;
-  private readonly diagnoseAdapter: AIDiagnoseAdapter;
   private readonly subHandlers: DomainHandler[];
 
   /** @param deps - Injected handler dependencies. */
   constructor(deps: HandlerDeps) {
     this.chatHandler = new AIChatHandler(deps);
     this.analysisHandler = new AIAnalysisHandler(deps);
-    this.toolsHandler = new AIToolsHandler(deps, () => this.chatHandler.getAIAssistant());
-    this.diagnoseAdapter = new AIDiagnoseAdapter(deps);
-    this.subHandlers = [
-      this.chatHandler,
-      this.analysisHandler,
-      this.toolsHandler,
-      this.diagnoseAdapter,
-    ];
+    this.toolsHandler = new AIToolsHandler(deps);
+    this.subHandlers = [this.chatHandler, this.analysisHandler, this.toolsHandler];
   }
 
   /** Inject AI assistant service. */
@@ -83,11 +65,6 @@ export class AIHandler implements DomainHandler {
   setAIModules(modules: AIModules): void {
     this.analysisHandler.setAIModules(modules);
     this.toolsHandler.setAIModules(modules);
-  }
-
-  /** Inject the concrete diagnose handler once the AI stack is enabled. */
-  setDiagnoseHandler(handler: AIDiagnoseHandler): void {
-    this.diagnoseAdapter.setHandler(handler);
   }
 
   /**

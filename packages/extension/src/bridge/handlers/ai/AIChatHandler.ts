@@ -79,11 +79,6 @@ export class AIChatHandler implements DomainHandler {
     this.aiAssistant = ai;
   }
 
-  /** Get the current AI assistant instance (for sub-handlers that need it). */
-  getAIAssistant(): AIAssistant | undefined {
-    return this.aiAssistant;
-  }
-
   /**
    * Handle an incoming bridge message.
    *
